@@ -1,0 +1,38 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-and-lint:
+    runs-on: macos-14
+    env:
+      MISE_HTTP_TIMEOUT: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: jdx/mise-action@v2
+        with:
+          cache: true
+          experimental: true
+
+      - name: Cache Ghostty build
+        uses: actions/cache@v4
+        with:
+          path: .build/ghostty
+          key: ghostty-${{ runner.os }}-${{ hashFiles('ThirdParty/ghostty/build.zig.zon', 'scripts/build-ghostty.sh', 'mise.toml') }}
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.0.app
+
+      - run: make generate
+      - run: make build-cli
+      - run: make build
+      - run: make lint
