@@ -31,7 +31,30 @@ let project = Project(
       bundleId: "app.touch-code.core",
       deploymentTargets: .macOS("14.0"),
       infoPlist: .default,
-      buildableFolders: ["TouchCodeCore"]
+      buildableFolders: ["TouchCodeCore"],
+      settings: .settings(
+        base: ["SWIFT_DEFAULT_ACTOR_ISOLATION": "nonisolated"],
+        defaultSettings: .essential
+      )
+    ),
+
+    // TouchCodeCore unit tests.
+    .target(
+      name: "TouchCodeCoreTests",
+      destinations: .macOS,
+      product: .unitTests,
+      bundleId: "app.touch-code.core-tests",
+      deploymentTargets: .macOS("14.0"),
+      infoPlist: .default,
+      buildableFolders: ["TouchCodeCoreTests"],
+      dependencies: [.target(name: "TouchCodeCore")],
+      settings: .settings(
+        base: [
+          "CODE_SIGNING_ALLOWED": "NO",
+          "SWIFT_DEFAULT_ACTOR_ISOLATION": "nonisolated",
+        ],
+        defaultSettings: .essential
+      )
     ),
 
     // JSON-RPC wire protocol. Consumed by app + CLI.
@@ -43,7 +66,11 @@ let project = Project(
       deploymentTargets: .macOS("14.0"),
       infoPlist: .default,
       buildableFolders: ["TouchCodeIPC"],
-      dependencies: [.target(name: "TouchCodeCore")]
+      dependencies: [.target(name: "TouchCodeCore")],
+      settings: .settings(
+        base: ["SWIFT_DEFAULT_ACTOR_ISOLATION": "nonisolated"],
+        defaultSettings: .essential
+      )
     ),
 
     // Ghostty foreign build — deferred until upstream Zig deps CDN issue resolves.
@@ -109,6 +136,25 @@ let project = Project(
       settings: .settings(
         base: [
           "ENABLE_HARDENED_RUNTIME": "YES",
+        ],
+        defaultSettings: .essential
+      )
+    ),
+
+    // touch-code unit tests (Runtime + App integration tests).
+    .target(
+      name: "touch-codeTests",
+      destinations: .macOS,
+      product: .unitTests,
+      bundleId: "app.touch-code.mac-tests",
+      deploymentTargets: .macOS("14.0"),
+      infoPlist: .default,
+      buildableFolders: ["touch-code/Tests"],
+      dependencies: [.target(name: "touch-code")],
+      settings: .settings(
+        base: [
+          "CODE_SIGNING_ALLOWED": "NO",
+          "SWIFT_DEFAULT_ACTOR_ISOLATION": "nonisolated",
         ],
         defaultSettings: .essential
       )

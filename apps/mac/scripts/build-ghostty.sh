@@ -4,7 +4,7 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 script_path="${script_dir}/$(basename "${BASH_SOURCE[0]}")"
 srcroot="${SRCROOT:-$(cd "${script_dir}/.." && pwd)}"
-repo_root="${srcroot}"
+repo_root="$(cd "${srcroot}/../.." && pwd)"
 ghostty_dir="${srcroot}/ThirdParty/ghostty"
 ghostty_submodule_path="${ghostty_dir#"${repo_root}/"}"
 ghostty_build_root="${srcroot}/.build/ghostty"
@@ -25,7 +25,7 @@ print_fingerprint() {
       git diff --no-ext-diff --no-color HEAD -- . | shasum -a 256
       git ls-files --others --exclude-standard | LC_ALL=C sort | shasum -a 256
       shasum -a 256 "${script_path}" | awk '{print $1}'
-      shasum -a 256 "${srcroot}/mise.toml" | awk '{print $1}'
+      shasum -a 256 "${repo_root}/mise.toml" | awk '{print $1}'
     } | shasum -a 256 | awk '{print $1}'
   )
 }

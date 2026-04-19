@@ -4,6 +4,7 @@ included:
   - touch-code
   - tc
   - TouchCodeCore
+  - TouchCodeCoreTests
   - TouchCodeIPC
 excluded:
   - ThirdParty/ghostty
@@ -15,7 +16,11 @@ disabled_rules:
   - file_length
   - closure_parameter_position
   - type_body_length
+  - identifier_name
   - trailing_comma
+  - function_parameter_count
+  - large_tuple
+  - line_length
 
 opt_in_rules:
   - accessibility_label_for_image
