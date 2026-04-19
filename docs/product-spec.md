@@ -31,7 +31,7 @@ A native macOS application, built on libghostty, that treats **terminals as the 
 | C2 | Space / Project / Worktree / Tab / Panel hierarchy | Five-level organization: Space groups Projects; Project maps to a git repo; Worktree maps to a `git worktree`; a Worktree holds one or more Tabs; a Tab holds one or more Panels (split layouts); a Panel is a single libghostty-rendered terminal session. Switching at any level is instant and stateful | Planned | Alpha |
 | C3 | Lifecycle hooks | Programmable hooks at Panel create / ready / output / idle / exit, plus Tab and Worktree activation events; enables agent notifications, command injection, custom automation | Planned | Alpha |
 | C4 | CLI (`tc`) | A command-line interface for controlling Spaces, Projects, Worktrees, Tabs, and Panels from inside any Panel — including cross-panel messaging | Planned | Alpha |
-| C5 | Skills system | Pluggable capability modules (borrowed conceptually from supaterm): packaged bundles of hooks, CLI commands, and UI surfaces | Planned | Alpha |
+| C5 | Published Agent Skill | A standard-format Agent Skill (Claude Code / Codex / pi compatible — `SKILL.md` + `references/` + optional `agents/`) that teaches coding agents how to drive touch-code via its CLI and concepts. Distributed as an independent package; consumed by the coding agent, not by the app. Zero runtime coupling with the app. The app ships installation helpers (e.g. `tc skill install --claude-code`) that copy or symlink the bundled skill into the agent's skill directory | Planned | Alpha |
 | C6 | Agent notification aggregation | Detect agent completion / blocking-on-input states via hooks; surface as OS notifications, badge counts, and in-app inbox | Planned | Alpha |
 | C7 | Git diff / history viewer | Read-only viewer for diffs and commit history of the current Worktree — a quick inspection surface, not a code-review or editing tool; no write operations | Planned | Alpha |
 | C8 | External editor integration | Open the current Worktree directory in an external editor or file manager (VSCode / Cursor / Zed / Xcode / Sublime Text / Finder, etc.) via CLI (`tc open`) or a button on the Worktree header; default editor configurable globally and per-Project. Worktree-level only — no file-level or diff-level open in v1 | Planned | Alpha |
@@ -45,11 +45,14 @@ C1 Terminal engine (libghostty)
  │    └── C8 External editor integration  (opens the current Worktree directory)
  └── C3 Lifecycle hooks
       ├── C4 CLI (`tc`)                   (invokes hooks, dispatches across Panels; also exposes `tc open`)
-      │    └── C5 Skills system           (skills register CLI subcommands + hooks)
       └── C6 Agent notification aggregation   (consumer of hooks)
+
+C5 Published Agent Skill   (standalone package; consumed by coding agents, not by the app;
+                            documents C4's CLI + C2's concepts; depends on the app only for
+                            CLI / concept stability, not for runtime loading)
 ```
 
-**Reading the graph:** C1 is the foundation. C2 and C3 sit directly on it and are independent of each other — the hierarchy model doesn't need hooks, and hooks don't need the hierarchy. C4 is the programmable surface layer on top of C3. C5 formalizes the contribution model shared by C3 + C4. C6 is the first built-in consumer of C3 (and validates the hook design). C7 and C8 are independent specialized consumers of C2's Worktree context: C7 handles diff/history inspection, C8 is a simple Worktree-level handoff to an external editor or file manager. The two do not interact in v1.
+**Reading the graph:** C1 is the foundation. C2 and C3 sit directly on it and are independent of each other — the hierarchy model doesn't need hooks, and hooks don't need the hierarchy. C4 is the programmable surface layer on top of C3. C6 is the first built-in consumer of C3 (and validates the hook design). C7 and C8 are independent specialized consumers of C2's Worktree context: C7 handles diff/history inspection, C8 is a simple Worktree-level handoff to an external editor or file manager. The two do not interact in v1. **C5 is deliberately orthogonal to the app runtime** — it is a documentation/skill package that lives outside the app's process boundary, versioned against C4's CLI surface; the app can ship a helper command to install it into an agent's skill directory but does not load or invoke it.
 
 ## Product Boundaries
 
@@ -63,7 +66,8 @@ C1 Terminal engine (libghostty)
 - Lifecycle hooks (Panel created / ready / output match / idle / exit; Tab activated; Worktree activated)
 - `tc` CLI auto-injected into every Panel's PATH
 - Cross-panel messaging via CLI (e.g. `tc send <panel-id> <cmd>`, `tc broadcast --tab <tab-id> ...`)
-- Skill packaging, discovery, install, enable/disable
+- Published Agent Skill package (`SKILL.md` + `references/` + optional `agents/`) maintained alongside the app — kept in sync with the `tc` CLI surface of each release
+- Skill installation helpers: `tc skill install --claude-code | --codex | --pi` copies or symlinks the bundled skill into the corresponding agent's skill directory (e.g. `~/.claude/skills/touch-code/`)
 - OS notifications for agent completion / attention-required
 - In-app notification inbox with per-Panel provenance
 - Read-only git diff viewer (working tree, staged, per-commit)
@@ -103,7 +107,7 @@ C1 Terminal engine (libghostty)
 | Tab | A named grouping of Panels inside a Worktree; one Tab is visible at a time per Worktree. Roughly "one Tab per concurrent task" (e.g. "dev server", "agent", "test watcher") | A browser tab — touch-code Tabs are scoped to a Worktree, not to the whole app |
 | Panel | A single terminal session rendered by libghostty; lives inside a Tab. Multiple Panels per Tab form split layouts | A tmux/iTerm "pane" — same idea, but touch-code uses the term "Panel" consistently; also not an OS window |
 | Hook | A programmable callback fired at defined Panel / Tab / Worktree lifecycle events | A shell hook (e.g. zsh `preexec`) — touch-code hooks are app-level and cross-Panel-aware |
-| Skill | A packaged module contributing hooks, CLI subcommands, and optional UI | A Claude Code "skill" — conceptually similar but scoped to touch-code's runtime |
+| Skill | A Claude Code / Codex / pi Agent Skill: a directory with `SKILL.md` + optional `references/` and `agents/` that teaches a coding agent how to drive touch-code. Consumed by the agent, independent of the app runtime | A plugin or app extension — touch-code does not load or execute skills; skills live entirely on the agent's side |
 | CLI (`tc`) | The command-line interface injected into every Panel; controls the app from inside a shell | A system command like `tmux` — `tc` talks to the running touch-code app, not to a separate server |
 
 ## Non-Functional Requirements
@@ -119,7 +123,7 @@ C1 Terminal engine (libghostty)
 | Reliability | State durability | App-level crash must not lose Space / Project / Worktree / Tab / Panel configuration |
 | Compatibility | macOS version floor | macOS 13 (Ventura) or higher, aligned with libghostty minimum |
 | Compatibility | Architecture | Universal binary (arm64 + x86_64) |
-| Security | Hook / Skill sandboxing | Skills run with user privileges; no elevated sandbox needed for v1, but skill source must be inspectable before install |
+| Security | Hook handler sandboxing | Hook handlers execute as user-privileged shell commands defined in user config; no elevated sandbox in v1. The published Agent Skill has no runtime side and therefore no sandboxing concern on the app side |
 
 ## Success Metrics
 
@@ -128,15 +132,15 @@ C1 Terminal engine (libghostty)
 | Personal daily driver | Author (Gump) uses touch-code as primary terminal for ≥ 5 days/week, fully replacing prior terminal + IDE terminal usage | N/A (pre-build) | Self-report, weekly check-in during dogfooding phase |
 | Worktree workflow adoption | Avg. active Worktrees per Project ≥ 2 across the user's projects | N/A | App telemetry (local only, opt-in) |
 | Agent notification effectiveness | ≥ 80% of agent-completion notifications lead to the user returning to the correct Panel within 30s | N/A | Local telemetry correlating notification delivery with Panel focus events |
-| Skill ecosystem (long-term) | ≥ 5 third-party Skills published within 6 months of public release | N/A | Skill registry count |
+| Agent integration coverage | Shipped Agent Skill supports Claude Code, Codex CLI, and pi with tested examples for each within 3 months of public release | N/A | Presence of `agents/<agent>/` subdirectories in the skill package and end-to-end smoke tests |
 | Retention (long-term) | DAU / MAU ≥ 0.7 among installed users | N/A | Opt-in anonymous telemetry |
 
 ## Open Questions
 
 1. **CLI binary name** — `tc` is short and ergonomic but collides with common aliases (e.g. traffic control on Linux, generic "this code"). Alternatives: `touch`, `tch`, `tcode`. **Blocks:** packaging, documentation. *Leaning: `tc` with collision check on install; fallback `tcode`.*
-2. **Skill distribution model** — Git-URL-based install (like Claude Code skills) vs. a centralized registry vs. both. **Blocks:** skill system API design. *Leaning: Git-URL first, registry later.*
+2. **Agent Skill repo location** — Keep the skill in a `touch-code-skill/` subdirectory of this repo (co-versioned with the CLI) vs. a separate companion repo (`touch-code-skills`, publishable independently). **Blocks:** release process and skill installation UX. *Leaning: subdirectory of this repo in v1 to guarantee version alignment with `tc`; optionally publish a mirror repo later for people who want `npx skills add` without the app.*
 3. **Non-git Projects** — Do we allow a "Project" that isn't a git repo (e.g. a scratch folder)? If yes, what happens to Worktree-related UI? **Blocks:** Project model definition. *Leaning: allow, but Worktree features become inert.*
-4. **Hook execution model** — In-process (JS-like scripting) vs. out-of-process (spawn a user-chosen binary with env vars) vs. both. **Blocks:** hook API and skill architecture. *Leaning: out-of-process first for simplicity and language-agnostic skills; in-process as optimization later.*
-5. **Agent detection heuristic** — How does C6 know a Panel is running a "coding agent" vs. a plain shell? Options: explicit Panel labeling, known binary allowlist (`claude`, `codex`, `aider`), or hook-driven opt-in per Skill. **Blocks:** C6 implementation. *Leaning: hook-driven opt-in via Skills; no magic detection.*
+4. **Hook execution model** — In-process (JS-like scripting) vs. out-of-process (spawn a user-chosen binary with env vars and JSON on stdin) vs. both. **Blocks:** hook API. *Leaning: out-of-process first for language-agnostic handlers; in-process as optimization later.*
+5. **Agent detection heuristic** — How does C6 know a Panel is running a "coding agent" vs. a plain shell? Options: explicit Panel labeling via CLI (`tc label <panel> --agent claude`), known-binary allowlist (`claude`, `codex`, `aider`), or user-configured hook rules. **Blocks:** C6 implementation. *Leaning: user-configured hook rules + a known-binary allowlist as a sensible default; no magic detection.*
 6. **Worktree storage layout** — Where do new worktrees live on disk? Under the main repo's `.git/worktrees`? A sibling directory? User-configurable? **Blocks:** C2 implementation and user file-system expectations. *Leaning: sibling `<repo>-worktrees/<branch>` by default, configurable per Project.*
 7. **External editor discovery & invocation (C8)** — How does the app discover installed editors, and what's the invocation contract for opening a Worktree *directory*? Options: built-in allowlist using documented CLI wrappers (`code <dir>`, `cursor <dir>`, `subl <dir>`, `zed <dir>`, `open -a Xcode <dir>`, `open <dir>` for Finder), macOS Launch Services lookup, or user-defined shell commands only. **Blocks:** C8 implementation and onboarding UX. *Leaning: ship a small built-in allowlist (VSCode, Cursor, Zed, Xcode, Sublime Text, Finder) with known directory-open CLI contracts; allow arbitrary user-defined templates in config for anything else. Simple because v1 only opens directories — no file + line number mapping needed.*
