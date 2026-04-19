@@ -73,21 +73,20 @@ let project = Project(
       )
     ),
 
-    // Ghostty foreign build — deferred until upstream Zig deps CDN issue resolves.
-    // See DEC-8 in docs/exec-plans/0001-bootstrap-monorepo.md.
-    // .foreignBuild(
-    //   name: "GhosttyKit",
-    //   destinations: .macOS,
-    //   script: """
-    //     "${SRCROOT}/\(ghosttyBuildScriptPath.pathString)"
-    //     """,
-    //   inputs: [
-    //     .file("../../mise.toml"),
-    //     .file(ghosttyBuildScriptPath),
-    //     .script(ghosttyFingerprintInputScript),
-    //   ],
-    //   output: .xcframework(path: ghosttyXCFrameworkPath, linking: .static)
-    // ),
+    // Ghostty foreign build. Produces GhosttyKit.xcframework from ThirdParty/ghostty.
+    .foreignBuild(
+      name: "GhosttyKit",
+      destinations: .macOS,
+      script: """
+        "${SRCROOT}/\(ghosttyBuildScriptPath.pathString)"
+        """,
+      inputs: [
+        .file("../../mise.toml"),
+        .file(ghosttyBuildScriptPath),
+        .script(ghosttyFingerprintInputScript),
+      ],
+      output: .xcframework(path: ghosttyXCFrameworkPath, linking: .static)
+    ),
 
     // tc CLI. Thin RPC client; Runtime / Hooks / Git are intentionally off-limits.
     .target(
@@ -131,7 +130,7 @@ let project = Project(
         .target(name: "TouchCodeCore"),
         .target(name: "TouchCodeIPC"),
         .target(name: "tc"),
-        // .target(name: "GhosttyKit"),  // Deferred: see DEC-8
+        .target(name: "GhosttyKit"),
       ],
       settings: .settings(
         base: [
