@@ -20,7 +20,7 @@ Every subsequent ExecPlan (Panel rendering, IPC, hierarchy, etc.) lands inside t
 
 ## Progress
 
-- [ ] M1 — Tool baseline + submodule (`mise.toml`, `.gitignore`, `ThirdParty/ghostty`)
+- [x] M1 — Tool baseline + submodule (`mise.toml`, `.gitignore`, `ThirdParty/ghostty`) — 2026-04-19
 - [ ] M2 — Ghostty build pipeline (`scripts/build-ghostty.sh`, top-level `Makefile`)
 - [ ] M3 — Tuist workspace + empty targets (`Tuist.swift`, `Project.swift`, `Tuist/Package.swift`, placeholder sources)
 - [ ] M4 — Runnable hello-world (`apps/mac` empty window, `apps/cli` `--version`)
@@ -28,7 +28,9 @@ Every subsequent ExecPlan (Panel rendering, IPC, hierarchy, etc.) lands inside t
 
 ## Surprises & Discoveries
 
-(None yet)
+- **2026-04-19 (M1): supacode's local ghostty submodule was polluted.** The live directory at `/Users/wanggang/dev/opensource/supacode/ThirdParty/ghostty` had its `origin` remote reset to `supabitapp/supacode.git` with a supacode commit (`7981cf34…`) at HEAD — not a ghostty commit. The real pin from supacode's `.gitmodules` + index is `6057f8d2b75631937fa7c2fc240a8bbe9137176f` (ghostty `v1.3.1-358-g6057f8d2b`, commit "terminal: redo trailing state capture in OSC parser"). Read the submodule commit via `git submodule status` on the parent repo, not via `git rev-parse HEAD` on the submodule working directory.
+- **2026-04-19 (M1): Tuist CLI flag is `version` subcommand, not `--version`.** Plan's acceptance text said `mise exec -- tuist --version`; actual invocation is `mise exec -- tuist version`. Updated no scripts yet; worth keeping in mind when writing Makefile targets.
+- **2026-04-19 (M1): mise was not pre-installed.** Had to `brew install mise` first. Bootstrap documentation (CLAUDE.md, Makefile `bootstrap` target when it exists) should mention this prerequisite.
 
 ## Decision Log
 
@@ -38,10 +40,22 @@ Every subsequent ExecPlan (Panel rendering, IPC, hierarchy, etc.) lands inside t
 - **DEC-4: Automatic code signing for Debug; disabled for CLI.** Matches supacode. CLI target sets `CODE_SIGNING_ALLOWED=NO` so contributors without a Developer ID can still build.
 - **DEC-5: No separate `Workspace.swift`.** Tuist auto-generates `touch-code.xcworkspace` from `Project.swift` when no Workspace.swift is present. We can add one later if we need to compose multiple Projects.
 - **DEC-6: Bundle IDs placeholder.** `app.touch-code.mac` and `app.touch-code.cli`. User can replace with a real domain before first signed release; this is internal-only for now.
+- **DEC-7 (M1): Pin ghostty to the commit recorded in supacode's parent-repo index, not its live submodule HEAD.** The HEAD on disk in the reference project had been manually reset to an unrelated commit. The `.gitmodules` URL + `git submodule status` from the parent repo is authoritative: `6057f8d2b75631937fa7c2fc240a8bbe9137176f`.
 
 ## Outcomes & Retrospective
 
-(To be filled after each milestone)
+### M1 — Tool baseline + submodule (2026-04-19)
+
+**What landed:** `mise.toml` pinning `tuist 4.180.0`, `zig 0.15.2`, `swiftlint latest`, `xcsift latest`, `xcbeautify latest`. Root `.gitignore` adapted from supacode with Tuist-generated artefacts ignored. `ThirdParty/ghostty` submodule at `6057f8d2b75631937fa7c2fc240a8bbe9137176f` (ghostty `v1.3.1-358-g6057f8d2b`).
+
+**Verification:**
+- `mise install` — all 5 tools installed cleanly.
+- `mise exec -- tuist version` → `4.180.0`.
+- `mise exec -- zig version` → `0.15.2`.
+- `git submodule status` → `+6057f8d2b... ThirdParty/ghostty (v1.3.1-358-g6057f8d2b)`.
+- `git -C ThirdParty/ghostty status --short` → clean.
+
+**Carry-forward to M2:** Ghostty source is now on disk at `ThirdParty/ghostty/`; build script can assume this path exists and is at the pinned commit.
 
 ## Context and Orientation
 

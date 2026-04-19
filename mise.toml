@@ -1,0 +1,6 @@
+[tools]
+tuist = "4.180.0"
+zig = "0.15.2"
+swiftlint = "latest"
+"github:ldomaradzki/xcsift" = "latest"
+xcbeautify = "latest"

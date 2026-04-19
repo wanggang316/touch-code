@@ -1,0 +1,37 @@
+# Xcode
+xcuserdata/
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+## Playgrounds
+timeline.xctimeline
+playground.xcworkspace
+
+# Build output
+.build/
+.derivedData/
+DerivedData/
+Derived/
+build/
+
+# Tuist-generated projects (regenerated via `make generate`)
+touch-code.xcodeproj/
+touch-code.xcworkspace/
+Tuist/Dependencies/
+Tuist/.build/
+Tuist/Package.resolved
+
+# Carthage
+Carthage/Build/
+
+# fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+*.profraw
+.env
+.DS_Store
