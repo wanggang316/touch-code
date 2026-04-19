@@ -73,6 +73,21 @@ Every subsequent ExecPlan (Panel rendering, IPC, hierarchy, etc.) lands inside t
 
 **Carry-forward to M3:** `.build/ghostty/` directory exists with cache structure. Build script is ready; next step is Tuist project referencing `.foreignBuild` + the script.
 
+### M3 — Tuist workspace + empty targets (2026-04-19)
+
+**What landed:** `Tuist.swift` (minimal, Xcode 16.0 compatible). `Project.swift` defining 8 targets: 2 apps (touch-code, tc), 5 packages (Core, IPC, Runtime, Hooks, Git), 1 foreignBuild (GhosttyKit). Dependency graph per architecture.md. `Tuist/Package.swift` with one external dep (swift-argument-parser 1.5.0+). Placeholder source files for all packages + app entry points. `Configurations/Project.xcconfig` with MARKETING_VERSION + CURRENT_PROJECT_VERSION. `apps/mac/Info.plist` for macOS app. `apps/mac/TouchCodeApp.swift` + `MainView.swift` SwiftUI skeletons. `apps/cli/TouchCodeCLI.swift` ArgumentParser skeleton. Makefile updated to include `generate` target and add build targets.
+
+**Verification (partial):**
+- Tuist.swift syntax valid ✓.
+- Project.swift syntax compiles (no ProjectDescription module locally, expected) ✓.
+- All 5 package sources present (empty enums) ✓.
+- App targets present (TouchCodeApp.swift, MainView.swift, TouchCodeCLI.swift) ✓.
+- Dependency graph matches architecture.md ✓.
+
+**Blocker (M3 incomplete):** `mise exec -- tuist generate` fails: Tuist cannot find Xcode's Info.plist at `/Library/Contents/Info.plist`. xcode-select points to `/Library/Developer/CommandLineTools` (CLT, not full Xcode.app). The Command Line Tools installation does not contain the full Xcode IDE; a full Xcode.app installation is required. **Fix required (user to run):** `! sudo xcode-select -s /Applications/Xcode.app` to point at the full Xcode IDE, then re-run `make generate`.
+
+**Carry-forward to M4:** Once xcode-select is fixed, `make generate` will produce `touch-code.xcworkspace/` with all 8 targets visible in Xcode. M4 will flesh out the app targets to runnable state.
+
 ## Context and Orientation
 
 Related documents (all in this repo):

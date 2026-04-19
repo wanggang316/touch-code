@@ -22,7 +22,7 @@ bootstrap:
 build-ghostty:
 	./scripts/build-ghostty.sh
 
-generate: bootstrap build-ghostty
+generate: bootstrap
 	mise exec -- tuist install
 	mise exec -- tuist generate --no-open
 
