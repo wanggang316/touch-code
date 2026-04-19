@@ -1,55 +1,24 @@
-.PHONY: help bootstrap build-ghostty generate build run-app format lint check test clean build-cli
+.PHONY: help bootstrap mac-bootstrap mac-build-ghostty mac-generate mac-build mac-build-cli mac-run-app mac-format mac-lint mac-check mac-test mac-clean
 
-# Use full Xcode.app when xcode-select points at Command Line Tools only.
-# See DEC-10 in docs/exec-plans/0001-bootstrap-monorepo.md.
-export DEVELOPER_DIR ?= /Applications/Xcode.app/Contents/Developer
+MAC_APP_DIR := apps/mac
 
-# Default target
 help:
-	@echo "touch-code Makefile targets:"
-	@echo "  bootstrap        - Initialize mise + git submodules"
-	@echo "  build-ghostty    - Build GhosttyKit.xcframework (idempotent via fingerprint cache)"
-	@echo "  generate         - Generate touch-code.xcworkspace from Tuist"
-	@echo "  build            - Build all targets"
-	@echo "  build-cli        - Build tc CLI target only"
-	@echo "  run-app          - Build and run touch-code.app"
-	@echo "  format           - Format Swift code"
-	@echo "  lint             - Run SwiftLint"
-	@echo "  check            - Run format + lint"
-	@echo "  test             - Run tests (placeholder)"
-	@echo "  clean            - Remove build artifacts"
+	@echo "touch-code top-level Makefile (delegates to $(MAC_APP_DIR)/Makefile):"
+	@echo "  bootstrap         - Init submodules + mise install"
+	@echo "  mac-generate      - Generate touch-code.xcworkspace from Tuist"
+	@echo "  mac-build         - Build mac app + tc CLI"
+	@echo "  mac-build-cli     - Build tc CLI only"
+	@echo "  mac-run-app       - Build and launch touch-code.app"
+	@echo "  mac-build-ghostty - Build GhosttyKit.xcframework"
+	@echo "  mac-format        - swift-format in-place"
+	@echo "  mac-lint          - swiftlint"
+	@echo "  mac-check         - format + lint"
+	@echo "  mac-test          - (placeholder)"
+	@echo "  mac-clean         - Remove workspace + project + Package.resolved"
 
 bootstrap:
 	git submodule update --init --recursive
 	mise install
 
-build-ghostty:
-	./scripts/build-ghostty.sh
-
-generate: bootstrap
-	mise exec -- tuist install
-	mise exec -- tuist generate --no-open
-
-build: generate
-	xcodebuild -workspace touch-code.xcworkspace -scheme touch-code -configuration Debug build
-	xcodebuild -workspace touch-code.xcworkspace -scheme tc -configuration Debug build
-
-build-cli: generate
-	xcodebuild -workspace touch-code.xcworkspace -scheme tc -configuration Debug build
-
-run-app: build
-	@APP=$$(xcodebuild -workspace touch-code.xcworkspace -scheme touch-code -configuration Debug -showBuildSettings 2>/dev/null | awk '/BUILT_PRODUCTS_DIR/{d=$$3} /FULL_PRODUCT_NAME/{p=$$3} END{print d "/" p}') && open "$$APP"
-
-format:
-	swift format --in-place --recursive --configuration ./.swift-format.json apps packages
-
-lint:
-	mise exec -- swiftlint lint --quiet --config .swiftlint.yml
-
-check: format lint
-
-test:
-	@echo "no tests yet"
-
-clean:
-	rm -rf .build touch-code.xcworkspace touch-code.xcodeproj Tuist/Package.resolved
+mac-bootstrap mac-build-ghostty mac-generate mac-build mac-build-cli mac-run-app mac-format mac-lint mac-check mac-test mac-clean:
+	$(MAKE) -C $(MAC_APP_DIR) $(subst mac-,,$@)

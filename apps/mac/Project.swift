@@ -3,10 +3,6 @@ import ProjectDescription
 let ghosttyXCFrameworkPath: Path = ".build/ghostty/GhosttyKit.xcframework"
 let ghosttyBuildScriptPath: Path = "scripts/build-ghostty.sh"
 
-func shellScript(_ path: Path) -> String {
-  "\"${SRCROOT}/\(path.pathString)\""
-}
-
 let ghosttyFingerprintInputScript = """
 "${SRCROOT}/\(ghosttyBuildScriptPath.pathString)" --print-fingerprint
 """
@@ -27,61 +23,31 @@ let project = Project(
     defaultSettings: .essential
   ),
   targets: [
-    // Packages
+    // Shared domain types. Zero internal deps. Consumed by app + CLI.
     .target(
-      name: "Core",
+      name: "TouchCodeCore",
       destinations: .macOS,
       product: .staticFramework,
       bundleId: "app.touch-code.core",
       deploymentTargets: .macOS("14.0"),
       infoPlist: .default,
-      buildableFolders: ["packages/Core"]
+      buildableFolders: ["TouchCodeCore"]
     ),
+
+    // JSON-RPC wire protocol. Consumed by app + CLI.
     .target(
-      name: "IPC",
+      name: "TouchCodeIPC",
       destinations: .macOS,
       product: .staticFramework,
       bundleId: "app.touch-code.ipc",
       deploymentTargets: .macOS("14.0"),
       infoPlist: .default,
-      buildableFolders: ["packages/IPC"],
-      dependencies: [.target(name: "Core")]
-    ),
-    .target(
-      name: "Hooks",
-      destinations: .macOS,
-      product: .staticFramework,
-      bundleId: "app.touch-code.hooks",
-      deploymentTargets: .macOS("14.0"),
-      infoPlist: .default,
-      buildableFolders: ["packages/Hooks"],
-      dependencies: [.target(name: "Core")]
-    ),
-    .target(
-      name: "Runtime",
-      destinations: .macOS,
-      product: .staticFramework,
-      bundleId: "app.touch-code.runtime",
-      deploymentTargets: .macOS("14.0"),
-      infoPlist: .default,
-      buildableFolders: ["packages/Runtime"],
-      // GhosttyKit dependency deferred: see DEC-8 in exec-plan/0001 (ghostty Zig
-      // deps CDN returns 400 to Zig's HTTP client; curl works fine). Re-add
-      // `.target(name: "GhosttyKit")` once upstream resolves.
-      dependencies: [.target(name: "Core")]
-    ),
-    .target(
-      name: "Git",
-      destinations: .macOS,
-      product: .staticFramework,
-      bundleId: "app.touch-code.git",
-      deploymentTargets: .macOS("14.0"),
-      infoPlist: .default,
-      buildableFolders: ["packages/Git"],
-      dependencies: [.target(name: "Core")]
+      buildableFolders: ["TouchCodeIPC"],
+      dependencies: [.target(name: "TouchCodeCore")]
     ),
 
-    // Ghostty foreign build — deferred (see DEC-8 in exec-plan/0001)
+    // Ghostty foreign build — deferred until upstream Zig deps CDN issue resolves.
+    // See DEC-8 in docs/exec-plans/0001-bootstrap-monorepo.md.
     // .foreignBuild(
     //   name: "GhosttyKit",
     //   destinations: .macOS,
@@ -89,14 +55,14 @@ let project = Project(
     //     "${SRCROOT}/\(ghosttyBuildScriptPath.pathString)"
     //     """,
     //   inputs: [
-    //     .file("mise.toml"),
+    //     .file("../../mise.toml"),
     //     .file(ghosttyBuildScriptPath),
     //     .script(ghosttyFingerprintInputScript),
     //   ],
     //   output: .xcframework(path: ghosttyXCFrameworkPath, linking: .static)
     // ),
 
-    // CLI
+    // tc CLI. Thin RPC client; Runtime / Hooks / Git are intentionally off-limits.
     .target(
       name: "tc",
       destinations: .macOS,
@@ -104,10 +70,10 @@ let project = Project(
       bundleId: "app.touch-code.cli",
       deploymentTargets: .macOS("14.0"),
       infoPlist: .default,
-      buildableFolders: ["apps/cli"],
+      buildableFolders: ["tc"],
       dependencies: [
-        .target(name: "Core"),
-        .target(name: "IPC"),
+        .target(name: "TouchCodeCore"),
+        .target(name: "TouchCodeIPC"),
         .external(name: "ArgumentParser"),
       ],
       settings: .settings(
@@ -119,7 +85,8 @@ let project = Project(
       )
     ),
 
-    // macOS App
+    // Mac app. Runtime / Hooks / Git are in-app modules (subfolders, not separate targets).
+    // tc is a dependency so app builds produce the CLI binary alongside the .app bundle.
     .target(
       name: "touch-code",
       destinations: .macOS,
@@ -127,14 +94,17 @@ let project = Project(
       bundleId: "app.touch-code.mac",
       deploymentTargets: .macOS("14.0"),
       infoPlist: .file(path: "Configurations/mac-Info.plist"),
-      buildableFolders: ["apps/mac"],
+      buildableFolders: [
+        "touch-code/App",
+        "touch-code/Runtime",
+        "touch-code/Hooks",
+        "touch-code/Git",
+      ],
       dependencies: [
-        .target(name: "Core"),
-        .target(name: "IPC"),
-        .target(name: "Runtime"),
-        .target(name: "Hooks"),
-        .target(name: "Git"),
-        // .target(name: "GhosttyKit"),  // Deferred: see DEC-8 in exec-plan/0001
+        .target(name: "TouchCodeCore"),
+        .target(name: "TouchCodeIPC"),
+        .target(name: "tc"),
+        // .target(name: "GhosttyKit"),  // Deferred: see DEC-8
       ],
       settings: .settings(
         base: [

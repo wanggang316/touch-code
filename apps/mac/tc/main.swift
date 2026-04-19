@@ -1,7 +1,6 @@
 import ArgumentParser
 import Foundation
 
-@main
 struct TouchCodeCLI: ParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "tc",
@@ -13,3 +12,5 @@ struct TouchCodeCLI: ParsableCommand {
     print(Self.configuration.version ?? "unknown")
   }
 }
+
+TouchCodeCLI.main()

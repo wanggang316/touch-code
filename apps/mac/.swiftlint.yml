@@ -1,8 +1,10 @@
 strict: true
 
 included:
-  - apps
-  - packages
+  - touch-code
+  - tc
+  - TouchCodeCore
+  - TouchCodeIPC
 excluded:
   - ThirdParty/ghostty
   - .build

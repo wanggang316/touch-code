@@ -17,11 +17,11 @@ Derived/
 build/
 
 # Tuist-generated projects (regenerated via `make generate`)
-touch-code.xcodeproj/
-touch-code.xcworkspace/
-Tuist/Dependencies/
-Tuist/.build/
-Tuist/Package.resolved
+*.xcodeproj/
+*.xcworkspace/
+**/Tuist/Dependencies/
+**/Tuist/.build/
+**/Tuist/Package.resolved
 
 # Carthage
 Carthage/Build/
