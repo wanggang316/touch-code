@@ -1,6 +1,6 @@
 # ExecPlan: Bootstrap touch-code monorepo
 
-**Status:** Draft
+**Status:** Complete (M1–M5 green; GhosttyKit foreignBuild deferred per DEC-8)
 **Author:** Gump (with Claude)
 **Date:** 2026-04-19
 
