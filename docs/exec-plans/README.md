@@ -26,7 +26,7 @@ Every exec plan MUST contain:
 
 ## Active Plans
 
-<!-- List active plans here -->
+- [0001 — Bootstrap touch-code monorepo](0001-bootstrap-monorepo.md) — Tuist + mise + ghostty submodule + empty mac app + `tc --version` CLI + CI
 
 ## Completed Plans
 
