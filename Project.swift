@@ -65,7 +65,10 @@ let project = Project(
       deploymentTargets: .macOS("14.0"),
       infoPlist: .default,
       buildableFolders: ["packages/Runtime"],
-      dependencies: [.target(name: "Core"), .target(name: "GhosttyKit")]
+      // GhosttyKit dependency deferred: see DEC-8 in exec-plan/0001 (ghostty Zig
+      // deps CDN returns 400 to Zig's HTTP client; curl works fine). Re-add
+      // `.target(name: "GhosttyKit")` once upstream resolves.
+      dependencies: [.target(name: "Core")]
     ),
     .target(
       name: "Git",
@@ -78,20 +81,20 @@ let project = Project(
       dependencies: [.target(name: "Core")]
     ),
 
-    // Ghostty foreign build
-    .foreignBuild(
-      name: "GhosttyKit",
-      destinations: .macOS,
-      script: """
-        "${SRCROOT}/\(ghosttyBuildScriptPath.pathString)"
-        """,
-      inputs: [
-        .file("mise.toml"),
-        .file(ghosttyBuildScriptPath),
-        .script(ghosttyFingerprintInputScript),
-      ],
-      output: .xcframework(path: ghosttyXCFrameworkPath, linking: .static)
-    ),
+    // Ghostty foreign build — deferred (see DEC-8 in exec-plan/0001)
+    // .foreignBuild(
+    //   name: "GhosttyKit",
+    //   destinations: .macOS,
+    //   script: """
+    //     "${SRCROOT}/\(ghosttyBuildScriptPath.pathString)"
+    //     """,
+    //   inputs: [
+    //     .file("mise.toml"),
+    //     .file(ghosttyBuildScriptPath),
+    //     .script(ghosttyFingerprintInputScript),
+    //   ],
+    //   output: .xcframework(path: ghosttyXCFrameworkPath, linking: .static)
+    // ),
 
     // CLI
     .target(
@@ -123,7 +126,7 @@ let project = Project(
       product: .app,
       bundleId: "app.touch-code.mac",
       deploymentTargets: .macOS("14.0"),
-      infoPlist: .file(path: "apps/mac/Info.plist"),
+      infoPlist: .file(path: "Configurations/mac-Info.plist"),
       buildableFolders: ["apps/mac"],
       dependencies: [
         .target(name: "Core"),
@@ -131,7 +134,7 @@ let project = Project(
         .target(name: "Runtime"),
         .target(name: "Hooks"),
         .target(name: "Git"),
-        .target(name: "GhosttyKit"),
+        // .target(name: "GhosttyKit"),  // Deferred: see DEC-8 in exec-plan/0001
       ],
       settings: .settings(
         base: [

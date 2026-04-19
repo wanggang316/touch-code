@@ -1,5 +1,9 @@
 .PHONY: help bootstrap build-ghostty generate build run-app format lint check test clean build-cli
 
+# Use full Xcode.app when xcode-select points at Command Line Tools only.
+# See DEC-10 in docs/exec-plans/0001-bootstrap-monorepo.md.
+export DEVELOPER_DIR ?= /Applications/Xcode.app/Contents/Developer
+
 # Default target
 help:
 	@echo "touch-code Makefile targets:"
@@ -34,7 +38,7 @@ build-cli: generate
 	xcodebuild -workspace touch-code.xcworkspace -scheme tc -configuration Debug build
 
 run-app: build
-	open ./.build/Debug/touch-code.app
+	@APP=$$(xcodebuild -workspace touch-code.xcworkspace -scheme touch-code -configuration Debug -showBuildSettings 2>/dev/null | awk '/BUILT_PRODUCTS_DIR/{d=$$3} /FULL_PRODUCT_NAME/{p=$$3} END{print d "/" p}') && open "$$APP"
 
 format:
 	swift format --in-place --recursive --configuration ./.swift-format.json apps packages
