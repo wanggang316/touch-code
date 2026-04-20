@@ -22,7 +22,7 @@ This plan is the first capability that makes touch-code **aware** of what its Pa
 
 - [x] M1a — `TouchCodeCore/Notifications/` C3-independent types (AgentState, AgentNotification, NotificationInbox, MuteSettings) — 2026-04-20, commit `932e6b4`
 - [x] M1b — C3-dependent TouchCodeCore types (AgentStateTransition + Trigger.envelope, AgentDetectionRules with version + missingMatch gates, TemplateField.validPaths per HookEvent) — 2026-04-20, cherry-picked C3 commit `e70553b` + added M1b files on top
-- [ ] M2 — `touch-code/Notifications/` module: DetectionRouter (InternalHookSubscriber impl), TrackerRegistry (single owner of tracker lifecycle), AgentStateTracker (4-state FSM), RuleStore (read-modify-write via C3 load/save), TemplateRenderer
+- [x] M2 — `touch-code/Notifications/` module: DetectionRouter (InternalHookSubscriber impl), TrackerRegistry (single owner of tracker lifecycle), AgentStateTracker (4-state FSM), RuleStore (read-modify-write via C3 load/save), TemplateRenderer — 2026-04-20
 - [x] M3 — InboxStore persistence (notifications.json via AtomicFileStore, 500-row cap, 7-day sweep) + codable round-trip + debounced writer — 2026-04-20
 - [ ] M4a — OSNotifier (UN wrapper) + DockBadger (AppKit wrapper) + NotificationPermissionDelegate + NullPermissionDelegate + SettingsStore (C3-independent) — 2026-04-20
 - [ ] M4b — NotificationCoordinator fan-out wiring to AgentStateTransition + 11-step app-shell bootstrap — blocked on M1b/M2
@@ -128,6 +128,33 @@ Reviewer flagged that `SettingsStore.backupBrokenFile` still used the silent-`tr
 **Verification:** `xcodebuild test -scheme TouchCodeCore` → 127 tests in 21 suites green (45 previously + C3's 58 + 24 new M1b). `make mac-lint` clean.
 
 **Unblocks:** M2 (DetectionRouter + TrackerRegistry + RuleStore), M4b (NotificationCoordinator), M6b (AgentDetectionRules round-trip on DefaultRules.json), M7 (integration tests). Carry-forward: in the M2 DetectionRouter, `handle(envelope:)` can now type-check against the real `HookEnvelope`.
+
+### M2 — Router, registry, tracker, renderer, rule store (2026-04-20)
+
+**What landed:**
+- `apps/mac/touch-code/Notifications/Bridging/InternalHookSubscriber.swift` — C3 DEC-16 protocol shape shimmed locally until C3's own M2 ships the authoritative declaration (identifier stays `InternalHookSubscriber`, conformance is unchanged).
+- `apps/mac/touch-code/Notifications/Bridging/HookConfigWriting.swift` — single-home narrow protocol matching C3's existing `HookConfigStore.load()/save(_:)` surface (no new upsert API per DEC-P1).
+- `apps/mac/touch-code/Notifications/AgentStateTracker.swift` — `@Observable @MainActor` FSM: envelope-driven transitions for `panelExited(0/≠0)` + `panelCrashed`; activity rearms the idle timer via injected `Clock<Duration>`; `applyRuleTransition(to:ruleID:)` is called by the router after it resolves the rule. Self-transitions suppressed. `teardown()` cancels the timer and finishes the stream; deinit finishes the stream defensively. Sleep/wake drift guarded by a post-sleep `lastActivityAt` recheck (R1 mitigation).
+- `apps/mac/touch-code/Notifications/TrackerRegistry.swift` — single owner (DEC-P2). `bootstrap()` walks `Catalog` for every Panel labelled `agent:*` and creates a tracker. `create(for:)` is idempotent; `destroy(for:)` tears the tracker down. Exposes `trackerCreations: AsyncStream<PanelID>` for the coordinator's per-Panel permission sweep.
+- `apps/mac/touch-code/Notifications/TemplateRenderer.swift` — pure renderer with **init-time validation**: every `{path}` placeholder is checked against `TemplateField.validPaths(for: rule.appliesWhen.hookEvent)`; every filter name is validated. Rejects unknown paths (`RuleStoreError.unknownTemplateField`), unknown filters (`.unknownFilter`), and malformed syntax (`.malformedTemplate`). Supported filters: `truncate: Int` (grapheme-aware), `firstLine`, `default: "…"`, `upper`, `lower`. Chained left-to-right.
+- `apps/mac/touch-code/Notifications/RuleStore.swift` — reads `detection-rules.json`, validates, and materialises each rule into a C3 `HookSubscription` via read-modify-write on the `HookConfigWriting` adapter. `containsAny` becomes an escaped pipe-joined alternation regex; `.regex(pattern:on:)` pattern passes through verbatim (target-narrow check lives in `DetectionRouter.passesMatchTargetFilter`). Stale sentinel-prefixed subscriptions stripped before new ones appended; one retry on stale-version conflict (R7). `reloadAndRematerialise()` regenerates `DefaultRules` when the file is missing (M6 policy).
+- `apps/mac/touch-code/Notifications/DetectionRouter.swift` — conforms to `InternalHookSubscriber`; `handle(envelope:)` routes matched envelopes to the right tracker via `registry.tracker(for:)`, applies `AppliesWhen.panelLabelledAgent` / `panelID` filters C3's `scope` can't express, runs the `TemplateRenderer`, and yields `RouterOutput { transition, agent, title, body }` on `transitions: AsyncStream<RouterOutput>`. Lifecycle envelopes (`panelExited`, `panelCrashed`, `panelOutput`, `panelInput`) flow through `tracker.ingest` and emit default-copy `RouterOutput`s. Panels with no tracker are logged at `.info` and dropped — no silent creation.
+
+**Tests (`touch-code/Tests/NotificationsTests/`):**
+- `AgentStateTrackerTests` — 10 suites covering rule-driven emission, self-transition suppression, `panelExited` (both exit codes), `panelCrashed`, activity rearm, override semantics, teardown-finishes-stream.
+- `TrackerRegistryTests` — 6 suites covering bootstrap, idempotent create, destroy, nil lookup, creation stream emission, and the `agentLabelledPanels(in:)` catalog walk.
+- `TemplateRendererTests` — 8 suites covering init-time validation (unknown field, unknown filter, cross-event field leakage) and every supported filter (firstLine, truncate, default, upper, lower, chaining).
+- `RuleStoreTests` — 5 suites covering missing-file, sentinel-subscription materialisation, stale-sentinel stripping on reload, invalid-regex rejection, and the containsAny → alternation-regex translation.
+- `DetectionRouterTests` — 4 suites: matched-rule happy path, un-tracked panel dropped, `panelLabelledAgent` mismatch rejected, direct `panelExited` flow.
+
+**Verification:** `xcodebuild test -scheme touch-code` → 74 tests in 13 suites green. `make mac-lint` clean (after wrapping the two large dispatch switches in `TemplateRenderer` with `swiftlint:disable:next cyclomatic_complexity` — these are unavoidable per-case dispatches on `TemplateField` / `HookEventData`, not complexity that simplification would help).
+
+**What's still blocked on C3's in-progress M2 (HookDispatcher + HookConfigStore concrete):**
+- `HookConfigStoreAdapter` — delegates the bridging protocol to C3's store once shipped. Today `FakeHookConfigWriter` is the only conformer (tests only).
+- App-shell wiring of `DetectionRouter` into `HookDispatcher.register(subscriber:for:)`.
+- Sentinel extraction from `HookEnvelope` — today `DetectionRouter.ruleID(from:)` pulls the id out of the `match` text of a `.panelOutputMatch` envelope (defensive fallback); C3 M2 is expected to pass the subscription id sidechannel-style, at which point the router reads it cleanly.
+
+These don't block M4b (coordinator) — M4b binds to `RouterOutput` and the tracker's stream, not to C3's dispatcher directly.
 
 ## Context and Orientation
 
