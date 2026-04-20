@@ -301,7 +301,7 @@ Two new files under `~/.config/touch-code/`, both C6-owned:
 
 C3's `hooks.json` stays C3-owned. Detection rules deliberately live in a separate file to preserve C3's ownership boundary — DEC-12.
 
-`settings.json` (owned by a future settings feature) gains a `notifications` object: permission status cache, `muted_rule_ids`, `muted_panel_ids`, `badge_enabled`, `surface_idle`, `redact_bodies`.
+`settings.json` (owned by a future settings feature) gains a `notifications` object: permission status cache, `mutedRuleIDs`, `mutedPanelIDs`, `badgeEnabled`, `surfaceIdle`, `redactBodies`. All keys are camelCase to match the existing `catalog.json` convention (see `apps/mac/TouchCodeCore/Catalog.swift`); this is a correction from an earlier snake_case draft.
 
 Both C6 files go through `TouchCodeCore/Persistence.swift` + `AtomicFileStore` — the same atomic-rename + version-gated decoder used by `catalog.json`. Readers abort on unknown `version` per architecture invariant.
 
@@ -499,7 +499,7 @@ The `tc label` verb is provided by C4; the label semantics (`agent:<name>`) matc
 
 Definition (single source of truth, DEC-13): the badge shows the count of **unread, non-dismissed `AgentNotification`s**, irrespective of whether their OS banner was posted, suppressed by muting, or silenced by permission denial. Rationale: the badge is the user's unified "how many things haven't I looked at" indicator; it must match the inbox view's "Unread" filter exactly. Rendered as plain decimal; "99+" when > 99.
 
-Cleared when: the user opens the inbox (visible rows mark read), focuses a Panel via notification click (that Panel's unreads mark read), or runs `tc notifications clear`. Toggleable globally via `notifications.badge_enabled` (default `true`).
+Cleared when: the user opens the inbox (visible rows mark read), focuses a Panel via notification click (that Panel's unreads mark read), or runs `tc notifications clear`. Toggleable globally via `notifications.badgeEnabled` (default `true`).
 
 **In-app inbox — `InboxSidebar`.**
 
@@ -599,9 +599,9 @@ An `AgentNotification` posts to the OS iff all of these hold:
 
 - `notifications.enabled == true` (global kill switch).
 - `UNUserNotificationCenter` status is `.authorized` (or `.provisional`).
-- The originating rule's `id` is not in `muted_rule_ids`.
-- The target Panel's UUID is not in `muted_panel_ids`.
-- `kind != .idle` **or** `notifications.surface_idle == true` (default `false`).
+- The originating rule's `id` is not in `mutedRuleIDs`.
+- The target Panel's UUID is not in `mutedPanelIDs`.
+- `kind != .idle` **or** `notifications.surfaceIdle == true` (default `false`).
 
 The inbox always receives the notification — even when OS posting is muted — so history is complete. **The Dock badge counts all unread, non-dismissed notifications regardless of OS mute status** (DEC-13). This keeps the badge synchronous with the inbox "Unread" filter.
 
@@ -635,7 +635,7 @@ v1 only. `notifications.json` and `detection-rules.json` both ship at `version: 
 ### Security & privacy
 
 - No network. No telemetry without opt-in.
-- `AgentNotification.body` can include terminal output (e.g. `{data.output | firstLine}`), which may contain secrets. Mitigations: (a) default rules use `{data.output}` only for `blockedOnInput` (prompt text, rarely secret); (b) `notifications.redact_bodies = true` (default `false`) replaces bodies with `"(redacted)"` on the OS surface while keeping them in the (local-only) inbox; (c) docs warn about custom rules.
+- `AgentNotification.body` can include terminal output (e.g. `{data.output | firstLine}`), which may contain secrets. Mitigations: (a) default rules use `{data.output}` only for `blockedOnInput` (prompt text, rarely secret); (b) `notifications.redactBodies = true` (default `false`) replaces bodies with `"(redacted)"` on the OS surface while keeping them in the (local-only) inbox; (c) docs warn about custom rules.
 - The sentinel token `::touchcode:agent-complete <panel-id>` is a stable marker; it is not a secret. Writing it is equivalent to writing any other line to the Panel's pty.
 
 ## Decisions
@@ -661,7 +661,7 @@ Locked at approval; revisit only via amendment.
 ## Risks
 
 - **R1 — False positives from brittle regexes in user rules.** A rule that fires on every agent output floods the inbox and badge.
-  - *Mitigation:* per-rule origin recorded in `AgentNotification` correlation; one-click "Mute this rule" from the inbox row (adds to `muted_rule_ids`); conservative defaults; DSL documents anti-patterns.
+  - *Mitigation:* per-rule origin recorded in `AgentNotification` correlation; one-click "Mute this rule" from the inbox row (adds to `mutedRuleIDs`); conservative defaults; DSL documents anti-patterns.
 - **R2 — Notification fatigue.** Many agents + correct rules can still overwhelm.
   - *Mitigation:* `threadIdentifier` groups per Panel in Notification Centre; idle muted by default; "Waiting" filter in inbox is the high-value view. `notifications.cooldown_seconds` per rule reserved in the grammar but not implemented in v1.
 - **R3 — Permission denial treated as "broken feature".** Users who decline may think C6 is dead.

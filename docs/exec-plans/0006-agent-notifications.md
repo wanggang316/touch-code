@@ -20,10 +20,10 @@ This plan is the first capability that makes touch-code **aware** of what its Pa
 
 ## Progress
 
-- [ ] M1a — `TouchCodeCore/Notifications/` C3-independent types (AgentState, AgentNotification, NotificationInbox, MuteSettings) — partial per DEC-P5
+- [x] M1a — `TouchCodeCore/Notifications/` C3-independent types (AgentState, AgentNotification, NotificationInbox, MuteSettings) — 2026-04-20, commit `932e6b4`
 - [ ] M1b — C3-dependent types (AgentStateTransition.Trigger.envelope, AgentDetectionRules, TemplateField.validPaths) — blocked on C3 exec plan 0003 M1 landing in TouchCodeCore
-- [ ] M2 — `touch-code/Notifications/` module: DetectionRouter (InternalHookSubscriber impl), TrackerRegistry (single owner of tracker lifecycle), AgentStateTracker (4-state FSM), RuleStore (read-modify-write via C3 load/save), TemplateRenderer
-- [ ] M3 — InboxStore persistence (notifications.json via AtomicFileStore, 500-row cap, 7-day sweep) + codable round-trip + debounced writer
+- [ ] M2 — `touch-code/Notifications/` module: DetectionRouter (InternalHookSubscriber impl), TrackerRegistry (single owner of tracker lifecycle), AgentStateTracker (4-state FSM), RuleStore (read-modify-write via C3 load/save), TemplateRenderer — blocked on M1b
+- [x] M3 — InboxStore persistence (notifications.json via AtomicFileStore, 500-row cap, 7-day sweep) + codable round-trip + debounced writer — 2026-04-20
 - [ ] M4 — OSNotifier (UNUserNotificationCenter wrapper) + DockBadger (NSApp.dockTile) + permission flow on first agent-Panel creation + NotificationCoordinator fan-out
 - [ ] M5 — InboxSidebar SwiftUI surface (320pt, filter chips, swipe-dismiss, deeplink-on-click) + Settings toggles
 - [ ] M6 — Default detection rules for claude/codex/aider + Stop-hook shim scripts in `touch-code-skill/` + `tc notifications rules reload`
@@ -40,10 +40,34 @@ This plan is the first capability that makes touch-code **aware** of what its Pa
 - **DEC-P3 — 11-step app-shell wiring sequence with a restart-time permission sweep.** Reason: explicit rehydrate path avoids ambiguity between fresh-create and restart. The sweep (`for tracker in registry.allTrackers { await coordinator.onAgentPanelCreated(tracker.panelID) }`) runs once after `registry.bootstrap()` and leverages coordinator's idempotent `alreadyPrompted` set. Locked at plan v2 review.
 - **DEC-P4 — M6 ships the app-internal `coordinator.reloadRules()` path; the `tc notifications rules reload` CLI verb is deferred to a follow-up PR on plan 0003.** Reason: don't couple the ship of C6 to the C4 CLI exec plan landing; users can reload by restarting until the verb lands. Locked at plan v2 review.
 - **DEC-P5 (2026-04-20, M1 start) — Split M1 into M1a (C3-independent) + M1b (C3-dependent).** Reason: C3 exec plan 0003 has not landed any implementation; M1 files that reference `HookEvent` (`AgentStateTransition.Trigger.envelope`, `AgentDetectionRules.AppliesWhen.hookEvent`, `TemplateField.validPaths(for:)`) will not compile. Option (c) from coordinator's unblock: ship the C3-independent half now to unblock M3/M4/M5/M7 which depend on `AgentNotification` + `NotificationInbox` + `MuteSettings`; land M1b after 0003 M1. Avoids stubbing C3 types — stubs would create divergence with the real C3 types and force a delete-rewrite later.
+- **DEC-P6 (2026-04-20, M1a post-review) — `MuteSettings` JSON keys are camelCase, not snake_case.** C6 design doc §Data Storage (line 304) had drafted the keys as `muted_rule_ids` / `badge_enabled` / etc. in snake_case, which conflicts with the existing project convention (`catalog.json` via `apps/mac/TouchCodeCore/Catalog.swift` uses default Swift camelCase keys — `selectedSpaceID`, `workingDirectory`). Picked option (b) from reviewer: patch the design doc to match the project convention rather than add `CodingKeys` on `MuteSettings`. `MuteSettings` ships with default synthesized `Codable` emitting camelCase (`mutedRuleIDs`, `mutedPanelIDs`, `badgeEnabled`, `surfaceIdle`, `redactBodies`). Design doc lines 304, 502, 602–604, 638, 664 corrected in the same commit as M3 lands.
 
 ## Outcomes & Retrospective
 
-(To be filled at milestone completion)
+### M1a — C3-independent types (2026-04-20, commit 932e6b4)
+
+**What landed:**
+- `apps/mac/TouchCodeCore/Notifications/AgentState.swift` — 4-case enum, String-backed, Codable/Sendable/CaseIterable.
+- `apps/mac/TouchCodeCore/Notifications/AgentNotification.swift` — inbox-entry struct with `Kind` nested enum and `isUnread` computed (drives Dock badge per DEC-13).
+- `apps/mac/TouchCodeCore/Notifications/NotificationInbox.swift` — on-disk shape with `currentVersion = 1` and version-gated Codable mirroring `Catalog`.
+- `apps/mac/TouchCodeCore/Notifications/MuteSettings.swift` — user-preference struct with synthesized camelCase Codable keys.
+- Four matching test suites in `TouchCodeCoreTests/`: 17 new tests, all green. Full suite 45 tests green.
+
+**Verification:** `xcodebuild test -scheme TouchCodeCore` → green; `make mac-lint` → clean.
+
+**Carry-forward:** M1b adds `AgentStateTransition` + `AgentDetectionRules` + `TemplateField` once C3 exec plan 0003 M1 ships `HookEvent` / `HookEnvelope` / `HookEventData` into `TouchCodeCore`. M3 unblocked immediately thereafter.
+
+### M3 — InboxStore persistence (2026-04-20)
+
+**What landed:**
+- `apps/mac/touch-code/Notifications/ConfigPaths.swift` — path helpers for `~/.config/touch-code/notifications.json` and `detection-rules.json`; home injection for tests.
+- `apps/mac/touch-code/Notifications/InboxStore.swift` — `@MainActor` class mirroring `CatalogStore`'s pattern. Debounced trailing writes via injected `Clock<Duration>`; 500-row cap enforced on `append`; 7-day soft-delete sweep on `load`; `markRead` / `dismiss` / `clearAll` mutators; `unreadPublisher: AsyncStream<Int>` yielded on every mutation (consumed by M4 for Dock badge); `saveNow` for synchronous flush on app termination; corrupt / unknown-version files backed up to `notifications.json.broken-<ISO8601>`.
+- `apps/mac/Project.swift` — added `touch-code/Notifications` to the app target's `buildableFolders`.
+- `apps/mac/touch-code/Tests/NotificationsTests/InboxStoreTests.swift` — 11 tests: round-trip, missing-file → empty, unknown-version → backup+empty, 7-day sweep, 500-row cap, debounce coalescing (20 rapid appends → 1 write after window), saveNow cancels pending, mark-read/dismiss/clearAll reduce `unreadCount`, `unreadPublisher` emits per-mutation.
+
+**Verification:** `xcodebuild test -scheme touch-code` → 19 tests in 2 suites green (HierarchyManagerTests + InboxStoreTests). `make mac-lint` clean after removing redundant `async` on six tests that don't `await`.
+
+**Carry-forward:** M4 can now subscribe `NotificationCoordinator` to `InboxStore.unreadPublisher` and `InboxStore.append` immediately. The `Clock<Duration>` injection will also serve the idle-timer path in M2's `AgentStateTracker` once C3 types land. Design doc camelCase correction (DEC-P6) applied in the same commit.
 
 ## Context and Orientation
 

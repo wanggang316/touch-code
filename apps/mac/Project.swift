@@ -125,6 +125,7 @@ let project = Project(
         "touch-code/Runtime",
         "touch-code/Hooks",
         "touch-code/Git",
+        "touch-code/Notifications",
       ],
       dependencies: [
         .target(name: "TouchCodeCore"),
