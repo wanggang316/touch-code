@@ -50,23 +50,44 @@ final class HierarchyManager {
     store.scheduleSave(catalog)
   }
 
+  func selectSpace(_ id: SpaceID?) {
+    catalog.selectedSpaceID = id
+    store.scheduleSave(catalog)
+  }
+
   // MARK: - Project mutations
 
-  func addProject(to spaceID: SpaceID, name: String, rootPath: String) throws -> ProjectID {
+  func addProject(to spaceID: SpaceID, name: String, rootPath: String, gitRoot: String? = nil) throws -> ProjectID {
     guard let spaceIndex = catalog.spaces.firstIndex(where: { $0.id == spaceID }) else {
       throw HierarchyError.notFound("Space \(spaceID)")
     }
 
     let projectID = ProjectID()
+    var worktrees: [Worktree] = []
+    var selectedWorktreeID: WorktreeID?
+
+    if gitRoot == nil {
+      let synthetic = Worktree(
+        id: WorktreeID(),
+        name: (rootPath as NSString).lastPathComponent,
+        path: rootPath,
+        branch: nil,
+        tabs: [],
+        selectedTabID: nil
+      )
+      worktrees = [synthetic]
+      selectedWorktreeID = synthetic.id
+    }
+
     let project = Project(
       id: projectID,
       name: name,
       rootPath: rootPath,
-      gitRoot: nil,
+      gitRoot: gitRoot,
       worktreesDirectory: nil,
       defaultEditor: nil,
-      worktrees: [],
-      selectedWorktreeID: nil
+      worktrees: worktrees,
+      selectedWorktreeID: selectedWorktreeID
     )
     catalog.spaces[spaceIndex].projects.append(project)
     catalog.spaces[spaceIndex].selectedProjectID = projectID
@@ -86,6 +107,14 @@ final class HierarchyManager {
     if catalog.spaces[spaceIndex].selectedProjectID == id {
       catalog.spaces[spaceIndex].selectedProjectID = catalog.spaces[spaceIndex].projects.first?.id
     }
+    store.scheduleSave(catalog)
+  }
+
+  func selectProject(_ id: ProjectID?, in spaceID: SpaceID) throws {
+    guard let spaceIndex = catalog.spaces.firstIndex(where: { $0.id == spaceID }) else {
+      throw HierarchyError.notFound("Space \(spaceID)")
+    }
+    catalog.spaces[spaceIndex].selectedProjectID = id
     store.scheduleSave(catalog)
   }
 
@@ -142,6 +171,14 @@ final class HierarchyManager {
     store.scheduleSave(catalog)
   }
 
+  func selectWorktree(_ id: WorktreeID?, in projectID: ProjectID, in spaceID: SpaceID) throws {
+    guard let (spaceIndex, projectIndex) = findProjectIndices(projectID: projectID, spaceID: spaceID) else {
+      throw HierarchyError.notFound("Project \(projectID)")
+    }
+    catalog.spaces[spaceIndex].projects[projectIndex].selectedWorktreeID = id
+    store.scheduleSave(catalog)
+  }
+
   // MARK: - Tab mutations
 
   func createTab(
@@ -194,6 +231,23 @@ final class HierarchyManager {
       catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].selectedTabID =
         catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.first?.id
     }
+    store.scheduleSave(catalog)
+  }
+
+  func selectTab(
+    _ id: TabID?,
+    in worktreeID: WorktreeID,
+    in projectID: ProjectID,
+    in spaceID: SpaceID
+  ) throws {
+    guard let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+      worktreeID: worktreeID,
+      projectID: projectID,
+      spaceID: spaceID
+    ) else {
+      throw HierarchyError.notFound("Worktree \(worktreeID)")
+    }
+    catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].selectedTabID = id
     store.scheduleSave(catalog)
   }
 

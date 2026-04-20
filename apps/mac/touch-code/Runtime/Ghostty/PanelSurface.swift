@@ -1,0 +1,152 @@
+import AppKit
+import Foundation
+import GhosttyKit
+import TouchCodeCore
+
+/// Owns one `ghostty_surface_t` and its hosting `GhosttySurfaceView`. One
+/// PanelSurface corresponds to one `Panel` while alive; when the surface
+/// closes (child exited, crash, explicit close) the engine disposes this
+/// object and drops it from its registry.
+@MainActor
+final class PanelSurface {
+  enum State: Equatable, Sendable {
+    case initialising
+    case ready
+    case exited(code: Int32)
+    case crashed(reason: String)
+  }
+
+  let panelID: PanelID
+  private(set) var state: State = .initialising
+  let view: GhosttySurfaceView
+  private var surface: ghostty_surface_t?
+
+  private let runtime: GhosttyRuntime
+  private let workingDirectoryCString: UnsafeMutablePointer<CChar>?
+  /// Heap-allocated uuid_t bytes passed to libghostty as the surface
+  /// userdata. close_surface_cb reads these bytes to recover the owning
+  /// PanelID without casting to a Swift object pointer (UAF-safe across
+  /// the C→main-queue hop).
+  private let panelIDUserdata: UnsafeMutablePointer<UInt8>
+
+  /// Engine-provided close callback. Runs when the libghostty surface
+  /// reports close (child exited or crashed). `processAlive` is true for
+  /// user-initiated close with a live child, false for child-exit triggered
+  /// close.
+  var onClose: (@MainActor (_ processAlive: Bool) -> Void)?
+
+  /// Engine-provided output callback. Currently unused — surface output
+  /// reaches the engine via ghostty's own rendering layer; the engine hooks
+  /// this in M4 integration (deferred).
+  var onOutput: (@MainActor (Data) -> Void)?
+
+  init(
+    runtime: GhosttyRuntime,
+    panelID: PanelID,
+    workingDirectory: String,
+    fontSize: Float32 = 13.0
+  ) throws {
+    guard let app = runtime.app else {
+      throw GhosttyError.appInitFailed
+    }
+    self.runtime = runtime
+    self.panelID = panelID
+    self.workingDirectoryCString = strdup(workingDirectory)
+    self.view = GhosttySurfaceView(panelID: panelID)
+
+    // Allocate 16 bytes to hold the PanelID's uuid bytes as surface userdata.
+    self.panelIDUserdata = UnsafeMutablePointer<UInt8>.allocate(capacity: 16)
+    withUnsafeBytes(of: panelID.raw.uuid) { src in
+      panelIDUserdata.update(
+        from: src.bindMemory(to: UInt8.self).baseAddress!,
+        count: 16
+      )
+    }
+
+    var config = ghostty_surface_config_new()
+    config.platform_tag = GHOSTTY_PLATFORM_MACOS
+    config.platform = ghostty_platform_u(
+      macos: ghostty_platform_macos_s(
+        nsview: Unmanaged.passUnretained(view).toOpaque()
+      )
+    )
+    config.scale_factor = view.backingScaleFactor()
+    config.font_size = fontSize
+    config.working_directory = workingDirectoryCString.map { UnsafePointer($0) }
+    config.context = GHOSTTY_SURFACE_CONTEXT_SPLIT
+    // Per-surface userdata: opaque pointer to the 16 uuid-bytes of the
+    // owning PanelID. The close_surface_cb copies these bytes into a local
+    // UUID so the callback survives the C→main-queue hop even if the
+    // PanelSurface object is freed in-between.
+    config.userdata = UnsafeMutableRawPointer(panelIDUserdata)
+
+    guard let surface = ghostty_surface_new(app, &config) else {
+      throw GhosttyError.surfaceInitFailed
+    }
+    self.surface = surface
+    self.view.attach(surface: surface)
+    self.state = .ready
+  }
+
+  isolated deinit {
+    // Safety net: callers should invoke close() explicitly, but if the
+    // engine drops a PanelSurface without doing so, release the surface
+    // here to avoid leaking a ghostty_surface_t + the child PTY.
+    if let surface {
+      ghostty_surface_free(surface)
+    }
+    if let ptr = workingDirectoryCString {
+      free(UnsafeMutableRawPointer(ptr))
+    }
+    panelIDUserdata.deallocate()
+  }
+
+  /// Explicit teardown. Idempotent. After `close()`, the surface handle is
+  /// nil and all subsequent operations no-op.
+  func close() {
+    guard let surface else { return }
+    ghostty_surface_free(surface)
+    self.surface = nil
+    view.detachSurface()
+  }
+
+  func setFocus(_ focused: Bool) {
+    guard let surface else { return }
+    ghostty_surface_set_focus(surface, focused)
+  }
+
+  func sendInput(_ text: String) {
+    guard let surface, !text.isEmpty else { return }
+    // Use utf8.count, not strlen — embedded NUL in composed glyphs would
+    // truncate the forwarded bytes on strlen.
+    let bytes = Array(text.utf8)
+    bytes.withUnsafeBufferPointer { buffer in
+      buffer.baseAddress?.withMemoryRebound(
+        to: CChar.self,
+        capacity: bytes.count
+      ) { ptr in
+        ghostty_surface_text(surface, ptr, UInt(bytes.count))
+      }
+    }
+  }
+
+  func markExited(code: Int32) {
+    state = .exited(code: code)
+  }
+
+  func markCrashed(reason: String) {
+    state = .crashed(reason: reason)
+  }
+
+  /// Called from `GhosttyRuntime.closeSurfaceCallback` when libghostty
+  /// wants to close this surface. Invokes `onClose` with the processAlive
+  /// flag so the engine decides how to emit the lifecycle event — the
+  /// engine distinguishes user-initiated close (`processAlive == true`)
+  /// from child-exit-driven close (`processAlive == false`) and uses
+  /// state transitions that were already set via markExited / markCrashed
+  /// if any.
+  func requestClose(processAlive: Bool) {
+    onClose?(processAlive)
+    close()
+  }
+}
