@@ -69,6 +69,28 @@ struct EditorServiceResolutionTests {
   }
 
   @Test
+  func finderFallbackPrefersInstalledOverMissing() async {
+    // Nothing in registry is installed — including `open`. Resolve still returns the Finder
+    // descriptor (last-resort clause), but its .installation is .missingBinary so the UI
+    // can render "not installed" accurately and `open()` can throw a clear .notInstalled.
+    let prober = FakePathProber(resolution: [:])
+    let service = LiveEditorService(spawner: RecordingProcessSpawner(), prober: prober)
+    let descriptor = await service.resolve(preferred: nil, projectID: nil)
+    #expect(descriptor.id == "finder")
+    #expect(!descriptor.isInstalled)
+  }
+
+  @Test
+  func openOnMissingFinderSurfacesNotInstalled() async throws {
+    let dir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+    let prober = FakePathProber(resolution: [:])
+    let service = LiveEditorService(spawner: RecordingProcessSpawner(), prober: prober)
+    await #expect(throws: EditorError.notInstalled(id: "finder", binary: "open")) {
+      _ = try await service.open(directory: dir, preferred: nil, projectID: nil)
+    }
+  }
+
+  @Test
   func openThrowsNotInstalledOnMissingPreferredNoSilentFallthrough() async throws {
     // Only Finder installed. Preferring vscode → `.notInstalled` (no fallthrough to Finder).
     let prober = FakePathProber(resolution: ["open": URL(fileURLWithPath: "/usr/bin/open")])

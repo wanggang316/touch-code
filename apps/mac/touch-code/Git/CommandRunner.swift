@@ -80,6 +80,10 @@ nonisolated struct FoundationCommandRunner: CommandRunner {
       try process.run()
     } catch let error as NSError {
       exitCont.finish()
+      // Explicitly close pipe write ends so the drains see EOF and complete. Relying on
+      // Pipe.deinit to close implicitly is fragile under the task-group lifetimes here.
+      try? stdoutPipe.fileHandleForWriting.close()
+      try? stderrPipe.fileHandleForWriting.close()
       _ = await stdoutResult
       _ = await stderrResult
       if error.domain == NSPOSIXErrorDomain, error.code == Int(ENOENT) {

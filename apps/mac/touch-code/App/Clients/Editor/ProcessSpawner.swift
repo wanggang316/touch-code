@@ -63,6 +63,13 @@ nonisolated struct FoundationProcessSpawner: ProcessSpawner {
       try process.run()
     } catch let error as NSError {
       exitCont.finish()
+      // Explicitly close the write ends so the drain coroutines see EOF and return.
+      // Foundation would close them on Pipe.deinit, but that's a fragile implicit EOF:
+      // if the pipes escape into the task-group's capture list lifetime (they do), the
+      // await on stdoutData/stderrData can block until ARC collects them. Closing here
+      // guarantees the drains complete before we return.
+      try? stdoutPipe.fileHandleForWriting.close()
+      try? stderrPipe.fileHandleForWriting.close()
       _ = await stdoutData
       _ = await stderrData
       if error.domain == NSPOSIXErrorDomain, error.code == Int(ENOENT) {

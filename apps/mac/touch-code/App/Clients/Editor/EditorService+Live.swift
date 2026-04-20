@@ -103,10 +103,19 @@ nonisolated struct LiveEditorService: EditorService {
     if let id = globalDefault(), let match = registry.first(where: { $0.id == id }) {
       return match
     }
-    // Finder is always present in the builtins and always installed on macOS (`/usr/bin/open`).
+    // Prefer an *installed* Finder so the dropdown never labels a broken editor as the
+    // resolved default. `/usr/bin/open` is expected to always exist on macOS; the installed-
+    // only fallback is defensive against a file-system anomaly (or a FakePathProber in
+    // tests) where it doesn't.
+    if let finder = registry.first(where: { $0.id == "finder" && $0.isInstalled }) {
+      return finder
+    }
+    // Finder is in the registry but not installed → fall back to the missingBinary
+    // descriptor. `open()` will throw `.notInstalled(id: "finder", binary: "open")`, which
+    // the UI surfaces as a clear error rather than a silent wrong-editor launch.
     if let finder = registry.first(where: { $0.id == "finder" }) { return finder }
-    // Defensive: if the registry somehow lacks finder, synthesise a placeholder. Tests don't
-    // exercise this because the allowlist is hard-coded.
+    // Registry somehow lacks a Finder entry (never happens with the hard-coded allowlist;
+    // guard covers a future registry-refactor regression). Synthesise the placeholder.
     return EditorDescriptor(
       id: "finder",
       displayName: "Finder",
