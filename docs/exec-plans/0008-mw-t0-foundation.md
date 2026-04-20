@@ -13,17 +13,19 @@ After this change, sibling agents can build the new Sidebar (T1), Header bell (T
 ## Progress
 
 - [x] M1 — Catalog model extensions (Space.lastActiveWorktreeID, Worktree.gitViewerVisible) with explicit Codable + backward-compat tests (2026-04-21)
-- [ ] M2 — HierarchyManager mutation API (setSpaceLastActiveWorktree, setWorktreeGitViewerVisible) + tests
-- [ ] M3 — Catalog panel/worktree resolution helpers (worktreeID(forPanel:), panelIDs(inWorktree:)) + tests
-- [ ] M4 — NotificationInbox pure aggregation helpers (unreadCount / hasUnread ×2 / notifications) + tests
-- [ ] M5 — InboxStore markRead(forWorktree:in:) and dismissAll() + tests
-- [ ] M6 — ContentView drop sidebar mode Picker; RootFeature doc-comment only (state kept)
-- [ ] M7 — Local verification: lint + all test schemes; push branch; open PR to feature/main-window; post PR_READY
+- [x] M2 — HierarchyManager mutation API (setSpaceLastActiveWorktree, setWorktreeGitViewerVisible) + tests (2026-04-21)
+- [x] M3 — Catalog panel/worktree resolution helpers (worktreeID(forPanel:), panelIDs(inWorktree:)) + tests (2026-04-21)
+- [x] M4 — NotificationInbox pure aggregation helpers (unreadCount / hasUnread ×2 / notifications) + tests (2026-04-21)
+- [x] M5 — InboxStore markRead(forWorktree:in:) and dismissAll() + tests (2026-04-21)
+- [x] M6 — ContentView drop sidebar mode Picker; RootFeature doc-comment only (state kept) (2026-04-21)
+- [ ] M7 — Local verification: lint + all test schemes; push branch; open PR to feature/main-window; post PR_READY (in progress — lint passes after suppression commit; all three test schemes green; push + PR pending)
 
 ## Surprises & Discoveries
 
 - **M1 pre-T0 fixture** (2026-04-21): hand-crafted JSON in `decodesPreT0JSONWithDefaults` failed because `SpaceID`/`ProjectID`/`WorktreeID` serialize as `{"raw": "uuid-str"}`, not as a bare string. Rewrote the test to build the catalog in memory, encode it, then strip the two new keys via `JSONSerialization` round-trip. Keeps the test resilient to future ID shape changes.
-- **M1 ghostty prebuild** (2026-04-21): first `make mac-generate` in this worktree failed at the Ghostty build step (remote tarball returned 400). Worked around by copying the already-built `GhosttyKit.xcframework` from the canonical checkout at `/Users/wanggang/dev/00/touch-code/apps/mac/.build/ghostty/`. Prebuild is fingerprint-cached, so subsequent generates are fast. Not a code issue; noted so future sessions know the recovery.
+- **M1 ghostty prebuild** (2026-04-21): first `make mac-generate` in this worktree failed at the Ghostty build step (remote tarball returned 400). Worked around by copying the entire `.build/ghostty/` cache (`fingerprint` file, `GhosttyKit.xcframework`, `share/`, `include/`, `lib/`) from the canonical checkout at `/Users/wanggang/dev/00/touch-code/apps/mac/.build/ghostty/`. The build-ghostty.sh script fingerprint check then short-circuits. Not a code issue.
+- **M2 preexisting filename collision** (2026-04-21): `xcodebuild test -scheme touch-code` failed to build with *"filename SettingsStoreTests.swift used twice"*. Commit 5d1eb42 renamed the production `SettingsStore.swift` → `NotificationSettingsStore.swift` but missed the test file, leaving duplicate basenames in the `touch-codeTests` target. Renamed `Tests/NotificationsTests/SettingsStoreTests.swift` → `NotificationSettingsStoreTests.swift` and its struct to match. Separate `fix(tests):` commit, not in any T0 milestone.
+- **M7 preexisting lint errors** (2026-04-21): `make -C apps/mac lint` failed on two `async_without_await` violations in `apps/mac/tcKit/Transport/{UnixSocketTransport,RPCClient}.swift` (both blame to 2026-04-20, before T0). Verified by `git stash` — errors reproduce without T0 changes. Escalated via `CLARIFY`; master chose option B (suppress to unblock + document in PR). Added `// swiftlint:disable`/`:disable:next` annotations with a follow-up comment naming the real fix (a separate tcKit concurrency audit). Landed as `chore(tcKit): suppress pre-existing async_without_await lint to unblock T0 PR`.
 
 ## Decision Log
 
@@ -37,7 +39,26 @@ After this change, sibling agents can build the new Sidebar (T1), Header bell (T
 
 ## Outcomes & Retrospective
 
-(To be filled at milestone completion)
+**2026-04-21 — M1 through M6 landed; M7 push + PR outstanding.**
+
+Shipped:
+- Catalog model fields (`Space.lastActiveWorktreeID`, `Worktree.gitViewerVisible`) with backward-compatible Codable.
+- HierarchyManager setters (`setSpaceLastActiveWorktree`, `setWorktreeGitViewerVisible`) on the standard debounced save pipeline.
+- Catalog resolution helpers (`worktreeID(forPanel:)`, `panelIDs(inWorktree:)`).
+- Pure NotificationInbox aggregation (`unreadCount`, two `hasUnread`, `notifications(forWorktree:)`) with the render-hot perf note baked into every doc-comment.
+- InboxStore `markRead(forWorktree:in:)` and canonical `dismissAll` (forwards to legacy `clearAll`).
+- ContentView Picker removed; sidebar always renders hierarchy; `SidebarMode` / `.sidebarModeChanged` / `.inbox` Scope kept with "T2 must either reuse or remove" notes.
+
+Gaps / deferred:
+- No stale-reference pruning for `Space.lastActiveWorktreeID` if the referenced Worktree is removed — design doc §Goals punts this to the Space-switcher feature.
+- `clearAll` stays as a legacy alias of `dismissAll` until T2 chooses to collapse them.
+- `SidebarMode` / `state.sidebarMode` / `.sidebarModeChanged` / `state.inbox` / `.inbox` Scope are dead plumbing marked for T2 to reuse or remove.
+- tcKit `async_without_await` suppressions are temporary — a follow-up concurrency audit removes the keywords or consolidates the API.
+
+Lessons:
+- Auditing the base branch's lint state before starting would have surfaced the `async_without_await` violations earlier. Worth a quick `make mac-lint` at the start of every feature sub-branch.
+- The pre-T0 filename collision on `SettingsStoreTests` is a reminder that Tuist's `buildableFolders` recursion can silently allow basename clashes; a later hygiene pass could enforce unique basenames.
+- The `[PanelID: WorktreeID]` index is the natural caching boundary for per-frame aggregation — design the T1/T2 bell/sidebar render paths around building it once per catalog snapshot.
 
 ## Context and Orientation
 
