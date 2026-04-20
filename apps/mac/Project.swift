@@ -96,7 +96,60 @@ let project = Project(
       output: .xcframework(path: ghosttyXCFrameworkPath, linking: .static)
     ),
 
-    // tc CLI. Thin RPC client; Runtime / Hooks / Git are intentionally off-limits.
+    // tcKit: shared CLI library — Transport / RPCClient / Renderer /
+    // ExitCode / SocketDiscovery. The tc binary is a thin wrapper;
+    // parallel plans (C5 for skill command, future CLI extensions) link
+    // into tcKit rather than the tc binary.
+    .target(
+      name: "tcKit",
+      destinations: .macOS,
+      product: .staticFramework,
+      bundleId: "app.touch-code.cli-kit",
+      deploymentTargets: .macOS("14.0"),
+      infoPlist: .default,
+      buildableFolders: [
+        "tcKit",
+        "tcKit/Transport",
+        "tcKit/Render",
+      ],
+      dependencies: [
+        .target(name: "TouchCodeCore"),
+        .target(name: "TouchCodeIPC"),
+      ],
+      settings: .settings(
+        base: ["SWIFT_DEFAULT_ACTOR_ISOLATION": "nonisolated"],
+        defaultSettings: .essential
+      )
+    ),
+
+    // tcKit unit tests. Headless — uses InMemoryTransport, does not
+    // reach into the touch-code app target.
+    .target(
+      name: "tcKitTests",
+      destinations: .macOS,
+      product: .unitTests,
+      bundleId: "app.touch-code.cli-kit-tests",
+      deploymentTargets: .macOS("14.0"),
+      infoPlist: .default,
+      buildableFolders: ["tcKitTests"],
+      dependencies: [
+        .target(name: "tcKit"),
+        .target(name: "TouchCodeCore"),
+        .target(name: "TouchCodeIPC"),
+      ],
+      settings: .settings(
+        base: [
+          "CODE_SIGNING_ALLOWED": "NO",
+          "SWIFT_DEFAULT_ACTOR_ISOLATION": "nonisolated",
+        ],
+        defaultSettings: .essential
+      )
+    ),
+
+    // tc CLI binary. Thin wrapper around tcKit — Runtime / Hooks / Git
+    // are intentionally off-limits per architecture dep rules. Isolation
+    // default is `nonisolated` to match the ArgumentParser command
+    // conventions (commands run off the main actor).
     .target(
       name: "tc",
       destinations: .macOS,
@@ -104,8 +157,9 @@ let project = Project(
       bundleId: "app.touch-code.cli",
       deploymentTargets: .macOS("14.0"),
       infoPlist: .default,
-      buildableFolders: ["tc"],
+      buildableFolders: ["tc", "tc/Commands"],
       dependencies: [
+        .target(name: "tcKit"),
         .target(name: "TouchCodeCore"),
         .target(name: "TouchCodeIPC"),
         .external(name: "ArgumentParser"),
@@ -114,6 +168,7 @@ let project = Project(
         base: [
           "CODE_SIGNING_ALLOWED": "NO",
           "PRODUCT_NAME": "tc",
+          "SWIFT_DEFAULT_ACTOR_ISOLATION": "nonisolated",
         ],
         defaultSettings: .essential
       )

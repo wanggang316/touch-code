@@ -43,7 +43,12 @@ public final class MethodRouter {
     case .systemVersion: return await systemHandlers.version(request.params)
     case .systemStatus:  return await systemHandlers.status(request.params)
     case .systemQuit:    return await systemHandlers.quit(request.params)
-    default:             return nil
+    // Non-system methods fall through to the next sub-router. A future
+    // `system.*` case landing in this router silently reaches
+    // `notWired(.unsupported)` without this branch; reviewer flagged
+    // (M3.0.1 nit #1) as acceptable for now — a proper fix would split
+    // `IPC.Method` into per-namespace sub-enums, tracked for M3.1.
+    default: return nil
     }
   }
 
@@ -58,7 +63,8 @@ public final class MethodRouter {
     case .hookFire:    return await hookHandlers.fire(request.params)
     case .hookRecent:  return await hookHandlers.recent(request.params)
     case .hookEvents:  return hookHandlers.events(request.params)
-    default:           return nil
+    // See routeSystem note.
+    default: return nil
     }
   }
 
