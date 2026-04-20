@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import GhosttyKit
+import TouchCodeCore
 
 /// Process-global libghostty façade. Owns one `ghostty_app_t` and the runtime
 /// config whose callbacks route via a user-data pointer back to a weak
@@ -50,6 +51,42 @@ final class GhosttyRuntime {
   private(set) var app: ghostty_app_t?
   private var config: ghostty_config_t?
   let dispatcher = CallbackDispatcher()
+
+  /// Registered panel surfaces. ghostty_surface_config_s.userdata carries a
+  /// pointer to the PanelSurface's hosting view; we maintain a parallel
+  /// table so callbacks reaching the dispatcher can resolve back to the
+  /// owning PanelID without touching raw pointers from C.
+  private var surfacesByPanelID: [PanelID: PanelSurface] = [:]
+
+  func register(panel: PanelSurface) {
+    surfacesByPanelID[panel.panelID] = panel
+  }
+
+  func unregister(panelID: PanelID) {
+    surfacesByPanelID.removeValue(forKey: panelID)
+  }
+
+  func surface(for panelID: PanelID) -> PanelSurface? {
+    surfacesByPanelID[panelID]
+  }
+
+  /// Returns the PanelSurface hosted by the NSView at `userdata`, if any.
+  /// Used by callback paths that receive the raw nsview pointer from
+  /// ghostty_platform_macos_s.nsview.
+  func surface(forNSViewPointer pointer: UnsafeMutableRawPointer?) -> PanelSurface? {
+    guard let pointer else { return nil }
+    for panel in surfacesByPanelID.values where panel.viewPointer == pointer {
+      return panel
+    }
+    return nil
+  }
+
+  /// Call every 16ms while there are live surfaces. Safe to over-call —
+  /// ghostty_app_tick is a cheap no-op when nothing is queued.
+  func tick() {
+    guard let app else { return }
+    ghostty_app_tick(app)
+  }
 
   init() throws {
     _ = GhosttyBootstrap.initialize

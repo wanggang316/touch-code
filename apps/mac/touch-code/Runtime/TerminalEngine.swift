@@ -70,12 +70,29 @@ final class TerminalEngine {
   }
 
   /// Return a fresh event stream for a new subscriber. Multi-consumer safe:
-  /// each call registers its own continuation. Subscribers that stall cause
-  /// output events to drop (bufferingNewest) — lifecycle events are always
-  /// delivered (large buffer; relied on by persistence).
+  /// each call registers its own continuation.
+  ///
+  /// Output events (`panelOutput`, `panelIdle`) drop under subscriber
+  /// backpressure via `.bufferingNewest(256)` — scrollback retains history
+  /// so drops are recoverable. Lifecycle events are never dropped: the
+  /// bounded policy only evicts output variants, and the broadcaster does
+  /// not send output to `lifecycleOnly` subscribers.
+  ///
+  /// Subscribing after `finishEventStream()` has already been called
+  /// immediately returns a finished stream.
+  ///
+  /// `onTermination` cleans up the registry slot asynchronously via a hop
+  /// back to the MainActor; brief (~frame-ish) window where a cancelled
+  /// subscriber still receives broadcasts — cheap guard.
   func events(lifecycleOnly: Bool = false) -> AsyncStream<TerminalEvent> {
     let id = UUID()
-    return AsyncStream<TerminalEvent> { continuation in
+    return AsyncStream<TerminalEvent>(
+      bufferingPolicy: .bufferingNewest(256)
+    ) { continuation in
+      if self.finished {
+        continuation.finish()
+        return
+      }
       self.registry.subscribers.append(
         .init(id: id, continuation: continuation, lifecycleOnly: lifecycleOnly)
       )
@@ -189,14 +206,14 @@ final class TerminalEngine {
     }
 
     crashRings.removeValue(forKey: panelID)
+    let cause: TabAutoCloseCause = .crashLoop(count: ring.count, window: crashPolicy.window)
     for siblingID in siblingPanelIDs {
       disposeOutputBuffer(for: siblingID)
-      emit(.panelExited(siblingID, code: 0, signal: nil))
+      // Forced close, not clean exit — distinct variant so persistence and
+      // C3 hook consumers don't misreport as code-0 exit.
+      emit(.panelClosedByTab(siblingID, cause: cause))
     }
-    emit(.tabAutoClosed(
-      location.tabID,
-      cause: .crashLoop(count: ring.count, window: crashPolicy.window)
-    ))
+    emit(.tabAutoClosed(location.tabID, cause: cause))
     return .tabAutoClosed(location.tabID)
   }
 
@@ -278,7 +295,8 @@ private extension TerminalEvent {
     case .panelOutput, .panelIdle:
       return false
     case .panelCreated, .panelReady, .panelExited, .panelCrashed,
-         .tabActivated, .tabAutoClosed, .worktreeActivated, .hierarchyMutated:
+         .panelClosedByTab, .tabActivated, .tabAutoClosed,
+         .worktreeActivated, .hierarchyMutated:
       return true
     }
   }

@@ -31,6 +31,11 @@ public nonisolated enum TerminalEvent: Sendable {
   /// exists to disambiguate from a normal non-zero return.
   case panelExited(PanelID, code: Int32, signal: Int32?)
   case panelCrashed(PanelID, reason: String)
+  /// Panel was forcibly closed because its enclosing Tab was auto-closed
+  /// (e.g. by crash-loop). Distinct from `panelExited(code: 0)` because the
+  /// child did not exit cleanly — persistence and hook consumers should not
+  /// treat this as a clean exit.
+  case panelClosedByTab(PanelID, cause: TabAutoCloseCause)
   case tabActivated(TabID)
   case tabAutoClosed(TabID, cause: TabAutoCloseCause)
   case worktreeActivated(WorktreeID)

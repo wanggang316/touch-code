@@ -309,11 +309,38 @@ struct TerminalEngineTests {
       if case .tabAutoClosed = event { break }
     }
 
-    let exitedSiblings = events.compactMap { event -> PanelID? in
-      if case .panelExited(let pid, _, _) = event { return pid }
+    let closedSiblings = events.compactMap { event -> PanelID? in
+      if case .panelClosedByTab(let pid, _) = event { return pid }
       return nil
     }
-    #expect(exitedSiblings.contains(panelB))
-    #expect(!exitedSiblings.contains(panelA))  // panelA emitted .panelCrashed, not .panelExited
+    #expect(closedSiblings.contains(panelB))
+    #expect(!closedSiblings.contains(panelA))  // panelA emitted .panelCrashed, not .panelClosedByTab
+
+    // Sibling close must land BEFORE the tab auto-close signal so consumers
+    // release per-panel state in order.
+    let siblingIdx = events.firstIndex {
+      if case .panelClosedByTab(let pid, _) = $0, pid == panelB { return true }
+      return false
+    }
+    let tabCloseIdx = events.firstIndex {
+      if case .tabAutoClosed = $0 { return true }
+      return false
+    }
+    #expect(siblingIdx != nil && tabCloseIdx != nil)
+    if let siblingIdx, let tabCloseIdx {
+      #expect(siblingIdx < tabCloseIdx)
+    }
+  }
+
+  // MARK: - Subscribe-after-finish
+
+  @Test
+  func subscribeAfterFinishReturnsAlreadyFinishedStream() async {
+    let (engine, _, _, _) = makeEngine()
+    engine.finishEventStream()
+    let stream = engine.events()
+    var count = 0
+    for await _ in stream { count += 1 }
+    #expect(count == 0)
   }
 }

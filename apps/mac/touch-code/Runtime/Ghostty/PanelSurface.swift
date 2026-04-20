@@ -92,4 +92,10 @@ final class PanelSurface {
   func markCrashed(reason: String) {
     state = .crashed(reason: reason)
   }
+
+  /// Opaque pointer equality key for `GhosttyRuntime.surface(forNSViewPointer:)`.
+  /// Matches the pointer passed as `ghostty_platform_macos_s.nsview`.
+  var viewPointer: UnsafeMutableRawPointer {
+    Unmanaged.passUnretained(view).toOpaque()
+  }
 }
