@@ -49,7 +49,10 @@ nonisolated enum GitOutputParser {
       guard !hash.isEmpty else {
         throw GitError.unparsable(context: "empty commit hash in log output")
       }
-      let date = iso.date(from: dateString) ?? isoNoFractional.date(from: dateString) ?? Date(timeIntervalSince1970: 0)
+      // Dates must parse; silently falling to epoch-0 hides real problems in the UI.
+      guard let date = iso.date(from: dateString) ?? isoNoFractional.date(from: dateString) else {
+        throw GitError.unparsable(context: "unparseable commit date '\(dateString)' for \(hash)")
+      }
       let parents = parentsString.isEmpty ? [] : parentsString.split(separator: " ").map(String.init)
 
       commits.append(Commit(

@@ -8,6 +8,11 @@ import TouchCodeCore
 /// the parser throws `GitError.diffTooLarge`. Callers render a "Copy command" placeholder
 /// instead of a rendered diff past this point.
 ///
+/// **Scope.** Handles the two-parent unified-diff form (`diff --git ...`, `@@ -a,b +c,d @@`).
+/// The **combined-diff** form that `git show` emits for merge commits (`diff --cc` with `@@@`
+/// triple-separators) is out of scope for this parser. A merge commit will arrive from the
+/// service layer as a unified diff vs. a chosen parent; merge traversal is not a v1 feature.
+///
 /// Declared `nonisolated` — the parser is pure over its bytes; the app target's
 /// `@MainActor` default does not apply to value computations.
 nonisolated enum DiffParser {
