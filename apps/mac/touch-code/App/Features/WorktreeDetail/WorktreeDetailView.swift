@@ -15,11 +15,9 @@ struct WorktreeDetailView: View {
   let terminalEngine: TerminalEngine
   /// Scoped editor-feature store; passed in by `ContentView` so the Worktree-header
   /// dropdown shares a single editor-state source of truth with the Settings sheet.
+  /// Open-result toasts are driven by `editorStore.state.lastOpenResult` directly from
+  /// `ContentView`, so this view no longer accepts a callback (0005 M6c).
   let editorStore: StoreOf<EditorFeature>
-  /// Callback for editor-open outcomes (success / failure). Routes to a toast in the
-  /// parent view; kept out of the reducer so this view doesn't need to know about the
-  /// root-level toast plumbing.
-  let onEditorOpenResult: (Result<EditorChoice, EditorError>) -> Void
   @Environment(HierarchyManager.self) private var hierarchyManager
 
   var body: some View {
@@ -78,8 +76,7 @@ struct WorktreeDetailView: View {
           spaceID: address.space,
           projectID: address.project,
           worktreeID: address.worktree,
-          worktreePath: worktree.path,
-          onOpenResult: onEditorOpenResult
+          worktreePath: worktree.path
         )
       }
     }

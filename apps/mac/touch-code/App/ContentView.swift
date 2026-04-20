@@ -44,15 +44,7 @@ struct ContentView: View {
           store: store.scope(state: \.detail, action: \.detail),
           selection: store.selection,
           terminalEngine: terminalEngine,
-          editorStore: store.scope(state: \.editor, action: \.editor),
-          onEditorOpenResult: { result in
-            // Route success / failure to a transient toast. Editor-open outcomes are
-            // view-layer feedback; `EditorFeature` itself doesn't hold presentation state.
-            switch result {
-            case .success(let choice): lastEditorToast = .opened(choice.displayName)
-            case .failure(let error): lastEditorToast = .failed(editorErrorMessage(error))
-            }
-          }
+          editorStore: store.scope(state: \.editor, action: \.editor)
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         if store.inspectorVisible {
@@ -93,6 +85,20 @@ struct ContentView: View {
     .environment(settingsStore)
     .task {
       store.send(.onLaunch)
+    }
+    .onChange(of: store.editor.lastOpenResult) { _, new in
+      guard let new else { return }
+      switch new {
+      case .opened(_, let displayName):
+        lastEditorToast = .opened(displayName)
+      case .failed(let reason):
+        lastEditorToast = .failed(reason)
+      }
+    }
+    .onChange(of: store.editor.lastProjectOverrideFailure) { _, new in
+      if let reason = new {
+        lastEditorToast = .failed("Override failed: \(reason)")
+      }
     }
     .onDisappear {
       store.send(.onQuit)
@@ -189,16 +195,7 @@ extension ContentView {
     }
   }
 
-  fileprivate func editorErrorMessage(_ error: EditorError) -> String {
-    switch error {
-    case .notInstalled(let id, let binary): return "\(id) CLI (`\(binary)`) not found"
-    case .spawnFailed(let reason): return "Could not launch: \(reason)"
-    case .nonZeroExit(_, let stderr):
-      return stderr.components(separatedBy: "\n").first?.trimmingCharacters(in: .whitespaces) ?? "Editor exited with error"
-    case .timedOut: return "Editor didn't respond within 5 s"
-    case .badTemplate(let id, let reason): return "Bad template for ‘\(id)’: \(reason)"
-    case .notADirectory(let path): return "Not a directory: \(path)"
-    case .unresolvedWorktree: return "No worktree resolved"
-    }
-  }
+  // EditorError → user-facing reason mapping now lives in
+  // `EditorFeature.editorErrorDescription` so TestStore observes the same string the UI
+  // sees. ContentView just reads `store.editor.lastOpenResult` and renders.
 }

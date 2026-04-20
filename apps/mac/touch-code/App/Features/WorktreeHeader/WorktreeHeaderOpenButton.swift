@@ -2,23 +2,23 @@ import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
 
-/// "Open in ▾" dropdown that lives on the Worktree header. Renders the built-in editor
-/// allowlist + any custom entries, marks missing editors as disabled, and (on selection)
-/// invokes `EditorClient.open` via an `EditorActionDispatcher`. A "Set as default for this
-/// Project" sub-menu writes the per-Project override through `HierarchyClient`.
+/// "Open in ▾" dropdown on the Worktree header. Renders the built-in editor allowlist +
+/// any custom entries, marks missing editors as disabled, and dispatches
+/// `EditorFeature.Action.openRequested` through the reducer (0005 M6c: no more view-layer
+/// `@Dependency(EditorClient)` so TestStore observes the full open path). A
+/// "Set default for this Project" sub-menu routes through
+/// `.setProjectOverride` / `.setProjectOverrideFailed`.
 ///
-/// The feature reads its state from the root `EditorFeature`; the owning view passes in the
-/// scoped store. The dropdown doesn't write any reducer state directly — it fires actions.
+/// The current-default label reads the per-Project override from the catalog via the
+/// injected `HierarchyManager`, falling back to the EditorFeature's cached global default,
+/// then Finder.
 struct WorktreeHeaderOpenButton: View {
   @Bindable var store: StoreOf<EditorFeature>
   let spaceID: SpaceID
   let projectID: ProjectID
   let worktreeID: WorktreeID
   let worktreePath: String
-  let onOpenResult: (Result<EditorChoice, EditorError>) -> Void
-
-  @Dependency(EditorClient.self) private var editorClient
-  @State private var openingEditor: EditorID?
+  @Environment(HierarchyManager.self) private var hierarchyManager
 
   var body: some View {
     Menu {
@@ -46,7 +46,11 @@ struct WorktreeHeaderOpenButton: View {
     Section("Open in") {
       ForEach(store.state.descriptors) { descriptor in
         Button {
-          openEditor(descriptor.id)
+          store.send(.openRequested(
+            editorID: descriptor.id,
+            worktreePath: worktreePath,
+            projectID: projectID
+          ))
         } label: {
           row(for: descriptor)
         }
@@ -93,44 +97,28 @@ struct WorktreeHeaderOpenButton: View {
     }
   }
 
-  // MARK: - Actions
-
-  private func openEditor(_ id: EditorID) {
-    openingEditor = id
-    let url = URL(fileURLWithPath: worktreePath)
-    let projectID = self.projectID
-    Task {
-      do {
-        let choice = try await editorClient.open(url, id, projectID)
-        await MainActor.run {
-          openingEditor = nil
-          onOpenResult(.success(choice))
-        }
-      } catch let error as EditorError {
-        await MainActor.run {
-          openingEditor = nil
-          onOpenResult(.failure(error))
-        }
-      } catch {
-        await MainActor.run {
-          openingEditor = nil
-          onOpenResult(.failure(.spawnFailed(reason: String(describing: error))))
-        }
-      }
-    }
-  }
-
   // MARK: - Label
 
+  /// The dropdown label honours the full resolution chain: per-Project override →
+  /// global default → Finder fallback. Reads the per-Project override directly from the
+  /// environment `HierarchyManager` so the label tracks catalog mutations in real time;
+  /// global default reads from the EditorFeature cache.
   private var currentDefaultLabel: String {
-    // Prefer the per-Project override if set in the descriptor cache; otherwise global
-    // default; otherwise Finder. The resolution here is visual; the live `open` call goes
-    // through the full EditorClient.resolve chain.
-    if openingEditor != nil { return "Opening…" }
+    if let override = projectOverrideID,
+       let match = store.state.descriptors.first(where: { $0.id == override }) {
+      return "Open in \(match.displayName)"
+    }
     if let global = store.state.globalDefault,
        let match = store.state.descriptors.first(where: { $0.id == global }) {
       return "Open in \(match.displayName)"
     }
     return "Open in Finder"
+  }
+
+  private var projectOverrideID: EditorID? {
+    hierarchyManager.catalog
+      .spaces.first(where: { $0.id == spaceID })?
+      .projects.first(where: { $0.id == projectID })?
+      .defaultEditor
   }
 }

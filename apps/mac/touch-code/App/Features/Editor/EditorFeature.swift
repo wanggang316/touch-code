@@ -24,6 +24,21 @@ struct EditorFeature {
     /// Monotonic counter that refreshes the descriptor cache on bump. Incremented by
     /// `.refreshRequested`.
     var refreshToken: Int = 0
+
+    /// Latest outcome of a WorktreeHeader "Open in …" click. Views observe to render
+    /// success / failure toasts.
+    var lastOpenResult: OpenResultMarker?
+
+    /// Latest per-Project override outcome. Non-nil means "last write failed" (success
+    /// clears automatically on next write attempt).
+    var lastProjectOverrideFailure: String?
+  }
+
+  /// Test-friendly witness for editor-open outcomes. Carries enough info to render a
+  /// toast without widening actions with non-Equatable payloads.
+  enum OpenResultMarker: Equatable {
+    case opened(editorID: EditorID, displayName: String)
+    case failed(reason: String)
   }
 
   enum Action: Equatable {
@@ -37,6 +52,12 @@ struct EditorFeature {
     case addCustomEditorFailed(EditorTemplateError)
     case removeCustomEditor(id: EditorID)
     case setProjectOverride(projectID: ProjectID, spaceID: SpaceID, editorID: EditorID?)
+    case setProjectOverrideFailed(reason: String)
+    /// Requested open from WorktreeHeaderOpenButton. The action flows through the reducer
+    /// so TestStore can observe the effect; the view doesn't hold a direct `@Dependency`.
+    case openRequested(editorID: EditorID, worktreePath: String, projectID: ProjectID?)
+    case openSucceeded(editorID: EditorID, displayName: String)
+    case openFailed(reason: String)
   }
 
   @Dependency(EditorClient.self) var editorClient
@@ -106,12 +127,58 @@ struct EditorFeature {
 
       case .setProjectOverride(let projectID, let spaceID, let editorID):
         let client = hierarchyClient
-        return .run { _ in
-          try? await MainActor.run {
-            try client.setDefaultEditor(projectID, spaceID, editorID)
+        state.lastProjectOverrideFailure = nil
+        return .run { send in
+          do {
+            try await MainActor.run {
+              try client.setDefaultEditor(projectID, spaceID, editorID)
+            }
+          } catch {
+            await send(.setProjectOverrideFailed(reason: String(describing: error)))
           }
         }
+
+      case .setProjectOverrideFailed(let reason):
+        state.lastProjectOverrideFailure = reason
+        return .none
+
+      case .openRequested(let editorID, let worktreePath, let projectID):
+        let client = editorClient
+        let url = URL(fileURLWithPath: worktreePath)
+        return .run { send in
+          do {
+            let choice = try await client.open(url, editorID, projectID)
+            await send(.openSucceeded(editorID: choice.id, displayName: choice.displayName))
+          } catch let error as EditorError {
+            await send(.openFailed(reason: Self.editorErrorDescription(error)))
+          } catch {
+            await send(.openFailed(reason: String(describing: error)))
+          }
+        }
+
+      case .openSucceeded(let id, let name):
+        state.lastOpenResult = .opened(editorID: id, displayName: name)
+        return .none
+
+      case .openFailed(let reason):
+        state.lastOpenResult = .failed(reason: reason)
+        return .none
       }
+    }
+  }
+
+  /// Human-readable reason for an `EditorError`, surfaced as a toast subtitle by views.
+  nonisolated static func editorErrorDescription(_ error: EditorError) -> String {
+    switch error {
+    case .notInstalled(let id, let binary):
+      return "\(id) CLI (`\(binary)`) not found on PATH"
+    case .spawnFailed(let reason): return "Could not launch editor: \(reason)"
+    case .nonZeroExit(_, let stderr):
+      return stderr.components(separatedBy: "\n").first?.trimmingCharacters(in: .whitespaces) ?? "Editor exited with error"
+    case .timedOut: return "Editor did not respond within 5 seconds"
+    case .badTemplate(let id, let reason): return "Bad template for ‘\(id)’: \(reason)"
+    case .notADirectory(let path): return "Not a directory: \(path)"
+    case .unresolvedWorktree: return "No worktree resolved"
     }
   }
 

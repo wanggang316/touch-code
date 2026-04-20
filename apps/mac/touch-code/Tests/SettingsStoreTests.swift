@@ -219,17 +219,52 @@ struct SettingsStoreTests {
   }
 
   @Test
-  func writeFailureDoesNotMoveFileAside() throws {
-    // Point at a directory that cannot be written to — AtomicFileStore.write throws.
-    // The existing file (if any) must be left intact (write failures mustn't rename it).
-    let url = URL(fileURLWithPath: "/System/etc/settings.json")
+  func writeFailureLogsButDoesNotMoveFileAside() throws {
+    // Reproducing the specific write-failure branch: let the store load normally, THEN
+    // swap the target URL for a non-empty directory so the subsequent atomic-rename trips
+    // ENOTEMPTY. The load path already handles corrupt/directory inputs by moving them
+    // aside (that's a separate code path). This test proves the write path does not.
+    let parent = FileManager.default.temporaryDirectory.appending(
+      component: "settings-writefail-\(UUID().uuidString)", directoryHint: .isDirectory
+    )
+    try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: parent) }
+
+    let url = parent.appending(component: "settings.json")
+    // Seed a valid initial settings file so the store loads cleanly.
+    try AtomicFileStore.write(
+      Settings(defaultEditorID: "initial"),
+      to: url
+    )
+
     let store = SettingsStore(fileURL: url, debounceWindow: .milliseconds(1))
-    store.setDefaultEditorID("vscode")
-    // The rename-to-broken isn't wired on write failure — so no exception thrown here.
+    #expect(store.settings.defaultEditorID == "initial")
+
+    // Swap the target for a non-empty directory. Any future rename(temp, url) will fail
+    // with ENOTEMPTY because the "dest already exists and is non-empty" case.
+    try FileManager.default.removeItem(at: url)
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
+    try "keep".write(
+      to: url.appending(component: "keep.txt"),
+      atomically: true,
+      encoding: .utf8
+    )
+
+    // Mutate + flush. The write inside flush() must swallow the error silently (logs only).
+    store.setDefaultEditorID("changed")
     store.flush()
-    // No backup sibling should exist in /System/etc/ (we wouldn't have permission anyway).
-    // This test mainly asserts we don't crash and that the write-failure path logs + exits.
-    #expect(true)
+
+    // The directory we placed must still be there — write failure must not rename it away.
+    var isDir: ObjCBool = false
+    #expect(FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir))
+    #expect(isDir.boolValue, "pre-existing directory should be preserved on write failure")
+
+    // No broken-* sibling should have been created by the write path.
+    let siblings = try FileManager.default.contentsOfDirectory(atPath: parent.path)
+    #expect(
+      !siblings.contains(where: { $0.hasPrefix("settings.json.broken-") }),
+      "write-failure path must not create a .broken-* sibling; got siblings=\(siblings)"
+    )
   }
 
   @Test

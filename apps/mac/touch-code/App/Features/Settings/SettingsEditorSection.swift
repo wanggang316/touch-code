@@ -207,8 +207,10 @@ private struct AddCustomEditorSheet: View {
           .font(.caption)
           .foregroundStyle(.secondary)
       }
-      if let error = existingError {
-        Label(errorMessage(error), systemImage: "exclamationmark.triangle.fill")
+      // Live-validate: first triggered rule as the user types. Reducer-level error from a
+      // prior save attempt shown only when no local rule is firing.
+      if let message = liveValidationMessage() ?? existingError.map(Self.errorMessage) {
+        Label(message, systemImage: "exclamationmark.triangle.fill")
           .labelStyle(.titleAndIcon)
           .foregroundStyle(.orange)
           .font(.caption)
@@ -218,16 +220,15 @@ private struct AddCustomEditorSheet: View {
         Button("Cancel", role: .cancel) { onCancel() }
           .keyboardShortcut(.escape)
         Button("Add") {
-          let args = argsText.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
           onSave(CustomEditor(
             id: id,
             displayName: displayName,
-            template: CommandTemplate(binary: binary, args: args)
+            template: CommandTemplate(binary: binary, args: parsedArgs())
           ))
         }
         .buttonStyle(.borderedProminent)
         .keyboardShortcut(.return, modifiers: [.command])
-        .disabled(id.isEmpty || displayName.isEmpty || binary.isEmpty)
+        .disabled(!canSave)
       }
     }
     .padding(20)
@@ -242,7 +243,38 @@ private struct AddCustomEditorSheet: View {
     }
   }
 
-  private func errorMessage(_ error: EditorTemplateError) -> String {
+  // MARK: - Live validation
+
+  /// Splits the args text on whitespace once; used by both `canSave` and `onSave`.
+  private func parsedArgs() -> [String] {
+    argsText.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+  }
+
+  /// True when every validation rule passes. Mirrors the reducer + SettingsStore checks so
+  /// the Save button never dispatches a guaranteed-reject.
+  private var canSave: Bool {
+    guard !displayName.isEmpty else { return false }
+    guard (try? CustomEditor.validatedID(id)) != nil else { return false }
+    return (try? CommandTemplate(binary: binary, args: parsedArgs()).validate()) != nil
+  }
+
+  /// First-triggered rule, as a human-readable message. Nil when all rules pass.
+  private func liveValidationMessage() -> String? {
+    if displayName.isEmpty { return "Display name required." }
+    do { _ = try CustomEditor.validatedID(id) } catch let err as EditorTemplateError {
+      return Self.errorMessage(err)
+    } catch {
+      return "Identifier invalid."
+    }
+    do { try CommandTemplate(binary: binary, args: parsedArgs()).validate() } catch let err as EditorTemplateError {
+      return Self.errorMessage(err)
+    } catch {
+      return "Template invalid."
+    }
+    return nil
+  }
+
+  fileprivate static func errorMessage(_ error: EditorTemplateError) -> String {
     switch error {
     case .emptyBinary: return "Binary must not be empty."
     case .missingDirPlaceholder: return "Arguments must contain exactly one `{dir}` token."

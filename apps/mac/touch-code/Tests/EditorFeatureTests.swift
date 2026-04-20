@@ -192,4 +192,93 @@ struct EditorFeatureTests {
     #expect(recorded.value?.1 == spaceID)
     #expect(recorded.value?.2 == "cursor")
   }
+
+  @Test
+  func setProjectOverrideFailureSurfacesReason() async {
+    let store = TestStore(initialState: EditorFeature.State()) {
+      EditorFeature()
+    } withDependencies: {
+      $0.editorClient = EditorClient.testValue
+      $0.settingsWriter = SettingsWriter.testValue
+      $0.hierarchyClient = HierarchyClient.testValue
+      $0.hierarchyClient.setDefaultEditor = { _, _, _ in
+        throw HierarchyError.notFound("Project xyz")
+      }
+    }
+    await store.send(.setProjectOverride(
+      projectID: ProjectID(), spaceID: SpaceID(), editorID: "cursor"
+    ))
+    await store.receive(\.setProjectOverrideFailed) { state in
+      state.lastProjectOverrideFailure = #"notFound("Project xyz")"#
+    }
+  }
+
+  @Test
+  func openRequestedSuccessDispatchesOpenSucceeded() async {
+    let store = TestStore(initialState: EditorFeature.State()) {
+      EditorFeature()
+    } withDependencies: {
+      $0.editorClient = EditorClient.testValue
+      $0.editorClient.open = { _, _, _ in
+        EditorChoice(
+          id: "cursor",
+          displayName: "Cursor",
+          binaryPath: URL(fileURLWithPath: "/usr/local/bin/cursor"),
+          argv: ["/usr/local/bin/cursor", "/tmp/worktree"]
+        )
+      }
+      $0.settingsWriter = SettingsWriter.testValue
+      $0.hierarchyClient = HierarchyClient.testValue
+    }
+    await store.send(.openRequested(
+      editorID: "cursor",
+      worktreePath: "/tmp/worktree",
+      projectID: ProjectID()
+    ))
+    await store.receive(\.openSucceeded) { state in
+      state.lastOpenResult = .opened(editorID: "cursor", displayName: "Cursor")
+    }
+  }
+
+  @Test
+  func openRequestedFailureMapsEditorErrorToReason() async {
+    let store = TestStore(initialState: EditorFeature.State()) {
+      EditorFeature()
+    } withDependencies: {
+      $0.editorClient = EditorClient.testValue
+      $0.editorClient.open = { _, _, _ in
+        throw EditorError.notInstalled(id: "zed", binary: "zed")
+      }
+      $0.settingsWriter = SettingsWriter.testValue
+      $0.hierarchyClient = HierarchyClient.testValue
+    }
+    await store.send(.openRequested(
+      editorID: "zed",
+      worktreePath: "/tmp/worktree",
+      projectID: nil
+    ))
+    await store.receive(\.openFailed) { state in
+      state.lastOpenResult = .failed(reason: "zed CLI (`zed`) not found on PATH")
+    }
+  }
+
+  @Test
+  func editorErrorDescriptionMapsEveryCase() {
+    // Belt-and-suspenders coverage: make sure a new EditorError case doesn't silently fall
+    // into `String(describing:)` via the default branch.
+    #expect(EditorFeature.editorErrorDescription(.notInstalled(id: "vscode", binary: "code")) ==
+            "vscode CLI (`code`) not found on PATH")
+    #expect(EditorFeature.editorErrorDescription(.spawnFailed(reason: "ENOENT")) ==
+            "Could not launch editor: ENOENT")
+    #expect(EditorFeature.editorErrorDescription(.nonZeroExit(code: 1, stderr: "boom\n")) ==
+            "boom")
+    #expect(EditorFeature.editorErrorDescription(.timedOut) ==
+            "Editor did not respond within 5 seconds")
+    #expect(EditorFeature.editorErrorDescription(.badTemplate(id: "x", reason: "y")) ==
+            "Bad template for ‘x’: y")
+    #expect(EditorFeature.editorErrorDescription(.notADirectory(path: "/x")) ==
+            "Not a directory: /x")
+    #expect(EditorFeature.editorErrorDescription(.unresolvedWorktree) ==
+            "No worktree resolved")
+  }
 }

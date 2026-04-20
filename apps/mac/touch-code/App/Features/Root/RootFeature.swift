@@ -192,7 +192,11 @@ struct RootFeature {
 
       case .settingsSheet(.dismiss):
         state.settingsSheet = nil
-        return .none
+        // Sheet edited its own EditorFeature state in isolation. The root's
+        // EditorFeature (drives the Worktree-header dropdown + toast label) reads the same
+        // underlying SettingsStore, but its in-memory cache is stale until we re-fetch.
+        // Re-running onAppear is a cheap round-trip through describe + readSnapshot.
+        return .send(.editor(.onAppear))
 
       case .settingsSheet:
         return .none
