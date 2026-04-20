@@ -1,0 +1,471 @@
+import ComposableArchitecture
+import Foundation
+import Testing
+import TouchCodeCore
+import TouchCodeIPC
+@testable import touch_code
+
+@MainActor
+struct GitViewerFeatureTests {
+  // MARK: - Fixtures
+
+  nonisolated static let sampleWorktreeID = WorktreeID()
+  nonisolated static let sampleProjectID = ProjectID()
+  nonisolated static let sampleSpaceID = SpaceID()
+  nonisolated static let samplePath = "/tmp/touch-code-test-repo"
+
+  nonisolated static func catalogWithWorktree() -> Catalog {
+    let panel = Panel(workingDirectory: samplePath)
+    let tab = Tab(splitTree: SplitTree(leaf: panel.id), panels: [panel])
+    let worktree = Worktree(
+      id: sampleWorktreeID,
+      name: "main",
+      path: samplePath,
+      branch: "main",
+      tabs: [tab],
+      selectedTabID: tab.id
+    )
+    let project = Project(
+      id: sampleProjectID,
+      name: "repo",
+      rootPath: samplePath,
+      gitRoot: samplePath,
+      worktrees: [worktree],
+      selectedWorktreeID: worktree.id
+    )
+    let space = Space(id: sampleSpaceID, name: "work", projects: [project], selectedProjectID: project.id)
+    return Catalog(spaces: [space], selectedSpaceID: space.id)
+  }
+
+  nonisolated static func sampleDiff(scope: DiffScope = .working) -> UnifiedDiff {
+    let file = FileChange(
+      id: "README.md", kind: .modified, isBinary: false,
+      linesAdded: 1, linesRemoved: 1,
+      hunks: [
+        DiffHunk(
+          header: "@@ -1 +1 @@", oldStart: 1, oldCount: 1, newStart: 1, newCount: 1,
+          lines: [
+            DiffLine(kind: .removed, text: "old"),
+            DiffLine(kind: .added, text: "new"),
+          ]
+        )
+      ]
+    )
+    return UnifiedDiff(scope: scope, files: [file])
+  }
+
+  nonisolated static func sampleLogPage(offset: Int = 0, limit: Int = 100, hasMore: Bool = false, count: Int = 3) -> LogPage {
+    let commits = (0..<count).map { idx in
+      Commit(
+        id: String(format: "%040d", idx),
+        authorName: "Gump",
+        authorEmail: "gump@example.com",
+        date: Date(timeIntervalSince1970: TimeInterval(1_700_000_000 + idx)),
+        subject: "commit #\(idx)",
+        parents: idx == 0 ? [] : [String(format: "%040d", idx - 1)]
+      )
+    }
+    return LogPage(
+      cursor: .init(offset: offset, limit: limit),
+      commits: commits,
+      hasMore: hasMore
+    )
+  }
+
+  // MARK: - Worktree selection
+
+  @Test
+  func worktreeSelectedNilResetsState() async {
+    let store = TestStore(initialState: GitViewerFeature.State()) {
+      GitViewerFeature()
+    } withDependencies: {
+      $0.gitService = GitServiceClient.testValue
+      $0.hierarchyClient = HierarchyClient.testValue
+      $0.editorFacade = EditorServiceFacade.testValue
+    }
+
+    await store.send(.worktreeSelected(projectID: nil, worktreeID: nil))
+    // Starting state already has worktreeID == nil; no mutation expected.
+  }
+
+  @Test
+  func worktreeSelectedKicksOffWorkingTreeDiff() async {
+    let store = TestStore(initialState: GitViewerFeature.State()) {
+      GitViewerFeature()
+    } withDependencies: {
+      $0.gitService.workingTreeDiff = { _ in Self.sampleDiff() }
+      $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
+      $0.editorFacade = EditorServiceFacade.testValue
+    }
+
+    await store.send(.worktreeSelected(projectID: Self.sampleProjectID, worktreeID: Self.sampleWorktreeID)) {
+      $0.projectID = Self.sampleProjectID
+      $0.worktreeID = Self.sampleWorktreeID
+      $0.diffState = .loading
+    }
+    await store.receive(\.diffSucceeded) {
+      $0.diffState = .loaded(Self.sampleDiff())
+      $0.selectedFilePath = "README.md"
+    }
+  }
+
+  @Test
+  func reSelectingSameWorktreeIsNoop() async {
+    var initial = GitViewerFeature.State()
+    initial.worktreeID = Self.sampleWorktreeID
+    initial.projectID = Self.sampleProjectID
+
+    let store = TestStore(initialState: initial) {
+      GitViewerFeature()
+    } withDependencies: {
+      $0.gitService = GitServiceClient.testValue
+      $0.hierarchyClient = HierarchyClient.testValue
+      $0.editorFacade = EditorServiceFacade.testValue
+    }
+    // No effect scheduled; TestStore would assert on any surprise action.
+    await store.send(.worktreeSelected(projectID: Self.sampleProjectID, worktreeID: Self.sampleWorktreeID))
+  }
+
+  // MARK: - Scope transitions
+
+  @Test
+  func scopeChangeToLogIssuesLogRequest() async {
+    var initial = GitViewerFeature.State()
+    initial.worktreeID = Self.sampleWorktreeID
+    initial.projectID = Self.sampleProjectID
+    initial.diffState = .loaded(Self.sampleDiff())
+
+    let logPage = Self.sampleLogPage()
+    let store = TestStore(initialState: initial) {
+      GitViewerFeature()
+    } withDependencies: {
+      $0.gitService.log = { _, _ in logPage }
+      $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
+      $0.editorFacade = EditorServiceFacade.testValue
+    }
+
+    await store.send(.scopeChanged(.log)) {
+      $0.scope = .log
+      $0.selectedFilePath = nil
+      $0.logState = .loading
+      $0.diffState = .idle
+    }
+    await store.receive(\.logSucceeded) { $0.logState = .loaded(logPage) }
+  }
+
+  @Test
+  func scopeChangeToStagedIssuesStagedDiff() async {
+    var initial = GitViewerFeature.State()
+    initial.worktreeID = Self.sampleWorktreeID
+    initial.projectID = Self.sampleProjectID
+
+    let stagedDiff = Self.sampleDiff(scope: .staged)
+    let store = TestStore(initialState: initial) {
+      GitViewerFeature()
+    } withDependencies: {
+      $0.gitService.stagedDiff = { _ in stagedDiff }
+      $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
+      $0.editorFacade = EditorServiceFacade.testValue
+    }
+
+    await store.send(.scopeChanged(.staged)) {
+      $0.scope = .staged
+      $0.selectedFilePath = nil
+      $0.diffState = .loading
+    }
+    await store.receive(\.diffSucceeded) {
+      $0.diffState = .loaded(stagedDiff)
+      $0.selectedFilePath = "README.md"
+    }
+  }
+
+  // MARK: - Commit selection
+
+  @Test
+  func commitSelectedWithValidShaMovesIntoCommitScope() async {
+    var initial = GitViewerFeature.State()
+    initial.worktreeID = Self.sampleWorktreeID
+    initial.projectID = Self.sampleProjectID
+    initial.scope = .log
+    initial.logState = .loaded(Self.sampleLogPage())
+
+    let commitDiff = Self.sampleDiff(scope: .commit(sha: "abc1234"))
+    let store = TestStore(initialState: initial) {
+      GitViewerFeature()
+    } withDependencies: {
+      $0.gitService.commitDiff = { _, _ in commitDiff }
+      $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
+      $0.editorFacade = EditorServiceFacade.testValue
+    }
+
+    await store.send(.commitSelected(sha: "abc1234")) {
+      $0.scope = .commit(sha: "abc1234")
+      $0.diffState = .loading
+      $0.selectedFilePath = nil
+    }
+    await store.receive(\.diffSucceeded) {
+      $0.diffState = .loaded(commitDiff)
+      $0.selectedFilePath = "README.md"
+    }
+  }
+
+  @Test
+  func commitSelectedWithInvalidShaIsNoop() async {
+    var initial = GitViewerFeature.State()
+    initial.worktreeID = Self.sampleWorktreeID
+    initial.projectID = Self.sampleProjectID
+    initial.scope = .log
+
+    let store = TestStore(initialState: initial) {
+      GitViewerFeature()
+    } withDependencies: {
+      $0.gitService = GitServiceClient.testValue
+      $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
+      $0.editorFacade = EditorServiceFacade.testValue
+    }
+    // Invalid SHA is rejected before any service call. TestStore would fail
+    // if the unimplemented `commitDiff` stub were invoked.
+    await store.send(.commitSelected(sha: "notahex"))
+  }
+
+  // MARK: - Pagination
+
+  @Test
+  func logScrolledToBottomAppendsNextPage() async {
+    var initial = GitViewerFeature.State()
+    initial.worktreeID = Self.sampleWorktreeID
+    initial.projectID = Self.sampleProjectID
+    initial.scope = .log
+    let firstPage = Self.sampleLogPage(offset: 0, limit: 100, hasMore: true, count: 100)
+    initial.logState = .loaded(firstPage)
+    initial.cursor = .init(offset: 0, limit: 100)
+
+    let secondPage = Self.sampleLogPage(offset: 100, limit: 100, hasMore: false, count: 50)
+    let store = TestStore(initialState: initial) {
+      GitViewerFeature()
+    } withDependencies: {
+      $0.gitService.log = { _, _ in secondPage }
+      $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
+      $0.editorFacade = EditorServiceFacade.testValue
+    }
+
+    await store.send(.logScrolledToBottom) {
+      $0.cursor = .init(offset: 100, limit: 100)
+    }
+    let expectedMerged = LogPage(
+      cursor: LogPage.Cursor(offset: 0, limit: 200),
+      commits: firstPage.commits + secondPage.commits,
+      hasMore: false
+    )
+    await store.receive(\.logSucceeded) { state in
+      state.logState = .loaded(expectedMerged)
+    }
+  }
+
+  @Test
+  func logScrolledToBottomWithoutMoreIsNoop() async {
+    var initial = GitViewerFeature.State()
+    initial.worktreeID = Self.sampleWorktreeID
+    initial.scope = .log
+    initial.logState = .loaded(Self.sampleLogPage(hasMore: false))
+
+    let store = TestStore(initialState: initial) {
+      GitViewerFeature()
+    } withDependencies: {
+      $0.gitService = GitServiceClient.testValue
+      $0.hierarchyClient = HierarchyClient.testValue
+      $0.editorFacade = EditorServiceFacade.testValue
+    }
+    await store.send(.logScrolledToBottom)
+  }
+
+  // MARK: - Errors
+
+  @Test
+  func diffFailedSurfacesError() async {
+    var initial = GitViewerFeature.State()
+    initial.worktreeID = Self.sampleWorktreeID
+    initial.projectID = Self.sampleProjectID
+
+    let store = TestStore(initialState: initial) {
+      GitViewerFeature()
+    } withDependencies: {
+      $0.gitService.workingTreeDiff = { _ in throw GitError.exec(code: 1, stderr: "fatal") }
+      $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
+      $0.editorFacade = EditorServiceFacade.testValue
+    }
+
+    await store.send(.scopeChanged(.working)) {
+      $0.scope = .working
+      $0.selectedFilePath = nil
+      $0.diffState = .loading
+    }
+    await store.receive(\.diffFailed) {
+      $0.diffState = .error(.exec(code: 1, stderr: "fatal"))
+    }
+  }
+
+  // MARK: - Focus + whitespace
+
+  @Test
+  func paneFocusCyclesThroughListFilesHunks() async {
+    let store = TestStore(initialState: GitViewerFeature.State()) {
+      GitViewerFeature()
+    } withDependencies: {
+      $0.gitService = GitServiceClient.testValue
+      $0.hierarchyClient = HierarchyClient.testValue
+      $0.editorFacade = EditorServiceFacade.testValue
+    }
+    await store.send(.paneFocusCycled) { $0.focus = .files }
+    await store.send(.paneFocusCycled) { $0.focus = .hunks }
+    await store.send(.paneFocusCycled) { $0.focus = .list }
+  }
+
+  @Test
+  func whitespaceToggleReissuesDiff() async {
+    var initial = GitViewerFeature.State()
+    initial.worktreeID = Self.sampleWorktreeID
+    initial.projectID = Self.sampleProjectID
+    initial.scope = .working
+    initial.diffState = .loaded(Self.sampleDiff())
+
+    let store = TestStore(initialState: initial) {
+      GitViewerFeature()
+    } withDependencies: {
+      $0.gitService.workingTreeDiff = { _ in Self.sampleDiff() }
+      $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
+      $0.editorFacade = EditorServiceFacade.testValue
+    }
+    await store.send(.whitespaceToggled) {
+      $0.ignoreWhitespace = true
+      $0.diffState = .loading
+    }
+    await store.receive(\.diffSucceeded) { state in
+      state.diffState = .loaded(Self.sampleDiff())
+      // selectedFilePath was already set before; re-issued diff keeps it.
+      state.selectedFilePath = "README.md"
+    }
+  }
+
+  @Test
+  func whitespaceToggleInLogScopeDoesNotReissue() async {
+    var initial = GitViewerFeature.State()
+    initial.scope = .log
+    initial.worktreeID = Self.sampleWorktreeID
+
+    let store = TestStore(initialState: initial) {
+      GitViewerFeature()
+    } withDependencies: {
+      $0.gitService = GitServiceClient.testValue
+      $0.hierarchyClient = HierarchyClient.testValue
+      $0.editorFacade = EditorServiceFacade.testValue
+    }
+    await store.send(.whitespaceToggled) { $0.ignoreWhitespace = true }
+  }
+
+  // MARK: - Editor facade delegation
+
+  @Test
+  func openInEditorRequestedSurfacesPlaceholderFailure() async {
+    var initial = GitViewerFeature.State()
+    initial.worktreeID = Self.sampleWorktreeID
+    initial.projectID = Self.sampleProjectID
+
+    let store = TestStore(initialState: initial) {
+      GitViewerFeature()
+    } withDependencies: {
+      $0.gitService = GitServiceClient.testValue
+      $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
+      // Live facade — throws EditorPlaceholderError.notYetImplemented.
+      $0.editorFacade = EditorServiceFacade.liveValue
+    }
+    await store.send(.openInEditorRequested)
+    await store.receive(\.editorOpenFailed) { state in
+      state.lastEditorResult = .failed(reason: "Editor service not yet available (M3 placeholder)")
+    }
+  }
+
+  @Test
+  func openInEditorRequestedWithInstalledFakeSurfacesSuccess() async {
+    var initial = GitViewerFeature.State()
+    initial.worktreeID = Self.sampleWorktreeID
+    initial.projectID = Self.sampleProjectID
+
+    let cursor = EditorChoiceDTO(
+      id: "cursor",
+      displayName: "Cursor",
+      binaryPath: URL(fileURLWithPath: "/usr/local/bin/cursor"),
+      argv: ["/usr/local/bin/cursor", Self.samplePath]
+    )
+    let store = TestStore(initialState: initial) {
+      GitViewerFeature()
+    } withDependencies: {
+      $0.gitService = GitServiceClient.testValue
+      $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
+      $0.editorFacade.openDirectory = { _, _, _ in cursor }
+    }
+    await store.send(.openInEditorRequested)
+    await store.receive(\.editorOpened) {
+      $0.lastEditorResult = .opened(editorID: "cursor")
+    }
+  }
+
+  @Test
+  func openInEditorWithUnknownWorktreeSurfacesFailure() async {
+    var initial = GitViewerFeature.State()
+    initial.worktreeID = WorktreeID() // not in catalog
+    initial.projectID = ProjectID()
+
+    let store = TestStore(initialState: initial) {
+      GitViewerFeature()
+    } withDependencies: {
+      $0.gitService = GitServiceClient.testValue
+      $0.hierarchyClient.snapshot = { Catalog(spaces: [], selectedSpaceID: nil) }
+      $0.editorFacade = EditorServiceFacade.testValue
+    }
+    await store.send(.openInEditorRequested)
+    await store.receive(\.editorOpenFailed) { state in
+      state.lastEditorResult = .failed(reason: "Worktree path not found in catalog")
+    }
+  }
+
+  // MARK: - Refresh
+
+  @Test
+  func refreshReIssuesCurrentScope() async {
+    var initial = GitViewerFeature.State()
+    initial.worktreeID = Self.sampleWorktreeID
+    initial.projectID = Self.sampleProjectID
+    initial.scope = .working
+    initial.diffState = .loaded(Self.sampleDiff())
+
+    let store = TestStore(initialState: initial) {
+      GitViewerFeature()
+    } withDependencies: {
+      $0.gitService.workingTreeDiff = { _ in Self.sampleDiff() }
+      $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
+      $0.editorFacade = EditorServiceFacade.testValue
+    }
+    await store.send(.refreshRequested) { $0.diffState = .loading }
+    await store.receive(\.diffSucceeded) { state in
+      state.diffState = .loaded(Self.sampleDiff())
+      state.selectedFilePath = "README.md"
+    }
+  }
+
+  // MARK: - File selection
+
+  @Test
+  func fileSelectedUpdatesStateNoEffect() async {
+    let store = TestStore(initialState: GitViewerFeature.State()) {
+      GitViewerFeature()
+    } withDependencies: {
+      $0.gitService = GitServiceClient.testValue
+      $0.hierarchyClient = HierarchyClient.testValue
+      $0.editorFacade = EditorServiceFacade.testValue
+    }
+    await store.send(.fileSelected("lib/foo.swift")) {
+      $0.selectedFilePath = "lib/foo.swift"
+    }
+  }
+}
