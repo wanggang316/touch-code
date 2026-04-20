@@ -21,7 +21,7 @@ This is the composition layer that unlocks downstream capability work. C6 / C7 /
 
 ## Progress
 
-- [ ] M1 — Add TCA dependency + `HierarchyClient` and `TerminalClient` `DependencyKey`s with `liveValue` / `testValue` wired into the shipped `HierarchyManager` and `TerminalEngine`
+- [x] M1 — Add TCA dependency + `HierarchyClient` and `TerminalClient` `DependencyKey`s with `liveValue` / `testValue` wired into the shipped `HierarchyManager` and `TerminalEngine` — 2026-04-20
 - [ ] M2 — `RootFeature` scaffold + `ContentView` with an empty `NavigationSplitView`; `TouchCodeApp` mounts `ContentView` in place of `MainView`; event-stream subscription armed
 - [ ] M3 — `HierarchySidebarFeature` + `HierarchySidebarView` with Space → Project → Worktree navigation driven by `HierarchyClient`
 - [ ] M4 — `WorktreeDetailFeature` composing `TabBarFeature` and `SplitViewportFeature`; detail column renders active Tab's `SplitTree<PanelID>` via `PanelHostView`
@@ -42,7 +42,19 @@ This is the composition layer that unlocks downstream capability work. C6 / C7 /
 
 ## Outcomes & Retrospective
 
-(To be filled at milestone completion)
+### M1 — TCA dep + clients (2026-04-20)
+
+**What landed:**
+- `apps/mac/Tuist/Package.swift` — `swift-composable-architecture` pinned at `1.23.1`; Tuist fetched swift-custom-dump, swift-navigation, swift-sharing, swift-dependencies transitively.
+- `apps/mac/Project.swift` — `.external(name: "ComposableArchitecture")` added to the `touch-code` app target.
+- `apps/mac/touch-code/App/Clients/HierarchyClient.swift` — 18 commands + `snapshot` + `selectionChanges` stream. Per DEC-1, `selectionChanges` uses `withObservationTracking` to sample `manager.catalog.selectedSpaceID/Project/Worktree` on every mutation, deduped against the prior snapshot. `HierarchyClient.live(manager:)` static factory for app startup; `liveValue` + `testValue` `DependencyKey` conformance with `unimplemented` placeholders.
+- `apps/mac/touch-code/App/Clients/TerminalClient.swift` — 6 commands (sendInput, setFocus, retryPanel, ensureSurface, closeSurface, events). `ensureSurface` throws `TerminalClient.Error.worktreeNotFound` when the address doesn't resolve inside the current catalog.
+- `apps/mac/touch-code/Runtime/HierarchyManager.swift` — added `selectSpace`, `selectProject(in:)`, `selectWorktree(in:in:)`, `selectTab(in:in:in:)` backing mutations the client wraps.
+- `apps/mac/touch-code/Tests/HierarchyClientTests.swift` (4 tests) + `TerminalClientTests.swift` (2 tests).
+
+**Verification:** `make mac-build` → `BUILD SUCCEEDED`. `make mac-lint` → clean. `xcodebuild test -scheme touch-code` → **39 tests in 7 suites passed** (33 prior + 6 new client tests). No user-visible change — app still launches via `MainView`'s `SingleSurfaceHost`.
+
+**Carry-forward to M2:** `RootFeature.onLaunch` will subscribe to `terminalClient.events()` and `hierarchyClient.selectionChanges()` concurrently. `ContentView` will use `.withDependencies { $0.hierarchyClient = .live(manager:); $0.terminalClient = .live(engine:) }` at store construction.
 
 ## Context and Orientation
 
