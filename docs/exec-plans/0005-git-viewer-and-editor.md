@@ -21,7 +21,7 @@ This is the first plan that gives touch-code real workflow value beyond "a termi
 - [x] M1  — Pure data models in `TouchCodeCore` + `TouchCodeIPC` (Git + Editor value types; Codable round-trip tests; template/ID validators; placeholder error) — 2026-04-20
 - [x] M2  — `touch-code/Git/` service layer (`GitService` protocol, `LiveGitService` with `Process`, `DiffParser`, `GitOutputParser`, env stripping, output caps, timeout, error surface) — 2026-04-20
 - [x] M3  — `GitViewerFeature` TCA reducer + `GitServiceClient` DependencyKey + `EditorServiceFacade` placeholder + `TestStore`-driven reducer tests (no UI yet) — 2026-04-20
-- [ ] M4a — SwiftUI viewer shell (`GitViewerView`, `CommitLogView`, `FileChangeListView`, `UnifiedDiffView`, keyboard bindings, viewer-region wiring)
+- [x] M4a — SwiftUI viewer shell (`GitViewerView`, `CommitLogView`, `FileChangeListView`, `UnifiedDiffView`, keyboard bindings, viewer-region wiring) — 2026-04-20
 - [ ] M4b — Snapshot harness (`swift-snapshot-testing`) + 50k-line cap `LargeDiffPlaceholderView` + POSIX-quoted Copy-command helper + snapshot fixtures
 - [x] M5  — `touch-code/App/Clients/Editor/` service layer (`EditorService`, `EditorRegistry`, `PathProber`, `ProcessSpawner`, env whitelist, 5 s spawn contract) — 2026-04-20 (landed out of order; M3/M4 still block on 0002 M5 TCA bring-up)
 - [ ] M6  — `EditorFeature` TCA + Settings editor section + per-Project override + Worktree header `Open in ▾` button + `SettingsStore` wiring; deletes M3's `EditorServiceFacade` placeholder

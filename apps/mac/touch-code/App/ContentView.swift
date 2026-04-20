@@ -38,8 +38,8 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         if store.inspectorVisible {
           Divider()
-          InspectorPlaceholder()
-            .frame(width: 320)
+          GitViewerView(store: store.scope(state: \.gitViewer, action: \.gitViewer))
+            .frame(minWidth: 420, idealWidth: 480)
         }
       }
       .toolbar {
@@ -103,25 +103,6 @@ struct ContentView: View {
   }
 }
 
-/// Slot for C7 M3/M4 (git diff / history viewer). Reserved per DEC-9 so
-/// M4 doesn't need state restructuring when C7 arrives.
-private struct InspectorPlaceholder: View {
-  var body: some View {
-    VStack(spacing: 12) {
-      Image(systemName: "text.magnifyingglass")
-        .accessibilityHidden(true)
-        .font(.largeTitle)
-        .foregroundStyle(.secondary)
-      Text("Inspector")
-        .font(.headline)
-      Text("Git diff / history viewer will appear here.\nSlot reserved for C7 M3/M4.")
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .multilineTextAlignment(.center)
-      Spacer()
-    }
-    .padding()
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    .background(Color(nsColor: .windowBackgroundColor))
-  }
-}
+// `InspectorPlaceholder` (0007 M4, DEC-9) was replaced in 0005 M4a by
+// `GitViewerView`. Previous comment documented the reservation; the live
+// viewer now occupies the slot.

@@ -10,11 +10,16 @@ import TouchCodeCore
 /// Not `@MainActor`: `GitService` is nonisolated and conforms to `Sendable`.
 /// Closures are `@Sendable` async — safe to call from any reducer effect.
 nonisolated struct GitServiceClient: Sendable {
+  /// `(repoURL, cursor) -> LogPage`.
   var log: @Sendable (URL, LogPage.Cursor) async throws -> LogPage
-  var workingTreeDiff: @Sendable (URL) async throws -> UnifiedDiff
-  var stagedDiff: @Sendable (URL) async throws -> UnifiedDiff
-  var commitDiff: @Sendable (URL, String) async throws -> UnifiedDiff
-  var status: @Sendable (URL) async throws -> WorkingTreeStatus
+  /// `(repoURL, ignoreWhitespace) -> UnifiedDiff`. `ignoreWhitespace=true` passes `-w`.
+  var workingTreeDiff: @Sendable (URL, Bool) async throws -> UnifiedDiff
+  var stagedDiff: @Sendable (URL, Bool) async throws -> UnifiedDiff
+  /// `(repoURL, sha, ignoreWhitespace) -> UnifiedDiff`.
+  var commitDiff: @Sendable (URL, String, Bool) async throws -> UnifiedDiff
+  // `status` intentionally absent from the client: M4a doesn't consume it. The service
+  // protocol keeps `status(at:)` for the C7 design's header-badges future; add the closure
+  // here alongside the UI surface that reads it (not before). See 0005 M3 review item 2.
 }
 
 extension GitServiceClient {
@@ -22,10 +27,15 @@ extension GitServiceClient {
   static func live(service: any GitService = Git.makeService()) -> GitServiceClient {
     GitServiceClient(
       log: { url, cursor in try await service.log(at: url, page: cursor) },
-      workingTreeDiff: { url in try await service.workingTreeDiff(at: url) },
-      stagedDiff: { url in try await service.stagedDiff(at: url) },
-      commitDiff: { url, sha in try await service.commitDiff(at: url, sha: sha) },
-      status: { url in try await service.status(at: url) }
+      workingTreeDiff: { url, ignoreWhitespace in
+        try await service.workingTreeDiff(at: url, ignoreWhitespace: ignoreWhitespace)
+      },
+      stagedDiff: { url, ignoreWhitespace in
+        try await service.stagedDiff(at: url, ignoreWhitespace: ignoreWhitespace)
+      },
+      commitDiff: { url, sha, ignoreWhitespace in
+        try await service.commitDiff(at: url, sha: sha, ignoreWhitespace: ignoreWhitespace)
+      }
     )
   }
 }
@@ -49,10 +59,6 @@ extension GitServiceClient: DependencyKey {
     commitDiff: unimplemented(
       "GitServiceClient.commitDiff",
       placeholder: UnifiedDiff(scope: .commit(sha: ""), files: [])
-    ),
-    status: unimplemented(
-      "GitServiceClient.status",
-      placeholder: WorkingTreeStatus(entries: [])
     )
   )
 }

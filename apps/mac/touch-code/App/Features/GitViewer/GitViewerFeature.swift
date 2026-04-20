@@ -261,16 +261,15 @@ struct GitViewerFeature {
         let diff: UnifiedDiff
         switch scope {
         case .working:
-          diff = try await client.workingTreeDiff(path)
+          diff = try await client.workingTreeDiff(path, ignoreWhitespace)
         case .staged:
-          diff = try await client.stagedDiff(path)
+          diff = try await client.stagedDiff(path, ignoreWhitespace)
         case .commit(let sha):
-          diff = try await client.commitDiff(path, sha)
+          diff = try await client.commitDiff(path, sha, ignoreWhitespace)
         case .log:
           // Log scope goes through logRequest — defensive branch.
           return
         }
-        _ = ignoreWhitespace // reserved for M4b: pass through to argv when the service API grows
         await send(.diffSucceeded(diff))
       } catch let error as GitError {
         await send(.diffFailed(error))
@@ -295,7 +294,7 @@ struct GitViewerFeature {
           URL(fileURLWithPath: path), nil, projectID
         )
         await send(.editorOpened(editorID: choice.id))
-      } catch let error as EditorPlaceholderError where error == .notYetImplemented {
+      } catch EditorPlaceholderError.notYetImplemented {
         await send(.editorOpenFailed(reason: "Editor service not yet available (M3 placeholder)"))
       } catch {
         await send(.editorOpenFailed(reason: String(describing: error)))

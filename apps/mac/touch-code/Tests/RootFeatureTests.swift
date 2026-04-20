@@ -46,7 +46,14 @@ struct RootFeatureTests {
       // unknown IDs, so resolveActiveTab returns nil and activeTabID stays
       // at its default.
       $0.hierarchyClient.snapshot = { Catalog(windows: [], spaces: [], selectedSpaceID: nil) }
+      $0.gitService = GitServiceClient.testValue
+      $0.editorFacade = EditorServiceFacade.testValue
     }
+    // The .selectionChanged branch forwards into .gitViewer(.worktreeSelected) which in
+    // turn kicks off a diff request. With an empty snapshot the path is unresolved and the
+    // request fails. Scope coverage at the RootFeature level is the forwarding step only —
+    // leave the downstream assertions to GitViewerFeatureTests.
+    store.exhaustivity = .off
 
     let selection = HierarchySelection(
       spaceID: SpaceID(),
@@ -56,6 +63,7 @@ struct RootFeatureTests {
     await store.send(.selectionChanged(selection)) { state in
       state.selection = selection
     }
+    await store.receive(\.gitViewer.worktreeSelected)
   }
 
   @Test
@@ -104,7 +112,15 @@ struct RootFeatureTests {
       $0.terminalClient.events = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.selectionChanges = { selectionStream }
       $0.hierarchyClient.snapshot = { Catalog(windows: [], spaces: [], selectedSpaceID: nil) }
+      $0.gitService = GitServiceClient.testValue
+      $0.editorFacade = EditorServiceFacade.testValue
     }
+    // Selection forwarding to GitViewerFeature fires a downstream
+    // .worktreeSelected action whose effect is tested in GitViewerFeatureTests;
+    // from the root's perspective the exhaustive contract is "the selection
+    // stream produces a .selectionChanged action" plus "the forwarded
+    // .gitViewer(.worktreeSelected) is received".
+    store.exhaustivity = .off
 
     await store.send(.onLaunch)
 
@@ -117,6 +133,7 @@ struct RootFeatureTests {
     await store.receive(\.selectionChanged) { state in
       state.selection = selection
     }
+    await store.receive(\.gitViewer.worktreeSelected)
 
     selectionContinuation.finish()
     await store.send(.onQuit)

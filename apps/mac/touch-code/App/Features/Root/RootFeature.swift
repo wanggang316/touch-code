@@ -40,10 +40,14 @@ struct RootFeature {
 
     var sidebar: HierarchySidebarFeature.State = .init()
     var detail: WorktreeDetailFeature.State = .init()
+    /// C7 M3/M4 (0005): read-only git viewer hosted in the trailing
+    /// inspector slot. Selection is forwarded by the `.selectionChanged`
+    /// reducer branch so the feature always tracks the active Worktree.
+    var gitViewer: GitViewerFeature.State = .init()
 
-    /// DEC-9 (M4, 2026-04-20): reserved for C7 M3/M4. `true` shows the
-    /// trailing inspector column (git diff/history viewer). Placeholder
-    /// view for now; C7 plan wires the reducer + real view.
+    /// DEC-9 (M4, 2026-04-20): `true` shows the trailing inspector column
+    /// (git diff/history viewer). `ContentView` hosts `GitViewerView` there
+    /// once the 0005 M4a wiring lands.
     var inspectorVisible: Bool = false
 
     // `// @Presents var settingsSheet: SettingsFeature.State?` — reserved
@@ -92,6 +96,7 @@ struct RootFeature {
     case inspectorVisibilityToggled
     case sidebar(HierarchySidebarFeature.Action)
     case detail(WorktreeDetailFeature.Action)
+    case gitViewer(GitViewerFeature.Action)
   }
 
   nonisolated enum CancelID: Sendable { case events, selectionChanges }
@@ -105,6 +110,9 @@ struct RootFeature {
     }
     Scope(state: \.detail, action: \.detail) {
       WorktreeDetailFeature()
+    }
+    Scope(state: \.gitViewer, action: \.gitViewer) {
+      GitViewerFeature()
     }
 
     Reduce { state, action in
@@ -141,7 +149,12 @@ struct RootFeature {
         // from a reducer. Tab is resolved on-the-fly from the catalog.
         let tabID = resolveActiveTab(selection: selection)
         state.detail.splitViewport.activeTabID = tabID
-        return .none
+        // Forward the (projectID, worktreeID) pair to GitViewerFeature so
+        // the inspector always reflects the current selection.
+        return .send(.gitViewer(.worktreeSelected(
+          projectID: selection.projectID,
+          worktreeID: selection.worktreeID
+        )))
 
       case .engineEventReceived(let marker):
         state.lastEvent = marker
@@ -155,6 +168,9 @@ struct RootFeature {
         return .none
 
       case .detail:
+        return .none
+
+      case .gitViewer:
         return .none
 
       case .inspectorVisibilityToggled:

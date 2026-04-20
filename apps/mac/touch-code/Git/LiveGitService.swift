@@ -40,24 +40,33 @@ nonisolated final class LiveGitService: GitService {
     return LogPage(cursor: page, commits: commits, hasMore: hasMore)
   }
 
-  func workingTreeDiff(at path: URL) async throws -> UnifiedDiff {
+  func workingTreeDiff(at path: URL, ignoreWhitespace: Bool) async throws -> UnifiedDiff {
     try await ensureIsRepo(at: path)
-    let out = try await run(arguments: GitCommand.diff(kind: .workingTree), cwd: path)
+    let out = try await run(
+      arguments: GitCommand.diff(kind: .workingTree, ignoreWhitespace: ignoreWhitespace),
+      cwd: path
+    )
     return try DiffParser.parse(out, scope: .working)
   }
 
-  func stagedDiff(at path: URL) async throws -> UnifiedDiff {
+  func stagedDiff(at path: URL, ignoreWhitespace: Bool) async throws -> UnifiedDiff {
     try await ensureIsRepo(at: path)
-    let out = try await run(arguments: GitCommand.diff(kind: .staged), cwd: path)
+    let out = try await run(
+      arguments: GitCommand.diff(kind: .staged, ignoreWhitespace: ignoreWhitespace),
+      cwd: path
+    )
     return try DiffParser.parse(out, scope: .staged)
   }
 
-  func commitDiff(at path: URL, sha: String) async throws -> UnifiedDiff {
+  func commitDiff(at path: URL, sha: String, ignoreWhitespace: Bool) async throws -> UnifiedDiff {
     guard GitShaValidator.isValid(sha) else {
       throw GitError.invalidInput("not a git SHA: '\(sha)'")
     }
     try await ensureIsRepo(at: path)
-    let out = try await run(arguments: GitCommand.diff(kind: .commit(sha: sha)), cwd: path)
+    let out = try await run(
+      arguments: GitCommand.diff(kind: .commit(sha: sha), ignoreWhitespace: ignoreWhitespace),
+      cwd: path
+    )
     return try DiffParser.parse(out, scope: .commit(sha: sha))
   }
 

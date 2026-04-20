@@ -75,8 +75,16 @@ struct GitViewerFeatureTests {
   // MARK: - Worktree selection
 
   @Test
-  func worktreeSelectedNilResetsState() async {
-    let store = TestStore(initialState: GitViewerFeature.State()) {
+  func worktreeSelectedNilFromPopulatedStateResets() async {
+    var initial = GitViewerFeature.State()
+    initial.worktreeID = Self.sampleWorktreeID
+    initial.projectID = Self.sampleProjectID
+    initial.scope = .commit(sha: "deadbee")
+    initial.diffState = .loaded(Self.sampleDiff(scope: .commit(sha: "deadbee")))
+    initial.selectedFilePath = "README.md"
+    initial.focus = .hunks
+
+    let store = TestStore(initialState: initial) {
       GitViewerFeature()
     } withDependencies: {
       $0.gitService = GitServiceClient.testValue
@@ -84,8 +92,16 @@ struct GitViewerFeatureTests {
       $0.editorFacade = EditorServiceFacade.testValue
     }
 
-    await store.send(.worktreeSelected(projectID: nil, worktreeID: nil))
-    // Starting state already has worktreeID == nil; no mutation expected.
+    await store.send(.worktreeSelected(projectID: nil, worktreeID: nil)) { state in
+      state.worktreeID = nil
+      state.projectID = nil
+      state.scope = .working
+      state.cursor = .init(offset: 0, limit: 100)
+      state.logState = .idle
+      state.diffState = .idle
+      state.selectedFilePath = nil
+      state.focus = .list
+    }
   }
 
   @Test
@@ -93,7 +109,7 @@ struct GitViewerFeatureTests {
     let store = TestStore(initialState: GitViewerFeature.State()) {
       GitViewerFeature()
     } withDependencies: {
-      $0.gitService.workingTreeDiff = { _ in Self.sampleDiff() }
+      $0.gitService.workingTreeDiff = { _, _ in Self.sampleDiff() }
       $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
       $0.editorFacade = EditorServiceFacade.testValue
     }
@@ -163,7 +179,7 @@ struct GitViewerFeatureTests {
     let store = TestStore(initialState: initial) {
       GitViewerFeature()
     } withDependencies: {
-      $0.gitService.stagedDiff = { _ in stagedDiff }
+      $0.gitService.stagedDiff = { _, _ in stagedDiff }
       $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
       $0.editorFacade = EditorServiceFacade.testValue
     }
@@ -193,7 +209,7 @@ struct GitViewerFeatureTests {
     let store = TestStore(initialState: initial) {
       GitViewerFeature()
     } withDependencies: {
-      $0.gitService.commitDiff = { _, _ in commitDiff }
+      $0.gitService.commitDiff = { _, _, _ in commitDiff }
       $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
       $0.editorFacade = EditorServiceFacade.testValue
     }
@@ -290,7 +306,7 @@ struct GitViewerFeatureTests {
     let store = TestStore(initialState: initial) {
       GitViewerFeature()
     } withDependencies: {
-      $0.gitService.workingTreeDiff = { _ in throw GitError.exec(code: 1, stderr: "fatal") }
+      $0.gitService.workingTreeDiff = { _, _ in throw GitError.exec(code: 1, stderr: "fatal") }
       $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
       $0.editorFacade = EditorServiceFacade.testValue
     }
@@ -322,17 +338,21 @@ struct GitViewerFeatureTests {
   }
 
   @Test
-  func whitespaceToggleReissuesDiff() async {
+  func whitespaceToggleReissuesDiffWithFlagPassedThrough() async {
     var initial = GitViewerFeature.State()
     initial.worktreeID = Self.sampleWorktreeID
     initial.projectID = Self.sampleProjectID
     initial.scope = .working
     initial.diffState = .loaded(Self.sampleDiff())
 
+    let observedIgnoreWhitespace = LockIsolated<Bool?>(nil)
     let store = TestStore(initialState: initial) {
       GitViewerFeature()
     } withDependencies: {
-      $0.gitService.workingTreeDiff = { _ in Self.sampleDiff() }
+      $0.gitService.workingTreeDiff = { _, ignoreWhitespace in
+        observedIgnoreWhitespace.setValue(ignoreWhitespace)
+        return Self.sampleDiff()
+      }
       $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
       $0.editorFacade = EditorServiceFacade.testValue
     }
@@ -342,9 +362,53 @@ struct GitViewerFeatureTests {
     }
     await store.receive(\.diffSucceeded) { state in
       state.diffState = .loaded(Self.sampleDiff())
-      // selectedFilePath was already set before; re-issued diff keeps it.
       state.selectedFilePath = "README.md"
     }
+    #expect(observedIgnoreWhitespace.value == true,
+            "whitespace flag must reach the service on re-issue, not be silently dropped")
+  }
+
+  @Test
+  func scopeChangeCancelsInFlightDiff() async {
+    // Prove the `.cancellable(id: CancelID.diff, cancelInFlight: true)` invariant: a rapid
+    // scope switch cancels the first request so its response never arrives.
+    var initial = GitViewerFeature.State()
+    initial.worktreeID = Self.sampleWorktreeID
+    initial.projectID = Self.sampleProjectID
+
+    let stagedDiff = Self.sampleDiff(scope: .staged)
+    let store = TestStore(initialState: initial) {
+      GitViewerFeature()
+    } withDependencies: {
+      // First request hangs until its Task is cancelled — which is exactly what
+      // `cancelInFlight: true` does when a second .diff request is scheduled.
+      $0.gitService.workingTreeDiff = { _, _ in
+        try await Task.sleep(for: .seconds(30))
+        return Self.sampleDiff(scope: .working) // unreachable
+      }
+      $0.gitService.stagedDiff = { _, _ in stagedDiff }
+      $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
+      $0.editorFacade = EditorServiceFacade.testValue
+    }
+
+    await store.send(.scopeChanged(.working)) {
+      $0.scope = .working
+      $0.selectedFilePath = nil
+      $0.diffState = .loading
+    }
+    // Switch scope while the first request is still pending. The first effect is cancelled
+    // in-flight; TestStore sees no .diffSucceeded for the working scope.
+    await store.send(.scopeChanged(.staged)) {
+      $0.scope = .staged
+      $0.diffState = .loading
+    }
+    // Only the staged response arrives.
+    await store.receive(\.diffSucceeded) { state in
+      state.diffState = .loaded(stagedDiff)
+      state.selectedFilePath = "README.md"
+    }
+    // TestStore enforces no-stray-actions at teardown — if the cancelled effect somehow
+    // sent .diffSucceeded(working) it would fail the test.
   }
 
   @Test
@@ -442,7 +506,7 @@ struct GitViewerFeatureTests {
     let store = TestStore(initialState: initial) {
       GitViewerFeature()
     } withDependencies: {
-      $0.gitService.workingTreeDiff = { _ in Self.sampleDiff() }
+      $0.gitService.workingTreeDiff = { _, _ in Self.sampleDiff() }
       $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
       $0.editorFacade = EditorServiceFacade.testValue
     }

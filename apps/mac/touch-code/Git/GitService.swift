@@ -10,15 +10,29 @@ public nonisolated protocol GitService: Sendable {
   /// Commit log for the repository at `path`, paginated by `page`.
   func log(at path: URL, page: LogPage.Cursor) async throws -> LogPage
 
-  /// `git diff` — working tree vs. index.
-  func workingTreeDiff(at path: URL) async throws -> UnifiedDiff
+  /// `git diff` — working tree vs. index. `ignoreWhitespace=true` passes `-w`.
+  func workingTreeDiff(at path: URL, ignoreWhitespace: Bool) async throws -> UnifiedDiff
 
-  /// `git diff --cached` — index vs. HEAD.
-  func stagedDiff(at path: URL) async throws -> UnifiedDiff
+  /// `git diff --cached` — index vs. HEAD. `ignoreWhitespace=true` passes `-w`.
+  func stagedDiff(at path: URL, ignoreWhitespace: Bool) async throws -> UnifiedDiff
 
-  /// `git show <sha>` rendered as a unified diff.
-  func commitDiff(at path: URL, sha: String) async throws -> UnifiedDiff
+  /// `git show <sha>` rendered as a unified diff. `ignoreWhitespace=true` passes `-w`.
+  func commitDiff(at path: URL, sha: String, ignoreWhitespace: Bool) async throws -> UnifiedDiff
 
   /// `git status --porcelain=v1 -z`.
   func status(at path: URL) async throws -> WorkingTreeStatus
+}
+
+public extension GitService {
+  /// Convenience overloads: `ignoreWhitespace` defaults to false. Keeps old call sites
+  /// (integration tests, future IPC bridge) readable.
+  func workingTreeDiff(at path: URL) async throws -> UnifiedDiff {
+    try await workingTreeDiff(at: path, ignoreWhitespace: false)
+  }
+  func stagedDiff(at path: URL) async throws -> UnifiedDiff {
+    try await stagedDiff(at: path, ignoreWhitespace: false)
+  }
+  func commitDiff(at path: URL, sha: String) async throws -> UnifiedDiff {
+    try await commitDiff(at: path, sha: sha, ignoreWhitespace: false)
+  }
 }
