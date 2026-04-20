@@ -1,3 +1,4 @@
+import AppKit
 import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
@@ -11,6 +12,11 @@ struct TouchCodeApp: App {
   /// installed for Claude Code / Codex / pi lags the bundled version
   /// (C5 plan 0004). Runs once on launch via `.task`.
   @State private var skillBanner = SkillVersionBanner.live()
+  /// `SwiftUI.App` gives us no `applicationWillTerminate` hook on its own;
+  /// the adaptor bridges AppKit's termination callback so we can flush
+  /// debounced writes from `SettingsStore`, `InboxStore`, and
+  /// `NotificationSettingsStore` before the process exits.
+  @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
   var body: some Scene {
     WindowGroup {
@@ -34,10 +40,28 @@ struct TouchCodeApp: App {
         .frame(minWidth: 800, minHeight: 600)
         // Idempotency guard on bringUp (store == nil check) is
         // load-bearing — SwiftUI re-runs .task on scene reattach.
-        .task { appState.bringUp() }
+        .task {
+          appDelegate.appState = appState
+          appState.bringUp()
+        }
       }
     }
     .windowStyle(.titleBar)
+  }
+}
+
+/// AppKit delegate that flushes debounced writes on graceful termination.
+/// The weak reference is set from the scene's `.task` after `AppState` has
+/// been constructed — before that, `applicationWillTerminate` is a no-op,
+/// which is fine because nothing has been written yet.
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+  weak var appState: AppState?
+
+  nonisolated func applicationWillTerminate(_ notification: Notification) {
+    MainActor.assumeIsolated {
+      appState?.flushAllPersistedState()
+    }
   }
 }
 
@@ -233,8 +257,15 @@ final class AppState {
   }
 
   /// Flushes all pending debounced writes. Called by `applicationWillTerminate`.
+  /// Any debounced write that hasn't landed within 500 ms of quit would
+  /// otherwise be dropped; each store below has its own debounce, so we
+  /// drain them explicitly here.
   func flushAllPersistedState() {
     settingsStore.flush()
+    try? inboxStore.saveNow()
+    try? notificationSettingsStore.saveNow()
+    try? notificationBootstrap?.flushPendingWrites()
+    notificationBootstrap?.shutdown()
     // `CatalogStore` writes on scheduleSave and on app termination via its own signals.
   }
 }
