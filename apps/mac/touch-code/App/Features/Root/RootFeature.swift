@@ -12,6 +12,16 @@ import TouchCodeCore
 /// Sub-feature Scopes for M3 (`HierarchySidebarFeature`) and M4
 /// (`WorktreeDetailFeature`) are intentionally commented out — their state
 /// types don't exist yet. The wiring is a one-line drop-in when they land.
+/// Which sidebar content the leading column renders. Per DEC-2, C6
+/// (agent-notification inbox) ships as an alternate mode in the leading
+/// column rather than a third NavigationSplitView column. The toggle lives
+/// on `RootFeature` because multiple features may dispatch it (keyboard
+/// shortcut, C6-originated "new notifications" pulse, menu item).
+nonisolated enum SidebarMode: String, Equatable, CaseIterable, Sendable {
+  case hierarchy
+  case inbox
+}
+
 @Reducer
 struct RootFeature {
   @ObservableState
@@ -24,10 +34,15 @@ struct RootFeature {
     /// observe the stream directly via child-feature subscriptions.
     var lastEvent: LastEventMarker?
 
-    /// M3 will replace with `HierarchySidebarFeature.State`.
-    /// M4 will replace with `WorktreeDetailFeature.State`.
-    /// `// @Presents var settingsSheet: SettingsFeature.State?` — reserved
-    /// for C8 (DEC-4, M6 kickoff).
+    /// DEC-2: leading column toggles between `HierarchySidebarView` and
+    /// the C6 inbox placeholder.
+    var sidebarMode: SidebarMode = .hierarchy
+
+    var sidebar: HierarchySidebarFeature.State = .init()
+
+    // M4 will add `detail: WorktreeDetailFeature.State`.
+    // `// @Presents var settingsSheet: SettingsFeature.State?` — reserved
+    //   for C8 (DEC-4, M6 kickoff).
   }
 
   /// Opaque marker for diagnostic logging / tests — the full `TerminalEvent`
@@ -68,6 +83,8 @@ struct RootFeature {
     case onQuit
     case selectionChanged(HierarchySelection)
     case engineEventReceived(LastEventMarker)
+    case sidebarModeChanged(SidebarMode)
+    case sidebar(HierarchySidebarFeature.Action)
   }
 
   nonisolated enum CancelID: Sendable { case events, selectionChanges }
@@ -76,6 +93,10 @@ struct RootFeature {
   @Dependency(HierarchyClient.self) private var hierarchyClient
 
   var body: some Reducer<State, Action> {
+    Scope(state: \.sidebar, action: \.sidebar) {
+      HierarchySidebarFeature()
+    }
+
     Reduce { state, action in
       switch action {
       case .onLaunch:
@@ -109,6 +130,13 @@ struct RootFeature {
 
       case .engineEventReceived(let marker):
         state.lastEvent = marker
+        return .none
+
+      case .sidebarModeChanged(let mode):
+        state.sidebarMode = mode
+        return .none
+
+      case .sidebar:
         return .none
       }
     }

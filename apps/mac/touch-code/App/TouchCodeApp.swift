@@ -5,18 +5,16 @@ import TouchCodeCore
 @main
 struct TouchCodeApp: App {
   /// Single long-lived runtime stack. `@State` keeps this alive across the
-  /// scene lifecycle without re-creating on re-render. `GhosttyRuntime` is
-  /// constructed lazily — if libghostty is unavailable (e.g. missing
-  /// resources) the app still loads the TCA shell with no live surfaces.
+  /// scene lifecycle without re-creating on re-render.
   @State private var appState = AppState()
 
   var body: some Scene {
     WindowGroup {
-      if let store = appState.store {
+      if let store = appState.store, let engine = appState.terminalEngine {
         ContentView(
           store: store,
           hierarchyManager: appState.hierarchyManager,
-          terminalEngine: appState.terminalEngine
+          terminalEngine: engine
         )
         .frame(minWidth: 800, minHeight: 600)
         .navigationTitle("touch-code")
@@ -29,6 +27,8 @@ struct TouchCodeApp: App {
             .foregroundStyle(.secondary)
         }
         .frame(minWidth: 800, minHeight: 600)
+        // Idempotency guard on bringUp (store == nil check) is
+        // load-bearing — SwiftUI re-runs .task on scene reattach.
         .task { appState.bringUp() }
       }
     }
@@ -37,14 +37,15 @@ struct TouchCodeApp: App {
 }
 
 /// Holds the shell-wide runtime objects. `AppState` lives for the duration
-/// of the app; it constructs a single `HierarchyManager` + `TerminalEngine`
-/// + (best-effort) `GhosttyRuntime` and binds the TCA `Store` with the
-/// matching `liveValue` clients injected via `.withDependencies`.
+/// of the app; `bringUp()` constructs the full stack (including optional
+/// `GhosttyRuntime`) and assembles the TCA `Store` with live clients.
+/// Before `bringUp()` runs, `store` and `terminalEngine` are nil — the app
+/// renders a loading placeholder.
 @MainActor
 @Observable
 final class AppState {
-  private(set) var hierarchyManager: HierarchyManager
-  private(set) var terminalEngine: TerminalEngine
+  let hierarchyManager: HierarchyManager
+  private(set) var terminalEngine: TerminalEngine?
   private(set) var store: StoreOf<RootFeature>?
 
   private let catalogStore: CatalogStore
@@ -60,31 +61,29 @@ final class AppState {
       store: catalogStore,
       runtime: runtime
     )
-    let engine = TerminalEngine(store: catalogStore, hierarchy: manager)
-
     self.catalogStore = catalogStore
     self.hierarchyRuntime = runtime
     self.hierarchyManager = manager
-    self.terminalEngine = engine
+    // TerminalEngine is constructed in bringUp() once we know whether a
+    // GhosttyRuntime is available — this avoids a throwaway engine.
   }
 
+  /// Idempotent: subsequent calls while `store` is already set are no-ops.
+  /// SwiftUI may re-run `.task` on scene transitions; the guard prevents
+  /// rebuilding the engine + store and leaking the prior runtime.
   func bringUp() {
     guard store == nil else { return }
-    // Best-effort libghostty bring-up. If it fails, the shell still loads
-    // so the user sees the UI; surface creation will throw `runtimeUnavailable`.
     let ghostty = try? GhosttyRuntime()
     self.ghosttyRuntime = ghostty
-    if let ghostty {
-      self.terminalEngine = TerminalEngine(
-        store: catalogStore,
-        hierarchy: hierarchyManager,
-        ghosttyRuntime: ghostty
-      )
-    }
-    hierarchyRuntime.attach(engine: terminalEngine)
+    let engine = TerminalEngine(
+      store: catalogStore,
+      hierarchy: hierarchyManager,
+      ghosttyRuntime: ghostty
+    )
+    self.terminalEngine = engine
+    hierarchyRuntime.attach(engine: engine)
 
     let manager = hierarchyManager
-    let engine = terminalEngine
     self.store = Store(initialState: RootFeature.State()) {
       RootFeature()
     } withDependencies: {

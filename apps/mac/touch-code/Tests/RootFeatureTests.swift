@@ -54,6 +54,37 @@ struct RootFeatureTests {
   }
 
   @Test
+  func onLaunchExhaustivelyPropagatesSelectionFromStream() async {
+    // Tight-scope TestStore: only the selection stream yields, the event
+    // stream immediately finishes. Full exhaustivity verifies that
+    // selectionChanged action propagates from the stream subscription
+    // through the reducer with no extra actions dispatched.
+    let (selectionStream, selectionContinuation) = AsyncStream<HierarchySelection>.makeStream()
+
+    let store = TestStore(initialState: RootFeature.State()) {
+      RootFeature()
+    } withDependencies: {
+      $0.terminalClient.events = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.selectionChanges = { selectionStream }
+    }
+
+    await store.send(.onLaunch)
+
+    let selection = HierarchySelection(
+      spaceID: SpaceID(),
+      projectID: nil,
+      worktreeID: nil
+    )
+    selectionContinuation.yield(selection)
+    await store.receive(\.selectionChanged) { state in
+      state.selection = selection
+    }
+
+    selectionContinuation.finish()
+    await store.send(.onQuit)
+  }
+
+  @Test
   func lastEventMarkerCoversAllVariants() {
     // Guard against forgetting to add a marker case when a new TerminalEvent
     // variant lands. Exhaustive switch at the enum level would be safer but
