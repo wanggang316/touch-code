@@ -130,6 +130,8 @@ let project = Project(
       infoPlist: .file(path: "Configurations/mac-Info.plist"),
       buildableFolders: [
         "touch-code/App",
+        "touch-code/App/Features/Socket",
+        "touch-code/App/Features/Socket/handlers",
         "touch-code/Runtime",
         "touch-code/Hooks",
         "touch-code/Git",
@@ -157,7 +159,12 @@ let project = Project(
       bundleId: "app.touch-code.mac-tests",
       deploymentTargets: .macOS("14.0"),
       infoPlist: .default,
-      buildableFolders: ["touch-code/Tests", "touch-code/Tests/Hooks"],
+      buildableFolders: [
+        "touch-code/Tests",
+        "touch-code/Tests/Hooks",
+        "touch-code/Tests/Socket",
+        "touch-code/Tests/Harness",
+      ],
       dependencies: [.target(name: "touch-code")],
       settings: .settings(
         base: [

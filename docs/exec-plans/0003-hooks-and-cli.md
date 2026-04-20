@@ -28,7 +28,8 @@ This plan implements those decisions; it does not relitigate them.
 - [x] M1 — `TouchCodeCore` + `TouchCodeIPC` wire types and Codable round-trip tests — 2026-04-20 (86 tests across 14 suites passing; `make mac-lint` clean; zero AppKit/SwiftUI/GhosttyKit imports in leaf packages)
 - [x] M2 — `apps/mac/touch-code/Hooks/` in-app subfolder public surface + C6-unblocking APIs — 2026-04-20 (60 tests / 10 suites green; `make lint` clean). Hot-path internals (regex output-match, recursion guard, rate limiter, idle client-side filter, `TerminalEvent` → envelope mapper) deferred to **M2.1 follow-up**, tracked below.
 - [ ] M2.1 — Hot-path internals + ProcessHookExecutor + full EventMapper
-- [ ] M3 — App-side `SocketServer` + `hook.*` + `system.hello` method handlers + backpressure queue + multicaster + `InMemoryIPCServer` test harness
+- [x] M3 — App-side `SocketServer` + `MethodRouter` + `hook.*` + `system.*` handlers + `InMemoryIPCServer` test harness — 2026-04-20 (66 tests / 12 suites green; lint clean; app boots the Unix socket at `/tmp/touch-code-<uid>.sock` on launch outside XCTest). Hot-path items deferred to **M3.1**: per-connection backpressure queue (DEC-9), `LOCAL_PEERCRED` peer auth, `HierarchyReadHandlers`, and end-to-end multicaster streaming test with `hook.events`.
+- [ ] M3.1 — Per-connection backpressure queue + SocketPeerAuth + HierarchyReadHandlers + streaming hook.events test
 - [ ] M4 — `tc` CLI scaffold (ArgumentParser root, `RPCClient`, `SocketDiscovery`, `AliasResolver` UUID-fast-path, `TextRenderer` + `JSONRenderer`, exit-code mapping, `system.hello` pipelining)
 - [ ] M5 — `tc hook {list,install,remove,enable,disable,reload,test,fire,recent,tail,edit}` including streaming tail
 - [ ] M6 — `tc {space,project,worktree,tab,panel,send,broadcast}` hierarchy + terminal verbs + mutation handlers
@@ -97,6 +98,21 @@ Decisions made by this plan — distinct from the design docs' in-doc decisions,
 **Carry-forward to M2.1:** The surface is stable for C6 and M3 to consume right now. M2.1 delivers the execution internals listed in DEC-14 — once M3 starts landing the socket server, an M2.1 commit can land in parallel without touching the public interfaces this milestone pinned.
 
 **Carry-forward to M3:** `HookDispatcher` is constructable and exposes `attach(to:)`, `fire(_:)`, `reloadConfig()`, `internalEventStream()`, `register(subscriber:for:)`, and `recentFires` — everything the `hook.*` RPC handlers need to call in M3. `HookEventMulticaster` already powers multi-consumer fan-out, so `hook.events` + C6's `internalEventStream()` can each open their own subscription without coordinated buffering.
+
+### M3 — App-side IPC surface (2026-04-20)
+
+**What landed:**
+- `apps/mac/touch-code/App/Features/Socket/` — `SocketPaths.swift` (shared path helper, `/tmp/touch-code-<uid>.sock` with `$TOUCH_CODE_SOCKET_PATH` override), `SocketServer.swift` (Darwin `socket(AF_UNIX)` + `bind` + `listen` + accept loop; mode `0600`; stale-socket cleanup; per-connection task), `SocketConnection.swift` (per-connection actor: length-prefix framing via `TouchCodeIPC.Framing`, first-frame-must-be-`system.hello` rule, `stream: true` fan-out to streaming handlers with server-initiated final `{stream: false}` frame, unary vs streaming dispatch), `MethodRouter.swift` (typed `IPC.Method` dispatch producing `RouterOutcome.unary` / `.streaming` / `.failed`; every not-yet-wired method returns `.unsupported` so the CLI exits with the right code).
+- `apps/mac/touch-code/App/Features/Socket/handlers/SystemHandlers.swift` — `system.hello` handshake with major-version compatibility check, `system.ping` / `system.version` / `system.status` / `system.quit` (quit acknowledges then terminates on next tick so the response frame flushes).
+- `apps/mac/touch-code/App/Features/Socket/handlers/HookHandlers.swift` — every `hook.*` RPC: `hook.list` (filtered by event / panel scope), `hook.install` (rejects reserved-prefix commands at the RPC boundary per DEC-5), `hook.remove` / `hook.enable` (enforces the `disabled = !enabled` inversion from M1.x follow-up #1), `hook.reload` / `hook.test` / `hook.fire` / `hook.recent`, and streaming `hook.events` fed by `HookDispatcher.internalEventStream()` (multicaster fan-out per DEC-10).
+- `apps/mac/touch-code/Tests/Harness/InMemoryIPCServer.swift` — test-only harness that binds a `MethodRouter` to in-memory streams via a `CheckedContinuation`-based waiter queue. Tests call `server.send(request)` and `await server.awaitResponse()` with timeout, no `FileHandle.availableData` blocking.
+- `apps/mac/touch-code/App/TouchCodeApp.swift` — `AppBootstrap` constructs the shared `HookDispatcher` + `SocketServer` at launch and calls `server.start()`. Gated to skip under XCTest so the app test host doesn't compete with `InMemoryIPCServer` on the shared socket path.
+
+**Verification:** `xcodebuild test -scheme touch-code` → **66 tests / 12 suites passed** in 0.84 s (6 new from M3, 60 carried from M2). `xcodebuild test -scheme TouchCodeCore` → 88 tests / 14 suites green. `xcodebuild build -scheme touch-code` → BUILD SUCCEEDED. `make lint` → clean. Logs confirm the real server binds on launch: `socket listening at /tmp/touch-code-501.sock`.
+
+**Carry-forward to M3.1:** Land `SocketConnection`'s per-connection `AsyncChannel` backpressure queue (DEC-9, 64 in-flight cap), `SocketPeerAuth` (`LOCAL_PEERCRED`), `HierarchyReadHandlers` (already-stubbed `.unsupported` in the router — M3.1 can replace with real catalog reads), an end-to-end test for `hook.events` streaming via the harness, and the `SocketServer` path-too-long / bind-in-use tests.
+
+**Carry-forward to M4:** `tc` CLI can now call `system.hello` + `system.ping` against the real socket. `RPCClient` can be implemented against the same wire protocol `InMemoryIPCServer` tests validate. `InMemoryIPCServer` itself is reusable from `tcTests` (M4's test target) via a small build-phase rewiring of the shared helper.
 
 ## Context and Orientation
 
