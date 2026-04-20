@@ -7,9 +7,8 @@ import tcKit
 /// exits with code 4 (unsupported) and a clear message so callers know
 /// the verb is recognised but not yet wired.
 ///
-/// Remaining stubs after M6:
+/// Remaining stubs after M7:
 /// - `tc skill`  — ships via exec-plan 0004 (C5).
-/// - `tc open`   — ships in M7 (local external-editor launch).
 enum StubNamespace {
   struct Skill: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -17,14 +16,6 @@ enum StubNamespace {
       abstract: "Install the touch-code Agent Skill (ships via exec-plan 0004)."
     )
     func run() throws { emitStub("tc skill") }
-  }
-
-  struct Open: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(
-      commandName: "open",
-      abstract: "Open the current Worktree in an external editor (ships M7)."
-    )
-    func run() throws { emitStub("tc open") }
   }
 
   private static func emitStub(_ command: String) -> Never {

@@ -21,18 +21,21 @@ public final class MethodRouter {
   private let systemHandlers: SystemHandlers
   private let hierarchyHandlers: HierarchyHandlers?
   private let terminalHandlers: TerminalHandlers?
+  private let openHandlers: SystemOpenHandlers?
   private let logger = Logger(subsystem: "com.touch-code.ipc", category: "router")
 
   init(
     hookHandlers: HookHandlers,
     systemHandlers: SystemHandlers,
     hierarchyHandlers: HierarchyHandlers? = nil,
-    terminalHandlers: TerminalHandlers? = nil
+    terminalHandlers: TerminalHandlers? = nil,
+    openHandlers: SystemOpenHandlers? = nil
   ) {
     self.hookHandlers = hookHandlers
     self.systemHandlers = systemHandlers
     self.hierarchyHandlers = hierarchyHandlers
     self.terminalHandlers = terminalHandlers
+    self.openHandlers = openHandlers
   }
 
   /// Route one decoded request to the appropriate handler. The handshake
@@ -44,7 +47,17 @@ public final class MethodRouter {
     if let outcome = await routeHook(request) { return outcome }
     if let outcome = await routeHierarchy(request) { return outcome }
     if let outcome = await routeTerminal(request) { return outcome }
+    if let outcome = await routeOpen(request) { return outcome }
     return notWired(request.method)
+  }
+
+  private func routeOpen(_ request: IPC.Request) async -> RouterOutcome? {
+    guard let o = openHandlers else { return nil }
+    switch request.method {
+    case .systemOpenInEditor: return await o.openInEditor(request.params)
+    case .systemOpenPath:     return await o.openPath(request.params)
+    default: return nil
+    }
   }
 
   private func routeHierarchy(_ request: IPC.Request) async -> RouterOutcome? {

@@ -73,12 +73,15 @@ final class AppBootstrap {
       sink: nil,
       catalog: { hierarchy.catalog }
     )
+    let externalEditor = ExternalEditor(catalog: { hierarchy.catalog })
+    let openHandlers = SystemOpenHandlers(editor: externalEditor)
 
     let router = MethodRouter(
       hookHandlers: hookHandlers,
       systemHandlers: systemHandlers,
       hierarchyHandlers: hierarchyHandlers,
-      terminalHandlers: terminalHandlers
+      terminalHandlers: terminalHandlers,
+      openHandlers: openHandlers
     )
     let server = SocketServer(path: SocketPaths.resolve(), router: router)
     do {

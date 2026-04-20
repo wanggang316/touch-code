@@ -23,7 +23,7 @@ struct TouchCodeCLI: AsyncParsableCommand {
       BroadcastCommand.self,
       HookCommand.self,
       StubNamespace.Skill.self,
-      StubNamespace.Open.self,
+      OpenCommand.self,
       RPCCommand.self,
     ]
   )
