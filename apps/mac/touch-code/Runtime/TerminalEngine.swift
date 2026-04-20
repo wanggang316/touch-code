@@ -51,6 +51,7 @@ final class TerminalEngine {
 
   let hierarchy: HierarchyManager
   let store: CatalogStore
+  let ghosttyRuntime: GhosttyRuntime?
   var crashPolicy: CrashPolicy = .default
 
   private let registry = SubscriberRegistry()
@@ -59,14 +60,76 @@ final class TerminalEngine {
   private let clock: @Sendable () -> Date
   private var finished = false
 
+  /// Inject a `GhosttyRuntime` for real panel surfaces, or pass `nil` for
+  /// headless tests. When nil, `ensureSurface` throws.
   init(
     store: CatalogStore,
     hierarchy: HierarchyManager,
+    ghosttyRuntime: GhosttyRuntime? = nil,
     clock: @escaping @Sendable () -> Date = Date.init
   ) {
     self.store = store
     self.hierarchy = hierarchy
+    self.ghosttyRuntime = ghosttyRuntime
     self.clock = clock
+  }
+
+  // MARK: - Panel surface lifecycle
+
+  enum SurfaceError: Error, Sendable {
+    case runtimeUnavailable
+    case surfaceCreationFailed
+  }
+
+  /// Create a libghostty surface for the given Panel. Idempotent: if a
+  /// surface is already registered for the panel, returns the existing one.
+  /// Wires the surface's `onClose` to emit `.panelExited` + dispose buffer.
+  @discardableResult
+  func ensureSurface(for panel: Panel, in worktree: Worktree) throws -> PanelSurface {
+    guard let runtime = ghosttyRuntime else { throw SurfaceError.runtimeUnavailable }
+    if let existing = runtime.surface(for: panel.id) {
+      return existing
+    }
+    let surface = try PanelSurface(
+      runtime: runtime,
+      panelID: panel.id,
+      workingDirectory: panel.workingDirectory
+    )
+    runtime.register(panel: surface)
+    surface.onClose = { [weak self] processAlive in
+      self?.handleSurfaceClose(panelID: panel.id, processAlive: processAlive)
+    }
+    emit(.panelCreated(panel.id, tabIDForPanel(panel.id) ?? TabID()))
+    emit(.panelReady(panel.id))
+    return surface
+  }
+
+  /// Dispose a panel's surface. Idempotent.
+  func closeSurface(for panelID: PanelID) {
+    guard let runtime = ghosttyRuntime else { return }
+    guard let surface = runtime.surface(for: panelID) else { return }
+    surface.close()
+    runtime.unregister(panelID: panelID)
+    disposeOutputBuffer(for: panelID)
+  }
+
+  private func handleSurfaceClose(panelID: PanelID, processAlive: Bool) {
+    guard let runtime = ghosttyRuntime,
+          let surface = runtime.surface(for: panelID) else { return }
+    runtime.unregister(panelID: panelID)
+    disposeOutputBuffer(for: panelID)
+    switch surface.state {
+    case .crashed(let reason):
+      _ = recordPanelCrash(panelID: panelID, reason: reason)
+    case .exited(let code):
+      emit(.panelExited(panelID, code: code, signal: nil))
+    default:
+      emit(.panelExited(panelID, code: processAlive ? 0 : -1, signal: nil))
+    }
+  }
+
+  private func tabIDForPanel(_ panelID: PanelID) -> TabID? {
+    findPanel(panelID)?.tabID
   }
 
   /// Return a fresh event stream for a new subscriber. Multi-consumer safe:

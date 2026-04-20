@@ -24,6 +24,17 @@ final class PanelSurface {
   private let runtime: GhosttyRuntime
   private let workingDirectoryCString: UnsafeMutablePointer<CChar>?
 
+  /// Engine-provided close callback. Runs when the libghostty surface
+  /// reports close (child exited or crashed). `processAlive` is true for
+  /// user-initiated close with a live child, false for child-exit triggered
+  /// close.
+  var onClose: (@MainActor (_ processAlive: Bool) -> Void)?
+
+  /// Engine-provided output callback. Currently unused — surface output
+  /// reaches the engine via ghostty's own rendering layer; the engine hooks
+  /// this in M4 integration (deferred).
+  var onOutput: (@MainActor (Data) -> Void)?
+
   init(
     runtime: GhosttyRuntime,
     panelID: PanelID,
@@ -49,6 +60,10 @@ final class PanelSurface {
     config.font_size = fontSize
     config.working_directory = workingDirectoryCString.map { UnsafePointer($0) }
     config.context = GHOSTTY_SURFACE_CONTEXT_SPLIT
+    // Per-surface userdata: an opaque PanelSurface pointer. close_surface_cb
+    // casts this back to the owning panel. Unretained is safe because the
+    // engine holds the only strong reference and calls close() before drop.
+    config.userdata = Unmanaged.passUnretained(self).toOpaque()
 
     guard let surface = ghostty_surface_new(app, &config) else {
       throw GhosttyError.appInitFailed
@@ -91,6 +106,21 @@ final class PanelSurface {
 
   func markCrashed(reason: String) {
     state = .crashed(reason: reason)
+  }
+
+  /// Called from `GhosttyRuntime.closeSurfaceCallback` when libghostty
+  /// wants to close this surface. Updates state and invokes `onClose` so
+  /// the engine can emit the correct lifecycle event (panelExited vs
+  /// panelCrashed) and tear down its per-panel buffers.
+  func requestClose(processAlive: Bool) {
+    if state == .ready {
+      // processAlive=true means the user asked to close while the child was
+      // still running. Treat that as a clean close-with-code-0 for now;
+      // proper signal disambiguation lands when we wire up SIGCHLD handling.
+      state = .exited(code: 0)
+    }
+    onClose?(processAlive)
+    close()
   }
 
   /// Opaque pointer equality key for `GhosttyRuntime.surface(forNSViewPointer:)`.
