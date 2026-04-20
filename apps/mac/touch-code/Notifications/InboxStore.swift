@@ -23,6 +23,15 @@ final class InboxStore {
   private let unreadContinuation: AsyncStream<Int>.Continuation
   private let unreadStream: AsyncStream<Int>
 
+  /// Multi-subscriber inbox mutation stream. Each call to `observeInbox()`
+  /// creates a fresh `AsyncStream<NotificationInbox>` registered by a
+  /// unique id, yields the current inbox immediately (so the subscriber
+  /// sees initial state without polling), and is fanned into on every
+  /// mutation. C6 M5 `InboxClient.observe()` consumes this; future
+  /// settings-pane surfaces may add more subscribers without stepping on
+  /// each other.
+  private var inboxSubscribers: [UUID: AsyncStream<NotificationInbox>.Continuation] = [:]
+
   /// Design DEC-9 — 500-row retained cap.
   static let retentionCap = 500
 
@@ -43,6 +52,9 @@ final class InboxStore {
   deinit {
     pendingSaveTask?.cancel()
     unreadContinuation.finish()
+    for (_, continuation) in inboxSubscribers {
+      continuation.finish()
+    }
   }
 
   // MARK: - Load
@@ -65,7 +77,7 @@ final class InboxStore {
       loaded = .empty
     }
     inbox = Self.applySweep(loaded, now: now)
-    publishUnread()
+    publishMutation()
     return inbox
   }
 
@@ -78,7 +90,7 @@ final class InboxStore {
       inbox.notifications.removeLast(inbox.notifications.count - Self.retentionCap)
     }
     scheduleSave()
-    publishUnread()
+    publishMutation()
   }
 
   /// Mark each matching entry as read (sets `readAt = now` if not already read).
@@ -94,7 +106,7 @@ final class InboxStore {
     }
     if mutated {
       scheduleSave()
-      publishUnread()
+      publishMutation()
     }
   }
 
@@ -112,7 +124,7 @@ final class InboxStore {
     }
     if mutated {
       scheduleSave()
-      publishUnread()
+      publishMutation()
     }
   }
 
@@ -125,7 +137,7 @@ final class InboxStore {
     }
     if mutated {
       scheduleSave()
-      publishUnread()
+      publishMutation()
     }
   }
 
@@ -172,8 +184,27 @@ final class InboxStore {
   /// (M4) subscribes to this to drive `DockBadger.setUnreadCount`.
   var unreadPublisher: AsyncStream<Int> { unreadStream }
 
-  private func publishUnread() {
+  /// Fresh inbox-change stream — yields the current inbox on subscribe,
+  /// then on every mutation. See field doc on `inboxSubscribers`.
+  func observeInbox() -> AsyncStream<NotificationInbox> {
+    AsyncStream { [self] continuation in
+      let id = UUID()
+      inboxSubscribers[id] = continuation
+      continuation.yield(inbox)
+      continuation.onTermination = { [weak self, id] _ in
+        Task { @MainActor [weak self] in
+          self?.inboxSubscribers.removeValue(forKey: id)
+        }
+      }
+    }
+  }
+
+  private func publishMutation() {
     unreadContinuation.yield(unreadCount)
+    let snapshot = inbox
+    for (_, continuation) in inboxSubscribers {
+      continuation.yield(snapshot)
+    }
   }
 
   // MARK: - Sweep

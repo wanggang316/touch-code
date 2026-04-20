@@ -27,7 +27,7 @@ This plan is the first capability that makes touch-code **aware** of what its Pa
 - [x] M4a — OSNotifier (UN wrapper) + DockBadger (AppKit wrapper) + NotificationPermissionDelegate + NullPermissionDelegate + SettingsStore (C3-independent) — 2026-04-20
 - [x] M4b — NotificationCoordinator fan-out + muting/permission flow — 2026-04-20, commit `bcf7236`.
 - [x] M4c — 11-step app-shell wiring via `C6AppBootstrap` + `HookConfigStoreAdapter` + end-to-end integration tests — 2026-04-20. Hierarchy-event subscription step (6) deferred until `HierarchyManager` exposes a stream; Panel add/remove mid-session requires explicit `registry.create/destroy` calls.
-- [ ] M5 — InboxSidebar SwiftUI surface (320pt, filter chips, swipe-dismiss, deeplink-on-click) + Settings toggles
+- [x] M5 — InboxSidebar SwiftUI surface + InboxFeature TCA reducer + InboxClient dependency — 2026-04-20, built on 0007 M3 DEC-2 mode-swap slot. NotificationPermissionSheet + full deeplink-to-Panel chain deferred (HierarchyClient needs a `resolvePanel` helper that doesn't exist yet; InboxFeature emits `.deeplinkRequested(panelID)` as a delegate action for RootFeature to consume later).
 - [ ] M6a — Bundled JSON defaults + `DefaultRules.installIfMissing(at:)` + Stop-hook shim scripts at `touch-code-skill/shims/` — 2026-04-20
 - [x] M6b — `AgentDetectionRules` round-trip test on `DefaultRules.json` + `coordinator.reloadRules()` app-internal wiring — 2026-04-20 (`tc notifications rules reload` CLI verb still deferred to follow-up PR on 0003 per DEC-P4).
 - [ ] M7 — Integration tests (mock HookDispatcher, mock UNUserNotificationCenter, fake Clock) + end-to-end flow asserting a sentinel match transitions a tracker and surfaces all three sinks
@@ -134,6 +134,33 @@ Verification: 29 tests in 5 suites green.
 - `reloadRulesSwapsRouterTableAndRematerialisesHooksJson` integration test — writes a custom single-rule `detection-rules.json`, calls `coordinator.reloadRules()`, asserts (a) stale rule IDs no longer fire, (b) new rule fires as expected, (c) `hooks.json` on disk has been rewritten with exactly the new sentinel-prefixed subscription.
 
 **Verification:** `xcodebuild test -scheme touch-code` → 154 tests / 25 suites green. `make mac-lint` clean.
+
+### M5 — InboxSidebar UI + InboxFeature (2026-04-20)
+
+**Unblocked by** merging `origin/main` which brought in 0007 M3: RootFeature + ContentView + HierarchySidebarFeature + `InboxSidebarPlaceholder` (slot reserved), plus the DEC-2 sidebar-mode-swap resolution that matched the M5 sketch's option (b) fallback.
+
+**What landed:**
+- `apps/mac/touch-code/App/Features/InboxSidebar/InboxFilter.swift` — pure enum + filter function (`apply(_:to:)`), no SwiftUI.
+- `apps/mac/touch-code/App/Features/InboxSidebar/InboxSidebarFeature.swift` — TCA reducer per the sketch. State holds `filter`, `notifications`, `unreadCount`. Actions subscribe to `InboxClient.observe()` + `observeUnread()` on `onAppear`, route row-tap → `markRead` + `deeplinkRequested`, forward `dismiss` / `muteRule` / `clearAll`. The `deeplinkRequested(PanelID)` case is a delegate action consumed by `RootFeature`.
+- `apps/mac/touch-code/App/Features/InboxSidebar/InboxSidebarView.swift` — SwiftUI view. Segmented filter chip at the top (All / Unread / Waiting / Completed / Crashed), scrolling `List` of `InboxRow` below. Rows carry agent-letter avatar, title (bold when unread), body, relative time, coloured state chip. Tap fires row-tap. `.swipeActions(edge: .trailing)` exposes Dismiss; `.contextMenu` adds Mute rule + Dismiss. Empty state copy varies per filter.
+- `apps/mac/touch-code/App/Clients/InboxClient.swift` — `DependencyKey` wrapping `InboxStore` + `SettingsStore`. Closures: `dismiss / markRead / clearAll / muteRule / observe / observeUnread`. Lives alongside `HierarchyClient` / `TerminalClient`. Live + unimplemented `testValue`.
+- `apps/mac/touch-code/App/Features/Root/RootFeature.swift` — added `inbox: InboxSidebarFeature.State` + `case inbox(InboxSidebarFeature.Action)` + `Scope(state:\.inbox, action:\.inbox)`. The `.deeplinkRequested` delegate is received but no-ops today — HierarchyClient needs a `resolvePanel` helper before the select-chain can fire (captured as a TODO in the switch comment).
+- `apps/mac/touch-code/App/ContentView.swift` — leading column's `.inbox` mode now renders `InboxSidebarView(store:)` instead of the placeholder. Doc comment updated.
+- `apps/mac/touch-code/App/TouchCodeApp.swift` — `AppState` holds `InboxStore` + `SettingsStore`, `bringUp()` loads both + registers `InboxClient.live(inbox:settings:)` via `.withDependencies`.
+- `apps/mac/touch-code/Notifications/InboxStore.swift` — added `observeInbox() -> AsyncStream<NotificationInbox>` multi-subscriber fan-out (each call gets its own continuation, current state replayed on subscribe, cleanup via `onTermination`). `publishUnread` renamed to `publishMutation` and now fans into both unread + inbox streams.
+
+**Deleted:** `apps/mac/touch-code/App/Features/InboxSidebar/InboxSidebarPlaceholder.swift`.
+
+**Tests (14 new, all green):**
+- `InboxFilterTests` (7) — every filter's truth set, dismissed-entry exclusion, title stability.
+- `InboxSidebarFeatureTests` (7) — TCA `TestStore` driving every Action: filter-changed updates state, `inboxUpdated` / `unreadCountUpdated` persist into State, `rowTapped` calls `markRead` + emits `.deeplinkRequested`, `rowSwipedDismiss` / `muteRuleTapped` / `clearAllTapped` forward to the client.
+
+**Verification:** `xcodebuild test -scheme touch-code` → 183 tests / 31 suites green (+29 from the main merge: 0007 + 0002 test additions + 14 new M5). `make mac-lint` clean after adding `.accessibilityAddTraits(.isButton)` to tap-gesture rows and `.accessibilityHidden(true)` to the empty-state icon.
+
+**Deferred / follow-up:**
+- `.deeplinkRequested` → full hierarchy focus chain. Needs `HierarchyClient.resolvePanel(panelID) -> (SpaceID, ProjectID, WorktreeID, TabID)?`. No blocker; the design sketch's §Deeplink chain pins the flow for whoever picks it up.
+- `NotificationPermissionSheet` — M5 deferred; `NullPermissionDelegate` is acceptable for dogfood. The sheet ships when 0007 or C6 add Settings integration.
+- "Mute rule" row action — currently the context menu shows the item disabled because `AgentNotification` does not carry the originating rule id. Small `AgentNotification` schema bump or a side-channel lookup is a follow-up.
 
 ### M4a.1 — shared BrokenFileBackup helper (2026-04-20, commit d58f419)
 

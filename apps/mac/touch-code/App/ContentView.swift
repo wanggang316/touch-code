@@ -9,8 +9,8 @@ import TouchCodeCore
 /// state directly — TCA state stays focused on selection + transient UI.
 ///
 /// Per DEC-2, the leading column swaps between `HierarchySidebarView`
-/// (default) and `InboxSidebarPlaceholder` (C6 M5 replacement) based on
-/// `store.sidebarMode` — instead of a third NavigationSplitView column.
+/// (default) and `InboxSidebarView` (C6 M5) based on `store.sidebarMode`
+/// — instead of a third NavigationSplitView column.
 struct ContentView: View {
   @Bindable var store: StoreOf<RootFeature>
   let hierarchyManager: HierarchyManager
@@ -65,7 +65,9 @@ struct ContentView: View {
         currentSelection: store.selection
       )
     case .inbox:
-      InboxSidebarPlaceholder()
+      InboxSidebarView(
+        store: store.scope(state: \.inbox, action: \.inbox)
+      )
     }
   }
 

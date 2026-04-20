@@ -51,6 +51,8 @@ final class AppState {
   private let catalogStore: CatalogStore
   private let hierarchyRuntime: GhosttyBackedHierarchyRuntime
   private var ghosttyRuntime: GhosttyRuntime?
+  private let inboxStore: InboxStore
+  private let settingsStore: SettingsStore
 
   init() {
     let catalogStore = CatalogStore()
@@ -64,6 +66,11 @@ final class AppState {
     self.catalogStore = catalogStore
     self.hierarchyRuntime = runtime
     self.hierarchyManager = manager
+    // C6 stores — cheap to build up front so InboxClient.live has
+    // stable referents to bind its closures to. The inbox + settings
+    // files materialise during bringUp().
+    self.inboxStore = InboxStore()
+    self.settingsStore = SettingsStore()
     // TerminalEngine is constructed in bringUp() once we know whether a
     // GhosttyRuntime is available — this avoids a throwaway engine.
   }
@@ -83,12 +90,20 @@ final class AppState {
     self.terminalEngine = engine
     hierarchyRuntime.attach(engine: engine)
 
+    // Load C6 state — best-effort; decode errors are logged inside each
+    // store and do not block the app from launching.
+    _ = try? inboxStore.load()
+    _ = try? settingsStore.load()
+
     let manager = hierarchyManager
+    let inbox = inboxStore
+    let settings = settingsStore
     self.store = Store(initialState: RootFeature.State()) {
       RootFeature()
     } withDependencies: {
       $0.hierarchyClient = .live(manager: manager)
       $0.terminalClient = .live(engine: engine)
+      $0[InboxClient.self] = .live(inbox: inbox, settings: settings)
     }
   }
 }

@@ -1,9 +1,14 @@
 # Design Notes: C6 M5 — InboxSidebar UI
 
-**Status:** Draft sketch (pre-implementation)
+**Status:** Implemented (2026-04-20, plan 0006 M5)
 **Author:** Gump (with Claude)
 **Date:** 2026-04-20
-**Blocks:** Plan 0007 TCA shell landing in the app target.
+
+**Implementation note:** 0007 M3 landed DEC-2 option (b) — leading-column
+mode-swap between `HierarchySidebarView` and the C6 inbox. The sketch's
+preferred option (c) trailing overlay was not adopted; this sketch now
+describes the as-built choice. See [exec plan 0006 §M5 Outcomes](
+../exec-plans/0006-agent-notifications.md) for the delivered files.
 
 Advance notes on the M5 SwiftUI + TCA integration so the implementation
 can land quickly once the TCA shell is available. No code yet — just
