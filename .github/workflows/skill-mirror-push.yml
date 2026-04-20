@@ -43,11 +43,34 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Validate tag format and ancestry
+        # Refuses to mirror-push on tags that either
+        #   1. do not match strict semver (`vMAJOR.MINOR.PATCH[-prerelease]`), so
+        #      `v1.0-hotfix`, `v1.0.0.0`, `vlatest`, and similar do not reach
+        #      release infrastructure, and
+        #   2. sit on commits that are not ancestors of `origin/main`, so a
+        #      rogue tag pushed to a side branch cannot trigger a release.
+        # `GITHUB_REF_NAME` and `GITHUB_SHA` come from GitHub's trusted inputs.
+        run: |
+          set -euo pipefail
+          if [[ ! "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$ ]]; then
+            echo "tag ${GITHUB_REF_NAME} is not strict semver (vMAJOR.MINOR.PATCH[-pre])" >&2
+            exit 1
+          fi
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+            echo "commit ${GITHUB_SHA} is not an ancestor of origin/main; refusing to mirror" >&2
+            exit 1
+          fi
+          echo "tag ${GITHUB_REF_NAME} on ${GITHUB_SHA} is valid"
+
       - name: Verify tag matches touch-code-skill/VERSION
         run: |
           tag="${GITHUB_REF_NAME#v}"
+          # Strip an optional prerelease suffix for comparison against VERSION.
+          tag_base="${tag%%-*}"
           version="$(cat touch-code-skill/VERSION)"
-          if [ "${tag}" != "${version}" ]; then
+          if [ "${tag_base}" != "${version}" ]; then
             echo "tag ${GITHUB_REF_NAME} does not match VERSION ${version}" >&2
             exit 1
           fi
