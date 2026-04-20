@@ -33,6 +33,19 @@ public final class HookDispatcher {
   private var internalSubscribers: [(prefix: String, subscriber: any InternalHookSubscriber)] = []
   private let logger = Logger(subsystem: "com.touch-code.hooks", category: "dispatch")
 
+  /// Per-subscription compiled regex cache. Rebuilt on every config swap
+  /// (`setConfig` / `reloadConfig`). Bypasses the per-fire
+  /// `NSRegularExpression(pattern:)` compile that dominated the
+  /// `.panelOutput` hot path. Entries are keyed by subscription id; a
+  /// `nil` value means the pattern failed to compile (still cached so we
+  /// don't retry on every event).
+  private var regexCache: [UUID: NSRegularExpression?] = [:]
+
+  /// Panel/Tab/Worktree anchor index. Rebuilt lazily on first use after
+  /// `invalidate()`; the dispatcher's `attach` path invalidates whenever
+  /// a `.hierarchyMutated` event arrives.
+  private let anchorCache = EventMapperCache()
+
   public init(
     config: HookConfig,
     store: HookConfigStore,
@@ -51,6 +64,7 @@ public final class HookDispatcher {
     self.maxConcurrency = maxConcurrency
     self.semaphore = semaphore ?? AsyncSemaphore(permits: maxConcurrency)
     self.recent = recent
+    rebuildRegexCache()
   }
 
   /// Shared concurrency gate. Exposed so `ProcessHookExecutor`'s
@@ -82,9 +96,20 @@ public final class HookDispatcher {
     attachedTask = Task { [weak self, logger] in
       for await event in events {
         guard let self else { return }
-        let snapshot = catalog()
-        guard let envelope = EventMapper.map(event, catalog: snapshot) else {
-          // Unmapped events (e.g. `.hierarchyMutated`) have no hook surface.
+        // `.hierarchyMutated` carries no hook surface but tells us the
+        // catalog shape changed — drop the cached anchor index so the
+        // next panel/tab/worktree event rebuilds from the fresh
+        // catalog snapshot.
+        if case .hierarchyMutated = event {
+          self.anchorCache.invalidate()
+          continue
+        }
+        let cache = self.anchorCache
+        guard let envelope = EventMapper.map(
+          event,
+          catalog: catalog(),
+          cache: cache
+        ) else {
           continue
         }
         logger.debug("attach: fire \(envelope.event.rawValue, privacy: .public) id=\(envelope.id.uuidString, privacy: .public)")
@@ -129,10 +154,10 @@ public final class HookDispatcher {
         where !sub.disabled
           && sub.event == .panelOutputMatch
           && (sub.matchPattern?.isEmpty == false) {
-        guard let pattern = sub.matchPattern,
+        guard let cached = regexCache[sub.id],
+              let regex = cached,
               let (matchString, range) = Self.firstRegexHit(
-                pattern: pattern,
-                flags: sub.matchFlags,
+                regex: regex,
                 in: output
               ) else {
           continue
@@ -157,23 +182,14 @@ public final class HookDispatcher {
     }
   }
 
-  /// Best-effort first-match on `pattern` against the UTF-8 decoding of
-  /// `data`. Returns `nil` when the pattern is invalid or the bytes
-  /// are not valid UTF-8 (the hot path pre-compiles these in M2.1.1.1;
-  /// M2.1.1 compiles per-fire for simplicity).
+  /// First-match against the UTF-8 decoding of `data` using a
+  /// pre-compiled `regex` from the cache. Returns `nil` when the bytes
+  /// are not valid UTF-8 or nothing matches.
   static func firstRegexHit(
-    pattern: String,
-    flags: HookSubscription.RegexFlags,
+    regex: NSRegularExpression,
     in data: Data
   ) -> (String, HookMatchRange)? {
     guard let text = String(data: data, encoding: .utf8) else { return nil }
-    var options: NSRegularExpression.Options = []
-    if flags.contains(.caseInsensitive) { options.insert(.caseInsensitive) }
-    if flags.contains(.multiline) { options.insert(.anchorsMatchLines) }
-    if flags.contains(.dotAll) { options.insert(.dotMatchesLineSeparators) }
-    guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else {
-      return nil
-    }
     let range = NSRange(text.startIndex..<text.endIndex, in: text)
     guard let match = regex.firstMatch(in: text, options: [], range: range),
           let matchRange = Range(match.range, in: text) else {
@@ -185,6 +201,28 @@ public final class HookDispatcher {
     )
   }
 
+  /// Compile a subscription's `matchPattern` into an `NSRegularExpression`
+  /// with the declared flags. Returns `nil` when the pattern is empty or
+  /// malformed — the caller caches the `nil` so repeated events don't
+  /// re-attempt compilation.
+  static func compileRegex(for sub: HookSubscription) -> NSRegularExpression? {
+    guard let pattern = sub.matchPattern, !pattern.isEmpty else { return nil }
+    var options: NSRegularExpression.Options = []
+    if sub.matchFlags.contains(.caseInsensitive) { options.insert(.caseInsensitive) }
+    if sub.matchFlags.contains(.multiline) { options.insert(.anchorsMatchLines) }
+    if sub.matchFlags.contains(.dotAll) { options.insert(.dotMatchesLineSeparators) }
+    return try? NSRegularExpression(pattern: pattern, options: options)
+  }
+
+  private func rebuildRegexCache() {
+    var fresh: [UUID: NSRegularExpression?] = [:]
+    fresh.reserveCapacity(config.subscriptions.count)
+    for sub in config.subscriptions where sub.matchPattern?.isEmpty == false {
+      fresh[sub.id] = Self.compileRegex(for: sub)
+    }
+    regexCache = fresh
+  }
+
   /// Hot-reload from disk. In-flight dispatches retain their captured
   /// snapshot (exec-plan 0003 DEC-7) — the table swap only affects
   /// *new* firings after this call returns. `async` is retained for M3's
@@ -193,6 +231,7 @@ public final class HookDispatcher {
   public func reloadConfig() async throws {
     await Task.yield()
     config = try store.load()
+    rebuildRegexCache()
   }
 
   /// Fresh in-process subscription to every subsequent envelope. Peer of
@@ -228,6 +267,7 @@ public final class HookDispatcher {
   /// `HookDispatcherTests` to install subscriptions directly.
   public func setConfig(_ config: HookConfig) {
     self.config = config
+    rebuildRegexCache()
   }
 
   // MARK: - Dispatch
