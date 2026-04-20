@@ -219,8 +219,12 @@ let project = Project(
         "touch-code/Tests/Hooks",
         "touch-code/Tests/Socket",
         "touch-code/Tests/Harness",
+        "touch-code/Tests/Integration",
       ],
-      dependencies: [.target(name: "touch-code")],
+      dependencies: [
+        .target(name: "touch-code"),
+        .target(name: "tcKit"),
+      ],
       settings: .settings(
         base: [
           "CODE_SIGNING_ALLOWED": "NO",

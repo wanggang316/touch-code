@@ -28,8 +28,8 @@ Every exec plan MUST contain:
 
 <!-- List active plans here -->
 - [0002 — Terminal Engine and Five-Level Hierarchy (C1 + C2)](0002-terminal-and-hierarchy.md) — domain model, CatalogStore, GhosttyRuntime, HierarchyManager, TCA clients, sidebar + tab bar + split view, git worktree CLI
-- [0003 — Lifecycle Hooks and `tc` CLI (C3 + C4)](0003-hooks-and-cli.md) — wire types, HookDispatcher, SocketServer, tc CLI scaffold, tc hook + hierarchy/terminal/skill/open/system verbs, integration tests (depends on 0002 M4/M5)
 
 ## Completed Plans
 
 - [0001 — Bootstrap touch-code monorepo](0001-bootstrap-monorepo.md) — Tuist + mise + ghostty submodule + empty mac app + `tc --version` CLI + CI (2026-04-19; GhosttyKit foreignBuild deferred per DEC-8)
+- [0003 — Lifecycle Hooks and `tc` CLI (C3 + C4)](0003-hooks-and-cli.md) — TouchCodeCore hook types, HookDispatcher + HookEventMulticaster + ProcessHookExecutor surface, SocketServer + MethodRouter + in-app handlers (hook/hierarchy/terminal/system), `tc` CLI over tcKit static framework with pipelined handshake + AliasResolver + streaming `hook.events`, router-backed end-to-end integration tests (2026-04-20; M2.1 hot-path internals, M3.1 per-connection backpressure queue + SocketPeerAuth, M8.1 completion scripts + man page deferred; `editor.*` handler + EditorService owned by exec-plan 0005 per DEC-15)
