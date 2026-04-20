@@ -66,22 +66,19 @@ extension EditorClient {
 }
 
 extension EditorClient: DependencyKey {
-  /// Default `liveValue` has no settings / hierarchy reads wired — both closures return nil
-  /// and the fallback chain always lands on Finder. App startup (`TouchCodeApp`) replaces
-  /// this with `.live(settings:hierarchy:)` via `.withDependencies` so descendants see the
-  /// properly-wired client.
+  /// `liveValue` is intentionally unusable — missing wiring is a programmer error, not a
+  /// silent fallback. `TouchCodeApp.bringUp()` overrides via `.withDependencies { $0.editorClient = .live(...) }`.
+  /// If you see one of these fatalErrors, the real factory wasn't applied at app startup.
+  /// Matches `HierarchyClient.liveValue` / `TerminalClient.liveValue` conventions.
   static let liveValue: EditorClient = EditorClient(
     describe: {
-      let service = LiveEditorService()
-      return await service.describe()
+      fatalError("EditorClient.liveValue not configured; wire via `.withDependencies` at app startup with `.live(settings:hierarchy:)`")
     },
-    resolve: { preferred, projectID in
-      let service = LiveEditorService()
-      return await service.resolve(preferred: preferred, projectID: projectID)
+    resolve: { _, _ in
+      fatalError("EditorClient.liveValue not configured")
     },
-    open: { directory, preferred, projectID in
-      let service = LiveEditorService()
-      return try await service.open(directory: directory, preferred: preferred, projectID: projectID)
+    open: { _, _, _ in
+      fatalError("EditorClient.liveValue not configured")
     }
   )
 

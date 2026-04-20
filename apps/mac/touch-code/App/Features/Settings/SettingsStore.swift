@@ -17,12 +17,18 @@ final class SettingsStore {
   private let fileURL: URL
   private let logger = Logger(subsystem: "com.touch-code.persistence", category: "settings")
   @ObservationIgnored private var pendingSaveTask: Task<Void, Never>?
+  @ObservationIgnored private let debounceWindow: Duration
 
-  /// Debounce window between a mutation and the atomic-rename write. Matches `CatalogStore`.
+  /// Production debounce window between a mutation and the atomic-rename write. Matches
+  /// `CatalogStore`. Tests inject a shorter window via the initializer.
   static let debounceWindow: Duration = .milliseconds(500)
 
-  init(fileURL: URL = Settings.defaultURL()) {
+  init(
+    fileURL: URL = Settings.defaultURL(),
+    debounceWindow: Duration = SettingsStore.debounceWindow
+  ) {
     self.fileURL = fileURL
+    self.debounceWindow = debounceWindow
     if let existing = Self.safeLoad(from: fileURL, logger: logger) {
       self.settings = existing
     } else {
@@ -119,40 +125,40 @@ final class SettingsStore {
     pendingSaveTask?.cancel()
     let snapshot = settings
     pendingSaveTask = Task { [weak self] in
-      try? await Task.sleep(for: Self.debounceWindow)
+      // Use the instance window so tests can shorten it to milliseconds.
+      let window = self?.debounceWindow ?? Self.debounceWindow
+      try? await Task.sleep(for: window)
       guard !Task.isCancelled else { return }
       guard let self else { return }
       do {
         try AtomicFileStore.write(snapshot, to: self.fileURL)
       } catch {
+        // Log and leave the existing file untouched. Transient disk-full /
+        // permissions flips shouldn't cost the user their persisted settings;
+        // the next successful save will pick up the in-memory snapshot. Only
+        // the load path (decode failure / unsupported version) moves corrupt
+        // files aside — that's where a bad file blocks startup and needs
+        // unsticking.
         self.logger.error("Failed to save settings: \(String(describing: error), privacy: .public)")
-        self.backupBrokenFile()
       }
     }
-  }
-
-  private func backupBrokenFile() {
-    let timestamp = ISO8601DateFormatter().string(from: Date())
-    let backupURL = fileURL.deletingLastPathComponent()
-      .appendingPathComponent("settings.json.broken-\(timestamp)")
-    try? FileManager.default.moveItem(at: fileURL, to: backupURL)
   }
 
   // MARK: - Load helper
 
   /// Best-effort load. Returns nil on file-missing or unrecoverable decode failure. Moves a
-  /// corrupt file aside to `settings.json.broken-<timestamp>` so the next launch starts
-  /// from a clean default without blocking on repair.
+  /// corrupt file aside to `settings.json.broken-<YYYYMMDD-HHMMSS>` so the next launch
+  /// starts from a clean default without blocking on repair.
   private static func safeLoad(from url: URL, logger: Logger) -> Settings? {
     do {
       return try AtomicFileStore.read(Settings.self, at: url)
     } catch let Settings.DecodingIssue.unsupportedVersion(version) {
       logger.error("Settings file has unsupported version \(version, privacy: .public); backing up")
-      moveAside(url: url, timestamp: ISO8601DateFormatter().string(from: Date()))
+      moveAside(url: url, timestamp: filesystemSafeTimestamp())
       return nil
     } catch {
       logger.error("Failed to decode settings: \(String(describing: error), privacy: .public); backing up")
-      moveAside(url: url, timestamp: ISO8601DateFormatter().string(from: Date()))
+      moveAside(url: url, timestamp: filesystemSafeTimestamp())
       return nil
     }
   }
@@ -161,5 +167,15 @@ final class SettingsStore {
     let backupURL = url.deletingLastPathComponent()
       .appendingPathComponent("settings.json.broken-\(timestamp)")
     try? FileManager.default.moveItem(at: url, to: backupURL)
+  }
+
+  /// `yyyyMMdd-HHmmss` — filesystem-safe across case-insensitive and ':'-averse tooling.
+  /// ISO-8601 with its `:` separators confuses some backup + archive utilities.
+  private static func filesystemSafeTimestamp() -> String {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone(identifier: "UTC")
+    formatter.dateFormat = "yyyyMMdd-HHmmss"
+    return formatter.string(from: Date())
   }
 }

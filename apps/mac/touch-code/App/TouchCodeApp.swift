@@ -14,7 +14,8 @@ struct TouchCodeApp: App {
         ContentView(
           store: store,
           hierarchyManager: appState.hierarchyManager,
-          terminalEngine: engine
+          terminalEngine: engine,
+          settingsStore: appState.settingsStore
         )
         .frame(minWidth: 800, minHeight: 600)
         .navigationTitle("touch-code")
@@ -45,6 +46,7 @@ struct TouchCodeApp: App {
 @Observable
 final class AppState {
   let hierarchyManager: HierarchyManager
+  let settingsStore: SettingsStore
   private(set) var terminalEngine: TerminalEngine?
   private(set) var store: StoreOf<RootFeature>?
 
@@ -64,6 +66,10 @@ final class AppState {
     self.catalogStore = catalogStore
     self.hierarchyRuntime = runtime
     self.hierarchyManager = manager
+    // 0005 M6b: SettingsStore is constructed here so its `@Observable` surface is alive for
+    // the full app lifetime. Views observe it through environment injection; the
+    // EditorClient closes over it via .live(settings:hierarchy:) in bringUp().
+    self.settingsStore = SettingsStore()
     // TerminalEngine is constructed in bringUp() once we know whether a
     // GhosttyRuntime is available — this avoids a throwaway engine.
   }
@@ -84,12 +90,25 @@ final class AppState {
     hierarchyRuntime.attach(engine: engine)
 
     let manager = hierarchyManager
+    let settings = settingsStore
     self.store = Store(initialState: RootFeature.State()) {
       RootFeature()
     } withDependencies: {
       $0.hierarchyClient = .live(manager: manager)
       $0.terminalClient = .live(engine: engine)
+      // 0005 M6b critical wire: without these overrides, `EditorClient.liveValue` and
+      // `SettingsWriter.liveValue` fatalError on any descendants call. Both factories close
+      // over `settings` (global default + custom templates); `editorClient` additionally
+      // closes over `manager` (per-Project override).
+      $0.editorClient = .live(settings: settings, hierarchy: manager)
+      $0.settingsWriter = .live(settings)
     }
+  }
+
+  /// Flushes all pending debounced writes. Called by `applicationWillTerminate`.
+  func flushAllPersistedState() {
+    settingsStore.flush()
+    // `CatalogStore` writes on scheduleSave and on app termination via its own signals.
   }
 }
 

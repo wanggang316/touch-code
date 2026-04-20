@@ -17,7 +17,17 @@ struct ContentView: View {
   @Bindable var store: StoreOf<RootFeature>
   let hierarchyManager: HierarchyManager
   let terminalEngine: TerminalEngine
+  let settingsStore: SettingsStore
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
+
+  /// Transient toast for editor-open outcomes (success + failure). Non-nil = visible;
+  /// auto-clears after a short window via `.task(id:)`.
+  @State private var lastEditorToast: EditorToast?
+
+  enum EditorToast: Equatable {
+    case opened(String)
+    case failed(String)
+  }
 
   var body: some View {
     NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -33,7 +43,16 @@ struct ContentView: View {
         WorktreeDetailView(
           store: store.scope(state: \.detail, action: \.detail),
           selection: store.selection,
-          terminalEngine: terminalEngine
+          terminalEngine: terminalEngine,
+          editorStore: store.scope(state: \.editor, action: \.editor),
+          onEditorOpenResult: { result in
+            // Route success / failure to a transient toast. Editor-open outcomes are
+            // view-layer feedback; `EditorFeature` itself doesn't hold presentation state.
+            switch result {
+            case .success(let choice): lastEditorToast = .opened(choice.displayName)
+            case .failure(let error): lastEditorToast = .failed(editorErrorMessage(error))
+            }
+          }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         if store.inspectorVisible {
@@ -42,7 +61,18 @@ struct ContentView: View {
             .frame(minWidth: 420, idealWidth: 480)
         }
       }
+      .overlay(alignment: .bottom) { editorToastOverlay }
       .toolbar {
+        ToolbarItem(placement: .primaryAction) {
+          Button {
+            store.send(.settingsSheetShown)
+          } label: {
+            Image(systemName: "gearshape")
+              .accessibilityLabel("Settings")
+          }
+          .help("Settings (⌘,)")
+          .keyboardShortcut(",", modifiers: [.command])
+        }
         ToolbarItem(placement: .primaryAction) {
           Button {
             store.send(.inspectorVisibilityToggled)
@@ -50,11 +80,17 @@ struct ContentView: View {
             Image(systemName: store.inspectorVisible ? "sidebar.right" : "sidebar.right")
               .accessibilityLabel(store.inspectorVisible ? "Hide Inspector" : "Show Inspector")
           }
-          .help("Toggle inspector (reserved for C7)")
+          .help("Toggle git viewer inspector")
+        }
+      }
+      .sheet(item: $store.scope(state: \.settingsSheet, action: \.settingsSheet)) { sheetStore in
+        SettingsSheetView(store: sheetStore) {
+          store.send(.settingsSheet(.dismiss))
         }
       }
     }
     .environment(hierarchyManager)
+    .environment(settingsStore)
     .task {
       store.send(.onLaunch)
     }
@@ -106,3 +142,63 @@ struct ContentView: View {
 // `InspectorPlaceholder` (0007 M4, DEC-9) was replaced in 0005 M4a by
 // `GitViewerView`. Previous comment documented the reservation; the live
 // viewer now occupies the slot.
+
+extension ContentView {
+  @ViewBuilder
+  fileprivate var editorToastOverlay: some View {
+    if let toast = lastEditorToast {
+      toastPill(toast)
+        .padding(.bottom, 20)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .task(id: lastEditorToast) {
+          // Auto-dismiss after 2.5 s. `.task(id:)` cancels on re-entry so a second open
+          // (or navigation away) doesn't get clobbered.
+          try? await Task.sleep(for: .seconds(2.5))
+          if !Task.isCancelled {
+            await MainActor.run { lastEditorToast = nil }
+          }
+        }
+    }
+  }
+
+  @ViewBuilder
+  fileprivate func toastPill(_ toast: EditorToast) -> some View {
+    switch toast {
+    case .opened(let displayName):
+      HStack(spacing: 6) {
+        Image(systemName: "checkmark.circle.fill")
+          .accessibilityHidden(true)
+          .foregroundStyle(.tint)
+        Text("Opened in \(displayName)").font(.callout)
+      }
+      .padding(.horizontal, 12)
+      .padding(.vertical, 6)
+      .background(.ultraThickMaterial, in: .rect(cornerRadius: 8))
+      .shadow(radius: 4, y: 2)
+    case .failed(let message):
+      HStack(spacing: 6) {
+        Image(systemName: "exclamationmark.triangle.fill")
+          .accessibilityHidden(true)
+          .foregroundStyle(.orange)
+        Text(message).font(.callout)
+      }
+      .padding(.horizontal, 12)
+      .padding(.vertical, 6)
+      .background(.ultraThickMaterial, in: .rect(cornerRadius: 8))
+      .shadow(radius: 4, y: 2)
+    }
+  }
+
+  fileprivate func editorErrorMessage(_ error: EditorError) -> String {
+    switch error {
+    case .notInstalled(let id, let binary): return "\(id) CLI (`\(binary)`) not found"
+    case .spawnFailed(let reason): return "Could not launch: \(reason)"
+    case .nonZeroExit(_, let stderr):
+      return stderr.components(separatedBy: "\n").first?.trimmingCharacters(in: .whitespaces) ?? "Editor exited with error"
+    case .timedOut: return "Editor didn't respond within 5 s"
+    case .badTemplate(let id, let reason): return "Bad template for ‘\(id)’: \(reason)"
+    case .notADirectory(let path): return "Not a directory: \(path)"
+    case .unresolvedWorktree: return "No worktree resolved"
+    }
+  }
+}

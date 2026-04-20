@@ -44,14 +44,18 @@ struct RootFeature {
     /// inspector slot. Selection is forwarded by the `.selectionChanged`
     /// reducer branch so the feature always tracks the active Worktree.
     var gitViewer: GitViewerFeature.State = .init()
+    /// C8 M6b (0005): editor preferences + per-Project override state.
+    var editor: EditorFeature.State = .init()
 
     /// DEC-9 (M4, 2026-04-20): `true` shows the trailing inspector column
     /// (git diff/history viewer). `ContentView` hosts `GitViewerView` there
     /// once the 0005 M4a wiring lands.
     var inspectorVisible: Bool = false
 
-    // `// @Presents var settingsSheet: SettingsFeature.State?` — reserved
-    //   for C8 (DEC-4, M6 kickoff).
+    /// C8 M6b (0005): settings sheet presentation. `nil` = hidden; non-nil
+    /// presents the sheet with a dedicated sub-feature state that mirrors
+    /// a subset of `editor` for isolated in-sheet edits.
+    @Presents var settingsSheet: SettingsSheetFeature.State?
   }
 
   /// Opaque marker for diagnostic logging / tests — the full `TerminalEvent`
@@ -94,9 +98,12 @@ struct RootFeature {
     case engineEventReceived(LastEventMarker)
     case sidebarModeChanged(SidebarMode)
     case inspectorVisibilityToggled
+    case settingsSheetShown
+    case settingsSheet(PresentationAction<SettingsSheetFeature.Action>)
     case sidebar(HierarchySidebarFeature.Action)
     case detail(WorktreeDetailFeature.Action)
     case gitViewer(GitViewerFeature.Action)
+    case editor(EditorFeature.Action)
   }
 
   nonisolated enum CancelID: Sendable { case events, selectionChanges }
@@ -113,6 +120,9 @@ struct RootFeature {
     }
     Scope(state: \.gitViewer, action: \.gitViewer) {
       GitViewerFeature()
+    }
+    Scope(state: \.editor, action: \.editor) {
+      EditorFeature()
     }
 
     Reduce { state, action in
@@ -173,10 +183,27 @@ struct RootFeature {
       case .gitViewer:
         return .none
 
+      case .editor:
+        return .none
+
+      case .settingsSheetShown:
+        state.settingsSheet = SettingsSheetFeature.State()
+        return .none
+
+      case .settingsSheet(.dismiss):
+        state.settingsSheet = nil
+        return .none
+
+      case .settingsSheet:
+        return .none
+
       case .inspectorVisibilityToggled:
         state.inspectorVisible.toggle()
         return .none
       }
+    }
+    .ifLet(\.$settingsSheet, action: \.settingsSheet) {
+      SettingsSheetFeature()
     }
   }
 

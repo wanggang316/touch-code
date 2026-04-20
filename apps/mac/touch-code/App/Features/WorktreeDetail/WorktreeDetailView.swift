@@ -13,11 +13,20 @@ struct WorktreeDetailView: View {
   @Bindable var store: StoreOf<WorktreeDetailFeature>
   let selection: HierarchySelection
   let terminalEngine: TerminalEngine
+  /// Scoped editor-feature store; passed in by `ContentView` so the Worktree-header
+  /// dropdown shares a single editor-state source of truth with the Settings sheet.
+  let editorStore: StoreOf<EditorFeature>
+  /// Callback for editor-open outcomes (success / failure). Routes to a toast in the
+  /// parent view; kept out of the reducer so this view doesn't need to know about the
+  /// root-level toast plumbing.
+  let onEditorOpenResult: (Result<EditorChoice, EditorError>) -> Void
   @Environment(HierarchyManager.self) private var hierarchyManager
 
   var body: some View {
     if let address = resolveAddress() {
       VStack(spacing: 0) {
+        worktreeHeader(address: address)
+        Divider()
         TabBarView(
           store: store.scope(state: \.tabBar, action: \.tabBar),
           spaceID: address.space,
@@ -41,6 +50,42 @@ struct WorktreeDetailView: View {
     } else {
       placeholder
     }
+  }
+
+  /// Worktree-header strip: shows branch + path on the left and the "Open in ▾" dropdown
+  /// on the right (added in 0005 M6b).
+  @ViewBuilder
+  private func worktreeHeader(address: Address) -> some View {
+    let worktree = hierarchyManager.catalog
+      .spaces.first(where: { $0.id == address.space })?
+      .projects.first(where: { $0.id == address.project })?
+      .worktrees.first(where: { $0.id == address.worktree })
+    HStack(spacing: 10) {
+      if let worktree {
+        Label(worktree.branch ?? worktree.name, systemImage: "point.3.connected.trianglepath.dotted")
+          .font(.callout)
+          .foregroundStyle(.secondary)
+        Text(worktree.path)
+          .font(.system(.caption, design: .monospaced))
+          .foregroundStyle(.tertiary)
+          .lineLimit(1)
+          .truncationMode(.middle)
+      }
+      Spacer(minLength: 8)
+      if let worktree {
+        WorktreeHeaderOpenButton(
+          store: editorStore,
+          spaceID: address.space,
+          projectID: address.project,
+          worktreeID: address.worktree,
+          worktreePath: worktree.path,
+          onOpenResult: onEditorOpenResult
+        )
+      }
+    }
+    .padding(.horizontal, 10)
+    .padding(.vertical, 6)
+    .frame(maxWidth: .infinity, alignment: .leading)
   }
 
   private struct Address {
