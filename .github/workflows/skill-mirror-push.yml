@@ -1,0 +1,132 @@
+name: skill-mirror-push
+
+# Publishes touch-code-skill/ to the mirror repository on every release tag (v*).
+#
+# The mirror is the canonical source for out-of-app consumers — e.g.
+#   pi install git:github.com/wanggang316/touch-code-skill
+# Mirror URL is derived from apps/mac/Resources/agents.json's pi.mirrorURL, so the
+# monorepo remains the single source of truth.
+#
+# Owner setup (one-time, outside this workflow):
+#   1. Create github.com/wanggang316/touch-code-skill (empty repo, main branch).
+#   2. Generate a deploy key: ssh-keygen -t ed25519 -f /tmp/touch-code-mirror-deploy
+#      (no passphrase).
+#   3. Add the PUBLIC key to the mirror repo: Settings → Deploy keys → Allow write.
+#   4. Add the PRIVATE key to THIS repo: Settings → Secrets → MIRROR_DEPLOY_KEY.
+#   5. Enable branch protection on the mirror's `main` so only the deploy key writes.
+#
+# Until steps 1-5 are complete, this workflow exists but is expected to fail at the
+# `git clone` or `git push` step. That is the planned degraded state called out in
+# the exec plan; merging the YAML is still the right milestone boundary.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: skill-mirror-push-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  mirror-push:
+    runs-on: macos-14
+    env:
+      # The public Git URL used by `pi install git:…`. The SSH form is computed below
+      # from the mirror slug so `git push` has write access via the deploy key.
+      AGENTS_JSON: apps/mac/Resources/agents.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify tag matches touch-code-skill/VERSION
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(cat touch-code-skill/VERSION)"
+          if [ "${tag}" != "${version}" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match VERSION ${version}" >&2
+            exit 1
+          fi
+          echo "tag ${GITHUB_REF_NAME} matches VERSION ${version}"
+
+      - name: Resolve mirror repo slug from agents.json
+        id: mirror
+        run: |
+          mirror_url="$(jq -r '.agents.pi.mirrorURL' "${AGENTS_JSON}")"
+          if [ -z "${mirror_url}" ] || [ "${mirror_url}" = "null" ]; then
+            echo "agents.json has no pi.mirrorURL" >&2
+            exit 1
+          fi
+          # Strip a leading scheme, if any.
+          slug="${mirror_url#git:}"
+          slug="${slug#https://}"
+          slug="${slug#git@}"
+          # `github.com/owner/repo` or `github.com:owner/repo` (SSH form) → "owner/repo".
+          slug="${slug#github.com/}"
+          slug="${slug#github.com:}"
+          echo "slug=${slug}" >> "$GITHUB_OUTPUT"
+          echo "ssh_url=git@github.com:${slug}.git" >> "$GITHUB_OUTPUT"
+          echo "resolved mirror slug: ${slug}"
+
+      - name: Install deploy key
+        env:
+          MIRROR_DEPLOY_KEY: ${{ secrets.MIRROR_DEPLOY_KEY }}
+        run: |
+          if [ -z "${MIRROR_DEPLOY_KEY}" ]; then
+            echo "MIRROR_DEPLOY_KEY secret is not set — owner must provision it." >&2
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "${MIRROR_DEPLOY_KEY}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Clone mirror, rsync subtree, commit, push tag
+        env:
+          SSH_URL: ${{ steps.mirror.outputs.ssh_url }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          mirror_dir="$(mktemp -d)"
+          git clone --depth=1 "${SSH_URL}" "${mirror_dir}"
+
+          # Sync the source touch-code-skill/ over the mirror, deleting files that no
+          # longer exist upstream. Preserve the mirror's .git/.
+          rsync -a --delete \
+            --exclude=".git" \
+            touch-code-skill/ "${mirror_dir}/"
+
+          cd "${mirror_dir}"
+          git config user.email "mirror-push@touch-code.local"
+          git config user.name "touch-code mirror bot"
+
+          if git diff --quiet && git diff --staged --quiet; then
+            echo "mirror is already up-to-date with ${TAG}"
+            # Still tag if the tag doesn't exist — release cut should be reachable.
+            if ! git rev-parse "${TAG}" > /dev/null 2>&1; then
+              git tag "${TAG}"
+              git push origin "${TAG}"
+            fi
+            exit 0
+          fi
+
+          git add -A
+          commit_msg="Sync from ${GITHUB_REPOSITORY}@${GITHUB_SHA:0:12} (tag ${TAG})"
+          git commit -m "${commit_msg}"
+          git tag "${TAG}"
+          git push origin main --tags
+
+      - name: Workflow summary
+        if: always()
+        env:
+          SLUG: ${{ steps.mirror.outputs.slug }}
+        run: |
+          {
+            echo "### Skill mirror push — ${GITHUB_REF_NAME}"
+            echo ""
+            echo "- Mirror slug: \`${SLUG}\`"
+            echo "- Source commit: \`${GITHUB_SHA}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

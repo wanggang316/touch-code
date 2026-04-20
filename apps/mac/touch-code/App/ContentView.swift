@@ -4,15 +4,13 @@ import TouchCodeCore
 
 /// Root SwiftUI host for the TCA shell. Holds the `StoreOf<RootFeature>`
 /// that composes sidebar + detail sub-features (M3 + M4) and presents a
-/// `NavigationSplitView`. The `HierarchyManager` is injected through
-/// `@Environment` so descendant views can read `@Observable` state
-/// directly.
+/// two-column `NavigationSplitView`. The `HierarchyManager` is injected
+/// through `@Environment` so descendant views can read `@Observable`
+/// state directly — TCA state stays focused on selection + transient UI.
 ///
-/// - Leading column: `HierarchySidebarView` or `InboxSidebarPlaceholder`
-///   based on `store.sidebarMode` (DEC-2).
-/// - Detail column: `WorktreeDetailView` (tab bar + split viewport).
-/// - Trailing inspector column: reserved for C7 M3/M4 via DEC-9; hidden by
-///   default, toggled via `store.inspectorVisible`.
+/// Per DEC-2, the leading column swaps between `HierarchySidebarView`
+/// (default) and `InboxSidebarView` (C6 M5) based on `store.sidebarMode`
+/// — instead of a third NavigationSplitView column.
 struct ContentView: View {
   @Bindable var store: StoreOf<RootFeature>
   let hierarchyManager: HierarchyManager
@@ -102,6 +100,11 @@ struct ContentView: View {
       store.send(.onQuit)
     }
     .onChange(of: store.selection) { _, _ in
+      // Prune expansion sets when the catalog changes. Using the selection
+      // stream as a coarse "something structural changed" trigger — the
+      // catalog is read synchronously on render, so stale expansion IDs
+      // disappear next layout pass regardless; this just keeps the set
+      // tidy so it doesn't grow unbounded across long sessions.
       let currentSpaceIDs = Set(hierarchyManager.catalog.spaces.map(\.id))
       let currentProjectIDs = Set(
         hierarchyManager.catalog.spaces.flatMap { $0.projects.map(\.id) }
@@ -122,7 +125,9 @@ struct ContentView: View {
         currentSelection: store.selection
       )
     case .inbox:
-      InboxSidebarPlaceholder()
+      InboxSidebarView(
+        store: store.scope(state: \.inbox, action: \.inbox)
+      )
     }
   }
 

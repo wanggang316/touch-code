@@ -39,6 +39,7 @@ struct RootFeature {
     var sidebarMode: SidebarMode = .hierarchy
 
     var sidebar: HierarchySidebarFeature.State = .init()
+    var inbox: InboxSidebarFeature.State = .init()
     var detail: WorktreeDetailFeature.State = .init()
     /// C7 M3/M4 (0005): read-only git viewer hosted in the trailing
     /// inspector slot. Selection is forwarded by the `.selectionChanged`
@@ -101,6 +102,7 @@ struct RootFeature {
     case settingsSheetShown
     case settingsSheet(PresentationAction<SettingsSheetFeature.Action>)
     case sidebar(HierarchySidebarFeature.Action)
+    case inbox(InboxSidebarFeature.Action)
     case detail(WorktreeDetailFeature.Action)
     case gitViewer(GitViewerFeature.Action)
     case editor(EditorFeature.Action)
@@ -123,6 +125,10 @@ struct RootFeature {
     }
     Scope(state: \.editor, action: \.editor) {
       EditorFeature()
+    }
+
+    Scope(state: \.inbox, action: \.inbox) {
+      InboxSidebarFeature()
     }
 
     Reduce { state, action in
@@ -175,6 +181,19 @@ struct RootFeature {
         return .none
 
       case .sidebar:
+        return .none
+
+      case .inbox(.deeplinkRequested(let panelID)):
+        // Follow-up: resolve panelID → (space, project, worktree, tab)
+        // via HierarchyClient and dispatch the select chain per the
+        // design sketch's §Deeplink chain. HierarchyClient does not yet
+        // expose a `resolvePanel` helper — this branch is a no-op until
+        // that lands. The inbox row still marks-read (the InboxFeature
+        // reducer handles that before emitting this delegate).
+        _ = panelID
+        return .none
+
+      case .inbox:
         return .none
 
       case .detail:
