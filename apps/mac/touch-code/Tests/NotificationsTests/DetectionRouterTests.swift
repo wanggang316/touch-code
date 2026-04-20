@@ -25,15 +25,14 @@ struct DetectionRouterTests {
     let router = DetectionRouter(rules: rules, registry: registry, renderer: renderer)
     var iterator = router.transitions.makeAsyncIterator()
 
-    // Build an envelope whose match carries the sentinel-prefixed rule id
-    // so the router's ruleID(from:) extracts it correctly.
-    let matchText = "\(RuleStore.sentinelPrefix)claude.blocked"
+    // Explicit ruleID seam — the new M2-fix API. C3 M2 is expected to
+    // call this overload once its dispatcher can plumb the sidechannel.
     let envelope = Self.envelope(
       panelID: panelID,
       labels: ["agent:claude"],
-      match: matchText
+      match: "matched text"
     )
-    await router.handle(envelope: envelope)
+    await router.handle(envelope: envelope, ruleID: "claude.blocked")
     let output = await iterator.next()
     #expect(output?.transition.to == .blockedOnInput)
     #expect(output?.transition.trigger == .rule(id: "claude.blocked"))
@@ -55,21 +54,39 @@ struct DetectionRouterTests {
     let renderer = try TemplateRenderer(rules: rules)
     let registry = Self.emptyRegistry()  // no trackers
     let router = DetectionRouter(rules: rules, registry: registry, renderer: renderer)
-    var iterator = router.transitions.makeAsyncIterator()
+    let before = router.droppedEnvelopesCount
 
     let envelope = Self.envelope(
       panelID: PanelID(),
       labels: ["agent:claude"],
       match: "\(RuleStore.sentinelPrefix)claude.blocked"
     )
-    // Use a short-lived task so we can assert "no output within 100ms".
-    let task = Task { await iterator.next() }
+    await router.handle(envelope: envelope, ruleID: "claude.blocked")
+
+    // The router exposes a counter for observability — no tracker means
+    // the envelope is logged and counted as dropped.
+    #expect(router.droppedEnvelopesCount == before + 1)
+  }
+
+  @Test
+  func panelOutputMatchWithoutRuleIDIsCountedDropped() async throws {
+    // The protocol-compliant `handle(envelope:)` path has no ruleID; it
+    // must log-and-drop .panelOutputMatch envelopes (until C3 M2 plumbs
+    // the ruleID sidechannel).
+    let rules = AgentDetectionRules(rules: [])
+    let renderer = try TemplateRenderer(rules: rules)
+    let registry = Self.emptyRegistry()
+    let panelID = PanelID()
+    _ = registry.create(for: panelID)
+    let router = DetectionRouter(rules: rules, registry: registry, renderer: renderer)
+    let before = router.droppedEnvelopesCount
+    let envelope = Self.envelope(
+      panelID: panelID,
+      labels: ["agent:claude"],
+      match: "whatever"
+    )
     await router.handle(envelope: envelope)
-    try await Task.sleep(nanoseconds: 100_000_000)
-    task.cancel()
-    // Stream has not yielded — the router logged and dropped.
-    // (We can't directly assert "no yield"; the cancellation + the earlier
-    // tracker-lookup branch establishing we drop are sufficient.)
+    #expect(router.droppedEnvelopesCount == before + 1)
   }
 
   @Test
@@ -93,9 +110,9 @@ struct DetectionRouterTests {
     let envelope = Self.envelope(
       panelID: panelID,
       labels: ["agent:codex"],
-      match: "\(RuleStore.sentinelPrefix)claude.blocked"
+      match: "whatever"
     )
-    await router.handle(envelope: envelope)
+    await router.handle(envelope: envelope, ruleID: "claude.blocked")
     // Tracker state should remain .running — the transition never applied.
     let tracker = try #require(registry.tracker(for: panelID))
     #expect(tracker.state == .running)

@@ -7,18 +7,19 @@ import TouchCodeCore
 @MainActor
 struct RuleStoreTests {
   @Test
-  func loadOfMissingFileReturnsEmptyRules() throws {
+  func loadOfMissingFileYieldsEmptyAndClearsInternalSubs() throws {
     let url = Self.tempURL()
     let writer = FakeHookConfigWriter()
     let store = RuleStore(fileURL: url, hookWriter: writer)
     let rules = try store.loadAndMaterialise()
     #expect(rules.rules.isEmpty)
-    // Still calls save (strips any prior sentinel subs + adds none).
-    #expect(writer.saveCalls == 1)
+    // With zero rules we only strip the prefix; no upsert call.
+    #expect(writer.removeInternalCalls == [RuleStore.sentinelPrefix])
+    #expect(writer.upsertInternalCalls.isEmpty)
   }
 
   @Test
-  func materialiseAddsSentinelSubscriptionsAndPreservesOthers() throws {
+  func materialiseUpsertsSentinelSubscriptions() throws {
     let url = Self.tempURL()
     defer { try? FileManager.default.removeItem(at: url) }
     let rules = AgentDetectionRules(
@@ -37,24 +38,22 @@ struct RuleStoreTests {
     )
     try AtomicFileStore.write(rules, to: url)
 
-    // Writer pre-loaded with an unrelated user subscription.
-    let userSub = HookSubscription(event: .panelIdle, command: "~/bin/notify")
     let writer = FakeHookConfigWriter()
-    writer.config.subscriptions = [userSub]
-
     let store = RuleStore(fileURL: url, hookWriter: writer)
     _ = try store.loadAndMaterialise()
 
-    let saved = writer.config.subscriptions
-    let userSurvived = saved.contains { $0.id == userSub.id }
-    let newSentinel = saved.contains { $0.command.hasPrefix(RuleStore.sentinelPrefix) }
-    #expect(userSurvived)
-    #expect(newSentinel)
-    #expect(saved.count == 2)
+    // Remove stripped then upsert once with the single rule.
+    #expect(writer.removeInternalCalls == [RuleStore.sentinelPrefix])
+    #expect(writer.upsertInternalCalls.count == 1)
+    let upserted = try #require(writer.upsertInternalCalls.first)
+    #expect(upserted.count == 1)
+    let sub = try #require(upserted.first)
+    #expect(sub.command == "\(RuleStore.sentinelPrefix)claude.blocked")
+    #expect(sub.event == .panelOutputMatch)
   }
 
   @Test
-  func reloadRematerialiseStripsOldSentinelsBeforeAdding() throws {
+  func reloadStripsBeforeInsertingNewSet() throws {
     let url = Self.tempURL()
     defer { try? FileManager.default.removeItem(at: url) }
     let rules = AgentDetectionRules(
@@ -73,26 +72,22 @@ struct RuleStoreTests {
     )
     try AtomicFileStore.write(rules, to: url)
 
-    // Seed writer with an existing C6 sentinel (from a prior load).
-    let stale = HookSubscription(
-      event: .panelOutputMatch,
-      command: "\(RuleStore.sentinelPrefix)old.rule"
-    )
     let writer = FakeHookConfigWriter()
-    writer.config.subscriptions = [stale]
-
     let store = RuleStore(fileURL: url, hookWriter: writer)
     _ = try store.loadAndMaterialise()
+    // Call again — second materialise must strip + re-upsert without
+    // relying on any local filtering.
+    _ = try store.loadAndMaterialise()
 
-    let sentinels = writer.config.subscriptions.filter {
-      $0.command.hasPrefix(RuleStore.sentinelPrefix)
-    }
-    #expect(sentinels.count == 1)
-    #expect(sentinels[0].command == "\(RuleStore.sentinelPrefix)claude.blocked")
+    #expect(writer.removeInternalCalls.count == 2)
+    #expect(writer.upsertInternalCalls.count == 2)
+    let second = try #require(writer.upsertInternalCalls.last)
+    #expect(second.count == 1)
+    #expect(second[0].command == "\(RuleStore.sentinelPrefix)claude.blocked")
   }
 
   @Test
-  func invalidRegexThrows() throws {
+  func invalidRegexThrowsAndSkipsUpsert() throws {
     let url = Self.tempURL()
     defer { try? FileManager.default.removeItem(at: url) }
     let rules = AgentDetectionRules(
@@ -116,8 +111,9 @@ struct RuleStoreTests {
     #expect(throws: RuleStoreError.self) {
       _ = try store.loadAndMaterialise()
     }
-    // No save happened because validate failed before materialise.
-    #expect(writer.saveCalls == 0)
+    // Validation fails before materialise — no adapter calls.
+    #expect(writer.removeInternalCalls.isEmpty)
+    #expect(writer.upsertInternalCalls.isEmpty)
   }
 
   @Test
@@ -145,17 +141,14 @@ struct RuleStoreTests {
 
 @MainActor
 final class FakeHookConfigWriter: HookConfigWriting {
-  var config = HookConfig.empty
-  var loadCalls = 0
-  var saveCalls = 0
+  private(set) var upsertInternalCalls: [[HookSubscription]] = []
+  private(set) var removeInternalCalls: [String] = []
 
-  func load() throws -> HookConfig {
-    loadCalls += 1
-    return config
+  func upsertInternal(_ subscriptions: [HookSubscription]) throws {
+    upsertInternalCalls.append(subscriptions)
   }
 
-  func save(_ config: HookConfig) throws {
-    saveCalls += 1
-    self.config = config
+  func removeInternal(idsPrefixed prefix: String) throws {
+    removeInternalCalls.append(prefix)
   }
 }

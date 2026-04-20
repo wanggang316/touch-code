@@ -60,18 +60,43 @@ final class DetectionRouter: InternalHookSubscriber {
 
   // MARK: - InternalHookSubscriber
 
+  /// Protocol conformance. C3's dispatcher delivers every envelope whose
+  /// matched `HookSubscription.command` starts with the sentinel prefix.
+  /// **C6 requires the subscription's rule id to route a match** — and
+  /// C3's current protocol does not pass the `HookSubscription` alongside
+  /// the envelope. This overload therefore ONLY handles lifecycle events
+  /// (`panelExited`, `panelCrashed`, `panelOutput`, `panelInput`); it
+  /// logs and drops `.panelOutputMatch` envelopes. C3 M2 (or a test
+  /// adapter) is expected to call `handle(envelope:ruleID:)` directly
+  /// when it has the rule id in hand. This removes the v1-era
+  /// match-text sniffing that could misroute on user output containing
+  /// the sentinel prefix.
   nonisolated func handle(envelope: HookEnvelope) async {
-    await MainActor.run { self.handleOnMain(envelope: envelope) }
+    await MainActor.run { self.handleOnMain(envelope: envelope, ruleID: nil) }
+  }
+
+  /// Explicit entry point with the rule id plumbed through. Call this
+  /// when the caller knows which `HookSubscription.command` matched.
+  /// `DetectionRouter` is the sole MainActor consumer; callers must be
+  /// on the MainActor too. Synchronous today; async-friendly shape kept
+  /// here in case C3 M2 wires this behind an async dispatcher hand-off
+  /// that benefits from suspension points.
+  func handle(envelope: HookEnvelope, ruleID: String) {
+    handleOnMain(envelope: envelope, ruleID: ruleID)
   }
 
   // MARK: - Main-actor dispatch
 
-  private func handleOnMain(envelope: HookEnvelope) {
+  private(set) var droppedEnvelopesCount = 0
+
+  private func handleOnMain(envelope: HookEnvelope, ruleID passedRuleID: String?) {
     guard let panelID = envelope.panel?.id else {
+      droppedEnvelopesCount += 1
       logger.debug("Envelope without panel anchor; ignored.")
       return
     }
     guard let tracker = registry.tracker(for: panelID) else {
+      droppedEnvelopesCount += 1
       logger.info("Envelope for un-tracked Panel \(panelID); ignored.")
       return
     }
@@ -88,20 +113,24 @@ final class DetectionRouter: InternalHookSubscriber {
       return
     }
 
-    // Matched rule path — look up via the command suffix.
-    guard let ruleID = Self.ruleID(from: envelope) else {
-      logger.debug("No rule id; dropping.")
+    // Matched rule path — requires the rule id from the dispatcher.
+    guard let ruleID = passedRuleID else {
+      droppedEnvelopesCount += 1
+      logger.info("panel.outputMatch envelope missing ruleID sidechannel; dropping (awaiting C3 M2 dispatcher).")
       return
     }
     guard let rule = rules[ruleID] else {
+      droppedEnvelopesCount += 1
       logger.info("Rule id '\(ruleID)' not found (likely stale after reload); dropping.")
       return
     }
     guard Self.matchesAppliesWhen(rule: rule, envelope: envelope, panelID: panelID) else {
+      droppedEnvelopesCount += 1
       logger.debug("Rule '\(ruleID)' appliesWhen failed; dropping.")
       return
     }
     guard Self.passesMatchTargetFilter(rule: rule, envelope: envelope) else {
+      droppedEnvelopesCount += 1
       logger.debug("Rule '\(ruleID)' match target filter failed; dropping.")
       return
     }
@@ -113,7 +142,8 @@ final class DetectionRouter: InternalHookSubscriber {
       transition: transition,
       agent: rule.agent,
       title: title,
-      body: body
+      body: body,
+      kind: Self.resolveKind(transition: transition, envelope: envelope)
     ))
   }
 
@@ -132,7 +162,8 @@ final class DetectionRouter: InternalHookSubscriber {
       transition: transition,
       agent: agent,
       title: kindCopy.title,
-      body: kindCopy.body
+      body: kindCopy.body,
+      kind: Self.resolveKind(transition: transition, envelope: envelope)
     ))
   }
 
@@ -158,40 +189,28 @@ final class DetectionRouter: InternalHookSubscriber {
 
   // MARK: - Helpers
 
-  static func ruleID(from envelope: HookEnvelope) -> String? {
-    // C3 does not surface the subscription's command on the envelope; the
-    // dispatcher is expected to pass it via a sidechannel. Until C3 M2
-    // pins that shape, M4b is expected to inject the id alongside the
-    // envelope via a separate router entry point. For the current
-    // router contract, we mirror C3 DEC-16's intended prefix-route by
-    // reading an optional `userInfo`-style key on the envelope (none
-    // exists yet), and otherwise require the caller to have used
-    // `handle(envelope:ruleID:)`-style indirection. As M2a, we instead
-    // expect the envelope.matchedRange's `match` text to carry the
-    // sentinel-prefix marker in production rules via their regex.
-    // Fallback: extract `__touch-code/internal:notifications:<id>` from
-    // the match string if present.
-    guard case .panelOutputMatch(let match, _, _, _) = envelope.data else { return nil }
-    let prefix = RuleStore.sentinelPrefix
-    if let range = match.range(of: prefix) {
-      return String(match[range.upperBound...])
-    }
-    return nil
-  }
-
   static func matchesAppliesWhen(
     rule: AgentDetectionRules.Rule,
     envelope: HookEnvelope,
     panelID: PanelID
   ) -> Bool {
     if let panelLabel = rule.appliesWhen.panelLabelledAgent {
-      let label = "agent:\(panelLabel)"
-      guard envelope.panel?.labels.contains(label) == true else { return false }
+      let needle = "agent:\(panelLabel)"
+      guard Self.envelopeHasLabel(envelope, label: needle) else { return false }
     }
     if let required = rule.appliesWhen.panelID, required != panelID {
       return false
     }
     return true
+  }
+
+  /// Canonical label presence check. `HookEnvelope.PanelRef.labels` is an
+  /// ordered `[String]` but semantically set-like — this helper hides the
+  /// storage shape and gives us one place to add normalisation later
+  /// (case-folding, prefix matching) without scattering the logic.
+  static func envelopeHasLabel(_ envelope: HookEnvelope, label: String) -> Bool {
+    guard let labels = envelope.panel?.labels else { return false }
+    return labels.contains(label)
   }
 
   static func passesMatchTargetFilter(
@@ -235,11 +254,37 @@ final class DetectionRouter: InternalHookSubscriber {
   }
 
   /// One unit of router output. M4b's coordinator consumes this stream and
-  /// turns each entry into an `AgentNotification`.
+  /// turns each entry into an `AgentNotification`. `kind` is pre-resolved
+  /// here because the router is the only point with the full context
+  /// (envelope + trigger) to distinguish a normal `.completed` from a
+  /// non-zero-exit `.crashed`.
   struct RouterOutput: Sendable, Equatable {
     let transition: AgentStateTransition
     let agent: String
     let title: String
     let body: String
+    let kind: AgentNotification.Kind
+  }
+
+  static func resolveKind(
+    transition: AgentStateTransition,
+    envelope: HookEnvelope
+  ) -> AgentNotification.Kind {
+    switch envelope.event {
+    case .panelCrashed:
+      return .crashed
+    case .panelExited:
+      if case .panelExited(let code) = envelope.data, code != 0 {
+        return .crashed
+      }
+      return .completed
+    default:
+      switch transition.to {
+      case .completed: return .completed
+      case .blockedOnInput: return .blockedOnInput
+      case .idle: return .idle
+      case .running: return .completed  // no-op fallback; rarely reached
+      }
+    }
   }
 }

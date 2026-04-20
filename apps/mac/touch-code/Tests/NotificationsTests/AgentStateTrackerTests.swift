@@ -89,13 +89,79 @@ struct AgentStateTrackerTests {
   // MARK: - Override
 
   @Test
-  func overrideDoesNotEmit() throws {
+  func overrideDoesNotEmit() async throws {
     let tracker = Self.makeTracker()
+    var iterator = tracker.transitions.makeAsyncIterator()
     tracker.override(to: .idle)
     #expect(tracker.state == .idle)
-    // Verify the transitions stream is empty so far by checking lastActivity.
-    // (Streams are harder to peek non-destructively; we assert state is the
-    // sole observable effect.)
+    // Assert no transition reaches the stream within a short window. Using
+    // withTaskGroup + withTimeout would be heavier; a microsleep is enough
+    // because the stream has no pending yields.
+    let racer = Task {
+      await iterator.next()
+    }
+    try await Task.sleep(nanoseconds: 50_000_000)
+    racer.cancel()
+    let result = await racer.value
+    #expect(result == nil)
+  }
+
+  // MARK: - Idle timer (sleep/wake safe — R1 coverage)
+
+  @Test
+  func idleTimerFiresAfterThresholdWithoutActivity() async throws {
+    let tracker = AgentStateTracker(
+      panelID: PanelID(),
+      idleThreshold: 0.05,
+      clock: ContinuousClock(),
+      now: Date()
+    )
+    var iterator = tracker.transitions.makeAsyncIterator()
+    // No activity for > threshold — expect one .idle transition.
+    let transition = await iterator.next()
+    #expect(transition?.to == .idle)
+    if case .idleTimer(let seconds) = transition?.trigger {
+      #expect(seconds == 0.05)
+    } else {
+      Issue.record("Expected .idleTimer; got \(String(describing: transition?.trigger))")
+    }
+  }
+
+  @Test
+  func idleTimerRearmsIfActivityOccurredDuringSleep() async throws {
+    // R1 coverage: activity during the idle sleep must rearm the timer,
+    // so the resulting idle transition fires AFTER (activity + threshold)
+    // rather than at the original threshold. This avoids a single-
+    // iterator-cancel race by measuring wall-clock elapsed time from
+    // tracker init to the emitted idle.
+    let threshold: TimeInterval = 0.2
+    let activityDelay: TimeInterval = 0.1
+    let tracker = AgentStateTracker(
+      panelID: PanelID(),
+      idleThreshold: threshold,
+      clock: ContinuousClock(),
+      now: Date()
+    )
+    let startedAt = Date()
+
+    try await Task.sleep(nanoseconds: UInt64(activityDelay * 1_000_000_000))
+    let envelope = Self.envelope(
+      event: .panelOutput,
+      data: .panelOutput(output: Data("x".utf8), outputBytes: 1)
+    )
+    _ = tracker.ingest(envelope: envelope, ruleID: nil)
+
+    // Consume the first transition — must be the rearmed idle.
+    var iterator = tracker.transitions.makeAsyncIterator()
+    let transition = await iterator.next()
+    let firedAt = Date()
+
+    #expect(transition?.to == .idle)
+    let elapsed = firedAt.timeIntervalSince(startedAt)
+    // Without the rearm, elapsed would be ≈ threshold (0.2s). With the
+    // rearm, elapsed should be ≈ activityDelay + threshold (0.3s). Allow
+    // a 30ms jitter band below the rearm target.
+    #expect(elapsed >= activityDelay + threshold - 0.03)
   }
 
   // MARK: - Teardown

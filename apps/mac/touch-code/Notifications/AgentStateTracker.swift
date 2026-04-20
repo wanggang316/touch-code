@@ -26,7 +26,11 @@ final class AgentStateTracker {
   private let idleThreshold: TimeInterval
   private let clock: any Clock<Duration>
   private let (continuation, stream): (AsyncStream<AgentStateTransition>.Continuation, AsyncStream<AgentStateTransition>)
-  private var idleTimerTask: Task<Void, Never>?
+  /// `Task` is `Sendable` and `cancel()` is safe from any context. We
+  /// store the handle `nonisolated(unsafe)` so `deinit` can cancel
+  /// the pending sleep without hopping to `MainActor`. Mutations stay
+  /// on `MainActor` (only `armIdleTimer()` / `teardown()` write).
+  private nonisolated(unsafe) var idleTimerTask: Task<Void, Never>?
 
   init(
     panelID: PanelID,

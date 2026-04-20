@@ -81,30 +81,18 @@ final class RuleStore {
     _ = try TemplateRenderer(rules: rules)
   }
 
-  /// Read C3's `HookConfig`, strip all existing `__touch-code/internal:notifications:`
-  /// subscriptions, append fresh ones from the rules, write back. Retries
-  /// once on stale-version conflict (R7 mitigation).
+  /// Materialise every rule as a sentinel-prefixed `HookSubscription`
+  /// via C3's reserved-namespace API (revised DEC-P1). `upsertInternal`
+  /// is atomic on C3's side — no retry loop, no load-filter-append
+  /// dance, no risk of C3 silently dropping our own rows on next load
+  /// because it validates the reserved prefix rather than filtering
+  /// it. Stale sentinel rows from removed rules are cleared by the
+  /// leading `removeInternal` so only the current rule set survives.
   private func materialise(_ rules: AgentDetectionRules) throws {
-    var attempt = 0
-    while attempt < 2 {
-      let current = try hookWriter.load()
-      let filtered = current.subscriptions.filter { !Self.isNotificationsSentinel($0.command) }
-      let newSubscriptions = rules.rules.map { Self.makeSubscription(from: $0) }
-      let rebuilt = HookConfig(
-        version: current.version,
-        recursionWindowMs: current.recursionWindowMs,
-        subscriptions: filtered + newSubscriptions
-      )
-      do {
-        try hookWriter.save(rebuilt)
-        return
-      } catch {
-        attempt += 1
-        if attempt >= 2 {
-          logger.error("Failed to materialise rules after retry: \(String(describing: error))")
-          throw RuleStoreError.hooksFileBusy(path: "hooks.json")
-        }
-      }
+    try hookWriter.removeInternal(idsPrefixed: Self.sentinelPrefix)
+    let newSubscriptions = rules.rules.map { Self.makeSubscription(from: $0) }
+    if !newSubscriptions.isEmpty {
+      try hookWriter.upsertInternal(newSubscriptions)
     }
   }
 

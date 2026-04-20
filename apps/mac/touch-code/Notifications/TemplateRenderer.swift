@@ -258,7 +258,9 @@ nonisolated struct TemplateRenderer {
 }
 
 /// Errors raised by `TemplateRenderer.init` and surfaced further up by
-/// `RuleStore.loadAndMaterialise`.
+/// `RuleStore.loadAndMaterialise`. No `hooksFileBusy` variant: C3's
+/// `upsertInternal` is atomic on its side; contention is C3's problem,
+/// not ours (revised DEC-P1).
 nonisolated enum RuleStoreError: Error, Equatable {
   case unknownTemplateField(ruleID: String, path: String)
   case unknownFilter(ruleID: String, filter: String)
@@ -266,5 +268,4 @@ nonisolated enum RuleStoreError: Error, Equatable {
   case invalidRegex(ruleID: String, pattern: String)
   case unsupportedVersion(Int)
   case missingMatch(ruleID: String)
-  case hooksFileBusy(path: String)
 }
