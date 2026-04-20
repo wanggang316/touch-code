@@ -160,13 +160,23 @@ final class NotificationCoordinator {
   /// sheet via the delegate; subsequent calls are no-ops (idempotent).
   func onAgentPanelCreated(_ panelID: PanelID) async {
     if alreadyPrompted.contains(panelID) { return }
-    alreadyPrompted.insert(panelID)
     let status = settings.settings.notifications.authStatus
     guard status == .notDetermined else { return }
     if settings.settings.notifications.neverPrompt { return }
     if let until = settings.settings.notifications.notNowUntil, Date() < until { return }
 
     let decision = await permissionDelegate.presentPrompt()
+
+    // TOCTOU close-out: `refreshAuthorizationStatus` may flip the cache to
+    // `.authorized` while we were awaiting the sheet. Re-read here so a
+    // user who grants permission in System Settings mid-prompt does not
+    // face a redundant `requestAuthorization` call.
+    if settings.settings.notifications.authStatus != .notDetermined {
+      alreadyPrompted.insert(panelID)
+      return
+    }
+
+    alreadyPrompted.insert(panelID)
     switch decision {
     case .continue:
       let newStatus = await osNotifier.requestAuthorization()

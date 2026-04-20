@@ -200,6 +200,96 @@ struct NotificationCoordinatorTests {
     #expect(harness.settings.settings.notifications.authStatus == .denied)
   }
 
+  /// Cool-down expiry: `.notNow` sets `notNowUntil` 24h in the future; once
+  /// that timestamp has passed, the *next* agent-panel creation must
+  /// re-prompt. We simulate time passing by stamping `notNowUntil` into the
+  /// past and firing the creation again on a fresh PanelID.
+  @Test
+  func coolDownExpiryAllowsRepromptOnNextPanelCreation() async throws {
+    let harness = Self.make(authStatus: .notDetermined, decision: .notNow)
+    await harness.coordinator.onAgentPanelCreated(PanelID())
+    #expect(harness.mockDelegate.presentPromptCalls == 1)
+    #expect(harness.settings.settings.notifications.notNowUntil != nil)
+
+    // Advance the clock past the cool-down.
+    harness.settings.mutate {
+      $0.notifications.notNowUntil = Date().addingTimeInterval(-1)
+    }
+
+    await harness.coordinator.onAgentPanelCreated(PanelID())
+    #expect(harness.mockDelegate.presentPromptCalls == 2)
+  }
+
+  /// Post-denial recovery: the cache is `.denied`, the user flips to
+  /// `.authorized` in System Settings, `refreshAuthorizationStatus` picks
+  /// up the change, and the next router transition posts to the OS.
+  @Test
+  func postDenialRecoveryPostsAfterExternalFlip() async throws {
+    let harness = Self.make(authStatus: .denied)
+    harness.mockNotifier.currentStatus = .authorized
+    await harness.coordinator.refreshAuthorizationStatus()
+    #expect(harness.settings.settings.notifications.authStatus == .authorized)
+
+    await harness.feed(.init(
+      transition: Self.transition(to: .completed, trigger: .rule(id: "rule")),
+      agent: "claude",
+      title: "done",
+      body: "",
+      kind: .completed
+    ))
+    #expect(harness.mockNotifier.postedNotifications.count == 1)
+  }
+
+  /// TOCTOU close-out: if the auth cache flips to `.authorized` while the
+  /// pre-prompt sheet is showing (e.g. user grants in System Settings and
+  /// `applicationDidBecomeActive` fires a refresh), the coordinator must
+  /// re-read the cache after the await and skip the OS `requestAuthorization`
+  /// that would otherwise be redundant.
+  @Test
+  func refreshAuthorizationMidPromptSuppressesRedundantRequest() async throws {
+    let delegate = BlockingPermissionDelegate(decision: .continue)
+    let inbox = InboxStore(
+      fileURL: FileManager.default.temporaryDirectory.appending(component: "\(UUID()).json"),
+      debounce: .seconds(3600)
+    )
+    let notifier = MockOSNotifier(initialStatus: .notDetermined)
+    let settings = NotificationSettingsStore(
+      fileURL: FileManager.default.temporaryDirectory.appending(component: "\(UUID()).json"),
+      debounce: .seconds(3600)
+    )
+    settings.mutate { $0.notifications.authStatus = .notDetermined }
+    let registry = TrackerRegistry(
+      hierarchy: HierarchyManager(
+        catalog: .default,
+        store: CatalogStore(fileURL: FileManager.default.temporaryDirectory.appending(component: "\(UUID()).json")),
+        runtime: FakeHierarchyRuntime()
+      ),
+      idleThreshold: 120
+    )
+    let coordinator = NotificationCoordinator(
+      inbox: inbox,
+      badger: MockDockBadger(),
+      osNotifier: notifier,
+      settings: settings,
+      registry: registry,
+      permissionDelegate: delegate
+    )
+
+    let panelID = PanelID()
+    let promptTask = Task { await coordinator.onAgentPanelCreated(panelID) }
+    await delegate.waitForEntry()
+
+    // External flip — user granted in System Settings while we awaited.
+    notifier.currentStatus = .authorized
+    await coordinator.refreshAuthorizationStatus()
+
+    delegate.resume()
+    await promptTask.value
+
+    #expect(notifier.requestAuthorizationCalls == 0)
+    #expect(settings.settings.notifications.authStatus == .authorized)
+  }
+
   // MARK: - Harness
 
   private static func make(
@@ -323,6 +413,47 @@ final class MockOSNotifier: OSNotifier {
 final class MockDockBadger: DockBadger {
   private(set) var calls: [Int] = []
   func setUnreadCount(_ n: Int) { calls.append(n) }
+}
+
+/// Permission delegate that suspends `presentPrompt()` until `resume()` is
+/// called. Lets tests interleave operations that race the sheet (e.g.
+/// `refreshAuthorizationStatus`).
+@MainActor
+final class BlockingPermissionDelegate: NotificationPermissionDelegate {
+  let decision: PermissionDecision
+  private var entryContinuation: CheckedContinuation<Void, Never>?
+  private var entrySignalled = false
+  private var resumeContinuation: CheckedContinuation<Void, Never>?
+
+  init(decision: PermissionDecision) { self.decision = decision }
+
+  func presentPrompt() async -> PermissionDecision {
+    signalEntry()
+    await withCheckedContinuation { cont in
+      resumeContinuation = cont
+    }
+    return decision
+  }
+
+  /// Resumes the suspended `presentPrompt()` call.
+  func resume() {
+    resumeContinuation?.resume()
+    resumeContinuation = nil
+  }
+
+  /// Awaits until `presentPrompt()` has entered its suspension point.
+  func waitForEntry() async {
+    if entrySignalled { return }
+    await withCheckedContinuation { cont in
+      entryContinuation = cont
+    }
+  }
+
+  private func signalEntry() {
+    entrySignalled = true
+    entryContinuation?.resume()
+    entryContinuation = nil
+  }
 }
 
 @MainActor
