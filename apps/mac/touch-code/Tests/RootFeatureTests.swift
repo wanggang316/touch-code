@@ -48,7 +48,7 @@ struct RootFeatureTests {
       // reason.
       $0.hierarchyClient.snapshot = { Catalog(windows: [], spaces: [], selectedSpaceID: nil) }
       $0.gitService = GitServiceClient.testValue
-      $0.editorFacade = EditorServiceFacade.testValue
+      $0.editorClient = EditorClient.testValue
     }
 
     let selection = HierarchySelection(
@@ -120,7 +120,7 @@ struct RootFeatureTests {
       $0.hierarchyClient.selectionChanges = { selectionStream }
       $0.hierarchyClient.snapshot = { Catalog(windows: [], spaces: [], selectedSpaceID: nil) }
       $0.gitService = GitServiceClient.testValue
-      $0.editorFacade = EditorServiceFacade.testValue
+      $0.editorClient = EditorClient.testValue
     }
 
     await store.send(.onLaunch)

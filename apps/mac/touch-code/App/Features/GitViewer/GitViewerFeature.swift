@@ -5,8 +5,8 @@ import TouchCodeIPC
 
 /// C7 read-only git viewer. Scoped to a single `WorktreeID`; resets on
 /// `.worktreeSelected`. Drives `GitServiceClient` for log/diff/status and
-/// delegates `.openInEditorRequested` to `EditorServiceFacade` (M3
-/// placeholder, replaced by `EditorClient` in M6).
+/// delegates `.openInEditorRequested` to `EditorClient.open` (wired in
+/// M6a over `LiveEditorService` from M5).
 ///
 /// State modes are tracked via `logState` + `diffState`. Every scope
 /// transition cancels the prior in-flight request via `CancelID` so a slow
@@ -19,8 +19,8 @@ struct GitViewerFeature {
     /// `HierarchyClient.selectionChanges`.
     var worktreeID: WorktreeID?
     /// Project ID of the selected Worktree's parent. Required by
-    /// `EditorServiceFacade.openDirectory` so per-project editor overrides
-    /// resolve. Updated alongside `worktreeID`.
+    /// `EditorClient.open` so per-Project editor overrides resolve. Updated
+    /// alongside `worktreeID`.
     var projectID: ProjectID?
 
     var scope: DiffScope = .working
@@ -124,7 +124,7 @@ struct GitViewerFeature {
 
   @Dependency(GitServiceClient.self) var gitService
   @Dependency(HierarchyClient.self) var hierarchyClient
-  @Dependency(EditorServiceFacade.self) var editorFacade
+  @Dependency(EditorClient.self) var editorClient
 
   var body: some Reducer<State, Action> {
     Reduce { state, action in
@@ -349,7 +349,7 @@ struct GitViewerFeature {
   }
 
   private func editorOpenRequest(worktreeID: WorktreeID, projectID: ProjectID?) -> Effect<Action> {
-    let client = self.editorFacade
+    let client = self.editorClient
     let hierarchy = self.hierarchyClient
     return .run { send in
       let snapshot = await hierarchy.snapshot()
@@ -358,15 +358,28 @@ struct GitViewerFeature {
         return
       }
       do {
-        let choice = try await client.openDirectory(
-          URL(fileURLWithPath: path), nil, projectID
-        )
+        let choice = try await client.open(URL(fileURLWithPath: path), nil, projectID)
         await send(.editorOpened(editorID: choice.id))
-      } catch EditorPlaceholderError.notYetImplemented {
-        await send(.editorOpenFailed(reason: "Editor service not yet available (M3 placeholder)"))
+      } catch let error as EditorError {
+        await send(.editorOpenFailed(reason: Self.editorErrorDescription(error)))
       } catch {
         await send(.editorOpenFailed(reason: String(describing: error)))
       }
+    }
+  }
+
+  /// Human-readable reason for an `EditorError`, surfaced as a toast subtitle by the view.
+  nonisolated static func editorErrorDescription(_ error: EditorError) -> String {
+    switch error {
+    case .notInstalled(let id, let binary):
+      return "\(id) CLI (`\(binary)`) not found on PATH"
+    case .spawnFailed(let reason): return "Could not launch editor: \(reason)"
+    case .nonZeroExit(_, let stderr):
+      return stderr.components(separatedBy: "\n").first?.trimmingCharacters(in: .whitespaces) ?? "Editor exited with error"
+    case .timedOut: return "Editor did not respond within 5 seconds"
+    case .badTemplate(let id, let reason): return "Bad template for ‘\(id)’: \(reason)"
+    case .notADirectory(let path): return "Not a directory: \(path)"
+    case .unresolvedWorktree: return "No worktree resolved"
     }
   }
 

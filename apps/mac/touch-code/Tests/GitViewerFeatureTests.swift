@@ -89,7 +89,7 @@ struct GitViewerFeatureTests {
     } withDependencies: {
       $0.gitService = GitServiceClient.testValue
       $0.hierarchyClient = HierarchyClient.testValue
-      $0.editorFacade = EditorServiceFacade.testValue
+      $0.editorClient = EditorClient.testValue
     }
 
     await store.send(.worktreeSelected(projectID: nil, worktreeID: nil)) { state in
@@ -111,7 +111,7 @@ struct GitViewerFeatureTests {
     } withDependencies: {
       $0.gitService.workingTreeDiff = { _, _ in Self.sampleDiff() }
       $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
-      $0.editorFacade = EditorServiceFacade.testValue
+      $0.editorClient = EditorClient.testValue
     }
 
     await store.send(.worktreeSelected(projectID: Self.sampleProjectID, worktreeID: Self.sampleWorktreeID)) {
@@ -137,7 +137,7 @@ struct GitViewerFeatureTests {
     } withDependencies: {
       $0.gitService = GitServiceClient.testValue
       $0.hierarchyClient = HierarchyClient.testValue
-      $0.editorFacade = EditorServiceFacade.testValue
+      $0.editorClient = EditorClient.testValue
     }
     // No effect scheduled; TestStore would assert on any surprise action.
     await store.send(.worktreeSelected(projectID: Self.sampleProjectID, worktreeID: Self.sampleWorktreeID))
@@ -158,7 +158,7 @@ struct GitViewerFeatureTests {
     } withDependencies: {
       $0.gitService.log = { _, _ in logPage }
       $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
-      $0.editorFacade = EditorServiceFacade.testValue
+      $0.editorClient = EditorClient.testValue
     }
 
     await store.send(.scopeChanged(.log)) {
@@ -182,7 +182,7 @@ struct GitViewerFeatureTests {
     } withDependencies: {
       $0.gitService.stagedDiff = { _, _ in stagedDiff }
       $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
-      $0.editorFacade = EditorServiceFacade.testValue
+      $0.editorClient = EditorClient.testValue
     }
 
     await store.send(.scopeChanged(.staged)) {
@@ -212,7 +212,7 @@ struct GitViewerFeatureTests {
     } withDependencies: {
       $0.gitService.commitDiff = { _, _, _ in commitDiff }
       $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
-      $0.editorFacade = EditorServiceFacade.testValue
+      $0.editorClient = EditorClient.testValue
     }
 
     await store.send(.commitSelected(sha: "abc1234")) {
@@ -238,7 +238,7 @@ struct GitViewerFeatureTests {
     } withDependencies: {
       $0.gitService = GitServiceClient.testValue
       $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
-      $0.editorFacade = EditorServiceFacade.testValue
+      $0.editorClient = EditorClient.testValue
     }
     // Invalid SHA is rejected before any service call. TestStore would fail
     // if the unimplemented `commitDiff` stub were invoked.
@@ -263,7 +263,7 @@ struct GitViewerFeatureTests {
     } withDependencies: {
       $0.gitService.log = { _, _ in secondPage }
       $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
-      $0.editorFacade = EditorServiceFacade.testValue
+      $0.editorClient = EditorClient.testValue
     }
 
     await store.send(.logScrolledToBottom) {
@@ -291,7 +291,7 @@ struct GitViewerFeatureTests {
     } withDependencies: {
       $0.gitService = GitServiceClient.testValue
       $0.hierarchyClient = HierarchyClient.testValue
-      $0.editorFacade = EditorServiceFacade.testValue
+      $0.editorClient = EditorClient.testValue
     }
     await store.send(.logScrolledToBottom)
   }
@@ -309,7 +309,7 @@ struct GitViewerFeatureTests {
     } withDependencies: {
       $0.gitService.workingTreeDiff = { _, _ in throw GitError.exec(code: 1, stderr: "fatal") }
       $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
-      $0.editorFacade = EditorServiceFacade.testValue
+      $0.editorClient = EditorClient.testValue
     }
 
     await store.send(.scopeChanged(.working)) {
@@ -331,7 +331,7 @@ struct GitViewerFeatureTests {
     } withDependencies: {
       $0.gitService = GitServiceClient.testValue
       $0.hierarchyClient = HierarchyClient.testValue
-      $0.editorFacade = EditorServiceFacade.testValue
+      $0.editorClient = EditorClient.testValue
     }
     await store.send(.paneFocusCycled) { $0.focus = .files }
     await store.send(.paneFocusCycled) { $0.focus = .hunks }
@@ -355,7 +355,7 @@ struct GitViewerFeatureTests {
         return Self.sampleDiff()
       }
       $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
-      $0.editorFacade = EditorServiceFacade.testValue
+      $0.editorClient = EditorClient.testValue
     }
     await store.send(.whitespaceToggled) {
       $0.ignoreWhitespace = true
@@ -389,7 +389,7 @@ struct GitViewerFeatureTests {
       }
       $0.gitService.stagedDiff = { _, _ in stagedDiff }
       $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
-      $0.editorFacade = EditorServiceFacade.testValue
+      $0.editorClient = EditorClient.testValue
     }
 
     await store.send(.scopeChanged(.working)) {
@@ -423,7 +423,7 @@ struct GitViewerFeatureTests {
     } withDependencies: {
       $0.gitService = GitServiceClient.testValue
       $0.hierarchyClient = HierarchyClient.testValue
-      $0.editorFacade = EditorServiceFacade.testValue
+      $0.editorClient = EditorClient.testValue
     }
     await store.send(.whitespaceToggled) { $0.ignoreWhitespace = true }
   }
@@ -431,7 +431,10 @@ struct GitViewerFeatureTests {
   // MARK: - Editor facade delegation
 
   @Test
-  func openInEditorRequestedSurfacesPlaceholderFailure() async {
+  func openInEditorRequestedSurfacesNotInstalledAsFailure() async {
+    // Replaces the M3 `openInEditorRequestedSurfacesPlaceholderFailure`. The facade's
+    // placeholder-error is gone in M6a; the analog is `EditorError.notInstalled` when the
+    // preferred editor's binary is missing on PATH.
     var initial = GitViewerFeature.State()
     initial.worktreeID = Self.sampleWorktreeID
     initial.projectID = Self.sampleProjectID
@@ -441,12 +444,13 @@ struct GitViewerFeatureTests {
     } withDependencies: {
       $0.gitService = GitServiceClient.testValue
       $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
-      // Live facade — throws EditorPlaceholderError.notYetImplemented.
-      $0.editorFacade = EditorServiceFacade.liveValue
+      $0.editorClient.open = { _, _, _ in
+        throw EditorError.notInstalled(id: "zed", binary: "zed")
+      }
     }
     await store.send(.openInEditorRequested)
     await store.receive(\.editorOpenFailed) { state in
-      state.lastEditorResult = .failed(reason: "Editor service not yet available (M3 placeholder)")
+      state.lastEditorResult = .failed(reason: "zed CLI (`zed`) not found on PATH")
     }
   }
 
@@ -456,7 +460,7 @@ struct GitViewerFeatureTests {
     initial.worktreeID = Self.sampleWorktreeID
     initial.projectID = Self.sampleProjectID
 
-    let cursor = EditorChoiceDTO(
+    let cursor = EditorChoice(
       id: "cursor",
       displayName: "Cursor",
       binaryPath: URL(fileURLWithPath: "/usr/local/bin/cursor"),
@@ -467,7 +471,7 @@ struct GitViewerFeatureTests {
     } withDependencies: {
       $0.gitService = GitServiceClient.testValue
       $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
-      $0.editorFacade.openDirectory = { _, _, _ in cursor }
+      $0.editorClient.open = { _, _, _ in cursor }
     }
     await store.send(.openInEditorRequested)
     await store.receive(\.editorOpened) {
@@ -486,7 +490,7 @@ struct GitViewerFeatureTests {
     } withDependencies: {
       $0.gitService = GitServiceClient.testValue
       $0.hierarchyClient.snapshot = { Catalog(spaces: [], selectedSpaceID: nil) }
-      $0.editorFacade = EditorServiceFacade.testValue
+      $0.editorClient = EditorClient.testValue
     }
     await store.send(.openInEditorRequested)
     await store.receive(\.editorOpenFailed) { state in
@@ -509,7 +513,7 @@ struct GitViewerFeatureTests {
     } withDependencies: {
       $0.gitService.workingTreeDiff = { _, _ in Self.sampleDiff() }
       $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
-      $0.editorFacade = EditorServiceFacade.testValue
+      $0.editorClient = EditorClient.testValue
     }
     await store.send(.refreshRequested) { $0.diffState = .loading }
     await store.receive(\.diffSucceeded) { state in
@@ -536,7 +540,7 @@ struct GitViewerFeatureTests {
     } withDependencies: {
       $0.gitService = GitServiceClient.testValue
       $0.hierarchyClient = HierarchyClient.testValue
-      $0.editorFacade = EditorServiceFacade.testValue
+      $0.editorClient = EditorClient.testValue
     }
     #expect(store.state.copyLargeDiffCommandToken == 0)
     await store.send(.copyLargeDiffCommandRequested) {
@@ -562,7 +566,7 @@ struct GitViewerFeatureTests {
     } withDependencies: {
       $0.gitService = GitServiceClient.testValue
       $0.hierarchyClient = HierarchyClient.testValue
-      $0.editorFacade = EditorServiceFacade.testValue
+      $0.editorClient = EditorClient.testValue
     }
     await store.send(.copyLargeDiffCommandRequested) // no mutation
   }
@@ -583,7 +587,7 @@ struct GitViewerFeatureTests {
     } withDependencies: {
       $0.gitService = GitServiceClient.testValue
       $0.hierarchyClient = HierarchyClient.testValue
-      $0.editorFacade = EditorServiceFacade.testValue
+      $0.editorClient = EditorClient.testValue
     }
     await store.send(.copyLargeDiffCommandRequested) // no mutation
   }
@@ -595,7 +599,7 @@ struct GitViewerFeatureTests {
     } withDependencies: {
       $0.gitService = GitServiceClient.testValue
       $0.hierarchyClient = HierarchyClient.testValue
-      $0.editorFacade = EditorServiceFacade.testValue
+      $0.editorClient = EditorClient.testValue
     }
     await store.send(.fileSelected("lib/foo.swift")) {
       $0.selectedFilePath = "lib/foo.swift"
