@@ -15,8 +15,39 @@ struct SystemCommand: AsyncParsableCommand {
       StatusCommand.self,
       QuitCommand.self,
       SocketsCommand.self,
+      LaunchCommand.self,
+      CompletionsCommand.self,
     ]
   )
+}
+
+// MARK: - system completions
+
+/// Emit a shell completion script on stdout. Users install with e.g.
+/// `tc system completions zsh > ~/.zsh/completions/_tc`. Delegates to
+/// ArgumentParser's built-in generator so the script always reflects
+/// the current subcommand tree.
+struct CompletionsCommand: ParsableCommand {
+  static let configuration = CommandConfiguration(
+    commandName: "completions",
+    abstract: "Print a shell completion script for tc (bash / zsh / fish)."
+  )
+
+  @Argument(help: "Target shell (bash, zsh, or fish).")
+  var shell: String = "zsh"
+
+  func run() throws {
+    let kind: CompletionShell
+    switch shell.lowercased() {
+    case "bash": kind = .bash
+    case "zsh":  kind = .zsh
+    case "fish": kind = .fish
+    default:
+      FileHandle.standardError.write(Data("error: unknown shell '\(shell)' (want bash / zsh / fish)\n".utf8))
+      throw ExitCode(CLIExitCode.userError.rawValue)
+    }
+    print(TouchCodeCLI.completionScript(for: kind))
+  }
 }
 
 // MARK: - system ping
@@ -176,6 +207,75 @@ struct SocketsCommand: AsyncParsableCommand {
         return "\(obj["path"] ?? "?")  \(reach)"
       }
     )
+  }
+}
+
+// MARK: - system launch
+
+/// Ensure the touch-code app is running and its socket is reachable.
+/// Exits 0 when the socket is already up or once it becomes reachable
+/// after launch. Uses `/usr/bin/open -ga touch-code` (Launch Services)
+/// to bring the app up without stealing focus.
+struct LaunchCommand: AsyncParsableCommand {
+  static let configuration = CommandConfiguration(
+    commandName: "launch",
+    abstract: "Start the touch-code app if it isn't running and wait until its socket is reachable."
+  )
+
+  @OptionGroup var globals: GlobalOptions
+  @Option(name: .long, help: "Seconds to wait for the socket to come up after launch.")
+  var waitSeconds: Double = 10
+  @Option(name: .long, help: "Bundle name to pass to `open -ga` (default: touch-code).")
+  var bundle: String = "touch-code"
+
+  func run() async throws {
+    let path = globals.resolvedSocketPath
+
+    if SocketDiscovery.isReachable(path: path) {
+      try Renderer.emitObject(
+        ["path": path, "alreadyRunning": true],
+        mode: globals.renderMode,
+        textRender: { _ in "already running at \(path)" }
+      )
+      return
+    }
+
+    // Fire-and-wait launch via Launch Services. `-g` keeps the user's
+    // frontmost app focused; `-a` names a bundle by application name.
+    // The CLI exits non-zero only if the wait deadline elapses with no
+    // socket — matches the CLIExitCode.launchTimeout contract.
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+    process.arguments = ["-ga", bundle]
+    do {
+      try process.run()
+      process.waitUntilExit()
+    } catch {
+      CLIError(code: .launchTimeout, message: "failed to invoke /usr/bin/open: \(error)").exitProcess()
+    }
+    if process.terminationStatus != 0 {
+      CLIError(
+        code: .launchTimeout,
+        message: "open -ga \(bundle) exited with status \(process.terminationStatus)"
+      ).exitProcess()
+    }
+
+    let deadline = Date(timeIntervalSinceNow: waitSeconds)
+    while Date() < deadline {
+      if SocketDiscovery.isReachable(path: path) {
+        try Renderer.emitObject(
+          ["path": path, "alreadyRunning": false],
+          mode: globals.renderMode,
+          textRender: { _ in "launched; socket up at \(path)" }
+        )
+        return
+      }
+      try await Task.sleep(for: .milliseconds(100))
+    }
+    CLIError(
+      code: .launchTimeout,
+      message: "socket \(path) did not become reachable within \(waitSeconds)s"
+    ).exitProcess()
   }
 }
 

@@ -39,13 +39,10 @@ nonisolated enum SocketPeerAuth {
     fd: Int32,
     expectedUID: uid_t = getuid()
   ) -> Result<Void, Failure> {
-    var peer: uid_t = 0
-    var group: gid_t = 0
-    let result = getpeereid(fd, &peer, &group)
-    if result != 0 {
+    guard let peer = peerUID(fd: fd) else {
       return .failure(.getpeereidFailed(errno: errno))
     }
-    if peer != expectedUID {
+    guard peer == expectedUID else {
       return .failure(.uidMismatch(expected: expectedUID, got: peer))
     }
     return .success(())
