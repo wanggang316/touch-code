@@ -2,7 +2,7 @@ import ComposableArchitecture
 import Foundation
 import TouchCodeCore
 
-/// TCA dependency-injection bridge over `InboxStore` + `SettingsStore`.
+/// TCA dependency-injection bridge over `InboxStore` + `NotificationSettingsStore`.
 /// C6 M5's `InboxFeature` depends on this struct's closures, not on the
 /// stores directly — the `liveValue` binds each closure to concrete
 /// store instances at app startup via `.withDependencies`.
@@ -43,7 +43,7 @@ nonisolated struct InboxClient: Sendable {
 
 extension InboxClient {
   @MainActor
-  static func live(inbox: InboxStore, settings: SettingsStore) -> InboxClient {
+  static func live(inbox: InboxStore, settings: NotificationSettingsStore) -> InboxClient {
     InboxClient(
       dismiss: { ids in inbox.dismiss(ids) },
       markRead: { ids in inbox.markRead(ids) },

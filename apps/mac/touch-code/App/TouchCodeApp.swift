@@ -59,6 +59,7 @@ final class AppState {
   private let hierarchyRuntime: GhosttyBackedHierarchyRuntime
   private var ghosttyRuntime: GhosttyRuntime?
   private let inboxStore: InboxStore
+  private let notificationSettingsStore: NotificationSettingsStore
 
   // IPC stack (C3+C4): HookDispatcher + SocketServer + handlers.
   private var hookConfigStore: HookConfigStore?
@@ -84,6 +85,7 @@ final class AppState {
     // surface is alive for the full app lifetime. Views observe it via
     // env injection; EditorClient closes over it in bringUp().
     self.inboxStore = InboxStore()
+    self.notificationSettingsStore = NotificationSettingsStore()
     self.settingsStore = SettingsStore()
     // TerminalEngine is constructed in bringUp() once we know whether a
     // GhosttyRuntime is available — this avoids a throwaway engine.
@@ -104,13 +106,15 @@ final class AppState {
     self.terminalEngine = engine
     hierarchyRuntime.attach(engine: engine)
 
-    // Load C6 state — best-effort; decode errors are logged inside each
+    // Load C6 + C8 state — best-effort; decode errors are logged inside each
     // store and do not block the app from launching.
     _ = try? inboxStore.load()
-    _ = try? settingsStore.load()
+    _ = try? notificationSettingsStore.load()
+    // C7+C8 SettingsStore loads itself from disk during `init(fileURL:)`.
 
     let manager = hierarchyManager
     let inbox = inboxStore
+    let notifSettings = notificationSettingsStore
     let settings = settingsStore
     self.store = Store(initialState: RootFeature.State()) {
       RootFeature()
@@ -123,7 +127,7 @@ final class AppState {
       // closes over `manager` (per-Project override).
       $0.editorClient = .live(settings: settings, hierarchy: manager)
       $0.settingsWriter = .live(settings)
-      $0[InboxClient.self] = .live(inbox: inbox, settings: settings)
+      $0[InboxClient.self] = .live(inbox: inbox, settings: notifSettings)
     }
 
     startIPC(hierarchy: manager)

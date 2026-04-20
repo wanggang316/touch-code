@@ -1,0 +1,78 @@
+# Mission: Design docs for C7 (Git viewer) + C8 (External editor integration)
+
+You are an autonomous agent working in git worktree `design+c7-c8-viewer-editor` (branch `worktree-design+c7-c8-viewer-editor`). The user is asleep — make your best-judgement decisions and document them.
+
+## Your deliverables
+
+Two design documents:
+
+1. **`docs/design-docs/c7-git-viewer.md`** (~300–500 lines)
+2. **`docs/design-docs/c8-editor-integration.md`** (~200–400 lines — simpler than others)
+
+Placeholders exist — overwrite them.
+
+## Authoritative sources (read first)
+
+- `docs/product-spec.md` — C7, C8 rows, Open Question #7 (editor discovery)
+- `docs/architecture.md`
+- `apps/mac/touch-code/Git/` — existing Git module skeleton (if any)
+- `apps/mac/TouchCodeCore/` — domain types (Worktree, Project)
+
+## Reference projects
+
+- `/Users/wanggang/dev/opensource/supacode` — check for git viewer / editor handoff patterns
+- `/Users/wanggang/dev/opensource/supaterm`
+- GitHub client patterns (lazygit, gitui, tig) — but **read-only viewer** only; no write UI
+
+## Process
+
+### C7 — Git diff / history viewer
+
+1. Run `/hs-design` for C7.
+2. Scope: working-tree diff, staged diff, per-commit diff, commit log, file-level changes. **NO writes.**
+3. Define:
+   - Data flow: `git` CLI invocation → parse → render in SwiftUI
+   - Use `libgit2`? Or shell out to `git`? **Decide** — likely shell out for v1 (simpler, no FFI binding, matches performance requirements since user drives pace).
+   - UI layout: left pane log, right pane diff/file tree. Keyboard navigation (`j/k`, `Enter`).
+   - State: Worktree-scoped; updates on Worktree activation.
+   - Syntax highlighting: plaintext only for v1 (call out as Future Consideration).
+4. Doc must include:
+   - Scope & non-goals (no stage, no commit, no editor, no merge UI)
+   - Public interfaces (GitViewer types in `apps/mac/touch-code/Git/`)
+   - Data models (`Commit`, `DiffHunk`, `FileChange` in TouchCodeCore or Git module)
+   - Rendering (SwiftUI views, monospace font, selection)
+   - Performance: < 200 ms to render a 1000-line diff
+   - **Decisions** section
+   - Testing strategy
+   - Open risks
+
+### C8 — External editor integration
+
+1. Run `/hs-design` for C8.
+2. Resolve **Open Question #7** (editor discovery) — recommend built-in allowlist (VSCode/Cursor/Zed/Xcode/Sublime/Finder) with documented CLI wrappers + user-defined templates for anything else.
+3. Define:
+   - Allowlist entries: editor name, CLI command template (`code {dir}`, `cursor {dir}`, `subl {dir}`, `zed {dir}`, `open -a Xcode {dir}`, `open {dir}` for Finder)
+   - Editor discovery: check `$PATH` for each binary; pre-populate available editors in settings UI
+   - Config: global default, per-Project override (stored in CatalogStore)
+   - `tc open [--in <editor>] [<worktree>]` CLI
+   - Worktree header UI button (dropdown for editor choice)
+4. Doc must include:
+   - Scope & non-goals (Worktree-level only; no file+line in v1)
+   - Public interfaces (EditorService, invocation contract)
+   - Data model (EditorChoice enum, UserDefaults keys)
+   - Error handling (editor not installed, non-zero exit, timeout)
+   - **Decisions** section
+   - Testing strategy (mock `Process` for invocation)
+   - Open risks
+
+5. Commit + push: `git push -u origin worktree-design+c7-c8-viewer-editor`.
+6. On completion write `AGENT_MISSION_DONE.md` with a 20-line summary.
+
+## Guardrails
+
+- Don't leave TBD/TODO. Resolve or log as Open Risk.
+- Design only, no implementation.
+- Match `docs/design-docs/_template.md`.
+- Remember: **touch-code is not an IDE.** C7 is read-only; C8 hands off to external tools.
+
+Start now.

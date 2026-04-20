@@ -219,7 +219,7 @@ struct NotificationCoordinatorTests {
     let notifier = MockOSNotifier(initialStatus: authStatus.asAuthorizationStatus())
     let delegate = MockPermissionDelegate(decision: decision)
 
-    let settings = SettingsStore(
+    let settings = NotificationSettingsStore(
       fileURL: FileManager.default.temporaryDirectory.appending(component: "\(UUID()).json"),
       debounce: .seconds(3600)
     )
@@ -345,7 +345,7 @@ struct Harness {
   let badger: MockDockBadger
   let mockNotifier: MockOSNotifier
   let mockDelegate: MockPermissionDelegate
-  let settings: SettingsStore
+  let settings: NotificationSettingsStore
   let coordinator: NotificationCoordinator
 
   /// Drive one RouterOutput through the coordinator. Uses the direct

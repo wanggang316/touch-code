@@ -7,7 +7,7 @@ import TouchCodeCore
 /// `C6AppBootstrap.start(...)` and torn down via `shutdown()`.
 ///
 /// The wiring sequence (plan §M4 §Wire into TouchCodeApp.swift):
-///   1. load SettingsStore
+///   1. load NotificationSettingsStore
 ///   2. load InboxStore
 ///   3. load + materialise rules via RuleStore → C3 HookConfigStore
 ///   4. construct TrackerRegistry
@@ -23,7 +23,7 @@ import TouchCodeCore
 ///  11. Task { await coordinator.bind(to: router.transitions) }
 @MainActor
 final class C6AppBootstrap {
-  let settingsStore: SettingsStore
+  let settingsStore: NotificationSettingsStore
   let inboxStore: InboxStore
   let ruleStore: RuleStore
   let registry: TrackerRegistry
@@ -50,7 +50,7 @@ final class C6AppBootstrap {
     clock: any Clock<Duration> = ContinuousClock()
   ) async throws -> C6AppBootstrap {
     // Step 1 — settings
-    let settings = SettingsStore(fileURL: settingsURL, clock: clock)
+    let settings = NotificationSettingsStore(fileURL: settingsURL, clock: clock)
     _ = try settings.load()
 
     // Step 2 — inbox
@@ -123,7 +123,7 @@ final class C6AppBootstrap {
   }
 
   init(
-    settingsStore: SettingsStore,
+    settingsStore: NotificationSettingsStore,
     inboxStore: InboxStore,
     ruleStore: RuleStore,
     registry: TrackerRegistry,

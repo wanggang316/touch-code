@@ -9,7 +9,7 @@ struct SettingsStoreTests {
   @Test
   func loadOfMissingFileReturnsDefaults() throws {
     let url = Self.temporaryURL()
-    let store = SettingsStore(fileURL: url)
+    let store = NotificationSettingsStore(fileURL: url)
     let loaded = try store.load()
     #expect(loaded == .default)
     #expect(store.settings == .default)
@@ -20,7 +20,7 @@ struct SettingsStoreTests {
     let url = Self.temporaryURL()
     defer { try? FileManager.default.removeItem(at: url) }
 
-    let store = SettingsStore(fileURL: url, debounce: .milliseconds(1))
+    let store = NotificationSettingsStore(fileURL: url, debounce: .milliseconds(1))
     store.mutate { settings in
       settings.notifications.mute.surfaceIdle = true
       settings.notifications.mute.mutedRuleIDs.insert("claude.completed")
@@ -28,7 +28,7 @@ struct SettingsStoreTests {
     }
     try store.saveNow()
 
-    let fresh = SettingsStore(fileURL: url)
+    let fresh = NotificationSettingsStore(fileURL: url)
     let loaded = try fresh.load()
     #expect(loaded.notifications.mute.surfaceIdle == true)
     #expect(loaded.notifications.mute.mutedRuleIDs.contains("claude.completed"))
@@ -42,7 +42,7 @@ struct SettingsStoreTests {
     let url = dir.appendingPathComponent("settings.json")
     try Data(#"{"version": 42}"#.utf8).write(to: url)
 
-    let store = SettingsStore(fileURL: url)
+    let store = NotificationSettingsStore(fileURL: url)
     _ = try store.load()
     #expect(store.settings == .default)
 
@@ -55,13 +55,13 @@ struct SettingsStoreTests {
     let url = Self.temporaryURL()
     defer { try? FileManager.default.removeItem(at: url) }
 
-    let store = SettingsStore(fileURL: url)
+    let store = NotificationSettingsStore(fileURL: url)
     store.mutate { settings in
       settings.notifications.authStatus = .denied
     }
     try store.saveNow()
 
-    let fresh = SettingsStore(fileURL: url)
+    let fresh = NotificationSettingsStore(fileURL: url)
     let loaded = try fresh.load()
     #expect(loaded.notifications.authStatus == .denied)
   }
