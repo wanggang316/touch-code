@@ -28,6 +28,7 @@ Every exec plan MUST contain:
 
 <!-- List active plans here -->
 - [0002 — Terminal Engine and Five-Level Hierarchy (C1 + C2)](0002-terminal-and-hierarchy.md) — domain model, CatalogStore, GhosttyRuntime, HierarchyManager, TCA clients, sidebar + tab bar + split view, git worktree CLI
+- [0005 — Read-Only Git Viewer (C7) + External Editor Integration (C8)](0005-git-viewer-and-editor.md) — Git/editor value types, `GitService` + `DiffParser`, `GitViewerFeature` + SwiftUI viewer, `EditorService` + `ProcessSpawner`, Worktree-header dropdown + Settings section, `tc open` + `editor.*` IPC
 
 ## Completed Plans
 
