@@ -21,7 +21,7 @@ This plan is the first capability that makes touch-code **aware** of what its Pa
 ## Progress
 
 - [ ] M1 — `TouchCodeCore` data types + field-path enumerator (AgentState, AgentStateTransition, AgentNotification, NotificationInbox, AgentDetectionRules, HookEnvelope field path table)
-- [ ] M2 — `touch-code/Notifications/` module: DetectionRouter (InternalHookSubscriber impl), AgentStateTracker (4-state FSM), RuleStore, TemplateRenderer
+- [ ] M2 — `touch-code/Notifications/` module: DetectionRouter (InternalHookSubscriber impl), TrackerRegistry (single owner of tracker lifecycle), AgentStateTracker (4-state FSM), RuleStore (read-modify-write via C3 load/save), TemplateRenderer
 - [ ] M3 — InboxStore persistence (notifications.json via AtomicFileStore, 500-row cap, 7-day sweep) + codable round-trip + debounced writer
 - [ ] M4 — OSNotifier (UNUserNotificationCenter wrapper) + DockBadger (NSApp.dockTile) + permission flow on first agent-Panel creation + NotificationCoordinator fan-out
 - [ ] M5 — InboxSidebar SwiftUI surface (320pt, filter chips, swipe-dismiss, deeplink-on-click) + Settings toggles
@@ -120,18 +120,20 @@ Add `TouchCodeCoreTests/AgentDetectionRulesTests.swift`: decode the "Claude Code
 
 Add `TouchCodeCoreTests/TemplateFieldTests.swift`: for each `HookEvent` case, `validPaths(for:)` returns the exact expected set documented in c6 design (spot-check: `{data.match}` is in the set for `.panelOutputMatch` and not in the set for `.panelIdle`).
 
-**Observable acceptance.** `xcodebuild test -scheme TouchCodeCore` reports N new passing tests (N ≈ 25). `grep -R 'import AppKit\|import SwiftUI\|import UserNotifications\|import GhosttyKit' apps/mac/TouchCodeCore` returns no matches. `make lint` is clean.
+**Observable acceptance.** `xcodebuild test -scheme TouchCodeCore` is green with the five test files above contributing new `func test…` methods (exact count equals the number of functions written; acceptance is "0 failures"). `grep -R 'import AppKit\|import SwiftUI\|import UserNotifications\|import GhosttyKit' apps/mac/TouchCodeCore` returns no matches. `make lint` is clean.
 
 **Expected commits.**
 
 - `feat(core): agent-notification domain types (AgentState, AgentNotification, NotificationInbox)`
 - `feat(core): agent-detection rule types + TemplateField enumerator`
 
-### Milestone 2: touch-code/Notifications — DetectionRouter, AgentStateTracker, RuleStore, TemplateRenderer
+### Milestone 2: touch-code/Notifications — DetectionRouter, TrackerRegistry, AgentStateTracker, RuleStore, TemplateRenderer
 
-**Goal after this milestone.** The new in-app module `touch-code/Notifications/` exists. A `DetectionRouter` implements C3's `InternalHookSubscriber` protocol; given a `HookEnvelope` with a `__touch-code/internal:notifications:<rule-id>` sentinel, it looks up the rule, renders its template, and emits an `AgentStateTransition` through an `AsyncStream`. An `AgentStateTracker` maintains the 4-state FSM per Panel using the exact transition table from c6 design §API Design. A `RuleStore` reads `detection-rules.json`, validates every rule (schema, regex compilation, template-field-path set), and materialises each rule as a C3 `HookSubscription` written to `hooks.json`. A `TemplateRenderer` handles `{field}` / `| filter[: arg]` with unknown-field rejection at load time. Everything is unit-testable with a fake envelope feed.
+**Goal after this milestone.** The new in-app module `touch-code/Notifications/` exists. A `DetectionRouter` implements C3's `InternalHookSubscriber` protocol; given a `HookEnvelope` with a `__touch-code/internal:notifications:<rule-id>` sentinel, it looks up the rule, renders its template, and delegates to the tracker owned by `TrackerRegistry` — never creates one lazily. A `TrackerRegistry` is the **single owner of tracker lifecycle across the whole plan**: at construction it enumerates every existing Panel in `HierarchyManager.catalog` whose labels include an `agent:*` entry and creates a tracker for each; it then subscribes to hierarchy events to maintain that set as Panels are added, removed, or relabelled. An `AgentStateTracker` maintains the 4-state FSM per Panel using the exact transition table from c6 design §API Design. A `RuleStore` reads `detection-rules.json`, validates every rule (schema, regex compilation, template-field-path set), and materialises each rule as a C3 `HookSubscription` in `hooks.json` using C3's existing `HookConfigStore.load()` / `save(_:)` API via a read-modify-write adapter. A `TemplateRenderer` handles `{field}` / `| filter[: arg]` with unknown-field rejection at load time. Everything is unit-testable with a fake envelope feed.
 
 This milestone does **not** yet touch `UNUserNotificationCenter`, `NSApp.dockTile`, or disk-based inbox state. It stops at `AsyncStream<AgentStateTransition>`.
+
+**Tracker ownership commitment.** `TrackerRegistry` owns every `AgentStateTracker` from its creation to teardown. `DetectionRouter`, `NotificationCoordinator` (added in M4), and M7's end-to-end tests all access trackers through `registry.tracker(for: panelID)` — never by holding their own references or creating new ones. This replaces the mid-stream ownership handoff that v1 of this plan described between M2 and M4, so there is no refactor between milestones.
 
 **Work.** Under `apps/mac/touch-code/Notifications/` (new subfolder), create:
 
@@ -139,20 +141,41 @@ This milestone does **not** yet touch `UNUserNotificationCenter`, `NSApp.dockTil
 
       @MainActor
       final class DetectionRouter: InternalHookSubscriber {
-        init(rules: AgentDetectionRules, hierarchy: HierarchyManager, renderer: TemplateRenderer)
+        init(rules: AgentDetectionRules, registry: TrackerRegistry, renderer: TemplateRenderer)
 
         /// C3 calls this on @MainActor per the sentinel-prefix route.
         nonisolated func handle(envelope: HookEnvelope) async
 
-        /// Stream of classified transitions; subscribed by NotificationCoordinator in M4
-        /// and by trackers registered through registerTracker(for:).
+        /// Stream of classified transitions; subscribed by NotificationCoordinator in M4.
         var transitions: AsyncStream<AgentStateTransition> { get }
-
-        func registerTracker(for panelID: PanelID, tracker: AgentStateTracker)
-        func unregisterTracker(for panelID: PanelID)
       }
 
-  `handle(envelope:)` (a) extracts the rule id by splitting the `HookSubscription.command` suffix, (b) looks up the rule, (c) checks the `AppliesWhen.panelLabelledAgent` / `panelID` filters C3's scope cannot express, (d) renders `title` and `body` via `TemplateRenderer`, (e) fetches the `AgentStateTracker` for the envelope's panel (creating one lazily if the panel carries a `agent:*` label and no tracker exists — M2 accepts this responsibility; M4 moves tracker lifecycle to `NotificationCoordinator` once `HierarchyManager` events are wired), (f) calls `tracker.ingest(envelope: envelope, ruleID: ruleID, rendered: (title, body))`, (g) forwards the transition the tracker emits to `transitions`.
+  `handle(envelope:)` (a) extracts the rule id by splitting the `HookSubscription.command` suffix, (b) looks up the rule, (c) checks the `AppliesWhen.panelLabelledAgent` / `panelID` filters C3's scope cannot express, (d) renders `title` and `body` via `TemplateRenderer`, (e) fetches the tracker via `registry.tracker(for: envelope.panel?.id)` — if the registry has no tracker for this Panel the envelope is logged and dropped (this is the expected path when a Panel loses its agent label; no silent creation), (f) calls `tracker.ingest(envelope: envelope, ruleID: ruleID, rendered: (title, body))`, (g) forwards the transition the tracker emits to `transitions`.
+
+- `TrackerRegistry.swift`:
+
+      @MainActor
+      final class TrackerRegistry {
+        init(hierarchy: HierarchyManager, idleThreshold: TimeInterval, clock: any Clock<Duration>)
+
+        /// Bootstrap step: create trackers for every Panel in hierarchy.catalog whose
+        /// labels contain an "agent:*" prefix. Must be called exactly once at app launch,
+        /// BEFORE DetectionRouter receives its first envelope. Idempotent on repeat calls.
+        func bootstrap()
+
+        /// Forward HierarchyManager events into lifecycle transitions:
+        ///   - onPanelCreated(panel) where panel.labels contains "agent:*" → create tracker
+        ///   - onPanelRemoved(panelID) → teardown tracker
+        ///   - onPanelLabelsChanged(panelID, newLabels) → create if newly labelled,
+        ///     teardown if label removed
+        func subscribeToHierarchyEvents()
+
+        func tracker(for panelID: PanelID?) -> AgentStateTracker?
+        var allTrackers: [AgentStateTracker] { get }  // M4 uses this to iterate for
+                                                      // onAgentPanelCreated callbacks
+      }
+
+  `bootstrap()` walks the catalog via `hierarchy.catalog.allAgentPanels()` (a small helper added to `HierarchyManager` in this milestone that iterates Space → Project → Worktree → Tab → Panel and yields `(Panel, labels)` pairs whose labels match the prefix). `subscribeToHierarchyEvents()` consumes an `AsyncStream<HierarchyEvent>` exposed by `HierarchyManager` (the `onPanelCreated` / `onPanelRemoved` / `onPanelLabelsChanged` callbacks already sketched in the 0002 M2 design; if this stream does not yet exist, this milestone adds it as a small extension and records the coupling in Decision Log). `tracker(for:)` returns nil for Panels without an agent label — callers must handle nil explicitly.
 
 - `AgentStateTracker.swift`:
 
@@ -197,7 +220,7 @@ This milestone does **not** yet touch `UNUserNotificationCenter`, `NSApp.dockTil
         case missingMatch(ruleID: String)
       }
 
-  The `hookWriter` is injected (a protocol that wraps C3's `HookConfigStore`); in unit tests the fake writer records what subscriptions would have been written. Rule → HookSubscription translation: `event = .panelOutputMatch`, `matchPattern = <rule's regex or pipe-joined contains_any>`, `scope = .panelLabel("agent:\(rule.agent)")` (or `.panelID(rule.panelID)` when set), `command = "__touch-code/internal:notifications:\(rule.id)"`, `mode = .fireAndForget`, `timeoutSeconds = 1` (unused — the sentinel-prefix route short-circuits `ProcessHookExecutor`).
+  The `hookWriter` is injected (a narrow protocol wrapping C3's `HookConfigStore.load()` / `save(_:)` pair — see `Bridging/HookConfigWriting.swift` below). **This plan deliberately does not require C3 to add a new upsert API.** Instead, the adapter performs read-modify-write: load the current `HookConfig`, remove every subscription whose `command` starts with the `__touch-code/internal:notifications:` prefix, append the freshly materialised subscriptions authored with `authoredBy: "touch-code"`, and save. The operation is atomic because C3's `save(_:)` already goes through `AtomicFileStore`; concurrent edits from the user (via `tc hook install`) are serialised by the file timestamp / version check — if the on-disk config has changed since `load()` returned, `save(_:)` throws and `RuleStore` retries once before surfacing the error. In unit tests the fake writer records every load/save pair. Rule → HookSubscription translation: `event = .panelOutputMatch`, `matchPattern = <rule's regex or pipe-joined contains_any>`, `scope = .panelLabel("agent:\(rule.agent)")` (or `.panelID(rule.panelID)` when set), `command = "__touch-code/internal:notifications:\(rule.id)"`, `mode = .fireAndForget`, `timeoutSeconds = 1` (unused — the sentinel-prefix route short-circuits `ProcessHookExecutor`), `authoredBy = "touch-code"` (the flag C3 DEC-16 reserves for first-party internal subscriptions).
 
 - `TemplateRenderer.swift`:
 
@@ -220,20 +243,39 @@ This milestone does **not** yet touch `UNUserNotificationCenter`, `NSApp.dockTil
 
   Colocated here (not in `TouchCodeCore`) because `CatalogStore` already has `Catalog.defaultURL()` as its own path; keeping the path convention in `Notifications` keeps c6 self-contained.
 
-- `HookConfigWriting.swift` — the narrow protocol RuleStore uses to materialise subscriptions without importing `Hooks` internals. C3's `HookConfigStore` conforms to it (implementation lives in C3's module after C3 0003 lands; M2 ships a `FakeHookConfigWriter` that records writes for tests and a `HookConfigStoreAdapter` that delegates to C3 — both added under `touch-code/Notifications/Bridging/`).
+- `Bridging/HookConfigWriting.swift` — the narrow protocol RuleStore uses. Single home; referenced from Interfaces & Dependencies only at this path.
 
-Under `apps/mac/touch-code/Tests/NotificationsTests/` (new `.unitTests` target `touch-codeNotificationsTests` or extension of the existing `touch-codeTests`; decide at implementation based on Tuist ergonomics and record in Decision Log):
+      @MainActor
+      protocol HookConfigWriting {
+        func load() throws -> HookConfig
+        func save(_ config: HookConfig) throws
+      }
+
+      // Concrete adapter delegating to C3's HookConfigStore.
+      @MainActor
+      final class HookConfigStoreAdapter: HookConfigWriting { init(store: HookConfigStore) }
+
+      // Test double capturing every load/save pair.
+      @MainActor
+      final class FakeHookConfigWriter: HookConfigWriting { /* in-memory HookConfig + call log */ }
+
+  Neither the adapter nor the fake uses any API beyond `load()` / `save(_:)` — matches the surface C3 0003 M1 already commits to.
+
+Under `apps/mac/touch-code/Tests/NotificationsTests/` — extend the existing `touch-codeTests` Tuist target (already present per 0002 M2) rather than creating a new target. Hosted tests already work there; a new target would require duplicating the host-app configuration. Files land under `apps/mac/touch-code/Tests/NotificationsTests/` as a filesystem-level grouping, identified in tests via `only-testing:touch-codeTests/NotificationsTests/…`.
 
 - `AgentStateTrackerTests.swift` — cover every cell of the 6 × 4 transition table from c6 design (6 input kinds × 4 from-states). Use a `TestClock` from `swift-clocks` (already a test-only dep in supacode; if it isn't available, roll a local `ManualClock: Clock<Duration>` — 20 lines). Assert: (a) self-transitions do not emit; (b) activity rearms the idle timer; (c) `.panelCrashed` emits `crashed` then tears down; (d) `override` never emits.
-- `DetectionRouterTests.swift` — feed a fake `HookEnvelope` whose `HookSubscription.command` starts with the sentinel prefix; assert the correct rule is selected, `panelLabelledAgent` filter rejects non-matching panels, and the rendered title/body exactly match an expected string.
-- `RuleStoreTests.swift` — happy path loads the shipped default rules (precursor of M6; stub with one inline rule for now); `missingMatch` / `unknownTemplateField` / `invalidRegex` all throw with the correct associated value. Fake `HookConfigWriting` captures the materialised subscriptions.
+- `TrackerRegistryTests.swift` — seed a fake `HierarchyManager` with three Panels (two agent-labelled, one plain); call `bootstrap()`; assert exactly two trackers exist. Emit a synthetic `onPanelCreated(panel: agentLabelled)` event; assert a third tracker exists. Emit `onPanelLabelsChanged` that removes the `agent:*` label; assert the corresponding tracker is torn down and `tracker(for:)` returns nil. Emit `onPanelRemoved` for an existing tracked Panel; assert teardown.
+- `DetectionRouterTests.swift` — feed a fake `HookEnvelope` whose `HookSubscription.command` starts with the sentinel prefix; assert the correct rule is selected, `panelLabelledAgent` filter rejects non-matching panels, and the rendered title/body exactly match an expected string. Envelope for a Panel with no tracker is dropped silently (logged at `.info`, no transition emitted).
+- `RuleStoreTests.swift` — happy path loads the shipped default rules (precursor of M6; stub with one inline rule for now); `missingMatch` / `unknownTemplateField` / `invalidRegex` all throw with the correct associated value. `FakeHookConfigWriter` captures one load + one save per materialise; the saved `HookConfig` contains exactly the new `authoredBy: "touch-code"` subscriptions and preserves any unrelated user-authored rows.
 - `TemplateRendererTests.swift` — table-driven: `{agent}` renders literally; `{data.output | firstLine | truncate: 12}` works with multi-line UTF-8 (including grapheme clusters — `"👨‍👩‍👧‍👦 is one cluster"` truncated to 8 keeps the whole emoji); `{foo}` throws at init; `| default: "…"` kicks in when the value is empty.
 
-**Observable acceptance.** `xcodebuild test -scheme touch-codeTests -only-testing:touch-codeTests/NotificationsTests` is all green with ≈ 35 new tests. A short smoke executable `touch-code-notif-smoke` (optional; throwaway) feeds a hand-constructed `HookEnvelope` to a `DetectionRouter` and prints the resulting `AgentStateTransition` — demonstrates the contract without running the app.
+**Observable acceptance.** `xcodebuild test -scheme touch-code -only-testing:touch-codeTests/NotificationsTests` is all green. A short smoke executable `touch-code-notif-smoke` (optional; throwaway) feeds a hand-constructed `HookEnvelope` to a `DetectionRouter` and prints the resulting `AgentStateTransition` — demonstrates the contract without running the app.
 
 **Expected commits.**
 
-- `feat(notifications): AgentStateTracker FSM + DetectionRouter scaffolding`
+- `feat(notifications): AgentStateTracker FSM`
+- `feat(notifications): TrackerRegistry + hierarchy-event bootstrap`
+- `feat(notifications): DetectionRouter implementing InternalHookSubscriber`
 - `feat(notifications): RuleStore + TemplateRenderer with field validation`
 
 ### Milestone 3: InboxStore persistence (notifications.json)
@@ -277,7 +319,9 @@ Under `apps/mac/touch-code/Tests/NotificationsTests/`:
 
 ### Milestone 4: OSNotifier + DockBadger + NotificationCoordinator + permission flow
 
-**Goal after this milestone.** `NotificationCoordinator` subscribes to `DetectionRouter.transitions`, applies muting policy, constructs `AgentNotification`s, and fans out to `InboxStore.append`, `DockBadger.setUnreadCount`, and `OSNotifier.post`. The macOS permission flow fires exactly once — on first agent-Panel creation after install, per DEC-4. When permission is `.notDetermined`, a pre-prompt sheet appears (with Continue / Not now / Never). When denied, `OSNotifier.post` is a no-op but the inbox + Dock badge still update (DEC-5). The Dock badge is an unread count irrespective of OS-banner mute (DEC-13). Click handling routes through `DeeplinkRouter` (already exists per architecture §URL scheme; if not, M4 adds a placeholder that logs and is completed later by a C2/C4 PR). Everything is unit-testable via protocol-backed mocks for `OSNotifier` and `DockBadger`.
+**Goal after this milestone.** `NotificationCoordinator` subscribes to `DetectionRouter.transitions`, applies muting policy, constructs `AgentNotification`s, and fans out to `InboxStore.append`, `DockBadger.setUnreadCount`, and `OSNotifier.post`. The macOS permission flow fires exactly once — on first agent-Panel creation after install, per DEC-4. When permission is `.notDetermined`, the coordinator calls a `permissionDelegate` hook whose implementation is supplied by M5's UI layer (the coordinator itself does **not** present a sheet — responsibility split: coordinator decides *when* to prompt, M5 decides *how*). When denied, `OSNotifier.post` is a no-op but the inbox + Dock badge still update (DEC-5). The Dock badge is an unread count irrespective of OS-banner mute (DEC-13). Click handling routes through `DeeplinkRouter` (already exists per architecture §URL scheme; if not, M4 adds a placeholder that logs and is completed later by a C2/C4 PR). Everything is unit-testable via protocol-backed mocks for `OSNotifier`, `DockBadger`, and `NotificationPermissionDelegate`.
+
+**Tracker lifecycle.** Trackers are owned by M2's `TrackerRegistry`; `NotificationCoordinator` does not create them. At launch, the app shell calls `registry.bootstrap()` *before* wiring the coordinator, so that any agent-labelled Panel present from a prior session already has its tracker when the first envelope arrives. For each bootstrap-created tracker, the coordinator is invoked with `onAgentPanelCreated(trackerID)` exactly once during startup so that the permission prompt fires iff needed; an `alreadyPrompted: Set<PanelID>` guard on the coordinator prevents re-prompting for Panels added later in the same session. This resolves the prior-session-restart ambiguity.
 
 **Work.** Under `apps/mac/touch-code/Notifications/`:
 
@@ -321,25 +365,51 @@ Under `apps/mac/touch-code/Tests/NotificationsTests/`:
           badger: DockBadger,
           osNotifier: OSNotifier,
           muting: MuteSettings,
-          hierarchy: HierarchyManager
+          registry: TrackerRegistry,
+          permissionDelegate: NotificationPermissionDelegate
         )
 
         /// Subscribe to the router's transitions and the inbox's unread publisher.
-        /// Called once at app launch by the app shell.
+        /// Called once at app launch by the app shell, AFTER registry.bootstrap().
         func bind(to transitions: AsyncStream<AgentStateTransition>) async
 
-        /// Invoked by app shell when a Panel labelled agent:* is created.
-        /// First call after install prompts for UN permission iff .notDetermined.
+        /// Invoked by app shell when TrackerRegistry creates a new tracker — both during
+        /// bootstrap (one call per pre-existing agent Panel) and later for dynamically
+        /// added Panels. Idempotent: a second call for the same PanelID is a no-op.
+        /// First eligible call after install prompts via permissionDelegate iff .notDetermined.
         func onAgentPanelCreated(_ panelID: PanelID) async
+      }
+
+      /// Supplied by M5's UI layer. M4 ships a no-op default (NullPermissionDelegate)
+      /// that auto-calls osNotifier.requestAuthorization() with no pre-prompt sheet —
+      /// acceptable because M4 runs in development where the system prompt is fine.
+      /// M5 swaps in the SwiftUI pre-prompt sheet.
+      @MainActor
+      protocol NotificationPermissionDelegate: AnyObject {
+        func presentPrompt() async -> PermissionDecision   // .continue / .notNow / .never
       }
 
   `bind` runs two concurrent loops under `async let`: one consumes `transitions`, applies muting, appends to `inbox`, calls `osNotifier.post`; the other consumes `inbox.unreadPublisher` and calls `badger.setUnreadCount`. The Dock badge count is recomputed from the inbox every time, so it is authoritative across CLI + UI mutations (DEC-13, R8 mitigation).
 
-  `onAgentPanelCreated` consults `settings.json#notifications.auth_status`; if `.notDetermined` and the "Never" flag is not set, show the pre-prompt sheet via a `NotificationPermissionSheet` SwiftUI surface (under `Notifications/Views/` — M5 moves it to the inbox UI code but M4 ships a minimal version). `Continue` calls `osNotifier.requestAuthorization`, caches the result. `Not now` sets a 24h cool-down timestamp. `Never` permanently sets `settings.notifications.neverPrompt = true`.
+  `onAgentPanelCreated` consults `settings.json#notifications.auth_status` plus the `alreadyPrompted` in-memory set; if still `.notDetermined` and the "Never" flag is not set, calls `permissionDelegate.presentPrompt()` and branches on the result (`.continue` → `osNotifier.requestAuthorization` → cache; `.notNow` → 24h cool-down timestamp; `.never` → `settings.notifications.neverPrompt = true`). The delegate itself is M5-owned.
 
-- `MuteSettings.swift` — a `struct MuteSettings: Codable, Sendable` with `mutedRuleIDs: Set<String>`, `mutedPanelIDs: Set<PanelID>`, `surfaceIdle: Bool`, `redactBodies: Bool`, `badgeEnabled: Bool`, `enabled: Bool` (global kill switch). Lives in `TouchCodeCore/Notifications/MuteSettings.swift` (to be importable by CLI for `tc notifications mute` later). M4 persists it as a fragment of `settings.json` via a small `SettingsStore` stub if none exists yet (if `settings.json` already has an owner in the repo by the time this milestone runs, adopt that owner's API and record the choice in Decision Log).
+- `MuteSettings` (already declared in M1 under `TouchCodeCore/Notifications/`) is persisted by a new **`SettingsStore`** that M4 introduces under `apps/mac/touch-code/Runtime/SettingsStore.swift` — a `@MainActor` wrapper around `~/.config/touch-code/settings.json` following the same `AtomicFileStore` + version-gate pattern as `CatalogStore`. If a `SettingsStore` already exists in the repo by the time this milestone runs (check `apps/mac/touch-code/Runtime/` and `apps/mac/touch-code/Settings/` first), adopt it and record the choice in Decision Log; otherwise this milestone owns the file. The CLI `tc notifications mute` verb (M6) mutates through the same store. The store is authoritative for `notifications.*` keys; no other component writes them.
 
-Wire into `TouchCodeApp.swift` / `Runtime.swift`: the app shell constructs the C6 stack at launch — `InboxStore.load()`, `RuleStore.loadAndMaterialise()`, `DetectionRouter(rules:)`, a `NotificationCoordinator(...)`, calls `coordinator.bind(to: router.transitions)`. `HierarchyManager.onPanelCreated(_ panel:)` (already present per M2 of 0002) gains a delegate callback that, when the Panel carries `agent:*` labels, invokes `coordinator.onAgentPanelCreated(panel.id)`. The C3 dispatcher (from its M3) is wired to route sentinel-prefix envelopes to `router.handle(envelope:)` via `hookDispatcher.register(subscriber: router, for: "__touch-code/internal:notifications:")`.
+Wire into `TouchCodeApp.swift` / `Runtime.swift`: the app shell constructs the C6 stack at launch in this order:
+
+    1. let settings = try SettingsStore.load()
+    2. let inbox = try InboxStore().load()
+    3. let rules = try RuleStore(hookWriter: adapter).loadAndMaterialise()
+    4. let registry = TrackerRegistry(hierarchy: hierarchy, idleThreshold: rules.idleThresholdSeconds, clock: ContinuousClock())
+    5. registry.bootstrap()                                   // creates trackers for pre-existing agent panels
+    6. registry.subscribeToHierarchyEvents()                  // watches for future changes
+    7. let router = DetectionRouter(rules: rules, registry: registry, renderer: try TemplateRenderer(rules: rules))
+    8. hookDispatcher.register(subscriber: router, for: "__touch-code/internal:notifications:")
+    9. let coordinator = NotificationCoordinator(inbox: inbox, badger: AppKitDockBadger(), osNotifier: UserNotificationsOSNotifier(bundleIdentifier: Bundle.main.bundleIdentifier!), muting: settings.notifications, registry: registry, permissionDelegate: NullPermissionDelegate())
+   10. for tracker in registry.allTrackers { await coordinator.onAgentPanelCreated(tracker.panelID) }   // restart-time permission sweep (no-op if already prompted)
+   11. Task { await coordinator.bind(to: router.transitions) }
+
+Step 10 is the explicit restart-with-pre-existing-agents bootstrap the reviewer called out: every tracker produced by step 5 goes through the coordinator's idempotent `onAgentPanelCreated` path, so the first-run permission prompt fires even if the app previously crashed during onboarding. Subsequent Panels added during the session go through the `TrackerRegistry → coordinator` path via `subscribeToHierarchyEvents` (the registry exposes an `AsyncStream<PanelID>` of newly-created tracker ids that the coordinator consumes).
 
 Under `apps/mac/touch-code/Tests/NotificationsTests/`:
 
@@ -350,13 +420,13 @@ Under `apps/mac/touch-code/Tests/NotificationsTests/`:
   4. `kind: .idle` with default `surfaceIdle: false` → append + badge(1), post not called (DEC-7).
   5. `redactBodies: true` → the `body` passed to `osNotifier.post` is literally `"(redacted)"` while the body stored in the inbox is the original template render (DEC-8).
   6. Dismiss one of two unread notifications → `badger.setUnreadCount(1)` called with the new count.
-  7. `onAgentPanelCreated` on a fresh `.notDetermined` status triggers `osNotifier.requestAuthorization`; a second call in the same app session does not re-prompt; status `.denied` does not re-prompt.
+  7. `onAgentPanelCreated` on a fresh `.notDetermined` status calls `permissionDelegate.presentPrompt`; with a stub delegate returning `.continue`, `osNotifier.requestAuthorization` is called once. A second call for the same `PanelID` does not re-invoke the delegate. A call for a different `PanelID` in the same session does not re-prompt (the `.denied`/`.authorized` cache persists). A fresh tracker created by `registry.bootstrap()` at restart flows through the same idempotent path: `onAgentPanelCreated` is called once per bootstrap tracker in step 10 of the wiring sequence; if the status was already `.denied`, no prompt.
 
-  Mocks: `MockOSNotifier` records every call and returns a configurable `AuthorizationStatus`; `MockDockBadger` records every `setUnreadCount` argument.
+  Mocks: `MockOSNotifier` records every call and returns a configurable `AuthorizationStatus`; `MockDockBadger` records every `setUnreadCount` argument; `StubPermissionDelegate` returns a scripted `PermissionDecision`.
 
 **Observable acceptance.** `xcodebuild test -scheme touch-codeTests -only-testing:touch-codeTests/NotificationsTests/NotificationCoordinatorTests` green with 7 scenarios. A manual run: launch the app, open a Panel via `HierarchyManager`, `tc label <panel-id> --agent claude` (needs C4 M1+; if not yet shipped, insert a debug-only shim on `TouchCodeApp.init`), type the sentinel `::touchcode:agent-complete <panel-id>` into the Panel, and observe (a) an OS banner titled "Claude finished", (b) the Dock icon gaining a red `1` badge, (c) a new row in the inbox (M5 makes the inbox visible; M4 can verify via LLDB or a `tc notifications list` debug shim).
 
-**Known risk.** The pre-prompt sheet might need TCA integration if the settings / sheet infrastructure is TCA-owned by the time this milestone runs. If so, the sheet becomes a TCA `PresentationState` feature and M4 writes a small `NotificationPermissionFeature` reducer; the coordinator calls a TCA action rather than presenting directly. Record the chosen pattern in Decision Log.
+**Note.** M4 ships `NullPermissionDelegate` — a no-op fallback that calls `osNotifier.requestAuthorization` directly (the system prompt is acceptable in dev builds). M5 swaps in the real SwiftUI pre-prompt sheet (Continue / Not now / Never). This keeps M4's shipping surface headless-testable and defers every pixel to M5.
 
 **Expected commits.**
 
@@ -375,6 +445,7 @@ Under `apps/mac/touch-code/Tests/NotificationsTests/`:
 - `InboxFeature.swift` — TCA reducer: `Action.toggleSidebar`, `.filterChanged(InboxFilter)`, `.rowTapped(AgentNotification.ID)`, `.rowSwiped(AgentNotification.ID)`, `.clearAllTapped`, `.muteRuleTapped(ruleID: String)`. Each action delegates to `InboxClient` (a new `DependencyKey` wrapping `InboxStore` for TCA consumption). Matches the existing client pattern used by `HierarchyClient` / `TerminalClient`.
 - `InboxClient.swift` — thin TCA adapter: `markRead`, `dismiss`, `clearAll`, `muteRule`, `observeInbox() -> AsyncStream<NotificationInbox>`. Implementation delegates to `InboxStore` on the MainActor.
 - `NotificationsSettingsView.swift` — a SwiftUI section for a forthcoming Settings feature (or standalone, depending on repo state at the time). Toggle rows for the five MuteSettings flags; an "Open System Settings (Notifications)" button when the permission status is `.denied` (opens `x-apple.systempreferences:com.apple.preference.notifications?id=<bundle-id>`).
+- `NotificationPermissionSheet.swift` — the full pre-prompt surface (Continue / Not now / Never) that M4 deferred. A view-model `NotificationPermissionViewModel: NotificationPermissionDelegate` implements `presentPrompt() async` by driving a SwiftUI `.sheet` bound to a `@Published var isPresented: Bool`; the `async` method resolves when the user taps one of the three buttons. M5 replaces `NullPermissionDelegate` with this view-model in the app-shell wiring (step 9 of M4's sequence).
 - `MainView.swift` — add a top-right toolbar bell icon with a badge count reading from `InboxViewModel.unreadCount`; clicking toggles the sidebar. Add a ⌘⇧N keyboard shortcut bound to the same toggle action.
 
 Under `apps/mac/touch-code/Tests/NotificationsTests/`:
@@ -407,18 +478,20 @@ Under `apps/mac/touch-code/Tests/NotificationsTests/`:
 
   - `codex-complete-hook.sh` — same pattern, different agent name in the sentinel suffix so `detection-rules.json` can discriminate if we ever need per-agent completion copy (v1 uses the same regex for all three).
   - `aider-idle-hook.sh` — a light wrapper that writes `::touchcode:agent-idle` when aider returns to its `>` prompt, bypassing the pty-tail regex for users who run aider under `tmux` where tail-matching is less reliable.
-- Under `apps/mac/touch-code/Notifications/`, extend `RuleStore` with `reloadAndRematerialise() async throws` and wire it into C4's `tc notifications rules reload` via the `system.*` namespace per c6 DEC-10. If C4's exec plan (0004, forthcoming) hasn't defined `system.notifications_rules_reload` yet, M6 defines the RPC shape in a follow-up PR against the C4 plan — record the dependency in Decision Log.
+- Under `apps/mac/touch-code/Notifications/`, extend `RuleStore` with `reloadAndRematerialise() async throws`. **App-internal path lands in this milestone**: `NotificationCoordinator` exposes a public `reloadRules()` method that calls `RuleStore.reloadAndRematerialise()` and re-registers the sentinel prefix subscribers. The CLI verb `tc notifications rules reload` is a **follow-up PR on the C3+C4 exec plan (0003)** because the `system.*` namespace and the CLI surface for `notifications` belong to C4 per c6 DEC-10 — not blocking on C4 keeps C6 shippable. Record the follow-up in Decision Log and file a tracking note on the 0003 plan. In the meantime, users reload by restarting the app (documented in M6's User-visible notes).
 - Under `apps/mac/touch-code/Tests/NotificationsTests/`:
   - `DefaultRulesTests.swift` — parse the shipped JSON via `AgentDetectionRules.decode`; assert three rules present (`claude.*`, `codex.*`, `aider.*`); assert every rule's template renders against a hand-constructed envelope without throwing.
   - `ShimSmokeTest.swift` — a small XCTest that spawns `/bin/sh shims/claude-stop-hook.sh` with `TOUCH_CODE_PANEL_ID=abc` and captures stdout. Asserts stdout equals `"\n::touchcode:agent-complete abc\n"`. This proves the shim contract without needing Claude Code installed.
 
-**Observable acceptance.** After `make mac-build && make mac-run-app`, inspect `~/.config/touch-code/detection-rules.json` — it contains the three default rules. `tc notifications rules reload` (from a Panel) returns success. Install `shims/claude-stop-hook.sh` as Claude Code's Stop hook, run a short Claude session inside an agent-labelled Panel, end the session — OS banner fires within ≈1s of session end. Delete the rule file and reload — the app reloads the bundled defaults on next launch (or on `tc notifications rules reload` — TBD policy; record in Decision Log, leaning towards: reloading without a file regenerates defaults for UX recovery).
+**Reload-without-file policy (decided now):** `RuleStore.reloadAndRematerialise()` — when invoked with `detection-rules.json` missing from disk — **regenerates the bundled defaults via `DefaultRules.installIfMissing(at:)` before re-loading**. Rationale: a user who deleted the file and hit reload is unambiguously asking for "get me back to a working state"; the alternative (return an error and leave the app rule-less) is worse UX and causes silent notification gaps. First-launch behaviour remains identical (defaults installed iff file missing). Users who genuinely want an empty rule set can write `{"version":1,"rules":[]}` to disk; reload preserves that file verbatim.
+
+**Observable acceptance.** After `make mac-build && make mac-run-app`, inspect `~/.config/touch-code/detection-rules.json` — it contains the three default rules. Invoke `coordinator.reloadRules()` via LLDB (or a debug-only menu item under `MainView`) and confirm new rules are materialised. Install `shims/claude-stop-hook.sh` as Claude Code's Stop hook, run a short Claude session inside an agent-labelled Panel, end the session — OS banner fires within ≈1s of session end. Delete the rule file, call `coordinator.reloadRules()` — the app regenerates defaults and continues. (The `tc notifications rules reload` CLI verb ships as a follow-up PR on plan 0003; its absence does not gate this milestone.)
 
 **Expected commits.**
 
 - `feat(notifications): default detection rules for claude/codex/aider`
 - `feat(skill): Stop-hook shim scripts for supported agents`
-- `feat(cli): tc notifications rules reload wired through system.*`
+- `feat(notifications): app-internal reloadRules with regenerate-on-missing policy`
 
 ### Milestone 7: Integration tests + end-to-end flow
 
@@ -480,11 +553,9 @@ Per-milestone test:
 Expected M1 transcript tail:
 
     Test Suite 'All tests' passed at ...
-    Executed 25 tests, with 0 failures (0 unexpected) in 0.0XX (0.XXX) seconds
+    Executed <n> tests, with 0 failures (0 unexpected) in 0.0XX (0.XXX) seconds
 
-Expected M2 transcript tail:
-
-    Executed 35 tests, with 0 failures (0 unexpected) in 0.0XX (0.XXX) seconds
+Where `<n>` equals the number of `func test…` methods added for that milestone (see the test-file listings per milestone above). The exact count is whatever the listed functions sum to; the transcript is green iff failures is 0.
 
 Per-milestone commit cadence: one small commit per sub-task per CLAUDE.md's commit-after-each-small-feature memory. Use `/commit` to draft messages; prefix `feat(core):`, `feat(notifications):`, `feat(notifications-ui):`, `feat(cli):`, `feat(skill):`, `test(notifications):`, or `docs(plan):` as the types already present in this repo's history.
 
@@ -501,7 +572,7 @@ The plan is complete when all seven milestones are green and the following manua
 5. **7-day sweep.** Manually edit an inbox entry's `dismissedAt` to 8 days ago; restart the app; assert the entry is gone from the file.
 6. **Idle transition (muted).** Open a Panel labelled `agent:claude`, wait > 120 seconds with no output. The tracker's `state` is `idle` (verify via LLDB or a `tc notifications list --verbose` debug view once C4 ships); no OS banner fires (DEC-7).
 7. **Crash path.** Kill the agent process via `kill -9` from another Panel. A `crashed` notification appears; the tracker is torn down (subsequent output for that Panel does not fire further notifications).
-8. **Unit + integration suites.** `xcodebuild test -scheme TouchCodeCore` and `xcodebuild test -scheme touch-code` are both green with ≥ 60 new tests added across the plan.
+8. **Unit + integration suites.** `xcodebuild test -scheme TouchCodeCore` and `xcodebuild test -scheme touch-code` are both green. Every test file listed per milestone exists and contributes `func test…` methods; failures is 0 across the suite.
 
 ## Idempotence and Recovery
 
@@ -519,6 +590,18 @@ Rollback per milestone: `git revert <milestone commits>` is clean because each m
 
 (None yet — will be filled as milestones complete; mirrors 0002's Outcomes pattern.)
 
+## Risks
+
+Implementation risks for this plan. Design-level risks already live in [docs/design-docs/c6-agent-notifications.md](../design-docs/c6-agent-notifications.md) §Risks (R1 through R11); the entries here are specific to building C6 under touch-code's current state.
+
+- **R1 — Idle-timer precision across sleep/wake.** macOS power-nap / sleep freezes dispatch queues; an idle timer armed for 120 s before sleep fires immediately on wake, producing a spurious `.idle` transition for every tracked Panel at once. Mitigation: the tracker stores a `lastActivityAt: Date` on every envelope and on `override`; `idleTimer` fire compares `now - lastActivityAt < idleThreshold` and, if smaller than the threshold, re-arms instead of transitioning. A targeted XCTest in M2 advances `ManualClock` by an hour to simulate wake, feeds a fresh output envelope, asserts no spurious transition emits. Observability: `os.Logger` records timer rearm events at `.debug` so the behaviour is auditable under `Console.app`.
+- **R2 — UN permission revoked mid-session.** A user can deny permission in System Settings while the app is running. Further `osNotifier.post` calls silently no-op, but the coordinator's cached `auth_status` becomes stale. Mitigation: subscribe to `NSApplication.didBecomeActiveNotification` and re-query `getNotificationSettings()` whenever the app returns to foreground, update `settings.notifications.auth_status`, and — if the status flipped to `.denied` — log a one-time `.info` entry. Inbox and Dock badge continue working (DEC-5). A targeted unit test in M4 verifies the re-query path with a mock `OSNotifier` returning different statuses across calls.
+- **R3 — Rule-file corruption during hot-reload mid-match.** A user edits `detection-rules.json` to add a new rule, saves; between `RuleStore.reload()` read and the C3 dispatcher re-registering its compiled regexes, an envelope arrives and its old rule id is no longer valid. Mitigation: `reloadAndRematerialise()` performs the C3 `hooks.json` save *first* and the in-memory rule-table swap *second*; `DetectionRouter.handle` tolerates an envelope whose sentinel suffix matches no current rule by logging at `.info` and dropping the envelope (no crash, no misattributed notification). Additionally, a file-system watch on `detection-rules.json` is left out of v1 — reload is explicit via `coordinator.reloadRules()` — so there is no background race with an in-flight match.
+- **R4 — Sentinel token leakage visible to the user.** The `::touchcode:agent-complete <panel-id>` line written by the Stop shim appears in the Panel's scrollback and in any clipboard copy the user makes. Mitigation: accepted trade-off in v1 per c6 DEC-14 / c6 R10; documented in the shim script comments so users know what the line is. A future variant can wrap the token in ANSI `ESC [ ? 2026 h … ESC [ ? 2026 l` bracketed-paste sequences (or a dedicated DECSTBM mode) to suppress visibility at the terminal level; tracked as a post-v1 enhancement, not a blocker.
+- **R5 — C3 exec plan 0003 milestone-ordering skew.** C6 M1 depends on the `HookEvent` / `HookEnvelope` / `HookEventData` / `HookSubscription` / `Panel.labels` types landing in `TouchCodeCore` (C3 0003 M1). C6 M2 depends on `HookDispatcher.register(subscriber:for:)` and `HookConfigStore.load()/save(_:)` (C3 0003 M2 or M3). If C3 0003 slips, C6 blocks at exactly those boundaries. Mitigation: each milestone states its C3 dependency in Observable Acceptance; if a milestone is blocked, the Decision Log records the blocked-on-SHA and the team pulls C3 forward rather than shipping a stub that has to be reverted.
+- **R6 — `NSApp.dockTile` unavailable in unit-test processes.** `AppKitDockBadger` touches `NSApp`, which requires a foreground bundled app. Headless test processes will crash on first call. Mitigation: the protocol-backed `DockBadger` keeps `MockDockBadger` tests free of AppKit; the real `AppKitDockBadger` is only constructed in the app-shell wiring step, not in tests. Integration test (M7) verifies via the mock; the real adapter is exercised only by manual run.
+- **R7 — Read-modify-write race on `hooks.json`.** Two processes calling `HookConfigStore.save(_:)` at nearly the same time (e.g. `tc hook install` plus `RuleStore.reloadAndRematerialise` concurrently) can clobber each other's unrelated edits between load and save. Mitigation: `save(_:)` throws on stale-version conflict (C3 DEC-16 policy); `RuleStore` retries once with a fresh load; if the retry also fails, returns `RuleStoreError.hooksFileBusy(path:)` and leaves the in-memory rules unchanged. A targeted unit test in M2 with a fake writer that flips the "changed between load and save" flag once verifies the retry path.
+
 ## Interfaces and Dependencies
 
 The following interfaces must exist at plan completion. Paths are worktree-relative.
@@ -535,17 +618,20 @@ The following interfaces must exist at plan completion. Paths are worktree-relat
 
 ### `apps/mac/touch-code/Notifications/`
 
-- `DetectionRouter.swift` — `@MainActor final class DetectionRouter: InternalHookSubscriber`. Public surface: `init(rules: AgentDetectionRules, hierarchy: HierarchyManager, renderer: TemplateRenderer)`, `nonisolated func handle(envelope: HookEnvelope) async`, `var transitions: AsyncStream<AgentStateTransition> { get }`.
+- `DetectionRouter.swift` — `@MainActor final class DetectionRouter: InternalHookSubscriber`. Public surface: `init(rules: AgentDetectionRules, registry: TrackerRegistry, renderer: TemplateRenderer)`, `nonisolated func handle(envelope: HookEnvelope) async`, `var transitions: AsyncStream<AgentStateTransition> { get }`.
+- `TrackerRegistry.swift` — `@MainActor final class TrackerRegistry`. Public surface: `init(hierarchy: HierarchyManager, idleThreshold: TimeInterval, clock: any Clock<Duration>)`, `func bootstrap()`, `func subscribeToHierarchyEvents()`, `func tracker(for panelID: PanelID?) -> AgentStateTracker?`, `var allTrackers: [AgentStateTracker] { get }`, `var trackerCreations: AsyncStream<PanelID> { get }`. Single owner of tracker lifecycle across the whole plan.
 - `AgentStateTracker.swift` — `@MainActor @Observable final class AgentStateTracker`. Public surface: `init(panelID: PanelID, idleThreshold: TimeInterval, clock: any Clock<Duration>)`, `func ingest(envelope: HookEnvelope, ruleID: String?, rendered: (title: String, body: String)?) -> AgentStateTransition?`, `func override(to: AgentState)`, `func teardown()`.
-- `RuleStore.swift` — `@MainActor final class RuleStore`. Public surface: `init(fileURL: URL, hookWriter: HookConfigWriting)`, `func loadAndMaterialise() throws -> AgentDetectionRules`, `func reload() throws -> AgentDetectionRules`.
+- `RuleStore.swift` — `@MainActor final class RuleStore`. Public surface: `init(fileURL: URL, hookWriter: HookConfigWriting)`, `func loadAndMaterialise() throws -> AgentDetectionRules`, `func reload() throws -> AgentDetectionRules`, `func reloadAndRematerialise() async throws -> AgentDetectionRules` (M6; regenerates bundled defaults if file is missing).
 - `TemplateRenderer.swift` — `struct TemplateRenderer { init(rules: AgentDetectionRules) throws; func render(template: String, for envelope: HookEnvelope, transition: AgentStateTransition) -> String }`.
 - `InboxStore.swift` — `@MainActor final class InboxStore`. Public surface: `init(fileURL: URL, clock: any Clock<Duration>)`, `func load() throws -> NotificationInbox`, `func append(_ notification: AgentNotification)`, `func markRead(_ ids: [UUID])`, `func dismiss(_ ids: [UUID])`, `func clearAll()`, `func saveNow() throws`, `var unreadCount: Int { get }`, `var unreadPublisher: AsyncStream<Int> { get }`.
-- `NotificationCoordinator.swift` — `@MainActor final class NotificationCoordinator`. Public surface: `init(inbox: InboxStore, badger: DockBadger, osNotifier: OSNotifier, muting: MuteSettings, hierarchy: HierarchyManager)`, `func bind(to transitions: AsyncStream<AgentStateTransition>) async`, `func onAgentPanelCreated(_ panelID: PanelID) async`.
+- `NotificationCoordinator.swift` — `@MainActor final class NotificationCoordinator`. Public surface: `init(inbox: InboxStore, badger: DockBadger, osNotifier: OSNotifier, muting: MuteSettings, registry: TrackerRegistry, permissionDelegate: NotificationPermissionDelegate)`, `func bind(to transitions: AsyncStream<AgentStateTransition>) async`, `func onAgentPanelCreated(_ panelID: PanelID) async`, `func reloadRules() async throws`.
+- `NotificationPermissionDelegate` protocol (same file or `Permissions/`): `@MainActor protocol NotificationPermissionDelegate: AnyObject { func presentPrompt() async -> PermissionDecision }` with `enum PermissionDecision: Sendable { case `continue`, notNow, never }`. M4 ships `NullPermissionDelegate` (no-op, calls `requestAuthorization` directly); M5 ships `NotificationPermissionViewModel` backed by a SwiftUI sheet.
 - `OSNotifier.swift` — `protocol OSNotifier: Sendable { func currentAuthorizationStatus() async -> AuthorizationStatus; func requestAuthorization() async -> AuthorizationStatus; func post(_ notification: AgentNotification) async }` + `@MainActor final class UserNotificationsOSNotifier: OSNotifier`.
 - `DockBadger.swift` — `protocol DockBadger: Sendable { func setUnreadCount(_ n: Int) }` + `@MainActor final class AppKitDockBadger: DockBadger`.
 - `ConfigPaths.swift` — `enum ConfigPaths` with two computed URLs for `notifications.json` and `detection-rules.json` under `~/.config/touch-code/`.
-- `Bridging/HookConfigWriting.swift` — `@MainActor protocol HookConfigWriting { func upsertInternal(_ subscriptions: [HookSubscription]) throws; func removeInternal(idsPrefixed: String) throws }` + a `HookConfigStoreAdapter` that bridges to C3's `HookConfigStore`.
-- `Views/InboxSidebar.swift`, `Views/InboxRow.swift`, `Views/NotificationsSettingsView.swift`, `InboxFeature.swift`, `InboxClient.swift`, `InboxViewModel.swift` — the SwiftUI + TCA surface for M5.
+- `Bridging/HookConfigWriting.swift` — single home. `@MainActor protocol HookConfigWriting { func load() throws -> HookConfig; func save(_ config: HookConfig) throws }` + `HookConfigStoreAdapter` delegating to C3's `HookConfigStore` using only its existing `load()` / `save(_:)` API + `FakeHookConfigWriter` for tests.
+- `Views/InboxSidebar.swift`, `Views/InboxRow.swift`, `Views/NotificationsSettingsView.swift`, `Views/NotificationPermissionSheet.swift`, `InboxFeature.swift`, `InboxClient.swift`, `InboxViewModel.swift`, `NotificationPermissionViewModel.swift` — the SwiftUI + TCA surface for M5.
+- `SettingsStore.swift` (M4, under `apps/mac/touch-code/Runtime/`) — `@MainActor final class SettingsStore` owning `~/.config/touch-code/settings.json`. Authoritative for `notifications.*` keys; mutated by `NotificationCoordinator` (`muted_rule_ids`, `auth_status`, `neverPrompt`, cool-down timestamp) and by the eventual `tc notifications mute` CLI verb (follow-up on 0003).
 
 ### `apps/mac/touch-code/Notifications/Defaults/`
 
@@ -557,11 +643,12 @@ The following interfaces must exist at plan completion. Paths are worktree-relat
 
 ### External dependencies (from C3 exec plan 0003)
 
-- `public protocol InternalHookSubscriber: AnyObject, Sendable { func handle(envelope: HookEnvelope) async }`.
+- `public protocol InternalHookSubscriber: AnyObject, Sendable { func handle(envelope: HookEnvelope) async }` — from C3 design DEC-16.
 - `extension HookDispatcher { func register(subscriber: InternalHookSubscriber, for prefix: String) throws; func unregister(prefix: String) }` — called once by the app shell at launch: `hookDispatcher.register(subscriber: detectionRouter, for: "__touch-code/internal:notifications:")`.
-- `HookConfigStore` (C3-owned) exposes an upsert API consumable through `HookConfigWriting` adapter; if C3's current API does not expose upsert for programmatically-authored subscriptions, C3 exec plan 0003 must add it before C6 M2 can land — record in Decision Log if this blocks.
+- `HookConfigStore` (C3-owned) exposes only its existing `load() throws -> HookConfig` and `save(_: HookConfig) throws` methods — **C6 does not require a new upsert API from C3.** The `HookConfigStoreAdapter` in `Bridging/HookConfigWriting.swift` performs read-modify-write atomically over those two methods. This is recorded as the chosen approach in the Decision Log at M2 implementation time so no cross-plan coordination is needed with 0003.
 - `HookEvent`, `HookEnvelope`, `HookEventData`, `HookSubscription` types (added to `TouchCodeCore` by C3 exec plan 0003 M1).
 - `Panel.labels: Set<String>` (added by C3 D10, implemented in C3 exec plan 0003 M1).
+- `HierarchyManager` event stream for `onPanelCreated` / `onPanelRemoved` / `onPanelLabelsChanged` (if not already exposed by 0002, M2 of this plan adds it — single-owner principle: the stream is emitted from `HierarchyManager` and read-only for subscribers). Record in Decision Log at implementation time.
 
 ### Test dependencies
 
