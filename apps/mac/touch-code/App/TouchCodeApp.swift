@@ -14,11 +14,11 @@ struct TouchCodeApp: App {
 
   var body: some Scene {
     WindowGroup {
-      if let store = appState.store, let engine = appState.terminalEngine {
+      if let store = appState.store, appState.terminalEngine != nil {
         ContentView(
           store: store,
           hierarchyManager: appState.hierarchyManager,
-          terminalEngine: engine
+          settingsStore: appState.settingsStore
         )
         .frame(minWidth: 800, minHeight: 600)
         .navigationTitle("touch-code")
@@ -51,6 +51,7 @@ struct TouchCodeApp: App {
 @Observable
 final class AppState {
   let hierarchyManager: HierarchyManager
+  let settingsStore: SettingsStore
   private(set) var terminalEngine: TerminalEngine?
   private(set) var store: StoreOf<RootFeature>?
 
@@ -58,7 +59,7 @@ final class AppState {
   private let hierarchyRuntime: GhosttyBackedHierarchyRuntime
   private var ghosttyRuntime: GhosttyRuntime?
   private let inboxStore: InboxStore
-  private let settingsStore: SettingsStore
+  private let notificationSettingsStore: NotificationSettingsStore
 
   // IPC stack (C3+C4): HookDispatcher + SocketServer + handlers.
   private var hookConfigStore: HookConfigStore?
@@ -80,7 +81,11 @@ final class AppState {
     // C6 stores — cheap to build up front so InboxClient.live has
     // stable referents to bind its closures to. The inbox + settings
     // files materialise during bringUp().
+    // 0005 M6b: SettingsStore is constructed here so its `@Observable`
+    // surface is alive for the full app lifetime. Views observe it via
+    // env injection; EditorClient closes over it in bringUp().
     self.inboxStore = InboxStore()
+    self.notificationSettingsStore = NotificationSettingsStore()
     self.settingsStore = SettingsStore()
     // TerminalEngine is constructed in bringUp() once we know whether a
     // GhosttyRuntime is available — this avoids a throwaway engine.
@@ -101,20 +106,28 @@ final class AppState {
     self.terminalEngine = engine
     hierarchyRuntime.attach(engine: engine)
 
-    // Load C6 state — best-effort; decode errors are logged inside each
+    // Load C6 + C8 state — best-effort; decode errors are logged inside each
     // store and do not block the app from launching.
     _ = try? inboxStore.load()
-    _ = try? settingsStore.load()
+    _ = try? notificationSettingsStore.load()
+    // C7+C8 SettingsStore loads itself from disk during `init(fileURL:)`.
 
     let manager = hierarchyManager
     let inbox = inboxStore
+    let notifSettings = notificationSettingsStore
     let settings = settingsStore
     self.store = Store(initialState: RootFeature.State()) {
       RootFeature()
     } withDependencies: {
       $0.hierarchyClient = .live(manager: manager)
       $0.terminalClient = .live(engine: engine)
-      $0[InboxClient.self] = .live(inbox: inbox, settings: settings)
+      // 0005 M6b critical wire: without these overrides, `EditorClient.liveValue` and
+      // `SettingsWriter.liveValue` fatalError on any descendants call. Both factories close
+      // over `settings` (global default + custom templates); `editorClient` additionally
+      // closes over `manager` (per-Project override).
+      $0.editorClient = .live(settings: settings, hierarchy: manager)
+      $0.settingsWriter = .live(settings)
+      $0[InboxClient.self] = .live(inbox: inbox, settings: notifSettings)
     }
 
     startIPC(hierarchy: manager)
@@ -178,6 +191,12 @@ final class AppState {
 
   static func bundleVersion() -> String {
     Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3.0"
+  }
+
+  /// Flushes all pending debounced writes. Called by `applicationWillTerminate`.
+  func flushAllPersistedState() {
+    settingsStore.flush()
+    // `CatalogStore` writes on scheduleSave and on app termination via its own signals.
   }
 }
 

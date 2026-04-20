@@ -66,6 +66,13 @@ nonisolated struct HierarchyClient: Sendable {
     _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
   ) throws -> Void
 
+  /// Sets the per-Project default editor override. `nil` unsets the override so resolution
+  /// falls back to the global default (via `SettingsStore`). Added in 0005 M6a for C8's
+  /// Worktree-header "Open in ▾" + Settings override UI.
+  var setDefaultEditor: @MainActor @Sendable (
+    _ projectID: ProjectID, _ inSpace: SpaceID, _ editorID: EditorID?
+  ) throws -> Void
+
   var snapshot: @MainActor @Sendable () -> Catalog
 
   /// Emits whenever the selection chain `(spaceID, projectID, worktreeID)`
@@ -141,6 +148,9 @@ extension HierarchyClient {
           at: path, ratio: ratio,
           in: tabID, in: worktreeID, in: projectID, in: spaceID
         )
+      },
+      setDefaultEditor: { projectID, spaceID, editorID in
+        try manager.setDefaultEditor(editorID, for: projectID, in: spaceID)
       },
       snapshot: { manager.catalog },
       selectionChanges: { makeSelectionStream(manager: manager) }
@@ -224,6 +234,7 @@ extension HierarchyClient: DependencyKey {
     closePanel: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     focusPanel: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     resizeSplit: { _, _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    setDefaultEditor: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     snapshot: { fatalError("HierarchyClient.liveValue not configured") },
     selectionChanges: { AsyncStream { $0.finish() } }
   )
@@ -247,6 +258,7 @@ extension HierarchyClient: DependencyKey {
     closePanel: unimplemented("HierarchyClient.closePanel"),
     focusPanel: unimplemented("HierarchyClient.focusPanel"),
     resizeSplit: unimplemented("HierarchyClient.resizeSplit"),
+    setDefaultEditor: unimplemented("HierarchyClient.setDefaultEditor"),
     snapshot: unimplemented(
       "HierarchyClient.snapshot",
       placeholder: Catalog(windows: [], spaces: [], selectedSpaceID: nil)

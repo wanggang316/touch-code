@@ -83,7 +83,7 @@ public nonisolated enum AuthorizationStatusCache: String, Equatable, Codable, Se
 /// saves, synchronous flush on `applicationWillTerminate`. No row-cap (unlike
 /// `InboxStore`); settings is a flat preferences object.
 @MainActor
-final class SettingsStore {
+final class NotificationSettingsStore {
   private(set) var settings: TouchCodeSettings = .default
 
   private let fileURL: URL

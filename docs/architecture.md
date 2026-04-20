@@ -29,6 +29,10 @@ The mac platform (Tuist project, sources, ghostty submodule) lives under `apps/m
 | `touch-code/Runtime/` | libghostty integration: GhosttyKit Swift bindings, Panel lifecycle, Surface rendering adapter, `@Observable` runtime state |
 | `touch-code/Hooks/` | Lifecycle event taxonomy (Panel created / ready / output match / idle / exit; Tab activated; Worktree activated), hook registration, out-of-process shell handler dispatch |
 | `touch-code/Git/` | Read-only git data access: diff parsing, log enumeration, commit detail extraction. No write operations. |
+| `touch-code/App/Clients/Editor/` | `EditorService` / `EditorRegistry` / `PathProber` / `ProcessSpawner` — C8 external-editor handoff. `LiveEditorService` merges built-in allowlist (VSCode / Cursor / Zed / Xcode / Sublime / Finder) with user-defined templates from `SettingsStore`, probes `$PATH` for installation status, and spawns with a 5 s budget + SIGTERM→SIGKILL ladder. |
+| `touch-code/App/Features/GitViewer/` | C7 read-only git viewer: `GitViewerFeature` TCA reducer + SwiftUI column hierarchy (`GitViewerView` / `CommitLogView` / `FileChangeListView` / `UnifiedDiffView`) + 50k-line `LargeDiffPlaceholderView` with POSIX-quoted "Copy command" button. |
+| `touch-code/App/Features/WorktreeHeader/` | Worktree-header "Open in ▾" dropdown (`WorktreeHeaderOpenButton`) — consumes the `EditorFeature` scope that ContentView owns so Settings sheet and dropdown share a single editor-state source of truth. |
+| `touch-code/App/Features/Socket/` | `EditorHandlers` — server-side RPC handlers for `editor.describe` / `editor.open` / `editor.setDefault`. Bridges `EditorClient` + `HierarchyClient` to wire types in `TouchCodeIPC/Editor/`. MethodRouter registration lands at the 0003 merge per plan 0005 DEC-21. |
 
 Module boundaries between `Runtime`, `Hooks`, `Git`, and `App` are enforced by **folder convention + code review**, not by Tuist target edges. This matches supacode/supaterm's idiom. Promote a subfolder to its own target only when it gains a test bundle, becomes consumed by another app (e.g. iOS), or needs to restrict its public API surface.
 

@@ -35,17 +35,20 @@ struct RootFeatureTests {
   }
 
   @Test
-  func selectionChangedUpdatesState() async {
+  func selectionChangedUpdatesStateAndForwardsToGitViewer() async {
     let store = TestStore(initialState: RootFeature.State()) {
       RootFeature()
     } withDependencies: {
       $0.terminalClient.events = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
-      // Snapshot is read by the reducer to resolve the active tab for the
-      // selection. Return an empty catalog — the test selection points at
-      // unknown IDs, so resolveActiveTab returns nil and activeTabID stays
-      // at its default.
+      // Snapshot drives both (a) `resolveActiveTab` in this reducer and (b)
+      // `GitViewerFeature.worktreePath(in:worktreeID:)` downstream. Return an empty catalog —
+      // the test selection points at unknown IDs. resolveActiveTab returns nil; the
+      // downstream diff effect discovers no path and dispatches .diffFailed with a clear
+      // reason.
       $0.hierarchyClient.snapshot = { Catalog(windows: [], spaces: [], selectedSpaceID: nil) }
+      $0.gitService = GitServiceClient.testValue
+      $0.editorClient = EditorClient.testValue
     }
 
     let selection = HierarchySelection(
@@ -55,6 +58,18 @@ struct RootFeatureTests {
     )
     await store.send(.selectionChanged(selection)) { state in
       state.selection = selection
+    }
+    // Forwarding step: RootFeature turns .selectionChanged into a .gitViewer action.
+    await store.receive(\.gitViewer.worktreeSelected) { state in
+      state.gitViewer.projectID = selection.projectID
+      state.gitViewer.worktreeID = selection.worktreeID
+      state.gitViewer.diffState = .loading
+    }
+    // Downstream effect: diffRequest fails because the snapshot doesn't contain the
+    // worktree, which proves both the forwarding AND the GitViewerFeature is correctly
+    // scoped into RootFeature (the reducer ran, not just the action routing).
+    await store.receive(\.gitViewer.diffFailed) { state in
+      state.gitViewer.diffState = .error(.invalidInput("no worktree path available"))
     }
   }
 
@@ -89,7 +104,16 @@ struct RootFeatureTests {
       $0.terminalClient.events = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.snapshot = { catalog }
+      $0.gitService = GitServiceClient.testValue
+      // Worktree path resolves to a live directory in this catalog, so GitViewer reaches
+      // `workingTreeDiff`. Stub it with an empty diff — the test is not about the diff.
+      $0.gitService.workingTreeDiff = { _, _ in UnifiedDiff(scope: .working, files: []) }
+      $0.editorClient = EditorClient.testValue
     }
+    // Non-exhaustive: this test is about the splitViewport tabID mirror only; the
+    // downstream `.gitViewer.worktreeSelected` forwarding + its diff effect are
+    // covered by `selectionChangedUpdatesStateAndForwardsToGitViewer`.
+    store.exhaustivity = .off
 
     let selection = HierarchySelection(
       spaceID: spaceID, projectID: projectID, worktreeID: worktreeID
@@ -146,10 +170,15 @@ struct RootFeatureTests {
       $0.terminalClient.events = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.selectionChanges = { selectionStream }
       $0.hierarchyClient.snapshot = { Catalog(windows: [], spaces: [], selectedSpaceID: nil) }
+      $0.gitService = GitServiceClient.testValue
+      $0.editorClient = EditorClient.testValue
     }
 
     await store.send(.onLaunch)
 
+    // `worktreeID: nil` is the key: when GitViewerFeature receives a nil-worktree selection
+    // it resets state without spawning a diff effect, so the test stays exhaustive without
+    // any downstream action chain.
     let selection = HierarchySelection(
       spaceID: SpaceID(),
       projectID: nil,
@@ -159,6 +188,11 @@ struct RootFeatureTests {
     await store.receive(\.selectionChanged) { state in
       state.selection = selection
     }
+    // Forwarding reaches GitViewerFeature. Both IDs are nil; state was already all-nil,
+    // so the reducer's equality guard at the top of the handler short-circuits with no
+    // state mutation. `store.receive` without a mutation closure is still exhaustive —
+    // TestStore asserts the action was dispatched, and the state stayed unchanged.
+    await store.receive(\.gitViewer.worktreeSelected)
 
     selectionContinuation.finish()
     await store.send(.onQuit)

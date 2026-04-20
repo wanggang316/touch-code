@@ -118,6 +118,17 @@ final class HierarchyManager {
     store.scheduleSave(catalog)
   }
 
+  /// Sets or unsets the per-Project default editor. `nil` clears the override so editor
+  /// resolution falls back to the global default (managed by `SettingsStore`) and ultimately
+  /// to Finder. Added in 0005 M6a for C8's UI.
+  func setDefaultEditor(_ editorID: EditorID?, for projectID: ProjectID, in spaceID: SpaceID) throws {
+    guard let (spaceIndex, projectIndex) = findProjectIndices(projectID: projectID, spaceID: spaceID) else {
+      throw HierarchyError.notFound("Project \(projectID)")
+    }
+    catalog.spaces[spaceIndex].projects[projectIndex].defaultEditor = editorID
+    store.scheduleSave(catalog)
+  }
+
   // MARK: - Worktree mutations
 
   func createWorktree(

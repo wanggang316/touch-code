@@ -229,4 +229,26 @@ struct HierarchyManagerTests {
     let tab = manager.catalog.spaces[0].projects[0].worktrees[0].tabs[0]
     #expect(tab.splitTree.zoomed == panelID)
   }
+
+  @Test
+  func setDefaultEditorWritesPerProjectOverride() throws {
+    let spaceID = manager.createSpace(name: "test")
+    let projectID = try manager.addProject(to: spaceID, name: "project", rootPath: "/tmp", gitRoot: "/tmp")
+
+    try manager.setDefaultEditor("vscode", for: projectID, in: spaceID)
+    #expect(manager.catalog.spaces[0].projects[0].defaultEditor == "vscode")
+
+    // Nil clears the override.
+    try manager.setDefaultEditor(nil, for: projectID, in: spaceID)
+    #expect(manager.catalog.spaces[0].projects[0].defaultEditor == nil)
+  }
+
+  @Test
+  func setDefaultEditorThrowsForUnknownProject() {
+    let spaceID = manager.createSpace(name: "test")
+    let bogusProject = ProjectID()
+    #expect(throws: (any Error).self) {
+      try manager.setDefaultEditor("vscode", for: bogusProject, in: spaceID)
+    }
+  }
 }

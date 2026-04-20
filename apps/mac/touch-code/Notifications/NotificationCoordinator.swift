@@ -12,7 +12,7 @@ import TouchCodeCore
 /// Permission flow (DEC-4):
 /// - First-run prompt is deferred to the first `onAgentPanelCreated` call
 ///   and gated by `alreadyPrompted` + the cached `authStatus` in
-///   `SettingsStore`.
+///   `NotificationSettingsStore`.
 /// - `NotificationPermissionDelegate` chooses between `.continue` (go to
 ///   UN request), `.notNow` (24h cool-down), `.never` (permanent suppress).
 /// - Restart-time sweep: M4's wiring step 10 iterates `registry.allTrackers`
@@ -23,7 +23,7 @@ final class NotificationCoordinator {
   private let inbox: InboxStore
   private let badger: any DockBadger
   private let osNotifier: any OSNotifier
-  private let settings: SettingsStore
+  private let settings: NotificationSettingsStore
   private let registry: TrackerRegistry
   private let permissionDelegate: any NotificationPermissionDelegate
   private weak var ruleStore: RuleStore?
@@ -39,7 +39,7 @@ final class NotificationCoordinator {
     inbox: InboxStore,
     badger: any DockBadger,
     osNotifier: any OSNotifier,
-    settings: SettingsStore,
+    settings: NotificationSettingsStore,
     registry: TrackerRegistry,
     permissionDelegate: any NotificationPermissionDelegate,
     ruleStore: RuleStore? = nil,

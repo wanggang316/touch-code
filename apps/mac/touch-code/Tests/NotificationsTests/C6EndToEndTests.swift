@@ -235,7 +235,7 @@ struct C6EndToEndTests {
     let inboxURL = temp.appendingPathComponent("notifications.json")
     let rulesURL = temp.appendingPathComponent("detection-rules.json")
 
-    let settings = SettingsStore(fileURL: settingsURL, debounce: .seconds(3600))
+    let settings = NotificationSettingsStore(fileURL: settingsURL, debounce: .seconds(3600))
     settings.mutate { $0.notifications.authStatus = authStatus }
     try settings.saveNow()
 

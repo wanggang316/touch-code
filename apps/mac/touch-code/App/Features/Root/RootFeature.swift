@@ -41,21 +41,22 @@ struct RootFeature {
     var sidebar: HierarchySidebarFeature.State = .init()
     var inbox: InboxSidebarFeature.State = .init()
     var detail: WorktreeDetailFeature.State = .init()
+    /// C7 M3/M4 (0005): read-only git viewer hosted in the trailing
+    /// inspector slot. Selection is forwarded by the `.selectionChanged`
+    /// reducer branch so the feature always tracks the active Worktree.
+    var gitViewer: GitViewerFeature.State = .init()
+    /// C8 M6b (0005): editor preferences + per-Project override state.
+    var editor: EditorFeature.State = .init()
 
-    /// DEC-9 (M4, 2026-04-20): reserved for C7 M3/M4. `true` shows the
-    /// trailing inspector column (git diff/history viewer). Placeholder
-    /// view for now; C7 plan wires the reducer + real view.
+    /// DEC-9 (M4, 2026-04-20): `true` shows the trailing inspector column
+    /// (git diff/history viewer). `ContentView` hosts `GitViewerView` there
+    /// once the 0005 M4a wiring lands.
     var inspectorVisible: Bool = false
 
-    @Presents var newSpaceSheet: NewSpaceFeature.State?
-    @Presents var newTabSheet: NewTabFeature.State?
-    @Presents var confirmAlert: AlertState<ConfirmAlertAction>?
-
-    // Reserved for C8 M6 (editor settings). The C8 plan will define a
-    // `SettingsFeature` and replace this placeholder type with its State.
-    // Keeping the @Presents slot reserved here avoids restructuring root
-    // state when C8 lands (DEC-4):
-    //   @Presents var settingsSheet: SettingsFeature.State?
+    /// C8 M6b (0005): settings sheet presentation. `nil` = hidden; non-nil
+    /// presents the sheet with a dedicated sub-feature state that mirrors
+    /// a subset of `editor` for isolated in-sheet edits.
+    @Presents var settingsSheet: SettingsSheetFeature.State?
   }
 
   /// Opaque marker for diagnostic logging / tests — the full `TerminalEvent`
@@ -98,19 +99,13 @@ struct RootFeature {
     case engineEventReceived(LastEventMarker)
     case sidebarModeChanged(SidebarMode)
     case inspectorVisibilityToggled
-    case newSpaceButtonTapped
-    case newTabButtonTapped
-    case removeWorktreeButtonTapped(WorktreeID, ProjectID, SpaceID)
-    case newSpaceSheet(PresentationAction<NewSpaceFeature.Action>)
-    case newTabSheet(PresentationAction<NewTabFeature.Action>)
-    case confirmAlert(PresentationAction<ConfirmAlertAction>)
+    case settingsSheetShown
+    case settingsSheet(PresentationAction<SettingsSheetFeature.Action>)
     case sidebar(HierarchySidebarFeature.Action)
     case inbox(InboxSidebarFeature.Action)
     case detail(WorktreeDetailFeature.Action)
-  }
-
-  enum ConfirmAlertAction: Equatable {
-    case confirmRemoveWorktree(WorktreeID, ProjectID, SpaceID)
+    case gitViewer(GitViewerFeature.Action)
+    case editor(EditorFeature.Action)
   }
 
   nonisolated enum CancelID: Sendable { case events, selectionChanges }
@@ -124,6 +119,12 @@ struct RootFeature {
     }
     Scope(state: \.detail, action: \.detail) {
       WorktreeDetailFeature()
+    }
+    Scope(state: \.gitViewer, action: \.gitViewer) {
+      GitViewerFeature()
+    }
+    Scope(state: \.editor, action: \.editor) {
+      EditorFeature()
     }
 
     Scope(state: \.inbox, action: \.inbox) {
@@ -162,14 +163,14 @@ struct RootFeature {
         // Mirror the selection's active tab into the split viewport so M5
         // lazy-surface lifecycle can react without reading HierarchyManager
         // from a reducer. Tab is resolved on-the-fly from the catalog.
-        //
-        // TEST CONTRACT: any TestStore that sends `.selectionChanged` MUST
-        // override `hierarchyClient.snapshot` — the default `testValue`
-        // traps on invocation. Return `Catalog(windows: [], spaces: [],
-        // selectedSpaceID: nil)` for the common nil-selection case.
         let tabID = resolveActiveTab(selection: selection)
         state.detail.splitViewport.activeTabID = tabID
-        return .none
+        // Forward the (projectID, worktreeID) pair to GitViewerFeature so
+        // the inspector always reflects the current selection.
+        return .send(.gitViewer(.worktreeSelected(
+          projectID: selection.projectID,
+          worktreeID: selection.worktreeID
+        )))
 
       case .engineEventReceived(let marker):
         state.lastEvent = marker
@@ -198,58 +199,35 @@ struct RootFeature {
       case .detail:
         return .none
 
+      case .gitViewer:
+        return .none
+
+      case .editor:
+        return .none
+
+      case .settingsSheetShown:
+        state.settingsSheet = SettingsSheetFeature.State()
+        return .none
+
+      case .settingsSheet(.dismiss):
+        state.settingsSheet = nil
+        // Sheet edited its own EditorFeature state in isolation. The root's
+        // EditorFeature (drives the Worktree-header dropdown + toast label) reads the same
+        // underlying SettingsStore, but its in-memory cache is stale until we re-fetch.
+        // Re-running onAppear is a cheap round-trip through describe + readSnapshot.
+        return .send(.editor(.onAppear))
+
+      case .settingsSheet:
+        return .none
+
       case .inspectorVisibilityToggled:
         state.inspectorVisible.toggle()
         return .none
-
-      case .newSpaceButtonTapped:
-        state.newSpaceSheet = NewSpaceFeature.State()
-        return .none
-
-      case .newTabButtonTapped:
-        guard
-          let spaceID = state.selection.spaceID,
-          let projectID = state.selection.projectID,
-          let worktreeID = state.selection.worktreeID
-        else { return .none }
-        state.newTabSheet = NewTabFeature.State(
-          spaceID: spaceID, projectID: projectID, worktreeID: worktreeID
-        )
-        return .none
-
-      case .removeWorktreeButtonTapped(let worktreeID, let projectID, let spaceID):
-        state.confirmAlert = AlertState {
-          TextState("Remove Worktree")
-        } actions: {
-          ButtonState(role: .destructive, action: .confirmRemoveWorktree(worktreeID, projectID, spaceID)) {
-            TextState("Remove")
-          }
-          ButtonState(role: .cancel) {
-            TextState("Cancel")
-          }
-        } message: {
-          TextState("Removing a Worktree closes all its Tabs and their Panels. The on-disk git worktree is NOT removed in this build.")
-        }
-        return .none
-
-      case .confirmAlert(.presented(.confirmRemoveWorktree(let worktreeID, let projectID, let spaceID))):
-        try? hierarchyClient.removeWorktree(worktreeID, projectID, spaceID)
-        return .none
-
-      case .confirmAlert:
-        return .none
-
-      case .newSpaceSheet, .newTabSheet:
-        return .none
       }
     }
-    .ifLet(\.$newSpaceSheet, action: \.newSpaceSheet) {
-      NewSpaceFeature()
+    .ifLet(\.$settingsSheet, action: \.settingsSheet) {
+      SettingsSheetFeature()
     }
-    .ifLet(\.$newTabSheet, action: \.newTabSheet) {
-      NewTabFeature()
-    }
-    .ifLet(\.$confirmAlert, action: \.confirmAlert)
   }
 
   /// Resolve the active tab for a selection using the snapshot from the

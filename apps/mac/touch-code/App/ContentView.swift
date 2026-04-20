@@ -14,11 +14,17 @@ import TouchCodeCore
 struct ContentView: View {
   @Bindable var store: StoreOf<RootFeature>
   let hierarchyManager: HierarchyManager
-  /// Held for the view-hierarchy lifetime; M4's `SplitViewportView` will
-  /// read it via ancestor state when looking up `PanelSurface` instances.
-  /// Not observed here.
-  let terminalEngine: TerminalEngine
+  let settingsStore: SettingsStore
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
+
+  /// Transient toast for editor-open outcomes (success + failure). Non-nil = visible;
+  /// auto-clears after a short window via `.task(id:)`.
+  @State private var lastEditorToast: EditorToast?
+
+  enum EditorToast: Equatable {
+    case opened(String)
+    case failed(String)
+  }
 
   var body: some View {
     NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -30,11 +36,65 @@ struct ContentView: View {
           }
         }
     } detail: {
-      DetailPlaceholder(selection: store.selection, lastEvent: store.lastEvent)
+      HStack(spacing: 0) {
+        WorktreeDetailView(
+          store: store.scope(state: \.detail, action: \.detail),
+          selection: store.selection,
+          editorStore: store.scope(state: \.editor, action: \.editor)
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        if store.inspectorVisible {
+          Divider()
+          GitViewerView(store: store.scope(state: \.gitViewer, action: \.gitViewer))
+            .frame(minWidth: 420, idealWidth: 480)
+        }
+      }
+      .overlay(alignment: .bottom) { editorToastOverlay }
+      .toolbar {
+        ToolbarItem(placement: .primaryAction) {
+          Button {
+            store.send(.settingsSheetShown)
+          } label: {
+            Image(systemName: "gearshape")
+              .accessibilityLabel("Settings")
+          }
+          .help("Settings (⌘,)")
+          .keyboardShortcut(",", modifiers: [.command])
+        }
+        ToolbarItem(placement: .primaryAction) {
+          Button {
+            store.send(.inspectorVisibilityToggled)
+          } label: {
+            Image(systemName: store.inspectorVisible ? "sidebar.right" : "sidebar.right")
+              .accessibilityLabel(store.inspectorVisible ? "Hide Inspector" : "Show Inspector")
+          }
+          .help("Toggle git viewer inspector")
+        }
+      }
+      .sheet(item: $store.scope(state: \.settingsSheet, action: \.settingsSheet)) { sheetStore in
+        SettingsSheetView(store: sheetStore) {
+          store.send(.settingsSheet(.dismiss))
+        }
+      }
     }
     .environment(hierarchyManager)
+    .environment(settingsStore)
     .task {
       store.send(.onLaunch)
+    }
+    .onChange(of: store.editor.lastOpenResult) { _, new in
+      guard let new else { return }
+      switch new {
+      case .opened(_, let displayName):
+        lastEditorToast = .opened(displayName)
+      case .failed(let reason):
+        lastEditorToast = .failed(reason)
+      }
+    }
+    .onChange(of: store.editor.lastProjectOverrideFailure) { _, new in
+      if let reason = new {
+        lastEditorToast = .failed("Override failed: \(reason)")
+      }
     }
     .onDisappear {
       store.send(.onQuit)
@@ -88,30 +148,57 @@ struct ContentView: View {
   }
 }
 
-/// Placeholder detail — M4 replaces with `WorktreeDetailView`.
-private struct DetailPlaceholder: View {
-  let selection: HierarchySelection
-  let lastEvent: RootFeature.LastEventMarker?
+// `InspectorPlaceholder` (0007 M4, DEC-9) was replaced in 0005 M4a by
+// `GitViewerView`. Previous comment documented the reservation; the live
+// viewer now occupies the slot.
 
-  var body: some View {
-    VStack(spacing: 12) {
-      if selection.worktreeID == nil {
-        Text("Select a Worktree")
-          .font(.title2)
-          .foregroundStyle(.secondary)
-      } else {
-        Text("Worktree Detail")
-          .font(.title2)
-        Text("Tab bar + split viewport land in M4.")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-      }
-      if let lastEvent {
-        Text("last engine event: \(String(describing: lastEvent))")
-          .font(.caption.monospaced())
-          .foregroundStyle(.tertiary)
-      }
+extension ContentView {
+  @ViewBuilder
+  fileprivate var editorToastOverlay: some View {
+    if let toast = lastEditorToast {
+      toastPill(toast)
+        .padding(.bottom, 20)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .task(id: lastEditorToast) {
+          // Auto-dismiss after 2.5 s. `.task(id:)` cancels on re-entry so a second open
+          // (or navigation away) doesn't get clobbered.
+          try? await Task.sleep(for: .seconds(2.5))
+          if !Task.isCancelled {
+            await MainActor.run { lastEditorToast = nil }
+          }
+        }
     }
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
+
+  @ViewBuilder
+  fileprivate func toastPill(_ toast: EditorToast) -> some View {
+    switch toast {
+    case .opened(let displayName):
+      HStack(spacing: 6) {
+        Image(systemName: "checkmark.circle.fill")
+          .accessibilityHidden(true)
+          .foregroundStyle(.tint)
+        Text("Opened in \(displayName)").font(.callout)
+      }
+      .padding(.horizontal, 12)
+      .padding(.vertical, 6)
+      .background(.ultraThickMaterial, in: .rect(cornerRadius: 8))
+      .shadow(radius: 4, y: 2)
+    case .failed(let message):
+      HStack(spacing: 6) {
+        Image(systemName: "exclamationmark.triangle.fill")
+          .accessibilityHidden(true)
+          .foregroundStyle(.orange)
+        Text(message).font(.callout)
+      }
+      .padding(.horizontal, 12)
+      .padding(.vertical, 6)
+      .background(.ultraThickMaterial, in: .rect(cornerRadius: 8))
+      .shadow(radius: 4, y: 2)
+    }
+  }
+
+  // EditorError → user-facing reason mapping now lives in
+  // `EditorFeature.editorErrorDescription` so TestStore observes the same string the UI
+  // sees. ContentView just reads `store.editor.lastOpenResult` and renders.
 }

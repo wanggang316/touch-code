@@ -189,7 +189,7 @@ struct C6AppBootstrapTests {
 
     // Pre-stamp the auth status so the coordinator skips re-prompting when
     // the test wants an authorized path.
-    let settings = SettingsStore(fileURL: settingsURL, debounce: .seconds(3600))
+    let settings = NotificationSettingsStore(fileURL: settingsURL, debounce: .seconds(3600))
     settings.mutate { $0.notifications.authStatus = authStatus }
     try settings.saveNow()
 

@@ -39,7 +39,8 @@ let project = Project(
     ),
 
     // TouchCodeCore unit tests. Links TouchCodeIPC so IPC codable tests can
-    // live here too (DEC-1: avoid proliferating test targets).
+    // live here too (DEC-1: avoid proliferating test targets, per 0003 and
+    // 0005 M1 DEC-5 — dedicated TouchCodeIPCTests not justified).
     .target(
       name: "TouchCodeCoreTests",
       destinations: .macOS,
@@ -249,6 +250,7 @@ let project = Project(
       dependencies: [
         .target(name: "touch-code"),
         .target(name: "tcKit"),
+        .external(name: "SnapshotTesting"),
       ],
       settings: .settings(
         base: [
