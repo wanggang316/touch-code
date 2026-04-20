@@ -21,43 +21,33 @@ public final class MethodRouter {
   private let systemHandlers: SystemHandlers
   private let hierarchyHandlers: HierarchyHandlers?
   private let terminalHandlers: TerminalHandlers?
-  private let openHandlers: SystemOpenHandlers?
   private let logger = Logger(subsystem: "com.touch-code.ipc", category: "router")
 
   init(
     hookHandlers: HookHandlers,
     systemHandlers: SystemHandlers,
     hierarchyHandlers: HierarchyHandlers? = nil,
-    terminalHandlers: TerminalHandlers? = nil,
-    openHandlers: SystemOpenHandlers? = nil
+    terminalHandlers: TerminalHandlers? = nil
   ) {
     self.hookHandlers = hookHandlers
     self.systemHandlers = systemHandlers
     self.hierarchyHandlers = hierarchyHandlers
     self.terminalHandlers = terminalHandlers
-    self.openHandlers = openHandlers
   }
 
   /// Route one decoded request to the appropriate handler. The handshake
   /// verb `system.hello` is routed here alongside other `system.*` calls.
   /// Unknown methods produce `RouterOutcome.failed(.unknownMethod)`.
+  ///
+  /// `editor.*` is routed by exec-plan 0005 (C8) — this router stays
+  /// leaf-agnostic; C8's handler is bound at bootstrap post-merge.
   public func route(_ request: IPC.Request) async -> RouterOutcome {
     logger.debug("route \(request.method.rawValue, privacy: .public) id=\(request.id, privacy: .public)")
     if let outcome = await routeSystem(request) { return outcome }
     if let outcome = await routeHook(request) { return outcome }
     if let outcome = await routeHierarchy(request) { return outcome }
     if let outcome = await routeTerminal(request) { return outcome }
-    if let outcome = await routeOpen(request) { return outcome }
     return notWired(request.method)
-  }
-
-  private func routeOpen(_ request: IPC.Request) async -> RouterOutcome? {
-    guard let o = openHandlers else { return nil }
-    switch request.method {
-    case .systemOpenInEditor: return await o.openInEditor(request.params)
-    case .systemOpenPath:     return await o.openPath(request.params)
-    default: return nil
-    }
   }
 
   private func routeHierarchy(_ request: IPC.Request) async -> RouterOutcome? {

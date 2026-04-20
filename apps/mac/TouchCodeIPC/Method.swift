@@ -14,8 +14,11 @@ public extension IPC {
     case systemVersion    = "system.version"
     case systemStatus     = "system.status"
     case systemQuit       = "system.quit"
-    case systemOpenInEditor = "system.openInEditor"
-    case systemOpenPath     = "system.openPath"
+
+    // editor — `editor.*` is owned by exec-plan 0005 (C8). Listed here
+    // so `tc open` can type `.editorOpen` at callsites; the handler
+    // lives in C8's `EditorHandlers`, not in this plan's router.
+    case editorOpen       = "editor.open"
 
     // hierarchy — reads
     case hierarchyListSpaces     = "hierarchy.listSpaces"

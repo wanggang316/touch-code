@@ -73,15 +73,14 @@ final class AppBootstrap {
       sink: nil,
       catalog: { hierarchy.catalog }
     )
-    let externalEditor = ExternalEditor(catalog: { hierarchy.catalog })
-    let openHandlers = SystemOpenHandlers(editor: externalEditor)
-
+    // NOTE: `editor.*` app-side service is owned by exec-plan 0005 (C8);
+    // this branch only ships the `tc open` CLI wrapper. After final
+    // merge the router binds C8's EditorHandlers here.
     let router = MethodRouter(
       hookHandlers: hookHandlers,
       systemHandlers: systemHandlers,
       hierarchyHandlers: hierarchyHandlers,
-      terminalHandlers: terminalHandlers,
-      openHandlers: openHandlers
+      terminalHandlers: terminalHandlers
     )
     let server = SocketServer(path: SocketPaths.resolve(), router: router)
     do {
