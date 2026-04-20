@@ -25,7 +25,7 @@ This plan implements those decisions; it does not relitigate them.
 
 ## Progress
 
-- [ ] M1 — `TouchCodeCore` + `TouchCodeIPC` wire types and Codable round-trip tests
+- [x] M1 — `TouchCodeCore` + `TouchCodeIPC` wire types and Codable round-trip tests — 2026-04-20 (86 tests across 14 suites passing; `make mac-lint` clean; zero AppKit/SwiftUI/GhosttyKit imports in leaf packages)
 - [ ] M2 — `apps/mac/touch-code/Hooks/` in-app subfolder (`HookDispatcher`, `HookExecutor`, `HookConfigStore` with `upsertInternal` / `removeInternal`, `HookActionDispatcher`, `internalEventStream`, sentinel routing) + headless tests
 - [ ] M3 — App-side `SocketServer` + `hook.*` + `system.hello` method handlers + backpressure queue + multicaster + `InMemoryIPCServer` test harness
 - [ ] M4 — `tc` CLI scaffold (ArgumentParser root, `RPCClient`, `SocketDiscovery`, `AliasResolver` UUID-fast-path, `TextRenderer` + `JSONRenderer`, exit-code mapping, `system.hello` pipelining)
@@ -38,7 +38,10 @@ Explicit scope-cuts (see [Decision Log](#decision-log) DEC-5): `tc skill …` an
 
 ## Surprises & Discoveries
 
-(None yet)
+- **M1 (2026-04-20): `HookAction` cannot live in `TouchCodeCore`.** The v1 plan placed `HookAction.swift` under `apps/mac/TouchCodeCore/Hooks/`, but the `panelBroadcast` variant carries `IPC.BroadcastScope` directly (DEC-12), which means `HookAction` must `import TouchCodeIPC`. Since `TouchCodeIPC` already depends on `TouchCodeCore` (see [architecture §Dependency Direction](../architecture.md#dependency-direction)), putting `HookAction` in `TouchCodeCore` would create an import cycle. Resolution: `HookAction` ships with M2 (its correct home per the C3 design doc §Component Boundaries — the `touch-code/Hooks` in-app subfolder, which already imports both `TouchCodeCore` and `TouchCodeIPC`). See Decision Log DEC-13.
+- **M1 (2026-04-20): `xcodebuild -scheme TouchCodeCore` runs the test bundle; `-scheme TouchCodeCoreTests` does not.** Tuist does not produce a standalone scheme for the `.unitTests` target when its host is a static framework. The existing `TouchCodeCore` scheme runs both the framework build and the linked `TouchCodeCoreTests` bundle; `-only-testing:TouchCodeCoreTests` inside that scheme works. Future milestones use the same invocation pattern.
+- **M1 (2026-04-20): Ghostty XCFramework must be present to `tuist generate`, even for pure-Swift targets.** The `foreignBuild` target's fingerprint check runs the build script at generate-time, and the upstream Zig dep CDN currently returns 400 on at least one URL. Workaround: copy the pre-built `.build/ghostty/` tree from a sibling worktree (idempotent — fingerprint matches when `ghostty` submodule and `mise.toml` agree). This is already a known pain (exec-plan 0001 DEC-8, exec-plan 0002 M3 risk) and does not affect M1's correctness — only the ergonomics of the first build in a fresh worktree.
+- **M1 (2026-04-20): `IPCError.message` serves two masters.** The same field needs to (a) round-trip the raw argument for single-arg variants (e.g., `unknownMethod("foo.bar")`) and (b) give humans a friendly CLI error line. v1 of the encoder wrote the friendly string to `message`, which broke round-trip for `.unknownMethod` because decode rebuilt `unknownMethod("unknown method: foo.bar")`. Fix: `message` now returns the raw payload; a new `displayMessage` property returns the formatted human string. Tests cover both.
 
 ## Decision Log
 
@@ -53,13 +56,26 @@ Decisions made by this plan — distinct from the design docs' in-doc decisions,
 - **DEC-7 (pre-M3, 2026-04-20): Hook-subscription snapshot discipline: the dispatcher copies the full `HookSubscription` into each in-flight `HookExecution` at dispatch time.** The design doc (C3 R3) requires "in-flight handlers retain a snapshot of their originating subscription"; this plan pins the implementation: the snapshot is `let subscription: HookSubscription` captured at the start of `HookDispatcher.dispatch(_:envelope:)`, not a reference into the live config table. Config-reload replaces the table atomically; in-flight handlers read their own `let` copy.
 - **DEC-8 (pre-M2, 2026-04-20): `HookConfigStore` uses the same `AtomicFileStore` helper `CatalogStore` uses.** Design doc says "same atomic-rename + version-gated decoder pattern as `catalog.json`"; this plan binds the implementation to the exact `TouchCodeCore.AtomicFileStore.read/write` methods landed in exec-plan-0002 M1, not a re-implementation.
 - **DEC-9 (pre-M3, 2026-04-20): Backpressure queue is per-accepted-connection, not global.** Design doc C4 D11 and architecture Open Q #5 set the limit at 64 in-flight per connection. This plan implements it as a `AsyncChannel<QueuedRequest>(maxBufferedElements: 64)` per `SocketConnection` actor; overflow waits up to 2s (`ContinuousClock` deadline) then throws `IPCError.overloaded`.
+- **DEC-13 (M1, 2026-04-20): `HookAction` ships with M2, not M1.** The v1 plan placed `HookAction.swift` under `apps/mac/TouchCodeCore/Hooks/`. But the `panelBroadcast` variant carries `IPC.BroadcastScope` directly (DEC-12), requiring `import TouchCodeIPC`. Since `TouchCodeIPC` already imports `TouchCodeCore`, `HookAction` in `TouchCodeCore` would close a cycle and violate the leaf-package invariant. `HookAction` moves to the `touch-code/Hooks/` in-app subfolder (where the C3 design doc §Component Boundaries always placed it) and lands in M2. C6's M1 unblocking does not depend on `HookAction` — the blocked types are `HookEvent`, `HookEnvelope`, `HookEventData`, `HookSubscription`, `HookMatchRange`, `Panel.labels`, all of which landed in M1 as planned.
 - **DEC-10 (pre-M3, 2026-04-20): `hook.events` RPC and `internalEventStream()` are fed from a single in-dispatcher multicaster, not a shared `AsyncStream`.** Review flagged that a single `AsyncStream<HookEnvelope>` is single-consumer, which would mean C6 (in-process) and any `tc hook tail` CLI connection would fight over the same buffer. Design doc C3 DEC-16 names them as *independent peer paths*; pin the implementation: `HookDispatcher` owns a single `HookEventMulticaster` that receives every envelope the dispatcher produces post-match and fans out to N subscribers. Each call to `internalEventStream()` registers a fresh `AsyncStream<HookEnvelope>.Continuation` with bounded buffering (newest-64) and returns the paired stream; each `hook.events` RPC connection registers a parallel subscriber. Subscriber teardown (stream cancellation or socket close) unregisters; the multicaster prunes on next publish. This keeps every consumer isolated — a slow CLI tailer cannot block C6.
 - **DEC-11 (pre-M3, 2026-04-20): Canonical in-memory RPC harness at `apps/mac/tc/Tests/Harness/InMemoryIPCServer.swift`.** The class implements `SocketServer`'s method table over an in-memory `Pipe`-pair, so both sides of the wire can be driven from a single XCTestCase. Lands in M3 (so M3's streaming + handshake tests can drive it) and is consumed from M4 / M5 `tcTests` via cross-target test-support (see Interfaces). Moving it here also keeps it outside the app target — test-only code should never link into the shipped `touch-code.app`.
 - **DEC-12 (pre-M2, 2026-04-20): `HookAction`'s broadcast variant carries the shared `TouchCodeIPC.BroadcastScope` type directly, not a nested alias.** Review flagged that v1 of this plan declared `HookAction.BroadcastScope` as a "thin alias" encoding to the same JSON — schema-fragile and duplicative. `TouchCodeIPC` is importable by `Hooks` per the approved boundaries (C3 §Component Boundaries), so `HookAction.panelBroadcast(scope: IPC.BroadcastScope, text: String, raw: Bool)` uses the wire type verbatim. A dedicated round-trip test (`HookActionBroadcastSchemaTests`) asserts that a `HookAction` JSON and a `terminal.broadcastInput` request JSON encode the `scope` payload bytes-identically.
 
 ## Outcomes & Retrospective
 
-(To be filled at milestone completion — one subsection per milestone, matching exec-plan-0002's format.)
+### M1 — TouchCodeCore + TouchCodeIPC wire types (2026-04-20)
+
+**What landed:**
+- `apps/mac/TouchCodeCore/Hooks/` — `HookEvent.swift` (15-case enum with `scope` accessor), `HookScope.swift`, `HookMatchRange.swift`, `HookEventData.swift` (tagged-union Codable with `kind` discriminator), `HookEnvelope.swift` (with `SpaceRef`/`ProjectRef`/`WorktreeRef`/`TabRef`/`PanelRef`, `validateAnchors()`), `HookSubscription.swift` (with `Scope`/`Mode`/`RegexFlags`), `HookConfig.swift` (version-gated, `recursionWindowMs` default 250).
+- `apps/mac/TouchCodeCore/Panel.swift` — additive `labels: Set<String>` field with backward-compatible Codable (`decodeIfPresent`, elided when empty).
+- `apps/mac/TouchCodeIPC/` — replaced the 1-line stub with `Method.swift` (36 methods), `Envelope.swift` (Request/Response), `IPCError.swift` (9 cases including `.invalidFrame`), `Framing.swift` (UInt32-BE + 16 MiB cap), `HandshakeTypes.swift`, `JSONValue.swift`, and `WireTypes/{BroadcastScope,PanelOpenRequest,AliasResolveRequest}.swift`.
+- `apps/mac/TouchCodeCoreTests/Hooks/` — 6 new test files, 30 `@Test` cases.
+- `apps/mac/TouchCodeCoreTests/IPC/` — 4 new test files, 17 `@Test` cases.
+- `apps/mac/Project.swift` — `TouchCodeCore` gains `TouchCodeCore/Hooks` buildableFolder; `TouchCodeIPC` gains `TouchCodeIPC/WireTypes`; `TouchCodeCoreTests` now links `TouchCodeIPC` and includes `TouchCodeCoreTests/{Hooks,IPC}` folders.
+
+**Verification:** `xcodebuild test -scheme TouchCodeCore` → **86 tests across 14 suites passed** in 1.9s (58 new + 28 pre-existing). `xcodebuild build -scheme TouchCodeCore` + `-scheme TouchCodeIPC` → BUILD SUCCEEDED. `make mac-lint` → clean. `grep -rE 'import (AppKit|SwiftUI|GhosttyKit)' apps/mac/TouchCodeCore apps/mac/TouchCodeIPC` → no matches.
+
+**Carry-forward to M2:** C6 (plan 0006) M1b can now consume the complete type surface. `HookAction` shifts to M2 per DEC-13 (import-cycle avoidance). `HookConfigStore` will use `TouchCodeCore.AtomicFileStore` and the new `HookConfig` decoder.
 
 ## Context and Orientation
 
@@ -154,7 +170,7 @@ Eight milestones. M1–M2 are parallelizable with 0002's M3 (GhosttyKit bring-up
 
 **Goal after this milestone.** Every value type the design docs name — `HookEvent`, `HookScope`, `HookMatchRange`, `HookEventData`, `HookEnvelope`, `HookSubscription`, `HookConfig`, `BroadcastScope`, `PanelOpenRequest`, `AliasResolveRequest`, `AliasResolveResult`, plus the `IPC.Request` / `IPC.Response` / `IPC.Method` / `IPCError` envelopes and the `Framing` helper — exists in Swift with full `Codable` + `Equatable` + `Sendable` conformance. A test suite round-trips every variant through `JSONEncoder` ↔ `JSONDecoder`. Zero AppKit / SwiftUI / GhosttyKit imports. Nothing on the wire yet; nothing spawns anything; this milestone is pure types + tests.
 
-Why this ships first. Three later milestones (M2 Hooks, M3 daemon RPC, M4 CLI) all import these types. Landing them first makes every later build self-contained — a contributor can pick up M4 without waiting on M2.
+Why this ships first. Three later milestones (M2 Hooks, M3 app-side RPC, M4 CLI) all import these types. Landing them first makes every later build self-contained — a contributor can pick up M4 without waiting on M2.
 
 **Work.** Under `apps/mac/TouchCodeCore/Hooks/` create:
 

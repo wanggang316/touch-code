@@ -31,14 +31,15 @@ let project = Project(
       bundleId: "app.touch-code.core",
       deploymentTargets: .macOS("14.0"),
       infoPlist: .default,
-      buildableFolders: ["TouchCodeCore"],
+      buildableFolders: ["TouchCodeCore", "TouchCodeCore/Hooks"],
       settings: .settings(
         base: ["SWIFT_DEFAULT_ACTOR_ISOLATION": "nonisolated"],
         defaultSettings: .essential
       )
     ),
 
-    // TouchCodeCore unit tests.
+    // TouchCodeCore unit tests. Links TouchCodeIPC so IPC codable tests can
+    // live here too (DEC-1: avoid proliferating test targets).
     .target(
       name: "TouchCodeCoreTests",
       destinations: .macOS,
@@ -46,8 +47,15 @@ let project = Project(
       bundleId: "app.touch-code.core-tests",
       deploymentTargets: .macOS("14.0"),
       infoPlist: .default,
-      buildableFolders: ["TouchCodeCoreTests"],
-      dependencies: [.target(name: "TouchCodeCore")],
+      buildableFolders: [
+        "TouchCodeCoreTests",
+        "TouchCodeCoreTests/Hooks",
+        "TouchCodeCoreTests/IPC",
+      ],
+      dependencies: [
+        .target(name: "TouchCodeCore"),
+        .target(name: "TouchCodeIPC"),
+      ],
       settings: .settings(
         base: [
           "CODE_SIGNING_ALLOWED": "NO",
@@ -65,7 +73,7 @@ let project = Project(
       bundleId: "app.touch-code.ipc",
       deploymentTargets: .macOS("14.0"),
       infoPlist: .default,
-      buildableFolders: ["TouchCodeIPC"],
+      buildableFolders: ["TouchCodeIPC", "TouchCodeIPC/WireTypes"],
       dependencies: [.target(name: "TouchCodeCore")],
       settings: .settings(
         base: ["SWIFT_DEFAULT_ACTOR_ISOLATION": "nonisolated"],
