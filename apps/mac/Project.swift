@@ -115,9 +115,31 @@ let project = Project(
       dependencies: [
         .target(name: "TouchCodeCore"),
         .target(name: "TouchCodeIPC"),
+        .external(name: "ArgumentParser"),
       ],
       settings: .settings(
         base: ["SWIFT_DEFAULT_ACTOR_ISOLATION": "nonisolated"],
+        defaultSettings: .essential
+      )
+    ),
+
+    // tc skill subcommand tests (C5 plan 0004). Separate target from
+    // tcKitTests because the skill tests have a different fixture model
+    // (filesystem isolation + JSON round-trip) vs tcKit transport tests.
+    .target(
+      name: "tcTests",
+      destinations: .macOS,
+      product: .unitTests,
+      bundleId: "app.touch-code.cli-tests",
+      deploymentTargets: .macOS("14.0"),
+      infoPlist: .default,
+      buildableFolders: ["tcTests"],
+      dependencies: [.target(name: "tcKit")],
+      settings: .settings(
+        base: [
+          "CODE_SIGNING_ALLOWED": "NO",
+          "SWIFT_DEFAULT_ACTOR_ISOLATION": "nonisolated",
+        ],
         defaultSettings: .essential
       )
     ),

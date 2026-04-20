@@ -1,0 +1,56 @@
+name: skill-tier-a
+
+# Tier-A skill checks: tc help-json roundtrip + golden manifest diff + orthogonality.
+# Independent of C1 / C2 / C3 completeness — C5 can ship before `tc ls` / Panel IPC
+# arrive. Design doc §Testing Strategy is authoritative.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+# Avoid duplicate macos-14 minutes on back-to-back PR pushes.
+concurrency:
+  group: skill-tier-a-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tier-a:
+    runs-on: macos-14
+    env:
+      MISE_HTTP_TIMEOUT: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: jdx/mise-action@v2
+        with:
+          cache: true
+          experimental: true
+
+      - name: Cache Ghostty build
+        uses: actions/cache@v4
+        with:
+          path: apps/mac/.build/ghostty
+          key: ghostty-${{ runner.os }}-${{ hashFiles('apps/mac/ThirdParty/ghostty/build.zig.zon', 'apps/mac/scripts/build-ghostty.sh', 'mise.toml') }}
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.0.app
+
+      - name: Install CI deps
+        run: |
+          command -v jq >/dev/null || brew install jq
+          command -v python3 >/dev/null || true
+
+      - name: Sync skill version into VERSION + package.json
+        run: make mac-skill-version
+
+      - name: Build tc CLI
+        run: make mac-build-cli
+
+      - name: Run Tier-A skill checks
+        run: make mac-skill-validate

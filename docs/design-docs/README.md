@@ -18,4 +18,8 @@ Use [_template.md](_template.md) as a starting point.
 <!-- List design docs here as they are created -->
 <!-- Format: [Title](filename.md) — one-line summary -->
 - [0001 — Terminal Engine and Five-Level Hierarchy (C1 + C2)](0001-terminal-and-hierarchy.md) — libghostty integration boundary, Space/Project/Worktree/Tab/Panel model, SplitTree, persistence
+
+- [C5 — Published Agent Skill](c5-agent-skill.md) — `touch-code-skill/` package shape, `tc skill install` UX, versioning, mirror-repo story
+
 - [0007 — TCA Shell](0007-tca-shell.md) — RootFeature + NavigationSplitView + Sidebar/TabBar/SplitView composition, HierarchyClient + TerminalClient DependencyKeys; unblocks C6/C7/C8
+
