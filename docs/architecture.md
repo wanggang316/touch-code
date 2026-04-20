@@ -241,11 +241,11 @@ Readers abort on unknown `version` field.
 
 2. **Multi-window semantics.** macOS users expect multiple windows. Does each window get its own Space selection, or is Space selection global? **Blocks:** hierarchy state design + persistence schema. *Leaning:* window ↔ Space 1:1; Spaces are window-scoped; multi-window opens new Space from a chooser.
 
-3. **CLI binary distribution.** Auto-symlink `tc` to `/usr/local/bin/` on first app launch (requires Admin) vs. require manual `tc install-cli` (stash a copy in `~/.local/bin` and offer to update PATH). **Leaning:** manual install to `~/.local/bin` on first launch prompt; avoid touching system paths.
+3. **CLI binary distribution.** *Resolved by exec-plan 0003 (C4 D2):* manual `tc install-cli` — the app copies the bundled `tc` binary into `~/.local/bin/tc` (creating the directory + offering a shell-rc PATH update if needed), collision-checks against an existing `tc` on `$PATH`, and falls back to a `tcode` symlink when `tc` is taken. See [C4 design doc §D2](design-docs/c4-cli.md). *No system-path writes.*
 
 4. **Hook handler execution policy.** Serial per event vs. concurrent with a cap. **Blocks:** `touch-code/Hooks (in-app module)` scheduler. *Leaning:* concurrent with a global cap (default 8); single-handler-at-a-time flag per hook subscription as opt-in.
 
-5. **IPC backpressure.** If a CLI client issues requests faster than the app can process, do we queue unbounded, drop, or block? *Leaning:* per-connection bounded queue (e.g. 64 in-flight); new requests wait.
+5. **IPC backpressure.** *Resolved by exec-plan 0003 (DEC-9):* per-connection bounded queue, **64 in-flight**, 2-second overflow wait before the server returns `IPCError.overloaded` (CLI exit 5). Global queue rejected — slow clients would starve healthy ones. See [exec-plan 0003 DEC-9](exec-plans/0003-hooks-and-cli.md). Implementation of the actual queue deferred to M3.1 (the wire surface already returns `.overloaded` when it lands).
 
 6. **Runtime crash recovery.** A single Panel's libghostty surface crashes — should Runtime restart just the Panel, surface the crash to the user, or tear down the whole Tab? *Leaning:* per-Panel restart with a user-visible placeholder showing the error; 3 crashes in 30s escalates to Tab tear-down.
 

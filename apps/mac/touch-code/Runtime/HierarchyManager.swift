@@ -50,23 +50,44 @@ final class HierarchyManager {
     store.scheduleSave(catalog)
   }
 
+  func selectSpace(_ id: SpaceID?) {
+    catalog.selectedSpaceID = id
+    store.scheduleSave(catalog)
+  }
+
   // MARK: - Project mutations
 
-  func addProject(to spaceID: SpaceID, name: String, rootPath: String) throws -> ProjectID {
+  func addProject(to spaceID: SpaceID, name: String, rootPath: String, gitRoot: String? = nil) throws -> ProjectID {
     guard let spaceIndex = catalog.spaces.firstIndex(where: { $0.id == spaceID }) else {
       throw HierarchyError.notFound("Space \(spaceID)")
     }
 
     let projectID = ProjectID()
+    var worktrees: [Worktree] = []
+    var selectedWorktreeID: WorktreeID?
+
+    if gitRoot == nil {
+      let synthetic = Worktree(
+        id: WorktreeID(),
+        name: (rootPath as NSString).lastPathComponent,
+        path: rootPath,
+        branch: nil,
+        tabs: [],
+        selectedTabID: nil
+      )
+      worktrees = [synthetic]
+      selectedWorktreeID = synthetic.id
+    }
+
     let project = Project(
       id: projectID,
       name: name,
       rootPath: rootPath,
-      gitRoot: nil,
+      gitRoot: gitRoot,
       worktreesDirectory: nil,
       defaultEditor: nil,
-      worktrees: [],
-      selectedWorktreeID: nil
+      worktrees: worktrees,
+      selectedWorktreeID: selectedWorktreeID
     )
     catalog.spaces[spaceIndex].projects.append(project)
     catalog.spaces[spaceIndex].selectedProjectID = projectID
@@ -86,6 +107,14 @@ final class HierarchyManager {
     if catalog.spaces[spaceIndex].selectedProjectID == id {
       catalog.spaces[spaceIndex].selectedProjectID = catalog.spaces[spaceIndex].projects.first?.id
     }
+    store.scheduleSave(catalog)
+  }
+
+  func selectProject(_ id: ProjectID?, in spaceID: SpaceID) throws {
+    guard let spaceIndex = catalog.spaces.firstIndex(where: { $0.id == spaceID }) else {
+      throw HierarchyError.notFound("Space \(spaceID)")
+    }
+    catalog.spaces[spaceIndex].selectedProjectID = id
     store.scheduleSave(catalog)
   }
 
@@ -142,6 +171,14 @@ final class HierarchyManager {
     store.scheduleSave(catalog)
   }
 
+  func selectWorktree(_ id: WorktreeID?, in projectID: ProjectID, in spaceID: SpaceID) throws {
+    guard let (spaceIndex, projectIndex) = findProjectIndices(projectID: projectID, spaceID: spaceID) else {
+      throw HierarchyError.notFound("Project \(projectID)")
+    }
+    catalog.spaces[spaceIndex].projects[projectIndex].selectedWorktreeID = id
+    store.scheduleSave(catalog)
+  }
+
   // MARK: - Tab mutations
 
   func createTab(
@@ -194,6 +231,23 @@ final class HierarchyManager {
       catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].selectedTabID =
         catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.first?.id
     }
+    store.scheduleSave(catalog)
+  }
+
+  func selectTab(
+    _ id: TabID?,
+    in worktreeID: WorktreeID,
+    in projectID: ProjectID,
+    in spaceID: SpaceID
+  ) throws {
+    guard let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+      worktreeID: worktreeID,
+      projectID: projectID,
+      spaceID: spaceID
+    ) else {
+      throw HierarchyError.notFound("Worktree \(worktreeID)")
+    }
+    catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].selectedTabID = id
     store.scheduleSave(catalog)
   }
 
@@ -400,6 +454,82 @@ final class HierarchyManager {
     catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex] = tab
 
     store.scheduleSave(catalog)
+  }
+
+  // MARK: - Space activation (M6)
+
+  /// Select a Space as the catalog's active one. `tc space activate` in M6
+  /// drives this; the Mac app UI ties to the same field.
+  func activateSpace(_ id: SpaceID) throws {
+    guard catalog.spaces.contains(where: { $0.id == id }) else {
+      throw HierarchyError.notFound("Space \(id)")
+    }
+    catalog.selectedSpaceID = id
+    store.scheduleSave(catalog)
+  }
+
+  // MARK: - Worktree / Tab activation (M6)
+
+  func activateWorktree(_ id: WorktreeID) throws {
+    for (si, space) in catalog.spaces.enumerated() {
+      for (pi, project) in space.projects.enumerated() where project.worktrees.contains(where: { $0.id == id }) {
+        catalog.spaces[si].projects[pi].selectedWorktreeID = id
+        store.scheduleSave(catalog)
+        return
+      }
+    }
+    throw HierarchyError.notFound("Worktree \(id)")
+  }
+
+  func activateTab(_ id: TabID) throws {
+    for (si, space) in catalog.spaces.enumerated() {
+      for (pi, project) in space.projects.enumerated() {
+        for (wi, worktree) in project.worktrees.enumerated() where worktree.tabs.contains(where: { $0.id == id }) {
+          catalog.spaces[si].projects[pi].worktrees[wi].selectedTabID = id
+          store.scheduleSave(catalog)
+          return
+        }
+      }
+    }
+    throw HierarchyError.notFound("Tab \(id)")
+  }
+
+  // MARK: - Panel labels (canonical writer for C3 / C4)
+
+  /// Update a Panel's `labels` set. **Single canonical writer** — every
+  /// user-facing write path (the CLI's `tc panel label`, the hook action
+  /// DSL's `HookAction.setPanelLabels`, any future UI) routes through this
+  /// method. Keeps label mutations auditable and persists through the same
+  /// `CatalogStore.scheduleSave` every other mutation uses.
+  ///
+  /// - Parameters:
+  ///   - panelID: target Panel.
+  ///   - labels: labels to apply.
+  ///   - replace: when `true`, replaces the set entirely; when `false`,
+  ///     union-merges with the existing set.
+  /// - Throws: `HierarchyError.notFound` if the Panel id is unknown.
+  func setPanelLabels(
+    _ panelID: PanelID,
+    labels: Set<String>,
+    replace: Bool = false
+  ) throws {
+    for spaceIndex in catalog.spaces.indices {
+      for projectIndex in catalog.spaces[spaceIndex].projects.indices {
+        for worktreeIndex in catalog.spaces[spaceIndex].projects[projectIndex].worktrees.indices {
+          for tabIndex in catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.indices {
+            let panels = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex].panels
+            if let panelIndex = panels.firstIndex(where: { $0.id == panelID }) {
+              var panel = panels[panelIndex]
+              panel.labels = replace ? labels : panel.labels.union(labels)
+              catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex].panels[panelIndex] = panel
+              store.scheduleSave(catalog)
+              return
+            }
+          }
+        }
+      }
+    }
+    throw HierarchyError.notFound("Panel \(panelID)")
   }
 
   // MARK: - Helpers
