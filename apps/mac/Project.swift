@@ -38,7 +38,9 @@ let project = Project(
       )
     ),
 
-    // TouchCodeCore unit tests.
+    // TouchCodeCore unit tests. Also hosts the single TouchCodeIPC DTO round-trip test
+    // added in 0005 M1 (see that plan's DEC-5) — a dedicated TouchCodeIPCTests target is
+    // not justified by one test file.
     .target(
       name: "TouchCodeCoreTests",
       destinations: .macOS,
@@ -47,7 +49,10 @@ let project = Project(
       deploymentTargets: .macOS("14.0"),
       infoPlist: .default,
       buildableFolders: ["TouchCodeCoreTests"],
-      dependencies: [.target(name: "TouchCodeCore")],
+      dependencies: [
+        .target(name: "TouchCodeCore"),
+        .target(name: "TouchCodeIPC"),
+      ],
       settings: .settings(
         base: [
           "CODE_SIGNING_ALLOWED": "NO",
