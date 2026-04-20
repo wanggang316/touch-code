@@ -89,6 +89,11 @@ final class AppState {
   private var hookConfigStore: HookConfigStore?
   private var hookDispatcher: HookDispatcher?
   private var socketServer: SocketServer?
+  // EditorClient is built inside bringUp() alongside the TCA dependency
+  // wiring and then threaded into startIPC() so EditorHandlers and the
+  // in-app reducer stack share a single service instance.
+  private var editorClient: EditorClient?
+  private var hierarchyClient: HierarchyClient?
 
   // C6 notification stack — constructed async after IPC stack in `bringUp()`.
   // Retained so `applicationWillTerminate` can call `flushPendingWrites()`
@@ -145,21 +150,28 @@ final class AppState {
     let inbox = inboxStore
     let notifSettings = notificationSettingsStore
     let settings = settingsStore
+    // Build the editor + hierarchy clients once so the reducer stack AND the IPC
+    // handlers share the exact same live instances — avoids two parallel
+    // `LiveEditorService`s with divergent settings captures.
+    let editor = EditorClient.live(settings: settings, hierarchy: manager)
+    let hierarchy = HierarchyClient.live(manager: manager)
+    self.editorClient = editor
+    self.hierarchyClient = hierarchy
     self.store = Store(initialState: RootFeature.State()) {
       RootFeature()
     } withDependencies: {
-      $0.hierarchyClient = .live(manager: manager)
+      $0.hierarchyClient = hierarchy
       $0.terminalClient = .live(engine: engine)
       // 0005 M6b critical wire: without these overrides, `EditorClient.liveValue` and
       // `SettingsWriter.liveValue` fatalError on any descendants call. Both factories close
       // over `settings` (global default + custom templates); `editorClient` additionally
       // closes over `manager` (per-Project override).
-      $0.editorClient = .live(settings: settings, hierarchy: manager)
+      $0.editorClient = editor
       $0.settingsWriter = .live(settings)
       $0[InboxClient.self] = .live(inbox: inbox, settings: notifSettings)
     }
 
-    startIPC(hierarchy: manager)
+    startIPC(hierarchy: manager, editor: editor, hierarchyClient: hierarchy)
     startNotifications(hierarchy: manager)
   }
 
@@ -203,7 +215,11 @@ final class AppState {
   /// Skipped under XCTest — tests build their own in-memory harnesses
   /// and binding a shared Unix socket racing parallel runs makes the
   /// runner hang.
-  private func startIPC(hierarchy: HierarchyManager) {
+  private func startIPC(
+    hierarchy: HierarchyManager,
+    editor: EditorClient,
+    hierarchyClient: HierarchyClient
+  ) {
     if ProcessInfo.processInfo.environment["XCTestBundlePath"] != nil
       || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
       return
@@ -234,14 +250,13 @@ final class AppState {
       sink: nil,
       catalog: { hierarchy.catalog }
     )
-    // NOTE: `editor.*` app-side service is owned by exec-plan 0005 (C8);
-    // this branch only ships the `tc open` CLI wrapper. After final
-    // merge the router binds C8's EditorHandlers here.
+    let editorHandlers = EditorHandlers(editor: editor, hierarchy: hierarchyClient)
     let router = MethodRouter(
       hookHandlers: hookHandlers,
       systemHandlers: systemHandlers,
       hierarchyHandlers: hierarchyHandlers,
-      terminalHandlers: terminalHandlers
+      terminalHandlers: terminalHandlers,
+      editorHandlers: editorHandlers
     )
     let server = SocketServer(path: SocketPaths.resolve(), router: router)
     do {
