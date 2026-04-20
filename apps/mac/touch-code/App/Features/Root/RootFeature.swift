@@ -139,6 +139,11 @@ struct RootFeature {
         // Mirror the selection's active tab into the split viewport so M5
         // lazy-surface lifecycle can react without reading HierarchyManager
         // from a reducer. Tab is resolved on-the-fly from the catalog.
+        //
+        // TEST CONTRACT: any TestStore that sends `.selectionChanged` MUST
+        // override `hierarchyClient.snapshot` — the default `testValue`
+        // traps on invocation. Return `Catalog(windows: [], spaces: [],
+        // selectedSpaceID: nil)` for the common nil-selection case.
         let tabID = resolveActiveTab(selection: selection)
         state.detail.splitViewport.activeTabID = tabID
         return .none

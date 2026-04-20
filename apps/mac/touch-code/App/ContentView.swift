@@ -47,7 +47,7 @@ struct ContentView: View {
           Button {
             store.send(.inspectorVisibilityToggled)
           } label: {
-            Image(systemName: store.inspectorVisible ? "sidebar.right" : "sidebar.right")
+            Image(systemName: store.inspectorVisible ? "sidebar.right" : "sidebar.squares.right")
               .accessibilityLabel(store.inspectorVisible ? "Hide Inspector" : "Show Inspector")
           }
           .help("Toggle inspector (reserved for C7)")

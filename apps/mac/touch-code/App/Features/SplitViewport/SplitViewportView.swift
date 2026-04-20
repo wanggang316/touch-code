@@ -54,8 +54,15 @@ struct SplitViewportView: View {
 
   /// Recursive renderer. Returns `AnyView` at every level to prevent
   /// SwiftUI's generic type inference from blowing up on nested
-  /// `HStack`/`VStack` + `@ViewBuilder` switch cases. Performance cost is
-  /// negligible at the tree sizes this hierarchy sees (≤ 32 panels/tab).
+  /// `HSplitView`/`VSplitView` + `@ViewBuilder` switch cases (DEC-10).
+  /// Performance cost is negligible at the tree sizes this hierarchy sees
+  /// (≤ 32 panels/tab).
+  ///
+  /// Split containers use AppKit-backed `HSplitView` / `VSplitView` to get
+  /// free drag-resize dividers; matches `resizeSplitRequested` action
+  /// semantics without a custom `NSViewRepresentable`. Split ratio
+  /// persistence via the dispatching action is a follow-up (the divider
+  /// drag is observed only in AppKit today).
   private func renderNode(_ node: SplitTree<PanelID>.Node, tab: TouchCodeCore.Tab) -> AnyView {
     switch node {
     case .leaf(let panelID):
@@ -64,14 +71,14 @@ struct SplitViewportView: View {
       switch split.direction {
       case .horizontal:
         return AnyView(
-          HStack(spacing: 1) {
+          HSplitView {
             renderNode(split.left, tab: tab)
             renderNode(split.right, tab: tab)
           }
         )
       case .vertical:
         return AnyView(
-          VStack(spacing: 1) {
+          VSplitView {
             renderNode(split.left, tab: tab)
             renderNode(split.right, tab: tab)
           }
@@ -80,27 +87,16 @@ struct SplitViewportView: View {
     }
   }
 
-  @ViewBuilder
   private func panelLeaf(_ panelID: PanelID) -> some View {
-    if let surface = terminalEngine.ghosttyRuntime?.surface(for: panelID) {
-      PanelHostView(surface: surface)
-        .background(Color.black)
-    } else {
-      // Missing surface — M5 will arrange lazy creation on tab activation.
-      placeholderCell(panelID: panelID)
-    }
-  }
-
-  private func placeholderCell(panelID: PanelID) -> some View {
-    VStack {
-      Text("Surface not yet created")
-        .font(.caption)
-        .foregroundStyle(.secondary)
-      Text(panelID.description)
-        .font(.caption2.monospaced())
-        .foregroundStyle(.tertiary)
-    }
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .background(Color(nsColor: .underPageBackgroundColor))
+    // LazyPanelHost owns the ensureSurface dance: first-appearance
+    // creation, registry lookup for returning views, retry on failure.
+    LazyPanelHost(
+      panelID: panelID,
+      spaceID: spaceID,
+      projectID: projectID,
+      worktreeID: worktreeID,
+      tabID: tabID,
+      terminalEngine: terminalEngine
+    )
   }
 }
