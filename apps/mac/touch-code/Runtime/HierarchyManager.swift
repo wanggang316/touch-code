@@ -418,6 +418,44 @@ final class HierarchyManager {
     store.scheduleSave(catalog)
   }
 
+  // MARK: - Space activation (M6)
+
+  /// Select a Space as the catalog's active one. `tc space activate` in M6
+  /// drives this; the Mac app UI ties to the same field.
+  func activateSpace(_ id: SpaceID) throws {
+    guard catalog.spaces.contains(where: { $0.id == id }) else {
+      throw HierarchyError.notFound("Space \(id)")
+    }
+    catalog.selectedSpaceID = id
+    store.scheduleSave(catalog)
+  }
+
+  // MARK: - Worktree / Tab activation (M6)
+
+  func activateWorktree(_ id: WorktreeID) throws {
+    for (si, space) in catalog.spaces.enumerated() {
+      for (pi, project) in space.projects.enumerated() where project.worktrees.contains(where: { $0.id == id }) {
+        catalog.spaces[si].projects[pi].selectedWorktreeID = id
+        store.scheduleSave(catalog)
+        return
+      }
+    }
+    throw HierarchyError.notFound("Worktree \(id)")
+  }
+
+  func activateTab(_ id: TabID) throws {
+    for (si, space) in catalog.spaces.enumerated() {
+      for (pi, project) in space.projects.enumerated() {
+        for (wi, worktree) in project.worktrees.enumerated() where worktree.tabs.contains(where: { $0.id == id }) {
+          catalog.spaces[si].projects[pi].worktrees[wi].selectedTabID = id
+          store.scheduleSave(catalog)
+          return
+        }
+      }
+    }
+    throw HierarchyError.notFound("Tab \(id)")
+  }
+
   // MARK: - Panel labels (canonical writer for C3 / C4)
 
   /// Update a Panel's `labels` set. **Single canonical writer** — every

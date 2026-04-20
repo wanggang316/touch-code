@@ -3,66 +3,14 @@ import Darwin
 import Foundation
 import tcKit
 
-/// Command-tree placeholders for namespaces that land in M5–M7. Each
-/// stub exits with code 4 (unsupported) and a clear message so callers
-/// know the verb is recognised but not yet wired.
+/// Command-tree placeholders for namespaces that ship later. Each stub
+/// exits with code 4 (unsupported) and a clear message so callers know
+/// the verb is recognised but not yet wired.
+///
+/// Remaining stubs after M6:
+/// - `tc skill`  — ships via exec-plan 0004 (C5).
+/// - `tc open`   — ships in M7 (local external-editor launch).
 enum StubNamespace {
-  struct Space: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(
-      commandName: "space",
-      abstract: "Space-level verbs (ships M6)."
-    )
-    func run() throws { emitStub("tc space") }
-  }
-
-  struct Project: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(
-      commandName: "project",
-      abstract: "Project-level verbs (ships M6)."
-    )
-    func run() throws { emitStub("tc project") }
-  }
-
-  struct Worktree: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(
-      commandName: "worktree",
-      abstract: "Worktree-level verbs (ships M6)."
-    )
-    func run() throws { emitStub("tc worktree") }
-  }
-
-  struct Tab: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(
-      commandName: "tab",
-      abstract: "Tab-level verbs (ships M6)."
-    )
-    func run() throws { emitStub("tc tab") }
-  }
-
-  struct Panel: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(
-      commandName: "panel",
-      abstract: "Panel-level verbs (ships M6)."
-    )
-    func run() throws { emitStub("tc panel") }
-  }
-
-  struct Send: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(
-      commandName: "send",
-      abstract: "Send text to a specific panel (ships M6)."
-    )
-    func run() throws { emitStub("tc send") }
-  }
-
-  struct Broadcast: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(
-      commandName: "broadcast",
-      abstract: "Fan-out text to a tab/worktree/label scope (ships M6)."
-    )
-    func run() throws { emitStub("tc broadcast") }
-  }
-
   struct Skill: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
       commandName: "skill",

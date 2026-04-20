@@ -34,35 +34,57 @@ final class AppBootstrap {
       || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
       return
     }
-    let store = HookConfigStore()
-    let config = (try? store.load()) ?? .empty
+    let hookConfigStore = HookConfigStore()
+    let config = (try? hookConfigStore.load()) ?? .empty
     let dispatcher = HookDispatcher(
       config: config,
-      store: store,
+      store: hookConfigStore,
       executor: FakeHookExecutor(),
       actionDispatcher: RecordingHookActionDispatcher()
     )
     self.dispatcher = dispatcher
 
-    let hookHandlers = HookHandlers(dispatcher: dispatcher, store: store)
+    // Hierarchy: load existing catalog or start empty. No GhosttyRuntime
+    // wired in this bootstrap — M6 RPCs land against an in-memory
+    // catalog (useful for `tc space create`-style scripting); M8 / a
+    // future milestone will swap in a real `TerminalEngine` so
+    // `terminal.*` RPCs reach live panels.
+    let catalogStore = CatalogStore()
+    let catalog = (try? catalogStore.load()) ?? Catalog()
+    let hierarchyRuntime = FakeHierarchyRuntime()
+    let hierarchy = HierarchyManager(
+      catalog: catalog,
+      store: catalogStore,
+      runtime: hierarchyRuntime
+    )
+
+    let hookHandlers = HookHandlers(dispatcher: dispatcher, store: hookConfigStore)
     let systemHandlers = SystemHandlers(
       versions: .init(
         server: Self.bundleVersion(),
         appBundle: Self.bundleVersion()
       )
     )
+    let hierarchyHandlers = HierarchyHandlers(manager: hierarchy)
+    // TerminalHandlers has no input sink until a real GhosttyRuntime is
+    // bound — terminal.sendInput / broadcastInput return .unsupported
+    // until then, which is the right behavior for the M6 scripted flow.
+    let terminalHandlers = TerminalHandlers(
+      sink: nil,
+      catalog: { hierarchy.catalog }
+    )
+
     let router = MethodRouter(
       hookHandlers: hookHandlers,
-      systemHandlers: systemHandlers
+      systemHandlers: systemHandlers,
+      hierarchyHandlers: hierarchyHandlers,
+      terminalHandlers: terminalHandlers
     )
     let server = SocketServer(path: SocketPaths.resolve(), router: router)
     do {
       try server.start()
       self.server = server
     } catch {
-      // Log-only: failing to bind the socket should not prevent the app
-      // from opening its window. Users get a clear diagnostic via
-      // `Console.app` and `tc system sockets`.
       print("SocketServer bind failed: \(error)")
     }
   }

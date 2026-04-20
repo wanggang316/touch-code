@@ -19,11 +19,20 @@ public enum RouterOutcome: Sendable {
 public final class MethodRouter {
   private let hookHandlers: HookHandlers
   private let systemHandlers: SystemHandlers
+  private let hierarchyHandlers: HierarchyHandlers?
+  private let terminalHandlers: TerminalHandlers?
   private let logger = Logger(subsystem: "com.touch-code.ipc", category: "router")
 
-  public init(hookHandlers: HookHandlers, systemHandlers: SystemHandlers) {
+  init(
+    hookHandlers: HookHandlers,
+    systemHandlers: SystemHandlers,
+    hierarchyHandlers: HierarchyHandlers? = nil,
+    terminalHandlers: TerminalHandlers? = nil
+  ) {
     self.hookHandlers = hookHandlers
     self.systemHandlers = systemHandlers
+    self.hierarchyHandlers = hierarchyHandlers
+    self.terminalHandlers = terminalHandlers
   }
 
   /// Route one decoded request to the appropriate handler. The handshake
@@ -33,7 +42,37 @@ public final class MethodRouter {
     logger.debug("route \(request.method.rawValue, privacy: .public) id=\(request.id, privacy: .public)")
     if let outcome = await routeSystem(request) { return outcome }
     if let outcome = await routeHook(request) { return outcome }
+    if let outcome = await routeHierarchy(request) { return outcome }
+    if let outcome = await routeTerminal(request) { return outcome }
     return notWired(request.method)
+  }
+
+  private func routeHierarchy(_ request: IPC.Request) async -> RouterOutcome? {
+    guard let h = hierarchyHandlers else { return nil }
+    switch request.method {
+    case .hierarchyListSpaces:     return await h.listSpaces(request.params)
+    case .hierarchyDescribeSpace:  return await h.describeSpace(request.params)
+    case .hierarchyResolveAlias:   return await h.resolveAlias(request.params)
+    case .hierarchyCreateSpace:    return await h.createSpace(request.params)
+    case .hierarchyActivateSpace:  return await h.activateSpace(request.params)
+    case .hierarchyActivateWorktree: return await h.activateWorktree(request.params)
+    case .hierarchyActivateTab:    return await h.activateTab(request.params)
+    case .hierarchyAddProject:     return await h.addProject(request.params)
+    case .hierarchyCreateWorktree: return await h.createWorktree(request.params)
+    case .hierarchyCreateTab:      return await h.createTab(request.params)
+    case .hierarchyOpenPanel:      return await h.openPanel(request.params)
+    case .hierarchySetPanelLabels: return await h.setPanelLabels(request.params)
+    default: return nil
+    }
+  }
+
+  private func routeTerminal(_ request: IPC.Request) async -> RouterOutcome? {
+    guard let t = terminalHandlers else { return nil }
+    switch request.method {
+    case .terminalSendInput:      return await t.sendInput(request.params)
+    case .terminalBroadcastInput: return await t.broadcastInput(request.params)
+    default: return nil
+    }
   }
 
   private func routeSystem(_ request: IPC.Request) async -> RouterOutcome? {

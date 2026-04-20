@@ -14,16 +14,17 @@ struct TouchCodeCLI: AsyncParsableCommand {
     version: "touch-code \(TouchCodeCLI.version)",
     subcommands: [
       SystemCommand.self,
-      StubNamespace.Space.self,
-      StubNamespace.Project.self,
-      StubNamespace.Worktree.self,
-      StubNamespace.Tab.self,
-      StubNamespace.Panel.self,
-      StubNamespace.Send.self,
-      StubNamespace.Broadcast.self,
+      SpaceCommand.self,
+      ProjectCommand.self,
+      WorktreeCommand.self,
+      TabCommand.self,
+      PanelCommand.self,
+      SendCommand.self,
+      BroadcastCommand.self,
       HookCommand.self,
       StubNamespace.Skill.self,
       StubNamespace.Open.self,
+      RPCCommand.self,
     ]
   )
 }
