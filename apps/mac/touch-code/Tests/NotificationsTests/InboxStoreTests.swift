@@ -179,6 +179,32 @@ struct InboxStoreTests {
     #expect(store.inbox.notifications.allSatisfy { $0.dismissedAt != nil })
   }
 
+  @Test
+  func clearAllDismissesReadButUndismissedEntries() async throws {
+    // Regression for the guard-semantics bug: `clearAll` previously skipped
+    // the save path when every entry was already read (isUnread == false) but
+    // still needed dismissedAt populated.
+    let url = Self.temporaryURL()
+    defer { try? FileManager.default.removeItem(at: url) }
+
+    let store = InboxStore(fileURL: url, clock: ContinuousClock(), debounce: .milliseconds(10))
+    let a = Self.makeNotification()
+    let b = Self.makeNotification()
+    store.append(a)
+    store.append(b)
+    store.markRead([a.id, b.id])
+    #expect(store.unreadCount == 0)
+    // Both are read but not dismissed; dismissedAt fields are still nil.
+    #expect(store.inbox.notifications.allSatisfy { $0.dismissedAt == nil })
+
+    store.clearAll()
+    #expect(store.inbox.notifications.allSatisfy { $0.dismissedAt != nil })
+    // Save must have been scheduled — wait for the debounce window and verify.
+    try await Task.sleep(nanoseconds: 200_000_000)
+    let loaded = try AtomicFileStore.read(NotificationInbox.self, at: url)
+    #expect(loaded?.notifications.allSatisfy { $0.dismissedAt != nil } == true)
+  }
+
   // MARK: - Unread publisher
 
   @Test

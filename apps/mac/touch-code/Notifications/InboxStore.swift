@@ -118,11 +118,12 @@ final class InboxStore {
 
   /// Dismiss every entry in the inbox. Counterpart to the "Clear all" header action.
   func clearAll(now: Date = Date()) {
-    let unreadOrUndismissed = inbox.notifications.contains { $0.isUnread }
+    var mutated = false
     for index in inbox.notifications.indices where inbox.notifications[index].dismissedAt == nil {
       inbox.notifications[index].dismissedAt = now
+      mutated = true
     }
-    if unreadOrUndismissed {
+    if mutated {
       scheduleSave()
       publishUnread()
     }
@@ -189,10 +190,35 @@ final class InboxStore {
     return swept
   }
 
+  /// Rename a corrupt or unknown-version file aside so the next write does not
+  /// silently overwrite the forensic evidence. If the rename fails (permissions,
+  /// cross-volume), fall back to copy+delete; if that also fails, log and leave
+  /// the file in place — subsequent `saveNow` calls will then clobber it, but
+  /// the log entry tells us why the backup vanished.
   private func backupBrokenFile() {
-    let timestamp = ISO8601DateFormatter().string(from: Date())
+    let timestamp = Self.timestampFormatter.string(from: Date())
     let backupURL = fileURL.deletingLastPathComponent()
       .appendingPathComponent("\(fileURL.lastPathComponent).broken-\(timestamp)")
-    try? FileManager.default.moveItem(at: fileURL, to: backupURL)
+
+    do {
+      try FileManager.default.moveItem(at: fileURL, to: backupURL)
+      return
+    } catch {
+      logger.warning("Move-to-backup failed (\(String(describing: error))); falling back to copy+delete.")
+    }
+
+    do {
+      try FileManager.default.copyItem(at: fileURL, to: backupURL)
+      try FileManager.default.removeItem(at: fileURL)
+    } catch {
+      logger.error("Backup copy+delete also failed (\(String(describing: error))); corrupt file remains at \(self.fileURL.path).")
+    }
   }
+
+  /// Shared ISO-8601 formatter — avoids a per-backup allocation. Thread-safe for reading.
+  private static let timestampFormatter: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime]
+    return formatter
+  }()
 }
