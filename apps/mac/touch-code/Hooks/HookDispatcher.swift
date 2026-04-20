@@ -27,6 +27,7 @@ public final class HookDispatcher {
   private let actionDispatcher: HookActionDispatcher
   private let multicaster: HookEventMulticaster
   private let maxConcurrency: Int
+  private let semaphore: AsyncSemaphore
   private let recent: HookRecentRing
   private var attachedTask: Task<Void, Never>?
   private var internalSubscribers: [(prefix: String, subscriber: any InternalHookSubscriber)] = []
@@ -39,6 +40,7 @@ public final class HookDispatcher {
     actionDispatcher: HookActionDispatcher,
     multicaster: HookEventMulticaster = HookEventMulticaster(),
     maxConcurrency: Int = HookDispatcher.defaultMaxConcurrency,
+    semaphore: AsyncSemaphore? = nil,
     recent: HookRecentRing = HookRecentRing()
   ) {
     self.config = config
@@ -47,8 +49,15 @@ public final class HookDispatcher {
     self.actionDispatcher = actionDispatcher
     self.multicaster = multicaster
     self.maxConcurrency = maxConcurrency
+    self.semaphore = semaphore ?? AsyncSemaphore(permits: maxConcurrency)
     self.recent = recent
   }
+
+  /// Shared concurrency gate. Exposed so `ProcessHookExecutor`'s
+  /// `fireAndForget` branch can re-acquire after the dispatcher releases
+  /// on `executor.run` return (the dispatcher permit bounds scheduling;
+  /// the executor permit bounds the actual `/bin/sh` spawn).
+  public var concurrencySemaphore: AsyncSemaphore { semaphore }
 
   // MARK: - Public API
 
@@ -240,7 +249,9 @@ public final class HookDispatcher {
       return
     }
 
+    await semaphore.acquire()
     let result = await executor.run(subscription: snapshot, envelope: envelope)
+    await semaphore.release()
     var dispatched = 0
     var refused = 0
     for action in result.actions {

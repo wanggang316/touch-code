@@ -37,9 +37,11 @@ public final class ProcessHookExecutor: HookExecutor, @unchecked Sendable {
 
   private let logger = Logger(subsystem: "com.touch-code.hooks", category: "exec")
   private let shellPath: String
+  private let semaphore: AsyncSemaphore?
 
-  public init(shellPath: String = "/bin/sh") {
+  public init(shellPath: String = "/bin/sh", semaphore: AsyncSemaphore? = nil) {
     self.shellPath = shellPath
+    self.semaphore = semaphore
   }
 
   public func run(
@@ -49,8 +51,14 @@ public final class ProcessHookExecutor: HookExecutor, @unchecked Sendable {
     if subscription.mode == .fireAndForget {
       // Spawn + don't await; the detached Task owns the handler. The
       // dispatcher records a zero-outcome HookFireRecord immediately.
+      // The dispatcher's own permit only spans scheduling (this call
+      // returns .zero immediately), so re-acquire the shared permit
+      // inside the detached task to bound the real `/bin/sh` spawn.
+      let semaphore = self.semaphore
       Task.detached { [weak self] in
+        await semaphore?.acquire()
         _ = await self?.runBlocking(subscription: subscription, envelope: envelope)
+        await semaphore?.release()
       }
       return .zero
     }
