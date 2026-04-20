@@ -522,6 +522,56 @@ struct GitViewerFeatureTests {
     }
   }
 
+  // MARK: - Stale-scope result race
+
+  @Test
+  func diffSucceededWithStaleScopeIsDroppedNotPainted() async {
+    // Simulates a late .diffSucceeded that was dispatched for `.working` but arrives
+    // after the user already switched to `.staged`. The guard added alongside the new
+    // `scope:` payload on result actions drops the stale delivery so the current
+    // `.staged` loading state is not overwritten with working-tree data.
+    var initial = GitViewerFeature.State()
+    initial.worktreeID = Self.sampleWorktreeID
+    initial.projectID = Self.sampleProjectID
+    initial.scope = .staged
+    initial.diffState = .loading
+
+    let store = TestStore(initialState: initial) {
+      GitViewerFeature()
+    } withDependencies: {
+      $0.gitService = GitServiceClient.testValue
+      $0.hierarchyClient = HierarchyClient.testValue
+      $0.editorClient = EditorClient.testValue
+    }
+    // No state change: the reducer guards on originScope != state.scope.
+    await store.send(.diffSucceeded(scope: .working, diff: Self.sampleDiff(scope: .working)))
+    await store.send(.logSucceeded(scope: .log, page: Self.sampleLogPage()))
+    await store.send(.diffFailed(scope: .working, error: .notARepo))
+    await store.send(.logFailed(scope: .log, error: .notARepo))
+  }
+
+  @Test
+  func diffSucceededWithMatchingScopeIsApplied() async {
+    var initial = GitViewerFeature.State()
+    initial.worktreeID = Self.sampleWorktreeID
+    initial.projectID = Self.sampleProjectID
+    initial.scope = .working
+    initial.diffState = .loading
+
+    let store = TestStore(initialState: initial) {
+      GitViewerFeature()
+    } withDependencies: {
+      $0.gitService = GitServiceClient.testValue
+      $0.hierarchyClient = HierarchyClient.testValue
+      $0.editorClient = EditorClient.testValue
+    }
+    let diff = Self.sampleDiff(scope: .working)
+    await store.send(.diffSucceeded(scope: .working, diff: diff)) {
+      $0.diffState = .loaded(diff)
+      $0.selectedFilePath = "README.md"
+    }
+  }
+
   // MARK: - File selection
 
   // MARK: - Copy large-diff command
