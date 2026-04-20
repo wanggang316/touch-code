@@ -42,6 +42,12 @@ public struct InstallResult: Equatable, Sendable {
 
 /// Persisted record of a completed install. Version-gated; readers abort on unknown
 /// top-level `version`-like fields, following the architecture's persistence invariant.
+///
+/// Naming boundary: the `source` field is the *private* schema name for the install
+/// mode. Public-facing JSON emitted by `tc skill status --json` (M4a) renames it to
+/// `installMode` to match `agents.json`'s public key. Keeping the names separate avoids
+/// an on-disk schema rename if the public surface later adds modes the marker shouldn't
+/// persist (e.g. a future `.tracked` mode used only for reporting).
 public struct InstalledSkillMarker: Codable, Equatable, Sendable {
   public var version: String
   public var installedAt: Date
@@ -71,6 +77,25 @@ public enum InstallError: Error, Equatable, Sendable {
   case destinationOutsideHome(URL)
   case symlinkRequiresAbsoluteBundlePath(URL)
   case versionFileMissing(URL)
+}
+
+extension InstallError: LocalizedError {
+  public var errorDescription: String? {
+    switch self {
+    case .bundleMissing(let url):
+      return "Skill bundle missing at \(url.path). Rebuild touch-code.app or check `tc skill bundle-path`."
+    case .destinationExistsNoMarker(let url):
+      return "\(url.path) exists but was not installed by tc. Re-run with --force to overwrite."
+    case .destinationExistsLocalEdits(let url):
+      return "\(url.path) has local edits since last install. Re-run with --force to discard them."
+    case .destinationOutsideHome(let url):
+      return "Refusing to install outside $HOME: \(url.path)"
+    case .symlinkRequiresAbsoluteBundlePath(let url):
+      return "--link requires an absolute bundle path; got \(url.path)"
+    case .versionFileMissing(let url):
+      return "Bundled skill is missing its VERSION file at \(url.path)."
+    }
+  }
 }
 
 /// The filename written inside a copy-mode destination.
@@ -104,13 +129,21 @@ public struct SkillInstaller: Sendable {
     }
   }
 
+  /// Removes the installed entity (directory or symlink) and *both* potential marker
+  /// locations — the inside-dir copy marker and the sidecar symlink marker — so partial
+  /// installs left over from crashes, manual edits, or mode switches are fully cleaned.
+  /// Idempotent: calling on an already-clean destination is a no-op.
   public func uninstall(at destination: URL) throws {
-    let markerURL = markerURL(for: destination, mode: detectMode(destination))
     if fileSystem.fileExists(atPath: destination.path) {
       try fileSystem.removeItem(at: destination)
     }
-    if fileSystem.fileExists(atPath: markerURL.path) {
-      try fileSystem.removeItem(at: markerURL)
+    let copyMarker = markerURL(for: destination, mode: .copy)
+    if fileSystem.fileExists(atPath: copyMarker.path) {
+      try fileSystem.removeItem(at: copyMarker)
+    }
+    let symlinkMarker = markerURL(for: destination, mode: .symlink)
+    if fileSystem.fileExists(atPath: symlinkMarker.path) {
+      try fileSystem.removeItem(at: symlinkMarker)
     }
   }
 
@@ -131,34 +164,29 @@ public struct SkillInstaller: Sendable {
     try directorySha256(at: bundleURL)
   }
 
-  /// SHA-256 of `<rel>\0<mode>\0<size>\0<bytes>\0` for each regular file in sorted path
-  /// order. Deterministic across machines and FS layouts. Symlinks and non-regular files
-  /// are rejected; the bundle contains only regular files.
+  /// SHA-256 of `<rel>\0<size>\0<bytes>\0` for each regular file in sorted path order.
+  /// Deterministic across machines, FS layouts, and umask/exec-bit variations —
+  /// `posixPermissions` is deliberately excluded from the digest because `FileManager`'s
+  /// `copyItem` does not uniformly preserve exec bits across file-system boundaries
+  /// (APFS → tmpfs and back again drops the bit). Hashing mode would produce false-
+  /// positive drift on every reinstall with an executable in the tree. Content is the
+  /// only thing we need to protect against local edits, and content is what we hash.
   public func directorySha256(at url: URL) throws -> String {
     var hasher = SHA256()
-    var paths = try fileSystem.subpathsOfDirectory(at: url)
-    paths.sort() // POSIX bytewise sort
-    for rel in paths where !rel.hasSuffix("/.DS_Store") && rel != ".DS_Store" {
+    let paths = try fileSystem.subpathsOfDirectory(at: url) // contract: sorted ascending
+    for rel in paths {
+      if (rel as NSString).lastPathComponent == ".DS_Store" { continue }
+      if rel == markerFilename { continue } // install marker excluded from its own hash
       let absolute = url.appendingPathComponent(rel)
-      // Skip marker file if present inside the destination we're hashing (it would
-      // change the hash on every reinstall otherwise).
-      if rel == markerFilename { continue }
       let attrs = try fileSystem.attributesOfItem(atPath: absolute.path)
       let type = attrs[.type] as? FileAttributeType ?? .typeUnknown
-      switch type {
-      case .typeDirectory: continue
-      case .typeRegular: break
-      default: continue
-      }
+      guard type == .typeRegular else { continue } // directories and symlinks skipped
       guard let data = fileSystem.contents(atPath: absolute.path) else {
         throw InstallError.bundleMissing(absolute)
       }
-      let mode = (attrs[.posixPermissions] as? NSNumber)?.intValue ?? 0o644
       let size = (attrs[.size] as? NSNumber)?.intValue ?? data.count
 
       hasher.update(data: Data(rel.utf8))
-      hasher.update(data: Data([0]))
-      hasher.update(data: Data(String(mode, radix: 8).utf8))
       hasher.update(data: Data([0]))
       hasher.update(data: Data(String(size).utf8))
       hasher.update(data: Data([0]))
@@ -185,10 +213,18 @@ public struct SkillInstaller: Sendable {
     }
   }
 
+  /// HOME-scope enforcement applies to `destination` only — `bundleURL` is read-only
+  /// content owned by the app (typically under `/Applications/.../Resources/`), so
+  /// pinning it inside HOME would prevent normal operation. DEC-4 covers destination-
+  /// side enforcement; this asymmetry is intentional.
   private func ensureHomeScope(_ destination: URL, options: InstallOptions) throws {
     guard options.enforceHomeScope else { return }
-    let home = URL(fileURLWithPath: NSHomeDirectory()).standardizedFileURL
-    let dest = destination.standardizedFileURL
+    let home = URL(fileURLWithPath: NSHomeDirectory())
+      .standardizedFileURL
+      .resolvingSymlinksInPath()
+    let dest = destination
+      .standardizedFileURL
+      .resolvingSymlinksInPath()
     if !dest.path.hasPrefix(home.path + "/") && dest.path != home.path {
       throw InstallError.destinationOutsideHome(destination)
     }
@@ -197,6 +233,7 @@ public struct SkillInstaller: Sendable {
   private func installCopy(to destination: URL, options: InstallOptions) throws -> InstallResult {
     let version = try readBundledVersion()
     let bundleHash = try currentBundleSha256()
+    let destPreExisted = fileSystem.fileExists(atPath: destination.path)
 
     // Idempotence check: same version + same bundle hash + destination-tree hash matches.
     if let existing = try readMarker(at: destination),
@@ -216,7 +253,7 @@ public struct SkillInstaller: Sendable {
       }
     }
 
-    if fileSystem.fileExists(atPath: destination.path) {
+    if destPreExisted {
       if (try readMarker(at: destination)) == nil, !options.force {
         throw InstallError.destinationExistsNoMarker(destination)
       }
@@ -248,14 +285,11 @@ public struct SkillInstaller: Sendable {
     let written = try plannedCopyFiles(destination: destination)
     try writeMarker(marker, to: markerURL(for: destination, mode: .copy))
 
-    let kind: InstallResultKind = fileSystem.fileExists(atPath: destination.path)
-      ? .reinstalled : .installed
-    _ = kind // always `.installed` when we reach here because we removed any existing dir
     return InstallResult(
       destination: destination,
       marker: marker,
       filesWritten: written,
-      kind: .installed
+      kind: destPreExisted ? .reinstalled : .installed
     )
   }
 
@@ -330,19 +364,13 @@ public struct SkillInstaller: Sendable {
     }
   }
 
-  /// Infers install mode by inspecting the destination: if it is a symlink, use `.symlink`;
-  /// otherwise assume `.copy`. If nothing is installed, `.copy` is the safe default — it
-  /// makes `readMarker` look inside the directory (no match; returns nil).
+  /// Infers install mode by checking whether `destination` itself is a symlink. Anything
+  /// else — regular dir, missing entry, file — is treated as `.copy`. The sidecar sibling
+  /// is **not** probed here: a stray `<foo>.marker.json` next to an unrelated `<foo>/`
+  /// directory must not cause `readMarker` to pick up foreign JSON.
   private func detectMode(_ destination: URL) -> InstallMode {
     let attrs = try? fileSystem.attributesOfItem(atPath: destination.path)
     if let type = attrs?[.type] as? FileAttributeType, type == .typeSymbolicLink {
-      return .symlink
-    }
-    // When nothing is installed, `detectMode` is called by readMarker; the sibling file
-    // could exist even if the symlink itself was cleaned up, so check the sidecar too.
-    let siblingName = destination.lastPathComponent + ".marker.json"
-    let sibling = destination.deletingLastPathComponent().appendingPathComponent(siblingName)
-    if fileSystem.fileExists(atPath: sibling.path) {
       return .symlink
     }
     return .copy
@@ -356,9 +384,23 @@ public struct SkillInstaller: Sendable {
     try fileSystem.writeData(data, to: url)
   }
 
+  /// Projects the list of regular-file paths that a copy install would write under
+  /// `destination`, using the same predicate as `directorySha256` (regular files only,
+  /// no directories, no `.DS_Store`, no install marker). This is what populates
+  /// `InstallResult.filesWritten` for dry-run reporting.
   private func plannedCopyFiles(destination: URL) throws -> [URL] {
-    let paths = (try fileSystem.subpathsOfDirectory(at: bundleURL)).sorted()
-    return paths.map { destination.appendingPathComponent($0) }
+    let paths = try fileSystem.subpathsOfDirectory(at: bundleURL) // contract: sorted
+    var urls: [URL] = []
+    urls.reserveCapacity(paths.count)
+    for rel in paths {
+      if (rel as NSString).lastPathComponent == ".DS_Store" { continue }
+      if rel == markerFilename { continue }
+      let absolute = bundleURL.appendingPathComponent(rel)
+      guard let attrs = try? fileSystem.attributesOfItem(atPath: absolute.path),
+            (attrs[.type] as? FileAttributeType) == .typeRegular else { continue }
+      urls.append(destination.appendingPathComponent(rel))
+    }
+    return urls
   }
 
   private func ensureParentDir(of destination: URL) throws {

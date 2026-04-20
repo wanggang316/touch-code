@@ -81,7 +81,7 @@ struct SkillInstallerTests {
       mode: .copy,
       options: Self.testOptions(force: true)
     )
-    #expect(forced.kind == .installed)
+    #expect(forced.kind == .reinstalled)
     // The edited content is gone — re-read shows the bundled SKILL.md bytes.
     let restored = try String(contentsOf: edited, encoding: .utf8)
     #expect(!restored.contains("LOCAL EDIT"))
@@ -195,6 +195,91 @@ struct SkillInstallerTests {
     let installer = Self.installer()
     let dest = fixture.appendingPathComponent("touch-code")
     #expect(try installer.readMarker(at: dest) == nil)
+  }
+
+  @Test
+  func readMarkerIgnoresStraySidecarWhenDestIsNotSymlink() throws {
+    // Install a copy-mode skill, then drop an unrelated `touch-code.marker.json` next to
+    // it. readMarker must return the inside-dir marker (source=.copy), NOT the stray
+    // sidecar. Regression guard against over-permissive detectMode sidecar probing.
+    let fixture = Self.tempDir()
+    defer { try? FileManager.default.removeItem(at: fixture) }
+    let installer = Self.installer()
+    let dest = fixture.appendingPathComponent("touch-code")
+    _ = try installer.install(to: dest, mode: .copy, options: Self.testOptions())
+
+    let strayPayload = """
+      {
+        "version": "99.99.99",
+        "installedAt": "2000-01-01T00:00:00Z",
+        "source": "symlink",
+        "bundlePath": "/nowhere",
+        "bundleSha256": "deadbeef"
+      }
+      """
+    let stray = fixture.appendingPathComponent("touch-code.marker.json")
+    try Data(strayPayload.utf8).write(to: stray)
+
+    let marker = try installer.readMarker(at: dest)
+    #expect(marker?.source == .copy)
+    #expect(marker?.version != "99.99.99") // did NOT read the stray sidecar
+  }
+
+  @Test
+  func uninstallCleansBothMarkerLocations() throws {
+    // Simulate a mixed-mode residue: directory + stray sidecar both present. Uninstall
+    // must sweep both.
+    let fixture = Self.tempDir()
+    defer { try? FileManager.default.removeItem(at: fixture) }
+    let installer = Self.installer()
+    let dest = fixture.appendingPathComponent("touch-code")
+    _ = try installer.install(to: dest, mode: .copy, options: Self.testOptions())
+
+    let sidecar = fixture.appendingPathComponent("touch-code.marker.json")
+    try Data("{}".utf8).write(to: sidecar)
+
+    try installer.uninstall(at: dest)
+    #expect(!FileManager.default.fileExists(atPath: dest.path))
+    #expect(!FileManager.default.fileExists(atPath: sidecar.path))
+  }
+
+  @Test
+  func reinstallWhenDestPreExistedReportsReinstalledKind() throws {
+    let fixture = Self.tempDir()
+    defer { try? FileManager.default.removeItem(at: fixture) }
+    let installer = Self.installer()
+    let dest = fixture.appendingPathComponent("touch-code")
+
+    _ = try installer.install(to: dest, mode: .copy, options: Self.testOptions())
+    // Simulate drift so the idempotence fast-path doesn't short-circuit to .noop.
+    try Data("LOCAL EDIT".utf8).write(to: dest.appendingPathComponent("SKILL.md"))
+
+    let result = try installer.install(
+      to: dest,
+      mode: .copy,
+      options: Self.testOptions(force: true)
+    )
+    #expect(result.kind == .reinstalled)
+  }
+
+  // MARK: - Error surfaces
+
+  @Test
+  func installErrorsExposeLocalizedDescriptions() throws {
+    let url = URL(fileURLWithPath: "/tmp/example")
+    let cases: [InstallError] = [
+      .bundleMissing(url),
+      .destinationExistsNoMarker(url),
+      .destinationExistsLocalEdits(url),
+      .destinationOutsideHome(url),
+      .symlinkRequiresAbsoluteBundlePath(url),
+      .versionFileMissing(url),
+    ]
+    for error in cases {
+      let description = error.errorDescription ?? ""
+      #expect(!description.isEmpty, "missing errorDescription for \(error)")
+      #expect(!description.contains("The operation couldn't be completed"))
+    }
   }
 
   // MARK: - Hash determinism

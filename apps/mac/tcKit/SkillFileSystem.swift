@@ -13,7 +13,11 @@ public protocol SkillFileSystem: Sendable {
   /// Returns [mode: NSNumber, type: FileAttributeType] subset.
   func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any]
   func contents(atPath path: String) -> Data?
-  /// All paths below `url` in BFS order, POSIX-style relative strings.
+  /// Relative POSIX paths below `url`.
+  ///
+  /// **Contract: the return value MUST be sorted in ascending bytewise order.** Callers
+  /// (`directorySha256`, `plannedCopyFiles`) rely on this for deterministic output. A
+  /// conforming type that returns unsorted results will produce non-reproducible hashes.
   func subpathsOfDirectory(at url: URL) throws -> [String]
   func writeData(_ data: Data, to url: URL) throws
 }
@@ -63,7 +67,8 @@ public struct RealSkillFileSystem: SkillFileSystem {
   }
 
   public func subpathsOfDirectory(at url: URL) throws -> [String] {
-    try FileManager.default.subpathsOfDirectory(atPath: url.path)
+    // FileManager returns unspecified order; sort here to honour the protocol contract.
+    try FileManager.default.subpathsOfDirectory(atPath: url.path).sorted()
   }
 
   public func writeData(_ data: Data, to url: URL) throws {
