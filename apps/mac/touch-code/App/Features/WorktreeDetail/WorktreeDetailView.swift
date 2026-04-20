@@ -12,7 +12,6 @@ import TouchCodeCore
 struct WorktreeDetailView: View {
   @Bindable var store: StoreOf<WorktreeDetailFeature>
   let selection: HierarchySelection
-  let terminalEngine: TerminalEngine
   @Environment(HierarchyManager.self) private var hierarchyManager
 
   var body: some View {
@@ -31,8 +30,7 @@ struct WorktreeDetailView: View {
             spaceID: address.space,
             projectID: address.project,
             worktreeID: address.worktree,
-            tabID: tabID,
-            terminalEngine: terminalEngine
+            tabID: tabID
           )
         } else {
           emptyTab

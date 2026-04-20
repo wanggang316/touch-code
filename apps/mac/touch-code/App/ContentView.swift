@@ -16,7 +16,6 @@ import TouchCodeCore
 struct ContentView: View {
   @Bindable var store: StoreOf<RootFeature>
   let hierarchyManager: HierarchyManager
-  let terminalEngine: TerminalEngine
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
   var body: some View {
@@ -25,6 +24,15 @@ struct ContentView: View {
         .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
         .toolbar {
           ToolbarItem(placement: .primaryAction) {
+            Button {
+              store.send(.newSpaceButtonTapped)
+            } label: {
+              Image(systemName: "plus.circle")
+                .accessibilityLabel("New Space")
+            }
+            .help("New Space")
+          }
+          ToolbarItem(placement: .primaryAction) {
             modeTogglePicker
           }
         }
@@ -32,8 +40,7 @@ struct ContentView: View {
       HStack(spacing: 0) {
         WorktreeDetailView(
           store: store.scope(state: \.detail, action: \.detail),
-          selection: store.selection,
-          terminalEngine: terminalEngine
+          selection: store.selection
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         if store.inspectorVisible {
@@ -61,6 +68,13 @@ struct ContentView: View {
     .onDisappear {
       store.send(.onQuit)
     }
+    .sheet(item: $store.scope(state: \.newSpaceSheet, action: \.newSpaceSheet)) { sheetStore in
+      NewSpaceSheet(store: sheetStore)
+    }
+    .sheet(item: $store.scope(state: \.newTabSheet, action: \.newTabSheet)) { sheetStore in
+      NewTabSheet(store: sheetStore)
+    }
+    .alert($store.scope(state: \.confirmAlert, action: \.confirmAlert))
     .onChange(of: store.selection) { _, _ in
       let currentSpaceIDs = Set(hierarchyManager.catalog.spaces.map(\.id))
       let currentProjectIDs = Set(

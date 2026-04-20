@@ -16,7 +16,6 @@ struct SplitViewportView: View {
   let projectID: ProjectID
   let worktreeID: WorktreeID
   let tabID: TabID
-  let terminalEngine: TerminalEngine
   @Environment(HierarchyManager.self) private var hierarchyManager
 
   var body: some View {
@@ -89,14 +88,14 @@ struct SplitViewportView: View {
 
   private func panelLeaf(_ panelID: PanelID) -> some View {
     // LazyPanelHost owns the ensureSurface dance: first-appearance
-    // creation, registry lookup for returning views, retry on failure.
+    // creation via @Dependency(TerminalClient.self), registry lookup for
+    // returning views, retry on failure.
     LazyPanelHost(
       panelID: panelID,
       spaceID: spaceID,
       projectID: projectID,
       worktreeID: worktreeID,
-      tabID: tabID,
-      terminalEngine: terminalEngine
+      tabID: tabID
     )
   }
 }
