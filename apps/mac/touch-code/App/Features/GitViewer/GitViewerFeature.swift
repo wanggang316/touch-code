@@ -95,10 +95,16 @@ struct GitViewerFeature {
     case refreshRequested
     case logScrolledToBottom
 
-    case logSucceeded(LogPage)
-    case logFailed(GitError)
-    case diffSucceeded(UnifiedDiff)
-    case diffFailed(GitError)
+    /// Result actions carry their originating `scope`. A scope switch between
+    /// dispatch and completion races late results against the new state; the
+    /// reducer drops any completion whose `scope` differs from `state.scope`
+    /// instead of painting stale data. `.cancellable(cancelInFlight:)` cancels
+    /// in-flight requests, but an effect that has *already* sent its result
+    /// into the TCA mailbox will still deliver — this guard closes that gap.
+    case logSucceeded(scope: DiffScope, page: LogPage)
+    case logFailed(scope: DiffScope, error: GitError)
+    case diffSucceeded(scope: DiffScope, diff: UnifiedDiff)
+    case diffFailed(scope: DiffScope, error: GitError)
 
     case fileSelected(String?)
     case commitSelected(sha: String)
@@ -183,7 +189,8 @@ struct GitViewerFeature {
         state.cursor = .init(offset: page.cursor.offset + page.cursor.limit, limit: page.cursor.limit)
         return logRequest(state: state)
 
-      case .logSucceeded(let page):
+      case .logSucceeded(let originScope, let page):
+        guard originScope == state.scope else { return .none }
         // Append-on-pagination if we're extending the current window; replace otherwise.
         if case .loaded(let existing) = state.logState,
            page.cursor.offset == existing.cursor.offset + existing.cursor.limit {
@@ -201,17 +208,20 @@ struct GitViewerFeature {
         }
         return .none
 
-      case .logFailed(let error):
+      case .logFailed(let originScope, let error):
+        guard originScope == state.scope else { return .none }
         state.logState = .error(error)
         return .none
 
-      case .diffSucceeded(let diff):
+      case .diffSucceeded(let originScope, let diff):
+        guard originScope == state.scope else { return .none }
         state.diffState = .loaded(diff)
         // Default-select the first file so `selectedFilePath` is never nil on a non-empty diff.
         if state.selectedFilePath == nil { state.selectedFilePath = diff.files.first?.id }
         return .none
 
-      case .diffFailed(let error):
+      case .diffFailed(let originScope, let error):
+        guard originScope == state.scope else { return .none }
         state.diffState = .error(error)
         return .none
 
@@ -299,35 +309,36 @@ struct GitViewerFeature {
   }
 
   private func logRequest(state: State) -> Effect<Action> {
+    let originScope = state.scope
     guard let path = worktreePath(for: state) else {
-      return .send(.logFailed(.invalidInput("no worktree path available")))
+      return .send(.logFailed(scope: originScope, error: .invalidInput("no worktree path available")))
     }
     let cursor = state.cursor
     let client = self.gitService
     return .run { send in
       do {
         let page = try await client.log(path, cursor)
-        await send(.logSucceeded(page))
+        await send(.logSucceeded(scope: originScope, page: page))
       } catch let error as GitError {
-        await send(.logFailed(error))
+        await send(.logFailed(scope: originScope, error: error))
       } catch {
-        await send(.logFailed(.unparsable(context: String(describing: error))))
+        await send(.logFailed(scope: originScope, error: .unparsable(context: String(describing: error))))
       }
     }
     .cancellable(id: CancelID.log, cancelInFlight: true)
   }
 
   private func diffRequest(state: State) -> Effect<Action> {
+    let originScope = state.scope
     guard let path = worktreePath(for: state) else {
-      return .send(.diffFailed(.invalidInput("no worktree path available")))
+      return .send(.diffFailed(scope: originScope, error: .invalidInput("no worktree path available")))
     }
-    let scope = state.scope
     let ignoreWhitespace = state.ignoreWhitespace
     let client = self.gitService
     return .run { send in
       do {
         let diff: UnifiedDiff
-        switch scope {
+        switch originScope {
         case .working:
           diff = try await client.workingTreeDiff(path, ignoreWhitespace)
         case .staged:
@@ -338,11 +349,11 @@ struct GitViewerFeature {
           // Log scope goes through logRequest — defensive branch.
           return
         }
-        await send(.diffSucceeded(diff))
+        await send(.diffSucceeded(scope: originScope, diff: diff))
       } catch let error as GitError {
-        await send(.diffFailed(error))
+        await send(.diffFailed(scope: originScope, error: error))
       } catch {
-        await send(.diffFailed(.unparsable(context: String(describing: error))))
+        await send(.diffFailed(scope: originScope, error: .unparsable(context: String(describing: error))))
       }
     }
     .cancellable(id: CancelID.diff, cancelInFlight: true)

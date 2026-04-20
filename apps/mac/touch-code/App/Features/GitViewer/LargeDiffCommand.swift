@@ -23,6 +23,11 @@ nonisolated enum LargeDiffCommand {
       // Prefer the scope-embedded SHA; the explicit parameter is a convenience for callers
       // that don't unwrap the scope.
       let resolved = sha ?? scopeSha
+      // Commit SHAs reach this builder from `commitSelected` which already validates via
+      // `GitShaValidator.isValid`, but a programmer error upstream could still surface a
+      // tainted SHA here — treat it as a fatal bug rather than emit a shell command that
+      // interpolates untrusted text into `git show`.
+      precondition(GitShaValidator.isValid(resolved), "LargeDiffCommand refuses to build shell for invalid SHA: \(resolved)")
       return "cd \(quoted) && git show --no-color \(resolved)"
     case .log:
       // Log scope paginates 100 commits at a time and never hits the cap. Calling with .log

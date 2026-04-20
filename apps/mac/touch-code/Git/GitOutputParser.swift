@@ -89,7 +89,12 @@ nonisolated enum GitOutputParser {
       let chars = Array(record)
       let indexStatus = chars[0]
       let worktreeStatus = chars[1]
-      // chars[2] == ' '
+      // porcelain v1 `-z` format separates XY from <path> with a literal space
+      // — if it's absent we're looking at malformed output (or a future git
+      // that changed the format) and continuing would truncate the path.
+      guard chars[2] == " " else {
+        throw GitError.unparsable(context: "status record missing XY/path separator: '\(record)'")
+      }
       let path = String(chars[3...])
 
       // Rename/copy records emit the new path in the primary record, with the old path as the

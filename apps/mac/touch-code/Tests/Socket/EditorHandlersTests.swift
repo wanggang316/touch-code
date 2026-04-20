@@ -292,6 +292,68 @@ struct EditorHandlersTests {
     }
   }
 
+  // MARK: - open (path field)
+
+  @Test
+  func openWithinWorktreePathForwardsSubdirectoryToSpawner() async throws {
+    let fixture = Self.makeFixture(worktreePath: "/tmp/touch-code-test-worktree")
+    let captured = LockIsolated<URL?>(nil)
+    var editorClient = EditorClient.testValue
+    editorClient.open = { dir, _, _ in
+      captured.setValue(dir)
+      return Self.sampleChoice
+    }
+    let handlers = EditorHandlers(
+      editor: editorClient,
+      hierarchy: Self.makeHierarchyClient(catalog: fixture.catalog)
+    )
+
+    _ = try await handlers.open(EditorOpenRequest(
+      worktreeID: fixture.worktreeID.raw,
+      preferred: nil,
+      panelID: nil,
+      path: "/tmp/touch-code-test-worktree/sub"
+    ))
+    #expect(captured.value?.path == "/tmp/touch-code-test-worktree/sub")
+  }
+
+  @Test
+  func openWithPathOutsideWorktreeThrowsNotADirectory() async {
+    let fixture = Self.makeFixture(worktreePath: "/tmp/touch-code-test-worktree")
+    var editorClient = EditorClient.testValue
+    editorClient.open = { _, _, _ in Self.sampleChoice }
+    let handlers = EditorHandlers(
+      editor: editorClient,
+      hierarchy: Self.makeHierarchyClient(catalog: fixture.catalog)
+    )
+    await #expect(throws: EditorIPCError.notADirectory) {
+      _ = try await handlers.open(EditorOpenRequest(
+        worktreeID: fixture.worktreeID.raw,
+        path: "/etc"
+      ))
+    }
+  }
+
+  @Test
+  func openWithEmptyPathFallsBackToWorktreeRoot() async throws {
+    let fixture = Self.makeFixture(worktreePath: "/tmp/touch-code-test-worktree")
+    let captured = LockIsolated<URL?>(nil)
+    var editorClient = EditorClient.testValue
+    editorClient.open = { dir, _, _ in
+      captured.setValue(dir)
+      return Self.sampleChoice
+    }
+    let handlers = EditorHandlers(
+      editor: editorClient,
+      hierarchy: Self.makeHierarchyClient(catalog: fixture.catalog)
+    )
+    _ = try await handlers.open(EditorOpenRequest(
+      worktreeID: fixture.worktreeID.raw,
+      path: ""
+    ))
+    #expect(captured.value?.path == fixture.worktreePath)
+  }
+
   // MARK: - setDefault
 
   @Test
