@@ -28,171 +28,157 @@ struct EndToEndRPCIntegrationTests {
 
   @Test
   func systemPingRoundtrips() async throws {
-    let (client, server) = try makeStack()
-    defer { server.stop() }
-    defer { Task { await client.shutdown() } }
-
-    struct PingResult: Codable { let pong: Bool }
-    let result: PingResult = try await client.call(.systemPing, params: Empty())
-    #expect(result.pong == true)
+    try await withStack { client in
+      struct PingResult: Codable { let pong: Bool }
+      let result: PingResult = try await client.call(.systemPing, params: Empty())
+      #expect(result.pong == true)
+    }
   }
 
   @Test
   func systemVersionReportsHarnessVersions() async throws {
-    let (client, server) = try makeStack()
-    defer { server.stop() }
-    defer { Task { await client.shutdown() } }
-
-    struct Version: Codable { let server: String; let appBundle: String }
-    let version: Version = try await client.call(.systemVersion, params: Empty())
-    #expect(version.server == "0.3.0")
-    #expect(version.appBundle == "0.3.0+test")
+    try await withStack { client in
+      struct Version: Codable { let server: String; let appBundle: String }
+      let version: Version = try await client.call(.systemVersion, params: Empty())
+      #expect(version.server == "0.3.0")
+      #expect(version.appBundle == "0.3.0+test")
+    }
   }
 
   // MARK: - Hook lifecycle
 
   @Test
   func hookInstallListFireRecentFullLifecycle() async throws {
-    let (client, server) = try makeStack()
-    defer { server.stop() }
-    defer { Task { await client.shutdown() } }
+    try await withStack { client in
+      let sub = HookSubscription(event: .panelReady, command: "echo ready")
 
-    let sub = HookSubscription(event: .panelReady, command: "echo ready")
+      // 1. install
+      struct InstallParams: Codable { let subscription: HookSubscription }
+      struct InstallResult: Codable { let id: String }
+      let installed: InstallResult = try await client.call(
+        .hookInstall,
+        params: InstallParams(subscription: sub)
+      )
+      #expect(installed.id == sub.id.uuidString)
 
-    // 1. install
-    struct InstallParams: Codable { let subscription: HookSubscription }
-    struct InstallResult: Codable { let id: String }
-    let installed: InstallResult = try await client.call(
-      .hookInstall,
-      params: InstallParams(subscription: sub)
-    )
-    #expect(installed.id == sub.id.uuidString)
+      // 2. list — should see our hook
+      struct ListResult: Codable { let subscriptions: [HookSubscription] }
+      let listed: ListResult = try await client.call(.hookList, params: Empty())
+      #expect(listed.subscriptions.map(\.id).contains(sub.id))
 
-    // 2. list — should see our hook
-    struct ListResult: Codable { let subscriptions: [HookSubscription] }
-    let listed: ListResult = try await client.call(.hookList, params: Empty())
-    #expect(listed.subscriptions.map(\.id).contains(sub.id))
+      // 3. fire — triggers the FakeHookExecutor
+      let envelope = HookEnvelope(
+        event: .panelReady,
+        data: .panelReady(pid: nil, shell: "bash")
+      )
+      struct FireParams: Codable { let envelope: HookEnvelope }
+      struct FireResult: Codable { let handlersRun: Int }
+      let fired: FireResult = try await client.call(
+        .hookFire,
+        params: FireParams(envelope: envelope)
+      )
+      #expect(fired.handlersRun >= 1)
 
-    // 3. fire — triggers the FakeHookExecutor
-    let envelope = HookEnvelope(
-      event: .panelReady,
-      data: .panelReady(pid: nil, shell: "bash")
-    )
-    struct FireParams: Codable { let envelope: HookEnvelope }
-    struct FireResult: Codable { let handlersRun: Int }
-    let fired: FireResult = try await client.call(
-      .hookFire,
-      params: FireParams(envelope: envelope)
-    )
-    #expect(fired.handlersRun >= 1)
-
-    // 4. recent — the fire should appear in the ring buffer
-    struct RecentParams: Codable { let limit: Int? }
-    struct RecentResult: Codable { let fires: [HookFireRecord] }
-    let recent: RecentResult = try await client.call(
-      .hookRecent,
-      params: RecentParams(limit: 5)
-    )
-    #expect(!recent.fires.isEmpty)
+      // 4. recent — the fire should appear in the ring buffer
+      struct RecentParams: Codable { let limit: Int? }
+      struct RecentResult: Codable { let fires: [HookFireRecord] }
+      let recent: RecentResult = try await client.call(
+        .hookRecent,
+        params: RecentParams(limit: 5)
+      )
+      #expect(!recent.fires.isEmpty)
+    }
   }
 
   // MARK: - Hierarchy mutation + describe
 
   @Test
   func hierarchyCreateActivateDescribeRoundtrip() async throws {
-    let (client, server) = try makeStack()
-    defer { server.stop() }
-    defer { Task { await client.shutdown() } }
+    try await withStack { client in
+      struct CreateParams: Codable { let name: String; let activate: Bool }
+      struct IDResult: Codable { let id: SpaceID }
+      let created: IDResult = try await client.call(
+        .hierarchyCreateSpace,
+        params: CreateParams(name: "e2e", activate: true)
+      )
 
-    struct CreateParams: Codable { let name: String; let activate: Bool }
-    struct IDResult: Codable { let id: SpaceID }
-    let created: IDResult = try await client.call(
-      .hierarchyCreateSpace,
-      params: CreateParams(name: "e2e", activate: true)
-    )
-
-    struct DescribeParams: Codable { let id: SpaceID }
-    let space: Space = try await client.call(
-      .hierarchyDescribeSpace,
-      params: DescribeParams(id: created.id)
-    )
-    #expect(space.id == created.id)
-    #expect(space.name == "e2e")
+      struct DescribeParams: Codable { let id: SpaceID }
+      let space: Space = try await client.call(
+        .hierarchyDescribeSpace,
+        params: DescribeParams(id: created.id)
+      )
+      #expect(space.id == created.id)
+      #expect(space.name == "e2e")
+    }
   }
 
   // MARK: - Error-path contract
 
   @Test
   func editorOpenFallsThroughToUnsupported() async throws {
-    let (client, server) = try makeStack()
-    defer { server.stop() }
-    defer { Task { await client.shutdown() } }
-
-    // `editor.open` is in IPC.Method but has no handler in this plan's
-    // router (C8 owns the handler). Proves the notWired fall-through
-    // returns `.unsupported` so the CLI exits 4 post-merge too.
-    struct Params: Codable {
-      let worktreeID: WorktreeID?
-      let path: String?
-      let editor: String?
-    }
-    do {
-      _ = try await client.callRaw(
-        .editorOpen,
-        params: Params(worktreeID: nil, path: "/tmp", editor: nil)
-      )
-      Issue.record("expected throw")
-    } catch RPCClient.RPCError.ipc(let err) {
-      if case .unsupported = err {
-        // expected
-      } else {
-        Issue.record("expected .unsupported, got \(err)")
+    try await withStack { client in
+      // `editor.open` is in IPC.Method but has no handler in this plan's
+      // router (C8 owns the handler). Proves the notWired fall-through
+      // returns `.unsupported` so the CLI exits 4 post-merge too.
+      struct Params: Codable {
+        let worktreeID: WorktreeID?
+        let path: String?
+        let editor: String?
+      }
+      do {
+        _ = try await client.callRaw(
+          .editorOpen,
+          params: Params(worktreeID: nil, path: "/tmp", editor: nil)
+        )
+        Issue.record("expected throw")
+      } catch RPCClient.RPCError.ipc(let err) {
+        if case .unsupported = err {
+          // expected
+        } else {
+          Issue.record("expected .unsupported, got \(err)")
+        }
       }
     }
   }
 
   @Test
   func describeMissingSpaceSurfacesNotFound() async throws {
-    let (client, server) = try makeStack()
-    defer { server.stop() }
-    defer { Task { await client.shutdown() } }
-
-    struct DescribeParams: Codable { let id: SpaceID }
-    do {
-      _ = try await client.call(
-        .hierarchyDescribeSpace,
-        params: DescribeParams(id: SpaceID(raw: UUID())),
-        resultType: Space.self
-      )
-      Issue.record("expected throw")
-    } catch RPCClient.RPCError.ipc(let err) {
-      if case .notFound(let kind, _) = err {
-        #expect(kind == "space")
-      } else {
-        Issue.record("expected .notFound, got \(err)")
+    try await withStack { client in
+      struct DescribeParams: Codable { let id: SpaceID }
+      do {
+        _ = try await client.call(
+          .hierarchyDescribeSpace,
+          params: DescribeParams(id: SpaceID(raw: UUID())),
+          resultType: Space.self
+        )
+        Issue.record("expected throw")
+      } catch RPCClient.RPCError.ipc(let err) {
+        if case .notFound(let kind, _) = err {
+          #expect(kind == "space")
+        } else {
+          Issue.record("expected .notFound, got \(err)")
+        }
       }
     }
   }
 
   @Test
   func terminalSendWithNoSinkReturnsUnsupported() async throws {
-    let (client, server) = try makeStack()
-    defer { server.stop() }
-    defer { Task { await client.shutdown() } }
-
-    struct Params: Codable { let panelID: PanelID; let text: String }
-    do {
-      _ = try await client.callRaw(
-        .terminalSendInput,
-        params: Params(panelID: PanelID(raw: UUID()), text: "hello")
-      )
-      Issue.record("expected throw")
-    } catch RPCClient.RPCError.ipc(let err) {
-      if case .unsupported = err {
-        // expected — this harness binds `sink: nil`, matching the
-        // AppBootstrap shape until a real GhosttyRuntime is wired.
-      } else {
-        Issue.record("expected .unsupported, got \(err)")
+    try await withStack { client in
+      struct Params: Codable { let panelID: PanelID; let text: String }
+      do {
+        _ = try await client.callRaw(
+          .terminalSendInput,
+          params: Params(panelID: PanelID(raw: UUID()), text: "hello")
+        )
+        Issue.record("expected throw")
+      } catch RPCClient.RPCError.ipc(let err) {
+        if case .unsupported = err {
+          // expected — this harness binds `sink: nil`, matching the
+          // AppBootstrap shape until a real GhosttyRuntime is wired.
+        } else {
+          Issue.record("expected .unsupported, got \(err)")
+        }
       }
     }
   }
@@ -200,6 +186,29 @@ struct EndToEndRPCIntegrationTests {
   // MARK: - Harness
 
   struct Empty: Codable, Sendable {}
+
+  /// Scoped stack builder with deterministic, awaited teardown. Review
+  /// #5 on M8 flagged that the earlier `defer { Task { await
+  /// client.shutdown() } }` pattern in each test fired off an
+  /// unstructured Task that was never awaited — the test body returned
+  /// before the client released its inbound-pump / transport. This
+  /// closure form tears down in order: `client.shutdown()` *awaited*,
+  /// then `transport.stop()` (sync). Errors propagate unchanged.
+  func withStack<T>(
+    _ body: (RPCClient) async throws -> T
+  ) async throws -> T {
+    let (client, transport) = try makeStack()
+    do {
+      let result = try await body(client)
+      await client.shutdown()
+      transport.stop()
+      return result
+    } catch {
+      await client.shutdown()
+      transport.stop()
+      throw error
+    }
+  }
 
   /// Build a full (router, client) pair connected by a
   /// `RouterBackedTransport`. The server is a real `MethodRouter` with
@@ -255,6 +264,13 @@ struct EndToEndRPCIntegrationTests {
 /// land in this transport's `inbound` stream. Everything in between is
 /// the same code the production server runs: Framing, handshake,
 /// routing, typed Codable decode.
+///
+/// **Isolation note (per DEC-16):** this adapter is deliberately
+/// `@MainActor` on the class with `nonisolated` `send` / `close` and
+/// `@unchecked Sendable` — a simpler concurrency shape than production
+/// `UnixSocketTransport`. Scoped to tests; must not leak into the `tc`
+/// binary. M8.1's real-socket integration variant inherits the real
+/// transport's stricter isolation.
 @MainActor
 public final class RouterBackedTransport: Transport, @unchecked Sendable {
   private let router: MethodRouter
