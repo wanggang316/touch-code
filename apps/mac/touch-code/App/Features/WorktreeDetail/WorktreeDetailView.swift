@@ -12,7 +12,6 @@ import TouchCodeCore
 struct WorktreeDetailView: View {
   @Bindable var store: StoreOf<WorktreeDetailFeature>
   let selection: HierarchySelection
-  let terminalEngine: TerminalEngine
   /// Scoped editor-feature store; passed in by `ContentView` so the Worktree-header
   /// dropdown shares a single editor-state source of truth with the Settings sheet.
   /// Open-result toasts are driven by `editorStore.state.lastOpenResult` directly from
@@ -38,8 +37,7 @@ struct WorktreeDetailView: View {
             spaceID: address.space,
             projectID: address.project,
             worktreeID: address.worktree,
-            tabID: tabID,
-            terminalEngine: terminalEngine
+            tabID: tabID
           )
         } else {
           emptyTab

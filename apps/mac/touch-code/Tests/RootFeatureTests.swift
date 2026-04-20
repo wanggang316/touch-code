@@ -104,7 +104,16 @@ struct RootFeatureTests {
       $0.terminalClient.events = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.snapshot = { catalog }
+      $0.gitService = GitServiceClient.testValue
+      // Worktree path resolves to a live directory in this catalog, so GitViewer reaches
+      // `workingTreeDiff`. Stub it with an empty diff — the test is not about the diff.
+      $0.gitService.workingTreeDiff = { _, _ in UnifiedDiff(scope: .working, files: []) }
+      $0.editorClient = EditorClient.testValue
     }
+    // Non-exhaustive: this test is about the splitViewport tabID mirror only; the
+    // downstream `.gitViewer.worktreeSelected` forwarding + its diff effect are
+    // covered by `selectionChangedUpdatesStateAndForwardsToGitViewer`.
+    store.exhaustivity = .off
 
     let selection = HierarchySelection(
       spaceID: spaceID, projectID: projectID, worktreeID: worktreeID

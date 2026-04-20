@@ -16,7 +16,6 @@ import TouchCodeCore
 struct ContentView: View {
   @Bindable var store: StoreOf<RootFeature>
   let hierarchyManager: HierarchyManager
-  let terminalEngine: TerminalEngine
   let settingsStore: SettingsStore
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
@@ -43,7 +42,6 @@ struct ContentView: View {
         WorktreeDetailView(
           store: store.scope(state: \.detail, action: \.detail),
           selection: store.selection,
-          terminalEngine: terminalEngine,
           editorStore: store.scope(state: \.editor, action: \.editor)
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
