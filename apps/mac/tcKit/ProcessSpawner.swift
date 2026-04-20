@@ -66,25 +66,51 @@ public struct RealProcessSpawner: ProcessSpawner {
     process.standardOutput = outPipe
     process.standardError = errPipe
 
+    // Drain stdout and stderr concurrently. Reading them sequentially after
+    // `waitUntilExit` deadlocks as soon as the child fills the ~64 KiB OS pipe
+    // buffer on either stream (e.g. `pi install` with verbose progress output):
+    // the kernel blocks the child's write, so the child never exits, so the
+    // parent never starts draining. Two background reads keep both pipes
+    // draining from the moment the child launches.
+    let outBox = DataBox()
+    let errBox = DataBox()
+    let drainGroup = DispatchGroup()
+    let drainQueue = DispatchQueue(label: "app.touch-code.cli-kit.ProcessSpawner.drain",
+                                   attributes: .concurrent)
+    drainGroup.enter()
+    drainQueue.async {
+      outBox.data = outPipe.fileHandleForReading.readDataToEndOfFile()
+      drainGroup.leave()
+    }
+    drainGroup.enter()
+    drainQueue.async {
+      errBox.data = errPipe.fileHandleForReading.readDataToEndOfFile()
+      drainGroup.leave()
+    }
+
     do {
       try process.run()
     } catch {
       throw ProcessSpawnerError.launchFailed(executable, underlying: "\(error)")
     }
     process.waitUntilExit()
+    // Pipes close once the child exits, which lets `readDataToEndOfFile` return.
+    drainGroup.wait()
 
-    let stdout = String(
-      bytes: outPipe.fileHandleForReading.readDataToEndOfFile(),
-      encoding: .utf8
-    ) ?? ""
-    let stderr = String(
-      bytes: errPipe.fileHandleForReading.readDataToEndOfFile(),
-      encoding: .utf8
-    ) ?? ""
+    let stdout = String(bytes: outBox.data, encoding: .utf8) ?? ""
+    let stderr = String(bytes: errBox.data, encoding: .utf8) ?? ""
     return ProcessOutcome(
       exitCode: process.terminationStatus,
       stdout: stdout,
       stderr: stderr
     )
   }
+}
+
+/// Mutable byte buffer passed across `DispatchQueue` boundaries. Marked
+/// `@unchecked Sendable` because `DispatchGroup.wait()` establishes
+/// happens-before with the producer closures — the main thread only reads
+/// `data` after both background reads have leave()'d the group.
+private final class DataBox: @unchecked Sendable {
+  var data = Data()
 }

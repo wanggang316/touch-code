@@ -100,6 +100,9 @@ struct SkillRunnersTests {
 
   @Test
   func piInstallForwardsPiStdoutAlongsideSuccessBanner() throws {
+    let fixture = Self.tempDir()
+    defer { try? FileManager.default.removeItem(at: fixture) }
+    let piCacheRoot = Self.provisionPiCache(version: "0.1.0", under: fixture)
     let spawner = NoopSpawner(
       whichResult: "/usr/local/bin/pi",
       runOutcome: ProcessOutcome(
@@ -112,7 +115,8 @@ struct SkillRunnersTests {
       installer: Self.installer(),
       config: Self.config(),
       spawner: spawner,
-      enforceHomeScope: false
+      enforceHomeScope: false,
+      piCacheRoot: piCacheRoot
     )
     let outcome = runner.run(InstallRunner.Inputs(agent: .pi))
     #expect(outcome.exitCode == 0)
@@ -124,12 +128,16 @@ struct SkillRunnersTests {
 
   @Test
   func piInstallForwardsPiExitCodeAndCapturesInvocation() throws {
+    let fixture = Self.tempDir()
+    defer { try? FileManager.default.removeItem(at: fixture) }
+    let piCacheRoot = Self.provisionPiCache(version: "0.1.0", under: fixture)
     let spawner = NoopSpawner(whichResult: "/usr/local/bin/pi", runOutcome: ProcessOutcome(exitCode: 0, stdout: "", stderr: ""))
     let runner = InstallRunner(
       installer: Self.installer(),
       config: Self.config(),
       spawner: spawner,
-      enforceHomeScope: false
+      enforceHomeScope: false,
+      piCacheRoot: piCacheRoot
     )
     let outcome = runner.run(InstallRunner.Inputs(agent: .pi))
     #expect(outcome.exitCode == 0)
@@ -137,6 +145,84 @@ struct SkillRunnersTests {
     let call = spawner.recordedCalls.first!
     #expect(call.executable == "/usr/local/bin/pi")
     #expect(call.arguments == ["install", "git:github.com/wanggang316/touch-code-skill"])
+  }
+
+  @Test
+  func piInstallRejectsMismatchedMirrorVersion() throws {
+    // Attacker scenario: pi reports success but the mirror it cloned ships a
+    // VERSION that does not match the bundled VERSION. The runner must refuse
+    // to declare success and surface both versions in stderr.
+    let fixture = Self.tempDir()
+    defer { try? FileManager.default.removeItem(at: fixture) }
+    let piCacheRoot = Self.provisionPiCache(version: "9.9.9", under: fixture)
+    let spawner = NoopSpawner(
+      whichResult: "/usr/local/bin/pi",
+      runOutcome: ProcessOutcome(exitCode: 0, stdout: "Installing...\n", stderr: "")
+    )
+    let runner = InstallRunner(
+      installer: Self.installer(),
+      config: Self.config(),
+      spawner: spawner,
+      enforceHomeScope: false,
+      piCacheRoot: piCacheRoot
+    )
+    let outcome = runner.run(InstallRunner.Inputs(agent: .pi))
+    #expect(outcome.exitCode == 2)
+    #expect(outcome.stderr.contains("mirror VERSION (9.9.9)"))
+    #expect(outcome.stderr.contains("bundled VERSION (0.1.0)"))
+    // pi's own stdout is preserved so a human can audit what pi actually did.
+    #expect(outcome.stdout.contains("Installing"))
+  }
+
+  @Test
+  func piInstallRejectsMissingMirrorVersionFile() throws {
+    // An empty cache directory means pi claimed to install but no VERSION file
+    // landed — possibly a partial clone or a wrong-repo mirror. Refuse to trust.
+    let fixture = Self.tempDir()
+    defer { try? FileManager.default.removeItem(at: fixture) }
+    let piCacheRoot = fixture.appendingPathComponent("pi-cache", isDirectory: true)
+    try FileManager.default.createDirectory(at: piCacheRoot, withIntermediateDirectories: true)
+    let spawner = NoopSpawner(
+      whichResult: "/usr/local/bin/pi",
+      runOutcome: ProcessOutcome(exitCode: 0, stdout: "", stderr: "")
+    )
+    let runner = InstallRunner(
+      installer: Self.installer(),
+      config: Self.config(),
+      spawner: spawner,
+      enforceHomeScope: false,
+      piCacheRoot: piCacheRoot
+    )
+    let outcome = runner.run(InstallRunner.Inputs(agent: .pi))
+    #expect(outcome.exitCode == 2)
+    #expect(outcome.stderr.contains("<missing>"))
+    #expect(outcome.stderr.contains("0.1.0"))
+  }
+
+  @Test
+  func piInstallJSONFlagsMismatchInStructuredPayload() throws {
+    let fixture = Self.tempDir()
+    defer { try? FileManager.default.removeItem(at: fixture) }
+    let piCacheRoot = Self.provisionPiCache(version: "1.2.3", under: fixture)
+    let spawner = NoopSpawner(
+      whichResult: "/usr/local/bin/pi",
+      runOutcome: ProcessOutcome(exitCode: 0, stdout: "", stderr: "")
+    )
+    let runner = InstallRunner(
+      installer: Self.installer(),
+      config: Self.config(),
+      spawner: spawner,
+      enforceHomeScope: false,
+      piCacheRoot: piCacheRoot
+    )
+    let outcome = runner.run(InstallRunner.Inputs(agent: .pi, emitJSON: true))
+    #expect(outcome.exitCode == 2)
+    guard let data = outcome.stdout.data(using: .utf8),
+          let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+      Issue.record("pi install JSON unparseable")
+      return
+    }
+    #expect(obj["result"] as? String == "versionMismatch")
   }
 
   @Test
@@ -325,6 +411,22 @@ struct SkillRunnersTests {
       .appendingPathComponent(".touch-code-runners-\(UUID().uuidString)", isDirectory: true)
     try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
     return base
+  }
+
+  /// Lays out a pi-style cache (`<root>/<slug>/VERSION`) so
+  /// `InstallRunner.verifyPiVersion` has something to read. The slug matches
+  /// the mirror URL in `Self.config()`.
+  static func provisionPiCache(version: String, under fixture: URL) -> URL {
+    let root = fixture.appendingPathComponent("pi-cache", isDirectory: true)
+    let cloneDir = root.appendingPathComponent(
+      "github.com/wanggang316/touch-code-skill",
+      isDirectory: true
+    )
+    try? FileManager.default.createDirectory(at: cloneDir, withIntermediateDirectories: true)
+    try? Data("\(version)\n".utf8).write(
+      to: cloneDir.appendingPathComponent("VERSION")
+    )
+    return root
   }
 }
 

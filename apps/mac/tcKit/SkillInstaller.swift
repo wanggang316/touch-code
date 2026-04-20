@@ -230,15 +230,13 @@ public struct SkillInstaller: Sendable {
   /// content owned by the app (typically under `/Applications/.../Resources/`), so
   /// pinning it inside HOME would prevent normal operation. DEC-4 covers destination-
   /// side enforcement; this asymmetry is intentional.
+  ///
+  /// Delegates to `HomeScopeGuard` which inspects ancestor symlinks with `lstat`
+  /// semantics so a crafted symlink in the destination's parent chain cannot slip
+  /// past the literal prefix check and trick `copyItem` into writing outside `$HOME`.
   private func ensureHomeScope(_ destination: URL, options: InstallOptions) throws {
     guard options.enforceHomeScope else { return }
-    let home = URL(fileURLWithPath: NSHomeDirectory())
-      .standardizedFileURL
-      .resolvingSymlinksInPath()
-    let dest = destination
-      .standardizedFileURL
-      .resolvingSymlinksInPath()
-    if !dest.path.hasPrefix(home.path + "/") && dest.path != home.path {
+    if !HomeScopeGuard.isInsideHome(destination, fileSystem: fileSystem) {
       throw InstallError.destinationOutsideHome(destination)
     }
   }
