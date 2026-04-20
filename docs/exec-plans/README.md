@@ -28,6 +28,7 @@ Every exec plan MUST contain:
 
 <!-- List active plans here -->
 - [0002 — Terminal Engine and Five-Level Hierarchy (C1 + C2)](0002-terminal-and-hierarchy.md) — domain model, CatalogStore, GhosttyRuntime, HierarchyManager, TCA clients, sidebar + tab bar + split view, git worktree CLI
+- [0003 — Lifecycle Hooks and `tc` CLI (C3 + C4)](0003-hooks-and-cli.md) — wire types, HookDispatcher, SocketServer, tc CLI scaffold, tc hook + hierarchy/terminal/skill/open/system verbs, integration tests (depends on 0002 M4/M5)
 
 ## Completed Plans
 
