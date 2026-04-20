@@ -87,10 +87,21 @@ public final class ProcessHookExecutor: HookExecutor, @unchecked Sendable {
     process.standardOutput = stdoutPipe
     process.standardError = stderrPipe
 
+    // Async accumulators — `readToEnd()` can block forever if an
+    // orphaned grandchild (e.g. a `sh` that spawned a `sleep` and got
+    // SIGKILLed) still holds the write side open. Reading via
+    // `readabilityHandler` drains whatever the direct child wrote and
+    // lets us bail out after the timeout ladder without waiting for a
+    // grandchild-held fd to close.
+    let stdoutAccumulator = PipeAccumulator(handle: stdoutPipe.fileHandleForReading)
+    let stderrAccumulator = PipeAccumulator(handle: stderrPipe.fileHandleForReading)
+
     do {
       try process.run()
     } catch {
       logger.error("spawn failed: \(String(describing: error), privacy: .public)")
+      stdoutAccumulator.stop()
+      stderrAccumulator.stop()
       return HookExecutionResult(
         exitCode: -1,
         stderr: Data("spawn failed: \(error)\n".utf8),
@@ -108,17 +119,27 @@ public final class ProcessHookExecutor: HookExecutor, @unchecked Sendable {
       try? stdinPipe.fileHandleForWriting.close()
     }
 
-    // Wait for exit with timeout. The `Process.waitUntilExit()` call is
-    // blocking on its dispatch queue; wrap it in a `Task.detached` and
-    // race a `Task.sleep` that SIGTERMs the child on timeout.
+    // Wait for exit with timeout + SIGTERM→SIGKILL escalation ladder.
+    // After the deadline: SIGTERM, 1 s grace, then SIGKILL if the handler
+    // trapped SIGTERM or is otherwise still resident. Post-return the
+    // process is guaranteed reaped (no FD leak even on misbehaving
+    // handlers).
     let timeoutSeconds = max(0.1, subscription.timeoutSeconds)
     let deadline = Date(timeIntervalSinceNow: timeoutSeconds)
     let timedOut = await Self.waitWithTimeout(process: process, deadline: deadline)
 
-    let stdoutData = (try? stdoutPipe.fileHandleForReading.readToEnd()) ?? Data()
-    let stderrData = (try? stderrPipe.fileHandleForReading.readToEnd()) ?? Data()
+    stdoutAccumulator.stop()
+    stderrAccumulator.stop()
+    let stdoutData = stdoutAccumulator.data
+    let stderrData = stderrAccumulator.data
     let actions = Self.parseActions(stdoutData)
-    let exitCode = process.isRunning ? Int32(-1) : process.terminationStatus
+    // waitWithTimeout guarantees the process is reaped before returning,
+    // so terminationStatus is stable here. On timeout the status reflects
+    // whatever signal killed it (SIGTERM exits 143; SIGKILL exits 137
+    // after the escalation ladder); waitWithTimeout synthesises the
+    // POSIX 128+signal convention when the Foundation bridging collapses
+    // signal exits to raw status codes.
+    let exitCode = process.terminationStatus
 
     return HookExecutionResult(
       exitCode: exitCode,
@@ -131,40 +152,139 @@ public final class ProcessHookExecutor: HookExecutor, @unchecked Sendable {
   }
 
   /// Wait for the process to exit or force-terminate at `deadline`.
-  /// Returns `true` iff the deadline expired first.
+  /// Returns `true` iff the deadline expired first. By the time this
+  /// returns the process has either exited naturally or been reaped
+  /// through the SIGTERM → (1 s grace) → SIGKILL ladder.
   private static func waitWithTimeout(
     process: Process,
     deadline: Date
   ) async -> Bool {
-    await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-      let state = WaitState()
-      process.terminationHandler = { _ in
-        state.resolve(timedOut: false, continuation: continuation)
+    // Phase 1 — race natural exit against the deadline.
+    //
+    // Single-shot `WaitState<Bool>`: resolved with `false` if the
+    // process exits first (via `terminationHandler`), or with `true` if
+    // the deadline timer fires first. Second/later `resolve` calls are
+    // no-ops, so the slower path is safe to fire.
+    let phase1 = WaitState<Bool>()
+    process.terminationHandler = { _ in phase1.resolve(false) }
+    let timer = Task.detached {
+      let interval = deadline.timeIntervalSinceNow
+      if interval > 0 {
+        try? await Task.sleep(for: .seconds(interval))
       }
-      Task.detached {
-        let interval = deadline.timeIntervalSinceNow
-        if interval > 0 {
-          try? await Task.sleep(for: .seconds(interval))
+      phase1.resolve(true)
+    }
+    let timedOut = await phase1.wait()
+    timer.cancel()
+
+    if !timedOut {
+      // Natural exit — `terminationStatus` is stable.
+      return false
+    }
+
+    // Phase 2 — escalation ladder. SIGTERM, poll up to 1 s for the
+    // process to collapse, then SIGKILL if it's still resident. Polling
+    // rather than re-arming a second `WaitState` is deliberate: the
+    // termination handler has already been consumed by phase 1 and the
+    // grace window is a non-hot path (runs only on genuine runaways).
+    process.terminate() // SIGTERM
+    let graceDeadline = Date(timeIntervalSinceNow: 1.0)
+    while process.isRunning, Date() < graceDeadline {
+      try? await Task.sleep(for: .milliseconds(50))
+    }
+    if process.isRunning {
+      kill(process.processIdentifier, SIGKILL)
+      let killDeadline = Date(timeIntervalSinceNow: 2.0)
+      while process.isRunning, Date() < killDeadline {
+        try? await Task.sleep(for: .milliseconds(10))
+      }
+    }
+    return true
+  }
+
+  /// Single-shot awaitable. Resolves all waiters on the first `resolve`;
+  /// later resolves are idempotent. Thread-safe. Nonisolated so the
+  /// subprocess `terminationHandler` (called from a background thread)
+  /// can complete the wait.
+  nonisolated private final class WaitState<T: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var resolved: T?
+    private var waiters: [CheckedContinuation<T, Never>] = []
+
+    nonisolated func resolve(_ value: T) {
+      lock.lock()
+      if resolved != nil {
+        lock.unlock()
+        return
+      }
+      resolved = value
+      let pending = waiters
+      waiters.removeAll()
+      lock.unlock()
+      for waiter in pending {
+        waiter.resume(returning: value)
+      }
+    }
+
+    nonisolated func wait() async -> T {
+      await withCheckedContinuation { (continuation: CheckedContinuation<T, Never>) in
+        lock.lock()
+        if let value = resolved {
+          lock.unlock()
+          continuation.resume(returning: value)
+          return
         }
-        if process.isRunning {
-          process.terminate() // SIGTERM
-        }
-        state.resolve(timedOut: true, continuation: continuation)
+        waiters.append(continuation)
+        lock.unlock()
       }
     }
   }
 
-  private final class WaitState: @unchecked Sendable {
+  /// Async drain of a pipe's read side via `readabilityHandler`. The
+  /// subprocess writes; this accumulates into a locked buffer off the
+  /// main thread. `stop()` detaches the handler and is safe to call
+  /// twice. The final `data` snapshot reflects everything the direct
+  /// child process wrote before the handler was detached — a later
+  /// orphan grandchild can keep writing but those bytes are dropped
+  /// (intentional; we don't want to block the dispatcher on a runaway
+  /// grandchild).
+  nonisolated private final class PipeAccumulator: @unchecked Sendable {
+    private let handle: FileHandle
     private let lock = NSLock()
-    nonisolated(unsafe) private var resolved = false
-    nonisolated func resolve(timedOut: Bool, continuation: CheckedContinuation<Bool, Never>) {
-      lock.lock()
-      let shouldResume = !resolved
-      resolved = true
-      lock.unlock()
-      if shouldResume {
-        continuation.resume(returning: timedOut)
+    private var buffer = Data()
+    private var stopped = false
+
+    init(handle: FileHandle) {
+      self.handle = handle
+      handle.readabilityHandler = { [weak self] fileHandle in
+        guard let self else { return }
+        let chunk = fileHandle.availableData
+        if chunk.isEmpty {
+          // Peer closed; Foundation signals EOF via empty read.
+          self.stop()
+          return
+        }
+        self.lock.lock()
+        if !self.stopped {
+          self.buffer.append(chunk)
+        }
+        self.lock.unlock()
       }
+    }
+
+    var data: Data {
+      lock.lock(); defer { lock.unlock() }
+      return buffer
+    }
+
+    func stop() {
+      lock.lock()
+      let wasStopped = stopped
+      stopped = true
+      lock.unlock()
+      guard !wasStopped else { return }
+      handle.readabilityHandler = nil
+      try? handle.close()
     }
   }
 
