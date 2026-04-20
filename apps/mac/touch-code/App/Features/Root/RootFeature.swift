@@ -39,8 +39,13 @@ struct RootFeature {
     var sidebarMode: SidebarMode = .hierarchy
 
     var sidebar: HierarchySidebarFeature.State = .init()
+    var detail: WorktreeDetailFeature.State = .init()
 
-    // M4 will add `detail: WorktreeDetailFeature.State`.
+    /// DEC-9 (M4, 2026-04-20): reserved for C7 M3/M4. `true` shows the
+    /// trailing inspector column (git diff/history viewer). Placeholder
+    /// view for now; C7 plan wires the reducer + real view.
+    var inspectorVisible: Bool = false
+
     // `// @Presents var settingsSheet: SettingsFeature.State?` — reserved
     //   for C8 (DEC-4, M6 kickoff).
   }
@@ -84,7 +89,9 @@ struct RootFeature {
     case selectionChanged(HierarchySelection)
     case engineEventReceived(LastEventMarker)
     case sidebarModeChanged(SidebarMode)
+    case inspectorVisibilityToggled
     case sidebar(HierarchySidebarFeature.Action)
+    case detail(WorktreeDetailFeature.Action)
   }
 
   nonisolated enum CancelID: Sendable { case events, selectionChanges }
@@ -95,6 +102,9 @@ struct RootFeature {
   var body: some Reducer<State, Action> {
     Scope(state: \.sidebar, action: \.sidebar) {
       HierarchySidebarFeature()
+    }
+    Scope(state: \.detail, action: \.detail) {
+      WorktreeDetailFeature()
     }
 
     Reduce { state, action in
@@ -126,6 +136,11 @@ struct RootFeature {
 
       case .selectionChanged(let selection):
         state.selection = selection
+        // Mirror the selection's active tab into the split viewport so M5
+        // lazy-surface lifecycle can react without reading HierarchyManager
+        // from a reducer. Tab is resolved on-the-fly from the catalog.
+        let tabID = resolveActiveTab(selection: selection)
+        state.detail.splitViewport.activeTabID = tabID
         return .none
 
       case .engineEventReceived(let marker):
@@ -138,7 +153,31 @@ struct RootFeature {
 
       case .sidebar:
         return .none
+
+      case .detail:
+        return .none
+
+      case .inspectorVisibilityToggled:
+        state.inspectorVisible.toggle()
+        return .none
       }
     }
+  }
+
+  /// Resolve the active tab for a selection using the snapshot from the
+  /// hierarchy client. The snapshot is synchronously available because
+  /// `HierarchyClient.snapshot` forwards `hierarchyManager.catalog` which
+  /// is updated on the MainActor before `selectionChanges` yields.
+  private func resolveActiveTab(selection: HierarchySelection) -> TabID? {
+    let catalog = hierarchyClient.snapshot()
+    guard
+      let spaceID = selection.spaceID,
+      let projectID = selection.projectID,
+      let worktreeID = selection.worktreeID,
+      let space = catalog.spaces.first(where: { $0.id == spaceID }),
+      let project = space.projects.first(where: { $0.id == projectID }),
+      let worktree = project.worktrees.first(where: { $0.id == worktreeID })
+    else { return nil }
+    return worktree.selectedTabID
   }
 }

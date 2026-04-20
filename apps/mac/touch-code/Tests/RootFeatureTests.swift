@@ -41,6 +41,11 @@ struct RootFeatureTests {
     } withDependencies: {
       $0.terminalClient.events = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
+      // Snapshot is read by the reducer to resolve the active tab for the
+      // selection. Return an empty catalog — the test selection points at
+      // unknown IDs, so resolveActiveTab returns nil and activeTabID stays
+      // at its default.
+      $0.hierarchyClient.snapshot = { Catalog(windows: [], spaces: [], selectedSpaceID: nil) }
     }
 
     let selection = HierarchySelection(
@@ -50,6 +55,38 @@ struct RootFeatureTests {
     )
     await store.send(.selectionChanged(selection)) { state in
       state.selection = selection
+    }
+  }
+
+  @Test
+  func inspectorVisibilityTogglesBothWays() async {
+    let store = TestStore(initialState: RootFeature.State()) {
+      RootFeature()
+    } withDependencies: {
+      $0.terminalClient.events = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
+    }
+
+    #expect(!store.state.inspectorVisible)
+    await store.send(.inspectorVisibilityToggled) { $0.inspectorVisible = true }
+    await store.send(.inspectorVisibilityToggled) { $0.inspectorVisible = false }
+  }
+
+  @Test
+  func sidebarModeChangedUpdatesState() async {
+    let store = TestStore(initialState: RootFeature.State()) {
+      RootFeature()
+    } withDependencies: {
+      $0.terminalClient.events = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
+    }
+
+    #expect(store.state.sidebarMode == .hierarchy)
+    await store.send(.sidebarModeChanged(.inbox)) { state in
+      state.sidebarMode = .inbox
+    }
+    await store.send(.sidebarModeChanged(.hierarchy)) { state in
+      state.sidebarMode = .hierarchy
     }
   }
 
@@ -66,6 +103,7 @@ struct RootFeatureTests {
     } withDependencies: {
       $0.terminalClient.events = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.selectionChanges = { selectionStream }
+      $0.hierarchyClient.snapshot = { Catalog(windows: [], spaces: [], selectedSpaceID: nil) }
     }
 
     await store.send(.onLaunch)
