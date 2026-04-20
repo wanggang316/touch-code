@@ -418,6 +418,44 @@ final class HierarchyManager {
     store.scheduleSave(catalog)
   }
 
+  // MARK: - Panel labels (canonical writer for C3 / C4)
+
+  /// Update a Panel's `labels` set. **Single canonical writer** — every
+  /// user-facing write path (the CLI's `tc panel label`, the hook action
+  /// DSL's `HookAction.setPanelLabels`, any future UI) routes through this
+  /// method. Keeps label mutations auditable and persists through the same
+  /// `CatalogStore.scheduleSave` every other mutation uses.
+  ///
+  /// - Parameters:
+  ///   - panelID: target Panel.
+  ///   - labels: labels to apply.
+  ///   - replace: when `true`, replaces the set entirely; when `false`,
+  ///     union-merges with the existing set.
+  /// - Throws: `HierarchyError.notFound` if the Panel id is unknown.
+  func setPanelLabels(
+    _ panelID: PanelID,
+    labels: Set<String>,
+    replace: Bool = false
+  ) throws {
+    for spaceIndex in catalog.spaces.indices {
+      for projectIndex in catalog.spaces[spaceIndex].projects.indices {
+        for worktreeIndex in catalog.spaces[spaceIndex].projects[projectIndex].worktrees.indices {
+          for tabIndex in catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.indices {
+            let panels = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex].panels
+            if let panelIndex = panels.firstIndex(where: { $0.id == panelID }) {
+              var panel = panels[panelIndex]
+              panel.labels = replace ? labels : panel.labels.union(labels)
+              catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex].panels[panelIndex] = panel
+              store.scheduleSave(catalog)
+              return
+            }
+          }
+        }
+      }
+    }
+    throw HierarchyError.notFound("Panel \(panelID)")
+  }
+
   // MARK: - Helpers
 
   private func findProjectIndices(projectID: ProjectID, spaceID: SpaceID) -> (Int, Int)? {

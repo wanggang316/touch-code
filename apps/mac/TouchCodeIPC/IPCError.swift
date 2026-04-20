@@ -32,6 +32,11 @@ public enum IPCError: Error, Equatable, Sendable {
   /// variants the argument IS this field; for structured variants (notFound,
   /// versionMismatch) auxiliary data is carried in dedicated keys and the
   /// message is a short human-oriented label.
+  ///
+  /// **Callers rendering to humans** (CLI `error:` lines, `os.Logger` on
+  /// the app side) should prefer ``displayMessage`` — it formats the raw
+  /// payload with helpful context (e.g. `"unknown method: foo.bar"` vs.
+  /// the bare `"foo.bar"` `.message` returns for `.unknownMethod`).
   public var message: String {
     switch self {
     case .unknownMethod(let s): return s

@@ -157,7 +157,7 @@ let project = Project(
       bundleId: "app.touch-code.mac-tests",
       deploymentTargets: .macOS("14.0"),
       infoPlist: .default,
-      buildableFolders: ["touch-code/Tests"],
+      buildableFolders: ["touch-code/Tests", "touch-code/Tests/Hooks"],
       dependencies: [.target(name: "touch-code")],
       settings: .settings(
         base: [

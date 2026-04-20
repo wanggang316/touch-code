@@ -60,6 +60,25 @@ struct FramingTests {
   }
 
   @Test
+  func decodeSurvivesRollingBufferBaseIndex() throws {
+    // M1.x follow-up: decode operates on a Data that has had earlier
+    // bytes removeSubrange'd, which in Foundation preserves the slice's
+    // base index. The raw-bytes `load(as:)` path must read the header
+    // from the logical start, not the memory start. Exercise explicitly
+    // to prevent a latent regression.
+    let a = Data("alpha".utf8)
+    let b = Data("bravo".utf8)
+    var buffer = try Framing.encode(a) + Framing.encode(b)
+
+    let first = try Framing.decode(from: &buffer)
+    #expect(first == a)
+    // buffer now has a non-zero logical offset via removeSubrange.
+    let second = try Framing.decode(from: &buffer)
+    #expect(second == b)
+    #expect(buffer.isEmpty)
+  }
+
+  @Test
   func oversizeDeclaredLengthIsRejectedOnDecode() throws {
     // Header claims a frame larger than the cap.
     var header = Data(count: 4)
