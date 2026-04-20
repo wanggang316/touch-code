@@ -22,7 +22,7 @@ C5 is deliberately orthogonal to C1 (Terminal engine) and C2 (Hierarchy): Tier-A
 
 ## Progress
 
-- [ ] M1 — `touch-code-skill/` subdirectory scaffold (SKILL.md stub, `references/*.md` stubs, `agents/{claude-code,codex,pi}/` stubs, `VERSION`, `package.json`, `tests/` placeholders)
+- [x] M1 — `touch-code-skill/` subdirectory scaffold (SKILL.md stub, `references/*.md` stubs, `agents/{claude-code,codex,pi}/` stubs, `VERSION`, `package.json`, `tests/` placeholders) — 2026-04-20
 - [ ] M2 — `apps/mac/Resources/agents.json` + `AgentsConfig` Swift type + unit tests (version-gated decode, per-OS path selection)
 - [ ] M3 — `apps/mac/tc/SkillBundleLocator.swift` + `SkillInstaller.swift` (copy + symlink modes, install marker with `bundleSha256`, deterministic hash, unit tests)
 - [ ] M4 — `tc skill {install,uninstall,status,bundle-path}` subcommands + runners + CLI-level unit tests (pure CLI; no app changes)
@@ -34,7 +34,7 @@ C5 is deliberately orthogonal to C1 (Terminal engine) and C2 (Hierarchy): Tier-A
 
 ## Surprises & Discoveries
 
-(None yet)
+- **M1: `plutil -lint` rejects JSON.** The plan's M2 step uses `plutil -lint apps/mac/Resources/agents.json` to validate the file. On macOS (Sonoma/Sequoia) `plutil` only accepts plists by default; it errors with "Unexpected character { at line 1" on any JSON file. Use `jq . <file> > /dev/null` or `python3 -m json.tool <file>` instead. Will update M2's Concrete Steps accordingly when we get there. Evidence: `plutil -lint touch-code-skill/package.json` → `Unexpected character {`; `jq . touch-code-skill/package.json > /dev/null` → silent success.
 
 ## Decision Log
 
@@ -110,7 +110,7 @@ This is the cheapest milestone; it also unblocks M3 (`SkillInstaller` tests need
         "pi": { "skills": ["./"] }
       }
   This is deliberately minimal; pi reads `name`, `version`, and `pi.skills` to discover the skill. Claude Code and Codex ignore the file.
-- `touch-code-skill/references/` — create six stub files, each one heading + one TODO line: `hierarchy-model.md`, `targeting-and-selectors.md`, `tc-cli.md`, `agent-hooks.md`, `worktrees-and-editors.md`, `recipes.md`. Every stub ends with `<!-- STUB: filled in by exec plan 0004 M6 -->` so M6 can regex-delete the markers.
+- `touch-code-skill/references/` — create six stub files, each one heading + one TODO line: `hierarchy-model.md`, `targeting-and-selectors.md`, `tc-cli.md`, `agent-hooks.md`, `worktrees-and-editors.md`, `recipes.md`. Every stub ends with `<!-- STUB: filled in by exec plan 0004 M8 -->` so M6 can regex-delete the markers.
 - `touch-code-skill/agents/claude-code/README.md`, `.../claude-code/examples.md` — stub pair.
 - `touch-code-skill/agents/codex/README.md`, `.../codex/examples.md` — stub pair.
 - `touch-code-skill/agents/pi/README.md`, `.../pi/examples.md` — stub pair.
@@ -603,7 +603,7 @@ The `skill-orthogonality-check.sh` and `make mac-skill-validate` from M6 run as 
 
 `tests/claude-code.smoke.md`, `tests/codex.smoke.md` — remain stubs; fleshed out in M7.
 
-Regex-delete all `<!-- STUB: filled in by exec plan 0004 M6 -->` markers. A passing grep `grep -rn 'STUB: filled in by' touch-code-skill` returning zero matches is part of observable acceptance.
+Regex-delete all `<!-- STUB: filled in by exec plan 0004 M8 -->` markers. A passing grep `grep -rn 'STUB: filled in by' touch-code-skill` returning zero matches is part of observable acceptance.
 
 After content lands, run `make mac-skill-golden-update` and verify `git diff apps/mac/scripts/skill-golden-manifest.txt` is empty. File names are stable since M1; M8 edits content only, so the manifest should not change. A non-empty diff means the file *set* drifted — stop and reconcile against design doc §Package Structure before continuing.
 
