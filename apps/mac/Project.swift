@@ -144,6 +144,7 @@ let project = Project(
       settings: .settings(
         base: [
           "ENABLE_HARDENED_RUNTIME": "YES",
+          "OTHER_LDFLAGS": "$(inherited) -lc++ -framework Carbon -framework Metal -framework MetalKit -framework CoreText -framework QuartzCore",
         ],
         defaultSettings: .essential
       )

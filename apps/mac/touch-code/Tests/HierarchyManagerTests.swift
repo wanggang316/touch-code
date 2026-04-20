@@ -19,7 +19,7 @@ struct HierarchyManagerTests {
   @Test
   func createWorktreeAppendsAndSetsSelected() throws {
     let spaceID = manager.createSpace(name: "test")
-    let projectID = try manager.addProject(to: spaceID, name: "project", rootPath: "/tmp")
+    let projectID = try manager.addProject(to: spaceID, name: "project", rootPath: "/tmp", gitRoot: "/tmp")
     let worktreeID = try manager.createWorktree(
       in: projectID,
       in: spaceID,
@@ -37,7 +37,7 @@ struct HierarchyManagerTests {
   @Test
   func removeNonExistentWorktreeThrows() throws {
     let spaceID = manager.createSpace(name: "test")
-    let projectID = try manager.addProject(to: spaceID, name: "project", rootPath: "/tmp")
+    let projectID = try manager.addProject(to: spaceID, name: "project", rootPath: "/tmp", gitRoot: "/tmp")
 
     let fakeID = WorktreeID()
     #expect(throws: HierarchyError.self) {
@@ -48,7 +48,7 @@ struct HierarchyManagerTests {
   @Test
   func createTabAppendsAndSetsSelected() throws {
     let spaceID = manager.createSpace(name: "test")
-    let projectID = try manager.addProject(to: spaceID, name: "project", rootPath: "/tmp")
+    let projectID = try manager.addProject(to: spaceID, name: "project", rootPath: "/tmp", gitRoot: "/tmp")
     let worktreeID = try manager.createWorktree(
       in: projectID,
       in: spaceID,
@@ -67,7 +67,7 @@ struct HierarchyManagerTests {
   @Test
   func openPanelInEmptyTabCreatesLeaf() throws {
     let spaceID = manager.createSpace(name: "test")
-    let projectID = try manager.addProject(to: spaceID, name: "project", rootPath: "/tmp")
+    let projectID = try manager.addProject(to: spaceID, name: "project", rootPath: "/tmp", gitRoot: "/tmp")
     let worktreeID = try manager.createWorktree(
       in: projectID,
       in: spaceID,
@@ -97,7 +97,7 @@ struct HierarchyManagerTests {
   @Test
   func splitPanelCreatesNewLeaf() throws {
     let spaceID = manager.createSpace(name: "test")
-    let projectID = try manager.addProject(to: spaceID, name: "project", rootPath: "/tmp")
+    let projectID = try manager.addProject(to: spaceID, name: "project", rootPath: "/tmp", gitRoot: "/tmp")
     let worktreeID = try manager.createWorktree(
       in: projectID,
       in: spaceID,
@@ -138,7 +138,7 @@ struct HierarchyManagerTests {
   @Test
   func closePanelRemovesFromSplitTree() throws {
     let spaceID = manager.createSpace(name: "test")
-    let projectID = try manager.addProject(to: spaceID, name: "project", rootPath: "/tmp")
+    let projectID = try manager.addProject(to: spaceID, name: "project", rootPath: "/tmp", gitRoot: "/tmp")
     let worktreeID = try manager.createWorktree(
       in: projectID,
       in: spaceID,
@@ -168,7 +168,7 @@ struct HierarchyManagerTests {
   @Test
   func tabValidateInvariantsHoldsAfterSplit() throws {
     let spaceID = manager.createSpace(name: "test")
-    let projectID = try manager.addProject(to: spaceID, name: "project", rootPath: "/tmp")
+    let projectID = try manager.addProject(to: spaceID, name: "project", rootPath: "/tmp", gitRoot: "/tmp")
     let worktreeID = try manager.createWorktree(
       in: projectID,
       in: spaceID,
@@ -206,7 +206,7 @@ struct HierarchyManagerTests {
   @Test
   func focusPanelSetsZoom() throws {
     let spaceID = manager.createSpace(name: "test")
-    let projectID = try manager.addProject(to: spaceID, name: "project", rootPath: "/tmp")
+    let projectID = try manager.addProject(to: spaceID, name: "project", rootPath: "/tmp", gitRoot: "/tmp")
     let worktreeID = try manager.createWorktree(
       in: projectID,
       in: spaceID,

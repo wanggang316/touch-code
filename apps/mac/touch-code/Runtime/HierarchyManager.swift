@@ -52,21 +52,37 @@ final class HierarchyManager {
 
   // MARK: - Project mutations
 
-  func addProject(to spaceID: SpaceID, name: String, rootPath: String) throws -> ProjectID {
+  func addProject(to spaceID: SpaceID, name: String, rootPath: String, gitRoot: String? = nil) throws -> ProjectID {
     guard let spaceIndex = catalog.spaces.firstIndex(where: { $0.id == spaceID }) else {
       throw HierarchyError.notFound("Space \(spaceID)")
     }
 
     let projectID = ProjectID()
+    var worktrees: [Worktree] = []
+    var selectedWorktreeID: WorktreeID?
+
+    if gitRoot == nil {
+      let synthetic = Worktree(
+        id: WorktreeID(),
+        name: (rootPath as NSString).lastPathComponent,
+        path: rootPath,
+        branch: nil,
+        tabs: [],
+        selectedTabID: nil
+      )
+      worktrees = [synthetic]
+      selectedWorktreeID = synthetic.id
+    }
+
     let project = Project(
       id: projectID,
       name: name,
       rootPath: rootPath,
-      gitRoot: nil,
+      gitRoot: gitRoot,
       worktreesDirectory: nil,
       defaultEditor: nil,
-      worktrees: [],
-      selectedWorktreeID: nil
+      worktrees: worktrees,
+      selectedWorktreeID: selectedWorktreeID
     )
     catalog.spaces[spaceIndex].projects.append(project)
     catalog.spaces[spaceIndex].selectedProjectID = projectID
