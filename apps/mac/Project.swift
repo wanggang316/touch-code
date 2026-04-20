@@ -167,9 +167,17 @@ let project = Project(
       bundleId: "app.touch-code.mac",
       deploymentTargets: .macOS("14.0"),
       infoPlist: .file(path: "Configurations/mac-Info.plist"),
-      resources: [
-        "Resources/**",
-      ],
+      resources: .resources(
+        [
+          .glob(pattern: "Resources/**"),
+          // touch-code-skill/ lives at the repo root and ships as a bundle resource so
+          // `tc skill bundle-path` can resolve it from Contents/Resources/touch-code-skill/
+          // at runtime. It is NOT a Swift target — pure content, never imported. Using
+          // `folderReference` preserves the subdirectory layout rather than flattening
+          // every *.md into Contents/Resources/ (which would collide on README.md).
+          .folderReference(path: "../../touch-code-skill"),
+        ]
+      ),
       buildableFolders: [
         "touch-code/App",
         "touch-code/Runtime",

@@ -2,7 +2,8 @@ import Foundation
 
 /// Resolves the path to the bundled `touch-code-skill/` directory and the shipped
 /// `agents.json` resource. The app bundle's `Contents/Resources/` is the primary source;
-/// the repo root is the dev-run fallback. Pure path resolution — never reads file contents.
+/// an env-var override and a repo-root fallback cover dev iteration. Pure path resolution
+/// — never reads file contents.
 public enum SkillBundleLocator {
   public enum LocatorError: Error, Equatable {
     /// `touch-code-skill/` could not be found via any resolution phase.
@@ -11,31 +12,46 @@ public enum SkillBundleLocator {
     case agentsJSONNotFound
   }
 
-  /// Resolution phases are tried in order:
-  /// 1. `Bundle.main.resourceURL?/touch-code-skill` — normal `.app` invocation where
-  ///    `Bundle.main` is the app bundle.
-  /// 2. `<executable>/../../Resources/touch-code-skill` — `tc` launched directly from
-  ///    `touch-code.app/Contents/MacOS/tc` (commandLineTool shares the app bundle).
-  /// 3. repo walk from `<executable>` looking for `touch-code-skill/` as a peer of
-  ///    `apps/` — dev run from `swift run` or directly-built binary in DerivedData.
-  public static func locateSkillBundle(
-    executableURL: URL? = Bundle.main.executableURL
-  ) throws -> URL {
-    let fm = FileManager.default
+  /// Environment-variable overrides for dev iteration. Production .app invocations don't
+  /// set these; when set, they win over all other resolution phases so contributors can
+  /// point `tc` at in-repo fixtures without rebuilding the .app.
+  public enum EnvKey {
+    public static let skillBundle = "TOUCH_CODE_SKILL_BUNDLE"
+    public static let agentsJSON = "TOUCH_CODE_AGENTS_JSON"
+  }
 
+  /// Resolution phases are tried in order:
+  /// 0. `$TOUCH_CODE_SKILL_BUNDLE` env var — dev override.
+  /// 1. `Bundle.main.resourceURL?/touch-code-skill` — normal `.app` invocation where
+  ///    `Bundle.main` is the app bundle (`tc` launched via `NSWorkspace`) OR `tc`
+  ///    launched directly from `touch-code.app/Contents/MacOS/tc` (in which case
+  ///    `Bundle.main.resourceURL` is `Contents/MacOS/`, so we also probe phase 2).
+  /// 2. `<executable>/../Resources/touch-code-skill` — sibling of the Mach-O path. This
+  ///    covers the direct-binary-from-bundle case.
+  /// 3. Repo walk from `<executable>` looking for `touch-code-skill/` — dev run.
+  public static func locateSkillBundle(
+    executableURL: URL? = Bundle.main.executableURL,
+    environment: [String: String] = ProcessInfo.processInfo.environment
+  ) throws -> URL {
+    if let override = environment[EnvKey.skillBundle], !override.isEmpty {
+      let expanded = URL(fileURLWithPath: (override as NSString).expandingTildeInPath)
+      if isDirectory(expanded, fileSystem: FileManager.default) {
+        return expanded
+      }
+    }
     if let url = Bundle.main.resourceURL?
       .appendingPathComponent("touch-code-skill", isDirectory: true),
-      isDirectory(url, fileSystem: fm) {
+      isDirectory(url, fileSystem: FileManager.default) {
       return url
     }
     guard let executable = executableURL else { throw LocatorError.bundleNotFound }
 
-    let siblingResources = executable
-      .deletingLastPathComponent()
-      .deletingLastPathComponent()
+    let sibling = executable
+      .deletingLastPathComponent()            // Contents/MacOS
+      .deletingLastPathComponent()            // Contents
       .appendingPathComponent("Resources/touch-code-skill", isDirectory: true)
-    if isDirectory(siblingResources, fileSystem: fm) {
-      return siblingResources
+    if isDirectory(sibling, fileSystem: FileManager.default) {
+      return sibling
     }
 
     if let repoPeer = repoWalk(from: executable, matching: "touch-code-skill") {
@@ -44,24 +60,28 @@ public enum SkillBundleLocator {
     throw LocatorError.bundleNotFound
   }
 
-  /// Same three-phase resolution as `locateSkillBundle`, but resolves `agents.json` in
-  /// `Resources/`. Intended to back `AgentsConfig.loadFromMainBundle`'s M3 implementation.
+  /// Same three-phase resolution as `locateSkillBundle`, but resolves `agents.json`.
   public static func locateAgentsJSON(
-    executableURL: URL? = Bundle.main.executableURL
+    executableURL: URL? = Bundle.main.executableURL,
+    environment: [String: String] = ProcessInfo.processInfo.environment
   ) throws -> URL {
-    let fm = FileManager.default
-
+    if let override = environment[EnvKey.agentsJSON], !override.isEmpty {
+      let expanded = URL(fileURLWithPath: (override as NSString).expandingTildeInPath)
+      if FileManager.default.fileExists(atPath: expanded.path) {
+        return expanded
+      }
+    }
     if let url = Bundle.main.url(forResource: "agents", withExtension: "json") {
       return url
     }
     guard let executable = executableURL else { throw LocatorError.agentsJSONNotFound }
 
-    let siblingResources = executable
+    let sibling = executable
       .deletingLastPathComponent()
       .deletingLastPathComponent()
       .appendingPathComponent("Resources/agents.json")
-    if fm.fileExists(atPath: siblingResources.path) {
-      return siblingResources
+    if FileManager.default.fileExists(atPath: sibling.path) {
+      return sibling
     }
 
     if let repoResource = repoWalk(from: executable, matching: "apps/mac/Resources/agents.json") {
