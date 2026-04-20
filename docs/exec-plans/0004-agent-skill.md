@@ -24,7 +24,7 @@ C5 is deliberately orthogonal to C1 (Terminal engine) and C2 (Hierarchy): Tier-A
 
 - [x] M1 — `touch-code-skill/` subdirectory scaffold (SKILL.md stub, `references/*.md` stubs, `agents/{claude-code,codex,pi}/` stubs, `VERSION`, `package.json`, `tests/` placeholders) — 2026-04-20
 - [x] M2 — `apps/mac/Resources/agents.json` + `AgentsConfig` Swift type in new `tcKit` static framework + unit tests (10 cases green; see DEC-8, DEC-9, DEC-10) — 2026-04-20
-- [ ] M3 — `apps/mac/tc/SkillBundleLocator.swift` + `SkillInstaller.swift` (copy + symlink modes, install marker with `bundleSha256`, deterministic hash, unit tests)
+- [x] M3 — `SkillBundleLocator` + `SkillInstaller` + `SkillFileSystem` in `tcKit` + unit tests (28 cases total across AgentsConfig/Locator/Installer suites) — 2026-04-20
 - [ ] M4 — `tc skill {install,uninstall,status,bundle-path}` subcommands + runners + CLI-level unit tests (pure CLI; no app changes)
 - [ ] M5 — `SkillVersionBanner` app-side component (SwiftUI banner, `@Observable`, minimal-marker decoder, `UserDefaults`-backed dismissal)
 - [ ] M6 — Tier-A tests (`tc --help-json` roundtrip, golden manifest diff) + `generate-skill-version.sh` + orthogonality check + `make mac-skill-validate`

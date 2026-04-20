@@ -86,40 +86,15 @@ extension AgentsConfig {
     return config
   }
 
-  /// Load `agents.json` from the app bundle or a repo-relative fallback.
-  ///
-  /// Provisional implementation for M2 — walks up from `Bundle.main.executableURL` in three
-  /// phases: (1) `Bundle.main.url(forResource:)`, (2) `<app>/Contents/Resources/agents.json`
-  /// sibling-to-executable lookup, (3) repo-root walk up to locate
-  /// `apps/mac/Resources/agents.json` (for `swift run` / direct-binary invocations during
-  /// development). M3 replaces steps 2+3 with `SkillBundleLocator.locateAgentsJSON`.
+  /// Load `agents.json` from the app bundle or a repo-relative fallback, delegating path
+  /// resolution to `SkillBundleLocator.locateAgentsJSON`.
   public static func loadFromMainBundle() throws -> AgentsConfig {
-    if let url = Bundle.main.url(forResource: "agents", withExtension: "json") {
-      return try load(from: url)
-    }
-    guard let executable = Bundle.main.executableURL else {
+    let url: URL
+    do {
+      url = try SkillBundleLocator.locateAgentsJSON()
+    } catch SkillBundleLocator.LocatorError.agentsJSONNotFound {
       throw AgentsConfigError.resourceNotFound
     }
-    let fm = FileManager.default
-    // Phase 2: .app/Contents/MacOS/tc → .app/Contents/Resources/agents.json
-    let siblingResources = executable
-      .deletingLastPathComponent()
-      .deletingLastPathComponent()
-      .appendingPathComponent("Resources/agents.json")
-    if fm.fileExists(atPath: siblingResources.path) {
-      return try load(from: siblingResources)
-    }
-    // Phase 3: walk up looking for apps/mac/Resources/agents.json (dev-run, tests).
-    var directory = executable.deletingLastPathComponent()
-    for _ in 0..<12 {
-      let candidate = directory.appendingPathComponent("apps/mac/Resources/agents.json")
-      if fm.fileExists(atPath: candidate.path) {
-        return try load(from: candidate)
-      }
-      let parent = directory.deletingLastPathComponent()
-      if parent == directory { break } // reached filesystem root
-      directory = parent
-    }
-    throw AgentsConfigError.resourceNotFound
+    return try load(from: url)
   }
 }

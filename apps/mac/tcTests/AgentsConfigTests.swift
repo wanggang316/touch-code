@@ -126,7 +126,7 @@ struct AgentsConfigTests {
       .appendingPathComponent("tc-agents-tests-\(UUID().uuidString)", isDirectory: true)
     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     let url = dir.appendingPathComponent("agents.json")
-    try? payload.data(using: .utf8)?.write(to: url)
+    try? Data(payload.utf8).write(to: url)
     return url
   }
 }
