@@ -190,35 +190,7 @@ final class InboxStore {
     return swept
   }
 
-  /// Rename a corrupt or unknown-version file aside so the next write does not
-  /// silently overwrite the forensic evidence. If the rename fails (permissions,
-  /// cross-volume), fall back to copy+delete; if that also fails, log and leave
-  /// the file in place — subsequent `saveNow` calls will then clobber it, but
-  /// the log entry tells us why the backup vanished.
   private func backupBrokenFile() {
-    let timestamp = Self.timestampFormatter.string(from: Date())
-    let backupURL = fileURL.deletingLastPathComponent()
-      .appendingPathComponent("\(fileURL.lastPathComponent).broken-\(timestamp)")
-
-    do {
-      try FileManager.default.moveItem(at: fileURL, to: backupURL)
-      return
-    } catch {
-      logger.warning("Move-to-backup failed (\(String(describing: error))); falling back to copy+delete.")
-    }
-
-    do {
-      try FileManager.default.copyItem(at: fileURL, to: backupURL)
-      try FileManager.default.removeItem(at: fileURL)
-    } catch {
-      logger.error("Backup copy+delete also failed (\(String(describing: error))); corrupt file remains at \(self.fileURL.path).")
-    }
+    BrokenFileBackup.moveAside(at: fileURL, logger: logger)
   }
-
-  /// Shared ISO-8601 formatter — avoids a per-backup allocation. Thread-safe for reading.
-  private static let timestampFormatter: ISO8601DateFormatter = {
-    let formatter = ISO8601DateFormatter()
-    formatter.formatOptions = [.withInternetDateTime]
-    return formatter
-  }()
 }

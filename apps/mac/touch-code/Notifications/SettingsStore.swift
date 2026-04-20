@@ -158,9 +158,6 @@ final class SettingsStore {
   }
 
   private func backupBrokenFile() {
-    let timestamp = ISO8601DateFormatter().string(from: Date())
-    let backupURL = fileURL.deletingLastPathComponent()
-      .appendingPathComponent("\(fileURL.lastPathComponent).broken-\(timestamp)")
-    try? FileManager.default.moveItem(at: fileURL, to: backupURL)
+    BrokenFileBackup.moveAside(at: fileURL, logger: logger)
   }
 }
