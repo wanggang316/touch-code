@@ -58,6 +58,95 @@ struct CatalogCodableTests {
   }
 
   @Test
+  func decodesPreT0JSONWithDefaults() throws {
+    // Encode a pre-T0 shaped catalog — a Space without `lastActiveWorktreeID`
+    // and a Worktree without `gitViewerVisible` — by building the JSON
+    // structure explicitly, then strip those keys. Defaults must apply on
+    // decode without throwing.
+    let panel = Panel(workingDirectory: "/tmp")
+    let tab = Tab(splitTree: SplitTree(leaf: panel.id), panels: [panel])
+    let worktree = Worktree(
+      name: "main", path: "/repo", branch: "main", tabs: [tab], selectedTabID: tab.id
+    )
+    let project = Project(
+      name: "repo",
+      rootPath: "/repo",
+      gitRoot: "/repo",
+      worktrees: [worktree],
+      selectedWorktreeID: worktree.id
+    )
+    let space = Space(name: "work", projects: [project], selectedProjectID: project.id)
+    let catalog = Catalog(spaces: [space], selectedSpaceID: space.id)
+
+    let encoded = try JSONEncoder().encode(catalog)
+    var root = try #require(
+      try JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+    )
+    root["spaces"] = (root["spaces"] as? [[String: Any]]).map { spaces in
+      spaces.map { spaceDict -> [String: Any] in
+        var space = spaceDict
+        space.removeValue(forKey: "lastActiveWorktreeID")
+        space["projects"] = (space["projects"] as? [[String: Any]]).map { projects in
+          projects.map { projectDict -> [String: Any] in
+            var project = projectDict
+            project["worktrees"] = (project["worktrees"] as? [[String: Any]]).map { worktrees in
+              worktrees.map { worktreeDict -> [String: Any] in
+                var worktree = worktreeDict
+                worktree.removeValue(forKey: "gitViewerVisible")
+                return worktree
+              }
+            } ?? []
+            return project
+          }
+        } ?? []
+        return space
+      }
+    } ?? []
+    let stripped = try JSONSerialization.data(withJSONObject: root)
+
+    let decoded = try JSONDecoder().decode(Catalog.self, from: stripped)
+    let decodedSpace = try #require(decoded.spaces.first)
+    #expect(decodedSpace.lastActiveWorktreeID == nil)
+    let decodedProject = try #require(decodedSpace.projects.first)
+    let decodedWorktree = try #require(decodedProject.worktrees.first)
+    #expect(decodedWorktree.gitViewerVisible == false)
+  }
+
+  @Test
+  func roundTripsLastActiveWorktreeAndGitViewerVisible() throws {
+    let panel = Panel(workingDirectory: "/tmp")
+    let tab = Tab(splitTree: SplitTree(leaf: panel.id), panels: [panel])
+    let worktree = Worktree(
+      name: "main",
+      path: "/repo",
+      branch: "main",
+      tabs: [tab],
+      selectedTabID: tab.id,
+      gitViewerVisible: true
+    )
+    let project = Project(
+      name: "repo",
+      rootPath: "/repo",
+      gitRoot: "/repo",
+      worktrees: [worktree],
+      selectedWorktreeID: worktree.id
+    )
+    let space = Space(
+      name: "work",
+      projects: [project],
+      selectedProjectID: project.id,
+      lastActiveWorktreeID: worktree.id
+    )
+    let catalog = Catalog(spaces: [space], selectedSpaceID: space.id)
+
+    let data = try JSONEncoder().encode(catalog)
+    let decoded = try JSONDecoder().decode(Catalog.self, from: data)
+    #expect(decoded == catalog)
+    #expect(decoded.spaces.first?.lastActiveWorktreeID == worktree.id)
+    #expect(decoded.spaces.first?.projects.first?.worktrees.first?.gitViewerVisible == true)
+  }
+
+  @Test
   func tabInvariantsHoldForSeededTab() throws {
     let a = Panel(workingDirectory: "/a")
     let b = Panel(workingDirectory: "/b")
