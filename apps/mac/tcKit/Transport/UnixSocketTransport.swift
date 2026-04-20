@@ -59,6 +59,10 @@ public final class UnixSocketTransport: Transport, @unchecked Sendable {
     startReader()
   }
 
+  // Follow-up: revisit after a tcKit concurrency audit — the `async` keyword
+  // has no `await` body today, but removing it breaks callers. Out of scope
+  // for T0, suppressing the lint below to unblock.
+  // swiftlint:disable:next async_without_await
   public func send(_ frame: Data) async throws {
     var remaining = frame
     while !remaining.isEmpty {
