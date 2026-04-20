@@ -156,7 +156,7 @@ The canonical stdin envelope handlers receive:
   // Event-specific payload, discriminated by `event`.
   "data": {
     "match":        "agent has completed",
-    "matchedRange": { "location": 120, "length": 22 },
+    "matchedRange": { "start": 120, "length": 22 },
     "output":       "…last 4KB of matched batch, utf-8 replaced…",
     "outputBytes":  4096
   }
@@ -169,8 +169,9 @@ Per-event `data` schemas:
 |-----------------------|-----------------------------------------------------------------------------------------------|
 | `panel.created`       | `{ createdVia: "cli"\|"ui"\|"restore" }`                                                     |
 | `panel.ready`         | `{ pid?: Int, shell: String }`                                                                |
+| `panel.input`         | *Not delivered to user handlers by default* (volume matches output). Only reachable with `event: "panel.input"` + explicit opt-in flag `allowRawInput: true`. Payload: `{ text: String, inputBytes: Int }`. |
 | `panel.output`        | *Not delivered to user handlers by default* (too chatty). Only reachable with `event: "panel.output"` + explicit opt-in flag `allowRawOutput: true`. |
-| `panel.outputMatch`   | `{ match: String, matchedRange: {location, length}, output: String, outputBytes: Int }`       |
+| `panel.outputMatch`   | `{ match: String, matchedRange: HookMatchRange, output: String, outputBytes: Int }`           |
 | `panel.idle`          | `{ idleSeconds: Double, sinceLastOutput: Double, sinceLastInput: Double }`                    |
 | `panel.exited`        | `{ exitCode: Int32 }`                                                                         |
 | `panel.crashed`       | `{ reason: String }`                                                                          |
@@ -182,7 +183,15 @@ Per-event `data` schemas:
 | `worktree.created`    | `{ branch?: String, gitExit?: Int32 }`                                                         |
 | `worktree.removed`    | `{ keepDirectory: Bool }`                                                                     |
 
-Anchor rule: the event's scope anchor is always present in the envelope. `panel.*` events always carry `panel`, `tab`, `worktree`, and the `project`/`space` ancestors. `tab.*` carry `tab` + ancestors. `worktree.*` carry `worktree` + ancestors. This lets handlers do simple `jq .worktree.path` without walking back through RPC. The extra context is cheap — a few hundred bytes per event.
+Anchor rule. On the wire every `space / project / worktree / tab / panel` field is declared *optional* (encoded with `encodeIfPresent`) because some fields are absent for some events (e.g. `worktree.removed` carries no `panel`). But the following guarantees hold for every encoded envelope and are enforced by a debug-only `HookEnvelope.validateAnchors()` check on the encoder path:
+
+| Event scope              | Fields guaranteed non-null                                      |
+|--------------------------|-----------------------------------------------------------------|
+| `panel.*`                | `panel`, `tab`, `worktree`, `project`, `space`                  |
+| `tab.*`                  | `tab`, `worktree`, `project`, `space`                           |
+| `worktree.*`             | `worktree`, `project`, `space`                                  |
+
+Handlers can rely on these without null-checking. The extra context is cheap — a few hundred bytes per event — and saves a round trip through the RPC layer.
 
 ### API Design
 
@@ -195,6 +204,7 @@ Anchor rule: the event's scope anchor is always present in the envelope. `panel.
 public nonisolated enum HookEvent: String, Codable, Hashable, Sendable, CaseIterable {
   case panelCreated     = "panel.created"
   case panelReady       = "panel.ready"
+  case panelInput       = "panel.input"
   case panelOutput      = "panel.output"
   case panelOutputMatch = "panel.outputMatch"
   case panelIdle        = "panel.idle"
@@ -210,7 +220,7 @@ public nonisolated enum HookEvent: String, Codable, Hashable, Sendable, CaseIter
 
   public var scope: HookScope {
     switch self {
-    case .panelCreated, .panelReady, .panelOutput, .panelOutputMatch,
+    case .panelCreated, .panelReady, .panelInput, .panelOutput, .panelOutputMatch,
          .panelIdle, .panelExited, .panelCrashed:
       return .panel
     case .tabActivated, .tabDeactivated, .tabAutoClosed:
@@ -222,6 +232,14 @@ public nonisolated enum HookEvent: String, Codable, Hashable, Sendable, CaseIter
 }
 
 public nonisolated enum HookScope: String, Codable, Sendable { case panel, tab, worktree, space }
+
+/// Byte offset + length into the matched panel output, portably Codable
+/// (NSRange is not stable across platforms/JSON and is avoided on the wire).
+public nonisolated struct HookMatchRange: Codable, Equatable, Sendable {
+  public var start: Int
+  public var length: Int
+  public init(start: Int, length: Int) { self.start = start; self.length = length }
+}
 ```
 
 #### `HookEnvelope` wire payload (in `TouchCodeCore`)
@@ -249,8 +267,9 @@ public nonisolated struct HookEnvelope: Codable, Equatable, Sendable {
 public nonisolated enum HookEventData: Codable, Equatable, Sendable {
   case panelCreated(createdVia: String)
   case panelReady(pid: Int32?, shell: String)
+  case panelInput(text: String, inputBytes: Int)
   case panelOutput(output: Data, outputBytes: Int)
-  case panelOutputMatch(match: String, matchedRange: NSRange, output: Data, outputBytes: Int)
+  case panelOutputMatch(match: String, matchedRange: HookMatchRange, output: Data, outputBytes: Int)
   case panelIdle(idleSeconds: Double, sinceLastOutput: Double, sinceLastInput: Double)
   case panelExited(exitCode: Int32)
   case panelCrashed(reason: String)
@@ -281,6 +300,8 @@ public nonisolated struct HookSubscription: Codable, Equatable, Sendable, Identi
   public var cwd: String?                           // overrides the anchor's path
   public var env: [String: String]                  // additive env; reserved keys rejected at load
   public var allowRawOutput: Bool                   // required to subscribe to .panelOutput (default false)
+  public var allowRawInput: Bool                    // required to subscribe to .panelInput (default false)
+  public var idleThresholdSeconds: Double?          // filter applied client-side for .panelIdle (default nil = 60s)
   public var disabled: Bool
 
   public enum Scope: Codable, Equatable, Sendable {
@@ -307,6 +328,7 @@ public nonisolated struct HookSubscription: Codable, Equatable, Sendable, Identi
 ```jsonc
 {
   "version": 1,
+  "recursionWindowMs": 250,
   "subscriptions": [
     {
       "id": "f6c4e5be-5a9b-4c8e-9a7e-3e9e0d5f9e1b",
@@ -332,7 +354,9 @@ public nonisolated struct HookSubscription: Codable, Equatable, Sendable, Identi
 
 Same atomic-rename + version-gated decoder pattern as `catalog.json` (see architecture §Persistence). Loader path is `Hooks.HookConfigStore.load()`; writer is `Hooks.HookConfigStore.save(_:)`.
 
-#### `Hooks` module (in `apps/mac/touch-code/Hooks/`)
+#### `Hooks` in-app subfolder (`apps/mac/touch-code/Hooks/`)
+
+`Hooks` is a subfolder of the `touch-code` app target, not a separate Tuist target (see [architecture §Codemap](../architecture.md#in-app-modules-subfolders-of-the-touch-code-target-not-separate-tuist-targets)). Its boundary with `Runtime`, `Git`, and `App` is enforced by folder convention + code review, exactly as the other in-app modules. The code below compiles into the `touch-code` app binary; no `import Hooks` exists anywhere.
 
 ```swift
 // HookDispatcher.swift
@@ -415,34 +439,79 @@ public enum HookAction: Codable, Equatable, Sendable {
 
 6. **Concurrency.** A global `AsyncSemaphore` caps outstanding handler processes at `maxConcurrency` (default 8 per architecture Open Question #4 leaning). Subscriptions opting into `singleFlight: true` additionally serialise themselves; a second firing while the first is running is dropped (not queued) with a metric counter incremented.
 
-### Output coalescing and idle timer — what moves into Hooks vs. stays in Runtime
+### Output coalescing and idle timer — Hooks is a pure consumer
 
-The M4 exec plan already gives Runtime a 16ms output coalescer and a per-Panel idle-detection path. This design does **not** add a second coalescer. Concretely:
+The M4 exec plan already gives Runtime a 16ms output coalescer and a per-Panel idle-detection path that emits `.panelIdle(PanelID, duration)` unconditionally ([exec-plan 0002 §Interfaces and Dependencies](../exec-plans/0002-terminal-and-hierarchy.md#interfaces-and-dependencies)). This design does **not** add a second coalescer and does **not** tell Runtime when to arm the idle timer:
 
 - Runtime emits `.panelOutput(PanelID, Data)` batches. Hooks consumes those as-is for the match pass.
-- Runtime gains one new Runtime event: `.panelIdle(PanelID, idleSeconds)` — computed as "no output and no input for T seconds". `T` is `min(idleThreshold)` across all active `panel.idle` subscriptions for that Panel (default `T = 60` if no subscription). Runtime rearms on output callback or `sendInput`. If no `panel.idle` subscription exists, Runtime skips arming the timer at all. This keeps idle cost strictly pay-as-you-go.
-- Hooks publishes a narrow protocol `HookRuntimeBridge` that Runtime consumes to learn which Panels need idle timers and at what threshold; the bridge is pushed-from-Hooks, pulled-from-Runtime. This flow is an exception to the usual Runtime-as-producer-only pattern and is the only reason `Hooks → Runtime` ever points that way; it is a single small protocol, not a general dependency.
+- Runtime emits `.panelIdle(PanelID, duration)` unconditionally whenever a Panel crosses a fixed default idle threshold (60s, configurable via `settings.json.runtime.idleThresholdSeconds`). Hooks subscribes to the event and filters by each `HookSubscription.idleThresholdSeconds` client-side; a subscription asking for "≥ 120s idle" simply drops `.panelIdle(…, duration: 60)` events and waits for one with `duration ≥ 120`.
+- No `HookRuntimeBridge` protocol: Runtime does not read hook state, and Hooks does not push configuration into Runtime. Runtime → Hooks is a one-way `AsyncStream<TerminalEvent>` handed into `HookDispatcher.attach(to:)` at bootstrap.
+
+Cost discussion. Unconditional idle-timer arming is cheap — one `Task.sleep` per Panel, rearmed on I/O. Even with 64 active Panels, that is 64 `Task` allocations, well under 1MB. The alternative (gated arming) saves on a cost that was never material; the dependency-cleanliness win of "Runtime is a pure producer" is the dominant consideration.
 
 ### Component Boundaries
 
+Both `Hooks` and `Runtime` are subfolders of the single `touch-code` app target; they are not separate Tuist targets, and neither `import`s the other as a module. Boundaries are enforced by folder convention + code review ([architecture §Codemap](../architecture.md#in-app-modules-subfolders-of-the-touch-code-target-not-separate-tuist-targets)).
+
 ```
-TouchCodeCore                               (leaf; HookEvent + envelope types added here)
+TouchCodeCore (static framework)            (leaf; HookEvent + envelope types added here)
+    ▲                                        ─ real framework import edge ─
     │
-    └── Hooks (in-app module)              (TouchCodeCore, TouchCodeIPC)
-            ▲
-            │  AsyncStream<TerminalEvent>, HookRuntimeBridge
-            │
-    ┌──────────────┐
-    │ Runtime       │ (wires engine + dispatcher; Runtime owns lifetime)
-    └──────────────┘
+    └── touch-code app target (single binary)
+         ├── touch-code/Runtime/             (owns GhosttyKit, emits TerminalEvent)
+         └── touch-code/Hooks/               (subscribes to TerminalEvent stream)
+             ▲
+             │ AsyncStream<TerminalEvent> handed in at app bootstrap
+             │ (Runtime.TerminalEngine constructs HookDispatcher and passes it the stream)
 ```
 
-- **Hooks imports from:** `TouchCodeCore` (wire types), `TouchCodeIPC` (action DSL ↔ IPC method parity), `Foundation`.
-- **Hooks must NOT import from:** `Runtime`, `GhosttyKit`, `AppKit`, `SwiftUI`, TCA.
-- **Runtime imports from Hooks** only to *construct and hand a stream to* `HookDispatcher`. Runtime never reads hook state.
-- **TCA features** receive `HookDispatcher` via a `HookClient` dependency, same pattern as `TerminalClient` and `HierarchyClient`.
+- **`touch-code/Hooks/*.swift` may reference:** `TouchCodeCore` types, `TouchCodeIPC` types, `Foundation`.
+- **`touch-code/Hooks/*.swift` must NOT reference:** anything from `touch-code/Runtime/`, `touch-code/Git/`, `touch-code/App/`, `GhosttyKit`, `AppKit`, `SwiftUI`, TCA. Folder convention rule; enforced in review, not by Tuist target edges.
+- **`touch-code/Runtime/*.swift` may reference `Hooks` types** only for the construction wiring in `TerminalEngine.init` (`self.hookDispatcher = HookDispatcher(...)`). Runtime code elsewhere must not reach into hook state.
+- **TCA features** receive `HookDispatcher` via a `HookClient` dependency (same pattern as `TerminalClient` and `HierarchyClient`), constructed in `apps/mac/touch-code/App/Clients/`.
 
-This keeps Hooks headlessly unit-testable (no GhosttyKit, no AppKit), a hard requirement.
+This keeps Hooks headlessly unit-testable by the same mechanism that already keeps Runtime testable: test bundles `@testable import touch_code` and exercise Hooks types directly, substituting `FakeHookExecutor` + `FakeHookActionDispatcher` for the ProcessHookExecutor / real action dispatcher.
+
+#### In-process consumer seam (peer of `hook.events` RPC)
+
+First-party in-app consumers — C6 (notification aggregator) is the motivating one; future first-party subscribers (in-app logs pane, Settings "recent activity") share the path — consume hook events **in-process**, not through the `hook.events` RPC. The RPC stays targeted at third-party tooling (the `tc hook tail` CLI, external monitors); first-party code avoids the IPC round trip and the JSON encode/decode cost.
+
+Two additions to `HookDispatcher`:
+
+```swift
+public extension HookDispatcher {
+  /// In-process seam for first-party consumers (C6, in-app panes).
+  /// Peer of the `hook.events` RPC, NOT a replacement: RPC is for third-party
+  /// tooling, this stream is for same-process consumers that want zero IPC cost.
+  /// Each call returns a fresh stream; buffering policy is bufferingNewest(64).
+  func internalEventStream() -> AsyncStream<HookEnvelope>
+
+  /// Register an in-process sentinel-route subscriber. Subscriptions whose
+  /// `command` begins with `prefix` short-circuit the `ProcessHookExecutor`
+  /// path and are delivered directly to the subscriber's `handle(envelope:)`.
+  /// Used by C6 to install e.g. `__touch-code/internal:notifications:<uuid>`
+  /// as the command of its Stop-hook subscription, so the hook shell-out
+  /// pattern is compatible without actually forking for every event.
+  /// Prefixes must begin with the reserved `__touch-code/internal:` namespace;
+  /// registration with any other prefix throws.
+  func register(subscriber: InternalHookSubscriber, for prefix: String) throws
+  func unregister(prefix: String)
+}
+
+public protocol InternalHookSubscriber: AnyObject, Sendable {
+  func handle(envelope: HookEnvelope) async
+}
+```
+
+Routing rule inside `HookDispatcher`:
+
+1. For each candidate subscription that matched the event, inspect its `command` string.
+2. If `command` has a prefix for which an `InternalHookSubscriber` is registered, call `subscriber.handle(envelope:)` on the `@MainActor` and skip `ProcessHookExecutor` entirely. The recursion guard, rate limiter, and `hook.recent` bookkeeping still apply.
+3. Otherwise, fall through to the normal out-of-process spawn.
+
+The sentinel-prefix route keeps `hooks.json` as the single user-visible registry: a first-party in-app consumer is just another row in the file, and users can `tc hook list` / disable it exactly like a user subscription. The namespace is reserved — `HookConfigStore.load()` rejects user-authored subscriptions whose `command` starts with `__touch-code/internal:` unless the file was written by an app-side installer flagged with `authoredBy: "touch-code"`.
+
+`internalEventStream()` and the sentinel-prefix route are **independent** paths. C6 uses both: the event stream feeds its global notification pipeline; the sentinel-prefix route lets it install a per-Panel "Stop" hook that shells out through the same dispatcher the user subscriptions do, without paying fork/exec cost for a notification that lives in-process anyway.
 
 ### IPC wire protocol additions
 
@@ -460,13 +529,14 @@ The `tc hook …` CLI lives in [C4](c4-cli.md); it drives these new RPC methods 
 | `hook.recent`                  | `{ limit?: Int }`                                | `{ fires: [HookFireRecord] }`                |
 | `hook.events`                  | *(streaming)* `{}`                               | *(streams `HookEnvelope`; used by `C6`)*     |
 
-`hook.events` is a *server-streaming* RPC — the only one in the `hook.*` namespace. The JSON-RPC envelope gains a `stream: true` flag on the request and the response stream carries `{id, stream: true, result: <envelope>}` frames until the client closes its half of the socket. C6 (notification aggregator) subscribes to `hook.events` instead of polling; the CLI's `tc hook tail` command does the same.
+`hook.events` is a *server-streaming* RPC — the only one in the `hook.*` namespace. It follows the unified streaming termination contract defined in [C4 §Wire protocol](c4-cli.md#wire-protocol): the request carries `stream: true`, the response is a sequence of `{id, stream: true, result: <envelope>}` frames, and the stream ends when **either** side closes its write half. If the server ends the stream gracefully, it sends a final `{id, stream: false, error?: … }` frame before closing its write side; if the client is done, it shuts down its write side and the server flushes any in-flight frames before closing. C6 (notification aggregator) subscribes to `hook.events` instead of polling; the CLI's `tc hook tail` command does the same.
 
 ### Data model changes (`TouchCodeCore`)
 
 - **New files under `TouchCodeCore/Hooks/`:** `HookEvent.swift`, `HookEnvelope.swift`, `HookEventData.swift`, `HookSubscription.swift`, `HookConfig.swift`.
 - **No changes to existing `Panel`, `Tab`, `Worktree` types.** The enveloped `PanelRef` / `TabRef` / `WorktreeRef` are projections over the existing types — one-way only (envelope never updates a Panel).
-- **New optional labels on `Panel`** (needed for `scope: .panelLabel`): `var labels: Set<String> = []`. This is an additive struct field; the version-gated `Catalog` decoder tolerates its absence on v1 files and the new CLI verb `tc label` writes it. Bumping Catalog to `version: 2` is **not** required for additive optional fields; the decoder already uses `decodeIfPresent`.
+- **New optional labels on `Panel`** (needed for `scope: .panelLabel`): `var labels: Set<String> = []`. This is an additive struct field; the version-gated `Catalog` decoder tolerates its absence on v1 files. Bumping Catalog to `version: 2` is **not** required for additive optional fields; the decoder already uses `decodeIfPresent`.
+- **Single canonical writer for `Panel.labels`: `HierarchyManager.setPanelLabels(_:labels:replace:)`.** Three surfaces mutate labels in the product (the CLI's `tc panel label`, the hook action DSL's `HookAction.setPanelLabels`, and any future UI). All three route through this one method on the `@MainActor`-isolated `HierarchyManager`; no other code path mutates `labels`. This keeps the labels write path auditable, debounce-saves to `catalog.json` through the same `CatalogStore.scheduleSave` used by every other mutation, and ensures the `.labels` set and its corresponding alias index stay consistent. `HookAction.setPanelLabels` is a thin in-process call to the same method — not a second writer.
 - **No schema bump.** `HookConfig.version` is its own file, starting at 1; independent of `Catalog.version`.
 
 ### Error handling model
@@ -510,9 +580,9 @@ All flags live in `settings.json`, read at startup and on `tc hook reload`. Back
   - Config round-trip (JSON → struct → JSON bytes-equal); broken config backs up.
   - Action decode round-trip for every `HookAction` variant.
   - Timeout semantics via `FakeHookExecutor` that sleeps past the timeout.
-  - Recursion guard: a handler that returns an action which would trigger the same subscription does not loop (dispatcher suppresses direct re-entry within 250ms).
+  - Recursion guard: a handler that returns an action which would trigger the same subscription does not loop (dispatcher suppresses direct re-entry within `HookConfig.recursionWindowMs`, default 250ms).
 - **Integration (`HooksIntegrationTests`):**
-  - Real `ProcessHookExecutor` against a shipped `tests/fixtures/echo-envelope.sh` shell script. Assert stdin contents match encoded envelope. Assert stdout `actions` round-trip.
+  - Real `ProcessHookExecutor` against a shipped `apps/mac/HooksTests/Fixtures/echo-envelope.sh` shell script (referenced by `Bundle.module.url(forResource:withExtension:)` via a `.target(name: "HooksTests", resources: [.copy("Fixtures")])` Tuist config). Assert stdin contents match encoded envelope. Assert stdout `actions` round-trip.
   - End-to-end: open a Panel via TCA, type `echo "READY FOR REVIEW"`, assert subscribed handler fires exactly once with the expected match.
 - **Contract tests against `tc`:**
   - `tc hook list` JSON output matches `hook.list` RPC result schema.
@@ -600,7 +670,7 @@ Every judgement call is recorded here with rationale. "Supacode-parallel" means 
 - **D1 — Out-of-process execution only in v1. (Resolves Open Q #4.)** *Supacode-parallel.* Language-agnostic; isolated; matches every comparable project; keeps the app process small; leaves in-process as a future optimisation behind the same stdout action DSL.
 - **D2 — Spawn `/bin/sh -c` instead of parsing the command ourselves.** *Supacode-parallel.* Users expect to write `command: "~/bin/foo | tee ~/.log/foo.log"`. Parsing argv ourselves means we'd have to reimplement shell quoting, env-var expansion, tilde expansion, and pipe composition. `sh -c` is universally available on macOS and is what Ghostty config / Claude settings / Claude Code hooks all do.
 - **D3 — `HookEvent` / `HookEnvelope` live in `TouchCodeCore`, not in `Hooks`.** *Divergent from supacode's location; pattern-consistent.* `tc` needs to speak the vocabulary (`tc hook test`, `tc hook install`) without importing `Runtime` or `Hooks`. `TouchCodeCore` is the designated shared ground. This is the same justification that already put `Panel`, `Tab`, `Worktree` there.
-- **D4 — Recursion guard: handler-emitted actions do not fire hooks for the immediate mutation.** *New (supacode doesn't have stdout actions).* A handler that reacts to `panel.output` by sending text back to the same panel would loop indefinitely. The dispatcher tags actions with an originating envelope id; the event emitter for `panel.output` / `panel.input` drops firings whose immediate upstream cause is that tag within a 250ms window. Tab / Worktree-level events do fire (necessary for legitimate "open a tab when idle" handlers). Documented as a limitation, not a general cycle breaker.
+- **D4 — Recursion guard: handler-emitted actions do not fire hooks for the immediate mutation.** *New (supacode doesn't have stdout actions).* A handler that reacts to `panel.output` by sending text back to the same panel would loop indefinitely. The dispatcher tags actions with an originating envelope id; the event emitter for `panel.output` / `panel.input` drops firings whose immediate upstream cause is that tag within a configurable window (`HookConfig.recursionWindowMs`, default `250`). Tab / Worktree-level events do fire (necessary for legitimate "open a tab when idle" handlers). Documented as a limitation, not a general cycle breaker.
 - **D5 — `HookAction` verbs are the minimum useful subset of what `tc` can do.** *Supacode-parallel.* Specifically: `panel.send`, `panel.broadcast`, `panel.open`, `panel.close`, `tab.activate`, `tab.create`, `worktree.activate`, `system.notify`, `system.log`, `panel.setLabels`. Excluded (for now): space creation, project add/remove, worktree create/remove, settings mutation. Rationale: those mutations should go through UI/`tc` with user intent, not a handler's decision.
 - **D6 — No in-app UI for editing subscriptions in v1.** *Supacode-parallel.* `hooks.json` + `tc hook install/list/remove/test` is the full surface. Users who want GUI editing run their editor of choice on `hooks.json` (we're a terminal orchestrator for CLI-agent users; they have editors handy).
 - **D7 — Timeout default is 5s.** *Divergent from supacode's 10s.* Touch-code hooks are scoped to Panel lifecycle where human-perceptible latency matters; 5s is enough for a quick `osascript` or `curl localhost`. Users override per subscription.
@@ -612,6 +682,7 @@ Every judgement call is recorded here with rationale. "Supacode-parallel" means 
 - **D13 — `HookEventData` uses tagged-union Codable, not heterogeneous `[String: Any]`.** *Divergent from supacode, which has more permissive JSON.* Type safety across the CLI ↔ App boundary catches schema drift at compile time, and `tc hook test` can produce well-formed synthetic envelopes without ambiguity.
 - **D14 — Hooks attach to the single Runtime event stream, not to Ghostty callbacks.** Keeps `Hooks` dependency-clean (no GhosttyKit import) and means Tab/Worktree events live alongside Panel events in the same taxonomy. See [Alternative A4](#a4--directly-consume-ghosttys-own-event-callbacks).
 - **D15 — The action-execution path does not *itself* invoke the socket server.** *Architecture-driven.* `HookActionDispatcher` calls the in-process Swift handlers directly, same as the in-process dispatch of a `tc` method. Sending actions through the socket back to ourselves would waste a round trip and add a serialization hop.
+- **D16 — First-party consumers (C6 and friends) get an in-process seam on `HookDispatcher` — `internalEventStream()` + sentinel-prefix `InternalHookSubscriber` routing — as a *peer* of `hook.events` RPC, not an alternative.** *New; C6-v2 contract.* Unblocks C6 without an IPC round-trip for in-app notification aggregation and without duplicating the subscription/config/recursion-guard/rate-limit machinery. The `__touch-code/internal:` command prefix is reserved; user subscriptions cannot claim it, and `hooks.json` remains the single visible registry. Third-party tooling (`tc hook tail`, external monitors) continues to use `hook.events`; the two paths are semantically equivalent from the event-taxonomy perspective.
 
 ## Risks
 

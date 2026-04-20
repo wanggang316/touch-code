@@ -261,6 +261,17 @@ All hook verbs map to the `hook.*` RPC methods defined in [C3 §IPC wire protoco
 | `tc hook tail [--event E]`                         | `hook.events`     | *(streaming)* — reads the `hook.events` stream; prints NDJSON           |
 | `tc hook edit`                                     | local file op     | opens `~/.config/touch-code/hooks.json` in `$EDITOR`; followed by reload|
 
+#### Read-only helpers (no user-facing verb)
+
+These RPCs are invoked by `tc` internals (the `AliasResolver`, `--version`, the handshake) rather than by a top-level verb. Documented here so the planner can generate stubs alongside the user-facing commands.
+
+| IPC method                      | Anchors to                                                | Purpose                                                                 |
+|---------------------------------|-----------------------------------------------------------|-------------------------------------------------------------------------|
+| `system.hello`                  | `SocketServer.handshake(_:)`                              | Connection-scoped handshake; first frame of every connection (see [Wire protocol](#wire-protocol)) |
+| `hierarchy.resolveAlias`        | `AliasResolverService.resolve(_:contextPanelID:)`         | Convert `{kind, value, contextPanelID}` → canonical UUID; backs every non-UUID alias in `AliasResolver` |
+| `hierarchy.resolvePanelLabel`   | `HierarchyManager.panelsMatching(label:)`                 | List panels carrying a label; internal path for `@label` aliases         |
+| `hierarchy.resolveWorktreeGlob` | `HierarchyManager.worktreesMatching(pathGlob:)`           | Resolve a path glob to Worktree UUIDs                                    |
+
 #### `tc system …` (utility)
 
 | Subcommand               | IPC method              | Purpose                                                                      |
@@ -293,7 +304,11 @@ Reuses the envelope spec from [architecture §IPC](../architecture.md#ipc). Addi
 
 - **Request framing** remains length-prefix newline header. `TouchCodeIPC.Framing` is unchanged.
 - **Method enum.** Expanded `IPC.Method` covers every RPC listed above. Method strings are lowercase-dotted (`hierarchy.createSpace`, `terminal.sendInput`).
-- **Streaming response flag.** Server-streaming methods (`hook.events`) set `stream: true` on the request and emit multiple `{id, stream: true, result: …}` frames; a final `{id, stream: false}` frame with optional `error` terminates the stream. Clients that don't understand streaming and call a streaming method get back a single error response.
+- **Streaming termination contract (shared with [C3 §IPC wire protocol additions](c3-lifecycle-hooks.md#ipc-wire-protocol-additions)).** Server-streaming methods (`hook.events`, and any future stream) set `stream: true` on the request. The server emits `{id, stream: true, result: …}` frames. The stream ends when **either** side closes its write half:
+  - *Server-initiated graceful end.* Server sends a final `{id, stream: false, error?: …}` frame, then shuts down its write side. Client reads EOF after the final frame and exits cleanly.
+  - *Client-initiated end.* Client shuts down its write side (`shutdown(SHUT_WR)`). Server observes the EOF, flushes any in-flight frames, sends a final `{id, stream: false}` frame (no error), closes its write side. Client reads up to the final frame, then EOF.
+  - *Abrupt socket close on either side.* The other end treats it as end-of-stream with an implicit `.internal` error; the CLI maps this to a stderr warning ("server closed stream") and exits with code 0 (documented in [Error handling](#error-handling-model) §R9). No re-send.
+  Clients that don't understand streaming and call a streaming method get back a single `{id, stream: false, error: "streamingNotSupported"}` response and no further frames.
 - **Error codes.** `IPCError` extends to include:
   - `.unknownMethod(String)` — method not recognised.
   - `.invalidParams(String, path: [String]?)` — decode failure with JSON path.
@@ -303,7 +318,7 @@ Reuses the envelope spec from [architecture §IPC](../architecture.md#ipc). Addi
   - `.internal(String)` — opaque; stderr log only.
   - `.overloaded` — backpressure (see [Decisions](#decisions) §D11).
   - `.versionMismatch(client: String, server: String)` — schema incompatibility.
-- **Compatibility handshake.** First non-ping request of a new socket connection attaches `clientVersion` header in the request params. The server returns a `serverVersion` on the first response. A major-version skew surfaces as `.versionMismatch`; minor-version skew surfaces as a stderr warning the CLI prints once per session.
+- **Compatibility handshake.** The handshake is a dedicated first-frame RPC, `system.hello` — **not** a per-request header (a per-request header would double-encode version info for every call and conflict with the "one stream per connection" rule in [D10](#decisions)). Connection opens → client sends `{"id": "h0", "method": "system.hello", "params": {"clientVersion": "0.2.0", "clientBinary": "tc"}}` → server responds `{"id": "h0", "result": {"serverVersion": "0.2.0", "appBundleVersion": "0.2.0+142", "protocolMajor": 1, "protocolMinor": 3, "deprecatedMethods": [...]}}`. Major-version skew surfaces as `.versionMismatch`; minor-version skew surfaces as a stderr warning the CLI prints once per session. After `system.hello`, the connection carries exactly one unary call or one stream (per [D10](#decisions)); subsequent calls open fresh connections, each with its own `system.hello`. The `tc` client batches handshake + real request as two pipelined frames so the extra round trip does not add latency on warm sockets.
 
 ### Addressing and alias resolution
 
@@ -320,7 +335,9 @@ All non-UUID resolution is one round-trip to `hierarchy.resolveAlias({kind, valu
 ### Data model changes (`TouchCodeCore`)
 
 - **Project.defaultEditor** (String?) already exists per exec-plan-0002 interfaces; documented here as the anchor for `tc project set-editor` and `tc open --in` fallback.
+- **Project.supportsWorktrees** (Bool, computed `gitRoot != nil`) already exists on the `Project` struct (see `apps/mac/TouchCodeCore/Project.swift`) and is exec-plan-0002-defined. The CLI reads it to gate `tc worktree create` / `tc worktree remove` on non-git Projects: the commands return `.unsupported(reason: "project does not support git worktrees")` (exit code 4) when it is false. `tc project add` against a non-git path still succeeds and creates a single synthetic Worktree whose `path == Project.rootPath` and `branch == nil`; `tc worktree list --project <id>` lists that single row.
 - **Panel.labels** (Set<String>) — added alongside C3's subscription-scope matching (see [C3 D10](c3-lifecycle-hooks.md#decisions)). Persisted on the `Catalog`. Additive field; no schema bump.
+- **Single canonical writer for `Panel.labels`.** All mutation paths — this doc's `tc panel label` CLI verb, C3's `HookAction.setPanelLabels`, and any future in-app UI — route through `HierarchyManager.setPanelLabels(_:labels:replace:)`. The CLI's `tc panel label` is a thin wrapper around the `hierarchy.setPanelLabels` RPC, which the app dispatches directly to that single method. Mirrors the invariant recorded on the C3 side ([C3 §Data model changes](c3-lifecycle-hooks.md#data-model-changes-touchcodecore)).
 - **No new top-level types.** All CLI result types are projections over existing `Space` / `Project` / `Worktree` / `Tab` / `Panel` with optional context.
 
 New wire-only types in `TouchCodeIPC`:
@@ -400,7 +417,8 @@ Dependencies:
   - `5` — backpressure / overloaded.
   - `6` — version mismatch.
   - `10` — socket unavailable (app not running).
-  - `11` — timeout.
+  - `11` — request timeout (server did not respond within `--timeout` seconds).
+  - `12` — launch timeout (`tc system launch` or an auto-launched `tc open` waited longer than the launch budget for the socket to appear).
   - `20` — internal error (bug).
 - **Stderr formatting** in text mode:
   - First line: `error: <human message>`.
@@ -540,7 +558,7 @@ Each namespace ships as its own binary; `tc` is a dispatcher.
 ### Performance
 
 - **Round-trip budget.** Every non-streaming command should complete in < 50ms p95 on a warm app (socket already open elsewhere? no — `tc` opens a fresh connection per invocation to keep auth model simple). Socket accept + JSON decode + in-process method dispatch + JSON encode = low milliseconds.
-- **Cold app launch.** `tc system launch` may take up to 10s waiting for the socket to appear; exit code 11 on timeout.
+- **Cold app launch.** `tc system launch` may take up to 10s waiting for the socket to appear; exit code 12 (launch timeout) on timeout.
 - **Completion script generation** must be < 100ms (it's a one-shot at install and rare rerun).
 - **Streaming throughput.** `tc hook tail` must sustain the app's hook event volume (< 1000 events/sec under stress); NDJSON newline-framing keeps parser cost low.
 
@@ -548,7 +566,7 @@ Each namespace ships as its own binary; `tc` is a dispatcher.
 
 - Every mutation issued by `tc` may trigger C3 hooks (a `panel.created` fires when `tc panel open` runs). Hooks see the CLI-driven mutation the same way they see GUI-driven mutations — good, and intentional.
 - `tc hook test` / `tc hook fire` are the canonical way to synthesize a hook event without actually producing one — essential for handler development.
-- The recursion-guard rule (C3 D4) ensures a hook handler that runs `tc panel send …` does not feed back into a hook listening for its own output within the 250ms window.
+- The recursion-guard rule (C3 D4) ensures a hook handler that runs `tc panel send …` does not feed back into a hook listening for its own output within the `HookConfig.recursionWindowMs` window (default 250ms).
 
 ### Migration & rollback
 
@@ -565,9 +583,9 @@ Each namespace ships as its own binary; `tc` is a dispatcher.
 - **D5 — Convenience aliases (`current`, `.`, `@label`, index, path glob) resolve through `hierarchy.resolveAlias` on the server, not in the CLI.** *New.* Keeps name-resolution logic as the single source of truth; the client only validates UUID format locally.
 - **D6 — `tc send` / `tc broadcast` share one IPC method (`terminal.sendInput`) with a `scope` discriminator.** *New.* Reduces server surface and lets a single hook handler observe both the unicast and fan-out paths identically.
 - **D7 — `--json` is universal and per-verb; every result type has a JSON schema 1:1 with the RPC.** *New; supacode has partial JSON output.* This is how agents stay reliable; the text renderer is the human convenience, not the primary contract.
-- **D8 — Exit codes are stable and enumerable (`1` user error, `2` not found, `3` conflict, `4` unsupported, `5` overloaded, `6` versionMismatch, `10` no-socket, `11` timeout, `20` internal).** *New.* Agents and shell scripts must be able to branch on codes; picking a fixed set up front avoids the "exit 1 for everything" trap.
+- **D8 — Exit codes are stable and enumerable (`1` user error, `2` not found, `3` conflict, `4` unsupported, `5` overloaded, `6` versionMismatch, `10` no-socket, `11` request timeout, `12` launch timeout, `20` internal).** *New.* Agents and shell scripts must be able to branch on codes; picking a fixed set up front avoids the "exit 1 for everything" trap. Request vs. launch timeout split avoids the earlier collision where `tc system launch` and a slow mutation both returned 11 — a script checking `[[ $? -eq 12 ]]` now unambiguously means "app did not come up".
 - **D9 — `tc rpc METHOD [JSON]` ships as the low-level escape hatch.** *Supaterm-parallel (SPCLI has `sp rpc`).* Enables debugging and forward compatibility for methods we haven't surfaced; documented as "use at your own risk".
-- **D10 — Streaming RPCs use `stream: true` on request + terminal frame; no multiplexing.** *New.* One streaming call per socket connection; keeps wire framing simple. If a client needs two streams, it opens two connections.
+- **D10 — Streaming RPCs use `stream: true` on request + bidirectional-EOF termination (either side closes write half → other flushes then closes); no multiplexing.** *New.* One streaming call per socket connection after its `system.hello`; keeps wire framing simple. If a client needs two streams, it opens two connections. The handshake lives in a dedicated `system.hello` first-frame RPC (not a per-request header), which is why the "fresh connection per invocation" property survives cleanly — every new connection pays exactly one `system.hello` round trip, pipelined with the real request.
 - **D11 — Per-connection bounded in-flight queue of 64; new requests wait up to 2s then return `IPCError.overloaded`. (Resolves architecture Open Q #5.)** *New.* Prevents an agent stuck in a loop from OOM'ing the app.
 - **D12 — The CLI does UUID-fast-path locally; everything else is one server round-trip before the mutation.** *New.* Latency tradeoff in favour of consistency; the round-trip cost (sub-millisecond on a local socket) is negligible.
 - **D13 — `tc skill install` defaults to symlink, not copy, so skill updates during an app upgrade propagate immediately.** *Supacode-parallel (symlinks settings).* `--copy` is available for users whose agents refuse to follow symlinks.
