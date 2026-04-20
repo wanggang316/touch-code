@@ -148,12 +148,22 @@ public final class HookConfigStore {
     }
   }
 
+  /// Back up the on-disk file before the caller overwrites it with a
+  /// default/empty config. Uses copy-then-delete so that a failure mid-way
+  /// leaves either the original file intact (copy failed) or both the
+  /// backup and original present (delete failed) — never the zero-backup
+  /// state that `moveItem` would leave on a partial failure.
   private func backupBrokenFile(reason: String) throws {
     let stamp = ISO8601DateFormatter().string(from: Date())
       .replacingOccurrences(of: ":", with: "-")
     let backup = fileURL
       .deletingLastPathComponent()
       .appendingPathComponent("\(fileURL.lastPathComponent).broken-\(stamp)")
-    try? FileManager.default.moveItem(at: fileURL, to: backup)
+    do {
+      try FileManager.default.copyItem(at: fileURL, to: backup)
+      try FileManager.default.removeItem(at: fileURL)
+    } catch {
+      logger.error("backup of broken hooks.json failed: \(String(describing: error), privacy: .public)")
+    }
   }
 }

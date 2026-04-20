@@ -61,14 +61,18 @@ public final class HookDispatcher {
       logger.warning("attach called while already attached; ignoring second stream")
       return
     }
-    // M2.1 will translate TerminalEvent -> HookEnvelope. For M2 the
-    // attachment exists as a surface guarantee; the task drains events
-    // without firing so production wiring is safe but a no-op.
+    // M2 ships the attach() surface so callers can wire the stream, but
+    // the TerminalEvent → HookEnvelope mapping lands in M2.1. Until then
+    // the task drains silently and NO HOOKS FIRE from it — callers must
+    // not assume runtime events reach handlers yet. Debug builds trap
+    // loudly so M3 / C6 catch the gap; release builds only warn so
+    // production wiring is safe to land ahead of M2.1.
+    logger.warning("HookDispatcher.attach: M2 stub — Runtime events drain without firing hooks (wait for M2.1 EventMapper)")
+    assert(
+      false,
+      "HookDispatcher.attach(to:) is an M2 stub; attaching a live Runtime stream will silently drop every event until M2.1 lands. Remove this attach() call or wait for EventMapper."
+    )
     attachedTask = Task { [logger] in
-      // M2.1 follow-up will map TerminalEvent into HookEnvelope via
-      // EventMapper and invoke self.fire(_:). For now the task drains
-      // events so early adopters can wire the attachment without hanging
-      // on a non-consumed AsyncStream.
       for await _ in events {
         _ = logger
       }
@@ -158,7 +162,7 @@ public final class HookDispatcher {
     var refused = 0
     for action in result.actions {
       do {
-        try await actionDispatcher.execute(action, originatingFrom: envelope.version.hashValue.description.isEmpty ? UUID() : UUID())
+        try await actionDispatcher.execute(action, originatingFrom: envelope.id)
         dispatched += 1
       } catch {
         refused += 1
