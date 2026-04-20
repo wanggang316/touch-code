@@ -80,6 +80,12 @@ nonisolated final class LiveGitService: GitService {
 
   /// Runs `git rev-parse --is-inside-work-tree` and throws `.notARepo` on failure. This is the
   /// authoritative check — no stderr substring matching. Idempotent; cheap (< 10 ms on local).
+  ///
+  /// `rev-parse --is-inside-work-tree` returns `"true"` (+ newline) on stdout when the cwd is
+  /// inside a work tree; `"false"` when inside a bare repo or the `.git` gitdir itself. Exit
+  /// code alone is insufficient for the latter cases — a bare-repo cwd exits 0 but the diff/
+  /// log code paths would still fail downstream with opaque errors. Parse stdout to get a
+  /// clear `.notARepo` at the edge instead.
   private func ensureIsRepo(at path: URL) async throws {
     let outcome = await runner.run(
       executable: gitExecutable,
@@ -90,8 +96,11 @@ nonisolated final class LiveGitService: GitService {
       maxOutputBytes: 1024
     )
     switch outcome {
-    case .exited(let code, _, _, _):
+    case .exited(let code, let stdout, _, _):
       if code != 0 { throw GitError.notARepo }
+      let reply = (String(data: stdout, encoding: .utf8) ?? "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      if reply != "true" { throw GitError.notARepo }
     case .timedOut:
       throw GitError.timedOut
     case .spawnFailed(let reason):
@@ -115,7 +124,10 @@ nonisolated final class LiveGitService: GitService {
     )
     switch outcome {
     case .exited(let code, let stdout, let stderr, let overflow):
-      if overflow { throw GitError.outputTooLarge }
+      // Non-zero exit wins over overflow: when git itself rejects the invocation (bad
+      // revision, missing ref) the stderr message is the actionable signal and we must
+      // not mask it behind `.outputTooLarge`. The output-cap throw only fires on a
+      // successful-looking run whose stdout actually exceeded the 16 MiB ceiling.
       if code != 0 {
         let stderrText = String(data: stderr, encoding: .utf8) ?? ""
         // Narrow fallback: the pre-check passed (rev-parse succeeded) but the subsequent
@@ -127,6 +139,7 @@ nonisolated final class LiveGitService: GitService {
         }
         throw GitError.exec(code: code, stderr: stderrText)
       }
+      if overflow { throw GitError.outputTooLarge }
       return stdout
     case .timedOut:
       throw GitError.timedOut
