@@ -68,6 +68,11 @@ struct InboxSidebarFeature {
         return .none
 
       case .rowTapped(let id):
+        // Stale-row guard: the id may refer to a notification that was
+        // dismissed between render and tap (the SwiftUI List held a
+        // stale snapshot during the animation window). `markRead` is
+        // idempotent against unknown ids; we skip the deeplink emit if
+        // the entry is no longer in the cached projection.
         let panelID = state.notifications.first(where: { $0.id == id })?.panelID
         inboxClient.markRead([id])
         if let panelID {

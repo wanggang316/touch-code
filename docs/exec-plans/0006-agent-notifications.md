@@ -158,9 +158,25 @@ Verification: 29 tests in 5 suites green.
 **Verification:** `xcodebuild test -scheme touch-code` → 183 tests / 31 suites green (+29 from the main merge: 0007 + 0002 test additions + 14 new M5). `make mac-lint` clean after adding `.accessibilityAddTraits(.isButton)` to tap-gesture rows and `.accessibilityHidden(true)` to the empty-state icon.
 
 **Deferred / follow-up:**
-- `.deeplinkRequested` → full hierarchy focus chain. Needs `HierarchyClient.resolvePanel(panelID) -> (SpaceID, ProjectID, WorktreeID, TabID)?`. No blocker; the design sketch's §Deeplink chain pins the flow for whoever picks it up.
-- `NotificationPermissionSheet` — M5 deferred; `NullPermissionDelegate` is acceptable for dogfood. The sheet ships when 0007 or C6 add Settings integration.
-- "Mute rule" row action — currently the context menu shows the item disabled because `AgentNotification` does not carry the originating rule id. Small `AgentNotification` schema bump or a side-channel lookup is a follow-up.
+- **F1: `.deeplinkRequested` → full hierarchy focus chain.** Needs `HierarchyClient.resolvePanel(panelID) -> (SpaceID, ProjectID, WorktreeID, TabID)?`. No blocker; the design sketch's §Deeplink chain pins the flow for whoever picks it up.
+- **F2: `NotificationPermissionSheet`.** M5 deferred; `NullPermissionDelegate` is acceptable for dogfood. The sheet ships when 0007 or C6 add Settings integration.
+- **F3: "Mute rule" row action requires `AgentNotification.ruleID`.** The context-menu item is disabled today because `AgentNotification` does not carry the originating rule id — only `NotificationCoordinator` sees the trigger. Two fix paths: (a) add `ruleID: String?` to `AgentNotification` and thread it through `NotificationCoordinator.handle(output:)` (preferred — one field, one migration); (b) side-channel lookup via an "inbox id → rule id" map on the coordinator (rejected — extra runtime state). Tracking as F3; small schema bump, targets the next coordinator-touching commit.
+
+**Layout confirmation:** `ContentView.sidebarColumn` is wrapped in `.navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)` — the inbox inherits the same column frame as the hierarchy sidebar. `InboxSidebarView` does not set its own `.frame`; the column hint above it governs both modes.
+
+### M5.1 — review follow-up (2026-04-20, same day as M5)
+
+**Important item (`observeInbox` coverage):** The multi-subscriber primitive was shipped in M5 without dedicated tests — a regression would silently break M4c's integration flow. `InboxStoreObserveTests` adds three focused tests:
+
+- `subscribeAfterMutationReceivesCurrentSnapshot` — replay semantics: a subscriber registering after two mutations sees the 2-entry inbox immediately.
+- `twoSubscribersEachReceiveMutation` — fan-out: both subscribers observe the same mutation independently.
+- `terminatedSubscriberIsCleanedUp` — health check after churn: dropping a subscription and adding a fresh one still yields replay + further mutation cleanly.
+
+**Minor nit:** `InboxSidebarFeature.rowTapped` gained a one-liner stale-row comment documenting that the guard (nil-check on the cached projection) handles the dismiss-during-animation-window case.
+
+**F3 follow-up tracking:** Moved from code-comment-only to the exec-plan Outcomes section above so future milestones inherit the context.
+
+**Verification:** `xcodebuild test -scheme touch-code` → 186 tests / 32 suites green. `make mac-lint` clean.
 
 ### M4a.1 — shared BrokenFileBackup helper (2026-04-20, commit d58f419)
 
