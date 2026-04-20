@@ -25,7 +25,8 @@ This plan is the first capability that makes touch-code **aware** of what its Pa
 - [x] M2 — `touch-code/Notifications/` module: DetectionRouter (InternalHookSubscriber impl), TrackerRegistry (single owner of tracker lifecycle), AgentStateTracker (4-state FSM), RuleStore (read-modify-write via C3 load/save), TemplateRenderer — 2026-04-20
 - [x] M3 — InboxStore persistence (notifications.json via AtomicFileStore, 500-row cap, 7-day sweep) + codable round-trip + debounced writer — 2026-04-20
 - [x] M4a — OSNotifier (UN wrapper) + DockBadger (AppKit wrapper) + NotificationPermissionDelegate + NullPermissionDelegate + SettingsStore (C3-independent) — 2026-04-20
-- [x] M4b — NotificationCoordinator fan-out + muting/permission flow — 2026-04-20, commit `bcf7236`. App-shell 11-step wiring still pending C3 M2 for HookDispatcher/HookConfigStore concrete.
+- [x] M4b — NotificationCoordinator fan-out + muting/permission flow — 2026-04-20, commit `bcf7236`.
+- [x] M4c — 11-step app-shell wiring via `C6AppBootstrap` + `HookConfigStoreAdapter` + end-to-end integration tests — 2026-04-20. Hierarchy-event subscription step (6) deferred until `HierarchyManager` exposes a stream; Panel add/remove mid-session requires explicit `registry.create/destroy` calls.
 - [ ] M5 — InboxSidebar SwiftUI surface (320pt, filter chips, swipe-dismiss, deeplink-on-click) + Settings toggles
 - [ ] M6a — Bundled JSON defaults + `DefaultRules.installIfMissing(at:)` + Stop-hook shim scripts at `touch-code-skill/shims/` — 2026-04-20
 - [ ] M6b — `AgentDetectionRules` round-trip test on `DefaultRules.json` + `coordinator.reloadRules()` app-internal wiring — blocked on M1b/M2 (`tc notifications rules reload` CLI verb deferred to follow-up PR on 0003 per DEC-P4)
@@ -94,6 +95,30 @@ Verification: 29 tests in 5 suites green.
 **What's blocked:** `NotificationCoordinator` itself — the fan-out hub binding transitions to sinks — depends on `AgentStateTransition`, which in turn depends on `HookEvent` in `Trigger.envelope`. Still waiting on C3 exec plan 0003 M1 to land those types in TouchCodeCore. M4b will complete the coordinator + 11-step app-shell wiring once unblocked.
 
 **Carry-forward:** M4b needs only the coordinator class + the app-shell wiring sequence documented in the plan body. Every downstream protocol + test double used by M4b is already shipped in M4a.
+
+### M4c — 11-step app-shell wiring + integration tests (2026-04-20)
+
+**What landed:**
+- Merged `origin/main` into the C6 branch (16 commits from plan 0002 M3–M5 — `TerminalEngine`, `GhosttyRuntime`, `PanelSurface`, `MainView`+`PanelHostView`, `GitWorktreeCLI`). C3's `HookDispatcher` requires `TerminalEvent` from `TouchCodeCore`; the merge brings it in without touching C6 files. Auto-merge was clean.
+- Cherry-picked C3 M2 (`db232f7`) + M2.0.1 (`7c01361`) landing `HookDispatcher`, `HookConfigStore` with `upsertInternal`/`removeInternal`, `InternalHookSubscriber` (authoritative), `HookActionDispatcher`, `HookExecutor`, `HookEventMulticaster`, `HookFireRecord`. Conflict on `docs/exec-plans/0003-hooks-and-cli.md` resolved by removing (belongs on C3 branch only).
+- `apps/mac/touch-code/Notifications/Bridging/HookConfigStoreAdapter.swift` — thin delegator implementing `HookConfigWriting` against C3's `HookConfigStore.upsertInternal` / `removeInternal`. No retry, no validation — C3 owns both.
+- Removed `apps/mac/touch-code/Notifications/Bridging/InternalHookSubscriber.swift` shim. C3's M2 authoritative protocol is identical in shape; DetectionRouter's conformance compiles without edits.
+- `apps/mac/touch-code/Notifications/C6AppBootstrap.swift` — owns the 11-step wiring sequence (plan §M4). Step 6 (`subscribeToHierarchyEvents`) is deferred until `HierarchyManager` exposes an event stream; the bootstrap only calls `registry.bootstrap()` on pre-existing agent Panels. `start(...)` returns a retained instance; `shutdown()` cancels the bind task and calls `dispatcher.unregister(prefix:)` synchronously from MainActor.
+- `AgentStateTracker.deinit` now calls `idleTimerTask?.cancel()` — the field was already `nonisolated(unsafe)` for this reason; removing the stale comment closes the M4b review nit.
+
+**Tests (`touch-code/Tests/NotificationsTests/C6AppBootstrapTests.swift`):**
+- `startWiresRouterCoordinatorAndBindLoop` — fires a `.panelOutputMatch` envelope via `router.handle(envelope:ruleID:)`, waits 80ms for the bind-loop tick, asserts `MockOSNotifier` got exactly one post + the inbox carries the entry with the correct agent.
+- `startMaterialisesDefaultRulesToHooksJsonOnDisk` — reads `hooks.json` after `start(...)` and asserts every default rule is persisted as a sentinel-prefixed subscription. (C3's `HookConfigStore.load()` filters reserved-prefix rows for security, so `dispatcher.loadedConfig` is intentionally empty — we read the disk file directly.)
+- `startRunsRestartTimePermissionSweepPerPanel` — `presentPromptCalls == registry.allTrackers.count` invariant.
+- `shutdownUnregistersDispatcher` — shutdown + second unregister is idempotent no-op.
+
+**Verification:** `xcodebuild test -scheme touch-code` → **149 tests / 24 suites green** (135 pre-M4c + 10 Runtime from main merge + 4 new M4c). `make mac-lint` clean.
+
+**Architecture observation (worth noting for C3 M2.1):** C3's dispatcher `fire()` iterates `config.subscriptions`, which `HookConfigStore.load()` filters to drop reserved-prefix rows. That means a plain `dispatcher.fire(envelope)` call will NOT route to registered internal subscribers unless the dispatcher's in-memory config was separately populated with the internal subs. The C6 bootstrap does not paper over this — integration tests drive the router directly via `router.handle(envelope:ruleID:)`. C3 M2.1's `EventMapper` is expected to close the gap (synthesize `.panelOutputMatch` envelopes internally and route through the sentinel path without going through `load()`-filtered config).
+
+**Shipped in M4c commits:**
+- `fde8365` — refactor: drop shim, adopt C3 M2 APIs, tracker deinit cancel.
+- (next) — feat: C6AppBootstrap + integration tests + plan updates.
 
 ### M4a.1 — shared BrokenFileBackup helper (2026-04-20, commit d58f419)
 
