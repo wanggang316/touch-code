@@ -88,17 +88,14 @@ public struct InstallRunner {
       )
     }
     // CLI-layer HOME-scope check (defence in depth; installer also enforces — DEC-4).
-    if enforceHomeScope {
-      let home = URL(fileURLWithPath: NSHomeDirectory())
-        .standardizedFileURL.resolvingSymlinksInPath()
-      let dest = destination.standardizedFileURL.resolvingSymlinksInPath()
-      if !dest.path.hasPrefix(home.path + "/") && dest.path != home.path {
-        return RunnerOutcome(
-          exitCode: 1,
-          stdout: "",
-          stderr: "Refusing to install outside $HOME: \(destination.path)\n"
-        )
-      }
+    // `HomeScopeGuard` walks the ancestor chain with `lstat` semantics so a crafted
+    // symlink in an intermediate directory cannot slip past a literal prefix check.
+    if enforceHomeScope, !HomeScopeGuard.isInsideHome(destination, fileSystem: installer.fileSystem) {
+      return RunnerOutcome(
+        exitCode: 1,
+        stdout: "",
+        stderr: "Refusing to install outside $HOME: \(destination.path)\n"
+      )
     }
 
     let mode: InstallMode = inputs.link ? .symlink : .copy
