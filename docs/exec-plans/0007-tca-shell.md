@@ -34,7 +34,11 @@ This is the composition layer that unlocks downstream capability work. C6 / C7 /
 
 ## Decision Log
 
-(None yet)
+- **DEC-0 (planning, 2026-04-20): nit fix on `selectProject` / `selectWorktree` signatures.** Original draft used two `_ in:` parameter labels in a row, which does not compile. Renamed to `inSpace` / `inProject` at signature level; keeps call sites readable (`hierarchyClient.selectWorktree(id, inProject: p, inSpace: s)`).
+- **DEC-1 (M1 gate, 2026-04-20): `selectionChanges()` added to `HierarchyClient` in M1.** Downstream C7 `GitViewerFeature` and C6 inbox both need to react to Worktree selection changes. Without a stream on the client, features would need to hold a `HierarchyManager` reference and observe `@Observable` directly — leaking the single-writer concern into TCA reducers. The stream samples on `TerminalEvent.hierarchyMutated(.selection | .space | .project | .worktree)` and dedupes. M4 `WorktreeDetailFeature` also consumes it to swap the detail column on worktree change. **Must ship in M1** so M3+ features build against a stable surface.
+- **DEC-2 (M3 gate, 2026-04-20 — deferred to M3 kickoff): C6 Inbox placement.** C6 M5 ships a sidebar-class feature (~320 pt secondary column). Two options: (a) three-column `NavigationSplitView` with inbox as a permanent secondary column, or (b) root-level mode toggle that swaps `HierarchySidebarView` ↔ `InboxSidebarView` in the leading column. *Leaning:* option (b). Rationale: three-column navigation is visually heavy for a single-window tool whose primary task is the detail pane; toggling on demand keeps the sidebar footprint small and mirrors how mail apps present inbox vs. folders. A `mode: SidebarMode { case hierarchy; case inbox }` state on `RootFeature` drives the swap; the existing `HierarchySidebarFeature` is untouched. Re-confirm at M3 kickoff before freezing the sidebar's view topology.
+- **DEC-3 (M4 gate, 2026-04-20 — deferred to M4 kickoff): `SplitViewportFeature.State` needs `activeTabID: TabID?`.** M4 must seed this as part of state so M5's `.tabActivated` transition has a field to update. Documented here so M4 doesn't ship "empty state" and M5 doesn't have to retrofit.
+- **DEC-4 (M6 gate, 2026-04-20 — deferred to M6 kickoff): C8 Settings presentation slot.** M6 adds `@Presents var settingsSheet: SettingsFeature.State?` to `RootFeature.State` as a commented placeholder. C8 plan will define `SettingsFeature`; today's M6 reserves the slot so C8 can drop in without reshaping root state. One-line `// @Presents var settingsSheet: … // reserved for C8` comment is enough.
 
 ## Outcomes & Retrospective
 
@@ -92,6 +96,8 @@ Source files this plan touches (all under `apps/mac/touch-code/`):
 **Work.** Add `.package(url: "https://github.com/pointfreeco/swift-composable-architecture", exact: "1.23.1")` to `apps/mac/Tuist/Package.swift` (matching supacode and supaterm). In `apps/mac/Project.swift`, add `.external(name: "ComposableArchitecture")` to the `touch-code` target's `dependencies:`. `make mac-generate` picks up both changes.
 
 Create `apps/mac/touch-code/App/Clients/HierarchyClient.swift`. Define a `HierarchyClient` struct of `@MainActor @Sendable` closures, one per command from the design doc's API surface (`createSpace`, `renameSpace`, `removeSpace`, `addProject`, `removeProject`, `createWorktree`, `removeWorktree`, `selectSpace`, `selectProject`, `selectWorktree`, `createTab`, `closeTab`, `selectTab`, `openPanel`, `splitPanel`, `closePanel`, `focusPanel`, `resizeSplit`, plus a `snapshot` read). Because `HierarchyManager`'s APIs are already `@MainActor`, each `liveValue` closure is a one-line call into the manager. `testValue` uses `XCTestDynamicOverlay.unimplemented` so unexercised closures trap. Expose `DependencyValues.hierarchyClient`.
+
+Also expose `selectionChanges() -> AsyncStream<HierarchySelection>` — a coarse stream that emits whenever the `selectedSpaceID → selectedProjectID → selectedWorktreeID` chain changes in the catalog. The `liveValue` implementation is a thin wrapper around `HierarchyManager`'s existing `@Observable` accessors: an `AsyncStream` continuation that samples on every `.hierarchyMutated(.selection)` / `.hierarchyMutated(.space(_))` / `.hierarchyMutated(.project(_, _))` / `.hierarchyMutated(.worktree(_, _, _))` event from the engine stream and dedupes against the previous snapshot. Required by C7 `GitViewerFeature` (worktree-scope changes drive diff refresh) and C6 inbox (per-worktree filtering); adding it here keeps TCA reducers feature-pure — they never hold a `HierarchyManager` reference.
 
 Create `apps/mac/touch-code/App/Clients/TerminalClient.swift` with a parallel structure: `sendInput`, `setFocus`, `retryPanel`, `ensureSurface(panelID, spaceID, projectID, worktreeID, tabID)`, `closeSurface(panelID)`, and `events() -> AsyncStream<TerminalEvent>`. `liveValue` wraps `TerminalEngine`; note that `ensureSurface` needs the full hierarchy address because `HierarchyManager.findWorktree` is private — the live implementation looks the worktree up via `hierarchyManager.catalog` and throws `TerminalClient.Error.worktreeNotFound` if missing.
 
@@ -404,8 +410,8 @@ The following types, modules, and signatures must exist by plan completion. Name
       var createWorktree: @MainActor @Sendable (_ projectID: ProjectID, _ spaceID: SpaceID, _ name: String, _ path: String, _ branch: String?) throws -> WorktreeID
       var removeWorktree: @MainActor @Sendable (_ worktreeID: WorktreeID, _ projectID: ProjectID, _ spaceID: SpaceID) throws -> Void
       var selectSpace: @MainActor @Sendable (_ id: SpaceID?) -> Void
-      var selectProject: @MainActor @Sendable (_ id: ProjectID?, _ in: SpaceID) -> Void
-      var selectWorktree: @MainActor @Sendable (_ id: WorktreeID?, _ in: ProjectID, _ in: SpaceID) -> Void
+      var selectProject: @MainActor @Sendable (_ id: ProjectID?, _ inSpace: SpaceID) -> Void
+      var selectWorktree: @MainActor @Sendable (_ id: WorktreeID?, _ inProject: ProjectID, _ inSpace: SpaceID) -> Void
       var createTab: @MainActor @Sendable (_ worktreeID: WorktreeID, _ projectID: ProjectID, _ spaceID: SpaceID, _ name: String?) throws -> TabID
       var closeTab: @MainActor @Sendable (_ id: TabID, _ worktreeID: WorktreeID, _ projectID: ProjectID, _ spaceID: SpaceID) throws -> Void
       var selectTab: @MainActor @Sendable (_ id: TabID?, _ worktreeID: WorktreeID, _ projectID: ProjectID, _ spaceID: SpaceID) -> Void
@@ -415,6 +421,20 @@ The following types, modules, and signatures must exist by plan completion. Name
       var focusPanel: @MainActor @Sendable (_ panelID: PanelID, _ tabID: TabID, _ worktreeID: WorktreeID, _ projectID: ProjectID, _ spaceID: SpaceID) throws -> Void
       var resizeSplit: @MainActor @Sendable (_ path: SplitTree<PanelID>.Path, _ ratio: Double, _ tabID: TabID, _ worktreeID: WorktreeID, _ projectID: ProjectID, _ spaceID: SpaceID) throws -> Void
       var snapshot: @MainActor @Sendable () -> Catalog
+      /// Coarse selection-change stream. Emits a tuple of the currently
+      /// selected (space, project, worktree) whenever any of those IDs
+      /// changes in the catalog. Downstream reducers (C6 inbox scoping,
+      /// C7 GitViewerFeature, C8 editor-settings scoping) subscribe to
+      /// react on worktree switches without holding a reference to the
+      /// @Observable HierarchyManager. Emitted coarsely — one event per
+      /// change, deduped against the last snapshot.
+      var selectionChanges: @MainActor @Sendable () -> AsyncStream<HierarchySelection>
+    }
+
+    struct HierarchySelection: Equatable, Sendable {
+      let spaceID: SpaceID?
+      let projectID: ProjectID?
+      let worktreeID: WorktreeID?
     }
     extension HierarchyClient: DependencyKey {
       static let liveValue: HierarchyClient
