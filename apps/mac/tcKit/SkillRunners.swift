@@ -47,17 +47,22 @@ public struct InstallRunner {
   public let config: AgentsConfig
   public let spawner: ProcessSpawner
   public let enforceHomeScope: Bool
+  /// Cache directory pi clones mirrors into. Overridden by tests; production
+  /// installs always use `~/.pi/agent/git` via `PiMirror.defaultCacheRoot`.
+  public let piCacheRoot: URL
 
   public init(
     installer: SkillInstaller,
     config: AgentsConfig,
     spawner: ProcessSpawner = RealProcessSpawner(),
-    enforceHomeScope: Bool = true
+    enforceHomeScope: Bool = true,
+    piCacheRoot: URL = PiMirror.defaultCacheRoot
   ) {
     self.installer = installer
     self.config = config
     self.spawner = spawner
     self.enforceHomeScope = enforceHomeScope
+    self.piCacheRoot = piCacheRoot
   }
 
   public func run(_ inputs: Inputs) -> RunnerOutcome {
@@ -238,6 +243,20 @@ public struct InstallRunner {
     }
 
     let version = (try? installer.readBundledVersion()) ?? ""
+    // Verify the mirror pi cloned actually ships the VERSION we bundled. A
+    // compromised mirror, cache poisoning, or DNS spoof can trick pi into
+    // installing arbitrary content while pi itself exits 0 — without this
+    // check, the CLI would declare success anyway. Only run when pi itself
+    // succeeded; a pi failure is reported on its own merits.
+    let mismatch: String? = outcome.exitCode == 0
+      ? verifyPiVersion(mirrorURL: mirrorURL, bundleVersion: version)
+      : nil
+    let effectiveExit: Int32 = mismatch != nil ? 2 : outcome.exitCode
+    let effectiveResult: String = {
+      if mismatch != nil { return "versionMismatch" }
+      return outcome.exitCode == 0 ? "installed" : "failed"
+    }()
+
     if inputs.emitJSON {
       let payload = InstallStatusJSON(
         schemaVersion: 1,
@@ -245,19 +264,26 @@ public struct InstallRunner {
         destination: nil,
         bundleVersion: version,
         installMode: "pi-install",
-        result: outcome.exitCode == 0 ? "installed" : "failed",
+        result: effectiveResult,
         filesWritten: 0
       )
       return RunnerOutcome(
-        exitCode: outcome.exitCode,
+        exitCode: effectiveExit,
         stdout: encodeJSON(payload) + "\n",
-        stderr: outcome.stderr
+        stderr: outcome.stderr + (mismatch ?? "")
       )
     }
     // Forward pi's own stdout (progress, summary) and trailing-append our success or
     // failure line. On failure we also route the banner to stderr so CI pipelines pick
     // it up in the error stream.
     let piStdout = outcome.stdout
+    if let mismatch {
+      return RunnerOutcome(
+        exitCode: effectiveExit,
+        stdout: piStdout,
+        stderr: outcome.stderr + mismatch
+      )
+    }
     if outcome.exitCode == 0 {
       let banner = "touch-code: installed via pi (mirror \(mirrorURL))\n"
       return RunnerOutcome(
@@ -272,6 +298,27 @@ public struct InstallRunner {
       stdout: piStdout,
       stderr: outcome.stderr + banner
     )
+  }
+
+  /// Returns `nil` if pi's cache VERSION matches the bundled VERSION; otherwise a
+  /// ready-to-emit error line naming both versions. Missing or unreadable VERSION
+  /// at the cache path is treated as a mismatch — we refuse to trust an install
+  /// we cannot audit.
+  private func verifyPiVersion(mirrorURL: String, bundleVersion: String) -> String? {
+    let mirror = PiMirror(rawURL: mirrorURL)
+    let versionFile = mirror.cacheDirectory(root: piCacheRoot)
+      .appendingPathComponent("VERSION")
+    let actual: String
+    if let data = installer.fileSystem.contents(atPath: versionFile.path),
+       let text = String(bytes: data, encoding: .utf8) {
+      actual = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    } else {
+      actual = ""
+    }
+    if actual == bundleVersion { return nil }
+    let reported = actual.isEmpty ? "<missing>" : actual
+    return "pi install completed but mirror VERSION (\(reported)) "
+      + "does not match bundled VERSION (\(bundleVersion)); refusing to trust this install.\n"
   }
 }
 
@@ -339,14 +386,15 @@ public struct StatusRunner {
   public let installer: SkillInstaller
   public let config: AgentsConfig
   public let fileSystem: SkillFileSystem
+  /// Pi's mirror-cache root (`~/.pi/agent/git` in production). Tests inject a
+  /// temp directory. Matches the convention used by `InstallRunner.piCacheRoot`.
   public let piCacheRoot: URL
 
   public init(
     installer: SkillInstaller,
     config: AgentsConfig,
     fileSystem: SkillFileSystem = RealSkillFileSystem(),
-    piCacheRoot: URL = URL(fileURLWithPath: NSHomeDirectory())
-      .appendingPathComponent(".pi/agent/git/github.com")
+    piCacheRoot: URL = PiMirror.defaultCacheRoot
   ) {
     self.installer = installer
     self.config = config
@@ -407,13 +455,7 @@ public struct StatusRunner {
 
   private func piRow(agent: AgentID) -> Row {
     let mirrorURL = config.mirrorURL(for: agent) ?? ""
-    // Strip scheme prefix if present; mirror key in agents.json is "github.com/owner/repo".
-    let mirror = mirrorURL
-      .replacingOccurrences(of: "git:", with: "")
-      .replacingOccurrences(of: "https://", with: "")
-    let piPath = piCacheRoot
-      .deletingLastPathComponent() // .pi/agent/git
-      .appendingPathComponent(mirror, isDirectory: true)
+    let piPath = PiMirror(rawURL: mirrorURL).cacheDirectory(root: piCacheRoot)
     let versionFile = piPath.appendingPathComponent("VERSION")
     let packageFile = piPath.appendingPathComponent("package.json")
     let pathString = fileSystem.fileExists(atPath: piPath.path) ? piPath.path : nil
