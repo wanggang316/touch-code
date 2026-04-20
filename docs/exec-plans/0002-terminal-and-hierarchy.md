@@ -22,9 +22,9 @@ This is the first plan where the app becomes recognisable as "a terminal orchest
 
 - [x] M1 — Domain model skeleton in `TouchCodeCore` (IDs, Space/Project/Worktree/Tab/Panel structs, `SplitTree<PanelID>`, `AtomicFileStore`, unit tests) — 2026-04-19
 - [x] M2 — `CatalogStore` + headless `HierarchyManager` (load/save, debounced write, structural mutations, unit tests with fake runtime) — 2026-04-19
-- [~] M3 — Partial: GhosttyKit re-enabled (bootstrap DEC-8 resolved), minimal `GhosttyRuntime` (ghostty_init + ghostty_config + ghostty_app_new). Deferred: `PanelSurface` NSView with input handling + rendering — 2026-04-20
-- [ ] M4 — `TerminalEngine` façade + `AsyncStream<TerminalEvent>` + crash isolation + output coalescing
-- [ ] M5 — TCA clients, sidebar / tab bar / split-view UI, lazy surface creation, full persistence round-trip
+- [x] M3 — GhosttyKit re-enabled (bootstrap DEC-8 resolved), `GhosttyRuntime` bootstrap — 2026-04-20
+- [x] M4 — `TerminalEngine` façade + `AsyncStream<TerminalEvent>` + crash isolation + output coalescing (M4.1–M4.5) — 2026-04-20
+- [x] M5 — PanelSurface + GhosttySurfaceView, surface registry, PanelHostView, live shell in MainView (M5.1–M5.4). TCA/sidebar/tab-bar/split-view UI remains scoped for a follow-up plan — 2026-04-20
 - [x] M6 — Git worktree CLI integration + non-git Project fallback (synthetic single Worktree) — 2026-04-20
 
 ## Surprises & Discoveries
