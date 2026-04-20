@@ -131,26 +131,26 @@ touch-code-skill/
 
 **Why a `package.json` at the package root.** pi's `install` command reads `package.json` to discover the skill. Claude Code and Codex ignore it, so there is no cost to its presence.
 
-### CLI: `tc skill ...`
+### API Design: `tc skill` CLI
 
 Four subcommands. All are thin wrappers over filesystem operations — they do **not** read `SKILL.md` content beyond the version frontmatter.
 
 ```
-tc skill install --claude-code | --codex | --pi  [--link] [--force] [--dry-run]
+tc skill install   --claude-code | --codex | --pi  [--dest <path>] [--link] [--force] [--dry-run]
 tc skill uninstall --claude-code | --codex | --pi
-tc skill status [--json]
+tc skill status    [--json]
 tc skill bundle-path          # prints the path to the bundled touch-code-skill/
 ```
 
-**Default install paths:**
+**Default install paths** (sourced from `agents.json` — see § Data Storage):
 
 | Agent | Destination |
 |---|---|
 | `--claude-code` | `~/.claude/skills/touch-code/` |
 | `--codex` | `~/.codex/skills/touch-code/` |
-| `--pi` | invokes `pi install git:github.com/<owner>/touch-code-skill` (mirror repo); no direct filesystem write |
+| `--pi` | invokes `pi install git:<mirrorURL>`; default `mirrorURL` is `github.com/wanggang316/touch-code-skill`. No direct filesystem write. |
 
-The claude-code and codex paths can be overridden with `--dest <path>` for users whose agent configs live elsewhere. pi has no `--dest` because pi owns its own git cache path.
+The claude-code and codex paths can be overridden with `--dest <path>` for users whose agent configs live elsewhere. pi has no `--dest` because pi owns its own git cache path; forks override the mirror URL by editing `agents.json` (or shipping a replacement resource).
 
 **Flags:**
 
@@ -158,29 +158,18 @@ The claude-code and codex paths can be overridden with `--dest <path>` for users
 - `--force` — overwrite an existing `touch-code/` directory without prompting; otherwise install prompts once and aborts on "n".
 - `--dry-run` — print what would be written, change nothing.
 
-**Locating the bundle.** The app packages `touch-code-skill/` under `Resources/touch-code-skill/` in the `.app` bundle. `tc skill bundle-path` resolves this via `Bundle.main.resourceURL`; when `tc` is run outside a bundle (e.g. from `swift run` during dev), it walks up from the binary to find the repo root and uses `./touch-code-skill/`. The resolution is captured in `TouchCodeCore/SkillBundleLocator.swift` (new file, pure; unit-testable with a fake filesystem).
+**Locating the bundle.** The app packages `touch-code-skill/` under `Resources/touch-code-skill/` in the `.app` bundle. `tc skill bundle-path` resolves it via `Bundle.main.resourceURL`; when `tc` is run outside a bundle (e.g. from `swift run` during dev), it walks up from the binary to find the repo root and uses `./touch-code-skill/`. The resolver lives in `apps/mac/tc/SkillBundleLocator.swift` (not `TouchCodeCore` — it is host-environment code and would violate [architecture § Dependency Direction](../architecture.md)'s "`TouchCodeCore` has zero internal deps and no environmental coupling" rule).
 
-**Idempotence and the install marker.** Each install writes `touch-code/.touch-code-skill.json` into the destination:
-
-```json
-{
-  "version": "0.1.0",
-  "installedAt": "2026-04-20T10:00:00Z",
-  "source": "copy" | "symlink",
-  "bundlePath": "/Applications/touch-code.app/Contents/Resources/touch-code-skill"
-}
-```
-
-`tc skill status` reads markers from every known agent path and prints a table:
+`tc skill status` reads every known agent's install marker (see § Data Storage) and prints a table:
 
 ```
-Agent         Installed   Bundled    Mode      Path
-claude-code   0.1.0       0.1.0      copy      ~/.claude/skills/touch-code
-codex         -           0.1.0      -         -
-pi            (via pi)    0.1.0      -         ~/.pi/agent/git/.../touch-code-skill
+Agent         Installed    Bundled    Mode     Path
+claude-code   0.1.0        0.1.0      copy     ~/.claude/skills/touch-code
+codex         -            0.1.0      -        -
+pi            0.1.0 (pi)   0.1.0      git      ~/.pi/agent/git/github.com/.../touch-code-skill
 ```
 
-`--json` emits the same data structurally for scripting.
+The `pi` row reports whatever version pi's own cache reports for the mirror repo; the suffix `(pi)` flags that touch-code did not write this copy. `-` means "not installed." `--json` emits the same data structurally for scripting.
 
 **Error cases and their responses:**
 
@@ -194,12 +183,64 @@ pi            (via pi)    0.1.0      -         ~/.pi/agent/git/.../touch-code-sk
 | `--pi` but `pi` binary not on `$PATH` | Fail with exit code 2 and a message pointing to pi install docs. Never write anything. |
 | `--pi` but network unavailable | `pi install` itself reports; `tc` forwards the exit code. |
 
+### Data Storage
+
+Two small JSON files. Neither is a skill-content artefact — the skill itself is markdown. These are machinery for the install CLI.
+
+**1. `agents.json`** (read-only, shipped with the app at `apps/mac/Resources/agents.json`; bundled into `touch-code.app/Contents/Resources/agents.json`).
+
+Source of truth for per-agent defaults — install path, pi mirror URL, optional per-OS overrides. Read at install time; never written.
+
+```json
+{
+  "version": 1,
+  "agents": {
+    "claude-code": {
+      "defaultPath": {
+        "darwin": "~/.claude/skills/touch-code",
+        "linux":  "~/.claude/skills/touch-code"
+      },
+      "installMode": "copy"
+    },
+    "codex": {
+      "defaultPath": {
+        "darwin": "~/.codex/skills/touch-code",
+        "linux":  "~/.codex/skills/touch-code"
+      },
+      "installMode": "copy"
+    },
+    "pi": {
+      "mirrorURL": "github.com/wanggang316/touch-code-skill",
+      "installMode": "pi-install"
+    }
+  }
+}
+```
+
+Readers abort on unknown top-level `version`, matching [architecture § Persistence](../architecture.md). Forks override by replacing the file in their fork's `Resources/`; no env-var or runtime override in v1 (keeps the install surface auditable).
+
+**2. `.touch-code-skill.json`** (install marker, written into each destination by `tc skill install`).
+
+```json
+{
+  "version": "0.1.0",
+  "installedAt": "2026-04-20T10:00:00Z",
+  "source": "copy",
+  "bundlePath": "/Applications/touch-code.app/Contents/Resources/touch-code-skill",
+  "bundleSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}
+```
+
+`source ∈ {"copy", "symlink"}`. `bundleSha256` is the SHA-256 of a deterministic tarball of the bundled `touch-code-skill/` tree (sorted file list, file-mode + content concatenated). This is the hook for R3 (detecting user edits): on reinstall, `tc` rehashes the installed directory using the same algorithm and compares against `bundleSha256`; any drift prompts for overwrite unless `--force`. The check is cheap (< 10ms for the expected directory size) and bypassable.
+
+**3. Marker read by the app (launch-time version banner).** The app does **not** parse skill content. It reads exactly one field — the top-level `version` string — from each agent's `.touch-code-skill.json`, using `JSONDecoder` against a minimal `InstalledSkillMarker` struct (`version: String` plus `CodingKey` whitelist). Equivalent to `jq '.version' <marker>`. If users prefer to avoid the direct read, the app may instead shell out to `tc skill status --json` and parse that output. Either path is acceptable; both stop at the version field and touch nothing else in the installed directory.
+
 ### Versioning and Release Process
 
 The skill's version **equals the `tc` version on the same commit**, period. There is no independent skill semver. On a release build:
 
-1. `scripts/generate-skill-version.sh` writes the current `tc` version into `touch-code-skill/VERSION` and into `touch-code-skill/package.json` (`version` field).
-2. `make skill-validate` runs the smoke-test harness (see § Testing strategy).
+1. `apps/mac/scripts/generate-skill-version.sh` writes the current `tc` version into `touch-code-skill/VERSION` and into `touch-code-skill/package.json` (`version` field). Wired into `apps/mac/Makefile` as the `skill-version` target; the top-level `Makefile` forwards it (`make mac-skill-version`).
+2. `make mac-skill-validate` runs the smoke-test harness (see § Testing strategy).
 3. The signed `.app` bundles `touch-code-skill/` under `Contents/Resources/`.
 4. A GitHub Actions workflow pushes `touch-code-skill/` to the mirror repo as a fresh commit tagged with the same version.
 
@@ -208,7 +249,7 @@ The skill's version **equals the `tc` version on the same commit**, period. Ther
 - Claude Code / Codex: user runs `tc skill install --claude-code` (or `--codex`) after upgrading the app. This is a single command; idempotent; re-run cost is "rewrite ~30 small markdown files."
 - pi: pi's own `pi update` refreshes from the mirror repo. Our docs point users to that flow.
 
-**Upgrade detection (soft nudge).** On app launch, the app compares `Bundle.main.touchCodeSkillVersion` against the marker in each agent's skill directory. If a mismatch is found, surface a non-blocking in-app banner: "The skill installed for Claude Code is older than the bundled version. Run `tc skill install --claude-code` to upgrade." No auto-reinstall — user consent is required before we write into the agent's config tree.
+**Upgrade detection (soft nudge).** On app launch, the app compares the bundled version (read from `touch-code-skill/VERSION` in the app's Resources) against each installed marker's `version` field — **one field only**, via the minimal decoder described in § Data Storage; no parsing of skill content. If a mismatch is found, surface a non-blocking in-app banner: "The skill installed for Claude Code is older than the bundled version. Run `tc skill install --claude-code` to upgrade." No auto-reinstall — user consent is required before we write into the agent's config tree.
 
 **`tc` backward-compatibility guarantee for the skill.** Any change that removes or renames a `tc` subcommand documented in the current skill is a breaking change and bumps the major version. This gives the skill a hard contract to rely on.
 
@@ -257,45 +298,72 @@ already running inside a touch-code Panel.
 - Claims about what agents "will" do; describe only what `tc` does.
 - Screenshots.
 
+**Anti-example (Swift-level reference that must not appear in the skill):**
+
+> ~~To create a Panel, call `HierarchyClient.openPanel(tabID)` which dispatches through `TerminalEngine` → `GhosttyRuntime.ensureSurface(panelID)` and emits `.panelCreated` on the `AsyncStream<TerminalEvent>`.~~
+
+Wrong on two counts: (1) it names Swift types the agent cannot invoke; (2) it leaks internals that may change without breaking `tc`'s CLI contract. The skill should instead say:
+
+> To create a Panel, run `tc panel new` (creates in the current Tab) or `tc panel split <direction>` (creates by splitting). Both accept `--in <tab-or-pane>` for explicit targeting and print the new panel's ID with `--json`.
+
 ### Component Boundaries
 
 ```
 touch-code-skill/                    (content-only; no Swift imports anywhere)
 
+apps/mac/Resources/
+└── agents.json                      (new) — per-agent default paths + pi mirror URL
+
 apps/mac/tc/                         (Swift; the install CLI lives here)
 ├── main.swift                       (existing) — dispatch
 ├── SkillCommand.swift               (new) — `tc skill install|uninstall|status|bundle-path`
-└── SkillInstaller.swift             (new) — pure file operations; unit-testable
+├── SkillInstaller.swift             (new) — pure file operations; unit-testable
+├── SkillBundleLocator.swift         (new) — resolves bundle path (app vs. dev run)
+└── AgentsConfig.swift               (new) — decodes agents.json; resolves per-OS paths
 
-apps/mac/TouchCodeCore/
-└── SkillBundleLocator.swift         (new) — resolves bundle path in app vs. dev run
+apps/mac/touch-code/App/
+└── SkillVersionBanner.swift         (new) — reads bundled VERSION + installed marker.version
+                                       ONLY; no SKILL.md parsing. Trivial one-liner; lives in
+                                       the app target because it is UI state.
+
+apps/mac/scripts/
+└── generate-skill-version.sh        (new) — syncs tc version into VERSION + package.json
 ```
 
 **Dependency rules (on top of [architecture § Dependency Direction](../architecture.md)):**
 
+- `TouchCodeCore` stays pure: no skill-related code lives there. Host-environment resolution (bundle paths, file-system scans, OS-specific defaults) belongs in the `tc` target.
 - `touch-code-skill/` is not a Swift target, is not declared in `Project.swift`, and is not referenced from any Swift file except via the read-only `SkillBundleLocator` (which resolves a path, not file contents).
 - `tc skill ...` runs entirely in `tc` — it does **not** need the app running. It is the only part of `tc` that bypasses IPC. This is acceptable because the operation is pure filesystem I/O with no relation to live app state.
 - The app never calls `tc skill install` on behalf of the user. Install remains a deliberate user action.
+- `SkillVersionBanner` in the app reads only the `version` field from `.touch-code-skill.json` (minimal `InstalledSkillMarker` struct) — it does **not** open `SKILL.md` or any other skill file.
 
 **What each component is NOT responsible for:**
 
 - `SkillInstaller`: does not parse SKILL.md or references; does not validate their content; it copies bytes.
 - `SkillBundleLocator`: does not cache, does not fall back silently — errors are surfaced to the CLI caller.
-- `tc skill status`: does not probe pi's git cache contents for correctness; it only reports whether pi was invoked successfully last time.
+- `AgentsConfig`: does not merge user-side overrides at runtime in v1; the shipped file is the full source of truth.
+- `tc skill status`: does not probe pi's git cache contents for correctness; it only reports whether pi was invoked successfully last time and reads the version pi recorded for its cache entry.
+- `SkillVersionBanner`: does not write; does not block launch; does not reinstall.
 
 ### Testing Strategy
 
-Two layers:
+Three layers. The lower two do not depend on the app or on `tc ls` being wired up, so C5 releases are not blocked by the rest of the product's completeness.
 
 1. **Unit tests (CI, always run).**
    - `SkillBundleLocator` against a fake filesystem.
    - `SkillInstaller` round-trip: install → marker present → uninstall → directory gone; copy and symlink modes; error paths (pre-existing dir, read-only dest).
-2. **Per-agent smoke tests (manual + CI gate on release).**
+   - `AgentsConfig` decoding, OS selection, and unknown-version rejection.
+   - Marker schema: `bundleSha256` computation is deterministic across sorted directory traversals.
+2. **Tier-A smoke tests — skill-vs-CLI consistency (CI, always run, independent of app).**
+   - **`tc-help-roundtrip`.** Parse every `tc <subcommand>` reference in `references/tc-cli.md` and assert each subcommand appears in `tc --help` (or a `tc help-json` dump). Catches doc drift without needing the app to be running. This is the primary release gate for the C5 content contract.
+   - **Install-then-read.** `tc skill install --claude-code --dest <tmp>` then verify the directory tree against a golden manifest (file list + SHA-256s). No agent involvement.
+3. **Tier-B per-agent live tests (manual + CI gate on release tag, once app/CLI are far enough along).**
    - **Claude Code (`tests/claude-code.smoke.md`).** A scripted session file that, when fed to a fresh Claude Code run inside a touch-code Panel, asks Claude to "List all panels and report the count." Passes if the returned count matches `tc ls --json | jq '.panels | length'`.
    - **Codex (`tests/codex.smoke.md`).** Same shape as Claude Code, adapted to Codex's invocation.
    - **pi (`tests/pi.smoke.sh`).** A shell script that runs `pi install git:...` against the mirror repo, then invokes pi non-interactively with a canned prompt and asserts the expected JSON output.
 
-CI runs unit tests always; smoke tests gate tagged releases. A failure on a smoke test blocks the release artefact.
+CI runs Tier-1 and Tier-A on every PR. Tier-B gates release tags; until `tc ls` (and the Panel IPC surface it needs) lands, a release can ship with Tier-A green alone — Tier-B then lights up incrementally as each agent's prerequisites arrive. This removes the ordering constraint between C5 and the rest of the capability graph.
 
 ## Alternatives Considered
 
@@ -333,7 +401,7 @@ See Overview for rationale.
 ### A6. Default to symlink instead of copy — rejected
 
 - **Pros:** upgrades are "automatic" after `tc` upgrade; no reinstall needed.
-- **Cons:** the symlink points into the `.app` bundle. On macOS, upgrading the app often means replacing the bundle (new inode), which breaks any dangling symlink that resolved through the old inode. Worse, uninstalling the app silently breaks the agent's skill. Copy is more predictable and matches how agents treat skill directories (user-owned).
+- **Cons:** the symlink points into the `.app` bundle. On macOS, upgrading the app may replace the bundle (some update paths re-create it with a different inode, others rewrite in place), so a symlink *may* break on upgrade depending on how the user installed the new version. Uninstalling the app always breaks the symlink. Copy is more predictable and matches how agents treat skill directories (user-owned).
 - **Verdict:** rejected as default; kept as an opt-in `--link` flag for contributors.
 
 ### A7. One SKILL.md per agent in the same directory — rejected
@@ -390,12 +458,15 @@ Numbered for easy cross-reference. Revisit via amendment.
 8. **SKILL.md teaches the CLI, not the internals.** Explicit content rule — no Swift, no architecture diagrams, no rationale prose in the skill.
 9. **Mirror repo is generated, not authored.** CI pushes `touch-code-skill/` to the mirror on tag. Manual commits to the mirror are forbidden (enforced by branch protection in that repo).
 10. **`tc skill` is the only app-bundled command that bypasses IPC.** All other `tc` subcommands require the app to be running; `tc skill ...` does not, because it operates on user files.
+11. **`agents.json` is the single source of truth for per-agent paths and the pi mirror URL.** It ships read-only in `apps/mac/Resources/agents.json`, is decoded at install time, and is rebuildable from the design (see § Data Storage). Forks override by replacing the file; no runtime env-var override in v1.
+12. **Pi mirror URL default: `github.com/wanggang316/touch-code-skill`.** This is a placeholder for the canonical upstream owner; swapping it is a one-line edit in `agents.json`. Forks ship their own value.
+13. **`SkillBundleLocator` lives in `apps/mac/tc/`, not `TouchCodeCore`.** Bundle-path resolution is host-environment code. Keeping it out of `TouchCodeCore` preserves [architecture § Dependency Direction](../architecture.md)'s "Core has zero environmental coupling" rule.
 
 ## Risks
 
 - **R1 — Mirror repo drift.** A human with write access to the mirror pushes a manual commit that then diverges from this repo. Mitigation: branch protection on the mirror repo (only the release bot can push); release CI asserts the subtree diff is empty before tagging.
 - **R2 — Agents change their skill directory convention.** Claude Code / Codex / pi may relocate `~/.claude/skills/` to a new path in a future release. Mitigation: `tc skill install` reads a small `agents.json` shipped in `apps/mac/Resources/` that maps agent → default path; updating the map is a minor release.
-- **R3 — Users edit the installed skill.** A user tweaks `~/.claude/skills/touch-code/SKILL.md` and then runs `tc skill install --claude-code`, losing their edits. Mitigation: install detects local diffs (comparing against the marker's bundle hash) and prompts "Overwrite local edits? [y/N]" unless `--force`.
+- **R3 — Users edit the installed skill.** A user tweaks `~/.claude/skills/touch-code/SKILL.md` and then runs `tc skill install --claude-code`, losing their edits. Mitigation: the marker's `bundleSha256` field (see § Data Storage) records the hash of the tree at install time. On reinstall, `tc` rehashes the installed directory and compares; any drift prompts "Overwrite local edits? [y/N]" unless `--force`.
 - **R4 — `--link` mode silently breaks after app upgrade.** Symlink resolves through a now-deleted bundle path. Mitigation: `tc skill status` detects broken symlinks and reports them; install warns at link time about this failure mode.
 - **R5 — pi binary not installed; user confused by `--pi` failure.** Mitigation: exit code 2 plus an explicit pointer to pi install docs, and a check in `tc skill status` that reports "pi not found" instead of silent absence.
 - **R6 — Skill contents claim a `tc` flag that was renamed.** The skill is markdown; nothing statically catches this. Mitigation: a `make skill-verify` step (release-gated) parses `references/tc-cli.md` for `tc <subcommand>` occurrences and diffs against `tc --help-json` output. Unknown flags fail the build.
@@ -404,6 +475,7 @@ Numbered for easy cross-reference. Revisit via amendment.
 
 ## Open Items
 
-- **O1 — Mirror repo name and owner.** Leaning: `touch-code-skill` under the same GitHub owner as the app. Not material to this design; locked at release time.
-- **O2 — pi extension story.** supaterm-skills ships a `pi-notify-supaterm` extension (TypeScript, runtime reactor). touch-code may want a peer `pi-notify-touch-code`. This is **out of scope for C5 v1**. If built, it lives in a future peer directory (e.g. `touch-code-extensions/`) and has its own design doc.
-- **O3 — Windows / Linux install paths.** v1 is macOS-only per product-spec, but pi users may run on Linux. The install CLI's path map (`agents.json`) already supports per-OS overrides; concrete paths will be added when those platforms become in-scope.
+- **O1 — pi extension story.** supaterm-skills ships a `pi-notify-supaterm` extension (TypeScript, runtime reactor). touch-code may want a peer `pi-notify-touch-code`. This is **out of scope for C5 v1**. If built, it lives in a future peer directory (e.g. `touch-code-extensions/`) and has its own design doc.
+- **O2 — Windows / Linux install paths.** v1 is macOS-only per product-spec, but pi users may run on Linux. `agents.json` already supports per-OS overrides; concrete paths are added when those platforms become in-scope.
+
+*(The previous O1 — mirror repo name and owner — is resolved by Decision 12.)*
