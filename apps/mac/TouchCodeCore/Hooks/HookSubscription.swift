@@ -18,6 +18,12 @@ public nonisolated struct HookSubscription: Equatable, Sendable, Identifiable {
   public var allowRawOutput: Bool
   public var allowRawInput: Bool
   public var idleThresholdSeconds: Double?
+  /// `true` when the subscription is temporarily suppressed (e.g. by the
+  /// rate-limiter or a user `tc hook disable` call). **Note the inversion:**
+  /// the `hook.enable` RPC carries `{ id, enabled: Bool }`; the app-side
+  /// handler translates `enabled: true` → `disabled = false` before
+  /// mutating this field. Keep the storage-level name to match the design
+  /// doc's JSON schema (`"disabled": Bool`).
   public var disabled: Bool
 
   public init(

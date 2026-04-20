@@ -1,5 +1,27 @@
 import Foundation
 
+/// Shared JSON encoder/decoder configuration for hook envelopes written to
+/// a user handler's stdin or a streaming RPC.
+///
+/// The design doc pins ISO-8601 for `timestamp`. The default `JSONEncoder`
+/// strategy is `.deferredToDate` which emits Apple-epoch-seconds as a
+/// floating-point number — opaque to shell handlers. `HookEnvelope.encoder`
+/// pins `.iso8601`. Use these factories (instead of bare `JSONEncoder()`)
+/// when (de)serialising envelopes on any wire path.
+public extension HookEnvelope {
+  static func encoder() -> JSONEncoder {
+    let e = JSONEncoder()
+    e.dateEncodingStrategy = .iso8601
+    return e
+  }
+
+  static func decoder() -> JSONDecoder {
+    let d = JSONDecoder()
+    d.dateDecodingStrategy = .iso8601
+    return d
+  }
+}
+
 /// Wire payload delivered to a user hook handler on stdin and to the
 /// `hook.events` streaming RPC.
 ///

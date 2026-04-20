@@ -60,4 +60,17 @@ struct HookSubscriptionCodableTests {
     let decoded = try JSONDecoder().decode(HookSubscription.RegexFlags.self, from: data)
     #expect(decoded == flags)
   }
+
+  @Test
+  func idRoundTripsPreservedVerbatim() throws {
+    // M1.x follow-up: explicit guard against future CodingKeys regression.
+    let fixedID = UUID(uuidString: "DEADBEEF-DEAD-4BED-8EED-DEADBEEFDEAD")!
+    let sub = HookSubscription(id: fixedID, event: .panelReady, command: "echo")
+    let data = try JSONEncoder().encode(sub)
+    let decoded = try JSONDecoder().decode(HookSubscription.self, from: data)
+    #expect(decoded.id == fixedID)
+    // Belt-and-suspenders: ensure the JSON literally contains the UUID.
+    let s = String(bytes: data, encoding: .utf8) ?? ""
+    #expect(s.uppercased().contains(fixedID.uuidString.uppercased()))
+  }
 }
