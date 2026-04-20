@@ -29,9 +29,9 @@ import TouchCodeCore
 /// (M4b) — the router accepts them defensively.
 @MainActor
 final class DetectionRouter: InternalHookSubscriber {
-  private let rules: [String: AgentDetectionRules.Rule]
+  private var rules: [String: AgentDetectionRules.Rule]
   private let registry: TrackerRegistry
-  private let renderer: TemplateRenderer
+  private var renderer: TemplateRenderer
   private let logger = Logger(subsystem: "com.touch-code.notifications", category: "router")
   private let (transitionStream, transitionContinuation): (AsyncStream<RouterOutput>, AsyncStream<RouterOutput>.Continuation)
 
@@ -46,6 +46,17 @@ final class DetectionRouter: InternalHookSubscriber {
     let (stream, continuation) = AsyncStream<RouterOutput>.makeStream()
     self.transitionStream = stream
     self.transitionContinuation = continuation
+  }
+
+  /// Replace the in-memory rule table. Called by `NotificationCoordinator
+  /// .reloadRules()` after `RuleStore.reloadAndRematerialise()` has
+  /// refreshed both disk and the C3 dispatcher's sentinel-subscription
+  /// set. In-flight envelopes already dispatched keep their captured
+  /// rule; only envelopes arriving after this call resolve against the
+  /// new table.
+  func setRules(_ newRules: AgentDetectionRules, renderer newRenderer: TemplateRenderer) {
+    rules = Dictionary(uniqueKeysWithValues: newRules.rules.map { ($0.id, $0) })
+    renderer = newRenderer
   }
 
   deinit {

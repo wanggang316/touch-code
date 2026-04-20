@@ -3,9 +3,8 @@ import TouchCodeCore
 
 /// Owns the 11-step app-shell wiring for C6 (exec plan 0006 M4). Holds the
 /// constructed services for the lifetime of the app (or the integration
-/// test). Constructed once at app launch via `C6AppBootstrap.start(...)`;
-/// tests build one with `makeForTesting(...)` to drive a live dispatcher
-/// end-to-end without needing a bundled host.
+/// test). Constructed once at app launch (or test harness) via
+/// `C6AppBootstrap.start(...)` and torn down via `shutdown()`.
 ///
 /// The wiring sequence (plan §M4 §Wire into TouchCodeApp.swift):
 ///   1. load SettingsStore
@@ -90,7 +89,9 @@ final class C6AppBootstrap {
       osNotifier: osNotifier,
       settings: settings,
       registry: registry,
-      permissionDelegate: permissionDelegate
+      permissionDelegate: permissionDelegate,
+      ruleStore: ruleStore,
+      router: router
     )
 
     let bootstrap = C6AppBootstrap(
@@ -109,7 +110,11 @@ final class C6AppBootstrap {
       await coordinator.onAgentPanelCreated(tracker.panelID)
     }
 
-    // Step 11 — bind router → coordinator for the app lifetime
+    // Step 11 — bind router → coordinator for the app lifetime. The task
+    // captures `router` + `coordinator` by value (reference types); this
+    // keeps the stream alive even if `bootstrap` is later referenced only
+    // weakly from elsewhere. Task cancellation on `shutdown()` tears the
+    // loop down cleanly.
     bootstrap.bindTask = Task { [router, coordinator] in
       await coordinator.bind(to: router.transitions)
     }
@@ -138,14 +143,20 @@ final class C6AppBootstrap {
   }
 
   deinit {
-    // bindTask is Sendable; cancel from any context. The dispatcher's
-    // `unregister(prefix:)` is MainActor-only; explicit cleanup happens
-    // via `shutdown()` below, which the app shell calls on termination.
-    bindTask?.cancel()
+    // Last-resort cleanup if the app shell forgot to call `shutdown()`.
+    // The bindTask is MainActor-isolated; we cannot touch it from a
+    // nonisolated deinit in Swift 6. Callers must invoke `shutdown()`
+    // explicitly before drop-out. If they don't, the bind task stays
+    // alive consuming the router stream until process exit — the
+    // dispatcher registration also lingers. Documented as the only
+    // supported teardown path; callers that violate this will see a
+    // leaked Task in Instruments.
   }
 
-  /// Explicit teardown. Call from the app shell before the bootstrap goes
-  /// out of scope (e.g. `applicationWillTerminate`).
+  /// Explicit teardown. The **only documented path** to release the
+  /// bootstrap's hold on C3's dispatcher. Call from the app shell before
+  /// the bootstrap goes out of scope (e.g. `applicationWillTerminate`).
+  /// Idempotent — safe to call more than once.
   func shutdown() {
     bindTask?.cancel()
     bindTask = nil

@@ -54,22 +54,70 @@ struct C6AppBootstrapTests {
 
   @Test
   func startRunsRestartTimePermissionSweepPerPanel() async throws {
-    let harness = try await Self.startHarness(authStatus: .notDetermined)
+    // Seed the catalog with two agent-labelled Panels BEFORE start() runs.
+    // Step 5 (registry.bootstrap) will create two trackers; step 10 (sweep)
+    // iterates them and calls onAgentPanelCreated exactly once each. With
+    // `.notDetermined` auth status, each call presents the prompt.
+    let harness = try await Self.startHarness(
+      authStatus: .notDetermined,
+      agentPanelCount: 2
+    )
     defer { harness.bootstrap.shutdown() }
 
-    // Seed hierarchy with two agent-labelled Panels BEFORE registry.bootstrap
-    // runs. Since our start() takes hierarchy already-loaded, we need a
-    // custom path: build a catalog with the labels, wrap in HierarchyManager,
-    // then start bootstrap.
-    //
-    // The authStatus starts at .notDetermined; each tracker should flow
-    // through onAgentPanelCreated exactly once via the step-10 sweep,
-    // triggering a single delegate.presentPrompt call (further calls
-    // are short-circuited by alreadyPrompted).
-    // Because start() already ran on an empty catalog, sweep count is 0
-    // here. We assert the invariant: presentPromptCalls ≤ 1 and matches
-    // tracker count.
-    #expect(harness.mockDelegate.presentPromptCalls == harness.bootstrap.registry.allTrackers.count)
+    #expect(harness.bootstrap.registry.allTrackers.count == 2)
+    #expect(harness.mockDelegate.presentPromptCalls == 2)
+  }
+
+  @Test
+  func reloadRulesSwapsRouterTableAndRematerialisesHooksJson() async throws {
+    let harness = try await Self.startHarness(authStatus: .authorized)
+    defer { harness.bootstrap.shutdown() }
+
+    // Hand-edit detection-rules.json with a single minimal rule; the
+    // reload path should pick it up and the router's table should drop
+    // every previous default rule.
+    let rulesURL = harness.tempDirectory.appendingPathComponent("detection-rules.json")
+    let newRules = AgentDetectionRules(
+      idleThresholdSeconds: 60,
+      rules: [
+        AgentDetectionRules.Rule(
+          id: "custom.done",
+          agent: "custom",
+          appliesWhen: .init(panelLabelledAgent: "custom", hookEvent: .panelOutputMatch),
+          match: .containsAny(["done"]),
+          transitionTo: .completed,
+          title: "Custom finished",
+          body: "ok"
+        ),
+      ]
+    )
+    try AtomicFileStore.write(newRules, to: rulesURL)
+
+    try harness.bootstrap.coordinator.reloadRules()
+
+    // Drive the router with an envelope referencing the old rule id —
+    // it must NOT fire because the router's table has been swapped.
+    let panelID = PanelID()
+    harness.bootstrap.registry.create(for: panelID)
+    let stalePrevious = Self.outputMatchEnvelope(panelID: panelID, agent: "claude")
+    harness.bootstrap.router.handle(envelope: stalePrevious, ruleID: "claude.completed")
+    try await Task.sleep(nanoseconds: 50_000_000)
+    #expect(harness.mockNotifier.postedNotifications.isEmpty)
+
+    // The new rule should fire as expected.
+    let newEnvelope = Self.outputMatchEnvelope(panelID: panelID, agent: "custom")
+    harness.bootstrap.router.handle(envelope: newEnvelope, ruleID: "custom.done")
+    try await Task.sleep(nanoseconds: 50_000_000)
+    #expect(harness.mockNotifier.postedNotifications.count == 1)
+    #expect(harness.mockNotifier.postedNotifications.first?.title == "Custom finished")
+
+    // hooks.json must have been rematerialised — exactly one sentinel sub,
+    // with the new rule id.
+    let hooksURL = harness.tempDirectory.appendingPathComponent("hooks.json")
+    let onDisk = try JSONDecoder().decode(HookConfig.self, from: Data(contentsOf: hooksURL))
+    let sentinelSubs = onDisk.subscriptions.filter { $0.command.hasPrefix(RuleStore.sentinelPrefix) }
+    #expect(sentinelSubs.count == 1)
+    #expect(sentinelSubs.first?.command == "\(RuleStore.sentinelPrefix)custom.done")
   }
 
   @Test
@@ -91,7 +139,10 @@ struct C6AppBootstrapTests {
     let tempDirectory: URL
   }
 
-  static func startHarness(authStatus: AuthorizationStatusCache) async throws -> Harness {
+  static func startHarness(
+    authStatus: AuthorizationStatusCache,
+    agentPanelCount: Int = 0
+  ) async throws -> Harness {
     let temp = FileManager.default.temporaryDirectory
       .appending(component: "c6-bootstrap-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
@@ -108,11 +159,13 @@ struct C6AppBootstrapTests {
       actionDispatcher: RecordingHookActionDispatcher()
     )
 
-    // HierarchyManager — minimal, with an in-memory CatalogStore.
+    // HierarchyManager — pre-seeded catalog when the test wants
+    // agent-labelled Panels for the step-10 permission sweep to observe.
     let catalogURL = temp.appendingPathComponent("catalog.json")
     let catalogStore = CatalogStore(fileURL: catalogURL)
+    let initialCatalog = Self.makeCatalog(agentPanelCount: agentPanelCount)
     let hierarchy = HierarchyManager(
-      catalog: .default,
+      catalog: initialCatalog,
       store: catalogStore,
       runtime: FakeHierarchyRuntime()
     )
@@ -150,6 +203,33 @@ struct C6AppBootstrapTests {
       mockBadger: badger,
       mockDelegate: delegate,
       tempDirectory: temp
+    )
+  }
+
+  static func makeCatalog(agentPanelCount: Int) -> Catalog {
+    guard agentPanelCount > 0 else { return .default }
+    let panels: [Panel] = (0..<agentPanelCount).map { i in
+      Panel(
+        workingDirectory: "/tmp/agent-\(i)",
+        initialCommand: nil,
+        labels: ["agent:claude"]
+      )
+    }
+    let tab = Tab(splitTree: SplitTree(leaf: panels[0].id), panels: panels)
+    let worktree = Worktree(name: "main", path: "/repo", branch: "main", tabs: [tab], selectedTabID: tab.id)
+    let project = Project(
+      name: "p",
+      rootPath: "/p",
+      gitRoot: "/p",
+      worktrees: [worktree],
+      selectedWorktreeID: worktree.id
+    )
+    let space = Space(name: "s", projects: [project], selectedProjectID: project.id)
+    return Catalog(
+      version: Catalog.currentVersion,
+      windows: [],
+      spaces: [space],
+      selectedSpaceID: space.id
     )
   }
 

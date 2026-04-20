@@ -29,7 +29,7 @@ This plan is the first capability that makes touch-code **aware** of what its Pa
 - [x] M4c — 11-step app-shell wiring via `C6AppBootstrap` + `HookConfigStoreAdapter` + end-to-end integration tests — 2026-04-20. Hierarchy-event subscription step (6) deferred until `HierarchyManager` exposes a stream; Panel add/remove mid-session requires explicit `registry.create/destroy` calls.
 - [ ] M5 — InboxSidebar SwiftUI surface (320pt, filter chips, swipe-dismiss, deeplink-on-click) + Settings toggles
 - [ ] M6a — Bundled JSON defaults + `DefaultRules.installIfMissing(at:)` + Stop-hook shim scripts at `touch-code-skill/shims/` — 2026-04-20
-- [ ] M6b — `AgentDetectionRules` round-trip test on `DefaultRules.json` + `coordinator.reloadRules()` app-internal wiring — blocked on M1b/M2 (`tc notifications rules reload` CLI verb deferred to follow-up PR on 0003 per DEC-P4)
+- [x] M6b — `AgentDetectionRules` round-trip test on `DefaultRules.json` + `coordinator.reloadRules()` app-internal wiring — 2026-04-20 (`tc notifications rules reload` CLI verb still deferred to follow-up PR on 0003 per DEC-P4).
 - [ ] M7 — Integration tests (mock HookDispatcher, mock UNUserNotificationCenter, fake Clock) + end-to-end flow asserting a sentinel match transitions a tracker and surfaces all three sinks
 
 ## Surprises & Discoveries
@@ -118,7 +118,22 @@ Verification: 29 tests in 5 suites green.
 
 **Shipped in M4c commits:**
 - `fde8365` — refactor: drop shim, adopt C3 M2 APIs, tracker deinit cancel.
-- (next) — feat: C6AppBootstrap + integration tests + plan updates.
+- `49e2fef` — feat: C6AppBootstrap + integration tests + plan updates.
+
+### M4c review follow-up + M6b (2026-04-20)
+
+**Review follow-up:**
+- Strengthened `startRunsRestartTimePermissionSweepPerPanel` — harness now seeds a Catalog with 2 agent-labelled Panels before `start()` so step 5 creates two trackers and step 10 yields exactly two `presentPromptCalls`. The prior assertion was tautological against an empty catalog.
+- `C6AppBootstrap.deinit` no longer touches the MainActor-only `bindTask` (Swift 6 forbids it); explicit `shutdown()` is the only supported teardown path and the doc comment now says so. Removed vestigial `makeForTesting(...)` reference. `bindTask` capture gets a one-liner explaining the value-capture intent.
+
+**M6b:**
+- Added `DetectionRouter.setRules(_:renderer:)` — swap the in-memory rule table atomically. In-flight transitions keep their captured rule.
+- Added `NotificationCoordinator.reloadRules()` (synchronous — `RuleStore.reloadAndRematerialise` is `throws`, not `async`). Requires `ruleStore` + `router` dependencies (injected via init or `attach(ruleStore:router:)`). When absent, logs `.warning` and no-ops.
+- `C6AppBootstrap.start(...)` now injects both dependencies into the coordinator so the reload path works end-to-end out of the box.
+- `DefaultRulesRoundTripTests` (4 tests) — decodes `DefaultRules.json` through `AgentDetectionRules`, re-encodes, decodes again, asserts equality; checks version + idle threshold + agents set + `panelOutputMatch`-rule invariants; verifies every template is accepted by `TemplateRenderer` init (catches unknown field paths in the bundled JSON).
+- `reloadRulesSwapsRouterTableAndRematerialisesHooksJson` integration test — writes a custom single-rule `detection-rules.json`, calls `coordinator.reloadRules()`, asserts (a) stale rule IDs no longer fire, (b) new rule fires as expected, (c) `hooks.json` on disk has been rewritten with exactly the new sentinel-prefixed subscription.
+
+**Verification:** `xcodebuild test -scheme touch-code` → 154 tests / 25 suites green. `make mac-lint` clean.
 
 ### M4a.1 — shared BrokenFileBackup helper (2026-04-20, commit d58f419)
 

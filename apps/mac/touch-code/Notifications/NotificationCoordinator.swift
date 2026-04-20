@@ -26,6 +26,8 @@ final class NotificationCoordinator {
   private let settings: SettingsStore
   private let registry: TrackerRegistry
   private let permissionDelegate: any NotificationPermissionDelegate
+  private weak var ruleStore: RuleStore?
+  private weak var router: DetectionRouter?
   private let logger = Logger(subsystem: "com.touch-code.notifications", category: "coordinator")
 
   /// Panels we have already walked through the permission-prompt branch
@@ -39,7 +41,9 @@ final class NotificationCoordinator {
     osNotifier: any OSNotifier,
     settings: SettingsStore,
     registry: TrackerRegistry,
-    permissionDelegate: any NotificationPermissionDelegate
+    permissionDelegate: any NotificationPermissionDelegate,
+    ruleStore: RuleStore? = nil,
+    router: DetectionRouter? = nil
   ) {
     self.inbox = inbox
     self.badger = badger
@@ -47,6 +51,17 @@ final class NotificationCoordinator {
     self.settings = settings
     self.registry = registry
     self.permissionDelegate = permissionDelegate
+    self.ruleStore = ruleStore
+    self.router = router
+  }
+
+  /// Wire the rule-reload dependencies after construction. `C6AppBootstrap`
+  /// creates the coordinator in step 9 and the router+ruleStore are
+  /// already available by then — this setter lets the bootstrap inject
+  /// them without coordinating a five-argument init across every test.
+  func attach(ruleStore: RuleStore, router: DetectionRouter) {
+    self.ruleStore = ruleStore
+    self.router = router
   }
 
   // MARK: - Binding
@@ -170,6 +185,33 @@ final class NotificationCoordinator {
   func refreshAuthorizationStatus() async {
     let status = await osNotifier.currentAuthorizationStatus()
     settings.mutate { $0.notifications.authStatus = Self.cache(from: status) }
+  }
+
+  // MARK: - Rule reload
+
+  /// App-internal entry for the design-doc `reloadRules` verb (DEC-P4).
+  /// Re-reads `detection-rules.json`, re-materialises the sentinel
+  /// subscriptions into `hooks.json` via `RuleStore.reloadAndRematerialise`,
+  /// and swaps the router's in-memory rule table. In-flight transitions
+  /// keep their captured rule; post-swap envelopes resolve against the
+  /// new set.
+  ///
+  /// Requires `ruleStore` + `router` dependencies (injected via init or
+  /// `attach(ruleStore:router:)`). When either is missing — e.g. in
+  /// lightweight unit-test harnesses — the call logs and returns without
+  /// error.
+  ///
+  /// The `tc notifications rules reload` CLI verb (DEC-P4) will wire
+  /// into this method once plan 0003's CLI follow-up lands.
+  func reloadRules() throws {
+    guard let ruleStore, let router else {
+      logger.warning("reloadRules called without ruleStore/router dependencies; no-op.")
+      return
+    }
+    let newRules = try ruleStore.reloadAndRematerialise()
+    let newRenderer = try TemplateRenderer(rules: newRules)
+    router.setRules(newRules, renderer: newRenderer)
+    logger.info("Reloaded \(newRules.rules.count) detection rule(s).")
   }
 
   private static func cache(from status: AuthorizationStatus) -> AuthorizationStatusCache {
