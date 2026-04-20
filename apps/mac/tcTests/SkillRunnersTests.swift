@@ -99,6 +99,30 @@ struct SkillRunnersTests {
   }
 
   @Test
+  func piInstallForwardsPiStdoutAlongsideSuccessBanner() throws {
+    let spawner = NoopSpawner(
+      whichResult: "/usr/local/bin/pi",
+      runOutcome: ProcessOutcome(
+        exitCode: 0,
+        stdout: "Cloning into cache...\nResolving deps...\n",
+        stderr: ""
+      )
+    )
+    let runner = InstallRunner(
+      installer: Self.installer(),
+      config: Self.config(),
+      spawner: spawner,
+      enforceHomeScope: false
+    )
+    let outcome = runner.run(InstallRunner.Inputs(agent: .pi))
+    #expect(outcome.exitCode == 0)
+    // pi's stdout must be visible to the caller, not swallowed.
+    #expect(outcome.stdout.contains("Cloning into cache"))
+    #expect(outcome.stdout.contains("Resolving deps"))
+    #expect(outcome.stdout.contains("installed via pi"))
+  }
+
+  @Test
   func piInstallForwardsPiExitCodeAndCapturesInvocation() throws {
     let spawner = NoopSpawner(whichResult: "/usr/local/bin/pi", runOutcome: ProcessOutcome(exitCode: 0, stdout: "", stderr: ""))
     let runner = InstallRunner(
@@ -307,6 +331,10 @@ struct SkillRunnersTests {
 /// Minimal `ProcessSpawner` stub for runner tests. Records every `run` invocation and
 /// returns `runOutcome` (default: exit 0, empty streams). `whichResult` controls the
 /// return value of `locateBinary`.
+///
+/// `@unchecked Sendable` without a lock is deliberate: Swift Testing drives each test
+/// sequentially on a single task; the recorded-calls array is never touched concurrently.
+/// If parallel execution is enabled in the future, add a lock back here.
 final class NoopSpawner: ProcessSpawner, @unchecked Sendable {
   struct Call: Equatable {
     let executable: String
@@ -314,8 +342,7 @@ final class NoopSpawner: ProcessSpawner, @unchecked Sendable {
   }
   private let whichResult: String?
   private let runOutcome: ProcessOutcome
-  private let lock = NSLock()
-  private var _calls: [Call] = []
+  private(set) var recordedCalls: [Call] = []
 
   init(
     whichResult: String? = "/usr/local/bin/pi",
@@ -323,11 +350,6 @@ final class NoopSpawner: ProcessSpawner, @unchecked Sendable {
   ) {
     self.whichResult = whichResult
     self.runOutcome = runOutcome
-  }
-
-  var recordedCalls: [Call] {
-    lock.lock(); defer { lock.unlock() }
-    return _calls
   }
 
   func locateBinary(named name: String) throws -> String? {
@@ -339,9 +361,7 @@ final class NoopSpawner: ProcessSpawner, @unchecked Sendable {
     arguments: [String],
     environment: [String: String]?
   ) throws -> ProcessOutcome {
-    lock.lock()
-    _calls.append(Call(executable: executable, arguments: arguments))
-    lock.unlock()
+    recordedCalls.append(Call(executable: executable, arguments: arguments))
     return runOutcome
   }
 }

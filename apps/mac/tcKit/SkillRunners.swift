@@ -257,13 +257,23 @@ public struct InstallRunner {
         stderr: outcome.stderr
       )
     }
-    let human = outcome.exitCode == 0
-      ? "touch-code: installed via pi (mirror \(mirrorURL))\n"
-      : "pi install failed (exit \(outcome.exitCode))\n"
+    // Forward pi's own stdout (progress, summary) and trailing-append our success or
+    // failure line. On failure we also route the banner to stderr so CI pipelines pick
+    // it up in the error stream.
+    let piStdout = outcome.stdout
+    if outcome.exitCode == 0 {
+      let banner = "touch-code: installed via pi (mirror \(mirrorURL))\n"
+      return RunnerOutcome(
+        exitCode: 0,
+        stdout: piStdout + banner,
+        stderr: outcome.stderr
+      )
+    }
+    let banner = "pi install failed (exit \(outcome.exitCode))\n"
     return RunnerOutcome(
       exitCode: outcome.exitCode,
-      stdout: outcome.exitCode == 0 ? human : "",
-      stderr: outcome.exitCode == 0 ? outcome.stderr : human + outcome.stderr
+      stdout: piStdout,
+      stderr: outcome.stderr + banner
     )
   }
 }
@@ -383,7 +393,7 @@ public struct StatusRunner {
         return Row(
           agent: agent.rawValue,
           installed: marker.version,
-          installMode: marker.source.rawValue,
+          installMode: marker.publicInstallMode,
           path: url.path,
           managedByPi: false
         )
@@ -448,23 +458,32 @@ public struct StatusRunner {
   }
 
   private func renderTable(bundleVersion: String, rows: [Row]) -> String {
-    var lines = ["Agent         Installed     Bundled    Mode         Path"]
+    let header = pad("Agent", 13)
+      + " " + pad("Installed", 14)
+      + " " + pad("Bundled", 10)
+      + " " + pad("Mode", 12)
+      + " " + "Path"
+    var lines = [header]
     for row in rows {
       let installedCol = row.installed.map { $0 + (row.managedByPi ? " (pi)" : "") } ?? "-"
       let modeCol = row.installMode ?? "-"
       let pathCol = row.path ?? "-"
       lines.append(
-        String(
-          format: "%-13s %-14s %-10s %-12s %@",
-          (row.agent as NSString).utf8String!,
-          (installedCol as NSString).utf8String!,
-          (bundleVersion as NSString).utf8String!,
-          (modeCol as NSString).utf8String!,
-          pathCol
-        )
+        pad(row.agent, 13)
+          + " " + pad(installedCol, 14)
+          + " " + pad(bundleVersion, 10)
+          + " " + pad(modeCol, 12)
+          + " " + pathCol
       )
     }
     return lines.joined(separator: "\n") + "\n"
+  }
+
+  /// Width-aware padding using Swift's display-column model. Avoids the byte-count
+  /// mis-alignment that `%-Ns` introduces for multibyte names.
+  private func pad(_ text: String, _ width: Int) -> String {
+    if text.count >= width { return text }
+    return text.padding(toLength: width, withPad: " ", startingAt: 0)
   }
 }
 

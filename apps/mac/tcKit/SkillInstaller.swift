@@ -79,6 +79,19 @@ public enum InstallError: Error, Equatable, Sendable {
   case versionFileMissing(URL)
 }
 
+extension InstalledSkillMarker {
+  /// Public-API string for the `installMode` field of `tc skill status --json` and
+  /// `tc skill install --json` (DEC-12). Filters to the *public* install-mode vocabulary;
+  /// if a future private marker mode (e.g. `.tracked` used only for reporting) is added
+  /// to `InstallMode`, it is gated here rather than leaking through `source.rawValue`.
+  public var publicInstallMode: String? {
+    switch source {
+    case .copy:    return "copy"
+    case .symlink: return "symlink"
+    }
+  }
+}
+
 extension InstallError: LocalizedError {
   public var errorDescription: String? {
     switch self {
