@@ -86,28 +86,31 @@ struct GitViewerView: View {
     .frame(maxWidth: 260)
   }
 
+  /// Layout is derived directly from `state.scope` — which updates synchronously inside the
+  /// reducer's `.commitSelected` branch — so the column count snaps on intent (user clicked a
+  /// commit) rather than waiting for the diff to finish loading. 0005 M4a.1 review item 3.
   @ViewBuilder
   private var bodyColumns: some View {
     switch store.state.scope {
     case .log:
-      if case .commit = store.state.diffState.asLoadedCommitScope {
-        // Three columns: log → files → diff.
-        HStack(spacing: 0) {
-          CommitLogView(store: store).frame(minWidth: 220, idealWidth: 240)
-          Divider()
-          FileChangeListView(store: store).frame(minWidth: 220, idealWidth: 260)
-          Divider()
-          UnifiedDiffView(store: store).frame(maxWidth: .infinity)
-        }
-      } else {
-        // Two columns: log + preview placeholder. Preview populates when a commit is selected.
-        HStack(spacing: 0) {
-          CommitLogView(store: store).frame(minWidth: 240)
-          Divider()
-          commitPreviewPlaceholder.frame(maxWidth: .infinity)
-        }
+      // Log scope, no commit picked yet: log list on the left, preview placeholder on the
+      // right. User sees the log immediately on scope switch.
+      HStack(spacing: 0) {
+        CommitLogView(store: store).frame(minWidth: 240)
+        Divider()
+        commitPreviewPlaceholder.frame(maxWidth: .infinity)
       }
-    case .working, .staged, .commit:
+    case .commit:
+      // Commit picked — derived from scope, not from diffState. Three columns appear the
+      // moment the user clicks a commit; the diff loads into the right column.
+      HStack(spacing: 0) {
+        CommitLogView(store: store).frame(minWidth: 220, idealWidth: 240)
+        Divider()
+        FileChangeListView(store: store).frame(minWidth: 220, idealWidth: 260)
+        Divider()
+        UnifiedDiffView(store: store).frame(maxWidth: .infinity)
+      }
+    case .working, .staged:
       HStack(spacing: 0) {
         FileChangeListView(store: store).frame(minWidth: 220, idealWidth: 280)
         Divider()
@@ -166,19 +169,6 @@ private enum ScopeSelection: Hashable {
     case .staged: return .staged
     case .log: return .log
     }
-  }
-}
-
-// MARK: - Diff-state shape helpers
-
-extension GitViewerFeature.DiffState {
-  /// Convenience: returns `.commit(sha:)` when a commit diff has loaded (used to decide the
-  /// three-column layout during log scope).
-  var asLoadedCommitScope: DiffScope? {
-    if case .loaded(let diff) = self, case .commit = diff.scope {
-      return diff.scope
-    }
-    return nil
   }
 }
 

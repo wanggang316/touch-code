@@ -38,28 +38,31 @@ nonisolated enum GitCommand {
 
   /// `git diff` / `git diff --cached` / `git show <sha>` argv. For `.commit`, the SHA is
   /// followed by `--` to close the SHA/path ambiguity per git's documented argv grammar.
+  ///
+  /// Correctness note: every flag (`-w`, `-M`, `-C`, `-U3`, `--cached`) must precede the
+  /// `--` separator. Tokens after `--` are interpreted as pathspec — a bug in the first
+  /// M4a cut of this file placed `-w` after `--` for `.commit`, silently creating a path
+  /// filter named `-w` instead of enabling ignore-whitespace. See 0005 DEC-19.
   static func diff(kind: DiffKind, ignoreWhitespace: Bool = false) -> [String] {
-    let base: [String]
+    var args: [String] = ["-c", "core.quotePath=false"]
+    let whitespaceFlags: [String] = ignoreWhitespace ? ["-w"] : []
+
     switch kind {
     case .workingTree:
-      base = [
-        "-c", "core.quotePath=false",
-        "diff", "--no-color", "--no-ext-diff", "-M", "-C", "-U3",
-      ]
+      args += ["diff", "--no-color", "--no-ext-diff", "-M", "-C", "-U3"]
+      args += whitespaceFlags
     case .staged:
-      base = [
-        "-c", "core.quotePath=false",
-        "diff", "--no-color", "--no-ext-diff", "-M", "-C", "-U3", "--cached",
-      ]
+      args += ["diff", "--no-color", "--no-ext-diff", "-M", "-C", "-U3", "--cached"]
+      args += whitespaceFlags
     case .commit(let sha):
       // `git show` emits the unified-diff stream; `--format=` drops the commit header the
-      // caller already has via log. Trailing `--` disambiguates SHA from path.
-      base = [
-        "-c", "core.quotePath=false",
-        "show", "--no-color", "--no-ext-diff", "-M", "-C", "-U3", "--format=", sha, "--",
-      ]
+      // caller already has via log. `-w` (when set) lands BEFORE the SHA + `--` trailer —
+      // git treats anything after `--` as pathspec.
+      args += ["show", "--no-color", "--no-ext-diff", "-M", "-C", "-U3", "--format="]
+      args += whitespaceFlags
+      args += [sha, "--"]
     }
-    return ignoreWhitespace ? base + ["-w"] : base
+    return args
   }
 
   static func status() -> [String] {
