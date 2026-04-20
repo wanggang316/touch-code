@@ -54,14 +54,12 @@ final class AgentStateTracker {
   var transitions: AsyncStream<AgentStateTransition> { stream }
 
   deinit {
-    // The stream's continuation is nonisolated — finish it unconditionally.
-    // The idleTimerTask is MainActor-isolated; finishing the continuation
-    // sends the AsyncStream to completion, but we cannot touch
-    // `idleTimerTask` from a nonisolated deinit. Callers who care about
-    // prompt timer cancellation call `teardown()` explicitly — for pure
-    // garbage-collection drop-out, the pending Task.sleep harmlessly
-    // observes Task.isCancelled on its next wake (Task holds no strong
-    // reference to `self`).
+    // `Task.cancel()` is safe from any context (Task is Sendable), and
+    // `idleTimerTask` is stored `nonisolated(unsafe)` precisely so this
+    // nonisolated deinit can cancel the pending sleep without hopping to
+    // the MainActor. Cancellation plus `continuation.finish()` releases
+    // both the timer and any stream consumer immediately on drop-out.
+    idleTimerTask?.cancel()
     continuation.finish()
   }
 
