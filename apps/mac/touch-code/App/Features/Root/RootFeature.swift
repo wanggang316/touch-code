@@ -44,9 +44,15 @@ struct RootFeature {
 
     var sidebar: HierarchySidebarFeature.State = .init()
     /// Reserved for T2 bell-popover reuse; no current dispatch site after T0.
-    /// T2 must either reuse or remove. `InboxSidebarFeature` keeps reducing
-    /// so C6 notification state stays observable; the sidebar-mode Picker
-    /// that used to render it was deleted in T0.
+    /// T2 must either reuse or remove.
+    ///
+    /// NOTE: state.inbox is NOT hydrated after T0 — the `.onAppear`
+    /// subscription starter previously relied on InboxSidebarView being
+    /// rendered, which is no longer the case. The underlying on-disk inbox
+    /// (InboxStore) continues to receive writes; consumers that need live
+    /// unread state should either dispatch `.inbox(.onAppear)` themselves
+    /// or query `NotificationInbox` aggregation helpers directly from a
+    /// snapshot.
     var inbox: InboxSidebarFeature.State = .init()
     var detail: WorktreeDetailFeature.State = .init()
     /// C7 M3/M4 (0005): read-only git viewer hosted in the trailing
