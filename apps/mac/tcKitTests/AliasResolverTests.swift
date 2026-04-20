@@ -7,6 +7,13 @@ import TouchCodeIPC
 
 @MainActor
 struct AliasResolverTests {
+  /// Sentinel thrown by the test helper below when the resolver
+  /// evaluates the autoclosure. The UUID and context-env paths must not
+  /// dial the client; if they do, this error escapes and the test
+  /// fails loudly instead of racing against a real RPCClient
+  /// construction.
+  struct ResolverShouldNotDialClient: Swift.Error, Equatable {}
+
   @Test
   func uuidValueIsFastPathNoRPC() async throws {
     let uuid = UUID()
@@ -14,7 +21,7 @@ struct AliasResolverTests {
       uuid.uuidString,
       kind: .panel,
       env: [:],
-      client: neverCalled()
+      client: Self.failingClient()
     )
     #expect(resolved == uuid)
   }
@@ -26,7 +33,7 @@ struct AliasResolverTests {
       "current",
       kind: .panel,
       env: ["TOUCH_CODE_PANEL_ID": uuid.uuidString],
-      client: neverCalled()
+      client: Self.failingClient()
     )
     #expect(resolved == uuid)
   }
@@ -38,7 +45,7 @@ struct AliasResolverTests {
       ".",
       kind: .space,
       env: ["TOUCH_CODE_SPACE_ID": uuid.uuidString],
-      client: neverCalled()
+      client: Self.failingClient()
     )
     #expect(resolved == uuid)
   }
@@ -50,7 +57,7 @@ struct AliasResolverTests {
         "current",
         kind: .worktree,
         env: [:],
-        client: neverCalled()
+        client: Self.failingClient()
       )
       Issue.record("expected .noContext")
     } catch AliasResolver.Error.noContext(let kind) {
@@ -87,10 +94,10 @@ struct AliasResolverTests {
     #expect(resolved == targetID)
   }
 
-  // Helper — the UUID and context-env paths must not need a client.
-  private func neverCalled() throws -> RPCClient {
-    Issue.record("RPCClient was dialed when it should not have been")
-    let transport = InMemoryTransport()
-    return RPCClient(transport: transport, versions: .init(clientVersion: "0.3.0"))
+  /// Throws `ResolverShouldNotDialClient` when evaluated. Wrapped by
+  /// the autoclosure at the call site, so this body runs only if the
+  /// resolver actually dials.
+  private static func failingClient() throws -> RPCClient {
+    throw ResolverShouldNotDialClient()
   }
 }

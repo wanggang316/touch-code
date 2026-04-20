@@ -18,6 +18,25 @@ final class HierarchyHandlers {
     self.manager = manager
   }
 
+  // MARK: - Error mapping
+
+  /// Funnel every mutation catch through here so `HierarchyError` maps
+  /// to the right `IPCError` variant (and therefore the right
+  /// `CLIExitCode` per DEC-8) — previously every catch hardcoded
+  /// `.notFound`, which masked conflict / invariant-violation cases
+  /// behind exit code 2.
+  private func failure(for error: Error, fallbackKind: String, fallbackID: String) -> RouterOutcome {
+    if let h = error as? HierarchyError {
+      switch h {
+      case .notFound(let message):
+        return .failed(.notFound(kind: fallbackKind, id: fallbackID.isEmpty ? message : fallbackID))
+      case .invariantViolation(let message):
+        return .failed(.conflict(reason: message))
+      }
+    }
+    return .failed(.internal("\(error)"))
+  }
+
   // MARK: - Reads
 
   public func listSpaces(_ params: JSONValue) async -> RouterOutcome {
@@ -31,12 +50,15 @@ final class HierarchyHandlers {
 
   public func describeSpace(_ params: JSONValue) async -> RouterOutcome {
     await Task.yield()
-    struct Params: Codable { let id: SpaceID }
-    let req = (try? params.decoded(as: Params.self))
-    guard let space = manager.catalog.spaces.first(where: {
-      req.map { $0.id == $0.id } ?? false && $0.id == req?.id
-    }) ?? manager.catalog.spaces.first(where: { $0.id == req?.id }) else {
-      return .failed(.notFound(kind: "space", id: req?.id.description ?? ""))
+    struct Params: Codable, Sendable { let id: SpaceID }
+    let req: Params
+    do {
+      req = try params.decoded(as: Params.self)
+    } catch {
+      return .failed(.invalidParams(message: "describeSpace requires {id}", path: nil))
+    }
+    guard let space = manager.catalog.spaces.first(where: { $0.id == req.id }) else {
+      return .failed(.notFound(kind: "space", id: req.id.description))
     }
     do {
       return .unary(try JSONValue.encoded(space))
@@ -153,7 +175,7 @@ final class HierarchyHandlers {
       try apply(req.id)
       return .unary(.object([:]))
     } catch {
-      return .failed(.notFound(kind: "entity", id: req.id.uuidString))
+      return failure(for: error, fallbackKind: "entity", fallbackID: req.id.uuidString)
     }
   }
 
@@ -180,7 +202,7 @@ final class HierarchyHandlers {
       )
       return .unary(try JSONValue.encoded(ProjectIDPayload(id: id)))
     } catch {
-      return .failed(.notFound(kind: "space", id: req.spaceID.description))
+      return failure(for: error, fallbackKind: "space", fallbackID: req.spaceID.description)
     }
   }
 
@@ -209,7 +231,7 @@ final class HierarchyHandlers {
       )
       return .unary(try JSONValue.encoded(WorktreeIDPayload(id: id)))
     } catch {
-      return .failed(.notFound(kind: "project", id: req.projectID.description))
+      return failure(for: error, fallbackKind: "project", fallbackID: req.projectID.description)
     }
   }
 
@@ -236,7 +258,7 @@ final class HierarchyHandlers {
       )
       return .unary(try JSONValue.encoded(TabIDPayload(id: id)))
     } catch {
-      return .failed(.notFound(kind: "worktree", id: req.worktreeID.description))
+      return failure(for: error, fallbackKind: "worktree", fallbackID: req.worktreeID.description)
     }
   }
 
@@ -267,11 +289,19 @@ final class HierarchyHandlers {
         initialCommand: req.initialCommand
       )
       if !req.labels.isEmpty {
-        try? manager.setPanelLabels(id, labels: Set(req.labels), replace: true)
+        // Propagate label-apply failure rather than silently dropping —
+        // a caller passing labels on create expects them to stick, and
+        // .unsupported / .conflict gives the CLI an actionable error
+        // through CLIExitCode.from(_:).
+        do {
+          try manager.setPanelLabels(id, labels: Set(req.labels), replace: true)
+        } catch {
+          return .failed(.internal("panel created (id=\(id)) but setPanelLabels failed: \(error)"))
+        }
       }
       return .unary(try JSONValue.encoded(PanelIDPayload(id: id)))
     } catch {
-      return .failed(.notFound(kind: "tab", id: req.tabID.description))
+      return failure(for: error, fallbackKind: "tab", fallbackID: req.tabID.description)
     }
   }
 
@@ -292,7 +322,7 @@ final class HierarchyHandlers {
       try manager.setPanelLabels(req.id, labels: Set(req.labels), replace: req.replace)
       return .unary(.object([:]))
     } catch {
-      return .failed(.notFound(kind: "panel", id: req.id.description))
+      return failure(for: error, fallbackKind: "panel", fallbackID: req.id.description)
     }
   }
 }
