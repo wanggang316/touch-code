@@ -200,6 +200,46 @@ struct NotificationCoordinatorTests {
     #expect(harness.settings.settings.notifications.authStatus == .denied)
   }
 
+  /// Cool-down expiry: `.notNow` sets `notNowUntil` 24h in the future; once
+  /// that timestamp has passed, the *next* agent-panel creation must
+  /// re-prompt. We simulate time passing by stamping `notNowUntil` into the
+  /// past and firing the creation again on a fresh PanelID.
+  @Test
+  func coolDownExpiryAllowsRepromptOnNextPanelCreation() async throws {
+    let harness = Self.make(authStatus: .notDetermined, decision: .notNow)
+    await harness.coordinator.onAgentPanelCreated(PanelID())
+    #expect(harness.mockDelegate.presentPromptCalls == 1)
+    #expect(harness.settings.settings.notifications.notNowUntil != nil)
+
+    // Advance the clock past the cool-down.
+    harness.settings.mutate {
+      $0.notifications.notNowUntil = Date().addingTimeInterval(-1)
+    }
+
+    await harness.coordinator.onAgentPanelCreated(PanelID())
+    #expect(harness.mockDelegate.presentPromptCalls == 2)
+  }
+
+  /// Post-denial recovery: the cache is `.denied`, the user flips to
+  /// `.authorized` in System Settings, `refreshAuthorizationStatus` picks
+  /// up the change, and the next router transition posts to the OS.
+  @Test
+  func postDenialRecoveryPostsAfterExternalFlip() async throws {
+    let harness = Self.make(authStatus: .denied)
+    harness.mockNotifier.currentStatus = .authorized
+    await harness.coordinator.refreshAuthorizationStatus()
+    #expect(harness.settings.settings.notifications.authStatus == .authorized)
+
+    await harness.feed(.init(
+      transition: Self.transition(to: .completed, trigger: .rule(id: "rule")),
+      agent: "claude",
+      title: "done",
+      body: "",
+      kind: .completed
+    ))
+    #expect(harness.mockNotifier.postedNotifications.count == 1)
+  }
+
   /// TOCTOU close-out: if the auth cache flips to `.authorized` while the
   /// pre-prompt sheet is showing (e.g. user grants in System Settings and
   /// `applicationDidBecomeActive` fires a refresh), the coordinator must
