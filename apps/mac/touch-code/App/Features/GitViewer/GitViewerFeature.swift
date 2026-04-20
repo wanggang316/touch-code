@@ -35,6 +35,21 @@ struct GitViewerFeature {
 
     /// Latest editor-open outcome. Surfaced by the view as a toast in M4b.
     var lastEditorResult: EditorResultMarker?
+
+    /// Client-side file-name filter applied to the files list. Empty string = no filter.
+    /// Views substring-match case-insensitively against `FileChange.id`.
+    var fileFilter: String = ""
+
+    /// Monotonic nonce incremented whenever the reducer observes
+    /// `.filterFocusRequested` (i.e. the user pressed `/`). The filter TextField's
+    /// `@FocusState` observes this via `.onChange` to shift focus. The value itself is
+    /// meaningless; only changes matter.
+    var filterFocusToken: Int = 0
+
+    /// Cached worktree path — populated alongside `worktreeID` so views can render the
+    /// `cd '<abs-path>' && git …` Copy command from the large-diff placeholder without
+    /// reaching back into `HierarchyClient.snapshot()`.
+    var worktreePathHint: String?
   }
 
   enum LogState: Equatable {
@@ -86,6 +101,11 @@ struct GitViewerFeature {
     case openInEditorRequested
     case editorOpened(editorID: EditorID)
     case editorOpenFailed(reason: String)
+
+    /// User typed in the file-name filter TextField.
+    case filterChanged(String)
+    /// User pressed `/` — view observes the updated `filterFocusToken` and pulls focus.
+    case filterFocusRequested
   }
 
   nonisolated enum CancelID: Sendable { case log, diff }
@@ -108,6 +128,14 @@ struct GitViewerFeature {
         state.diffState = .idle
         state.selectedFilePath = nil
         state.focus = .list
+        state.fileFilter = ""
+        // Cache the worktree path so the large-diff placeholder can render the Copy command
+        // without a separate snapshot probe. Nil path clears the hint.
+        if let worktreeID {
+          state.worktreePathHint = Self.worktreePath(in: hierarchyClient.snapshot(), worktreeID: worktreeID)
+        } else {
+          state.worktreePathHint = nil
+        }
         if worktreeID == nil {
           return .merge(.cancel(id: CancelID.log), .cancel(id: CancelID.diff))
         }
@@ -211,6 +239,16 @@ struct GitViewerFeature {
 
       case .editorOpenFailed(let reason):
         state.lastEditorResult = .failed(reason: reason)
+        return .none
+
+      case .filterChanged(let s):
+        state.fileFilter = s
+        return .none
+
+      case .filterFocusRequested:
+        // Monotonic nonce; view observes the change and shifts focus to the TextField.
+        // Overflow is impossible in practice (would need 2^63 key presses in one session).
+        state.filterFocusToken = state.filterFocusToken &+ 1
         return .none
       }
     }

@@ -11,7 +11,14 @@ struct UnifiedDiffView: View {
 
   var body: some View {
     switch store.diffState {
-    case .idle, .loading, .error:
+    case .idle, .loading:
+      placeholder
+    case .error(.diffTooLarge):
+      LargeDiffPlaceholderView(
+        scope: store.state.scope,
+        worktreePath: store.worktreePathHint
+      )
+    case .error:
       placeholder
     case .loaded(let diff):
       if let selected = store.selectedFilePath,

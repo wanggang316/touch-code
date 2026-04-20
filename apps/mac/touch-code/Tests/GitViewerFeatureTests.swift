@@ -117,6 +117,7 @@ struct GitViewerFeatureTests {
     await store.send(.worktreeSelected(projectID: Self.sampleProjectID, worktreeID: Self.sampleWorktreeID)) {
       $0.projectID = Self.sampleProjectID
       $0.worktreeID = Self.sampleWorktreeID
+      $0.worktreePathHint = Self.samplePath
       $0.diffState = .loading
     }
     await store.receive(\.diffSucceeded) {

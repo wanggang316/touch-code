@@ -156,7 +156,10 @@ let project = Project(
       deploymentTargets: .macOS("14.0"),
       infoPlist: .default,
       buildableFolders: ["touch-code/Tests"],
-      dependencies: [.target(name: "touch-code")],
+      dependencies: [
+        .target(name: "touch-code"),
+        .external(name: "SnapshotTesting"),
+      ],
       settings: .settings(
         base: [
           "CODE_SIGNING_ALLOWED": "NO",

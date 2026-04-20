@@ -13,14 +13,13 @@ import TouchCodeCore
 /// - `r`      — refreshRequested                   (unmodified only)
 /// - `1`/`2`/`3` — scopeChanged(.working / .staged / .log)   (unmodified only)
 /// - `.`      — whitespaceToggled                  (unmodified only)
+/// - `/`      — filterFocusRequested                (unmodified only; pulls focus into
+///                                                   FileChangeListView's filter field)
 ///
 /// Every unmodified binding guards against `Cmd-X` / `Control-X` / `Option-X` via
 /// `press.modifiers.isEmpty` so standard macOS shortcuts (Cmd-R reload, Cmd-1 tab switch,
 /// Cmd-. cancel) pass through. `g` is the only exception: `Shift-G` is part of its
 /// contract; other modifier combinations return `.ignored`.
-///
-/// `/` (file-name filter focus) is **deferred to M4b** alongside the filter TextField —
-/// there is no filter UI yet to focus.
 struct GitViewerKeybindings: ViewModifier {
   @Bindable var store: StoreOf<GitViewerFeature>
 
@@ -70,6 +69,11 @@ struct GitViewerKeybindings: ViewModifier {
       .onKeyPress(keys: ["."]) { press in
         guard press.modifiers.isEmpty else { return .ignored }
         store.send(.whitespaceToggled)
+        return .handled
+      }
+      .onKeyPress(keys: ["/"]) { press in
+        guard press.modifiers.isEmpty else { return .ignored }
+        store.send(.filterFocusRequested)
         return .handled
       }
       .onKeyPress(keys: [.tab]) { press in
