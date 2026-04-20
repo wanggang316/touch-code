@@ -1,65 +1,65 @@
-# Mission complete: C5 design doc
+# Mission complete — C6 agent notification design
 
-**Deliverable:** `docs/design-docs/c5-agent-skill.md` (481 lines after review
-pass).
+**Branch:** `worktree-design+c6-agent-notifications`
+**Deliverable:** `docs/design-docs/c6-agent-notifications.md`
 
-## Key decisions (locked in Decisions section)
+## v1 (initial draft, 485 lines)
 
-1. Skill source lives in `touch-code-skill/` subdirectory of this repo; a mirror
-   repo is auto-published on release tag for out-of-app consumption (`pi
-   install git:...`). Resolves product-spec Open Q#2.
-2. Single canonical `SKILL.md` + `references/`; per-agent quirks under
-   `agents/{claude-code,codex,pi}/`. No per-agent forks.
-3. Install paths sourced from `apps/mac/Resources/agents.json` (shipped with
-   the app); claude-code / codex default under their respective skill dirs, pi
-   installs via `pi install git:<mirrorURL>`.
-4. Copy by default (`--link` opt-in for contributors).
-5. Install marker `.touch-code-skill.json` (`version`, `installedAt`,
-   `source`, `bundlePath`, `bundleSha256`) — enables idempotent install,
-   `tc skill status`, clean uninstall, and user-edit detection.
-6. Skill version == `tc` version, always; single tag ships both.
-7. No auto-install on first launch — explicit user action + non-blocking
-   banner when installed version lags bundled.
-8. SKILL.md teaches the `tc` CLI surface only; no Swift, no architecture.
-9. Testing is tiered: unit + skill-vs-`tc --help` roundtrip run on every PR;
-   live per-agent smoke tests gate release tags but do not block C5 on
-   `tc ls` / Panel IPC arriving first.
-10. `tc skill` is the only `tc` subcommand that bypasses IPC (operates on user
-    files, not live app state).
-11. `agents.json` is the single source of truth for per-agent paths and the pi
-    mirror URL; forks override by replacing the file.
-12. Default pi mirror URL: `github.com/wanggang316/touch-code-skill`
-    (placeholder — swap by editing `agents.json`).
-13. `SkillBundleLocator` lives in `apps/mac/tc/`, not `TouchCodeCore` — keeps
-    host-environment code out of the pure-domain target.
+- Drafted the C6 design doc following `_template.md`.
+- Resolved product-spec Open Question #5 (DEC-1): user-configured hook rules + known-binary allowlist (`claude`, `codex`, `aider`) default; no magic detection.
+- Defined the four-state FSM (`running / completed / blockedOnInput / idle`).
+- Specified three surfaces: `UNUserNotificationCenter`, `NSApp.dockTile.badgeLabel`, in-app inbox sidebar.
+- Defined a detection-rule DSL (in `hooks.json#agent_detection`).
+- Initial commit: `ea0daca`.
 
-## Review fixes applied (2026-04-20 second pass)
+## v2 (post-review, 670 lines — aligned with landed C3)
 
-- **Critical-1:** Moved `SkillBundleLocator.swift` from `TouchCodeCore/` to
-  `apps/mac/tc/`; documented the dependency-direction rationale.
-- **Critical-2:** `agents.json` (schema + example) is now the declared source
-  of truth for pi mirror URL and per-agent paths. Default owner pinned to
-  `wanggang316/touch-code-skill` with an `agents.json`-level override path.
-- Added Data Storage section with full schemas for `agents.json` and
-  `.touch-code-skill.json`; scoped the app's launch-time version check as a
-  one-field read with an explicit `InstalledSkillMarker` struct.
-- Added `bundleSha256` to the marker; R3 now points at it.
-- Tiered testing strategy so Tier-A (unit + `tc --help` roundtrip) can ship
-  independently of `tc ls` / Panel IPC.
-- `generate-skill-version.sh` relocated to `apps/mac/scripts/`, wired via
-  `apps/mac/Makefile` as `skill-version`.
-- Nits: `--dest` in usage; clarified pi row in status table; added Swift-level
-  anti-example; softened A6 symlink wording; added API Design / Data Storage
-  template headers.
+C3 landed on sibling branch `origin/worktree-design+c3-c4-hooks-cli` with concrete wire types. v2 fixes the four critical alignment blockers plus the important/nits from review.
 
-## Orthogonality preserved
+### Critical (resolved)
 
-Zero app-side runtime coupling. The only Swift code that touches the skill is
-`SkillInstaller` (pure file ops), `SkillBundleLocator` (path resolver),
-`AgentsConfig` (reads shipped JSON), and `SkillVersionBanner` (reads one
-version field from the marker). No code opens `SKILL.md`. Invariant "Agent
-Skill is consumed, never loaded" holds.
+1. **Schema rebind.** Replaced the fictional `AgentHookEvent` / `structuredPayload` references with C3's concrete `HookEvent`, `HookEnvelope`, `HookEventData`, `HookSubscription`. R9 closed.
+2. **Claude Code Stop bridge.** No `Stop` case in C3's enum. Designed a pty-sentinel bridge (`::touchcode:agent-complete <panel-id>`): the agent's own Stop hook prints the sentinel; C3's `panel.outputMatch` catches it; C6 converts to `Completed`. Shim ships via `touch-code-skill` (C5). Documented in new § Bridging Agent-Internal Signals and locked as DEC-14.
+3. **hooks.json ownership.** C3 owns `hooks.json`. Detection rules moved to C6-owned `~/.config/touch-code/detection-rules.json`; DEC-12. At startup C6 materialises rules into C3 `HookSubscription`s via a new `InternalHookSubscriber` protocol with a `__touch-code/internal:notifications:<rule.id>` sentinel command that the C3 dispatcher routes in-process (no shell fork).
+4. **In-process vs RPC.** C6 consumes `HookDispatcher.internalEventStream()` in-process (AsyncStream); DEC-11. C3's `hook.events` streaming RPC is retained for third-party tools; C6 is not its consumer.
 
-## Next step
+### Important (resolved)
 
-`/hs-planner` when ready to schedule implementation.
+- Added **full FSM transition table** (4 states × 6 input kinds including `rule`, `panel.exited(0)`, `panel.exited(≠0)`, `panel.crashed`, `idleTimer`, `activity`, `userOverride`).
+- **Dropped auto-labelling.** The known-agent list is a rule-template library; detection is user-driven via `tc label <panel> --agent`. Aligns with product-spec Q5 and avoids `aider = python3` argv inspection.
+- **Template filter grammar** now enumerates per-`HookEventData`-case field sets; unknown keys rejected at `DetectionRulesStore.load()`. Filters: `truncate`, `firstLine`, `default`, `upper`, `lower`.
+- **Permission flow** deduplicated into one non-contradictory path: first-run prompt deferred to first agent-Panel creation (DEC-4); launch only re-queries `getNotificationSettings()` and caches status; no automatic prompting.
+- **Dock badge** unified (DEC-13) — counts all unread, non-dismissed notifications regardless of OS mute status, matching the inbox's "Unread" filter.
+
+### Nits (resolved)
+
+- Renamed `Notification` → `AgentNotification` (avoids Foundation collision).
+- `TimeInterval` throughout (aligned with C3's `HookSubscription.timeoutSeconds: Double`); removed `Duration` drift.
+- Persistence routed through `TouchCodeCore/Persistence.swift` + `AtomicFileStore<T>`; dropped the `defaultURL` sugar API.
+- DEC-1 note: the allowlist is a rule-template library; `aider = python3` is explicitly why v2 does not attempt argv-basename detection.
+
+### Commits
+
+- `ea0daca` — v1 initial draft + push.
+- `1f35f4c` — v2 schema alignment (HookEnvelope / FSM table / sentinel bridge / rule relocation).
+
+## v2.1 (tiny follow-up — InternalHookSubscriber direction fix)
+
+C3 v2 DEC-16 landed. C6 v2 had the protocol inverted: it defined
+`InternalHookSubscriber` as a registration API on C3's side. Authoritative
+shape per C3 DEC-16: subscriber is the callback C6 implements
+(`func handle(envelope: HookEnvelope) async`); registration lives on
+`HookDispatcher.register(subscriber:for:) / unregister(prefix:)`.
+
+Realigned:
+- § Consumer contract with C3 — replaced the fictional `registerInternal` /
+  `unregisterInternal` shape with C3's authoritative protocol + the
+  extension methods on `HookDispatcher`. Spelled out the three-step C6
+  startup flow (read rules, write sentinel-prefixed subscriptions to
+  `hooks.json`, register once under the prefix).
+- § Component Boundaries — corrected the exported-protocol line.
+- Dependency-rules bullet — rewrote to describe C6 implementing the
+  protocol, dispatcher providing register/unregister.
+- DEC-12 — tightened to reference C3 DEC-16 rather than re-describing the
+  mechanism.
+- Added **DEC-15** logging the correction from the prior inverted assumption.

@@ -4,18 +4,20 @@ import TouchCodeCore
 
 /// Root SwiftUI host for the TCA shell. Holds the `StoreOf<RootFeature>`
 /// that composes sidebar + detail sub-features (M3 + M4) and presents a
-/// `NavigationSplitView`. The `HierarchyManager` is injected through
-/// `@Environment` so descendant views can read `@Observable` state
-/// directly.
+/// two-column `NavigationSplitView`. The `HierarchyManager` is injected
+/// through `@Environment` so descendant views can read `@Observable`
+/// state directly — TCA state stays focused on selection + transient UI.
 ///
-/// - Leading column: `HierarchySidebarView` or `InboxSidebarPlaceholder`
-///   based on `store.sidebarMode` (DEC-2).
-/// - Detail column: `WorktreeDetailView` (tab bar + split viewport).
-/// - Trailing inspector column: reserved for C7 M3/M4 via DEC-9; hidden by
-///   default, toggled via `store.inspectorVisible`.
+/// Per DEC-2, the leading column swaps between `HierarchySidebarView`
+/// (default) and `InboxSidebarView` (C6 M5) based on `store.sidebarMode`
+/// — instead of a third NavigationSplitView column.
 struct ContentView: View {
   @Bindable var store: StoreOf<RootFeature>
   let hierarchyManager: HierarchyManager
+  /// Held for the view-hierarchy lifetime; M4's `SplitViewportView` will
+  /// read it via ancestor state when looking up `PanelSurface` instances.
+  /// Not observed here.
+  let terminalEngine: TerminalEngine
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
   var body: some View {
@@ -24,42 +26,11 @@ struct ContentView: View {
         .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
         .toolbar {
           ToolbarItem(placement: .primaryAction) {
-            Button {
-              store.send(.newSpaceButtonTapped)
-            } label: {
-              Image(systemName: "plus.circle")
-                .accessibilityLabel("New Space")
-            }
-            .help("New Space")
-          }
-          ToolbarItem(placement: .primaryAction) {
             modeTogglePicker
           }
         }
     } detail: {
-      HStack(spacing: 0) {
-        WorktreeDetailView(
-          store: store.scope(state: \.detail, action: \.detail),
-          selection: store.selection
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        if store.inspectorVisible {
-          Divider()
-          InspectorPlaceholder()
-            .frame(width: 320)
-        }
-      }
-      .toolbar {
-        ToolbarItem(placement: .primaryAction) {
-          Button {
-            store.send(.inspectorVisibilityToggled)
-          } label: {
-            Image(systemName: store.inspectorVisible ? "sidebar.right" : "sidebar.squares.right")
-              .accessibilityLabel(store.inspectorVisible ? "Hide Inspector" : "Show Inspector")
-          }
-          .help("Toggle inspector (reserved for C7)")
-        }
-      }
+      DetailPlaceholder(selection: store.selection, lastEvent: store.lastEvent)
     }
     .environment(hierarchyManager)
     .task {
@@ -68,14 +39,12 @@ struct ContentView: View {
     .onDisappear {
       store.send(.onQuit)
     }
-    .sheet(item: $store.scope(state: \.newSpaceSheet, action: \.newSpaceSheet)) { sheetStore in
-      NewSpaceSheet(store: sheetStore)
-    }
-    .sheet(item: $store.scope(state: \.newTabSheet, action: \.newTabSheet)) { sheetStore in
-      NewTabSheet(store: sheetStore)
-    }
-    .alert($store.scope(state: \.confirmAlert, action: \.confirmAlert))
     .onChange(of: store.selection) { _, _ in
+      // Prune expansion sets when the catalog changes. Using the selection
+      // stream as a coarse "something structural changed" trigger — the
+      // catalog is read synchronously on render, so stale expansion IDs
+      // disappear next layout pass regardless; this just keeps the set
+      // tidy so it doesn't grow unbounded across long sessions.
       let currentSpaceIDs = Set(hierarchyManager.catalog.spaces.map(\.id))
       let currentProjectIDs = Set(
         hierarchyManager.catalog.spaces.flatMap { $0.projects.map(\.id) }
@@ -96,7 +65,9 @@ struct ContentView: View {
         currentSelection: store.selection
       )
     case .inbox:
-      InboxSidebarPlaceholder()
+      InboxSidebarView(
+        store: store.scope(state: \.inbox, action: \.inbox)
+      )
     }
   }
 
@@ -117,25 +88,30 @@ struct ContentView: View {
   }
 }
 
-/// Slot for C7 M3/M4 (git diff / history viewer). Reserved per DEC-9 so
-/// M4 doesn't need state restructuring when C7 arrives.
-private struct InspectorPlaceholder: View {
+/// Placeholder detail — M4 replaces with `WorktreeDetailView`.
+private struct DetailPlaceholder: View {
+  let selection: HierarchySelection
+  let lastEvent: RootFeature.LastEventMarker?
+
   var body: some View {
     VStack(spacing: 12) {
-      Image(systemName: "text.magnifyingglass")
-        .accessibilityHidden(true)
-        .font(.largeTitle)
-        .foregroundStyle(.secondary)
-      Text("Inspector")
-        .font(.headline)
-      Text("Git diff / history viewer will appear here.\nSlot reserved for C7 M3/M4.")
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .multilineTextAlignment(.center)
-      Spacer()
+      if selection.worktreeID == nil {
+        Text("Select a Worktree")
+          .font(.title2)
+          .foregroundStyle(.secondary)
+      } else {
+        Text("Worktree Detail")
+          .font(.title2)
+        Text("Tab bar + split viewport land in M4.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+      if let lastEvent {
+        Text("last engine event: \(String(describing: lastEvent))")
+          .font(.caption.monospaced())
+          .foregroundStyle(.tertiary)
+      }
     }
-    .padding()
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    .background(Color(nsColor: .windowBackgroundColor))
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 }

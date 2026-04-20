@@ -31,6 +31,7 @@ Every exec plan MUST contain:
 ## Completed Plans
 
 - [0007 — TCA Shell](0007-tca-shell.md) — RootFeature + NavigationSplitView + Sidebar/TabBar/SplitView composition + LazyPanelHost lazy-surface lifecycle + creation modals + C6/C7/C8 slots reserved (2026-04-20)
+- [0006 — Agent Notification Aggregation (C6)](0006-agent-notifications.md) — FSM tracker, detection-rule DSL, OS banner + Dock badge + inbox surfaces, TCA InboxSidebar, full C3-dispatcher integration (2026-04-20)
 - [0002 — Terminal Engine and Five-Level Hierarchy (C1 + C2)](0002-terminal-and-hierarchy.md) — domain model, CatalogStore, TerminalEngine, HierarchyManager, GhosttyRuntime + PanelSurface, GitWorktreeCLI; live shell end-to-end (2026-04-20)
 - [0001 — Bootstrap touch-code monorepo](0001-bootstrap-monorepo.md) — Tuist + mise + ghostty submodule + empty mac app + `tc --version` CLI + CI (2026-04-19; GhosttyKit foreignBuild deferred per DEC-8)
 

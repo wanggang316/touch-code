@@ -39,6 +39,7 @@ struct RootFeature {
     var sidebarMode: SidebarMode = .hierarchy
 
     var sidebar: HierarchySidebarFeature.State = .init()
+    var inbox: InboxSidebarFeature.State = .init()
     var detail: WorktreeDetailFeature.State = .init()
 
     /// DEC-9 (M4, 2026-04-20): reserved for C7 M3/M4. `true` shows the
@@ -104,6 +105,7 @@ struct RootFeature {
     case newTabSheet(PresentationAction<NewTabFeature.Action>)
     case confirmAlert(PresentationAction<ConfirmAlertAction>)
     case sidebar(HierarchySidebarFeature.Action)
+    case inbox(InboxSidebarFeature.Action)
     case detail(WorktreeDetailFeature.Action)
   }
 
@@ -122,6 +124,10 @@ struct RootFeature {
     }
     Scope(state: \.detail, action: \.detail) {
       WorktreeDetailFeature()
+    }
+
+    Scope(state: \.inbox, action: \.inbox) {
+      InboxSidebarFeature()
     }
 
     Reduce { state, action in
@@ -174,6 +180,19 @@ struct RootFeature {
         return .none
 
       case .sidebar:
+        return .none
+
+      case .inbox(.deeplinkRequested(let panelID)):
+        // Follow-up: resolve panelID → (space, project, worktree, tab)
+        // via HierarchyClient and dispatch the select chain per the
+        // design sketch's §Deeplink chain. HierarchyClient does not yet
+        // expose a `resolvePanel` helper — this branch is a no-op until
+        // that lands. The inbox row still marks-read (the InboxFeature
+        // reducer handles that before emitting this delegate).
+        _ = panelID
+        return .none
+
+      case .inbox:
         return .none
 
       case .detail:

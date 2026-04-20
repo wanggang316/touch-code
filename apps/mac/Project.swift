@@ -212,6 +212,7 @@ let project = Project(
         "touch-code/Runtime",
         "touch-code/Hooks",
         "touch-code/Git",
+        "touch-code/Notifications",
       ],
       dependencies: [
         .target(name: "TouchCodeCore"),
@@ -243,6 +244,7 @@ let project = Project(
         "touch-code/Tests/Socket",
         "touch-code/Tests/Harness",
         "touch-code/Tests/Integration",
+        "touch-code/Tests/NotificationsTests",
       ],
       dependencies: [
         .target(name: "touch-code"),
