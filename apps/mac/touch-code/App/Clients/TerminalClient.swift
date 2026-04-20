@@ -6,7 +6,7 @@ import TouchCodeCore
 /// this struct's closures, not on the engine directly; the `liveValue` binds
 /// each closure to a concrete `TerminalEngine` instance at app startup via
 /// `.withDependencies`.
-struct TerminalClient: Sendable {
+nonisolated struct TerminalClient: Sendable {
   var sendInput: @MainActor @Sendable (_ panelID: PanelID, _ text: String) -> Void
   var setFocus: @MainActor @Sendable (_ panelID: PanelID, _ focused: Bool) -> Void
   var retryPanel: @MainActor @Sendable (_ panelID: PanelID) -> Bool

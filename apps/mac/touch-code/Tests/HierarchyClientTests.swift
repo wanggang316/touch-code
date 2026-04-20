@@ -55,16 +55,43 @@ struct HierarchyClientTests {
   }
 
   @Test
-  func testValueTrapsOnUnexercisedCall() {
-    // Sanity: testValue's unimplemented closure returns the placeholder for
-    // nonisolated/sync-return paths without trapping the test process. We
-    // don't invoke an unexpected closure here — that would trap via
-    // XCTestDynamicOverlay. Instead, verify a placeholder-returning closure
-    // returns the placeholder: retryPanel defaults to false.
-    let client = HierarchyClient.testValue
-    // Reading a closure value is safe; invoking without override would trap
-    // under XCTest, so we just assert presence by touching the struct.
-    _ = client
-    #expect(Bool(true))
+  func selectionChangesDedupesIdenticalSelectSpace() async {
+    let (client, _) = makeLiveClient()
+    let stream = client.selectionChanges()
+    var iterator = stream.makeAsyncIterator()
+
+    // Initial empty emission.
+    _ = await iterator.next()
+
+    let spaceID = client.createSpace("s")
+    let afterCreate = await iterator.next()
+    #expect(afterCreate?.spaceID == spaceID)
+
+    // Two identical selects to the same Space — should yield at most one
+    // further value (the second is a no-op against dedupe).
+    client.selectSpace(spaceID)
+    client.selectSpace(spaceID)
+    client.selectSpace(nil)
+    let afterNil = await iterator.next()
+    #expect(afterNil?.spaceID == nil)
+  }
+
+  @Test
+  func selectionChangesPopulatesAllThreeLevelsOnWorktreeSelect() async throws {
+    let (client, _) = makeLiveClient()
+    // Seed the catalog synchronously BEFORE subscribing so the stream's
+    // first emission already reflects all three levels. Simplifies the
+    // iterator loop — no need to count intermediate dedupes.
+    let spaceID = client.createSpace("s")
+    let projectID = try client.addProject(spaceID, "p", "/tmp", "/tmp")
+    let worktreeID = try client.createWorktree(projectID, spaceID, "w", "/tmp/w", "main")
+
+    let stream = client.selectionChanges()
+    var iterator = stream.makeAsyncIterator()
+    let initial = await iterator.next()
+
+    #expect(initial?.spaceID == spaceID)
+    #expect(initial?.projectID == projectID)
+    #expect(initial?.worktreeID == worktreeID)
   }
 }

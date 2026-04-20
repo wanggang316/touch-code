@@ -11,7 +11,7 @@ import TouchCodeCore
 /// Narrow by design: every command is a one-line forward into the manager,
 /// and `snapshot` plus `selectionChanges` provide the read paths TCA
 /// features need without exposing the `@Observable` manager surface.
-struct HierarchyClient: Sendable {
+nonisolated struct HierarchyClient: Sendable {
   var createSpace: @MainActor @Sendable (_ name: String) -> SpaceID
   var renameSpace: @MainActor @Sendable (_ id: SpaceID, _ name: String) throws -> Void
   var removeSpace: @MainActor @Sendable (_ id: SpaceID) throws -> Void
@@ -78,7 +78,7 @@ struct HierarchyClient: Sendable {
 
 /// Coarse selection payload. `nil` for any level means "no selection at that
 /// level" — e.g. a Space may be selected with no Project chosen yet.
-struct HierarchySelection: Equatable, Sendable {
+nonisolated struct HierarchySelection: Equatable, Sendable {
   let spaceID: SpaceID?
   let projectID: ProjectID?
   let worktreeID: WorktreeID?
@@ -149,8 +149,11 @@ extension HierarchyClient {
 
   /// AsyncStream backed by Swift Observation — samples `manager.catalog`'s
   /// selection chain and yields a new `HierarchySelection` whenever any of
-  /// the three IDs changes. Uses `withObservationTracking` to receive exactly
-  /// one callback per mutation; after each yield, re-arms the tracking.
+  /// the three IDs changes. Closes the re-arm race window by sampling
+  /// `currentSelection` BEFORE arming the next `withObservationTracking`
+  /// block: any mutation that landed between the prior yield and the next
+  /// arm is caught on the pre-arm compare; `withObservationTracking` then
+  /// only waits for mutations that land after the new snapshot.
   @MainActor
   private static func makeSelectionStream(manager: HierarchyManager) -> AsyncStream<HierarchySelection> {
     AsyncStream { continuation in
@@ -158,6 +161,13 @@ extension HierarchyClient {
         var last = currentSelection(for: manager)
         continuation.yield(last)
         while !Task.isCancelled {
+          // Sample FIRST — catches any mutation that landed during the
+          // gap between yield and re-arm.
+          let preArm = currentSelection(for: manager)
+          if preArm != last {
+            continuation.yield(preArm)
+            last = preArm
+          }
           await withCheckedContinuation { (observationContinuation: CheckedContinuation<Void, Never>) in
             withObservationTracking {
               _ = currentSelection(for: manager)
