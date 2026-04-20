@@ -128,7 +128,38 @@ final class InboxStore {
     }
   }
 
+  /// Marks every notification whose panel resolves (through `catalog`) to
+  /// the given Worktree as read. `readAt` is set to `now` for any entry
+  /// that was previously unread and mapped to the worktree. Skips entries
+  /// whose panel is no longer in the catalog. If anything changed, schedules
+  /// a debounced save and publishes the unread mutation so the Dock badge
+  /// updates. Idempotent: a second call on an already-read set is a no-op.
+  func markRead(forWorktree worktreeID: WorktreeID, in catalog: Catalog, now: Date = Date()) {
+    let panelIDs = catalog.panelIDs(inWorktree: worktreeID)
+    guard !panelIDs.isEmpty else { return }
+    var mutated = false
+    for index in inbox.notifications.indices {
+      guard panelIDs.contains(inbox.notifications[index].panelID) else { continue }
+      guard inbox.notifications[index].readAt == nil else { continue }
+      inbox.notifications[index].readAt = now
+      mutated = true
+    }
+    if mutated {
+      scheduleSave()
+      publishMutation()
+    }
+  }
+
+  /// Canonical name for the "Dismiss all" header action. `clearAll` is a
+  /// legacy alias kept to avoid C6 M5 caller churn and may be removed in T2
+  /// once the bell popover replaces the inbox sidebar.
+  func dismissAll(now: Date = Date()) {
+    clearAll(now: now)
+  }
+
   /// Dismiss every entry in the inbox. Counterpart to the "Clear all" header action.
+  /// Legacy alias of `dismissAll`; see T0 design doc. Call sites in C6 M5 still use
+  /// `clearAll`; new call sites should prefer `dismissAll`.
   func clearAll(now: Date = Date()) {
     var mutated = false
     for index in inbox.notifications.indices where inbox.notifications[index].dismissedAt == nil {
