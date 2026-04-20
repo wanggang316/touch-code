@@ -33,5 +33,5 @@ surfaces.
 
 - `claude` not on `$PATH` → emit a warning to `$GITHUB_STEP_SUMMARY` and exit 0. The
   release proceeds without a Claude Code gate; criterion 1 can't be checked.
-- Claude produces an answer that doesn't contain `tc ls` → FAIL. The skill is wrong or
-  stale; fix and re-run.
+- Claude produces an answer that doesn't contain `tc skill status` → FAIL. The skill
+  is wrong or stale; fix and re-run.
