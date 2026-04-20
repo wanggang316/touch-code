@@ -24,7 +24,8 @@ This plan is the first capability that makes touch-code **aware** of what its Pa
 - [ ] M1b — C3-dependent types (AgentStateTransition.Trigger.envelope, AgentDetectionRules, TemplateField.validPaths) — blocked on C3 exec plan 0003 M1 landing in TouchCodeCore
 - [ ] M2 — `touch-code/Notifications/` module: DetectionRouter (InternalHookSubscriber impl), TrackerRegistry (single owner of tracker lifecycle), AgentStateTracker (4-state FSM), RuleStore (read-modify-write via C3 load/save), TemplateRenderer — blocked on M1b
 - [x] M3 — InboxStore persistence (notifications.json via AtomicFileStore, 500-row cap, 7-day sweep) + codable round-trip + debounced writer — 2026-04-20
-- [ ] M4 — OSNotifier (UNUserNotificationCenter wrapper) + DockBadger (NSApp.dockTile) + permission flow on first agent-Panel creation + NotificationCoordinator fan-out
+- [ ] M4a — OSNotifier (UN wrapper) + DockBadger (AppKit wrapper) + NotificationPermissionDelegate + NullPermissionDelegate + SettingsStore (C3-independent) — 2026-04-20
+- [ ] M4b — NotificationCoordinator fan-out wiring to AgentStateTransition + 11-step app-shell bootstrap — blocked on M1b/M2
 - [ ] M5 — InboxSidebar SwiftUI surface (320pt, filter chips, swipe-dismiss, deeplink-on-click) + Settings toggles
 - [ ] M6 — Default detection rules for claude/codex/aider + Stop-hook shim scripts in `touch-code-skill/` + `tc notifications rules reload`
 - [ ] M7 — Integration tests (mock HookDispatcher, mock UNUserNotificationCenter, fake Clock) + end-to-end flow asserting a sentinel match transitions a tracker and surfaces all three sinks
@@ -68,6 +69,30 @@ This plan is the first capability that makes touch-code **aware** of what its Pa
 **Verification:** `xcodebuild test -scheme touch-code` → 19 tests in 2 suites green (HierarchyManagerTests + InboxStoreTests). `make mac-lint` clean after removing redundant `async` on six tests that don't `await`.
 
 **Carry-forward:** M4 can now subscribe `NotificationCoordinator` to `InboxStore.unreadPublisher` and `InboxStore.append` immediately. The `Clock<Duration>` injection will also serve the idle-timer path in M2's `AgentStateTracker` once C3 types land. Design doc camelCase correction (DEC-P6) applied in the same commit.
+
+### M3 review polish (2026-04-20, commit df8fbb4)
+
+Two items from the M3 review folded in before M4a:
+
+- **`clearAll` guard semantics.** Previous guard keyed on `isUnread`; when every entry was already read (isUnread == false) the save would be skipped even though `dismissedAt` fields were mutated. Replaced with in-loop `mutated` flag matching `markRead` / `dismiss`. Regression test `clearAllDismissesReadButUndismissedEntries` added and passing.
+- **`backupBrokenFile` error swallowing.** `try? moveItem` discarded failures; the next `saveNow` would clobber the corrupt file. Now logs the move failure, falls back to `copyItem + removeItem`, and if that also fails logs an `.error` leaving the corrupt file in place. Shared static `ISO8601DateFormatter` replaces per-backup allocation.
+
+Verification: 29 tests in 5 suites green.
+
+### M4a — C3-independent macOS surfaces + SettingsStore (2026-04-20)
+
+**What landed:**
+- `apps/mac/touch-code/Notifications/OSNotifier.swift` — `OSNotifier` protocol (`@MainActor`) + `UserNotificationsOSNotifier` adapter wrapping `UNUserNotificationCenter.current()`. `threadIdentifier = panelID` per-Panel grouping; per-`Kind` categories with `Focus Panel` + `Dismiss` actions registered at init; deeplink `touch-code://panel/<id>/focus` passed via `userInfo`. `post` short-circuits to no-op when status is not `.authorized` / `.provisional` (DEC-5). `AuthorizationStatus` enum lives alongside.
+- `apps/mac/touch-code/Notifications/DockBadger.swift` — `DockBadger` protocol + `AppKitDockBadger` adapter over `NSApp.dockTile.badgeLabel`. Pure-function `render(_:)` formatter exposed `nonisolated` so tests can verify `"1"` / `"99"` / `"99+"` / nil behaviour without entering a bundled host.
+- `apps/mac/touch-code/Notifications/NotificationPermissionDelegate.swift` — `PermissionDecision` enum (`continue` / `notNow` / `never`) + `NotificationPermissionDelegate` protocol + `NullPermissionDelegate` fallback that always returns `.continue`. M5 will swap in a SwiftUI view-model.
+- `apps/mac/touch-code/Notifications/SettingsStore.swift` — `@MainActor` wrapper around `~/.config/touch-code/settings.json`. Persisted `TouchCodeSettings` (version-gated) + nested `NotificationsSettings` carrying `MuteSettings`, `AuthorizationStatusCache`, `neverPrompt`, and a `notNowUntil` cool-down timestamp. Debounced writes via `Clock<Duration>` injection; sync flush via `saveNow`; broken-version backup mirrors `InboxStore`.
+- Tests (`touch-code/Tests/NotificationsTests/`): `DockBadgerTests` (3 tests), `PermissionDelegateTests` (2), `SettingsStoreTests` (4). All green.
+
+**Verification:** `xcodebuild test -scheme touch-code` → 38 tests in 7 suites green. `xcodebuild build -scheme touch-code` links `UserNotifications.framework` automatically via import. `make mac-lint` clean.
+
+**What's blocked:** `NotificationCoordinator` itself — the fan-out hub binding transitions to sinks — depends on `AgentStateTransition`, which in turn depends on `HookEvent` in `Trigger.envelope`. Still waiting on C3 exec plan 0003 M1 to land those types in TouchCodeCore. M4b will complete the coordinator + 11-step app-shell wiring once unblocked.
+
+**Carry-forward:** M4b needs only the coordinator class + the app-shell wiring sequence documented in the plan body. Every downstream protocol + test double used by M4b is already shipped in M4a.
 
 ## Context and Orientation
 
