@@ -225,12 +225,14 @@ _tc_space() {
             'list:List all spaces.'
             'create:Create a new space.'
             'activate:Activate a space by id or '\''current'\''.'
+            'rename:Rename a space by id or '\''current'\''.'
+            'remove:Remove a space (and its projects) by id.'
         )
         _describe -V subcommand subcommands && ret=0
         ;;
     arg)
         case "${words[1]}" in
-        list|create|activate)
+        list|create|activate|rename|remove)
             "_tc_space_${words[1]}" && ret=0
             ;;
         esac
@@ -285,6 +287,37 @@ _tc_space_activate() {
     return "${ret}"
 }
 
+_tc_space_rename() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--json[Emit JSON on stdout instead of human-readable text.]'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
+        ':id:'
+        ':name:'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_tc_space_remove() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--json[Emit JSON on stdout instead of human-readable text.]'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
+        ':id:'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
 _tc_project() {
     local -i ret=1
     local -ar arg_specs=(
@@ -298,12 +331,14 @@ _tc_project() {
     command)
         local -ar subcommands=(
             'add:Add an existing directory as a project in a space.'
+            'list:List projects in a space (default: current).'
+            'remove:Remove a project from a space.'
         )
         _describe -V subcommand subcommands && ret=0
         ;;
     arg)
         case "${words[1]}" in
-        add)
+        add|list|remove)
             "_tc_project_${words[1]}" && ret=0
             ;;
         esac
@@ -330,6 +365,37 @@ _tc_project_add() {
     return "${ret}"
 }
 
+_tc_project_list() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--json[Emit JSON on stdout instead of human-readable text.]'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
+        '--space[Space id (UUID or '\''current'\'').]:space:'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_tc_project_remove() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--json[Emit JSON on stdout instead of human-readable text.]'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
+        '--space[Space id (UUID or '\''current'\'').]:space:'
+        ':id:'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
 _tc_worktree() {
     local -i ret=1
     local -ar arg_specs=(
@@ -343,12 +409,14 @@ _tc_worktree() {
     command)
         local -ar subcommands=(
             'activate:Activate a worktree by id or '\''current'\''.'
+            'list:List worktrees in a project.'
+            'remove:Remove a worktree (clears the hierarchy entry; does not delete on-disk files).'
         )
         _describe -V subcommand subcommands && ret=0
         ;;
     arg)
         case "${words[1]}" in
-        activate)
+        activate|list|remove)
             "_tc_worktree_${words[1]}" && ret=0
             ;;
         esac
@@ -373,6 +441,39 @@ _tc_worktree_activate() {
     return "${ret}"
 }
 
+_tc_worktree_list() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--json[Emit JSON on stdout instead of human-readable text.]'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
+        '--space[Space id (UUID or '\''current'\'').]:space:'
+        '--project[Project id (UUID or '\''current'\'').]:project:'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_tc_worktree_remove() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--json[Emit JSON on stdout instead of human-readable text.]'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
+        '--space[Space id (UUID or '\''current'\'').]:space:'
+        '--project[Project id (UUID or '\''current'\'').]:project:'
+        ':id:'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
 _tc_tab() {
     local -i ret=1
     local -ar arg_specs=(
@@ -386,12 +487,14 @@ _tc_tab() {
     command)
         local -ar subcommands=(
             'activate:Activate a tab by id or '\''current'\''.'
+            'list:List tabs in a worktree.'
+            'close:Close a tab.'
         )
         _describe -V subcommand subcommands && ret=0
         ;;
     arg)
         case "${words[1]}" in
-        activate)
+        activate|list|close)
             "_tc_tab_${words[1]}" && ret=0
             ;;
         esac
@@ -416,6 +519,41 @@ _tc_tab_activate() {
     return "${ret}"
 }
 
+_tc_tab_list() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--json[Emit JSON on stdout instead of human-readable text.]'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
+        '--space:space:'
+        '--project:project:'
+        '--worktree:worktree:'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_tc_tab_close() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--json[Emit JSON on stdout instead of human-readable text.]'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
+        '--space:space:'
+        '--project:project:'
+        '--worktree:worktree:'
+        ':id:'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
 _tc_panel() {
     local -i ret=1
     local -ar arg_specs=(
@@ -429,12 +567,15 @@ _tc_panel() {
     command)
         local -ar subcommands=(
             'label:Apply labels to a panel (by UUID or @label alias).'
+            'list:List panels in a tab.'
+            'close:Close a panel.'
+            'focus:Focus a panel within its tab.'
         )
         _describe -V subcommand subcommands && ret=0
         ;;
     arg)
         case "${words[1]}" in
-        label)
+        label|list|close|focus)
             "_tc_panel_${words[1]}" && ret=0
             ;;
         esac
@@ -453,6 +594,62 @@ _tc_panel_label() {
         ':panel:'
         '*:labels:'
         '--replace[Replace the panel'\''s label set instead of union-merging.]'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_tc_panel_list() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--json[Emit JSON on stdout instead of human-readable text.]'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
+        '--space:space:'
+        '--project:project:'
+        '--worktree:worktree:'
+        '--tab:tab:'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_tc_panel_close() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--json[Emit JSON on stdout instead of human-readable text.]'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
+        '--space:space:'
+        '--project:project:'
+        '--worktree:worktree:'
+        '--tab:tab:'
+        ':id:'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_tc_panel_focus() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--json[Emit JSON on stdout instead of human-readable text.]'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
+        '--space:space:'
+        '--project:project:'
+        '--worktree:worktree:'
+        '--tab:tab:'
+        ':id:'
         '--version[Show the version.]'
         '(-h --help)'{-h,--help}'[Show help information.]'
     )

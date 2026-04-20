@@ -176,7 +176,7 @@ Decisions made by this plan — distinct from the design docs' in-doc decisions,
 
 **Verification:** `xcodebuild test -scheme tcKit` → 24 / 5 green. `-scheme touch-code` → 70 / 13 green. `-scheme TouchCodeCore` → 88 / 14 green. `make mac-lint` → clean. `tc --help` lists all 12 subcommands; each subcommand's `--help` is accurate.
 
-**Deferred to M6.1:** extended hierarchy verbs — `tc space rename/remove`, `tc project {rename,remove,list,set-editor}`, `tc worktree {rename,remove,list,prune}`, `tc tab {rename,close,list}`, `tc panel {list,focus,split,close,resize,zoom,unzoom}`. Each one is a thin wrapper around an existing `HierarchyManager` mutation; the CLI templates are mechanical.
+**Deferred to M6.1** (✅ landed 2026-04-20): extended hierarchy verbs. M6.1 ships `tc space {rename,remove}`, `tc project {list,remove}`, `tc worktree {list,remove}`, `tc tab {list,close}`, `tc panel {list,close,focus}` — 10 new subcommands plus their 10 paired `hierarchy.*` server handlers (renameSpace / removeSpace / removeProject / removeWorktree / closeTab / closePanel / focusPanel + listProjects / listWorktrees / listTabs / listPanels). MethodRouter's hierarchy dispatch splits into reads / space-mutations / tree-mutations per swiftlint cyclomatic-complexity cap. Verbs needing HierarchyManager APIs not present in 0002 — `rename` for project / worktree / tab, `prune` for worktree, `split` / `resize` / `zoom` / `unzoom` for panel, `set-editor` for project — stay deferred to **M6.1.1** (each one is a HierarchyManager method + handler + CLI verb, but they want upstream 0002 additions first).
 
 ### M6.0.1 — M6 review hardening (2026-04-20)
 

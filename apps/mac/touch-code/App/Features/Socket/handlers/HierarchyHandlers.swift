@@ -325,6 +325,248 @@ final class HierarchyHandlers {
       return failure(for: error, fallbackKind: "panel", fallbackID: req.id.description)
     }
   }
+
+  // MARK: - Extended mutations (M6.1)
+
+  public struct RenameSpaceParams: Codable, Sendable {
+    public let id: SpaceID
+    public let name: String
+  }
+  public func renameSpace(_ params: JSONValue) async -> RouterOutcome {
+    await Task.yield()
+    let req: RenameSpaceParams
+    do { req = try params.decoded(as: RenameSpaceParams.self) } catch {
+      return .failed(.invalidParams(message: "renameSpace requires {id, name}", path: nil))
+    }
+    do {
+      try manager.renameSpace(req.id, name: req.name)
+      return .unary(.object([:]))
+    } catch {
+      return failure(for: error, fallbackKind: "space", fallbackID: req.id.description)
+    }
+  }
+
+  public struct SpaceIDParams: Codable, Sendable { public let id: SpaceID }
+  public func removeSpace(_ params: JSONValue) async -> RouterOutcome {
+    await Task.yield()
+    let req: SpaceIDParams
+    do { req = try params.decoded(as: SpaceIDParams.self) } catch {
+      return .failed(.invalidParams(message: "removeSpace requires {id}", path: nil))
+    }
+    do {
+      try manager.removeSpace(req.id)
+      return .unary(.object([:]))
+    } catch {
+      return failure(for: error, fallbackKind: "space", fallbackID: req.id.description)
+    }
+  }
+
+  public struct RemoveProjectParams: Codable, Sendable {
+    public let id: ProjectID
+    public let spaceID: SpaceID
+  }
+  public func removeProject(_ params: JSONValue) async -> RouterOutcome {
+    await Task.yield()
+    let req: RemoveProjectParams
+    do { req = try params.decoded(as: RemoveProjectParams.self) } catch {
+      return .failed(.invalidParams(message: "removeProject requires {id, spaceID}", path: nil))
+    }
+    do {
+      try manager.removeProject(req.id, from: req.spaceID)
+      return .unary(.object([:]))
+    } catch {
+      return failure(for: error, fallbackKind: "project", fallbackID: req.id.description)
+    }
+  }
+
+  public struct RemoveWorktreeParams: Codable, Sendable {
+    public let id: WorktreeID
+    public let projectID: ProjectID
+    public let spaceID: SpaceID
+  }
+  public func removeWorktree(_ params: JSONValue) async -> RouterOutcome {
+    await Task.yield()
+    let req: RemoveWorktreeParams
+    do { req = try params.decoded(as: RemoveWorktreeParams.self) } catch {
+      return .failed(.invalidParams(message: "removeWorktree requires {id, projectID, spaceID}", path: nil))
+    }
+    do {
+      try manager.removeWorktree(req.id, from: req.projectID, in: req.spaceID)
+      return .unary(.object([:]))
+    } catch {
+      return failure(for: error, fallbackKind: "worktree", fallbackID: req.id.description)
+    }
+  }
+
+  public struct CloseTabParams: Codable, Sendable {
+    public let id: TabID
+    public let worktreeID: WorktreeID
+    public let projectID: ProjectID
+    public let spaceID: SpaceID
+  }
+  public func closeTab(_ params: JSONValue) async -> RouterOutcome {
+    await Task.yield()
+    let req: CloseTabParams
+    do { req = try params.decoded(as: CloseTabParams.self) } catch {
+      return .failed(.invalidParams(
+        message: "closeTab requires {id, worktreeID, projectID, spaceID}",
+        path: nil
+      ))
+    }
+    do {
+      try manager.closeTab(req.id, in: req.worktreeID, in: req.projectID, in: req.spaceID)
+      return .unary(.object([:]))
+    } catch {
+      return failure(for: error, fallbackKind: "tab", fallbackID: req.id.description)
+    }
+  }
+
+  public struct PanelLocatorParams: Codable, Sendable {
+    public let id: PanelID
+    public let tabID: TabID
+    public let worktreeID: WorktreeID
+    public let projectID: ProjectID
+    public let spaceID: SpaceID
+  }
+  public func closePanel(_ params: JSONValue) async -> RouterOutcome {
+    await Task.yield()
+    let req: PanelLocatorParams
+    do { req = try params.decoded(as: PanelLocatorParams.self) } catch {
+      return .failed(.invalidParams(
+        message: "closePanel requires {id, tabID, worktreeID, projectID, spaceID}",
+        path: nil
+      ))
+    }
+    do {
+      try manager.closePanel(
+        req.id,
+        in: req.tabID,
+        in: req.worktreeID,
+        in: req.projectID,
+        in: req.spaceID
+      )
+      return .unary(.object([:]))
+    } catch {
+      return failure(for: error, fallbackKind: "panel", fallbackID: req.id.description)
+    }
+  }
+
+  public func focusPanel(_ params: JSONValue) async -> RouterOutcome {
+    await Task.yield()
+    let req: PanelLocatorParams
+    do { req = try params.decoded(as: PanelLocatorParams.self) } catch {
+      return .failed(.invalidParams(
+        message: "focusPanel requires {id, tabID, worktreeID, projectID, spaceID}",
+        path: nil
+      ))
+    }
+    do {
+      try manager.focusPanel(
+        req.id,
+        in: req.tabID,
+        in: req.worktreeID,
+        in: req.projectID,
+        in: req.spaceID
+      )
+      return .unary(.object([:]))
+    } catch {
+      return failure(for: error, fallbackKind: "panel", fallbackID: req.id.description)
+    }
+  }
+
+  // MARK: - Extended reads (M6.1 list-at-deeper-levels)
+
+  public struct ListProjectsParams: Codable, Sendable { public let spaceID: SpaceID }
+  public func listProjects(_ params: JSONValue) async -> RouterOutcome {
+    await Task.yield()
+    let req: ListProjectsParams
+    do { req = try params.decoded(as: ListProjectsParams.self) } catch {
+      return .failed(.invalidParams(message: "listProjects requires {spaceID}", path: nil))
+    }
+    guard let space = manager.catalog.spaces.first(where: { $0.id == req.spaceID }) else {
+      return .failed(.notFound(kind: "space", id: req.spaceID.description))
+    }
+    do {
+      return .unary(try JSONValue.encoded(ListProjectsPayload(projects: space.projects)))
+    } catch {
+      return .failed(.internal("encode listProjects: \(error)"))
+    }
+  }
+
+  public struct ListWorktreesParams: Codable, Sendable {
+    public let projectID: ProjectID
+    public let spaceID: SpaceID
+  }
+  public func listWorktrees(_ params: JSONValue) async -> RouterOutcome {
+    await Task.yield()
+    let req: ListWorktreesParams
+    do { req = try params.decoded(as: ListWorktreesParams.self) } catch {
+      return .failed(.invalidParams(message: "listWorktrees requires {projectID, spaceID}", path: nil))
+    }
+    guard let space = manager.catalog.spaces.first(where: { $0.id == req.spaceID }),
+          let project = space.projects.first(where: { $0.id == req.projectID }) else {
+      return .failed(.notFound(kind: "project", id: req.projectID.description))
+    }
+    do {
+      return .unary(try JSONValue.encoded(ListWorktreesPayload(worktrees: project.worktrees)))
+    } catch {
+      return .failed(.internal("encode listWorktrees: \(error)"))
+    }
+  }
+
+  public struct ListTabsParams: Codable, Sendable {
+    public let worktreeID: WorktreeID
+    public let projectID: ProjectID
+    public let spaceID: SpaceID
+  }
+  public func listTabs(_ params: JSONValue) async -> RouterOutcome {
+    await Task.yield()
+    let req: ListTabsParams
+    do { req = try params.decoded(as: ListTabsParams.self) } catch {
+      return .failed(.invalidParams(
+        message: "listTabs requires {worktreeID, projectID, spaceID}",
+        path: nil
+      ))
+    }
+    guard let space = manager.catalog.spaces.first(where: { $0.id == req.spaceID }),
+          let project = space.projects.first(where: { $0.id == req.projectID }),
+          let worktree = project.worktrees.first(where: { $0.id == req.worktreeID }) else {
+      return .failed(.notFound(kind: "worktree", id: req.worktreeID.description))
+    }
+    do {
+      return .unary(try JSONValue.encoded(ListTabsPayload(tabs: worktree.tabs)))
+    } catch {
+      return .failed(.internal("encode listTabs: \(error)"))
+    }
+  }
+
+  public struct ListPanelsParams: Codable, Sendable {
+    public let tabID: TabID
+    public let worktreeID: WorktreeID
+    public let projectID: ProjectID
+    public let spaceID: SpaceID
+  }
+  public func listPanels(_ params: JSONValue) async -> RouterOutcome {
+    await Task.yield()
+    let req: ListPanelsParams
+    do { req = try params.decoded(as: ListPanelsParams.self) } catch {
+      return .failed(.invalidParams(
+        message: "listPanels requires {tabID, worktreeID, projectID, spaceID}",
+        path: nil
+      ))
+    }
+    guard let space = manager.catalog.spaces.first(where: { $0.id == req.spaceID }),
+          let project = space.projects.first(where: { $0.id == req.projectID }),
+          let worktree = project.worktrees.first(where: { $0.id == req.worktreeID }),
+          let tab = worktree.tabs.first(where: { $0.id == req.tabID }) else {
+      return .failed(.notFound(kind: "tab", id: req.tabID.description))
+    }
+    do {
+      return .unary(try JSONValue.encoded(ListPanelsPayload(panels: tab.panels)))
+    } catch {
+      return .failed(.internal("encode listPanels: \(error)"))
+    }
+  }
 }
 
 // MARK: - Response payload types (shared with CLI tcKit)
@@ -332,6 +574,10 @@ final class HierarchyHandlers {
 struct ListSpacesPayload: Codable, Sendable {
   let spaces: [Space]
 }
+struct ListProjectsPayload: Codable, Sendable { let projects: [Project] }
+struct ListWorktreesPayload: Codable, Sendable { let worktrees: [Worktree] }
+struct ListTabsPayload: Codable, Sendable { let tabs: [Tab] }
+struct ListPanelsPayload: Codable, Sendable { let panels: [Panel] }
 struct SpaceIDPayload: Codable, Sendable { let id: SpaceID }
 struct ProjectIDPayload: Codable, Sendable { let id: ProjectID }
 struct WorktreeIDPayload: Codable, Sendable { let id: WorktreeID }
