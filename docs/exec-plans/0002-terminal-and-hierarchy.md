@@ -82,7 +82,46 @@ This is the first plan where the app becomes recognisable as "a terminal orchest
 
 **Verification:** `make mac-build` → `BUILD SUCCEEDED` with GhosttyKit linked. Launching the app binary no longer segfaults; `GhosttyRuntime.info` reports upstream version. All 8 HierarchyManagerTests still pass.
 
-**Carry-forward:** Full `PanelSurface` NSView (input handling, IME, mouse, focus, rendering) is deferred. This is the single largest remaining piece — supaterm's reference is 1300+ lines of surface code. Next session should port supaterm's `GhosttySurfaceView.swift` + `GhosttySurfaceBridge.swift` + `SecureInput.swift` with minimal adaptation, then wire into a `PanelHostView` `NSViewRepresentable`.
+**Carry-forward:** Superseded — M5.1 shipped the surface view (see below).
+
+### M4 — TerminalEngine façade + event stream + crash isolation (2026-04-20)
+
+Delivered in five incremental commits (M4.1 → M4.5) with three rounds of review follow-ups consolidated into the final revision.
+
+**What landed:**
+- `apps/mac/TouchCodeCore/TerminalEvent.swift` — `TerminalEvent` enum (10 variants), `HierarchyMutationScope` sum type for scope-limited invalidation, `TabAutoCloseCause` structured cause (crashLoop/other). Promoted to `TouchCodeCore` so TCA clients can consume without pulling app-target types.
+- `apps/mac/touch-code/Runtime/PendingOutputBuffer.swift` — per-panel output coalescer with `@MainActor @Sendable` emit closure, `isolated deinit` drain, 500ms debounced flush, 16KB overflow-flush.
+- `apps/mac/touch-code/Runtime/TerminalEngine.swift` — `@MainActor` façade composing `CatalogStore`, `HierarchyManager`, and optional `GhosttyRuntime`. Multi-consumer `SubscriberRegistry` broadcasts to fresh per-subscriber `AsyncStream`s with explicit `.bufferingNewest(256)`; `lifecycleOnly` parameter filters out `panelOutput`/`panelIdle`. `finishEventStream()` is idempotent and terminal; `events()` after finish returns already-finished stream.
+- Crash isolation: `CrashOutcome { .survived / .tabAutoClosed(TabID) / .closeFailed(String) }` tri-state return. Per-panel crash ring buffer with configurable `CrashPolicy` (default 3-in-30s); capped at `maxCrashesInWindow` to bound memory. `.panelClosedByTab(PanelID, cause:)` distinct variant for sibling cleanup (never misreported as code-0 exit). Injected clock seam for deterministic tests.
+- `retryPanel(_:) -> Bool` guards `findPanel != nil` before clearing ring.
+- `apps/mac/touch-code/Tests/TerminalEngineTests.swift` — 13 tests covering subscribe-then-emit ordering, multi-consumer fan-out, lifecycle-only filtering, output coalescing, post-finish silence, subscribe-after-finish, crash survival, three-in-window auto-close with explicit event-order assertions (`[panelCrashed×3, panelClosedByTab(sibling), tabAutoClosed]`), window-boundary edge cases, retry ring-clear, retry unknown-ID, sibling close order.
+
+**Key review-driven fixes (M4.1→M4.5):**
+- `panelExited(signal: Int32?)` distinguishes SIGKILL from clean non-zero exit.
+- `hierarchyMutated(HierarchyMutationScope)` path-scoped invalidation.
+- Bounded `AsyncStream` prevents memory growth when consumer stalls.
+- Subscribe-after-finish returns finished stream (was: hung forever).
+
+**Verification:** 33 tests pass; lint clean. App binary launches without segfault.
+
+### M5 — PanelSurface + live shell (2026-04-20)
+
+Delivered in four commits (M5.1 → M5.4) with IME/UAF/lifecycle fixes consolidated in the final revision.
+
+**What landed:**
+- `apps/mac/touch-code/Runtime/Ghostty/PanelSurface.swift` — `@MainActor` class wrapping one `ghostty_surface_t` + its hosting view. 16-byte heap-allocated `uuid_t` buffer passed as `ghostty_surface_config_s.userdata` so `close_surface_cb` can recover the owning `PanelID` via a safe byte-copy across the C→MainActor hop (UAF-resistant). `isolated deinit` frees the ghostty surface + cstring + userdata. State transitions: `.initialising / .ready / .exited(code:) / .crashed(reason:)`.
+- `apps/mac/touch-code/Runtime/Ghostty/GhosttySurfaceView.swift` — ~340-line `NSView + NSTextInputClient`. Key path uses `keyTextAccumulator` during `interpretKeyEvents` to avoid double-forward of IME text; UTF-8 forwarding via `text.utf8.count` (not `strlen`); `flagsChanged` diffs `NSEvent.modifierFlags` to emit correct PRESS / RELEASE per modifier; IME preedit forwarded via `ghostty_surface_preedit` for CJK composition visibility. Mouse events use point coords (ghostty applies content scale internally). Tracking area for cursor events.
+- `apps/mac/touch-code/Runtime/Ghostty/GhosttyRuntime.swift` — surface registry (`PanelID → PanelSurface`), process-global `shared: weak` reference used by `close_surface_cb` to resolve panels after the main-queue hop. `isolated deinit` closes all registered surfaces before freeing the app handle.
+- `apps/mac/touch-code/Runtime/TerminalEngine.swift` — `ensureSurface(for:in:)` / `closeSurface(for:)` APIs. `ensureSurface` requires Panel to be wired into a Tab (throws `.panelHasNoTab` instead of fabricating a random `TabID`). `handleSurfaceClose` snapshots state before unregistering so lifecycle event can't be dropped by concurrent close.
+- `apps/mac/touch-code/App/PanelHostView.swift` — `NSViewRepresentable` hosting `GhosttySurfaceView`; `dismantleNSView` symmetry for future teardown routing.
+- `apps/mac/touch-code/App/MainView.swift` — `SingleSurfaceHost` (`@Observable`) with separate `phase: Phase` and `panel: PanelSurface?` (avoids `@Observable` reference-in-enum diffing footgun). `bringUp()` latches a one-shot `bringUpStarted` flag — SwiftUI `.task` re-running no longer leaks second runtime/surface. `tearDown()` from `.onDisappear`. `friendlyMessage(for:)` maps `GhosttyError` cases to readable strings.
+- `apps/mac/touch-code/Tests/SingleSurfaceHostTests.swift` — 2 idempotency tests.
+
+**Observable acceptance:** `make mac-run-app` opens a window with a live libghostty-rendered shell in `$HOME`. Typing works. Quitting and relaunching starts a fresh shell. No segfaults.
+
+**Not shipped this session (scoped for a follow-up plan):** Full TCA clients + sidebar + tab bar + split-view UI. Today's MainView bypasses `TerminalEngine.ensureSurface` and drives a single `PanelSurface` directly — adequate to prove the libghostty integration end-to-end. The TCA plumbing is a separate exec plan that will compose what M4+M5 built.
+
+**Verification:** 33 tests pass across 5 suites; `make mac-lint` clean; app binary launches a live shell without segfault.
 
 ### M6 — GitWorktreeCLI + non-git Project fallback (2026-04-20)
 
