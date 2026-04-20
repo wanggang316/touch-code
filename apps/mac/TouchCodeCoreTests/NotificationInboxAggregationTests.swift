@@ -131,6 +131,39 @@ struct NotificationInboxAggregationTests {
   }
 
   @Test
+  func notificationsForWorktreeIsDeterministicOnCreatedAtTies() {
+    let f = Fixture()
+    let sameTime = Date(timeIntervalSince1970: 3_000)
+    let idA = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+    let idB = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+    let idC = UUID(uuidString: "00000000-0000-0000-0000-000000000003")!
+
+    let tieA = AgentNotification(
+      id: idB, panelID: f.panelP1a, agent: "x", kind: .completed,
+      title: "b", body: "", createdAt: sameTime
+    )
+    let tieB = AgentNotification(
+      id: idA, panelID: f.panelP1a, agent: "x", kind: .completed,
+      title: "a", body: "", createdAt: sameTime
+    )
+    let tieC = AgentNotification(
+      id: idC, panelID: f.panelP1a, agent: "x", kind: .completed,
+      title: "c", body: "", createdAt: sameTime
+    )
+    // Insert in one order...
+    let inbox1 = NotificationInbox(notifications: [tieA, tieB, tieC])
+    // ...and again in a different order.
+    let inbox2 = NotificationInbox(notifications: [tieC, tieA, tieB])
+
+    let sorted1 = inbox1.notifications(forWorktree: f.worktreeW1a, in: f.catalog)
+    let sorted2 = inbox2.notifications(forWorktree: f.worktreeW1a, in: f.catalog)
+    #expect(sorted1.map(\.id) == sorted2.map(\.id))
+    // Tie-break goes by ascending uuidString, so idA (…0001) comes before
+    // idB (…0002) before idC (…0003).
+    #expect(sorted1.map(\.id) == [idA, idB, idC])
+  }
+
+  @Test
   func aggregationIgnoresPanelsNotInCatalog() {
     let f = Fixture()
     let stray = AgentNotification(

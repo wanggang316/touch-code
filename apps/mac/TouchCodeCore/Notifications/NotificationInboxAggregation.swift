@@ -56,14 +56,18 @@ extension NotificationInbox {
 
   /// Render-hot paths should cache a snapshot-scoped index.
   /// Every notification whose panel resolves to the given Worktree, sorted
-  /// newest-first by `createdAt`. Includes read and dismissed entries; the
+  /// newest-first by `createdAt`; ties broken by `id` to ensure
+  /// deterministic ordering. Includes read and dismissed entries; the
   /// caller filters as needed (for example, the bell popover elides
   /// dismissed entries but keeps read ones for history).
   public func notifications(forWorktree worktreeID: WorktreeID, in catalog: Catalog) -> [AgentNotification] {
     let index = catalog.panelWorktreeIndex()
     return notifications
       .filter { index[$0.panelID] == worktreeID }
-      .sorted { $0.createdAt > $1.createdAt }
+      .sorted { lhs, rhs in
+        if lhs.createdAt != rhs.createdAt { return lhs.createdAt > rhs.createdAt }
+        return lhs.id.uuidString < rhs.id.uuidString
+      }
   }
 }
 
