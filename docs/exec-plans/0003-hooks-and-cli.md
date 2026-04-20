@@ -32,7 +32,7 @@ This plan implements those decisions; it does not relitigate them.
 - [ ] M3.1 — Per-connection backpressure queue + SocketPeerAuth + HierarchyReadHandlers + streaming hook.events test
 - [x] M3.0.1 — M3 review hardening: DispatchSource accept loop, TOCTOU-safe stale-socket probe, umask-before-bind, write short-write loop, Framing error surface, exhaustive switches — 2026-04-20 (67 tests / 12 suites green; lint clean)
 - [x] M4 — `tc` CLI scaffold + `tcKit` static framework + `system` verbs — 2026-04-20 (`tc --help` / `--version` / `system ping` / `system status` / `system sockets` wired; RPCClient with DEC-4 pipelined handshake; CLIExitCode per C4 D8; 10 tcKit tests / 3 suites green; touch-code 67/12 green; lint clean). Deferred to **M4.1**: `AliasResolver` UUID-fast-path + `hierarchy.resolveAlias` integration (unblocked on hierarchy read handlers in M3.1), completion-script generation, `tc system launch` auto-bring-up flow.
-- [ ] M5 — `tc hook {list,install,remove,enable,disable,reload,test,fire,recent,tail,edit}` including streaming tail
+- [x] M5 — `tc hook {list,install,remove,enable,disable,reload,test,fire,recent,tail,edit}` including streaming tail — 2026-04-20 (all 11 subcommands wired; `tc hook --help` discoverable; streaming `tc hook tail` via RPCClient.stream + AsyncThrowingStream; bundles M4 review polish — InboundPump id-gated timeout, RPCClient.shutdown(), response.id validation with new `.misorderedResponse` error, PingCommand uses Renderer, StubbedNamespaces switches to CLIExitCode.unsupported.rawValue; 10 tcKit + 67 touch-code tests still green; lint clean)
 - [ ] M6 — `tc {space,project,worktree,tab,panel,send,broadcast}` hierarchy + terminal verbs + mutation handlers
 - [ ] M7 — `tc open [--in EDITOR]` + `ExternalEditor` app-side service (resolves product-spec Q7)
 - [ ] M8 — Integration tests against headless app, completion-script generation, `tc --man`, final docs pass
@@ -130,6 +130,29 @@ Decisions made by this plan — distinct from the design docs' in-doc decisions,
 **Carry-forward to M5:** `HookCommand` can be fleshed out by replacing the M4 stub in `StubbedNamespaces.swift`. The RPCClient + pipelined-hello + CLIError wiring is ready — each `tc hook <verb>` subcommand is ~15 lines similar to `SystemCommand.PingCommand`.
 
 **Carry-forward to C5 (0004):** `tcKit` static framework is published. C5 adds `SkillInstaller` + `AgentsConfig` + `SkillCommand` inside `tcKit` and appends `SkillCommand.self` to the subcommand list in `TouchCodeCLI.swift`; the M4 stub `StubNamespace.Skill` becomes dead and gets deleted in the same commit.
+
+### M5 — `tc hook` subcommand surface (2026-04-20)
+
+**What landed:**
+- `apps/mac/tc/Commands/HookCommand.swift` — 11 subcommands covering the full `hook.*` RPC surface: `list` (with optional `--event` filter; text-mode one-line-per-subscription render), `install FILE|-` (reads HookSubscription JSON from file or stdin; rejects malformed input early with exit 1), `remove ID`, `enable ID` / `disable ID` (both funnel through a shared helper that enforces the `disabled = !enabled` inversion agreed in M1.x follow-up #1), `reload`, `test ID --payload PATH`, `fire --payload PATH`, `recent [--limit N]`, **streaming** `tail` (subscribes to `hook.events` via `RPCClient.stream`; prints NDJSON until Ctrl-C), and `edit` (opens `~/.config/touch-code/hooks.json` in `$EDITOR`, triggers `hook.reload` on exit).
+- `apps/mac/tc/TouchCodeCLI.swift` — replaced `StubNamespace.Hook` with the real `HookCommand` in the top-level subcommand list.
+- `apps/mac/tc/Commands/StubbedNamespaces.swift` — `StubNamespace.Hook` deleted (replaced); `emitStub` now uses `CLIExitCode.unsupported.rawValue` instead of the bare `4` literal.
+- `apps/mac/tcKit/Transport/RPCClient.swift` — added `stream<Params, Element>(...) -> AsyncThrowingStream<Element, Error>` that opens a `stream: true` request, pipelines the handshake, matches the hello id and then every subsequent frame's id against the real request id, surfaces misordering as the new `RPCError.misorderedResponse` case, and exits on the `{stream: false}` terminator. Handles cancellation via `continuation.onTermination`.
+
+**M4 polish bundled in this commit** (per coordinator's "fold into M5" direction):
+- `InboundPump.timeoutWaiter(id:)` is id-gated so a late-firing sleep Task can no longer resume a *subsequent* waiter with nil (was: #1 important). `Waiter` is now a struct carrying both the continuation and its unique id.
+- `RPCClient.shutdown()` is a new explicit teardown method; every `SystemCommand.run` and `HookCommand.run` calls it in a `defer Task { await client.shutdown() }`. Deinit falls through only when a caller forgets — doc comment explains why ordering isn't deterministic without `shutdown()` (was: #2 important).
+- `RPCClient.call` matches every response's `id` against the expected id (hello vs real). Throws `.misorderedResponse(expected, got)` instead of hanging on a reordered server (was: #4 important).
+- `PingCommand` uses `Renderer.emitObject` with a text renderer — consistent with every other system verb (was: #5 important).
+- Drive-by: `StubbedNamespaces` imports `tcKit` and uses `CLIExitCode.unsupported.rawValue`.
+
+**Verification:** `xcodebuild test -scheme tcKit` → 10 tests / 3 suites green. `-scheme touch-code` → 67 / 12 green. `-scheme TouchCodeCore` → 88 / 14 green. `xcodebuild build -scheme tc` → BUILD SUCCEEDED. `tc hook --help` lists all 11 subcommands (`list install remove enable disable reload test fire recent tail edit`). `make lint` → clean.
+
+**Carry-forward to M6:** `HookCommand` is the template for the hierarchy + terminal verbs (space / project / worktree / tab / panel / send / broadcast). Same pattern: one `AsyncParsableCommand` per subcommand, `CLISession.connect` → `client.call(...)` → `Renderer.emit*`, `CLIError.from(error).exitProcess()` for error paths. `tc rpc METHOD [JSON]` escape hatch (C4 D9) also fits this shape — a single file can land it.
+
+**Carry-forward to M3.1:** `hook.events` streaming is exercised end-to-end now; M3.1's backpressure queue (DEC-9) + real multicaster backpressure test has a live consumer to validate against.
+
+**Deferred to M5.1:** no hook-specific follow-ups; coordinator's remaining M4 item #3 (UnixSocketTransport read loop busy-yield → DispatchSource) still tracks under M4.1.
 
 ## Context and Orientation
 

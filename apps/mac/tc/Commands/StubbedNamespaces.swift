@@ -1,6 +1,7 @@
 import ArgumentParser
 import Darwin
 import Foundation
+import tcKit
 
 /// Command-tree placeholders for namespaces that land in M5–M7. Each
 /// stub exits with code 4 (unsupported) and a clear message so callers
@@ -62,14 +63,6 @@ enum StubNamespace {
     func run() throws { emitStub("tc broadcast") }
   }
 
-  struct Hook: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(
-      commandName: "hook",
-      abstract: "Install, list, fire, and tail lifecycle hooks (ships M5)."
-    )
-    func run() throws { emitStub("tc hook") }
-  }
-
   struct Skill: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
       commandName: "skill",
@@ -90,6 +83,6 @@ enum StubNamespace {
     FileHandle.standardError.write(Data(
       "error: \(command) is not yet implemented in this build\n".utf8
     ))
-    Darwin.exit(4) // ExitCode.unsupported
+    Darwin.exit(CLIExitCode.unsupported.rawValue)
   }
 }

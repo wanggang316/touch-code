@@ -25,6 +25,10 @@ public actor RPCClient {
     case noResponse
     case streamClosed
     case decodeFailed(String)
+    /// Response `id` did not match the request we just issued. Surfaces
+    /// server-side reordering / frame corruption explicitly instead of
+    /// letting the client hang forever waiting for the right reply.
+    case misorderedResponse(expected: String, got: String)
   }
 
   private let transport: Transport
@@ -32,6 +36,7 @@ public actor RPCClient {
   private var buffer = Data()
   private let inboundPump: InboundPump
   private let logger = Logger(subsystem: "com.touch-code.cli", category: "rpc")
+  private var didShutdown = false
 
   public init(transport: Transport, versions: Versions) {
     self.transport = transport
@@ -39,11 +44,34 @@ public actor RPCClient {
     self.inboundPump = InboundPump(stream: transport.inbound)
   }
 
-  deinit {
+  /// Explicit teardown. Call after the last `call(...)` to close the
+  /// transport deterministically. Idempotent.
+  ///
+  /// Prefer this over relying on `deinit` — the actor's deinit races
+  /// against the inbound-pump's detached Task and can leak the socket
+  /// fd if the pump has not yet observed peer EOF (M4 review item #2).
+  public func shutdown() async {
+    guard !didShutdown else { return }
+    didShutdown = true
     transport.close()
   }
 
+  deinit {
+    // Fallback. Clients that don't call `shutdown()` still get the
+    // transport torn down, but ordering vs. the in-flight pump task is
+    // undefined — use `shutdown()` for determinism.
+    if !didShutdown {
+      transport.close()
+    }
+  }
+
   /// Unary call. Returns the decoded `Result` or throws an `RPCError`.
+  ///
+  /// On the wire: pipelines `system.hello` + the real request (DEC-4),
+  /// then reads back two responses IN ORDER. Each response's `id` is
+  /// matched against the corresponding outbound request's id — a
+  /// server that reorders or replaces frames surfaces as
+  /// `.misorderedResponse`, never as an infinite hang (M4 review #4).
   public func call<Params: Encodable, ResultType: Decodable>(
     _ method: IPC.Method,
     params: Params,
@@ -51,17 +79,24 @@ public actor RPCClient {
     timeout: Duration = .seconds(10)
   ) async throws -> ResultType {
     let requestID = UUID().uuidString
+    let helloID = "hello-\(UUID().uuidString.prefix(8))"
     let paramsJSON = try JSONValue.encoded(params)
     let request = IPC.Request(id: requestID, method: method, params: paramsJSON)
 
-    try await pipelinedSend(request: request)
+    try await pipelinedSend(helloID: String(helloID), request: request)
 
     let start = ContinuousClock.now
     let helloResponse = try await readResponse(deadline: start.advanced(by: timeout))
+    if helloResponse.id != helloID {
+      throw RPCError.misorderedResponse(expected: helloID, got: helloResponse.id)
+    }
     if let error = helloResponse.error {
       throw RPCError.ipc(error)
     }
     let response = try await readResponse(deadline: start.advanced(by: timeout))
+    if response.id != requestID {
+      throw RPCError.misorderedResponse(expected: requestID, got: response.id)
+    }
     if let error = response.error {
       throw RPCError.ipc(error)
     }
@@ -85,13 +120,100 @@ public actor RPCClient {
     try await call(method, params: params, resultType: JSONValue.self, timeout: timeout)
   }
 
+  /// Server-streaming call. Opens a stream: true request, pipelines
+  /// `system.hello`, yields each `{id, stream: true, result}` frame as
+  /// a decoded `Element` until the terminator `{id, stream: false}` or
+  /// the transport closes. The returned stream surfaces `RPCError` via
+  /// `AsyncThrowingStream` error termination.
+  ///
+  /// `idleTimeout` bounds the gap between frames — if the server goes
+  /// silent longer than that, the stream throws `RPCError.timeout`.
+  /// Set to a very large value (e.g. `.seconds(.infinity.rounded())`)
+  /// for long-lived tails.
+  public nonisolated func stream<Params: Encodable & Sendable, Element: Decodable & Sendable>(
+    _ method: IPC.Method,
+    params: Params,
+    elementType: Element.Type = Element.self,
+    idleTimeout: Duration = .seconds(300)
+  ) -> AsyncThrowingStream<Element, Error> {
+    // Pre-encode params here (sync, on the calling actor) so the Task
+    // below does not need to re-enter `Sendable` rules on a non-Sendable
+    // `Params` value.
+    let paramsJSON: JSONValue
+    do {
+      paramsJSON = try JSONValue.encoded(params)
+    } catch {
+      return AsyncThrowingStream { $0.finish(throwing: error) }
+    }
+
+    return AsyncThrowingStream { continuation in
+      let task = Task {
+        do {
+          try await self.runStream(
+            method: method,
+            paramsJSON: paramsJSON,
+            idleTimeout: idleTimeout
+          ) { frame in
+            if let decoded = try? frame.decoded(as: Element.self) {
+              continuation.yield(decoded)
+            }
+          }
+          continuation.finish()
+        } catch {
+          continuation.finish(throwing: error)
+        }
+      }
+      continuation.onTermination = { _ in task.cancel() }
+    }
+  }
+
+  private func runStream(
+    method: IPC.Method,
+    paramsJSON: JSONValue,
+    idleTimeout: Duration,
+    yield: @Sendable (JSONValue) -> Void
+  ) async throws {
+    let requestID = UUID().uuidString
+    let helloID = String("hello-\(UUID().uuidString.prefix(8))")
+    let request = IPC.Request(id: requestID, method: method, params: paramsJSON, stream: true)
+    try await pipelinedSend(helloID: helloID, request: request)
+
+    // Drain the hello response first.
+    let helloDeadline = ContinuousClock.now.advanced(by: idleTimeout)
+    let helloResponse = try await readResponse(deadline: helloDeadline)
+    if helloResponse.id != helloID {
+      throw RPCError.misorderedResponse(expected: helloID, got: helloResponse.id)
+    }
+    if let error = helloResponse.error {
+      throw RPCError.ipc(error)
+    }
+
+    while !Task.isCancelled {
+      let deadline = ContinuousClock.now.advanced(by: idleTimeout)
+      let response = try await readResponse(deadline: deadline)
+      if response.id != requestID {
+        throw RPCError.misorderedResponse(expected: requestID, got: response.id)
+      }
+      if let error = response.error {
+        throw RPCError.ipc(error)
+      }
+      if !response.stream {
+        return
+      }
+      if let frame = response.result {
+        yield(frame)
+      }
+    }
+  }
+
   // MARK: - Internals
 
   /// Pipeline `system.hello` + the real request in one write. Saves a
-  /// round trip — DEC-4.
-  private func pipelinedSend(request: IPC.Request) async throws {
+  /// round trip — DEC-4. The caller passes the pre-generated `helloID`
+  /// so it can match the id on the inbound response side.
+  private func pipelinedSend(helloID: String, request: IPC.Request) async throws {
     let hello = IPC.Request(
-      id: "hello-\(UUID().uuidString.prefix(8))",
+      id: helloID,
       method: .systemHello,
       params: try JSONValue.encoded(HelloRequest(
         clientVersion: versions.clientVersion,
@@ -131,8 +253,16 @@ public actor RPCClient {
 /// trivially cancellable and sidesteps the `sending` rules that block a
 /// naive `AsyncStream.Iterator` capture inside a Task.
 actor InboundPump {
+  /// Wrapped waiter — continuation paired with a unique id so a late-
+  /// firing timeout task from a prior `next(timeout:)` call cannot race
+  /// a waiter registered for a *subsequent* call (M4 review item #1).
+  private struct Waiter {
+    let id: UUID
+    let continuation: CheckedContinuation<Data?, Never>
+  }
+
   private var pending: [Data] = []
-  private var waiter: CheckedContinuation<Data?, Never>?
+  private var waiter: Waiter?
   private var finished = false
 
   init(stream: AsyncStream<Data>) {
@@ -153,36 +283,38 @@ actor InboundPump {
 
     let waiterID = UUID()
     return await withCheckedContinuation { (cont: CheckedContinuation<Data?, Never>) in
-      waiter = cont
+      waiter = Waiter(id: waiterID, continuation: cont)
       Task { [weak self] in
         try? await Task.sleep(for: timeout)
         await self?.timeoutWaiter(id: waiterID)
       }
-      _ = waiterID
     }
   }
 
   private func deliver(_ chunk: Data) {
     if let w = waiter {
       waiter = nil
-      w.resume(returning: chunk)
+      w.continuation.resume(returning: chunk)
     } else {
       pending.append(chunk)
     }
   }
 
-  private func timeoutWaiter(id _: UUID) {
-    if let w = waiter {
-      waiter = nil
-      w.resume(returning: nil)
-    }
+  private func timeoutWaiter(id: UUID) {
+    // Only fire the timeout for the waiter we were scheduled against.
+    // Without the id guard a sleep-Task from an earlier call could
+    // resume a waiter registered for a subsequent call with nil,
+    // surfacing as a spurious `.timeout` the user never asked for.
+    guard let current = waiter, current.id == id else { return }
+    waiter = nil
+    current.continuation.resume(returning: nil)
   }
 
   private func finish() {
     finished = true
     if let w = waiter {
       waiter = nil
-      w.resume(returning: nil)
+      w.continuation.resume(returning: nil)
     }
   }
 }

@@ -31,16 +31,15 @@ struct PingCommand: AsyncParsableCommand {
 
   func run() async throws {
     let client = try CLISession.connect(globals: globals)
+    defer { Task { await client.shutdown() } }
     struct Pong: Codable { let pong: Bool }
     do {
       let response: Pong = try await client.call(.systemPing, params: EmptyParams())
-      _ = response
-      switch globals.renderMode {
-      case .json:
-        print(#"{"ok":true}"#)
-      case .text:
-        print("pong")
-      }
+      try Renderer.emitObject(
+        ["ok": response.pong],
+        mode: globals.renderMode,
+        textRender: { _ in "pong" }
+      )
     } catch {
       CLIError.from(error).exitProcess()
     }
@@ -59,6 +58,7 @@ struct VersionCommand: AsyncParsableCommand {
 
   func run() async throws {
     let client = try CLISession.connect(globals: globals)
+    defer { Task { await client.shutdown() } }
     struct ServerVersion: Codable {
       let server: String
       let appBundle: String
@@ -97,6 +97,7 @@ struct StatusCommand: AsyncParsableCommand {
 
   func run() async throws {
     let client = try CLISession.connect(globals: globals)
+    defer { Task { await client.shutdown() } }
     struct Status: Codable {
       let server: String
       let uptimeSeconds: Double
@@ -138,6 +139,7 @@ struct QuitCommand: AsyncParsableCommand {
 
   func run() async throws {
     let client = try CLISession.connect(globals: globals)
+    defer { Task { await client.shutdown() } }
     do {
       _ = try await client.callRaw(.systemQuit, params: EmptyParams())
       print("quitting")
@@ -227,6 +229,11 @@ struct CLIError: Error, CustomStringConvertible {
         return CLIError(code: .internal, message: "transport stream closed")
       case .decodeFailed(let reason):
         return CLIError(code: .internal, message: "response decode failed: \(reason)")
+      case .misorderedResponse(let expected, let got):
+        return CLIError(
+          code: .internal,
+          message: "server sent misordered response (expected id=\(expected), got id=\(got))"
+        )
       }
     }
     return CLIError(code: .internal, message: "\(error)")
