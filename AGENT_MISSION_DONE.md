@@ -4,16 +4,16 @@ Worktree: `design+c7-c8-viewer-editor` · Branch: `worktree-design+c7-c8-viewer-
 
 ## Deliverables
 
-- `docs/design-docs/c7-git-viewer.md` (444 lines) — read-only git diff/history viewer.
-- `docs/design-docs/c8-editor-integration.md` (430 lines) — external editor handoff.
+- `docs/design-docs/c7-git-viewer.md` (453 lines) — read-only git diff/history viewer.
+- `docs/design-docs/c8-editor-integration.md` (438 lines) — external editor handoff.
 - `docs/design-docs/README.md` index updated with both.
 
 ## C7 — key decisions
 
 - Shell out to `git` via `Process` (not libgit2). 16 MiB output cap, 10 s timeout, env stripped of `GIT_*` redirectors.
 - TCA feature (`GitViewerFeature`) + pure data layer in `touch-code/Git/` (protocol `GitService`, hand-rolled unified-diff parser).
-- Worktree-scoped; no caching in v1. Plaintext monospace; `LazyVStack`; 50 000-line soft cap with "open externally" fallback.
-- Keyboard-first: `j`/`k`/`g`/`G`/`Tab`/`Enter`/`r`/`1/2/3`/`.`/`/`. `Enter` delegates to C8.
+- Worktree-scoped; no caching in v1. Plaintext monospace; `LazyVStack`; 50 000-line soft cap with "open externally" fallback (`cd <abs-path> && git ...` copy-command, POSIX-quoted).
+- Keyboard-first: `j`/`k`/`g`/`G`/`Tab`/`Enter`/`r`/`1/2/3`/`.`/`/`. `Enter` delegates to C8 — opens the Worktree **directory**, not the selected file (no file-level hand-off in v1).
 - No IPC in v1; `git.*` namespace reserved as seam.
 
 ## C8 — key decisions (resolves Open Question #7)
@@ -21,9 +21,25 @@ Worktree: `design+c7-c8-viewer-editor` · Branch: `worktree-design+c7-c8-viewer-
 - CLI wrappers over `Process` for everything: `code`, `cursor`, `zed`, `subl`, `open -a Xcode`, `open` (Finder). Launch Services used only to locate Xcode.
 - `$PATH` probe at startup (cached; refreshed on Settings open / IPC `editor.describe`).
 - Fallback chain: explicit → `Project.defaultEditor` → `Settings.defaultEditorID` → Finder. **No silent fallthrough** on missing preferred editor.
-- User-defined templates: `binary` + `args` with exactly one `{dir}` placeholder; regex-validated ID.
-- `tc open [--in <editor>] [<worktree>]` → IPC `editor.open` (worktree defaults to the invoking Panel's Worktree).
+- Worktree resolution for `tc open`: explicit `<worktree>` → `TOUCH_CODE_PANEL_ID` env lookup → **error** (no heuristic fallback).
+- User-defined templates: `binary` + `args` with exactly one `{dir}` placeholder; ID matches `[a-z][a-z0-9_-]{1,31}`.
+- Spawn contract: wait up to 5 s; exit 0 = success, non-zero = `.nonZeroExit`, still running at 5 s = `.timedOut` (SIGTERM then SIGKILL). No "assume-detached" heuristic.
+- Env whitelist: `PATH`, `HOME`, `LC_ALL` only (aligned with C7; `SHELL` dropped).
 - Single `ProcessSpawner` seam for full mock-Process testability.
+
+## Round 2 — review feedback applied
+
+- **C8 spawn contract** rewritten: removed the 250 ms fire-and-forget heuristic; single-rule contract (exit 0 / non-zero / 5 s timeout). Error table, R6, Resolved Items #6, and testing-strategy assertions all updated.
+- **`.timedOut`** is now a real user-visible error case with retry toast (was previously marked silent-success).
+- **C8 Worktree resolution** spelled out for `tc open`: no `TOUCH_CODE_PANEL_ID` and no `<worktree>` arg → `EditorError.unresolvedWorktree`, CLI exits 2 with an explicit message. Does not fall through to Finder.
+- **`SHELL` dropped** from the C8 env whitelist (aligned with C7's env stripping).
+- **C7 `-M -C` only**; aliases `--find-renames --find-copies` removed (`-M -C` carry the same semantics).
+- **C7 editor hand-off** renamed `openPath` → `openDirectory`, and the doc now explicitly says `Enter` opens the Worktree directory, not the file under the cursor.
+- **C7 "Copy command"** now pastes `cd <absolute-worktree-path> && git …` with POSIX-single-quoted paths. Working / staged / commit variants documented.
+- **C7 `shortID`** is now a computed property (`id.prefix(7)`), SHA-256-safe.
+- **C7 "1.5× raw byte size"** speculation dropped.
+- **C8 custom-editor ID regex** widened to `[a-z][a-z0-9_-]{1,31}` (underscores allowed).
+- **C8 `Features/WorktreeHeader/`** tagged as a new feature folder not yet in architecture.md.
 
 ## Seams left for successor work
 

@@ -97,7 +97,7 @@ External boundaries C7 touches:
 - **`git` CLI** — the only external dependency. Invoked with fixed argument lists and no shell interpretation. Working directory is set to `Worktree.path`. Arguments are our own, never user input (the one exception — the commit SHA — is a `[0-9a-f]{7,40}` regex-validated token, see Security).
 - **File system (read-only)** — `git` itself reads `.git/`; C7 does not open files directly. The viewer never writes.
 - **C2 `HierarchyManager`** — read `selectedWorktree: Worktree?`. No write path.
-- **C8 `EditorService`** — on `Enter` over a file row, call `editorService.openPath(file, inPreferredEditor: nil)`. No other coupling.
+- **C8 `EditorService`** — on `Enter`, call `editorService.openDirectory(worktree.path, preferred: nil)`. v1 always opens the Worktree directory, even when a file row is selected; file-level opens are not in the v1 `EditorService` protocol (see C8 non-goals). No other coupling.
 
 ### API Design
 
@@ -124,7 +124,7 @@ struct GitViewerFeature {
     case diffResponse(Result<UnifiedDiff, GitError>)
     case fileSelected(path: String)
     case commitSelected(sha: String)
-    case openInEditorRequested(path: String?)   // delegate to C8
+    case openInEditorRequested                  // delegate to C8: opens Worktree dir (no file-level in v1)
     case keyboardNavigation(Direction)
   }
   @Dependency(\.gitService) var git
@@ -163,7 +163,7 @@ The live implementation runs a `Process` per call. Three shapes are used:
 | Method | Command | Notes |
 |---|---|---|
 | `log` | `git log --pretty=format:%H%x00%an%x00%ae%x00%aI%x00%s%x00%P%x00 --no-color -z --date=iso-strict -n <limit> [--skip <offset>]` | `%x00` null-byte delimiters; `-z` disables default newline separation; trivial to parse. Pagination via `--skip` / `-n`. |
-| `workingTreeDiff` / `stagedDiff` / `commitDiff` | `git diff --no-color --no-ext-diff -M -C --find-renames --find-copies -U3 [--cached] [SHA^..SHA]` | `--no-ext-diff` blocks user-configured external diff tools (those could be editors that trap us); `-M -C` surface renames/copies; `-U3` standard context. |
+| `workingTreeDiff` / `stagedDiff` / `commitDiff` | `git diff --no-color --no-ext-diff -M -C -U3 [--cached] [SHA^..SHA]` | `--no-ext-diff` blocks user-configured external diff tools (those could be editors that trap us); `-M -C` surface renames/copies (equivalent to `--find-renames --find-copies`); `-U3` standard context. |
 | `status` | `git status --porcelain=v1 -z --untracked-files=all` | Used to populate the changed-file list for working-tree scope without parsing the full diff. |
 
 All Process invocations:
@@ -185,13 +185,16 @@ public struct LogPage: Equatable, Sendable {
 }
 
 public struct Commit: Equatable, Sendable, Identifiable {
-  public let id: String              // full SHA-1 (or SHA-256)
-  public let shortID: String         // first 7 chars
+  public let id: String              // full SHA-1 or SHA-256 from git (no truncation)
   public let authorName: String
   public let authorEmail: String
   public let date: Date              // author-date, ISO-strict
   public let subject: String         // first line of message only
   public let parents: [String]       // full SHAs; [] = root, ≥2 = merge
+
+  /// Display-only short hash. Always computed from `id`, never parsed from git output,
+  /// so SHA-256 repositories and any future hash length Just Work.
+  public var shortID: String { String(id.prefix(7)) }
 }
 
 public struct UnifiedDiff: Equatable, Sendable {
@@ -283,14 +286,20 @@ touch-code/App (in-app module; TCA)
 - `LazyVStack` over `hunks.flatMap(\.lines)`. Each line is one `HStack { oldNo; newNo; marker; Text(line.text) }`. At ~18pt line height × monospace, 1 000 lines is ~18 000 pt of virtual height — well within SwiftUI's lazy rendering sweet spot.
 - File-change list renders status glyphs (`A`, `M`, `D`, `R→`, `C→`, `T`) and the per-file `+N −M` counts.
 - Empty states: "No Worktree selected", "Working tree is clean", "No staged changes", "No commits yet", "Not a git repository" (for Projects with `gitRoot == nil` — the viewer shows this and offers nothing else).
-- "Large diff" cutoff: when a single `UnifiedDiff` exceeds **50 000 lines** total, the right pane renders a placeholder with per-file summary rows and a button "Copy `git show` command" that puts the exact shell command on the pasteboard. No parsing past the cutoff.
+- "Large diff" cutoff: when a single `UnifiedDiff` exceeds **50 000 lines** total, the right pane renders a placeholder with per-file summary rows and a "Copy command" button that puts a shell-ready command on the pasteboard. The command always begins with `cd <absolute-worktree-path> && ` so it pastes successfully into any terminal regardless of the target shell's CWD. Scope-dependent suffix:
+  - `.working`  → `cd /abs/path && git diff --no-color`
+  - `.staged`   → `cd /abs/path && git diff --no-color --cached`
+  - `.commit`   → `cd /abs/path && git show --no-color <sha>`
+  - `.log`      → not applicable (log is paginated, never hits the cutoff)
+
+  Paths containing whitespace or shell metacharacters are single-quoted (`'…'`) in the `cd` argument; a path containing a literal `'` is escaped via `'\''` (standard POSIX sh escaping). No parsing past the cutoff.
 
 ### Keyboard navigation
 
 - `j` / `k` — move selection within the focused pane (list or file or hunk).
 - `g` / `G` — first / last row in focused list.
 - `Tab` — cycle focus: list → files (if log+commit) → hunks → list.
-- `Enter` — open the selected file in the default editor (C8 hand-off). When a commit row is selected, `Enter` moves into the commit-file list instead.
+- `Enter` — hand off to C8 `editorService.openDirectory(worktree.path, preferred: nil)` (opens the *Worktree directory*, not the selected file — v1 has no file-level hand-off). When a commit row is selected, `Enter` first moves into the commit-file list; pressing `Enter` again there triggers the directory hand-off.
 - `r` — refresh current scope (re-issue the `git` child).
 - `1` / `2` / `3` — switch scope to working / staged / log.
 - `.` — toggle whitespace-ignored diff (pass `-w` to `git diff` — cheap variant because it adds no new parser paths).
@@ -302,7 +311,7 @@ touch-code/App (in-app module; TCA)
   - Budget: up to ~80 ms for `git` wall-clock (measured in supacode's `GitClient` shortstat path on a warm cache and generalises), up to ~40 ms for parsing, up to ~60 ms for first layout, ~20 ms slack.
   - Measurements will be captured via a simple `ContinuousClock.Instant` trace on `GitService` calls; recorded to `os.signpost` under category `com.touch-code.git` for Instruments correlation.
 - **Concurrent invocations.** The feature holds a single in-flight request per scope. Switching scope or selecting a new commit cancels the prior `Process` via `process.terminate()` and drops its output. This prevents a slow repo from queuing stale results.
-- **Memory.** Output is capped at 16 MiB; parsed models are plain structs (≈ 1.5× the raw byte size after UTF-8 decoding); 50 000-line cap on unified diffs.
+- **Memory.** Raw `git` output is capped at 16 MiB and 50 000 lines per parsed diff. Parsed model size relative to raw output is not profiled in the design — if it becomes a concern, we measure on real fixtures before tightening the cap.
 - **UI responsiveness.** Parsing happens off the main actor (`Task.detached`); the reducer receives the finished `UnifiedDiff` on `@MainActor`. SwiftUI lazy stacks render visible rows only.
 
 ### Error handling
@@ -440,5 +449,5 @@ At approval the following defaults are locked. Revisit via amendment only.
 5. **Timeout.** 10 s wall-clock per `git` child.
 6. **Rename/copy detection.** Always on (`-M -C`); no user toggle in v1.
 7. **Whitespace-ignore toggle.** `.` key flips `-w` on/off for the current scope. Not persisted.
-8. **Editor hand-off on `Enter`.** Delegates to `EditorService.openPath(file, inPreferredEditor: nil)` (C8). On missing file (e.g. deleted in the diff), show a toast and do nothing.
+8. **Editor hand-off on `Enter`.** Delegates to `EditorService.openDirectory(worktree.path, preferred: nil)` (C8). Opens the Worktree directory, not the selected file (no file-level hand-off in v1 — see C8 non-goals).
 9. **Non-git Projects.** Viewer renders the "Not a git repository" empty state for Projects with `gitRoot == nil`; no other UI.

@@ -99,7 +99,7 @@ There are three load-bearing decisions, covered in [Alternatives Considered](#al
 
 External boundaries C8 touches:
 
-- **Spawned processes (`code`, `cursor`, `zed`, `subl`, `open`).** Fixed argv, no shell, no env inheritance beyond a whitelist (`PATH`, `HOME`, `LC_ALL`, `SHELL`).
+- **Spawned processes (`code`, `cursor`, `zed`, `subl`, `open`).** Fixed argv, no shell, no env inheritance beyond a whitelist (`PATH`, `HOME`, `LC_ALL`). Aligned with C7's git-process env stripping.
 - **File system (read-only).** `stat` on editor binaries during the `$PATH` probe; nothing else.
 - **`Project.defaultEditor`** — read and occasionally written via `HierarchyClient` (C2's command surface).
 - **`Settings.defaultEditorID` / `Settings.customEditors`** — read and occasionally written via the Settings feature. Persisted in `settings.json`.
@@ -189,7 +189,7 @@ Stored in `settings.json` under `customEditors: [CustomEditor]`:
 
 ```swift
 public struct CustomEditor: Equatable, Sendable, Codable, Identifiable {
-  public var id: EditorID                 // user-typed; `[a-z][a-z0-9-]{1,31}` enforced
+  public var id: EditorID                 // user-typed; `[a-z][a-z0-9_-]{1,31}` enforced (lowercase, alphanumerics, `_`, `-`)
   public var displayName: String          // user-typed
   public var template: CommandTemplate
 }
@@ -199,9 +199,13 @@ Validation on save: `id` must not collide with a built-in; `template.binary` mus
 
 #### Resolution order
 
+Resolution has two layers. First, **which Worktree are we opening?** For in-app callers the Worktree comes from the current selection. For the CLI (`tc open`), it comes from an explicit `<worktree>` positional argument, otherwise from the `TOUCH_CODE_PANEL_ID` env var injected into every Panel. If neither is set — `tc open` run outside a touch-code Panel with no `<worktree>` — the IPC handler returns `EditorError.unresolvedWorktree` and the CLI prints a clear message telling the user to pass `<worktree>` explicitly. We do **not** fall back to the last-focused Worktree or to any heuristic; an unresolved call is a user error, not a guess.
+
+Second, once the Worktree is pinned, **which editor?**
+
 ```
 preferred != nil
-    ↓                                    (explicit)
+    ↓                                    (explicit `--in <editor>` or dropdown pick)
 resolve → preferred
      ↓                                    (fallback 1)
 project.defaultEditor != nil
@@ -225,7 +229,7 @@ Reserved methods, payloads pinned by the CLI design doc. Minimum surface:
 - `editor.open { worktreeID?: UUID, preferred?: EditorID }` → `EditorChoice`
 - `editor.setDefault { projectID: UUID, editorID: EditorID? }` → `void` (null → unset; falls back to global)
 
-`tc open [--in <editor>] [<worktree>]` maps to `editor.open` with `worktreeID` defaulting to the invoking Panel's owning Worktree (resolved from the `TOUCH_CODE_PANEL_ID` env var the app injects into each Panel).
+`tc open [--in <editor>] [<worktree>]` maps to `editor.open`. The CLI resolves `worktreeID` in this order: (1) the explicit `<worktree>` argument if given; (2) the Panel whose UUID is in the invoking shell's `TOUCH_CODE_PANEL_ID` env var (the app injects this into every Panel) — the handler then walks up to the Panel's owning Worktree; (3) otherwise, **no fallback** — the handler returns `EditorError.unresolvedWorktree` and the CLI prints `error: no worktree (pass <worktree> or run from inside a touch-code Panel)` to stderr with exit code 2.
 
 ### Data Storage
 
@@ -250,11 +254,11 @@ apps/mac/touch-code/App/Clients/Editor/
 ├── EditorService+Test.swift     ─ preview/test double
 ├── EditorRegistry.swift         ─ built-in allowlist + custom-template merger
 ├── EditorModels.swift           ─ EditorDescriptor, EditorChoice, CommandTemplate, CustomEditor, EditorID
-├── EditorError.swift            ─ .notInstalled / .spawnFailed / .nonZeroExit / .timedOut / .badTemplate / .notADirectory
+├── EditorError.swift            ─ .notInstalled / .spawnFailed / .nonZeroExit / .timedOut / .badTemplate / .notADirectory / .unresolvedWorktree
 ├── ProcessSpawner.swift         ─ protocol; live wraps Foundation.Process; test records calls
 └── PathProber.swift             ─ `which`-like PATH scan; pure over a filesystem protocol
 
-apps/mac/touch-code/App/Features/WorktreeHeader/
+apps/mac/touch-code/App/Features/WorktreeHeader/        ← new feature folder; not yet in architecture.md
 └── WorktreeHeaderOpenButton.swift  ─ SwiftUI dropdown + reducer wiring
 
 apps/mac/touch-code/App/Features/Settings/
@@ -283,11 +287,14 @@ apps/mac/tc/
 `ProcessSpawner.spawnForOpen(argv:env:cwd:)`:
 
 - `argv` is `[binaryPath, ...args]`. If the allowlist/custom template's `binary` is a bare name, `PathProber` resolves it to an absolute path first; the resolved path goes into `argv[0]`.
-- `env` contains exactly: `PATH`, `HOME`, `LC_ALL=C.UTF-8`, `SHELL`. Explicitly unset: `EDITOR`, `VISUAL`, any `*_CONFIG` paths.
+- `env` contains exactly: `PATH`, `HOME`, `LC_ALL=C.UTF-8`. Explicitly unset: `SHELL`, `EDITOR`, `VISUAL`, any `*_CONFIG` paths. None of the six allowlist wrappers need `SHELL`; stripping it matches C7's env policy and removes a potential influence vector on editor-side helper scripts.
 - `cwd` is the absolute Worktree path. Helpful for editors that resolve relative paths against their spawn cwd.
 - `stdin` is closed. `stdout` / `stderr` are collected (up to 8 KiB each) so we can surface the first stderr line on failure.
-- Success criterion: exit code `0` within the **5-second wall-clock timeout** *or* the process is still running after 250 ms without having exited (fire-and-forget detach — VSCode, Cursor, Zed, Sublime all spawn a GUI process and return immediately; but when not already running they can take > 250 ms to fork). The combined rule: if the process has exited before the 5 s timeout, require exit code 0; if it is still running after 5 s, assume it detached successfully and return. (In practice all of these wrappers exit fast; the combined rule is belt-and-suspenders.)
-- Timeout kills the child with SIGTERM (then SIGKILL after 1 s) to avoid leaking stuck helpers.
+- Outcome is decided by the child's own exit within the **5-second wall-clock timeout**. The allowlist wrappers (`code`, `cursor`, `subl`, `zed`, `open`) all hand off to their GUI process via Mach/XPC and exit fast — typically under 500 ms, even on cold start. The contract is therefore a single rule:
+  - Child exits with code `0` → success.
+  - Child exits with non-zero code → `.nonZeroExit(code, stderr)`.
+  - Child still running when the 5 s wall-clock elapses → `.timedOut`. The service terminates the child (SIGTERM, then SIGKILL after 1 s) so no orphan helper is left behind.
+- No "assume-detached" heuristic. A wrapper that does not exit within 5 s is genuinely stuck (waiting on an XPC reply, blocked on a helper prompt, etc.) and the user sees a real error rather than a silent false-success.
 
 ### Error handling
 
@@ -296,9 +303,10 @@ apps/mac/tc/
 | `.notInstalled(id, binary)` | `$PATH` probe did not find `binary` | Banner on the dropdown: "Visual Studio Code CLI (`code`) not found on PATH. Install via ‘Shell Command: Install code command in PATH’ in VSCode's Command Palette." |
 | `.spawnFailed(reason)` | `Process.run()` threw (permissions, quarantine) | Toast: "Could not launch <editor>: <reason>" |
 | `.nonZeroExit(code, stderr)` | Process returned non-zero within 5 s | Toast with first line of stderr; "Copy details" action |
-| `.timedOut` | Still running after 5 s but never confirmed spawn — handled as success under the spawn contract | (silent; no error) |
+| `.timedOut` | Child still running after 5 s; service sent SIGTERM/SIGKILL | Toast: "<editor> did not respond within 5 seconds. Retry or open in another editor." with a retry action |
 | `.badTemplate(id, reason)` | Custom template invalid (no `{dir}`, empty binary) | Settings inline validation; never reaches runtime |
 | `.notADirectory(path)` | Worktree path resolves to a file or is missing | Toast: "Worktree directory not found on disk" |
+| `.unresolvedWorktree` | `tc open` invoked with no `<worktree>` and no `TOUCH_CODE_PANEL_ID` | CLI: stderr `error: no worktree ...`, exit 2. Never raised from in-app callers. |
 
 All errors are also logged at `os.Logger` category `com.touch-code.editor` with the editor ID and the redacted argv (the path is not a secret but is included as-is — this matches `os.Logger`'s standard privacy guarantees for string interpolation).
 
@@ -307,7 +315,7 @@ All errors are also logged at `os.Logger` category `com.touch-code.editor` with 
 - **`EditorRegistry`** — table-driven: the allowlist matches expected IDs, names, and argv templates exactly. Merging custom + builtin produces the expected order, ID collisions are rejected.
 - **`PathProber`** — protocol-abstracted filesystem; tests inject a fake listing and assert resolution. Cover: binary on `$PATH`, binary with multiple candidates (first wins), missing binary, absolute-path templates that bypass probing.
 - **`EditorService` (resolution)** — TCA-free unit tests. Cover the full fallback chain (explicit → project → global → finder), reject silent fallthrough on a missing preferred editor, surface `.notInstalled` correctly.
-- **`EditorService` (spawn)** — uses `ProcessSpawner` double. Assert: argv matches the template, `{dir}` substitution is literal (not shell-expanded), `env` has the whitelist only, `cwd` is set, non-zero exit becomes `.nonZeroExit`, exceeded timeout with already-exited-failure becomes `.nonZeroExit`, exceeded timeout with still-running becomes success.
+- **`EditorService` (spawn)** — uses `ProcessSpawner` double. Assert: argv matches the template, `{dir}` substitution is literal (not shell-expanded), `env` has the whitelist only, `cwd` is set, exit 0 becomes success, non-zero exit becomes `.nonZeroExit`, child still running at the 5 s deadline becomes `.timedOut` (and the spawner records that SIGTERM was sent).
 - **`OpenCommand` (CLI)** — argument parser tests + a fake IPC client; asserts the right `editor.open` method and payload.
 - **Integration smoke** — a single XCTest that uses the live `ProcessSpawner` to invoke `/usr/bin/open` with a throwaway directory. Gated behind `TC_RUN_EDITOR_INTEGRATION_TESTS=1` so CI can opt in. Other editors (VSCode, Cursor, ...) are not in CI because they require a GUI; they are tested by dogfooding.
 - **Snapshot** — settings editor section with zero/one/many custom entries.
@@ -376,7 +384,7 @@ Route all opens through `DeeplinkConfirmationFeature` (used by `touch-code://` U
 
 - **No shell.** Arguments go through `Process` as an array; nothing is joined or quoted by us. `{dir}` substitution is literal into a single argv slot; even if a Worktree path contains spaces, quotes, or shell metacharacters, they reach the editor verbatim.
 - **Path validation.** Before spawning, `URL.isDirectory == true` and `FileManager.default.fileExists(atPath:)` are checked; a negative result returns `.notADirectory` rather than handing a stale path to the editor.
-- **Environment whitelist.** The child receives only `PATH`, `HOME`, `LC_ALL`, `SHELL`. This blocks `EDITOR`/`VISUAL`/`GIT_*`/`JAVA_TOOL_OPTIONS`/etc. from leaking into GUI editors where they might misbehave.
+- **Environment whitelist.** The child receives only `PATH`, `HOME`, `LC_ALL`. This blocks `SHELL`/`EDITOR`/`VISUAL`/`GIT_*`/`JAVA_TOOL_OPTIONS`/etc. from leaking into GUI editors where they might misbehave.
 - **No code execution outside the allowlist / user-saved templates.** A URL-based deeplink cannot name an arbitrary binary; only IDs that resolve to a saved template are invokable. A malicious deeplink can at worst ask for `editor.open` with a legitimate ID the user has already approved by saving.
 - **Quarantine bit.** If a user-saved template points to a quarantined binary (e.g. from a DMG), `Process.run()` surfaces the system's quarantine error as `.spawnFailed` and the UI tells the user to clear quarantine manually. touch-code does not silently clear `com.apple.quarantine`.
 
@@ -412,7 +420,7 @@ Route all opens through `DeeplinkConfirmationFeature` (used by `touch-code://` U
 - **R3 — User confusion between "editor not installed" and "CLI shim not installed".** Mitigation: error copy is explicit — "Visual Studio Code CLI (`code`) not found on PATH" beats "VSCode not installed", and offers the actionable fix.
 - **R4 — Custom template injection.** A user saves a template whose `binary` is `bash` and `args` is `["-c", "rm -rf ~"]`. Mitigation: the `args` validator requires exactly one literal `"{dir}"` token; additionally, a warning banner in Settings flags any template whose binary is a known shell (`bash`/`zsh`/`fish`/`sh`). We do not block — the user is the admin of their own machine — but we surface the risk. This is not a touch-code-specific attack vector (the user could run anything anyway) but we avoid making it trivial.
 - **R5 — Launch Services disagreement on Xcode.** `open -a Xcode` opens whichever Xcode version Launch Services thinks is preferred; users with multiple Xcode installs may land on the wrong one. Mitigation: document; add a custom-template example for "Open in Xcode 16 Beta" with an absolute `/Applications/Xcode-16-beta.app/Contents/MacOS/Xcode {dir}` template.
-- **R6 — Fire-and-forget detection fragility.** The 250 ms / 5 s combined rule is empirical. If a future editor CLI genuinely takes > 5 s to confirm spawn on a cold start, we'd falsely return success when the user is still waiting. Mitigation: instrument the spawn wall-clock via signpost; if dogfooding shows a real case, extend the timeout to 15 s and add a status-bar spinner during the wait.
+- **R6 — Slow editor CLI cold-start hitting the 5 s timeout.** The six allowlist wrappers typically exit in well under 500 ms even from cold, but a future editor CLI (or a congested machine) could legitimately need longer. A real timeout would surface as a `.timedOut` toast that looks like a failure when the editor is actually about to appear. Mitigation: (a) instrument the exit wall-clock via `os.signpost` and keep the 5 s budget under review during dogfooding; (b) when a user reports this, lift the timeout to 15 s with a confirmed-slow-wrapper flag on the template (not a global bump, so fast-path editors still fail fast on genuine hangs). Do **not** substitute an "assume-detached" heuristic — a user waiting on an editor that never appears is worse than a user seeing a clear timeout error.
 - **R7 — Editor app sandboxing.** Some Mac-App-Store-distributed editors (e.g. TextMate, BBEdit) have CLI shims that rely on XPC connections to their sandboxed container; the connection may be refused when spawned from touch-code's sandbox. Mitigation: not an allowlist concern in v1 (our six built-ins do not use this pattern); users reporting this can fall back to `open -a <AppName> {dir}` via custom template.
 
 ## Resolved Items (locked at approval)
@@ -424,7 +432,7 @@ At approval the following defaults are locked. Revisit via amendment only.
 3. **Built-in allowlist.** VSCode, Cursor, Zed, Xcode, Sublime Text, Finder. Additions are code changes.
 4. **Fallback order.** explicit → Project override → global default → Finder.
 5. **No silent fallthrough.** A missing preferred editor throws; the UI surfaces the error rather than opening a different editor.
-6. **Timeout + spawn contract.** 5 s wall-clock; 250 ms fire-and-forget detection; SIGTERM then SIGKILL on timeout.
+6. **Timeout + spawn contract.** 5 s wall-clock from spawn to child exit. Exit 0 = success; non-zero exit = `.nonZeroExit`; still running at 5 s = `.timedOut` (SIGTERM then SIGKILL after 1 s). No "assume-detached" heuristic.
 7. **Scope.** Worktree directory only. No file-level, no line-level, no diff-level in v1.
 8. **Storage.** `defaultEditorID: String?` + `customEditors: [CustomEditor]` in `settings.json`; `Project.defaultEditor` (existing) as per-Project override.
-9. **Custom-template syntax.** `binary` + `args: [String]`; exactly one `{dir}` placeholder; regex-validated ID.
+9. **Custom-template syntax.** `binary` + `args: [String]`; exactly one `{dir}` placeholder; ID matches `[a-z][a-z0-9_-]{1,31}`.
