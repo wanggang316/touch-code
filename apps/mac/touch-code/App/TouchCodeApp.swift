@@ -66,6 +66,11 @@ final class AppState {
   private var hookDispatcher: HookDispatcher?
   private var socketServer: SocketServer?
 
+  // C6 notification stack — constructed async after IPC stack in `bringUp()`.
+  // Retained so `applicationWillTerminate` can call `flushPendingWrites()`
+  // and `shutdown()`.
+  var notificationBootstrap: C6AppBootstrap?
+
   init() {
     let catalogStore = CatalogStore()
     let runtime = GhosttyBackedHierarchyRuntime()
@@ -131,6 +136,40 @@ final class AppState {
     }
 
     startIPC(hierarchy: manager)
+    startNotifications(hierarchy: manager)
+  }
+
+  /// Async-launches the C6 notification stack. Skipped under XCTest (mirrors
+  /// `startIPC`) and when `startIPC` was skipped or failed to bind (no
+  /// `hookDispatcher` / `hookConfigStore` available). Retains the bootstrap
+  /// on `self` so `applicationWillTerminate` can flush its debounced writes.
+  private func startNotifications(hierarchy: HierarchyManager) {
+    if ProcessInfo.processInfo.environment["XCTestBundlePath"] != nil
+      || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+      return
+    }
+    guard notificationBootstrap == nil,
+          let dispatcher = hookDispatcher,
+          let hookStore = hookConfigStore else { return }
+    let inbox = inboxStore
+    let settings = notificationSettingsStore
+    Task { @MainActor [weak self] in
+      do {
+        let bootstrap = try await C6AppBootstrap.start(
+          hierarchy: hierarchy,
+          hookDispatcher: dispatcher,
+          hookConfigStore: hookStore,
+          settingsStore: settings,
+          inboxStore: inbox,
+          osNotifier: UserNotificationsOSNotifier(),
+          badger: AppKitDockBadger(),
+          permissionDelegate: NullPermissionDelegate()
+        )
+        self?.notificationBootstrap = bootstrap
+      } catch {
+        print("C6AppBootstrap.start failed: \(error)")
+      }
+    }
   }
 
   /// Wires the HookDispatcher + SocketServer so `tc` CLI can talk to the
