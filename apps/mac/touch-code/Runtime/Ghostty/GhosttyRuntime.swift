@@ -51,6 +51,13 @@ final class GhosttyRuntime {
   private var config: ghostty_config_t?
   let dispatcher = CallbackDispatcher()
 
+  /// Process-global weak reference used by C callback shims that hop through
+  /// DispatchQueue.main.async — the original dispatcher userdata may point
+  /// to freed memory by the time the async block runs, so we go through the
+  /// MainActor-isolated static instead. Only one GhosttyRuntime exists per
+  /// process; init/deinit set and clear this.
+  nonisolated(unsafe) static weak var shared: GhosttyRuntime?
+
   /// Registered panel surfaces by PanelID. Referenced by engine code that
   /// needs to look up a surface from a Panel (e.g. lazy surface creation on
   /// tab activation). Surface-scoped callbacks do NOT use this table on the
@@ -86,6 +93,7 @@ final class GhosttyRuntime {
       throw GhosttyError.appInitFailed
     }
     self.app = app
+    Self.shared = self
   }
 
   isolated deinit {
@@ -142,18 +150,32 @@ final class GhosttyRuntime {
     false
   }
 
-  /// close_surface_cb receives the SURFACE's userdata (set via
-  /// ghostty_surface_config_s.userdata), which we use as an opaque pointer
-  /// to the owning `PanelSurface`. Safe to unretained because PanelSurface
-  /// outlives its ghostty_surface_t (panel's close() frees the surface
-  /// before PanelSurface deinit runs).
+  /// close_surface_cb receives the SURFACE's userdata, which we set at
+  /// creation to the raw bytes of the owning `PanelID.raw.uuid`. We avoid
+  /// casting to a `PanelSurface` pointer because the callback hops through
+  /// `DispatchQueue.main.async`: if the engine drops the PanelSurface on
+  /// the main thread between the C call and the async block, the opaque
+  /// pointer would reference freed memory.
+  ///
+  /// PanelID lookup via the runtime registry is UAF-safe — the registry
+  /// maps a PanelID (value type) to a live PanelSurface, and if the panel
+  /// was already unregistered the lookup returns nil and we no-op.
   private static let closeSurfaceCallback: (@convention(c) (UnsafeMutableRawPointer?, Bool) -> Void) = { userdata, processAlive in
     guard let userdata else { return }
-    let handle = UInt(bitPattern: userdata)
+    // Copy the UUID bytes out of the userdata payload now, before hopping
+    // to main — the memory may be freed if the PanelSurface is dropped.
+    var uuidBytes = uuid_t(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    withUnsafeMutableBytes(of: &uuidBytes) { dst in
+      _ = dst.baseAddress.map { base in
+        base.copyMemory(from: userdata, byteCount: MemoryLayout<uuid_t>.size)
+      }
+    }
+    let panelID = PanelID(raw: UUID(uuid: uuidBytes))
     DispatchQueue.main.async {
-      guard let rebuilt = UnsafeMutableRawPointer(bitPattern: handle) else { return }
-      let panel = Unmanaged<PanelSurface>.fromOpaque(rebuilt).takeUnretainedValue()
-      panel.requestClose(processAlive: processAlive)
+      MainActor.assumeIsolated {
+        guard let panel = GhosttyRuntime.shared?.surface(for: panelID) else { return }
+        panel.requestClose(processAlive: processAlive)
+      }
     }
   }
 }
@@ -161,4 +183,5 @@ final class GhosttyRuntime {
 enum GhosttyError: Error, Equatable, Sendable {
   case configInitFailed
   case appInitFailed
+  case surfaceInitFailed
 }

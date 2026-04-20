@@ -14,6 +14,15 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
   private var surface: ghostty_surface_t?
   private var markedText = NSMutableAttributedString()
   private var trackingArea: NSTrackingArea?
+  /// NSTextInputContext delivers composed text through insertText during an
+  /// interpretKeyEvents pass. We accumulate what it delivers so the outer
+  /// keyDown handler can attach it to the single ghostty_surface_key call —
+  /// avoiding double-insertion of event.characters.
+  private var keyTextAccumulator: [String]?
+  /// Modifier-key state snapshot. flagsChanged events need to be diffed
+  /// against the previous modifier set to emit the correct press/release;
+  /// the raw NSEvent always reads .press for the event kind.
+  private var lastModifierFlags: NSEvent.ModifierFlags = []
 
   init(panelID: PanelID) {
     self.panelID = panelID
@@ -88,6 +97,7 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     guard let surface else { return }
     let scale = backingScaleFactor()
     ghostty_surface_set_content_scale(surface, scale, scale)
+    // ghostty_surface_set_size takes device-pixel dimensions.
     let px = convertToBacking(bounds.size)
     if px.width > 0, px.height > 0 {
       ghostty_surface_set_size(surface, UInt32(px.width), UInt32(px.height))
@@ -111,29 +121,56 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
   // MARK: - Keyboard
 
   override func keyDown(with event: NSEvent) {
-    interpretKeyEvents([event])
     guard let surface else { return }
-    sendKeyEvent(event: event, action: GHOSTTY_ACTION_PRESS, surface: surface)
+
+    // Accumulate composed text from the NSTextInputContext pipeline. If the
+    // user is mid-IME-composition, insertText delivers the final commit
+    // here; raw characters from the NSEvent are not forwarded — doing so
+    // would double-insert.
+    keyTextAccumulator = []
+    interpretKeyEvents([event])
+    let composed = keyTextAccumulator ?? []
+    keyTextAccumulator = nil
+
+    let text = composed.joined()
+    sendKeyEvent(
+      event: event,
+      action: GHOSTTY_ACTION_PRESS,
+      surface: surface,
+      text: text
+    )
   }
 
   override func keyUp(with event: NSEvent) {
     guard let surface else { return }
-    sendKeyEvent(event: event, action: GHOSTTY_ACTION_RELEASE, surface: surface)
+    sendKeyEvent(event: event, action: GHOSTTY_ACTION_RELEASE, surface: surface, text: "")
   }
 
   override func flagsChanged(with event: NSEvent) {
-    // Modifier-only events are represented by ghostty as key press/release on
-    // the modifier key. We forward them so ghostty can update its modifier
-    // state machine; the action is press because NSEvent doesn't split
-    // flagsChanged into press/release for us.
     guard let surface else { return }
-    sendKeyEvent(event: event, action: GHOSTTY_ACTION_PRESS, surface: surface)
+    // NSEvent.flagsChanged always reads as a single event with the new mask.
+    // Diff against the snapshot to know which modifier actually changed and
+    // whether it's a press (newly set) or release (newly cleared).
+    let newFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+    let oldFlags = lastModifierFlags
+    lastModifierFlags = newFlags
+
+    let added = newFlags.subtracting(oldFlags)
+    let removed = oldFlags.subtracting(newFlags)
+
+    if !added.isEmpty {
+      sendKeyEvent(event: event, action: GHOSTTY_ACTION_PRESS, surface: surface, text: "")
+    }
+    if !removed.isEmpty {
+      sendKeyEvent(event: event, action: GHOSTTY_ACTION_RELEASE, surface: surface, text: "")
+    }
   }
 
   private func sendKeyEvent(
     event: NSEvent,
     action: ghostty_input_action_e,
-    surface: ghostty_surface_t
+    surface: ghostty_surface_t,
+    text: String
   ) {
     var keyEvent = ghostty_input_key_s()
     keyEvent.action = action
@@ -143,15 +180,23 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     keyEvent.composing = !markedText.string.isEmpty
     keyEvent.unshifted_codepoint = 0
 
-    let text = (event.type == .keyDown) ? (event.characters ?? "") : ""
-    if !text.isEmpty {
-      text.withCString { ptr in
+    if text.isEmpty {
+      keyEvent.text = nil
+      _ = ghostty_surface_key(surface, keyEvent)
+      return
+    }
+    // Use utf8.count for the length so strings with embedded NUL aren't
+    // truncated. Pass the Data buffer so ghostty reads exactly utf8.count
+    // bytes regardless of terminators.
+    let bytes = Array(text.utf8)
+    bytes.withUnsafeBufferPointer { buffer in
+      buffer.baseAddress?.withMemoryRebound(
+        to: CChar.self,
+        capacity: bytes.count
+      ) { ptr in
         keyEvent.text = ptr
         _ = ghostty_surface_key(surface, keyEvent)
       }
-    } else {
-      keyEvent.text = nil
-      _ = ghostty_surface_key(surface, keyEvent)
     }
   }
 
@@ -195,15 +240,20 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     guard let surface else { return }
     var modifier: ghostty_input_scroll_mods_t = 0
     if event.hasPreciseScrollingDeltas { modifier |= 1 }
-    if event.momentumPhase != [] { modifier |= 2 }
+    // Momentum scrolling: phase != .none means we are in a momentum tail.
+    // NSEvent.momentumPhase returns .changed for the tail, .ended at stop.
+    if !event.momentumPhase.isEmpty && event.momentumPhase != .stationary {
+      modifier |= 2
+    }
     ghostty_surface_mouse_scroll(surface, event.scrollingDeltaX, event.scrollingDeltaY, modifier)
   }
 
   private func sendMouseMoved(_ event: NSEvent) {
     guard let surface else { return }
+    // ghostty_surface_mouse_pos expects point coordinates (not device-pixel)
+    // — ghostty applies content_scale internally on render.
     let pos = convert(event.locationInWindow, from: nil)
-    let px = convertToBacking(pos)
-    ghostty_surface_mouse_pos(surface, px.x, px.y, mods(from: event.modifierFlags))
+    ghostty_surface_mouse_pos(surface, pos.x, pos.y, mods(from: event.modifierFlags))
   }
 
   private func sendMouseButton(
@@ -213,21 +263,30 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
   ) {
     guard let surface else { return }
     let pos = convert(event.locationInWindow, from: nil)
-    let px = convertToBacking(pos)
-    ghostty_surface_mouse_pos(surface, px.x, px.y, mods(from: event.modifierFlags))
+    ghostty_surface_mouse_pos(surface, pos.x, pos.y, mods(from: event.modifierFlags))
     _ = ghostty_surface_mouse_button(surface, action, button, mods(from: event.modifierFlags))
   }
 
-  // MARK: - NSTextInputClient (minimal IME pass-through)
+  // MARK: - NSTextInputClient
 
   func insertText(_ string: Any, replacementRange: NSRange) {
-    guard let surface else { return }
     let text: String = (string as? String) ?? (string as? NSAttributedString)?.string ?? ""
     guard !text.isEmpty else { return }
-    text.withCString { ptr in
-      ghostty_surface_text(surface, ptr, UInt(strlen(ptr)))
+    // Inside a keyDown's interpretKeyEvents pass, accumulate into the
+    // keyTextAccumulator so keyDown attaches it to the single key event.
+    // Outside that pass (e.g. drag-insert), route directly to the surface.
+    if keyTextAccumulator != nil {
+      keyTextAccumulator?.append(text)
+    } else if let surface {
+      // Clear any in-flight preedit and commit the text.
+      forwardPreedit("", to: surface)
+      forwardText(text, to: surface)
     }
     markedText = NSMutableAttributedString()
+    if let surface {
+      // Ensure preedit is cleared on the ghostty side too.
+      forwardPreedit("", to: surface)
+    }
   }
 
   func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
@@ -240,10 +299,18 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
       return
     }
     markedText = NSMutableAttributedString(attributedString: attr)
+    // Forward preedit so IME composition is visible in the terminal rather
+    // than appearing only after commit.
+    if let surface {
+      forwardPreedit(attr.string, to: surface)
+    }
   }
 
   func unmarkText() {
     markedText = NSMutableAttributedString()
+    if let surface {
+      forwardPreedit("", to: surface)
+    }
   }
 
   func selectedRange() -> NSRange { NSRange(location: NSNotFound, length: 0) }
@@ -254,6 +321,9 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
   func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? { nil }
   func validAttributesForMarkedText() -> [NSAttributedString.Key] { [] }
   func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
+    // Deferred for M5.4: should resolve to the cell rect under the caret
+    // so the IME candidate window appears correctly. Returning view bounds
+    // keeps IME functional but visually misaligned.
     guard let window else { return .zero }
     let rect = convert(bounds, to: nil)
     return window.convertToScreen(rect)
@@ -262,5 +332,35 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
   override func doCommand(by selector: Selector) {
     // Let default NSResponder chain handle it; ghostty already received the
     // raw key event in keyDown.
+  }
+
+  // MARK: - Forwarding helpers
+
+  private func forwardText(_ text: String, to surface: ghostty_surface_t) {
+    let bytes = Array(text.utf8)
+    bytes.withUnsafeBufferPointer { buffer in
+      buffer.baseAddress?.withMemoryRebound(
+        to: CChar.self,
+        capacity: bytes.count
+      ) { ptr in
+        ghostty_surface_text(surface, ptr, UInt(bytes.count))
+      }
+    }
+  }
+
+  private func forwardPreedit(_ text: String, to surface: ghostty_surface_t) {
+    let bytes = Array(text.utf8)
+    if bytes.isEmpty {
+      ghostty_surface_preedit(surface, nil, 0)
+      return
+    }
+    bytes.withUnsafeBufferPointer { buffer in
+      buffer.baseAddress?.withMemoryRebound(
+        to: CChar.self,
+        capacity: bytes.count
+      ) { ptr in
+        ghostty_surface_preedit(surface, ptr, UInt(bytes.count))
+      }
+    }
   }
 }

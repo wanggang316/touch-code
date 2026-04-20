@@ -78,17 +78,24 @@ final class TerminalEngine {
 
   enum SurfaceError: Error, Sendable {
     case runtimeUnavailable
-    case surfaceCreationFailed
+    case panelHasNoTab
   }
 
   /// Create a libghostty surface for the given Panel. Idempotent: if a
   /// surface is already registered for the panel, returns the existing one.
-  /// Wires the surface's `onClose` to emit `.panelExited` + dispose buffer.
+  /// Wires the surface's `onClose` to emit the lifecycle event + dispose
+  /// buffer. Throws `panelHasNoTab` if the Panel isn't yet wired into a
+  /// Tab — the engine uses the Tab ID in the `.panelCreated` event, so
+  /// callers must add the Panel to a Tab via `HierarchyManager.openPanel`
+  /// (or `splitPanel`) before calling this.
   @discardableResult
   func ensureSurface(for panel: Panel, in worktree: Worktree) throws -> PanelSurface {
     guard let runtime = ghosttyRuntime else { throw SurfaceError.runtimeUnavailable }
     if let existing = runtime.surface(for: panel.id) {
       return existing
+    }
+    guard let tabID = tabIDForPanel(panel.id) else {
+      throw SurfaceError.panelHasNoTab
     }
     let surface = try PanelSurface(
       runtime: runtime,
@@ -99,33 +106,41 @@ final class TerminalEngine {
     surface.onClose = { [weak self] processAlive in
       self?.handleSurfaceClose(panelID: panel.id, processAlive: processAlive)
     }
-    emit(.panelCreated(panel.id, tabIDForPanel(panel.id) ?? TabID()))
+    emit(.panelCreated(panel.id, tabID))
     emit(.panelReady(panel.id))
     return surface
   }
 
-  /// Dispose a panel's surface. Idempotent.
+  /// Dispose a panel's surface. Idempotent. Routes through
+  /// `handleSurfaceClose` so the lifecycle event is emitted exactly once
+  /// whether the close is user-initiated or callback-driven.
   func closeSurface(for panelID: PanelID) {
-    guard let runtime = ghosttyRuntime else { return }
-    guard let surface = runtime.surface(for: panelID) else { return }
+    guard let runtime = ghosttyRuntime,
+          let surface = runtime.surface(for: panelID) else { return }
     surface.close()
-    runtime.unregister(panelID: panelID)
-    disposeOutputBuffer(for: panelID)
+    handleSurfaceClose(panelID: panelID, processAlive: true)
   }
 
   private func handleSurfaceClose(panelID: PanelID, processAlive: Bool) {
-    guard let runtime = ghosttyRuntime,
-          let surface = runtime.surface(for: panelID) else { return }
-    runtime.unregister(panelID: panelID)
+    // Snapshot the surface state BEFORE unregistering so a stale registry
+    // entry can't drop the lifecycle event. Unregister after emit so any
+    // in-flight lookup in subscriber code still resolves the surface.
+    let state = ghosttyRuntime?.surface(for: panelID)?.state ?? .ready
     disposeOutputBuffer(for: panelID)
-    switch surface.state {
+
+    switch state {
     case .crashed(let reason):
       _ = recordPanelCrash(panelID: panelID, reason: reason)
     case .exited(let code):
       emit(.panelExited(panelID, code: code, signal: nil))
     default:
+      // No explicit state set by markExited/markCrashed: use processAlive
+      // to distinguish user-initiated close (code 0) from child exit where
+      // we lack a real exit code (code -1 as a "unknown" sentinel).
       emit(.panelExited(panelID, code: processAlive ? 0 : -1, signal: nil))
     }
+
+    ghosttyRuntime?.unregister(panelID: panelID)
   }
 
   private func tabIDForPanel(_ panelID: PanelID) -> TabID? {
