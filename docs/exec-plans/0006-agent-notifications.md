@@ -1,6 +1,6 @@
 # ExecPlan: Agent Notification Aggregation (C6)
 
-**Status:** Draft
+**Status:** In Progress
 **Author:** Gump (with Claude)
 **Date:** 2026-04-20
 
@@ -20,7 +20,8 @@ This plan is the first capability that makes touch-code **aware** of what its Pa
 
 ## Progress
 
-- [ ] M1 — `TouchCodeCore` data types + field-path enumerator (AgentState, AgentStateTransition, AgentNotification, NotificationInbox, AgentDetectionRules, HookEnvelope field path table)
+- [ ] M1a — `TouchCodeCore/Notifications/` C3-independent types (AgentState, AgentNotification, NotificationInbox, MuteSettings) — partial per DEC-P5
+- [ ] M1b — C3-dependent types (AgentStateTransition.Trigger.envelope, AgentDetectionRules, TemplateField.validPaths) — blocked on C3 exec plan 0003 M1 landing in TouchCodeCore
 - [ ] M2 — `touch-code/Notifications/` module: DetectionRouter (InternalHookSubscriber impl), TrackerRegistry (single owner of tracker lifecycle), AgentStateTracker (4-state FSM), RuleStore (read-modify-write via C3 load/save), TemplateRenderer
 - [ ] M3 — InboxStore persistence (notifications.json via AtomicFileStore, 500-row cap, 7-day sweep) + codable round-trip + debounced writer
 - [ ] M4 — OSNotifier (UNUserNotificationCenter wrapper) + DockBadger (NSApp.dockTile) + permission flow on first agent-Panel creation + NotificationCoordinator fan-out
@@ -30,11 +31,15 @@ This plan is the first capability that makes touch-code **aware** of what its Pa
 
 ## Surprises & Discoveries
 
-(None yet)
+- **2026-04-20 (M1 start): C3 exec plan 0003 had not yet landed implementation when C6 M1 began.** The sibling worktree `worktree-design+c3-c4-hooks-cli` has the 0003 plan doc at commit `768fb28` but zero code commits. `HookEvent`, `HookEnvelope`, `HookEventData`, `HookSubscription`, and `Panel.labels: Set<String>` are therefore absent from `TouchCodeCore/`. C6 M1 has been split into M1a (C3-independent — shippable immediately) and M1b (C3-dependent — blocked on 0003 M1). Coordinator approved the split; see DEC-P5. Evidence: `grep -R 'HookEvent' apps/mac/TouchCodeCore` returns zero matches at the start of M1a.
 
 ## Decision Log
 
-(None yet)
+- **DEC-P1 — Rebased on C3 `load()` / `save(_:)` via `HookConfigStoreAdapter` read-modify-write (not a new `upsertInternal` API).** Reason: avoid cross-plan coupling with 0003; the read-modify-write path is atomic because C3's `save(_:)` already goes through `AtomicFileStore`. Retry-once-on-stale-version policy handles concurrent `tc hook install` edits. Locked at plan v2 review.
+- **DEC-P2 — Single `TrackerRegistry` ownership from M2 onward.** Reason: single responsibility; avoids the mid-stream tracker-lifecycle handoff between M2 and M4 that v1 of this plan described. `DetectionRouter`, `NotificationCoordinator`, and end-to-end tests all access trackers through the registry — never create them. Locked at plan v2 review.
+- **DEC-P3 — 11-step app-shell wiring sequence with a restart-time permission sweep.** Reason: explicit rehydrate path avoids ambiguity between fresh-create and restart. The sweep (`for tracker in registry.allTrackers { await coordinator.onAgentPanelCreated(tracker.panelID) }`) runs once after `registry.bootstrap()` and leverages coordinator's idempotent `alreadyPrompted` set. Locked at plan v2 review.
+- **DEC-P4 — M6 ships the app-internal `coordinator.reloadRules()` path; the `tc notifications rules reload` CLI verb is deferred to a follow-up PR on plan 0003.** Reason: don't couple the ship of C6 to the C4 CLI exec plan landing; users can reload by restarting until the verb lands. Locked at plan v2 review.
+- **DEC-P5 (2026-04-20, M1 start) — Split M1 into M1a (C3-independent) + M1b (C3-dependent).** Reason: C3 exec plan 0003 has not landed any implementation; M1 files that reference `HookEvent` (`AgentStateTransition.Trigger.envelope`, `AgentDetectionRules.AppliesWhen.hookEvent`, `TemplateField.validPaths(for:)`) will not compile. Option (c) from coordinator's unblock: ship the C3-independent half now to unblock M3/M4/M5/M7 which depend on `AgentNotification` + `NotificationInbox` + `MuteSettings`; land M1b after 0003 M1. Avoids stubbing C3 types — stubs would create divergence with the real C3 types and force a delete-rewrite later.
 
 ## Outcomes & Retrospective
 
