@@ -13,6 +13,7 @@ import TouchCodeIPC
 @MainActor
 public final class InMemoryIPCServer {
   private let router: MethodRouter
+  private let inflightLimit: Int
   private var inboundContinuation: AsyncStream<Data>.Continuation?
   private var serveTask: Task<Void, Never>?
   private var responseBuffer = Data()
@@ -20,8 +21,9 @@ public final class InMemoryIPCServer {
   private var pending: [IPC.Response] = []
   private var waiters: [Waiter] = []
 
-  public init(router: MethodRouter) {
+  public init(router: MethodRouter, inflightLimit: Int = 64) {
     self.router = router
+    self.inflightLimit = inflightLimit
   }
 
   /// Start the harness. Must be called once before `send(_:)`.
@@ -42,7 +44,8 @@ public final class InMemoryIPCServer {
       },
       close: { [weak self] in
         await self?.finishAllWaiters()
-      }
+      },
+      inflightLimit: inflightLimit
     )
 
     serveTask = Task.detached {

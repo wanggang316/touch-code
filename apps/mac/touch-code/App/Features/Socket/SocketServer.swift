@@ -141,6 +141,20 @@ public final class SocketServer {
 
   @MainActor
   private func startConnection(clientFD: Int32) {
+    // M3.1 defense-in-depth: verify the kernel-reported peer UID
+    // matches ours before any framing / handshake work runs. The
+    // socket file mode (0600 + owner UID) already blocks cross-UID
+    // connects at the filesystem level; this closes the TOCTOU tail
+    // and covers filesystems that ignore mode bits.
+    switch SocketPeerAuth.authorize(fd: clientFD) {
+    case .success:
+      break
+    case .failure(let err):
+      logger.warning("peer auth rejected fd \(clientFD, privacy: .public): \(String(describing: err), privacy: .public)")
+      Self.shutdownAndClose(fd: clientFD)
+      return
+    }
+
     let connectionID = UUID()
     let (stream, continuation) = Self.makeReader()
 

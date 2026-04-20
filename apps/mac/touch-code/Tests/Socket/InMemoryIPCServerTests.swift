@@ -44,6 +44,39 @@ struct InMemoryIPCServerTests {
   }
 
   @Test
+  func inflightCapRejectsPostHelloWithOverloaded() async throws {
+    // Server with cap=0 forces every post-hello frame into the
+    // `.overloaded` branch — proves the wire contract for DEC-9
+    // backpressure even while actor-serialized handling keeps real
+    // inflight at ≤ 1 in production.
+    let (store, dispatcher) = Self.makeDispatcher(existing: nil)
+    let hookHandlers = HookHandlers(dispatcher: dispatcher, store: store)
+    let systemHandlers = SystemHandlers(
+      versions: .init(server: "0.3.0", appBundle: "0.3.0+test")
+    )
+    let router = MethodRouter(
+      hookHandlers: hookHandlers,
+      systemHandlers: systemHandlers
+    )
+    let server = InMemoryIPCServer(router: router, inflightLimit: 0)
+    server.start()
+    defer { server.stop() }
+
+    try Self.sendHello(server)
+    let hello = try await server.awaitResponse()
+    #expect(hello.error == nil)
+
+    try server.send(IPC.Request(id: "post-1", method: .systemPing))
+    let response = try await server.awaitResponse()
+    #expect(response.id == "post-1")
+    if case .overloaded = response.error {
+      // expected
+    } else {
+      Issue.record("expected .overloaded, got \(String(describing: response.error))")
+    }
+  }
+
+  @Test
   func oversizeFrameClosesConnection() async throws {
     let server = Self.makeHarness()
     defer { server.stop() }

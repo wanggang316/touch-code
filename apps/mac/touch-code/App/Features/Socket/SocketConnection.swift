@@ -12,6 +12,7 @@ import TouchCodeIPC
 /// call before connection close (C4 §D10).
 public actor SocketConnection {
   public let id: UUID
+  public let inflightLimit: Int
   private let router: MethodRouter
   private let reader: AsyncStream<Data>
   private let write: @Sendable (Data) async -> Void
@@ -20,19 +21,27 @@ public actor SocketConnection {
 
   private var helloCompleted = false
   private var readBuffer = Data()
+  /// Frames that have been decoded but not yet fully responded to.
+  /// Incremented at decode time, decremented when the response
+  /// (unary or streaming-terminator) has been flushed to the write
+  /// closure. Caps per-connection state growth — DEC-9 in
+  /// exec-plan 0003 fixes this at 64.
+  private var inflight = 0
 
   public init(
     id: UUID = UUID(),
     router: MethodRouter,
     reader: AsyncStream<Data>,
     write: @escaping @Sendable (Data) async -> Void,
-    close: @escaping @Sendable () async -> Void
+    close: @escaping @Sendable () async -> Void,
+    inflightLimit: Int = 64
   ) {
     self.id = id
     self.router = router
     self.reader = reader
     self.write = write
     self.close = close
+    self.inflightLimit = inflightLimit
   }
 
   /// Run the connection loop until the peer closes or we write a
@@ -85,7 +94,20 @@ public actor SocketConnection {
         ))
         return
       }
+    } else if inflight >= inflightLimit {
+      // Per-connection backpressure cap (DEC-9). Actor-serialized
+      // handling keeps the real inflight count at ≤ 1 today, so this
+      // branch is reached only when a future concurrent-dispatch
+      // refactor (tracked as M3.1.1) lets multiple handlers run in
+      // parallel. Leave the cap wired now so the wire contract is
+      // locked: overflow returns `.overloaded` (CLIExitCode 5) and
+      // the connection stays open for later requests.
+      await sendError(id: request.id, .overloaded)
+      return
     }
+
+    inflight += 1
+    defer { inflight -= 1 }
 
     if request.stream {
       await handleStreaming(request)
