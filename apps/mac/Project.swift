@@ -188,6 +188,10 @@ let project = Project(
         .target(name: "TouchCodeCore"),
         .target(name: "TouchCodeIPC"),
         .target(name: "tc"),
+        // tcKit exposes AgentID + SkillFileSystem + SkillBundleLocator, which
+        // SkillVersionBanner uses to read one field (version) from installed markers.
+        // The app NEVER reads SKILL.md content — only the private MinimalMarker.version.
+        .target(name: "tcKit"),
         .target(name: "GhosttyKit"),
       ],
       settings: .settings(

@@ -25,8 +25,8 @@ C5 is deliberately orthogonal to C1 (Terminal engine) and C2 (Hierarchy): Tier-A
 - [x] M1 — `touch-code-skill/` subdirectory scaffold (SKILL.md stub, `references/*.md` stubs, `agents/{claude-code,codex,pi}/` stubs, `VERSION`, `package.json`, `tests/` placeholders) — 2026-04-20
 - [x] M2 — `apps/mac/Resources/agents.json` + `AgentsConfig` Swift type in new `tcKit` static framework + unit tests (10 cases green; see DEC-8, DEC-9, DEC-10) — 2026-04-20
 - [x] M3 — `SkillBundleLocator` + `SkillInstaller` + `SkillFileSystem` in `tcKit` + unit tests (31 cases after review-fix round) — 2026-04-20
-- [x] M4 — `tc skill {install,uninstall,status,bundle-path}` subcommands + runners + `ProcessSpawner` + `AgentID: EnumerableFlag` + touch-code-skill bundled in .app Resources + env-var overrides for dev iteration + 13 new runner tests (44 cases total) — 2026-04-20
-- [ ] M5 — `SkillVersionBanner` app-side component (SwiftUI banner, `@Observable`, minimal-marker decoder, `UserDefaults`-backed dismissal)
+- [x] M4 — `tc skill {install,uninstall,status,bundle-path}` subcommands + runners + `ProcessSpawner` + `AgentID: EnumerableFlag` + touch-code-skill bundled in .app Resources + env-var overrides for dev iteration + 45 test cases (13 runner tests added) + M4a polish round (publicInstallMode accessor, pi stdout forwarding, display-width padding) — 2026-04-20
+- [x] M5 — `SkillVersionBanner` + `SkillVersionBannerView` in the app, injectable providers so the banner never reads `SKILL.md` content, one-field `MinimalMarker` decoder, per-agent `UserDefaults` dismissal that re-arms on bundle-version bump, 8 unit tests — 2026-04-20
 - [ ] M6 — Tier-A tests (`tc --help-json` roundtrip, golden manifest diff) + `generate-skill-version.sh` + orthogonality check + `make mac-skill-validate`
 - [ ] M7 — Mirror-repo release automation (`.github/workflows/mirror-skill.yml`, mirror repo creation + `MIRROR_DEPLOY_KEY` setup — owner gate)
 - [ ] M8 — SKILL.md + `references/` + `agents/**/README.md` production content pass (CLI-only, no Swift references)
