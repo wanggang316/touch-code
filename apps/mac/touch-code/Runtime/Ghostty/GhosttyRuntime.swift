@@ -2,6 +2,10 @@ import AppKit
 import Foundation
 import GhosttyKit
 
+/// Process-global libghostty façade. Owns one `ghostty_app_t` and the runtime
+/// config whose callbacks route via a user-data pointer back to a weak
+/// reference to `self`. Callback plumbing matches supaterm's pattern so M5's
+/// `PanelSurface` can subclass the seam without rewriting init.
 @MainActor
 final class GhosttyRuntime {
   struct Info {
@@ -9,20 +13,23 @@ final class GhosttyRuntime {
     let buildMode: String
   }
 
-  final class CallbackState {
+  /// Strong handle bridging the C callback userdata pointer back to an
+  /// instance-isolated dispatcher. Lives behind an Unmanaged retain until
+  /// deinit releases it on the next main-queue turn.
+  final class CallbackDispatcher {
     weak var runtime: GhosttyRuntime?
+
+    /// Called from `wakeup_cb`. libghostty asks us to tick it soon.
+    var onWakeup: (@MainActor () -> Void)?
+    /// Called from `close_surface_cb`. `processAlive` is true when the
+    /// surface closed cleanly with a running child (user initiated).
+    var onSurfaceCloseRequested: (@MainActor (UnsafeMutableRawPointer?, Bool) -> Void)?
+    /// Called from `action_cb`. Return `true` if the action was consumed.
+    var onAction: (@MainActor (ghostty_app_t, ghostty_target_s, ghostty_action_s) -> Bool)?
   }
 
-  private static let globalInit: Int32 = {
-    ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
-  }()
-
-  private(set) var app: ghostty_app_t?
-  private var config: ghostty_config_t?
-  private let callbackState = CallbackState()
-
   static var info: Info {
-    _ = Self.globalInit
+    _ = GhosttyBootstrap.initialize
     let raw = ghostty_info()
     let version = (NSString(
       bytes: raw.version,
@@ -40,8 +47,13 @@ final class GhosttyRuntime {
     return Info(version: version, buildMode: mode)
   }
 
+  private(set) var app: ghostty_app_t?
+  private var config: ghostty_config_t?
+  let dispatcher = CallbackDispatcher()
+
   init() throws {
-    _ = Self.globalInit
+    _ = GhosttyBootstrap.initialize
+
     guard let config = ghostty_config_new() else {
       throw GhosttyError.configInitFailed
     }
@@ -50,19 +62,21 @@ final class GhosttyRuntime {
     ghostty_config_finalize(config)
     self.config = config
 
-    callbackState.runtime = self
+    dispatcher.runtime = self
+    let userdata = Unmanaged.passRetained(dispatcher).toOpaque()
     var runtimeConfig = ghostty_runtime_config_s(
-      userdata: Unmanaged.passRetained(callbackState).toOpaque(),
+      userdata: userdata,
       supports_selection_clipboard: false,
-      wakeup_cb: { _ in },
-      action_cb: { _, _, _ in false },
+      wakeup_cb: Self.wakeupCallback,
+      action_cb: Self.actionCallback,
       read_clipboard_cb: { _, _, _ in false },
       confirm_read_clipboard_cb: { _, _, _, _ in },
       write_clipboard_cb: { _, _, _, _, _ in },
-      close_surface_cb: { _, _ in }
+      close_surface_cb: Self.closeSurfaceCallback
     )
 
     guard let app = ghostty_app_new(&runtimeConfig, config) else {
+      Unmanaged<CallbackDispatcher>.fromOpaque(userdata).release()
       throw GhosttyError.appInitFailed
     }
     self.app = app
@@ -75,9 +89,39 @@ final class GhosttyRuntime {
     if let config {
       ghostty_config_free(config)
     }
-    let handle = Unmanaged.passUnretained(callbackState).toOpaque()
+    let handle = Unmanaged.passUnretained(dispatcher).toOpaque()
     DispatchQueue.main.async {
-      Unmanaged<CallbackState>.fromOpaque(handle).release()
+      Unmanaged<CallbackDispatcher>.fromOpaque(handle).release()
+    }
+  }
+
+  // MARK: - C callback shims
+  //
+  // Each shim receives the userdata pointer, converts it back to the
+  // strongly-held `CallbackDispatcher`, then hops to the MainActor and
+  // invokes the closure set on the dispatcher. This keeps the C-convention
+  // boundary pure and routes all ghostty events through a single seam.
+
+  private static let wakeupCallback: (@convention(c) (UnsafeMutableRawPointer?) -> Void) = { userdata in
+    guard let userdata else { return }
+    let dispatcher = Unmanaged<CallbackDispatcher>.fromOpaque(userdata).takeUnretainedValue()
+    DispatchQueue.main.async {
+      dispatcher.onWakeup?()
+    }
+  }
+
+  private static let actionCallback: (@convention(c) (ghostty_app_t?, ghostty_target_s, ghostty_action_s) -> Bool) = { _, _, _ in
+    // Real routing lands with M5 surface integration; until then no action is consumed.
+    false
+  }
+
+  private static let closeSurfaceCallback: (@convention(c) (UnsafeMutableRawPointer?, Bool) -> Void) = { userdata, processAlive in
+    guard let userdata else { return }
+    let dispatcher = Unmanaged<CallbackDispatcher>.fromOpaque(userdata).takeUnretainedValue()
+    let surfaceHandle = UInt(bitPattern: userdata)
+    DispatchQueue.main.async {
+      let rebuilt = UnsafeMutableRawPointer(bitPattern: surfaceHandle)
+      dispatcher.onSurfaceCloseRequested?(rebuilt, processAlive)
     }
   }
 }

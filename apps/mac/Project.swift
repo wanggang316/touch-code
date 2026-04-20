@@ -123,7 +123,6 @@ let project = Project(
       buildableFolders: [
         "touch-code/App",
         "touch-code/Runtime",
-        "touch-code/Runtime/Ghostty",
         "touch-code/Hooks",
         "touch-code/Git",
       ],
