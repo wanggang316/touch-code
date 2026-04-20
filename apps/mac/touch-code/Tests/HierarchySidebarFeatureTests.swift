@@ -41,18 +41,22 @@ struct HierarchySidebarFeatureTests {
     let spaceID = SpaceID()
     let projectID = ProjectID()
     let worktreeID = WorktreeID()
-    let received = LockIsolated<(WorktreeID, ProjectID, SpaceID)?>(nil)
+    let received = LockIsolated<(WorktreeID?, ProjectID, SpaceID)?>(nil)
 
     let store = TestStore(initialState: HierarchySidebarFeature.State()) {
       HierarchySidebarFeature()
     } withDependencies: {
       $0.hierarchyClient.selectWorktree = { id, project, space in
-        received.withValue { $0 = (id ?? WorktreeID(), project, space) }
+        received.withValue { $0 = (id, project, space) }
       }
     }
 
     await store.send(.worktreeRowTapped(worktreeID, inProject: projectID, inSpace: spaceID))
     let captured = received.value
+    #expect(captured != nil)
+    // Preserve the nil-vs-value distinction — a regression where the
+    // reducer accidentally nils out the ID would now fail loudly instead
+    // of silently synthesising a fresh WorktreeID.
     #expect(captured?.0 == worktreeID)
     #expect(captured?.1 == projectID)
     #expect(captured?.2 == spaceID)

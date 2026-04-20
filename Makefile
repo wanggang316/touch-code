@@ -1,4 +1,5 @@
-.PHONY: help bootstrap mac-bootstrap mac-build-ghostty mac-generate mac-build mac-build-cli mac-run-app mac-format mac-lint mac-check mac-test mac-clean
+.PHONY: help bootstrap mac-bootstrap mac-build-ghostty mac-generate mac-build mac-build-cli mac-run-app mac-format mac-lint mac-check mac-test mac-clean \
+  mac-skill-version mac-skill-validate mac-skill-golden-update mac-skill-tier-b
 
 MAC_APP_DIR := apps/mac
 
@@ -15,10 +16,14 @@ help:
 	@echo "  mac-check         - format + lint"
 	@echo "  mac-test          - (placeholder)"
 	@echo "  mac-clean         - Remove workspace + project + Package.resolved"
+	@echo "  mac-skill-version - Sync tc version into touch-code-skill/VERSION + package.json"
+	@echo "  mac-skill-validate - Run Tier-A skill checks (help-json roundtrip + golden + orthogonality)"
+	@echo "  mac-skill-golden-update - Regenerate apps/mac/scripts/skill-golden-manifest.txt"
+	@echo "  mac-skill-tier-b  - Run Tier-B per-agent smoke tests (release gate)"
 
 bootstrap:
 	git submodule update --init --recursive
 	mise install
 
-mac-bootstrap mac-build-ghostty mac-generate mac-build mac-build-cli mac-run-app mac-format mac-lint mac-check mac-test mac-clean:
+mac-bootstrap mac-build-ghostty mac-generate mac-build mac-build-cli mac-run-app mac-format mac-lint mac-check mac-test mac-clean mac-skill-version mac-skill-validate mac-skill-golden-update mac-skill-tier-b:
 	$(MAKE) -C $(MAC_APP_DIR) $(subst mac-,,$@)

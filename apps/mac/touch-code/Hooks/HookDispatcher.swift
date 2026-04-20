@@ -94,6 +94,13 @@ public final class HookDispatcher {
   /// by `hook.test` / `hook.fire` RPCs and by unit tests. Also published
   /// to the multicaster so `hook.events` / `internalEventStream()` see the
   /// firing.
+  ///
+  /// For `.panelOutput` envelopes the dispatcher also scans every
+  /// `.panelOutputMatch` subscription whose `matchPattern` hits the
+  /// output bytes, and fires a synthesized `.panelOutputMatch` envelope
+  /// per match. This keeps `EventMapper` pure (one inbound event →
+  /// exactly one envelope) while giving user regexes a fire path that
+  /// consumers like `hook.events` can observe.
   public func fire(_ envelope: HookEnvelope) async {
     multicaster.publish(envelope)
     let matches = config.subscriptions.filter { sub in
@@ -102,6 +109,71 @@ public final class HookDispatcher {
     for sub in matches {
       await dispatch(sub, envelope: envelope)
     }
+
+    // Output-match fan-out. Only runs for panel.output events that
+    // carry raw bytes; subscriptions with a matchPattern are evaluated
+    // against the bytes, and a hit synthesises a `.panelOutputMatch`
+    // envelope that is re-entered through the normal fire path.
+    if envelope.event == .panelOutput,
+       case .panelOutput(let output, let bytes) = envelope.data {
+      for sub in config.subscriptions
+        where !sub.disabled
+          && sub.event == .panelOutputMatch
+          && (sub.matchPattern?.isEmpty == false) {
+        guard let pattern = sub.matchPattern,
+              let (matchString, range) = Self.firstRegexHit(
+                pattern: pattern,
+                flags: sub.matchFlags,
+                in: output
+              ) else {
+          continue
+        }
+        let synthesised = HookEnvelope(
+          event: .panelOutputMatch,
+          space: envelope.space,
+          project: envelope.project,
+          worktree: envelope.worktree,
+          tab: envelope.tab,
+          panel: envelope.panel,
+          data: .panelOutputMatch(
+            match: matchString,
+            matchedRange: range,
+            output: output,
+            outputBytes: bytes
+          )
+        )
+        multicaster.publish(synthesised)
+        await dispatch(sub, envelope: synthesised)
+      }
+    }
+  }
+
+  /// Best-effort first-match on `pattern` against the UTF-8 decoding of
+  /// `data`. Returns `nil` when the pattern is invalid or the bytes
+  /// are not valid UTF-8 (the hot path pre-compiles these in M2.1.1.1;
+  /// M2.1.1 compiles per-fire for simplicity).
+  static func firstRegexHit(
+    pattern: String,
+    flags: HookSubscription.RegexFlags,
+    in data: Data
+  ) -> (String, HookMatchRange)? {
+    guard let text = String(data: data, encoding: .utf8) else { return nil }
+    var options: NSRegularExpression.Options = []
+    if flags.contains(.caseInsensitive) { options.insert(.caseInsensitive) }
+    if flags.contains(.multiline) { options.insert(.anchorsMatchLines) }
+    if flags.contains(.dotAll) { options.insert(.dotMatchesLineSeparators) }
+    guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else {
+      return nil
+    }
+    let range = NSRange(text.startIndex..<text.endIndex, in: text)
+    guard let match = regex.firstMatch(in: text, options: [], range: range),
+          let matchRange = Range(match.range, in: text) else {
+      return nil
+    }
+    return (
+      String(text[matchRange]),
+      HookMatchRange(start: match.range.location, length: match.range.length)
+    )
   }
 
   /// Hot-reload from disk. In-flight dispatches retain their captured

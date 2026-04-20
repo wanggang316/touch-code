@@ -37,10 +37,12 @@ struct HierarchySidebarFeature {
         return .none
 
       case .projectRowTapped(let projectID, let spaceID):
+        // Closure-typed client — positional call: (id, inSpace).
         try? hierarchyClient.selectProject(projectID, spaceID)
         return .none
 
       case .worktreeRowTapped(let worktreeID, let projectID, let spaceID):
+        // Positional: (id, inProject, inSpace).
         try? hierarchyClient.selectWorktree(worktreeID, projectID, spaceID)
         return .none
 

@@ -114,6 +114,33 @@ struct ProcessHookExecutorTests {
     let elapsed = Date().timeIntervalSince(start)
     #expect(result.timedOut == true)
     #expect(elapsed < 2.0, "timeout took \(elapsed)s — should have killed at ~0.3s")
+    // Foundation reports signalled exits as the raw signal number on
+    // macOS. SIGTERM=15, SIGKILL=9. Either is acceptable proof of a
+    // killed-by-signal exit as opposed to a clean 0 or a -1 "never
+    // updated" race.
+    #expect(result.exitCode != 0, "timed-out handler must not report clean exit (got \(result.exitCode))")
+    #expect(result.exitCode != -1, "timed-out handler must report a real signal exit (got -1 suggests isRunning race)")
+  }
+
+  @Test
+  func sigtermTrappingHandlerGetsEscalatedToSIGKILL() async throws {
+    let executor = ProcessHookExecutor()
+    // A handler that traps SIGTERM and keeps sleeping. With only
+    // SIGTERM the executor would leak the fd until the process exits
+    // naturally (30 s). The ladder must SIGKILL it within ~1 s grace.
+    let sub = HookSubscription(
+      event: .panelReady,
+      command: "trap '' TERM; sleep 30",
+      timeoutSeconds: 0.3,
+      mode: .awaitActions
+    )
+    let envelope = Self.makePanelReadyEnvelope()
+    let start = Date()
+    let result = await executor.run(subscription: sub, envelope: envelope)
+    let elapsed = Date().timeIntervalSince(start)
+    #expect(result.timedOut == true)
+    #expect(elapsed < 3.0, "SIGKILL ladder must reap trap-TERM within ~1.3s; took \(elapsed)s")
+    #expect(result.exitCode != 0)
   }
 
   @Test

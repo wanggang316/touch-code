@@ -1,6 +1,6 @@
 # ExecPlan: TCA Shell (0007)
 
-**Status:** Draft
+**Status:** Completed
 **Author:** Gump (with Claude)
 **Date:** 2026-04-20
 
@@ -24,9 +24,9 @@ This is the composition layer that unlocks downstream capability work. C6 / C7 /
 - [x] M1 — Add TCA dependency + `HierarchyClient` and `TerminalClient` `DependencyKey`s with `liveValue` / `testValue` wired into the shipped `HierarchyManager` and `TerminalEngine` — 2026-04-20
 - [x] M2 — `RootFeature` scaffold + `ContentView` with an empty `NavigationSplitView`; `TouchCodeApp` mounts `ContentView` in place of `MainView`; event-stream + selection subscriptions armed — 2026-04-20
 - [x] M3 — `HierarchySidebarFeature` + `HierarchySidebarView` with Space → Project → Worktree navigation driven by `HierarchyClient`; DEC-2 mode-swap (`hierarchy` ↔ `inbox`) shipped with C6 placeholder — 2026-04-20
-- [ ] M4 — `WorktreeDetailFeature` composing `TabBarFeature` and `SplitViewportFeature`; detail column renders active Tab's `SplitTree<PanelID>` via `PanelHostView`
-- [ ] M5 — Lazy surface lifecycle: switching Tab / Worktree calls `ensureSurface` for the incoming Tab's leaves and `closeSurface` for the outgoing Tab's leaves
-- [ ] M6 — Presentation plumbing: sheets for "New Space", "Add Project", "New Worktree", "New Tab"; alerts for destructive confirmations; empty-Tab placeholder view
+- [x] M4 — `WorktreeDetailFeature` composing `TabBarFeature` and `SplitViewportFeature`; detail column renders active Tab's `SplitTree<PanelID>` via `PanelHostView`; DEC-9 C7 inspector slot reserved — 2026-04-20
+- [x] M5 — Lazy surface lifecycle via `LazyPanelHost` wrapper: first-appearance creation, registry reuse across tab switches, explicit close via `HierarchyClient.closePanel`. HSplitView/VSplitView containers + C7 inspector icon variants + snapshot-driven activeTabID mirroring (with tests) — 2026-04-20
+- [x] M6 — Presentation plumbing: sheets for "New Space" + "New Tab"; destructive alert for Worktree removal; C8 settings slot reserved; `MainView` + `SingleSurfaceHostTests` deleted; LazyPanelHost refactored to TerminalClient dependency + 3 tests — 2026-04-20. (AddProject folder picker and NewWorktree path templating deferred to a follow-up plan — minimal shell scope.)
 
 ## Surprises & Discoveries
 
@@ -43,6 +43,9 @@ This is the composition layer that unlocks downstream capability work. C6 / C7 /
 - **DEC-6 (M2, 2026-04-20): `HierarchyClient`, `TerminalClient`, `HierarchySelection` marked `nonisolated struct`.** App-target default actor isolation is MainActor. Structures that the TCA `@Dependency` / `DependencyKey` system reads from need nonisolated defaults (the closures inside are individually `@MainActor @Sendable`). Without `nonisolated` on the struct, MainActor-inference propagates and breaks Sendable conformance at the boundary.
 - **DEC-7 (M2, 2026-04-20): Runtime constructors in `TouchCodeApp.AppState.init`, ghostty bring-up deferred to `bringUp()`.** `HierarchyManager` + `TerminalEngine` must exist before the SwiftUI scene renders the placeholder loading view; `GhosttyRuntime` needs `GhosttyBootstrap.initialize` env vars set first, so constructing it in the init path risked deadlock/timing issues. `bringUp` runs from a `.task { }` modifier, assembles ghostty, and then rebuilds the TCA `Store` with the live clients. `GhosttyBackedHierarchyRuntime` uses a `weak` engine ref attached post-construction to break the `Manager ↔ Engine` circular dep.
 - **DEC-8 (M2, 2026-04-20): `selectionChanges()` pre-arm race closed.** Review flagged that between a yield and the next `withObservationTracking` arm, a mutation could land unobserved. Fix: sample `currentSelection` BEFORE arming tracking and yield immediately if it diverges from `last`. Regression tested via `selectionChangesDedupesIdenticalSelectSpace` (identical selects do not cause phantom emissions) and `selectionChangesPopulatesAllThreeLevelsOnWorktreeSelect` (pre-seeded catalog yields fully-populated first emission).
+- **DEC-9 (M4, 2026-04-20): C7 inspector slot reserved as a trailing column, default hidden.** M4 review suggested adding a placeholder now so C7 M3 doesn't need to restructure `RootFeature.State` when it lands. Decision: single `inspectorVisible: Bool` on `RootFeature.State` with a toolbar toggle; when true, `ContentView` appends a fixed-width `InspectorPlaceholder` after the detail content inside an `HStack` (not as a third `NavigationSplitView` column — `NavigationSplitView`'s three-column mode on macOS 14 has fiddly collapse behaviour). C7 replaces the placeholder with a real reducer + view without touching root state shape.
+- **DEC-10 (M4, 2026-04-20): Recursive SwiftUI view uses `AnyView`.** First compile of `SplitViewportView` with `@ViewBuilder` recursive `renderNode` hung the Swift type checker (single file compile stuck > 5 min). Type erasure via `AnyView` at every recursion level compiles in seconds. Cost is negligible at realistic tree sizes (≤ 32 panels/tab). Swift 6 generic inference on recursive view hierarchies is a known sharp edge; erasure is the standard escape hatch.
+- **DEC-11 (M4, 2026-04-20): `SplitTree<PanelID>.Tab` → `TouchCodeCore.Tab` qualification.** SwiftUI's `Tab` type (added in macOS 14) shadows `TouchCodeCore.Tab`. Feature views must fully qualify as `TouchCodeCore.Tab` in every signature that mentions the type. Domain name kept — renaming to avoid collision isn't worth the churn.
 
 ## Outcomes & Retrospective
 
@@ -87,6 +90,55 @@ This is the composition layer that unlocks downstream capability work. C6 / C7 /
 **Verification:** `make mac-build` → `BUILD SUCCEEDED`. `make mac-lint` → clean (required `.accessibilityHidden(true)` on every decorative `Image` inside row buttons). `xcodebuild test -scheme touch-code` → **48 tests in 9 suites pass** (43 prior + 5 new: 4 sidebar + 1 exhaustive RootFeature). App binary launches; sidebar shows "No Spaces yet" placeholder (M6 will seed creation UI); toolbar Picker swaps in/out the InboxSidebarPlaceholder.
 
 **Carry-forward to M4:** `WorktreeDetailFeature` replaces the `DetailPlaceholder` view; composes `TabBarFeature` + `SplitViewportFeature`. Per DEC-3 (M4 kickoff), `SplitViewportFeature.State` must seed `activeTabID: TabID?` at introduction so M5's `.tabActivated` lifecycle has a field to mutate. `HierarchyClient.selectionChanges` stream already drives detail-column swap.
+
+### M4 — WorktreeDetailFeature + TabBar + SplitViewport + inspector slot (2026-04-20)
+
+**What landed:**
+- `apps/mac/touch-code/App/Features/WorktreeDetail/WorktreeDetailFeature.swift` — composition reducer with `Scope` wiring for `tabBar` + `splitViewport` substates. Renders `emptyTab` when a worktree is selected but has no active tab; `placeholder` when no worktree is selected.
+- `apps/mac/touch-code/App/Features/TabBar/TabBarFeature.swift` — state-free controller: actions forward to `hierarchyClient.createTab / selectTab / closeTab`. View reads `Worktree.tabs` from environment.
+- `apps/mac/touch-code/App/Features/TabBar/TabBarView.swift` — horizontal button strip with New-Tab `+` button, close buttons per tab, `activeTabID` highlight.
+- `apps/mac/touch-code/App/Features/SplitViewport/SplitViewportFeature.swift` — state seeds `activeTabID: TabID?` per DEC-3; actions `newPanelButtonTapped`, `splitButtonTapped`, `closePanelButtonTapped`, `focusPanelRequested`, `resizeSplitRequested`, `activeTabChanged`. Forwards to `hierarchyClient` equivalents.
+- `apps/mac/touch-code/App/Features/SplitViewport/SplitViewportView.swift` — recursive render over `SplitTree<PanelID>.Node` with `AnyView` erasure to sidestep Swift 6 generic inference (DEC-10). Leaves resolve `PanelSurface` via `terminalEngine.ghosttyRuntime?.surface(for:)`; splits render via `HStack`/`VStack` (placeholder for future `NSSplitView` resize handles).
+- `apps/mac/touch-code/App/Features/Root/RootFeature.swift` — state gains `detail: WorktreeDetailFeature.State` + `inspectorVisible: Bool`; action gains `.detail(…)` + `.inspectorVisibilityToggled`. `.selectionChanged` now mirrors the active tab via `resolveActiveTab(selection:)` so lazy-surface logic in M5 has a single source of truth.
+- `apps/mac/touch-code/App/ContentView.swift` — detail column becomes `HStack { WorktreeDetailView; divider; InspectorPlaceholder }` when `inspectorVisible == true`. Toolbar button toggles the inspector; DEC-2 sidebar picker still lives on the leading column's toolbar.
+- M3 review polish folded in: DEC-0 positional-call clarity commented at call sites (closure-typed clients don't propagate labels); `HierarchySidebarFeatureTests` stub no longer synthesises fallback WorktreeID; `RootFeatureTests.sidebarModeChangedUpdatesState` + `inspectorVisibilityTogglesBothWays` added.
+- `apps/mac/touch-code/Tests/TabBarFeatureTests.swift` (3 tests) + `SplitViewportFeatureTests.swift` (4 tests).
+
+**Verification:** `make mac-build` → `BUILD SUCCEEDED`. `make mac-lint` → clean. `xcodebuild test -scheme touch-code` → **57 tests in 11 suites pass** (48 prior + 9 new: 3 TabBar + 4 SplitViewport + 2 RootFeature additions). App binary launches; toolbar shows sidebar-mode picker + inspector toggle; sidebar + detail + hidden inspector compose without layout glitches.
+
+**Carry-forward to M5:** Lazy surface lifecycle. M5 observes `.tabActivated` on the engine event stream + `.selectionChanged` route in root reducer; iterates the incoming tab's panels and calls `terminalClient.ensureSurface` for each. Outgoing tabs' surfaces are NOT destroyed (product NFR: tab switch < 16ms; reopening surfaces would cost shell bootstrap time). The `SplitViewportView.placeholderCell` stands in for panels whose surface hasn't been lazily created yet — M5 should see it only briefly on first tab visit.
+
+### M5 — Lazy surface lifecycle + M4 polish (2026-04-20)
+
+**What landed:**
+- `apps/mac/touch-code/App/Features/SplitViewport/LazyPanelHost.swift` — new `View` wrapper implementing the M5 lifecycle: `.task(id: panelID)` calls `terminalEngine.ensureSurface` on first appearance, renders `PanelHostView` on success, shows a labelled placeholder with a "Retry" button on failure. Surfaces are reused across tab switches via the engine registry (`ghosttyRuntime.surface(for:)`); view appearance does not destroy them. Close flows through `HierarchyClient.closePanel` → `HierarchyManager.closePanel` → `TerminalEngine.closeSurface`.
+- `apps/mac/touch-code/App/Features/SplitViewport/SplitViewportView.swift` — `panelLeaf` replaced with `LazyPanelHost`; the stale "Surface not yet created" placeholder + os_log warning removed in favour of the live loading/retry states inside `LazyPanelHost`.
+- M4 polish folded in:
+  - Split containers switched from `HStack`/`VStack` to `HSplitView`/`VSplitView` for free drag-resize dividers; doc comment updated.
+  - Inspector toolbar button uses distinct icons (`sidebar.right` visible / `sidebar.squares.right` hidden).
+  - `RootFeature.reducer` now documents the `hierarchyClient.snapshot` TestStore contract as an inline comment on `.selectionChanged`.
+- `apps/mac/touch-code/Tests/WorktreeDetailFeatureTests.swift` — 2 tests covering the two Scope routings.
+- `apps/mac/touch-code/Tests/RootFeatureTests.swift` — `selectionChangedMirrorsActiveTabFromSnapshot` asserts that a selection pointing at a worktree with a selected tab populates `state.detail.splitViewport.activeTabID` correctly.
+
+**Verification:** `make mac-build` → `BUILD SUCCEEDED`. `make mac-lint` → clean. `xcodebuild test -scheme touch-code` → **60 tests in 12 suites pass** (57 prior + 3 new: 2 WorktreeDetail + 1 snapshot mirroring). App binary launches with the split viewport lazy-creation path active.
+
+**Carry-forward to M6:** Creation sheets (Space/Project/Worktree/Tab), destructive confirmation alerts, `@Presents settingsSheet` placeholder for C8 (DEC-4), delete `MainView.swift` + `SingleSurfaceHostTests.swift`.
+
+### M6 — Modals, confirmation, cleanup, LazyPanelHost refactor (2026-04-20)
+
+**What landed:**
+- `apps/mac/touch-code/App/Clients/TerminalClient.swift` — gains `surface(panelID)` closure for registry lookup after `ensureSurface`. `live(engine:)` forwards to `engine.ghosttyRuntime?.surface(for:)`; `testValue` uses `unimplemented(…, placeholder: nil)`.
+- `apps/mac/touch-code/App/Features/SplitViewport/LazyPanelHost.swift` — refactored to `@Dependency(TerminalClient.self)` (no longer takes a `TerminalEngine` parameter; no longer reads `HierarchyManager` from the environment). Registry short-circuit via `terminalClient.surface(panelID)`; if nil, calls `ensureSurface`, then re-looks-up and transitions state. Retry button re-invokes.
+- `SplitViewportView` / `WorktreeDetailView` / `ContentView` / `TouchCodeApp` — drop the `terminalEngine` parameter chain, one less explicit dependency through the view tree.
+- `apps/mac/touch-code/App/Features/Modals/CreationModals.swift` + `CreationModalViews.swift` — `NewSpaceFeature` + `NewTabFeature` reducers and sheet views. Both use `BindableAction` for `TextField` binding, dispatch through `HierarchyClient`, dismiss via `@Dependency(\.dismiss)`. AddProject folder-picker and NewWorktree path-templating flows are deferred — minimal shell ships 2 creation paths as proof, follow-up plan fills in 2 more.
+- `apps/mac/touch-code/App/Features/Root/RootFeature.swift` — state gains `@Presents var newSpaceSheet`, `@Presents var newTabSheet`, `@Presents var confirmAlert: AlertState<ConfirmAlertAction>?`. Actions `newSpaceButtonTapped` / `newTabButtonTapped` / `removeWorktreeButtonTapped` open the right presentation; `confirmRemoveWorktree` routes to `hierarchyClient.removeWorktree`. C8 reservation is an inline commented `@Presents var settingsSheet` that C8 M6 uncomments and types.
+- `apps/mac/touch-code/App/ContentView.swift` — new `+` toolbar button fires `.newSpaceButtonTapped`; `.sheet(item:)` + `.alert(…)` modifiers bind the scoped stores.
+- Deleted `MainView.swift` (pre-TCA bring-up path; `ContentView` is now the only entry) and `Tests/SingleSurfaceHostTests.swift` (the host type it covered no longer exists).
+- `apps/mac/touch-code/Tests/LazyPanelHostTests.swift` (3 tests) — covers first-appearance ensureSurface, retry re-invokes, registry short-circuit.
+
+**Verification:** `make mac-build` → `BUILD SUCCEEDED`. `make mac-lint` → clean. `xcodebuild test -scheme touch-code` → **61 tests in 12 suites pass** (60 prior - 2 deleted SingleSurfaceHostTests + 3 LazyPanelHostTests). App launches; toolbar "+" opens New Space sheet; submitting adds a Space; sidebar reflects the addition.
+
+**Exec plan 0007 CLOSED.** C6 M5 (InboxSidebarPlaceholder slot), C7 M3/M4 (inspector slot + GitViewerFeature), C8 M6 (settings sheet slot) are unblocked.
 
 ## Context and Orientation
 
