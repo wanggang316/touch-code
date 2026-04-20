@@ -21,8 +21,8 @@ This plan is the first capability that makes touch-code **aware** of what its Pa
 ## Progress
 
 - [x] M1a — `TouchCodeCore/Notifications/` C3-independent types (AgentState, AgentNotification, NotificationInbox, MuteSettings) — 2026-04-20, commit `932e6b4`
-- [ ] M1b — C3-dependent types (AgentStateTransition.Trigger.envelope, AgentDetectionRules, TemplateField.validPaths) — blocked on C3 exec plan 0003 M1 landing in TouchCodeCore
-- [ ] M2 — `touch-code/Notifications/` module: DetectionRouter (InternalHookSubscriber impl), TrackerRegistry (single owner of tracker lifecycle), AgentStateTracker (4-state FSM), RuleStore (read-modify-write via C3 load/save), TemplateRenderer — blocked on M1b
+- [x] M1b — C3-dependent TouchCodeCore types (AgentStateTransition + Trigger.envelope, AgentDetectionRules with version + missingMatch gates, TemplateField.validPaths per HookEvent) — 2026-04-20, cherry-picked C3 commit `e70553b` + added M1b files on top
+- [ ] M2 — `touch-code/Notifications/` module: DetectionRouter (InternalHookSubscriber impl), TrackerRegistry (single owner of tracker lifecycle), AgentStateTracker (4-state FSM), RuleStore (read-modify-write via C3 load/save), TemplateRenderer
 - [x] M3 — InboxStore persistence (notifications.json via AtomicFileStore, 500-row cap, 7-day sweep) + codable round-trip + debounced writer — 2026-04-20
 - [ ] M4a — OSNotifier (UN wrapper) + DockBadger (AppKit wrapper) + NotificationPermissionDelegate + NullPermissionDelegate + SettingsStore (C3-independent) — 2026-04-20
 - [ ] M4b — NotificationCoordinator fan-out wiring to AgentStateTransition + 11-step app-shell bootstrap — blocked on M1b/M2
@@ -110,10 +110,24 @@ Reviewer flagged that `SettingsStore.backupBrokenFile` still used the silent-`tr
 
 **Verification:** `xcodebuild test -scheme touch-code` → 39 tests in 8 suites green. `make mac-lint` clean. Shims are mode 755, smoke-tested via their inline shell body (file-resolution from the test host's cwd deliberately avoided).
 
-**What's deferred to M6b (blocked on M1b/M2):**
+**What's deferred to M6b (blocked on M2):**
 - `AgentDetectionRules` Codable round-trip of `DefaultRules.json` — the wire shape is correct by-eye against design §Detection Rule DSL; M6b will prove it with a real decoder.
 - `NotificationCoordinator.reloadRules()` wiring — needs the coordinator (M4b).
 - `tc notifications rules reload` CLI verb — per DEC-P4 this is a follow-up PR on plan 0003 regardless.
+
+### M1b — C3-dependent TouchCodeCore types (2026-04-20)
+
+**Unblocked by** cherry-picking C3 exec plan 0003 M1 (commit `efd91c9` on `origin/worktree-design+c3-c4-hooks-cli`, lands locally as `e70553b`). That commit adds `HookEvent / HookEnvelope / HookEventData / HookSubscription / HookConfig / HookMatchRange` to `TouchCodeCore/Hooks/` plus `Panel.labels: Set<String>` as an additive field. Conflict on `docs/exec-plans/0003-hooks-and-cli.md` (C3's own plan) resolved by removing the file from this branch — that file belongs on the C3 branch, not C6.
+
+**What landed:**
+- `TouchCodeCore/Notifications/AgentStateTransition.swift` — struct + `Trigger` enum with hand-rolled Codable (`kind` discriminator) to keep the JSON shape human-readable across the four associated-value cases.
+- `TouchCodeCore/Notifications/AgentDetectionRules.swift` — top-level rule set with version gate + rule-level `missingMatch(ruleID:)` gate (any `.panelOutputMatch`-scoped rule must carry a `match`). Nested `Rule`, `AppliesWhen`, `Match(Target)` matching design §Detection Rule DSL. `Match` is an externally-tagged enum (`containsAny` key vs. `regex` + `on` keys, matching the example in the design doc). Default `idleThresholdSeconds = 120`.
+- `TouchCodeCore/Notifications/TemplateField.swift` — enumerates every valid `{path.like.this}` placeholder a rule author can reference. `alwaysAvailable` set (anchors every envelope carries) + `validPaths(for: HookEvent)` that unions in the data-path subset matching that case's `HookEventData` shape. `HookMatchRange.start`/`.length` (not NSRange location) per C3 M1.
+- Tests: `AgentStateTransitionTests` (5 — each trigger case round-trips + full FSM state matrix), `AgentDetectionRulesTests` (10 — Codable round-trip, containsAny vs. regex Match encoding, regex `on` default `tail`, missingMatch gate, unknown-version rejection, idle threshold default), `TemplateFieldTests` (9 — alwaysAvailable shape, per-event subsets, "every HookEvent case is handled").
+
+**Verification:** `xcodebuild test -scheme TouchCodeCore` → 127 tests in 21 suites green (45 previously + C3's 58 + 24 new M1b). `make mac-lint` clean.
+
+**Unblocks:** M2 (DetectionRouter + TrackerRegistry + RuleStore), M4b (NotificationCoordinator), M6b (AgentDetectionRules round-trip on DefaultRules.json), M7 (integration tests). Carry-forward: in the M2 DetectionRouter, `handle(envelope:)` can now type-check against the real `HookEnvelope`.
 
 ## Context and Orientation
 
