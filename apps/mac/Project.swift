@@ -140,6 +140,7 @@ let project = Project(
         .target(name: "TouchCodeIPC"),
         .target(name: "tc"),
         .target(name: "GhosttyKit"),
+        .external(name: "ComposableArchitecture"),
       ],
       settings: .settings(
         base: [

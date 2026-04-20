@@ -1,0 +1,114 @@
+import ComposableArchitecture
+import Foundation
+import Testing
+@testable import touch_code
+import TouchCodeCore
+
+@MainActor
+struct RootFeatureTests {
+  @Test
+  func onLaunchReceivesEngineEventThenCancels() async {
+    let (eventStream, eventContinuation) = AsyncStream<TerminalEvent>.makeStream()
+    let (selectionStream, selectionContinuation) = AsyncStream<HierarchySelection>.makeStream()
+
+    let store = TestStore(initialState: RootFeature.State()) {
+      RootFeature()
+    } withDependencies: {
+      $0.terminalClient.events = { eventStream }
+      $0.hierarchyClient.selectionChanges = { selectionStream }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.onLaunch)
+
+    // Yield a single lifecycle event.
+    let panelID = PanelID()
+    eventContinuation.yield(.panelReady(panelID))
+    await store.receive(\.engineEventReceived) { state in
+      state.lastEvent = .panelReady
+    }
+
+    // Cancellation: onQuit closes the in-flight effects.
+    eventContinuation.finish()
+    selectionContinuation.finish()
+    await store.send(.onQuit)
+  }
+
+  @Test
+  func selectionChangedUpdatesState() async {
+    let store = TestStore(initialState: RootFeature.State()) {
+      RootFeature()
+    } withDependencies: {
+      $0.terminalClient.events = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
+    }
+
+    let selection = HierarchySelection(
+      spaceID: SpaceID(),
+      projectID: ProjectID(),
+      worktreeID: WorktreeID()
+    )
+    await store.send(.selectionChanged(selection)) { state in
+      state.selection = selection
+    }
+  }
+
+  @Test
+  func onLaunchExhaustivelyPropagatesSelectionFromStream() async {
+    // Tight-scope TestStore: only the selection stream yields, the event
+    // stream immediately finishes. Full exhaustivity verifies that
+    // selectionChanged action propagates from the stream subscription
+    // through the reducer with no extra actions dispatched.
+    let (selectionStream, selectionContinuation) = AsyncStream<HierarchySelection>.makeStream()
+
+    let store = TestStore(initialState: RootFeature.State()) {
+      RootFeature()
+    } withDependencies: {
+      $0.terminalClient.events = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.selectionChanges = { selectionStream }
+    }
+
+    await store.send(.onLaunch)
+
+    let selection = HierarchySelection(
+      spaceID: SpaceID(),
+      projectID: nil,
+      worktreeID: nil
+    )
+    selectionContinuation.yield(selection)
+    await store.receive(\.selectionChanged) { state in
+      state.selection = selection
+    }
+
+    selectionContinuation.finish()
+    await store.send(.onQuit)
+  }
+
+  @Test
+  func lastEventMarkerCoversAllVariants() {
+    // Guard against forgetting to add a marker case when a new TerminalEvent
+    // variant lands. Exhaustive switch at the enum level would be safer but
+    // requires Equatable which TerminalEvent can't have (Data payload). This
+    // test provides at least surface coverage that every variant maps.
+    let panel = PanelID()
+    let tab = TabID()
+    let worktree = WorktreeID()
+
+    let cases: [(TerminalEvent, RootFeature.LastEventMarker)] = [
+      (.panelCreated(panel, tab), .panelCreated),
+      (.panelReady(panel), .panelReady),
+      (.panelOutput(panel, Data([0x01])), .panelOutput),
+      (.panelIdle(panel, duration: 1), .panelIdle),
+      (.panelExited(panel, code: 0, signal: nil), .panelExited),
+      (.panelCrashed(panel, reason: "x"), .panelCrashed),
+      (.panelClosedByTab(panel, cause: .other(reason: "x")), .panelClosedByTab),
+      (.tabActivated(tab), .tabActivated),
+      (.tabAutoClosed(tab, cause: .other(reason: "x")), .tabAutoClosed),
+      (.worktreeActivated(worktree), .worktreeActivated),
+      (.hierarchyMutated(.catalog), .hierarchyMutated),
+    ]
+    for (event, expected) in cases {
+      #expect(RootFeature.LastEventMarker(event) == expected)
+    }
+  }
+}

@@ -27,8 +27,9 @@ Every exec plan MUST contain:
 ## Active Plans
 
 <!-- List active plans here -->
-- [0002 — Terminal Engine and Five-Level Hierarchy (C1 + C2)](0002-terminal-and-hierarchy.md) — domain model, CatalogStore, GhosttyRuntime, HierarchyManager, TCA clients, sidebar + tab bar + split view, git worktree CLI
+- [0007 — TCA Shell](0007-tca-shell.md) — RootFeature + NavigationSplitView + Sidebar/TabBar/SplitView composition; unblocks C6 Inbox, C7 GitViewer, C8 EditorSettings
 
 ## Completed Plans
 
+- [0002 — Terminal Engine and Five-Level Hierarchy (C1 + C2)](0002-terminal-and-hierarchy.md) — domain model, CatalogStore, TerminalEngine, HierarchyManager, GhosttyRuntime + PanelSurface, GitWorktreeCLI; live shell end-to-end (2026-04-20)
 - [0001 — Bootstrap touch-code monorepo](0001-bootstrap-monorepo.md) — Tuist + mise + ghostty submodule + empty mac app + `tc --version` CLI + CI (2026-04-19; GhosttyKit foreignBuild deferred per DEC-8)
