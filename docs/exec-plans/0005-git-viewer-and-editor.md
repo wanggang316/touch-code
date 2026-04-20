@@ -35,6 +35,10 @@ Each unchecked entry will be updated with a completion timestamp in the form `�
 
 - **Zig CDN deps prime required on every fresh worktree (M1, 2026-04-20).** A clean worktree generation failed on `deps.files.ghostty.org → uucode-0.2.0-…tar.gz` with HTTP 400 (Cloudflare rejecting Zig's std.http.Client TLS fingerprint — a known and documented condition in `apps/mac/scripts/prime-zig-cache.sh`). Resolution: run the primer once per worktree before `make mac-generate`. The primer uses curl + `zig fetch` to populate `.build/ghostty/.zig-global-cache/p/` with all 36 ghostty tarballs in a few minutes. This should become the first step of any future `make mac-bootstrap` enhancement.
 
+- **Initial 1000-line diff parse baseline on M1 = p50 9.94 ms, p95 10.27 ms, max 10.31 ms (M8 groundwork, 2026-04-20).** Measured with the brand-new `DiffParsePerformanceBaselineTests` against `Tests/Performance/fixtures/diff-1000-lines.txt` (1 file, 500 context + 500 added + 500 removed body lines = 1 500 body-line block, 1 505 lines total). 50 samples, 5 warm-up discards, `ContinuousClock.Instant` measurement on an Apple Silicon M1. This is ~**8× under the 80 ms design ceiling** for the parse stage of the 200 ms whole-pipeline budget, leaving comfortable headroom for the reducer-dispatch + render budgets that M8 will add once TCA is in place. The measurement was captured via a temporary `performanceEnabled = true` override; the production test is env-gated (`TC_RUN_PERFORMANCE_TESTS=1`) per DEC-9, and the baseline artefact is gitignored.
+
+- **`xcodebuild test` does not forward shell environment to the test runner on Xcode 15+ (confirmed M8 groundwork, 2026-04-20).** Already noted in DEC-9 for the Git integration tests; confirmed again here. `xcodebuild test ... ENV=value` sets build settings, not test-runtime env. The `-test-env` CLI flag (mentioned in some docs) is not available in our xcodebuild. Workarounds: (a) set env in the scheme's Test Action via Tuist's `testAction:` API (cleanest long-term; pending plan item), (b) temporarily relax the `.enabled(if:)` gate when capturing a one-shot baseline, (c) run the test binary under `xcrun xctest` with env inline (requires host-app rpath resolution, not worth the cycles). We took path (b) for the M8 groundwork baseline.
+
 ## Decision Log
 
 - **DEC-1 (pre-M1, 2026-04-20): M3 facade throws `EditorPlaceholderError.notYetImplemented` rather than `fatalError` or a no-op.** Three options were considered. (a) Throw a dedicated `EditorPlaceholderError.notYetImplemented` added to `TouchCodeCore/Editor/` in M1 — **chosen**. Pro: the UI path is complete (error → toast) from M3 onward; no crash if an early build of M3 ships before M5. Con: adds one enum case that becomes unused after M5. (b) Return a synthetic `EditorChoiceDTO` as if success — rejected: the user would see "success" but no editor would open, which is a worse lie than a surfaced error. (c) `fatalError` in `liveValue` — rejected: violates the project's no-crash-in-UI-paths discipline and forces callers to guard against a placeholder in a way that would leak into the real code.
@@ -53,6 +57,8 @@ Each unchecked entry will be updated with a completion timestamp in the form `�
 - **DEC-14 (M5, 2026-04-20): `LiveEditorService` uses concrete-return-not-`async` for `describe` / `resolve`.** The `EditorService` protocol declares both as `async` so a future path-probing implementation can do disk I/O off the main actor. The M5 live implementation is synchronous (registry merge is in-memory), and SwiftLint's `async_without_await` rule flags bare-async methods. Swift permits a sync method to satisfy an async protocol requirement — dropped `async` from the live + test impls; callers still write `await service.describe()` with the actor-hop semantics intact. The `TestEditorService` follows the same shape for the same reason.
 - **DEC-15 (M5.1, 2026-04-20): `PathProber` caching deferred to M6.** `LiveEditorService.describe()` rebuilds the registry and re-probes `$PATH` on every call — there is no cache at M5. The design's cache + refresh triggers (settings-open, custom-editor edit, `editor.describe` IPC) require a mutable `@Observable` cache that M6's `EditorFeature` owns alongside its Settings-UI refresh actions. Documented here so the M5.1 review surface doesn't lose the deferred work. M6 lands `CachingPathProber` (or an equivalent layer inside `LiveEditorService`) plus the three refresh triggers.
 - **DEC-16 (M5.1, 2026-04-20): Finder fallback in `LiveEditorService.resolve` prefers installed over missing.** C8 review flagged that a naive `registry.first { $0.id == "finder" }` returns Finder even when `.missingBinary` — the dropdown would then label a broken editor as the resolved default. Fix: search for an installed-and-Finder descriptor first; fall back to a missing-Finder descriptor only if the installed one doesn't exist. In practice `/usr/bin/open` is always on macOS, so the installed branch always wins; the fallback documents the semantics and keeps `open()`'s `.notInstalled` path correct if Finder somehow goes missing.
+- **DEC-17 (M8 groundwork, 2026-04-20): `pointfreeco/swift-snapshot-testing` pinned at `from: "1.17.0"` in `apps/mac/Tuist/Package.swift`.** Resolved eagerly (M8 groundwork) rather than waiting for M4b so the dependency surface stabilises before TCA-dependent work starts. No target depends on it yet — M4b adds the test-target wiring. DEC-2 originally committed to this library; DEC-17 pins the exact floor version.
+- **DEC-18 (M8 groundwork, 2026-04-20): Performance baseline: 50 samples with 5 warm-ups discarded, P95-asserted, per-machine.** Refined from "10 samples" in the original plan. 10 samples are statistically insufficient for a stable P95 under ARC / cache / scheduler variance. 5 warm-up samples drop the cold-cache outliers. Baseline is per-machine gitignored — each contributor and CI runner captures its own. Assertion uses `max(designBudget, baseline.p95 × 1.25)` so the design-ceiling stays the upper bound even when a faster machine produces a tighter baseline. `TC_PERF_BASELINE=capture` environment variable distinguishes capture mode from assert mode so a baseline refresh is intentional.
 
 ## Outcomes & Retrospective
 
@@ -572,7 +578,26 @@ Tests:
 Tests:
 
 - `apps/mac/touch-code/Tests/Integration/GitViewerEditorIntegrationTests.swift` — `TestStore` spanning `RootFeature` with real `GitViewerFeature`, real `EditorFeature`, real `HierarchyManager`, and a `RecordingProcessSpawner` + mock `GitService`. Scenario: launch → select Worktree → scope `.log` → pick commit → press `Enter` → assert the editor dispatcher is called with the resolved editor ID and the Worktree path.
-- `apps/mac/touch-code/Tests/Performance/GitViewerPerformanceTests.swift` — uses a synthetic 1 000-line `git diff` fixture; measures parse + reducer-state-update wall-clock via `ContinuousClock.Instant`. **Pre-step: measure a baseline first** by running the test ten times and recording the 95th-percentile value on the target machine (checked in under `apps/mac/touch-code/Tests/Performance/baseline.json`). The thresholds used as assertions are then `max(designedBudget, observedP95 × 1.25)` — i.e. < 80 ms for parse and < 20 ms for reducer dispatch are the *design ceilings*, but the assertion tracks the *actual baseline* plus a 25 % drift margin. If the baseline on an M1 is already > 80 ms for parse, that's a finding worth recording in Surprises & Discoveries rather than a passing test that lies about the spec. Runs under `TC_RUN_PERFORMANCE_TESTS=1`.
+- `apps/mac/touch-code/Tests/Performance/GitViewerPerformanceTests.swift` — measures parse + reducer-state-update wall-clock via `ContinuousClock.Instant` against a checked-in synthetic 1 000-line `git diff` fixture (`Tests/Performance/fixtures/diff-1000-lines.txt`). Gated by `TC_RUN_PERFORMANCE_TESTS=1`.
+
+  **Baseline collection (one-shot per machine; CI runners capture their own):**
+  - Take **50 samples**, discard the **first 5** as warm-up (cold caches skew P95).
+  - Record median, P95, and max per metric (`parse_ms`, `reducer_ms`) to `Tests/Performance/baseline.json`. The file is **per-machine**, gitignored — each contributor regenerates their local baseline on first run; CI has its own.
+  - Running in baseline-capture mode (`TC_PERF_BASELINE=capture`) overwrites the file; default mode asserts against it.
+
+  **Assertion ceiling (default mode):**
+
+      assertion_ceiling = max(designBudget, baseline.p95 × driftMargin)
+
+      where driftMargin = 1.25
+            designBudget.parse_ms = 80   (20 % of the 200 ms whole-pipeline budget)
+            designBudget.reducer_ms = 20 (5  % of the pipeline budget)
+
+  The test fails when the current run's P95 exceeds the ceiling. If a baseline on an M1 is already above the design budget, the ceiling defers to the baseline — that's a signal recorded in Surprises & Discoveries so the spec (not the test) is re-evaluated, rather than a passing test that lies about the NFR.
+
+  **Why 50 samples + warm-up discard + P95**: 10 samples are insufficient for a stable P95; Swift's ARC, cache warmth, and macOS scheduler all introduce variance. 5 warm-up samples drop the cold-cache outliers without lengthening CI. P95 (not max) absorbs a single adversarial schedule without masking real regressions.
+
+  **Why clock = `ContinuousClock.Instant`**: monotonic, nanosecond-resolution, immune to wall-clock changes during the run. `os_signpost` captures the same data but its summary-mode output is not addressable from test assertions — we emit both (signposts for Instruments correlation, clock for assertions).
 - `apps/mac/touch-code/Tests/Integration/EditorFallbackChainTests.swift` — end-to-end exercises the fallback chain: (a) per-project override set + editor installed → opens the override; (b) per-project override set + editor missing → surfaces `.notInstalled` without falling through to global; (c) no override, global set, installed → opens global; (d) nothing set → opens Finder.
 - `apps/mac/touch-code/Tests/Integration/IPCEditorTests.swift` — spins up a real `SocketServer` on a temp socket path, runs `tc open` as a subprocess against it with a `TOUCH_CODE_SOCKET_PATH` override, asserts the response envelope round-trip.
 
@@ -721,22 +746,31 @@ Run every command from the repository root (`/Users/wanggang/dev/00/touch-code`)
 
 ### M8 steps
 
-    # Baseline perf first — run ten times, capture 95th percentile.
-    for i in 1 2 3 4 5 6 7 8 9 10; do
-      TC_RUN_PERFORMANCE_TESTS=1 \
-      DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
-        xcodebuild test -workspace apps/mac/touch-code.xcworkspace \
-                        -scheme touch-codeTests \
-                        -only-testing touch-codeTests/GitViewerPerformanceTests 2>&1 | \
-        grep -E 'parse_ms|reducer_ms'
-    done | tee apps/mac/touch-code/Tests/Performance/baseline.run.txt
-    # Then compute P95 and write apps/mac/touch-code/Tests/Performance/baseline.json by hand (one-time).
+    # 1. Capture the per-machine baseline (one-shot on each machine / CI runner).
+    #    The test itself runs 50 samples, discards the first 5 warm-ups, and writes
+    #    `baseline.json` atomically. `TC_PERF_BASELINE=capture` signals overwrite.
+    TC_RUN_PERFORMANCE_TESTS=1 \
+    TC_PERF_BASELINE=capture \
+    DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+      xcodebuild test -workspace apps/mac/touch-code.xcworkspace \
+                      -scheme touch-codeTests \
+                      -only-testing touch-codeTests/GitViewerPerformanceTests | xcbeautify
+    cat apps/mac/touch-code/Tests/Performance/baseline.json
+    # Expected: JSON with samples.parse_ms.p95 < 80 and samples.reducer_ms.p95 < 20 on an M1.
 
+    # 2. Default mode — assert current P95 ≤ max(designBudget, baseline.p95 × 1.25).
+    TC_RUN_PERFORMANCE_TESTS=1 \
+    DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+      xcodebuild test -workspace apps/mac/touch-code.xcworkspace \
+                      -scheme touch-codeTests \
+                      -only-testing touch-codeTests/GitViewerPerformanceTests | xcbeautify
+
+    # 3. Full integration + acceptance.
     DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
       xcodebuild test -workspace apps/mac/touch-code.xcworkspace \
                       -scheme touch-codeTests | xcbeautify
 
-    # Run the dogfooding walkthrough from the Milestone 8 section above.
+    # 4. Run the dogfooding walkthrough from the Milestone 8 section above.
 
 ## Validation and Acceptance
 

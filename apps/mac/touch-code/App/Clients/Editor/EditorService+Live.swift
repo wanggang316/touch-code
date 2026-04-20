@@ -106,7 +106,7 @@ nonisolated struct LiveEditorService: EditorService {
     // Prefer an *installed* Finder so the dropdown never labels a broken editor as the
     // resolved default. `/usr/bin/open` is expected to always exist on macOS; the installed-
     // only fallback is defensive against a file-system anomaly (or a FakePathProber in
-    // tests) where it doesn't.
+    // tests) where it doesn't. See 0005 plan DEC-16.
     if let finder = registry.first(where: { $0.id == "finder" && $0.isInstalled }) {
       return finder
     }

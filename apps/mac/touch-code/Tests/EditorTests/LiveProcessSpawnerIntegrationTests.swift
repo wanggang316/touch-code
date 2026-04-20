@@ -69,8 +69,13 @@ struct LiveProcessSpawnerIntegrationTests {
     #expect(outcome == .timedOut)
     // Upper bound: timeout (1 s) + sigterm grace (1 s) + a generous slack for CI jitter.
     #expect(elapsed < .seconds(5), "timeout ladder took \(elapsed); ≥ 5 s means SIGKILL didn't fire")
-    // Lower bound: must at least wait for the timeout.
+    // Lower bound #1: must at least wait for the timeout.
     #expect(elapsed >= .seconds(1))
+    // Lower bound #2: `sleep 30` doesn't exit on SIGTERM, so the grace window must have run
+    // before SIGKILL. Timeout (1 s) + sigterm grace (1 s) = 2 s minimum. If elapsed < 2 s
+    // either the grace was short-circuited (regression) or macOS killed the child faster
+    // than the contract claims (unexpected and worth recording).
+    #expect(elapsed >= .seconds(2), "SIGKILL fired before the grace window; elapsed=\(elapsed)")
   }
 
   @Test(.enabled(if: LiveProcessSpawnerIntegrationTests.integrationEnabled))
