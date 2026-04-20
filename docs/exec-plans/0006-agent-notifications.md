@@ -27,7 +27,8 @@ This plan is the first capability that makes touch-code **aware** of what its Pa
 - [ ] M4a — OSNotifier (UN wrapper) + DockBadger (AppKit wrapper) + NotificationPermissionDelegate + NullPermissionDelegate + SettingsStore (C3-independent) — 2026-04-20
 - [ ] M4b — NotificationCoordinator fan-out wiring to AgentStateTransition + 11-step app-shell bootstrap — blocked on M1b/M2
 - [ ] M5 — InboxSidebar SwiftUI surface (320pt, filter chips, swipe-dismiss, deeplink-on-click) + Settings toggles
-- [ ] M6 — Default detection rules for claude/codex/aider + Stop-hook shim scripts in `touch-code-skill/` + `tc notifications rules reload`
+- [ ] M6a — Bundled JSON defaults + `DefaultRules.installIfMissing(at:)` + Stop-hook shim scripts at `touch-code-skill/shims/` — 2026-04-20
+- [ ] M6b — `AgentDetectionRules` round-trip test on `DefaultRules.json` + `coordinator.reloadRules()` app-internal wiring — blocked on M1b/M2 (`tc notifications rules reload` CLI verb deferred to follow-up PR on 0003 per DEC-P4)
 - [ ] M7 — Integration tests (mock HookDispatcher, mock UNUserNotificationCenter, fake Clock) + end-to-end flow asserting a sentinel match transitions a tracker and surfaces all three sinks
 
 ## Surprises & Discoveries
@@ -93,6 +94,26 @@ Verification: 29 tests in 5 suites green.
 **What's blocked:** `NotificationCoordinator` itself — the fan-out hub binding transitions to sinks — depends on `AgentStateTransition`, which in turn depends on `HookEvent` in `Trigger.envelope`. Still waiting on C3 exec plan 0003 M1 to land those types in TouchCodeCore. M4b will complete the coordinator + 11-step app-shell wiring once unblocked.
 
 **Carry-forward:** M4b needs only the coordinator class + the app-shell wiring sequence documented in the plan body. Every downstream protocol + test double used by M4b is already shipped in M4a.
+
+### M4a.1 — shared BrokenFileBackup helper (2026-04-20, commit d58f419)
+
+Reviewer flagged that `SettingsStore.backupBrokenFile` still used the silent-`try?` pattern that `InboxStore` just fixed in M3 polish. Extracted into `apps/mac/touch-code/Notifications/BrokenFileBackup.swift` — a `nonisolated enum` with `moveAside(at:logger:)` performing rename → copy+delete fallback → log-and-leave. Shared static `ISO8601DateFormatter` replaces both stores' per-backup allocations; `nonisolated(unsafe)` per Apple's documented thread-safety-after-config guarantee. `InboxStore` and `SettingsStore` both delegate. `BrokenFileBackupTests` covers rename-with-timestamp-suffix and missing-file-no-crash paths. 31 tests in 6 suites green.
+
+### M6a — bundled defaults + Stop-hook shims (2026-04-20)
+
+**What landed:**
+- `apps/mac/touch-code/Notifications/Defaults/DefaultRules.swift` — `nonisolated enum DefaultRules` with the bundled JSON as a `String` literal and `installIfMissing(at:)` that writes via `Data.write(..., options: .atomic)` iff the target file is absent. Five rules ship by default: `claude.blocked_on_input`, `claude.completed`, `codex.completed`, `aider.blocked_on_input`, `aider.idle_via_shim` — all camelCase per DEC-P6.
+- `touch-code-skill/shims/claude-stop-hook.sh` — Claude Code Stop-hook shim printing `::touchcode:agent-complete <panel-id>`.
+- `touch-code-skill/shims/codex-complete-hook.sh` — Codex CLI on_complete shim; same sentinel.
+- `touch-code-skill/shims/aider-idle-hook.sh` — multiplexer wrapper shim printing `::touchcode:agent-idle <panel-id>`. Paired with the `aider.idle_via_shim` rule for tmux/zellij users.
+- Tests: `DefaultRulesTests` (4) uses `JSONSerialization` to validate shape without requiring `AgentDetectionRules` (blocked on M1b). `ShimSmokeTests` (4) runs the shim shell commands directly and asserts the exact `::touchcode:agent-{complete,idle} <panel-id>` stdout line; sanitises `TOUCH_CODE_PANEL_ID` inheritance so empty-env fallback is genuinely exercised.
+
+**Verification:** `xcodebuild test -scheme touch-code` → 39 tests in 8 suites green. `make mac-lint` clean. Shims are mode 755, smoke-tested via their inline shell body (file-resolution from the test host's cwd deliberately avoided).
+
+**What's deferred to M6b (blocked on M1b/M2):**
+- `AgentDetectionRules` Codable round-trip of `DefaultRules.json` — the wire shape is correct by-eye against design §Detection Rule DSL; M6b will prove it with a real decoder.
+- `NotificationCoordinator.reloadRules()` wiring — needs the coordinator (M4b).
+- `tc notifications rules reload` CLI verb — per DEC-P4 this is a follow-up PR on plan 0003 regardless.
 
 ## Context and Orientation
 
