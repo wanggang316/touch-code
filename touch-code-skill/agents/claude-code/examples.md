@@ -18,7 +18,7 @@ Expected: a `tc panel split right -- htop` invocation. Claude should explain
 Expected:
 
 ```bash
-tc worktree new exp/ux-polish --focus
+tc worktree new --focus exp/ux-polish
 tc open --in cursor
 ```
 

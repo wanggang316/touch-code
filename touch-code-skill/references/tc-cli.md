@@ -33,7 +33,7 @@ tc space next / prev / last
 
 ```bash
 tc worktree new <branch>                   # default layout: <repo>-worktrees/<branch>/
-tc worktree new --in 1/2 <branch> --focus
+tc worktree new --in 1/2 --focus <branch>
 tc worktree ls --json
 tc worktree focus [worktree]
 tc worktree remove <worktree> [--keep-directory]

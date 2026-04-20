@@ -29,13 +29,14 @@ Discover the current hierarchy:
 tc ls --json
 ```
 
-Create a new worktree, drop into a tab running a command, and send text to a panel:
+Create a new worktree, drop into a tab running a command, and send text to a panel
+(`tc send` is sugar for `tc panel send` — both accept a selector or UUID):
 
 ```bash
 tc worktree new exp/feature-x
 tc tab new --focus -- npm run dev
 tc panel split right -- claude
-tc panel send 1/2/2 'echo hello'
+tc send 1/2/2 'echo hello'
 ```
 
 Open the current Worktree's directory in an external editor and install the agent hook:

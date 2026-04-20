@@ -32,7 +32,7 @@ to suppress the newline.
 ## Create a worktree for a branch and open it in Cursor _(planned; exec plans 0002 + 0003)_
 
 ```bash
-tc worktree new exp/experiment --focus
+tc worktree new --focus exp/experiment
 tc open --in cursor
 ```
 
@@ -42,7 +42,7 @@ new one), launch Cursor.
 ## Notify when a long command finishes _(planned; exec plan 0003)_
 
 ```bash
-tc panel notify --body "deploy complete" && ./deploy.sh
+./deploy.sh && tc panel notify --body "deploy complete"
 ```
 
 Invert the boolean to fire on failure:
@@ -70,7 +70,8 @@ tc skill status                        # verify version
 ```
 
 `tc skill install` is idempotent — reruns are no-ops until `touch-code-skill/VERSION`
-bumps. Pass `--force` if you've edited the installed copy and want to discard the edits.
+bumps. Pass `--force` if you've edited the installed copy and want the bundle contents
+to overwrite your local edits.
 
 ## Capture Panel scrollback to a file _(planned; exec plan 0002)_
 

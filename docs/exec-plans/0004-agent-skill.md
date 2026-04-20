@@ -29,8 +29,8 @@ C5 is deliberately orthogonal to C1 (Terminal engine) and C2 (Hierarchy): Tier-A
 - [x] M5 — `SkillVersionBanner` + `SkillVersionBannerView` in the app, injectable providers so the banner never reads `SKILL.md` content, one-field `MinimalMarker` decoder, per-agent `UserDefaults` dismissal that re-arms on bundle-version bump, 11 unit tests incl. M5-fix polish (pi skipped at loop, SemVer numeric compare, "Copy command" affordance) — 2026-04-20
 - [x] M6 — Tier-A automation: `tc help-json` subcommand + `generate-skill-version.sh` + `skill-help-roundtrip.py` + `skill-tier-a.sh` + `skill-orthogonality-check.sh` + `skill-golden-update.sh` + `skill-golden-manifest.txt` + Makefile targets + `.github/workflows/skill-tier-a.yml`. All three checks pass locally (roundtrip / golden / orthogonality). 65 unit tests + Tier-A green — 2026-04-20. M6-polish fixes (roundtrip code-scope only, orthogonality anchored to file-path column, version-regex narrowed to CommandConfiguration format) landed alongside M7.
 - [x] M7 — Mirror-repo release automation: `.github/workflows/skill-mirror-push.yml` (tag-triggered, owner-gated on `MIRROR_DEPLOY_KEY` secret, mirror slug derived from `agents.json.pi.mirrorURL`, rsync-subtree-push approach, tag/VERSION consistency check). Concurrency group added to Tier-A workflow as the deferred follow-up. YAML merged but expected to fail at clone-step until owner provisions the deploy key (planned degradation, documented in workflow header) — 2026-04-20
-- [x] M8 — SKILL.md + `references/*.md` + `agents/**/{README,examples}.md` production content pass (~3077 words across SKILL.md + references; 4538 with per-agent docs). Shipped commands + planned commands documented together; planned subtrees gated via a new `PLANNED_TOKENS` dict in `skill-help-roundtrip.py` so CI passes with honest forward-references. 46 `tc …` references in markdown verified by Tier-A (6 shipped + 40 planned) — 2026-04-20
-- [ ] M9 — Release-gate Tier-B per-agent smoke tests (`tests/claude-code.smoke.md`, `tests/codex.smoke.md`, `tests/pi.smoke.sh`) + CI hook behind a release tag
+- [x] M8 — SKILL.md + `references/*.md` + `agents/**/{README,examples}.md` production content pass (~3077 words across SKILL.md + references; 4538 with per-agent docs). Shipped commands + planned commands documented together; planned subtrees gated via a new `PLANNED_TOKENS` dict in `skill-help-roundtrip.py` so CI passes with honest forward-references. 46 `tc …` references in markdown verified by Tier-A (6 shipped + 40 planned) — 2026-04-20. M8-polish (DEC-22) followed: panelID/panelIndex terminology unified, --focus flag position normalised, "discards edits" wording softened, notify recipe order corrected. +2 suggestion fold-ins (`tc send` in Fast Start, ambient intro in targeting).
+- [x] M9 — Release-gate Tier-B: `tests/{claude-code,codex}.smoke.md` specs + `apps/mac/scripts/skill-tier-b-{claude,codex}.sh` harnesses + `touch-code-skill/tests/pi.smoke.sh` + `.github/workflows/skill-tier-b.yml` (tag-triggered) + `make mac-skill-tier-b`. Prompts target the currently-shipped `tc skill *` surface so v0.1.0 can gate on a real PASS; future releases extend with `tc worktree` / `tc tab` / `tc panel` prompts when those land. Locally: claude PASS, codex PASS, pi SKIP (mirror not provisioned yet) — exactly the shape DEC-5 describes — 2026-04-20
 
 ## Surprises & Discoveries
 
@@ -61,10 +61,84 @@ The design doc locks Decisions 1-13. The plan adds a handful of implementation-l
 - **DEC-19 (M6 polish, 2026-04-20): `generate-skill-version.sh` version regex narrowed to the CommandConfiguration format.** Earlier sed extracted any `version: … X.Y.Z …` substring, which would pick up a comment like `// version: 0.0.1` if one ever sat above the `CommandConfiguration`. Now the pattern demands the exact literal `version: "touch-code X.Y.Z`. Narrow match = no false positives. If the banner format ever changes, this line changes with it.
 - **DEC-20 (M7, 2026-04-20): Mirror-push derives the mirror slug from `agents.json.pi.mirrorURL`, not a hard-coded workflow string.** Forks and renames flow through `agents.json` (already the single source of truth per DEC-11). The workflow uses `jq` at run time to resolve the SSH form. `concurrency: group: skill-mirror-push-${ref}, cancel-in-progress: false` — in-flight tag pushes must complete; skipping one would leave the mirror out of date for a release.
 - **DEC-21 (M8, 2026-04-20): Skill content documents shipped + planned commands side-by-side, with planned subtrees gated by a `PLANNED_TOKENS` dict in the roundtrip checker.** The alternative — only writing content for shipped commands — would force an M8-sized rewrite for every future milestone that ships more of the CLI. The alternative in the other direction — disabling the roundtrip gate for planned commands — would let stale or invented commands into the skill. Compromise: backtick-wrapped references are still load-bearing (roundtrip check catches unknown names), but a small explicit list of "planned subtree prefixes" in `skill-help-roundtrip.py` is treated as satisfied. Each entry names the exec plan that delivers it; when that plan ships, the entry deletes and the checker starts demanding the real subcommand.
+- **DEC-22 (M9, 2026-04-20): Tier-B smoke prompts target the currently-shipped surface, not the planned surface.** A first attempt asked Claude to "List all panels and report the count" — but `tc ls` hasn't shipped, so Claude correctly replied "there is no panel subcommand" and the gate failed every v0.1.0 release. The fix is structural: every Tier-B prompt must be answerable via a `tc` subcommand that is *in* `tc help-json` today, so release CI can go green as soon as one agent is provisioned on the runner. When C1-C3 land, add new prompts that exercise their surfaces. This mirrors M6's PLANNED_TOKENS split between shipped and planned — the gate is always tight around what's really there.
 
 ## Outcomes & Retrospective
 
-(To be filled at milestone completion)
+### Plan complete — 2026-04-20
+
+All nine milestones landed. The capability from product-spec §C5 ships as designed:
+`tc skill install|uninstall|status|bundle-path` is live, the `touch-code-skill/`
+package is bundled into `touch_code.app/Contents/Resources/`, a non-blocking
+`SkillVersionBanner` nudges users after upgrades, Tier-A CI gates every PR on three
+orthogonal invariants (help-json roundtrip, golden manifest, orthogonality), Tier-B
+CI is wired for release tags, and a mirror-push workflow will populate the public
+`touch-code-skill` git URL as soon as the owner provisions `MIRROR_DEPLOY_KEY`.
+
+**What landed beyond the original plan shape:**
+
+- `tcKit` static framework (DEC-9) — the plan assumed the CLI library code would live
+  in `apps/mac/tc/`, but Swift test targets cannot link against a `commandLineTool`
+  product. Extracting the installer / locator / runners into a framework unblocked
+  tests; the structural fix has the pleasant side effect of matching supaterm's
+  `SupatermCLIShared` pattern.
+- Env-var dev overrides (DEC-14) — `TOUCH_CODE_SKILL_BUNDLE` and
+  `TOUCH_CODE_AGENTS_JSON` let contributors iterate against the in-repo fixtures
+  without rebuilding `.app`. The plan's "Locating the bundle" discussion foresaw the
+  phases; the env layer was added on top during M4 smoke testing.
+- `PLANNED_TOKENS` (DEC-21) in the roundtrip checker — needed because the plan wanted
+  M8 to write real teaching content for commands that exec plans 0002/0003 will ship.
+  A gated forward-reference list keeps the skill teaching the full product surface
+  without lying about what `tc` implements today.
+
+**What shipped smaller than planned:**
+
+- Symlink-mode marker lives at a sibling path (DEC-1), not inside the install
+  directory as design doc §Data Storage described. The inside path can't work because
+  the symlink target is the read-only `.app` bundle. `readMarker` hides the
+  difference from callers.
+- `tc` is not copied into `Contents/MacOS/` of the app (DEC-16). Tuist builds both
+  the `.app` and `tc` under the same product folder but doesn't embed. Users invoke
+  `tc` from `PATH` via a later installer step. Not blocking for this plan.
+
+**Evidence & scores at plan completion:**
+
+- 45 `tc`-scheme tests + 20 `touch-code`-scheme tests + `make mac-lint` clean +
+  `make mac-skill-validate` green (6 shipped + 40 planned tc-refs, golden manifest
+  unchanged, orthogonality clean).
+- 18-file skill package; 4538 words of teaching content (3077 across
+  `SKILL.md` + `references/`, within the 1500-4000 plan target).
+- Tier-B local run: `claude PASS`, `codex PASS`, `pi SKIP` — exactly the
+  degradation shape DEC-5 describes.
+- `.github/workflows/skill-tier-a.yml` runs on every PR + main push;
+  `.github/workflows/skill-mirror-push.yml` and `.github/workflows/skill-tier-b.yml`
+  gate on version tags.
+
+**Carry-forward to future plans:**
+
+- `PLANNED_TOKENS` in `skill-help-roundtrip.py` — the exec plans named inside each
+  entry (0002 for `tc ls`/`tc worktree`/`tc tab`/`tc panel`/`tc space`, 0003 for
+  `tc send`/`tc broadcast`/`tc open`/`tc agent`) must remove their entries on
+  landing. CI will then *demand* the real subcommand.
+- Tier-B prompts must grow a new prompt per newly-shipped subcommand group
+  (DEC-22). File a small task-list entry on the corresponding plan rather than
+  re-opening this one.
+- Owner setup still pending: create `github.com/wanggang316/touch-code-skill`,
+  generate a deploy key, provision `MIRROR_DEPLOY_KEY`. Until done, the mirror
+  workflow is merged-but-red on tag pushes. The workflow's header documents every
+  step; no code change needed after setup.
+
+**Lessons:**
+
+- Tuist's "same name, wrong surface" trap — `commandLineTool` test-linkability — cost
+  half an hour that a 2-line doc in the Tuist target docs would have saved. Worth a
+  project-wide callout if other targets hit it.
+- Orthogonality as CI gate > orthogonality as comment. The grep script caught three
+  real would-be violations while M2-M4 were in flight.
+- Forward-references need an explicit gate. Without `PLANNED_TOKENS`, we either
+  under-document and force a content-rewrite per milestone, or over-document and
+  lose the skill-vs-binary invariant. The compromise is the pattern to adopt for
+  future "plan doc" ↔ "binary" coupling.
 
 ## Context and Orientation
 

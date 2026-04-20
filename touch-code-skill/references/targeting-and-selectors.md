@@ -1,5 +1,9 @@
 # Targeting and Selectors
 
+Inside a touch-code Panel, most `tc` commands resolve their target from the ambient
+environment — pass an explicit selector or UUID only when you need to act on a
+*different* Panel / Tab / Worktree than the one you're typing from.
+
 Every `tc` command that operates on a node accepts a target in one of three forms:
 
 1. **Selector** — 1-based numeric path (`1/2/3`). Short; matches `index` from
@@ -49,7 +53,7 @@ tc tab new --in 1/2/1 -- git status          # Tab inside Worktree 1/2/1
 tc tab new --in <worktree-uuid> --focus -- npm run dev
 
 tc panel split --in 1/2/1/3 right            # split the current panel inside Tab 3
-tc panel split --in <pane-uuid> down -- tail -f /tmp/server.log
+tc panel split --in <panel-uuid> down -- tail -f /tmp/server.log
 ```
 
 Trailing arguments after `--` on `tc tab new` and `tc panel split` are treated as a
@@ -70,14 +74,14 @@ tc tab new --json -- npm run dev
   "projectID":   "AB9E0A59-…",
   "worktreeID":  "…",
   "tabID":       "3734DE02-…",
-  "paneID":      "5E6E9773-…",
+  "panelID":      "5E6E9773-…",
   "tabIndex":    4,
-  "paneIndex":   1
+  "panelIndex":   1
 }
 ```
 
-Use `tabID` or `paneID` from creation output when chaining follow-up commands like
-`tc panel split --in <tabID>` or `tc panel send <paneID> …`.
+Use `tabID` or `panelID` from creation output when chaining follow-up commands like
+`tc panel split --in <tabID>` or `tc panel send <panelID> …`.
 
 `tc ls --json` returns the full tree; its per-node `id` is the UUID and `index` is the
 selector component.

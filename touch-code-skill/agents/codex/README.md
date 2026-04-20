@@ -48,6 +48,6 @@ across agents.
 |---|---|
 | Codex doesn't see the skill | confirm `~/.codex/skills/` exists; reinstall |
 | Stale answers | `tc skill status`; upgrade via `tc skill install --codex` |
-| Local edits preserved | use `tc skill install --codex --force` to discard |
+| Local edits preserved | use `tc skill install --codex --force` to overwrite them |
 
 See [examples.md](examples.md) for scripted prompts.

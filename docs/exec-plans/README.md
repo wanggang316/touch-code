@@ -28,8 +28,8 @@ Every exec plan MUST contain:
 
 <!-- List active plans here -->
 - [0002 — Terminal Engine and Five-Level Hierarchy (C1 + C2)](0002-terminal-and-hierarchy.md) — domain model, CatalogStore, GhosttyRuntime, HierarchyManager, TCA clients, sidebar + tab bar + split view, git worktree CLI
-- [0004 — Published Agent Skill (C5)](0004-agent-skill.md) — `touch-code-skill/` scaffold, `agents.json` + `AgentsConfig`, `SkillBundleLocator` + `SkillInstaller`, `tc skill` subcommands, `SkillVersionBanner`, tier-A + tier-B tests, mirror-repo automation (9 milestones)
 
 ## Completed Plans
 
 - [0001 — Bootstrap touch-code monorepo](0001-bootstrap-monorepo.md) — Tuist + mise + ghostty submodule + empty mac app + `tc --version` CLI + CI (2026-04-19; GhosttyKit foreignBuild deferred per DEC-8)
+- [0004 — Published Agent Skill (C5)](0004-agent-skill.md) — `touch-code-skill/` package + `tc skill` CLI + `SkillVersionBanner` + Tier-A/B CI + mirror-push workflow (2026-04-20; owner setup pending for mirror push deploy key)

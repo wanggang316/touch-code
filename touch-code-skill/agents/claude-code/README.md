@@ -43,7 +43,7 @@ Writes hook entries into `~/.claude/settings.json` so `SessionEnd`, `Notificatio
 |---|---|---|
 | Skill missing from `/skills` | install didn't complete or Claude was started before the install | re-run `tc skill install --claude-code`; restart Claude if needed |
 | Stale answers | installed version lags the bundle | `tc skill status`; if "Installed" < "Bundled", `tc skill install --claude-code` |
-| "install refused — local edits" | user edited the copy since install | `tc skill install --claude-code --force` (discards edits) |
+| "install refused — local edits" | user edited the copy since install | `tc skill install --claude-code --force` (overwrites local edits) |
 | `tc skill status` shows `-` for claude-code | wrong default path or HOME override | confirm `~/.claude/skills/` exists; re-run install with `--dest` if Claude uses a non-default path |
 
 ## What Claude Code sees
