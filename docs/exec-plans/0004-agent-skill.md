@@ -25,10 +25,12 @@ C5 is deliberately orthogonal to C1 (Terminal engine) and C2 (Hierarchy): Tier-A
 - [ ] M1 — `touch-code-skill/` subdirectory scaffold (SKILL.md stub, `references/*.md` stubs, `agents/{claude-code,codex,pi}/` stubs, `VERSION`, `package.json`, `tests/` placeholders)
 - [ ] M2 — `apps/mac/Resources/agents.json` + `AgentsConfig` Swift type + unit tests (version-gated decode, per-OS path selection)
 - [ ] M3 — `apps/mac/tc/SkillBundleLocator.swift` + `SkillInstaller.swift` (copy + symlink modes, install marker with `bundleSha256`, deterministic hash, unit tests)
-- [ ] M4 — `tc skill {install,uninstall,status,bundle-path}` subcommands wired through `ArgumentParser`, plus `SkillVersionBanner` in the app that reads only the marker's `version` field
-- [ ] M5 — Tier-A tests (`tc --help` roundtrip, golden manifest diff) + `apps/mac/scripts/generate-skill-version.sh` + `.github/workflows/mirror-skill.yml` (mirror repo release automation) + `make mac-skill-validate`
-- [ ] M6 — SKILL.md + `references/` + `agents/**/README.md` production content pass (CLI-only, no Swift references)
-- [ ] M7 — Release-gate Tier-B per-agent smoke tests (`tests/claude-code.smoke.md`, `tests/codex.smoke.md`, `tests/pi.smoke.sh`) + CI hook behind a release tag
+- [ ] M4 — `tc skill {install,uninstall,status,bundle-path}` subcommands + runners + CLI-level unit tests (pure CLI; no app changes)
+- [ ] M5 — `SkillVersionBanner` app-side component (SwiftUI banner, `@Observable`, minimal-marker decoder, `UserDefaults`-backed dismissal)
+- [ ] M6 — Tier-A tests (`tc --help-json` roundtrip, golden manifest diff) + `generate-skill-version.sh` + orthogonality check + `make mac-skill-validate`
+- [ ] M7 — Mirror-repo release automation (`.github/workflows/mirror-skill.yml`, mirror repo creation + `MIRROR_DEPLOY_KEY` setup — owner gate)
+- [ ] M8 — SKILL.md + `references/` + `agents/**/README.md` production content pass (CLI-only, no Swift references)
+- [ ] M9 — Release-gate Tier-B per-agent smoke tests (`tests/claude-code.smoke.md`, `tests/codex.smoke.md`, `tests/pi.smoke.sh`) + CI hook behind a release tag
 
 ## Surprises & Discoveries
 
@@ -36,7 +38,15 @@ C5 is deliberately orthogonal to C1 (Terminal engine) and C2 (Hierarchy): Tier-A
 
 ## Decision Log
 
-(None yet)
+The design doc locks Decisions 1-13. The plan adds a handful of implementation-level decisions that are not in the design doc. They are recorded here at plan time so reviewers see them before code lands.
+
+- **DEC-1 (plan, 2026-04-20): Symlink-mode marker lives alongside the installed directory, not inside it.** Design doc §Data Storage pins the marker at `<destination>/.touch-code-skill.json`. That path works for copy mode but breaks for symlink mode, because the symlink target is the `.app` bundle's read-only `Resources/touch-code-skill/`. In symlink mode the marker is instead written at `<destination>.marker.json` in the *parent* directory (e.g. `~/.claude/skills/touch-code.marker.json` next to the `touch-code` symlink). `SkillInstaller.readMarker(at: destination)` is a single entry point that transparently picks the inside-dir path for copy installs and the sibling path for symlink installs, so callers (CLI + banner) do not branch on mode.
+- **DEC-2 (plan, 2026-04-20): `--help-json` is a top-level `tc` flag, not `tc skill --help-json`.** Emitting machine-readable subcommand metadata is a CLI-wide concern — future docs generators and the Tier-A roundtrip check both benefit. Adding it at the root means every current and future `tc` subcommand is introspectable from one entry point.
+- **DEC-3 (plan, 2026-04-20): Golden manifest is a sorted file list excluding the install marker.** The install marker's content is timestamped (non-deterministic), so it is excluded from the manifest diff. The manifest is only the set of *paths*, not the file contents — content correctness is covered by `bundleSha256`, which is independently computed at install time. Regenerating the golden is a deliberate action via `make mac-skill-golden-update`.
+- **DEC-4 (plan, 2026-04-20): HOME security check is enforced in both CLI and installer layers.** Defence-in-depth: `SkillCommand.Install` validates that the resolved destination is under `NSHomeDirectory()` before constructing the installer; `SkillInstaller.install` also checks and throws `InstallError.destinationOutsideHome`. The two checks are identical in content. Either alone would be sufficient; duplication protects against refactors that accidentally remove one of the two call-sites.
+- **DEC-5 (plan, 2026-04-20): Tier-B tests degrade gracefully when an agent binary or `tc` surface is missing.** If `pi` is not installed on the CI runner, the pi smoke test emits a warning and exits 0 rather than failing the release. Likewise, the claude-code test checks for `tc ls` and skips the count-comparison branch when absent. This matches design doc §Testing Strategy's "Tier-B then lights up incrementally as each agent's prerequisites arrive" — C5 release is not held hostage to C1/C2 completeness.
+- **DEC-6 (plan, 2026-04-20): `--force` reinstall is a full re-copy, not a diff-based patch.** When the user accepts the overwrite prompt (or passes `--force`), `SkillInstaller` removes the entire installed directory and re-materialises it from the bundle. Diff-based patching would be more efficient but adds a reconciliation code path that is hard to test exhaustively for edge cases (partially-written files, permission changes). The full-copy cost is a few dozen small markdown writes — well under 100ms on any machine.
+- **DEC-7 (plan, 2026-04-20): `AgentID` `EnumerableFlag` conformance pins explicit flag names.** ArgumentParser's default would turn `AgentID.claudeCode` into `--claudeCode`. The CLI contract requires `--claude-code`, `--codex`, `--pi`. The conformance provides explicit `name(for:)` that maps each case to its kebab-cased flag via `.customLong("claude-code")` etc. This is also the hook for future agents (when `--aider` or similar lands, the explicit mapping prevents a silently-changed flag).
 
 ## Outcomes & Retrospective
 
@@ -70,15 +80,14 @@ Related documents (all in this repo):
 - **`agents.json`** — the read-only JSON file shipped in `apps/mac/Resources/` listing per-agent default install paths and the pi mirror URL. Source of truth for installer behaviour.
 - **`SkillBundleLocator`** — the Swift helper that tells `tc skill` where the bundled `touch-code-skill/` lives. Resolves `Bundle.main.resourceURL` when the binary runs inside a `.app`; walks upward from the executable to find the repo root when running from `swift run`.
 - **`SkillInstaller`** — the Swift helper that performs the actual file-system work (copy, symlink, marker write, uninstall). Pure file I/O; no network; no agent coupling.
-- **Tier-A / Tier-B tests** — tier-A runs in CI on every PR and does not need the app or `tc ls` to exist (unit tests + `tc --help` roundtrip + install-into-tempdir + golden manifest diff). Tier-B runs on release tags and exercises real agents end-to-end. Design doc §Testing Strategy is authoritative.
+- **Tier-A / Tier-B tests** — tier-A runs in CI on every PR and does not need the app or `tc ls` to exist (unit tests + `tc --help-json` roundtrip + install-into-tempdir + golden manifest diff). Tier-B runs on release tags and exercises real agents end-to-end. Design doc §Testing Strategy is authoritative.
 - **Mirror repo** — a separate GitHub repository (`github.com/wanggang316/touch-code-skill` per Decision 12) that holds a copy of `touch-code-skill/` pushed from this repo on every release tag. Consumed by `pi install git:...`. Never authored manually.
-- **`foreignBuild` target** — same meaning as in exec plan 0001. Not used in this plan — C5 ships no Swift `foreignBuild` targets.
 
-**Orientation paragraph.** The seven milestones form a simple dependency chain: content shape (M1) and installer metadata (M2) are independent and can be done in parallel; M3 consumes both to implement the installer internals; M4 wraps the installer in a CLI; M5 adds the automation that keeps the skill in lockstep with `tc` (version stamping, mirror push, Tier-A CI); M6 turns the M1 stubs into production content; M7 gates release with the per-agent smoke tests. Each milestone leaves the repo in a releasable state — a release cut after M4 would ship a working installer with stub content; one cut after M6 would ship production content without release-gate smoke coverage. The orthogonality guarantee — nothing in the app target reads skill content — is enforced by code review plus a grep-style invariant check added in M5 (`! grep -rn 'SKILL.md' apps/mac/touch-code/ apps/mac/TouchCodeCore/ apps/mac/TouchCodeIPC/` returns empty).
+**Orientation paragraph.** The nine milestones form a simple dependency chain: content shape (M1) and installer metadata (M2) are independent and can be done in parallel. M3 consumes both to implement the installer internals. M4 wraps the installer in a `tc skill …` CLI. M5 adds the app-side banner that nudges users to reinstall after a `tc` upgrade. M6 adds the automation that keeps the skill in lockstep with `tc` (version stamping, Tier-A CI, orthogonality check). M7 splits mirror-repo automation into its own milestone because it needs owner-level actions (repo creation + `MIRROR_DEPLOY_KEY` secret) that an implementer cannot do from the plan alone. M8 turns the M1 stubs into production content. M9 gates release with the per-agent smoke tests. Each milestone leaves the repo in a releasable state: a release cut after M4 would ship a working installer with stub content; one cut after M8 would ship production content without release-gate smoke coverage. M2 ships a simple in-repo fallback for locating `agents.json`; M3 replaces it with the authoritative `SkillBundleLocator` and `loadFromMainBundle()` delegates. The orthogonality guarantee — nothing in the app target reads skill content — is enforced by code review plus the grep-style invariant check added in M6 (`apps/mac/scripts/skill-orthogonality-check.sh`).
 
 ## Plan of Work
 
-Seven milestones, narrative below. The order matches the user's hint; no milestone reordering was warranted. Milestones are individually verifiable and produce at least one commit each per the project's commit-after-each-small-feature cadence.
+Nine milestones, narrative below. The review pass split the original M4 into two (CLI → M4, app-side banner → M5) because the combined milestone touched ~8 files and mixed CLI plumbing with SwiftUI UI state. The original M5 was similarly split: in-repo automation (version stamping, Tier-A CI, orthogonality check) stays together as M6; the mirror-push workflow becomes M7 on its own because it requires owner-level actions outside the implementer's control. Milestones are individually verifiable and produce at least one commit each per the project's commit-after-each-small-feature cadence.
 
 ### Milestone 1: `touch-code-skill/` scaffold
 
@@ -111,7 +120,7 @@ Update `.gitignore` if anything under `touch-code-skill/` should be ignored (cur
 
 **Observable acceptance.**
 
-- `find touch-code-skill -type f | sort` prints the complete file list matching design doc §Package Structure with no extras and no omissions. Expected file count: 16 (1 SKILL.md + 1 VERSION + 1 package.json + 6 references + 6 agents files + 3 tests files — minus `tests/pi.smoke.sh` = 15, then +1 for `pi.smoke.sh` = 16; confirm at implementation).
+- `find touch-code-skill -type f | sort` prints the complete file list matching design doc §Package Structure with no extras and no omissions. Expected total: 18 files (1 `SKILL.md` + 1 `VERSION` + 1 `package.json` + 6 `references/*.md` + 3 × 2 `agents/<agent>/{README,examples}.md` + 3 `tests/*`). Diff against a saved `find` transcript if the count disagrees.
 - `file touch-code-skill/tests/pi.smoke.sh` reports the file is executable (mode `-rwxr-xr-x` or equivalent).
 - `grep -r "import " touch-code-skill/` returns no Swift imports.
 - No changes under `apps/` yet.
@@ -143,7 +152,7 @@ Create `apps/mac/tc/AgentsConfig.swift` with the types:
       var installMode: AgentInstallMode
     }
 
-    enum AgentInstallMode: String, Codable, Sendable { case copy, `pi-install` = "pi-install" }
+    enum AgentInstallMode: String, Codable, Sendable { case copy, piInstall = "pi-install" }
     enum AgentID: String, Codable, CaseIterable, Sendable { case claudeCode = "claude-code", codex, pi }
     enum TargetOS: String, Sendable { case darwin, linux }
 
@@ -156,9 +165,25 @@ Locate a loader on `AgentsConfig`:
       static func loadFromMainBundle() throws -> AgentsConfig
     }
 
-`loadFromMainBundle()` calls `Bundle.main.url(forResource: "agents", withExtension: "json")`; when `tc` runs outside a bundle, it falls back to walking up from the executable to find `apps/mac/Resources/agents.json`. That fallback is provisional — the authoritative resolver is `SkillBundleLocator` in M3; M2 ships the simple version to keep the milestone self-contained.
+`loadFromMainBundle()` in M2 ships a **provisional** resolver: it calls `Bundle.main.url(forResource: "agents", withExtension: "json")` and, when that returns nil (e.g. `swift run` outside a `.app`), walks up from `Bundle.main.executableURL` until it finds `apps/mac/Resources/agents.json`. M3 replaces the walk with a call to the authoritative `SkillBundleLocator.locateAgentsJSON(executableURL:)`. The public signature does not change; only the internal implementation does. This split keeps M2 self-contained (it does not depend on M3 existing).
 
-Create `apps/mac/tc/Tests/AgentsConfigTests.swift` (new Tuist target `tcTests` — follows the same pattern as `TouchCodeCoreTests` from exec plan 0002 M1, Swift-testing or XCTest per project convention; use XCTest for consistency with existing test targets). Cases: round-trip decode of the shipped `agents.json`; rejection of a version-2 fixture; missing-agent lookup returns nil; per-OS path expansion (darwin vs. linux paths correctly selected); unknown `installMode` fails decode.
+**tcTests Tuist target provenance.** This target is created here (M2). It does not exist in exec plan 0002 (which introduces `TouchCodeCoreTests` and `touch-codeTests` but not a `tc`-host test bundle). In `apps/mac/Project.swift`, add under the `targets:` array:
+
+    .target(
+      name: "tcTests",
+      destinations: .macOS,
+      product: .unitTests,
+      bundleId: "com.touch-code.tcTests",
+      deploymentTargets: .macOS("13.0"),
+      buildableFolders: ["tc/Tests"],
+      dependencies: [.target(name: "tc")],
+      settings: .settings(base: ["SWIFT_DEFAULT_ACTOR_ISOLATION": "nonisolated",
+                                  "CODE_SIGNING_ALLOWED": "NO"])
+    )
+
+Mirror the `.swiftlint.yml` `included:` list to add `apps/mac/tc/Tests/`. Scheme generation via `make mac-generate` picks the new target up automatically.
+
+Create `apps/mac/tc/Tests/AgentsConfigTests.swift` (XCTest, matching the existing test targets' convention). Cases: round-trip decode of the shipped `agents.json`; rejection of a version-2 fixture; missing-agent lookup returns nil; per-OS path expansion (darwin vs. linux paths correctly selected); unknown `installMode` fails decode.
 
 **Observable acceptance.**
 
@@ -225,9 +250,11 @@ The resolution order matches design doc §Locating the bundle:
       case symlinkIntoReadOnlyBundle(URL)      // non-fatal, warn only
     }
 
-Copy path. `install(mode: .copy)` walks `bundleURL` with `FileManager.subpathsOfDirectory`. For each file: copy to the destination preserving mode; skip `.DS_Store`; follow no symlinks (the bundle has none). After copy, write the marker. If the destination already exists with a marker whose `version` equals the bundle version **and** whose `bundleSha256` equals `currentBundleSha256()`, return a no-op result with the existing marker.
+Copy path. `install(mode: .copy)` walks `bundleURL` with `FileManager.subpathsOfDirectory`. For each file: copy to the destination preserving mode; skip `.DS_Store`; follow no symlinks (the bundle has none). After copy, write the marker at `<destination>/.touch-code-skill.json` (design doc §Data Storage). If the destination already exists with a marker whose `version` equals the bundle version **and** whose `bundleSha256` equals `currentBundleSha256()`, return a no-op result with the existing marker.
 
-Symlink path. `install(mode: .symlink)` creates `<destination>` as a symlink pointing at `bundleURL`. The marker is written into `<destination>.marker.json` in the *parent* directory so it survives the symlink target being replaced. Reading the marker under `.symlink` resolves via the parent-dir path. This matches design doc R4 (broken-symlink detection via `tc skill status`).
+Symlink path (DEC-1). `install(mode: .symlink)` creates `<destination>` as a symlink pointing at `bundleURL`. Because the symlink target is the read-only `Resources/touch-code-skill/` inside the `.app` bundle, the marker cannot live inside the installed directory. Instead, the marker is written at `<destination>.marker.json` in the *parent* directory (e.g. `~/.claude/skills/touch-code.marker.json` next to the `touch-code` symlink). This deviation from design doc §Data Storage is called out in DEC-1. `readMarker(at: destination)` is a single entry point that hides the difference: if `destination` resolves to a symlink, it reads the sibling marker; otherwise it reads `<destination>/.touch-code-skill.json`. Callers (CLI + banner) never branch on mode.
+
+Full re-copy on `--force` (DEC-6). When the user passes `--force` (or accepts the overwrite prompt), `SkillInstaller` removes the entire installed directory (via `removeItem`) and re-materialises from the bundle. No diff-based patching. The cost is a small directory rewrite (~18 tiny markdown files) — well under 100ms on any machine — and it eliminates an entire class of partial-state bugs.
 
 Hash computation. `directorySha256(at:)` walks the tree in sorted path order (bytewise `<` on relative POSIX paths), and for each regular file appends `<relative_path_bytes>\0<file_mode_octal_bytes>\0<file_size_decimal_bytes>\0<file_contents>\0` into a streaming `SHA256` (CryptoKit `SHA256`, not `Insecure.*`). Directories appear as their children only. Non-regular files fail the hash with a thrown error. `currentBundleSha256()` is `directorySha256(at: bundleURL)`. Determinism is tested with a fixed fixture.
 
@@ -243,7 +270,7 @@ Dry-run. `options.dryRun == true` returns an `InstallResult` populated as if the
 
 - Install-by-copy into a tempdir produces the full tree + marker; marker's `bundleSha256` matches `currentBundleSha256()`.
 - Reinstall same version, no edits → no-op (no files rewritten, marker timestamp unchanged).
-- Reinstall same version, edited file → throws `destinationExistsLocalEdits` without `force`; succeeds with `force` and the marker is refreshed.
+- Reinstall same version, edited file → throws `destinationExistsLocalEdits` without `force`. With `--force`: the installer removes the whole installed directory and re-copies (per DEC-6); the edited file is gone, the marker's `bundleSha256` equals `currentBundleSha256()`, and `filesWritten` contains every bundle file (i.e. a full re-copy, not a partial patch).
 - Reinstall different version → removes old tree, installs new, new marker.
 - Install into existing non-skill directory → throws `destinationExistsNoMarker` unless `force`.
 - Install outside HOME → throws `destinationOutsideHome`.
@@ -260,9 +287,9 @@ Dry-run. `options.dryRun == true` returns an `InstallResult` populated as if the
 
 **Expected commits.** Three commits: `feat(tc): SkillBundleLocator with bundle and dev-run resolution`, `feat(tc): SkillInstaller copy + symlink + marker + drift detection`, `test(tc): SkillInstaller full coverage incl. hash determinism`.
 
-### Milestone 4: `tc skill` subcommands + app-side `SkillVersionBanner`
+### Milestone 4: `tc skill` subcommands + runners + CLI-level tests
 
-**Goal after this milestone.** The CLI surface from design doc §API Design is live. `tc skill install --claude-code` copies the bundled skill into `~/.claude/skills/touch-code/`. `tc skill install --codex` does the equivalent for Codex. `tc skill install --pi` invokes `pi install git:<mirrorURL>` and forwards its exit code. `tc skill uninstall`, `tc skill status`, and `tc skill bundle-path` all work. On app launch, `SkillVersionBanner` reads only the `version` field from each agent's marker and posts a non-blocking in-app notice on mismatch.
+**Goal after this milestone.** The CLI surface from design doc §API Design is live **in the `tc` binary only** — the app target is not touched. `tc skill install --claude-code` copies the bundled skill into `~/.claude/skills/touch-code/`. `tc skill install --codex` does the equivalent for Codex. `tc skill install --pi` invokes `pi install git:<mirrorURL>` and forwards its exit code. `tc skill uninstall`, `tc skill status`, and `tc skill bundle-path` all work. The `tcTests` bundle from M2 gains full coverage of every runner. The app-side banner is M5.
 
 **Work.** Under `apps/mac/tc/`, create `SkillCommand.swift`:
 
@@ -275,18 +302,39 @@ Dry-run. `options.dryRun == true` returns an `InstallResult` populated as if the
     }
 
     extension SkillCommand {
-      struct Install: ParsableCommand { /* --claude-code / --codex / --pi / --dest / --link / --force / --dry-run */ }
-      struct Uninstall: ParsableCommand { /* --claude-code / --codex / --pi */ }
+      struct Install: ParsableCommand { /* flags defined below */ }
+      struct Uninstall: ParsableCommand { /* --agent */ }
       struct Status: ParsableCommand { /* --json */ }
       struct BundlePath: ParsableCommand { /* prints SkillBundleLocator result */ }
     }
+
+Agent-flag wiring (DEC-7). ArgumentParser's default would turn `AgentID.claudeCode` into `--claudeCode`. The CLI contract requires `--claude-code`. Extend `AgentID` with an `EnumerableFlag` conformance that pins explicit names:
+
+    extension AgentID: EnumerableFlag {
+      static func name(for value: AgentID) -> NameSpecification {
+        switch value {
+        case .claudeCode: return .customLong("claude-code")
+        case .codex:      return .customLong("codex")
+        case .pi:         return .customLong("pi")
+        }
+      }
+      static func help(for value: AgentID) -> ArgumentHelp? {
+        switch value {
+        case .claudeCode: return "Claude Code (~/.claude/skills/touch-code)"
+        case .codex:      return "Codex CLI (~/.codex/skills/touch-code)"
+        case .pi:         return "pi (via `pi install` against the mirror repo)"
+        }
+      }
+    }
+
+Each subcommand then takes `@Flag var agent: AgentID` and ArgumentParser emits mutually-exclusive `--claude-code | --codex | --pi` flags.
 
 Wire `SkillCommand` into `TouchCodeCLI.configuration.subcommands` in `apps/mac/tc/main.swift` (currently minimal per the bootstrap). Each subcommand runs its own logic synchronously; none of them opens an IPC socket. This is the Decision 10 invariant: `tc skill ...` is the only `tc` subcommand that bypasses IPC.
 
 Install flow. Parse the agent flag into `AgentID`. Load `AgentsConfig` via `SkillBundleLocator.locateAgentsJSON`. Resolve the destination:
 
-- For copy-mode agents (claude-code, codex): destination is `--dest` if given, else `config.defaultPath(for: agent, os: .darwin)` expanded against `NSHomeDirectory()`. Enforce the "under HOME" check (repeated here as the CLI layer — `SkillInstaller` also enforces, defence in depth).
-- For pi (`installMode: pi-install`): refuse `--dest` with a clear error; refuse `--link`; otherwise build `pi install git:\(config.mirrorURL(for: .pi)!)` and dispatch via `Process`. Environment is inherited (so `PATH` finds the user's `pi`). On `pi` not found (exit 127 or `launchPath not a launchable binary`), exit with code 2 and a message: "pi binary not on PATH — install from https://mariozechner.github.io/pi/ then retry."
+- For copy-mode agents (`claude-code`, `codex`): destination is `--dest` if given, else `config.defaultPath(for: agent, os: .darwin)` expanded against `NSHomeDirectory()`. Enforce the "under HOME" check (DEC-4 — repeated here as the CLI layer; `SkillInstaller` also enforces).
+- For `pi` (`installMode: .piInstall`): refuse `--dest` with a clear error; refuse `--link`; otherwise build `pi install git:\(config.mirrorURL(for: .pi)!)` and dispatch via `Process`. Environment is inherited (so `PATH` finds the user's `pi`). On `pi` not found (exit 127 or `launchPath not a launchable binary`), exit with code 2 and a message: "pi binary not on PATH — install from https://mariozechner.github.io/pi/ then retry."
 
 Install output. Default output is human text (one line per file written in dry-run, a summary line otherwise). `--json` emits `{"agent": "claude-code", "destination": "/Users/…", "version": "0.1.0", "mode": "copy", "result": "installed|noop|updated"}`.
 
@@ -303,35 +351,75 @@ Render the table (human) or JSON array (`--json`). Design doc §API Design pins 
 
 Bundle-path flow. Print `try SkillBundleLocator.locateSkillBundle().path`. Exit 0 on success, exit 1 with a stderr message on `LocatorError`.
 
-App-side banner. Under `apps/mac/touch-code/App/`, create `SkillVersionBanner.swift`:
-
-    @MainActor @Observable
-    final class SkillVersionBanner {
-      enum Status: Equatable { case hidden, needsUpgrade(agent: AgentID, installed: String, bundled: String) }
-      private(set) var status: Status = .hidden
-      init(bundle: Bundle = .main, fileSystem: SkillFileSystem = RealSkillFileSystem())
-      func check() async
-      func dismiss()
-    }
-
-The minimal `InstalledSkillMarker` decoder (`version: String` only, via a `MinimalMarker` struct with explicit `CodingKeys` whitelist) lives here — this file does not import `SkillInstaller`. Scope is a single field, per design doc §Data Storage §3. The banner is instantiated in `TouchCodeApp.init`, runs `check()` on `Task` after first launch, and renders a small non-blocking SwiftUI banner with a "Run `tc skill install --<agent>`" call-to-action. Dismissing stores the current bundle version in `UserDefaults` under `TouchCode.SkillBannerDismissedVersions.<agent>` so the banner does not reappear until the bundle version changes again.
-
-Release the `tc skill ...` command surface from the app's dependencies — i.e. the app target does **not** import `SkillCommand`. The app's `SkillVersionBanner` reads markers directly (one field only) and links by *path*: `~/.claude/skills/touch-code/.touch-code-skill.json` resolved via `AgentsConfig.loadFromMainBundle()`.
-
-Extend `apps/mac/tc/Tests/` with `SkillCommandTests.swift`. Because `ParsableCommand` is awkward to unit-test directly, wrap each subcommand's logic in a pure `Runner` struct (e.g. `struct InstallRunner { let installer: SkillInstaller; let config: AgentsConfig; let stdout, stderr: TextOutputStream }`) and test the runners. Tests cover: install-claude-code into temp dest writes tree and marker; install-codex prints JSON with `--json`; install-pi with missing `pi` binary exits code 2; uninstall-claude-code is idempotent; status emits a deterministic table against a fixture.
+Extend `apps/mac/tc/Tests/` with `SkillCommandTests.swift`. Because `ParsableCommand` is awkward to unit-test directly, wrap each subcommand's logic in a pure `Runner` struct (`InstallRunner`, `UninstallRunner`, `StatusRunner`, `BundlePathRunner`) and test the runners. Tests cover: install-claude-code into temp dest writes tree and marker; install-codex prints JSON with `--json`; install-pi with missing `pi` binary exits code 2 (stub the `Process`-spawner via a protocol); uninstall-claude-code is idempotent; status emits a deterministic table against a fixture; the `EnumerableFlag` emits `--claude-code` / `--codex` / `--pi` in `tc skill install --help` output (string-match check).
 
 **Observable acceptance.**
 
 - Build the app: `make mac-build`. The `touch-code.app` binary contains a `tc` binary at `Contents/MacOS/tc`. Running `Contents/MacOS/tc skill --help` prints the four subcommands.
+- `Contents/MacOS/tc skill install --help` prints `--claude-code`, `--codex`, `--pi` (not `--claudeCode`).
 - From a shell in the repo root after bootstrap, `DERIVED=$(find ~/Library/Developer/Xcode/DerivedData -name 'touch-code.app' -type d | head -1); "$DERIVED/Contents/MacOS/tc" skill install --claude-code --dest /tmp/tc-skill-test --force` completes in < 1s and `/tmp/tc-skill-test/SKILL.md` + `/tmp/tc-skill-test/.touch-code-skill.json` exist.
-- `"$DERIVED/Contents/MacOS/tc" skill status` prints the three-row table with `claude-code` installed (at the temp path if re-pointed; ignore in practice) and `codex` / `pi` showing `-`.
+- `"$DERIVED/Contents/MacOS/tc" skill status` prints the three-row table; absent any real install, all three rows show `-`.
 - `"$DERIVED/Contents/MacOS/tc" skill bundle-path` prints an absolute path ending in `/Contents/Resources/touch-code-skill`.
-- Launching `touch-code.app` after installing a stale marker version triggers the banner once; dismissing persists across launches (until a version bump).
 - `xcodebuild test -scheme tcTests | xcbeautify` is green.
+- `grep -rn 'SkillCommand\|SkillInstaller' apps/mac/touch-code/` returns no matches (the app target has not imported any of the CLI types — that's M5's job for a strictly limited piece).
 
-**Expected commits.** Three commits: `feat(tc): skill install|uninstall|status|bundle-path subcommands`, `feat(app): SkillVersionBanner with one-field marker read`, `test(tc): runner-level coverage for skill subcommands`.
+**Expected commits.** Two commits: `feat(tc): skill install|uninstall|status|bundle-path subcommands with EnumerableFlag`, `test(tc): runner-level coverage for skill subcommands`.
 
-### Milestone 5: Tier-A tests + version stamping + mirror automation
+### Milestone 5: `SkillVersionBanner` app-side component
+
+**Goal after this milestone.** On app launch, `SkillVersionBanner` reads exactly one field — `version` — from each agent's install marker and posts a non-blocking SwiftUI banner when the installed version lags the bundled version. Dismissal is sticky per bundle version via `UserDefaults`. The banner touches zero skill content — not `SKILL.md`, not any `references/*.md` — only the marker's `version` string.
+
+This milestone is separated from M4 because it is entirely UI-facing (SwiftUI + `@Observable`) and has a different reviewer focus (accessibility, SwiftUI lifecycle, `UserDefaults` persistence). Keeping it independent keeps the diff small.
+
+**Work.** Under `apps/mac/touch-code/App/`, create `SkillVersionBanner.swift`:
+
+    @MainActor @Observable
+    final class SkillVersionBanner {
+      enum Status: Equatable {
+        case hidden
+        case needsUpgrade(agent: AgentID, installed: String, bundled: String)
+      }
+      private(set) var status: Status = .hidden
+      init(
+        bundle: Bundle = .main,
+        fileSystem: SkillFileSystem = RealSkillFileSystem(),
+        defaults: UserDefaults = .standard
+      )
+      func check() async
+      func dismiss()
+    }
+
+The minimal `InstalledSkillMarker` decoder lives in this file — a file-scoped `private struct MinimalMarker: Decodable { let version: String; enum CodingKeys: String, CodingKey { case version } }`. This file does **not** import `SkillInstaller`. Scope is a single field, per design doc §Data Storage §3.
+
+Resolution:
+
+1. `check()` loads `AgentsConfig.loadFromMainBundle()` (from M2, now delegating to `SkillBundleLocator` after M3).
+2. Reads the bundled version from `touch-code-skill/VERSION` (via `Bundle.main.url(forResource: "VERSION", withExtension: nil, subdirectory: "touch-code-skill")`).
+3. For each `AgentID.allCases`, resolves the default install path (expanded against HOME) and, if present, decodes the marker's `version` via `MinimalMarker`.
+4. If any installed version lags the bundled version **and** the user has not dismissed that exact `(agent, bundled)` pair, set `status = .needsUpgrade(…)` and stop at the first mismatch (one banner at a time).
+
+Dismissal. `dismiss()` writes the current bundled version to `UserDefaults` under key `TouchCode.SkillBannerDismissedVersions.<agent-raw>` and resets `status` to `.hidden`. The banner reappears on the next `check()` only if the bundled version changes (rewriting the key's value).
+
+Lifecycle. Instantiate one `SkillVersionBanner` in the root TCA store setup (or at `TouchCodeApp.init` pre-TCA if TCA is not yet in place — per exec plan 0002 M5 TCA is introduced; if 0004 lands before 0002 M5, use a plain `@StateObject`-style wrapper). Run `check()` as a `Task` attached to the root `WindowGroup.onAppear`. The banner view is a small SwiftUI component rendered above the main content, styled to look like a standard macOS banner (non-modal, dismissible, not blocking input).
+
+Testing. Add `apps/mac/touch-code/Tests/SkillVersionBannerTests.swift` to the existing `touch-codeTests` target (exec plan 0002 M2 introduced it). Use an in-memory `SkillFileSystem` + `UserDefaults(suiteName: UUID().uuidString)` for hermeticity. Cases:
+
+- No markers present → `status == .hidden`.
+- Marker version equals bundle version → `.hidden`.
+- Marker version lags bundle version → `.needsUpgrade`.
+- After `dismiss()`, next `check()` with the same bundle version stays `.hidden`; bumping the bundle version rearms the banner.
+- Corrupt marker JSON (e.g. missing `version`) → treated as "not installed" (`.hidden` unless other agents mismatch); log a warning but do not crash.
+
+**Observable acceptance.**
+
+- Running the app after M4 produced an install at an older version → the banner appears with the correct agent name and version pair.
+- Clicking the banner's dismiss action hides it; relaunching does not restore it until `touch-code-skill/VERSION` is bumped.
+- `xcodebuild test -scheme touch-code | xcbeautify` is green; the new test cases appear in the output.
+- `grep -rn 'SKILL.md\|references/' apps/mac/touch-code/` returns empty (the banner reads only the marker's `version`, nothing else).
+
+**Expected commits.** Two commits: `feat(app): SkillVersionBanner with minimal-marker decoder`, `test(app): SkillVersionBanner coverage incl. dismissal persistence`.
+
+### Milestone 6: Tier-A tests + version stamping + orthogonality check
 
 **Goal after this milestone.** CI runs a Tier-A test suite on every PR that proves the skill documentation and the `tc` CLI are consistent and that `SkillInstaller` produces the documented artefact shape. A `generate-skill-version.sh` script syncs `tc`'s version into `touch-code-skill/VERSION` + `package.json` on release. A GitHub Actions workflow pushes `touch-code-skill/` to the mirror repo on every tagged release, keeping the mirror a faithful derived artefact.
 
@@ -380,7 +468,7 @@ Tier-A test harness. Create `apps/mac/scripts/skill-tier-a.sh`:
 
 `tc --help-json` is a new flag on `TouchCodeCLI` that prints a machine-readable dump of every subcommand and its flags. `ArgumentParser` does not provide this directly; add a small Command subclass that walks `configuration.subcommands` recursively and emits JSON. Implementation is ~30 lines. Shipping it also benefits future CLI documentation.
 
-`skill-golden-manifest.txt` is the sorted file list after a fresh `tc skill install --claude-code --force` into a clean tempdir (omitting the install marker, whose name is stable but whose content is timestamped). Regenerate whenever M1/M6 intentionally change the package shape via `make mac-skill-golden-update` (a wrapper that runs the installer and copies the manifest).
+`skill-golden-manifest.txt` is the sorted file list after a fresh `tc skill install --claude-code --force` into a clean tempdir (omitting the install marker, whose name is stable but whose content is timestamped). Regenerate whenever M1 or M8 intentionally change the package *file set* via `make mac-skill-golden-update` (a wrapper that runs the installer and copies the manifest). Content-only changes should leave the golden untouched.
 
 CI wiring. Create `.github/workflows/skill-tier-a.yml` that runs on PR and push to main. Steps:
 
@@ -391,18 +479,6 @@ CI wiring. Create `.github/workflows/skill-tier-a.yml` that runs on PR and push 
 5. `make mac-skill-validate` which calls `skill-tier-a.sh`.
 
 Tier-A runs without the app being "running" — it operates entirely on the built `tc` binary and filesystem fixtures. This is the independence promised in design doc §Testing Strategy.
-
-Mirror repo automation. Create `.github/workflows/mirror-skill.yml` triggered on `push: tags: ['v*']`. Steps:
-
-1. Checkout with full history.
-2. Verify the tag name matches the version written in `touch-code-skill/VERSION` (fail if not — prevents mislabelled tags).
-3. Configure a deploy key stored as repo secret `MIRROR_DEPLOY_KEY` (user action required at release time; document in the workflow comment).
-4. Clone the mirror repo (`git@github.com:wanggang316/touch-code-skill.git`) into `$TMP/mirror`.
-5. Rsync `touch-code-skill/` over `$TMP/mirror/` with `--delete` (to ensure removed files in the source are removed in the mirror).
-6. In `$TMP/mirror`, `git add -A && git commit -m "Sync from wanggang316/touch-code@$TAG" && git tag $TAG && git push origin main --tags`.
-7. Emit a workflow summary with the tagged commit SHA.
-
-A one-time setup task: create the mirror repo on GitHub (manually; documented in the workflow comment), enable branch protection so only the release deploy key can push, and add `MIRROR_DEPLOY_KEY` to this repo's secrets. These are owner-level actions flagged in the Decision Log at M5 completion.
 
 Orthogonality check. Add `apps/mac/scripts/skill-orthogonality-check.sh`:
 
@@ -422,14 +498,46 @@ Hooked into `make mac-skill-validate` so CI fails on unauthorised access.
 
 **Observable acceptance.**
 
-- Locally: `make mac-skill-validate` exits 0 on a clean checkout after M4.
+- Locally: `make mac-skill-validate` exits 0 on a clean checkout after M5.
 - On a test branch: push a PR; the `skill-tier-a.yml` workflow runs to green.
-- Tag-simulation: `git tag v0.0.1-test && git push origin v0.0.1-test` (on a throwaway branch) triggers `mirror-skill.yml`; after delete and revert, record the outcome. (If the mirror repo does not yet exist, the workflow fails at step 4 with a clear error — acceptable for M5; owner creates the repo before the first real release.)
 - Orthogonality: deliberately add `import Foundation; let x = "touch-code-skill/SKILL.md"` in `apps/mac/touch-code/App/TouchCodeApp.swift`; `make mac-skill-validate` fails with the grep output; reverting restores green.
 
-**Expected commits.** Four commits: `chore(skill): generate-skill-version.sh + Makefile wiring`, `feat(tc): --help-json for machine-readable CLI dump`, `ci(skill): tier-A workflow with tc --help roundtrip and golden manifest`, `ci(skill): mirror-skill workflow + orthogonality check script`.
+**Expected commits.** Three commits: `chore(skill): generate-skill-version.sh + Makefile wiring`, `feat(tc): --help-json for machine-readable CLI dump`, `ci(skill): tier-A workflow + orthogonality check script`.
 
-### Milestone 6: SKILL.md + `references/` production content pass
+### Milestone 7: Mirror-repo release automation
+
+**Goal after this milestone.** On every tagged release (`v*`), a GitHub Actions workflow pushes `touch-code-skill/` to a separate mirror repository, producing a git commit tagged with the same version. The mirror is the only path by which `pi install git:...` consumers receive the skill. Branch protection on the mirror repo forbids manual commits; the deploy key used by the workflow is the sole writer.
+
+This milestone is split from M6 because it depends on owner-level actions that the plan implementer cannot perform from code alone:
+
+1. Create the mirror repository at `github.com/wanggang316/touch-code-skill` (Decision 12).
+2. Generate a Deploy Key (SSH) with write access on the mirror; add its **public** part to the mirror's repo Settings → Deploy Keys, and its **private** part as a secret named `MIRROR_DEPLOY_KEY` on *this* repo's Settings → Secrets.
+3. Enable branch protection on the mirror's `main` so only the deploy key can write.
+
+Steps 1-3 are documented in the workflow header comment; M7 is considered complete when the workflow runs green against a dry tag on a scratch branch. Until the owner has done steps 1-3, the workflow exists but is expected to fail — that is an acceptable state of M7 for as long as the owner has not yet released.
+
+**Work.** Create `.github/workflows/mirror-skill.yml` triggered on `push: tags: ['v*']`:
+
+1. `actions/checkout@v4` with full history.
+2. Verify the pushed tag name matches the version written in `touch-code-skill/VERSION` (fail if not — prevents mislabelled tags).
+3. Install the `MIRROR_DEPLOY_KEY` secret into `~/.ssh/id_ed25519`; add `github.com` to known hosts.
+4. Clone the mirror repo (`git@github.com:wanggang316/touch-code-skill.git`) into `$TMP/mirror`.
+5. Rsync `touch-code-skill/` over `$TMP/mirror/` with `--delete` (so removed source files are removed in the mirror).
+6. In `$TMP/mirror`, `git add -A`; if there is no diff, log "no changes, skipping" and exit 0. Otherwise `git commit -m "Sync from wanggang316/touch-code@$TAG" && git tag $TAG && git push origin main --tags`.
+7. Emit a workflow summary with the tagged commit SHA.
+
+The `skill-orthogonality-check.sh` and `make mac-skill-validate` from M6 run as preflight before step 4, ensuring a misconfigured repo does not publish a broken mirror.
+
+**Observable acceptance.**
+
+- After owner steps 1-3 are complete: tag-simulation `git tag v0.0.1-test && git push origin v0.0.1-test` (on a throwaway branch) triggers `mirror-skill.yml`; the workflow runs to green; the mirror repo shows the new commit + tag; delete the tag and revert afterwards.
+- Before owner steps are complete: the workflow exists on disk; pushing a tag triggers it; it fails at step 4 with a clear "host key verification failed" or "permission denied (publickey)" message. The failure is expected; the plan is complete for this milestone even while the workflow is still red, provided the YAML has been reviewed and merged.
+
+**Expected commits.** One commit: `ci(skill): mirror-skill workflow with deploy-key publish`.
+
+**Owner follow-up (outside the plan).** Complete the three setup steps before the first real release tag. Record the setup date in the Decision Log.
+
+### Milestone 8: SKILL.md + `references/` production content pass
 
 **Goal after this milestone.** Every stub from M1 has been replaced with production content. A new Claude Code / Codex / pi session inside a touch-code Panel can read `SKILL.md` and produce correct `tc` invocations without guessing. The content rules from design doc §SKILL.md Template are honoured: no Swift, no architecture diagrams, no rationale prose. CLI-only, recipe-rich.
 
@@ -497,7 +605,7 @@ Hooked into `make mac-skill-validate` so CI fails on unauthorised access.
 
 Regex-delete all `<!-- STUB: filled in by exec plan 0004 M6 -->` markers. A passing grep `grep -rn 'STUB: filled in by' touch-code-skill` returning zero matches is part of observable acceptance.
 
-After content lands, regenerate the golden manifest: `make mac-skill-golden-update`. The manifest file list should not have changed (file names are stable since M1), but the script is idempotent.
+After content lands, run `make mac-skill-golden-update` and verify `git diff apps/mac/scripts/skill-golden-manifest.txt` is empty. File names are stable since M1; M8 edits content only, so the manifest should not change. A non-empty diff means the file *set* drifted — stop and reconcile against design doc §Package Structure before continuing.
 
 **Observable acceptance.**
 
@@ -509,7 +617,7 @@ After content lands, regenerate the golden manifest: `make mac-skill-golden-upda
 
 **Expected commits.** Four commits: `docs(skill): production SKILL.md + references/hierarchy-model + targeting`, `docs(skill): references/tc-cli + agent-hooks + worktrees-and-editors`, `docs(skill): recipes.md`, `docs(skill): per-agent READMEs and example recipes`.
 
-### Milestone 7: Tier-B per-agent smoke tests + release gate
+### Milestone 9: Tier-B per-agent smoke tests + release gate
 
 **Goal after this milestone.** A release tag cannot be cut until Tier-B tests show each agent can drive `tc` via the installed skill. Tier-B tests are written, documented, and gated on the release-tag CI. Where the underlying `tc` surface is not yet live (e.g. `tc ls`, `tc panel …` require exec plan 0002 to land further milestones), the Tier-B test uses the closest realisable command and is marked `skip-unless-feature`.
 
@@ -518,14 +626,15 @@ After content lands, regenerate the golden manifest: `make mac-skill-golden-upda
 `touch-code-skill/tests/claude-code.smoke.md`:
 
 - Document the invocation: from a touch-code Panel, run `claude` non-interactively with a fixed prompt, expect a specific `tc` invocation in the response.
-- The test harness lives in `apps/mac/scripts/skill-tier-b-claude.sh`:
+- The test harness lives in `apps/mac/scripts/skill-tier-b-claude.sh`. **Note.** The exact non-interactive invocation for Claude Code (`claude -p "..."` vs. `claude --print "..."` vs. piped stdin) is evolving; the script below is a **skeleton** — verify the flag at release time by running `claude --help` on the CI runner. The logic around tier-A fallback (DEC-5) is stable and must be preserved when the invocation is updated.
 
       #!/usr/bin/env bash
       set -euo pipefail
       # Assumes: touch-code.app running; `claude` CLI on PATH; skill installed via tc skill install --claude-code
       tmpdir=$(mktemp -d); trap 'rm -rf "$tmpdir"' EXIT
       PROMPT='List all panels as JSON and report the count.'
-      OUTPUT=$(claude --non-interactive --prompt "$PROMPT" 2>"$tmpdir/stderr")
+      # SKELETON — verify the real non-interactive invocation against `claude --help` at release time.
+      OUTPUT=$(claude -p "$PROMPT" 2>"$tmpdir/stderr")
       grep -q 'tc ls --json' <<< "$OUTPUT" || { echo "claude did not reference tc ls --json"; exit 1; }
       # If tc ls is wired (post-0002 M5+), compare Claude's counted number to the authoritative count.
       if tc ls --json >"$tmpdir/ls.json" 2>/dev/null; then
@@ -537,17 +646,17 @@ After content lands, regenerate the golden manifest: `make mac-skill-golden-upda
       fi
       echo "claude-code smoke passed"
 
-`touch-code-skill/tests/codex.smoke.md` + `apps/mac/scripts/skill-tier-b-codex.sh` — analogous shape against Codex.
+`touch-code-skill/tests/codex.smoke.md` + `apps/mac/scripts/skill-tier-b-codex.sh` — analogous shape against Codex. Same skeleton caveat: verify Codex's non-interactive flag at release time (`codex --help`); the current exec options are `codex exec "..."` or stdin-piped.
 
-`touch-code-skill/tests/pi.smoke.sh` — existing stub becomes the real harness:
+`touch-code-skill/tests/pi.smoke.sh` — existing stub becomes the real harness. Same skeleton caveat: pi's non-interactive invocation is `pi -p "..."` as of 2026-04; re-verify at release time.
 
     #!/usr/bin/env bash
     set -euo pipefail
     # 1. Install via pi
     pi install git:github.com/wanggang316/touch-code-skill
-    # 2. Run a canned pi prompt
+    # 2. Run a canned pi prompt — SKELETON; verify flag via `pi --help` at release time.
     tmpdir=$(mktemp -d); trap 'rm -rf "$tmpdir"' EXIT
-    pi --non-interactive "What is the command to open a new tab in touch-code?" \
+    pi -p "What is the command to open a new tab in touch-code?" \
       | tee "$tmpdir/out.txt" \
       | grep -q 'tc tab new'
     echo "pi smoke passed"
@@ -582,7 +691,7 @@ Run every command from the repository root (`/Users/wanggang/dev/00/touch-code`)
     # Create stub files in the shape listed under "Work" for M1.
     chmod +x touch-code-skill/tests/pi.smoke.sh
     find touch-code-skill -type f | sort
-    # Expected output: 16 lines; every file in the design doc §Package Structure is present
+    # Expected: 18 lines covering every file in design doc §Package Structure
     git add touch-code-skill && git commit -m "feat(skill): scaffold touch-code-skill/ tree with stub content"
 
 ### M2 steps
@@ -612,10 +721,15 @@ Run every command from the repository root (`/Users/wanggang/dev/00/touch-code`)
 ### M4 steps
 
     make mac-generate
-    # Implement SkillCommand.swift + main.swift dispatch + SkillVersionBanner.swift + tests
+    # Implement SkillCommand.swift + runners + main.swift dispatch + SkillCommandTests
+    DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+      xcodebuild test -workspace apps/mac/touch-code.xcworkspace \
+                      -scheme tcTests | xcbeautify
     make mac-build
     DERIVED=$(find ~/Library/Developer/Xcode/DerivedData -name 'touch-code.app' -type d | head -1)
     "$DERIVED/Contents/MacOS/tc" skill --help
+    "$DERIVED/Contents/MacOS/tc" skill install --help | grep -E -- '--claude-code|--codex|--pi'
+    # Expected: the three flags are present (not --claudeCode)
     "$DERIVED/Contents/MacOS/tc" skill install --claude-code --dest /tmp/tc-skill-test --force
     ls /tmp/tc-skill-test/SKILL.md /tmp/tc-skill-test/.touch-code-skill.json
     # Expected: both files present
@@ -624,8 +738,22 @@ Run every command from the repository root (`/Users/wanggang/dev/00/touch-code`)
     "$DERIVED/Contents/MacOS/tc" skill bundle-path
     # Expected: absolute path ending in /Contents/Resources/touch-code-skill
     rm -rf /tmp/tc-skill-test
+    grep -rn 'SkillCommand\|SkillInstaller' apps/mac/touch-code/ || true
+    # Expected: no matches (app target has not been touched yet)
 
 ### M5 steps
+
+    make mac-generate
+    # Implement SkillVersionBanner.swift + SkillVersionBannerTests.swift
+    DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+      xcodebuild test -workspace apps/mac/touch-code.xcworkspace \
+                      -scheme touch-code | xcbeautify
+    # Expected: new banner test cases visible in output, all green
+    make mac-run-app
+    # Expected: with a stale-version marker pre-written at ~/.claude/skills/touch-code/.touch-code-skill.json,
+    #           a non-blocking banner appears on launch
+
+### M6 steps
 
     chmod +x apps/mac/scripts/generate-skill-version.sh apps/mac/scripts/skill-tier-a.sh \
              apps/mac/scripts/skill-orthogonality-check.sh apps/mac/scripts/skill-help-roundtrip.py
@@ -636,10 +764,27 @@ Run every command from the repository root (`/Users/wanggang/dev/00/touch-code`)
     # Expected: "0.1.0"
     make mac-skill-validate
     # Expected: "tier-A: all checks passed"
-    # Push a test tag to a scratch branch to exercise mirror-skill.yml (only after the mirror repo exists and
-    # MIRROR_DEPLOY_KEY is configured; skip on first pass if owner tasks aren't done).
+    ./apps/mac/scripts/skill-orthogonality-check.sh
+    # Expected: no output, exit 0
 
-### M6 steps
+### M7 steps (owner-gated)
+
+    # One-time owner actions (outside any CI):
+    #   1. Create github.com/wanggang316/touch-code-skill (empty repo, main branch, branch-protected).
+    #   2. Generate deploy key: ssh-keygen -t ed25519 -f ~/.ssh/touch-code-mirror-deploy (no passphrase).
+    #   3. Add public key to the mirror repo Settings → Deploy keys (grant "write access").
+    #   4. Add private key to THIS repo Settings → Secrets → MIRROR_DEPLOY_KEY.
+    # Then land the workflow file:
+    #   .github/workflows/mirror-skill.yml
+    # Validate against a scratch branch:
+    git checkout -b mirror-smoke
+    git tag v0.0.1-mirror-smoke && git push origin mirror-smoke --tags
+    # Expected: mirror-skill.yml runs green; mirror repo shows the new commit + tag
+    # Clean up:
+    git push --delete origin v0.0.1-mirror-smoke
+    git tag -d v0.0.1-mirror-smoke
+
+### M8 steps
 
     # Rewrite SKILL.md + references/*.md + agents/**/README.md with production content.
     grep -rn 'STUB: filled in by' touch-code-skill
@@ -647,9 +792,11 @@ Run every command from the repository root (`/Users/wanggang/dev/00/touch-code`)
     make mac-skill-validate
     # Expected: "tier-A: all checks passed"
     make mac-skill-golden-update
-    # Expected: manifest file unchanged (content changed, filenames did not)
+    # Expected: script regenerates skill-golden-manifest.txt; `git diff` shows zero changes
+    # (file names are stable since M1; M8 edits content only).
+    # If a diff appears, it means the file *set* changed — stop and reconcile with design doc §Package Structure.
 
-### M7 steps
+### M9 steps
 
     chmod +x apps/mac/scripts/skill-tier-b-claude.sh apps/mac/scripts/skill-tier-b-codex.sh
     make mac-skill-tier-b
@@ -658,21 +805,22 @@ Run every command from the repository root (`/Users/wanggang/dev/00/touch-code`)
 
 ## Validation and Acceptance
 
-After all seven milestones land, a fresh contributor can perform the following and observe the exact outputs:
+After all nine milestones land, a fresh contributor can perform the following and observe the exact outputs:
 
 1. `make mac-bootstrap && make mac-generate && make mac-build`. The build succeeds; `touch-code.app` contains `Contents/Resources/touch-code-skill/` and `Contents/Resources/agents.json`.
 2. `"$(find ~/Library/Developer/Xcode/DerivedData -name 'touch-code.app' -type d | head -1)/Contents/MacOS/tc" skill install --claude-code`. Within one second, `~/.claude/skills/touch-code/` exists with a valid `SKILL.md` and `.touch-code-skill.json`.
 3. `tc skill status --json | jq '.[] | select(.agent == "claude-code") | .installed'` prints the installed version string (matches `VERSION`).
 4. `tc skill install --claude-code` (second invocation) reports no-op (idempotence).
-5. `echo 'deliberately edited' >> ~/.claude/skills/touch-code/SKILL.md; tc skill install --claude-code` prompts for overwrite; `--force` skips the prompt.
+5. `echo 'deliberately edited' >> ~/.claude/skills/touch-code/SKILL.md; tc skill install --claude-code` prompts for overwrite; `--force` skips the prompt and performs a full re-copy (DEC-6).
 6. `tc skill uninstall --claude-code && tc skill status` shows the row back to `-`.
 7. `tc skill install --pi` (with `pi` installed) completes; `pi list` shows `touch-code-skill`. Without `pi` installed, the command exits 2 with a clear message.
-8. `make mac-skill-validate` runs Tier-A and exits 0. Orthogonality check passes.
-9. On a release-tag push, the `mirror-skill.yml` workflow succeeds and the mirror repo contains `touch-code-skill/` at the tagged commit.
-10. On a release-tag push against a properly provisioned runner, `skill-tier-b.yml` completes; claude-code / codex / pi smoke tests pass (or degrade gracefully).
-11. In a real Claude Code session inside a touch-code Panel, asking "how do I split this panel?" yields an answer that references `tc panel split …` by name (skill content pass).
+8. Launching the app with a stale-version marker triggers the `SkillVersionBanner`; dismissing it persists across launches until the bundle version is bumped.
+9. `make mac-skill-validate` runs Tier-A and exits 0. Orthogonality check passes.
+10. On a release-tag push (once M7 owner actions are complete), the `mirror-skill.yml` workflow succeeds and the mirror repo contains `touch-code-skill/` at the tagged commit.
+11. On a release-tag push against a properly provisioned runner, `skill-tier-b.yml` completes; claude-code / codex / pi smoke tests pass (or degrade gracefully per DEC-5).
+12. In a real Claude Code session inside a touch-code Panel, asking "how do I split this panel?" yields an answer that references `tc panel split …` by name (skill content pass).
 
-Failure on items 1-8 blocks sign-off. Items 9-11 are release-time gates; M4/M5 can ship without them fully green as long as the pipeline exists and the Tier-A suite is clean.
+Failure on items 1-9 blocks sign-off. Items 10-12 are release-time gates; M4 through M6 can ship without them fully green as long as the pipelines exist and Tier-A is clean.
 
 ## Idempotence and Recovery
 
@@ -680,7 +828,7 @@ Every milestone is designed to be re-runnable. Recovery rituals specific to C5:
 
 - **Regenerate Xcode workspace.** `make mac-generate` is safe to run repeatedly.
 - **Reset local skill install.** `tc skill uninstall --<agent>` returns the agent's skill directory to a clean state. For pi, `pi remove touch-code-skill` (or delete `~/.pi/agent/git/github.com/wanggang316/touch-code-skill/` manually).
-- **Rehash and compare.** If drift detection misfires, `tc skill status --json` shows the installed version and path; inspecting the marker's `bundleSha256` vs. `tc skill bundle-path | xargs -I{} ...` (M3 hash helper exposed as `tc skill debug-hash`, optional) clarifies what's diverged.
+- **Rehash and compare.** If drift detection misfires, `tc skill status --json` shows the installed version and path; the marker's `bundleSha256` can be diffed by re-running `tc skill install --claude-code --dry-run --json` and comparing the result marker against the one on disk.
 - **Regenerate golden manifest.** `make mac-skill-golden-update` is the single blessed way to change the golden file. A diff in the golden is always a deliberate change.
 - **Rewind a bad mirror push.** If `mirror-skill.yml` pushes a broken commit, open the mirror repo directly and `git reset --hard <previous-good>` with a force-push — this is the only case where force-pushing to the mirror is acceptable, and it is explicitly an owner action (not automated). The `MIRROR_DEPLOY_KEY` has branch-protection override for this case only.
 - **Reset the app's dismissed banners.** `defaults delete <bundle-id> TouchCode.SkillBannerDismissedVersions.claude-code` re-enables the banner.
@@ -716,6 +864,10 @@ The following types, functions, and signatures must exist by plan completion. Na
 **`apps/mac/tc/`** (Swift; depends on `TouchCodeCore`, `TouchCodeIPC`, `ArgumentParser`, `CryptoKit`, `Foundation`):
 
     enum AgentID: String, CaseIterable, Codable, Sendable { case claudeCode = "claude-code", codex, pi }
+    extension AgentID: EnumerableFlag {
+      static func name(for value: AgentID) -> NameSpecification           // .customLong("claude-code") etc.
+      static func help(for value: AgentID) -> ArgumentHelp?
+    }
     enum TargetOS: String, Sendable { case darwin, linux }
     enum AgentInstallMode: String, Codable, Sendable { case copy, piInstall = "pi-install" }
 

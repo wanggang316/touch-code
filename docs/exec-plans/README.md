@@ -28,7 +28,7 @@ Every exec plan MUST contain:
 
 <!-- List active plans here -->
 - [0002 — Terminal Engine and Five-Level Hierarchy (C1 + C2)](0002-terminal-and-hierarchy.md) — domain model, CatalogStore, GhosttyRuntime, HierarchyManager, TCA clients, sidebar + tab bar + split view, git worktree CLI
-- [0004 — Published Agent Skill (C5)](0004-agent-skill.md) — `touch-code-skill/` scaffold, `agents.json` + `AgentsConfig`, `SkillBundleLocator` + `SkillInstaller`, `tc skill` subcommands, tier-A + tier-B tests, mirror repo automation
+- [0004 — Published Agent Skill (C5)](0004-agent-skill.md) — `touch-code-skill/` scaffold, `agents.json` + `AgentsConfig`, `SkillBundleLocator` + `SkillInstaller`, `tc skill` subcommands, `SkillVersionBanner`, tier-A + tier-B tests, mirror-repo automation (9 milestones)
 
 ## Completed Plans
 
