@@ -52,31 +52,42 @@ public final class HookDispatcher {
 
   // MARK: - Public API
 
-  /// Subscribe to a Runtime `TerminalEvent` stream. Each event becomes one
-  /// or more `HookEnvelope`s (via `EventMapper`, M2.1) which are matched
-  /// against active subscriptions and fired. Callers must not call
-  /// `attach` twice; detaching happens on `stop()` or dispatcher release.
-  public func attach(to events: AsyncStream<TerminalEvent>) {
+  /// Subscribe to a Runtime `TerminalEvent` stream. Each event is passed
+  /// through `EventMapper` (which reads the supplied `catalog` closure to
+  /// enrich anchor refs) and fired against the loaded subscription table.
+  /// Callers must not call `attach` twice; detaching happens on the
+  /// dispatcher's release or when the caller retains and cancels the
+  /// task via `stop()`.
+  ///
+  /// The `catalog` closure is re-invoked per event so hierarchy mutations
+  /// are reflected immediately — a panel that moves tabs between event A
+  /// and event B picks up the new tab anchor on event B.
+  public func attach(
+    to events: AsyncStream<TerminalEvent>,
+    catalog: @escaping @MainActor () -> Catalog
+  ) {
     guard attachedTask == nil else {
       logger.warning("attach called while already attached; ignoring second stream")
       return
     }
-    // M2 ships the attach() surface so callers can wire the stream, but
-    // the TerminalEvent → HookEnvelope mapping lands in M2.1. Until then
-    // the task drains silently and NO HOOKS FIRE from it — callers must
-    // not assume runtime events reach handlers yet. Debug builds trap
-    // loudly so M3 / C6 catch the gap; release builds only warn so
-    // production wiring is safe to land ahead of M2.1.
-    logger.warning("HookDispatcher.attach: M2 stub — Runtime events drain without firing hooks (wait for M2.1 EventMapper)")
-    assert(
-      false,
-      "HookDispatcher.attach(to:) is an M2 stub; attaching a live Runtime stream will silently drop every event until M2.1 lands. Remove this attach() call or wait for EventMapper."
-    )
-    attachedTask = Task { [logger] in
-      for await _ in events {
-        _ = logger
+    attachedTask = Task { [weak self, logger] in
+      for await event in events {
+        guard let self else { return }
+        let snapshot = catalog()
+        guard let envelope = EventMapper.map(event, catalog: snapshot) else {
+          // Unmapped events (e.g. `.hierarchyMutated`) have no hook surface.
+          continue
+        }
+        logger.debug("attach: fire \(envelope.event.rawValue, privacy: .public) id=\(envelope.id.uuidString, privacy: .public)")
+        await self.fire(envelope)
       }
     }
+  }
+
+  /// Stop the attached event pump. Idempotent.
+  public func stop() {
+    attachedTask?.cancel()
+    attachedTask = nil
   }
 
   /// Manually fire an envelope against the loaded subscription table. Used
