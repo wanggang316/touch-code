@@ -16,7 +16,8 @@ struct UnifiedDiffView: View {
     case .error(.diffTooLarge):
       LargeDiffPlaceholderView(
         scope: store.state.scope,
-        worktreePath: store.worktreePathHint
+        worktreePath: store.worktreePathHint,
+        copyCommandToken: store.state.copyLargeDiffCommandToken
       )
     case .error:
       placeholder

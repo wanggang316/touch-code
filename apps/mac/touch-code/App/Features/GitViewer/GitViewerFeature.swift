@@ -46,6 +46,14 @@ struct GitViewerFeature {
     /// meaningless; only changes matter.
     var filterFocusToken: Int = 0
 
+    /// Monotonic nonce incremented when the reducer accepts `.copyLargeDiffCommandRequested`
+    /// (user pressed ⌘⇧C while the placeholder is on screen). `LargeDiffPlaceholderView`
+    /// observes the nonce via `.onChange` and writes to `NSPasteboard`. Separating the
+    /// decision (reducer: should we copy?) from the I/O (view: perform the copy + show
+    /// feedback) keeps the pasteboard call out of the reducer while still routing the
+    /// keybinding through the same model every other binding uses.
+    var copyLargeDiffCommandToken: Int = 0
+
     /// Cached worktree path — populated alongside `worktreeID` so views can render the
     /// `cd '<abs-path>' && git …` Copy command from the large-diff placeholder without
     /// reaching back into `HierarchyClient.snapshot()`.
@@ -106,6 +114,10 @@ struct GitViewerFeature {
     case filterChanged(String)
     /// User pressed `/` — view observes the updated `filterFocusToken` and pulls focus.
     case filterFocusRequested
+    /// User pressed ⌘⇧C while `.diffTooLarge` is on screen. Reducer guards that the
+    /// placeholder is actually rendered and that a worktree path is cached before bumping
+    /// `copyLargeDiffCommandToken`; the view observes the nonce and performs the paste.
+    case copyLargeDiffCommandRequested
   }
 
   nonisolated enum CancelID: Sendable { case log, diff }
@@ -131,6 +143,14 @@ struct GitViewerFeature {
         state.fileFilter = ""
         // Cache the worktree path so the large-diff placeholder can render the Copy command
         // without a separate snapshot probe. Nil path clears the hint.
+        //
+        // Note (0005 M4b.1 review): `hierarchyClient.snapshot()` is synchronous here — it
+        // forwards the `@Observable HierarchyManager.catalog` property, which is always
+        // main-actor-current. If the client's contract ever grows async (e.g. a future
+        // storage-backed snapshot that loads from disk), this line becomes a latent blocking
+        // call in a reducer. Migration path: fold the snapshot lookup into an effect that
+        // sends `.worktreePathHintResolved(String?)` back to the reducer. Deferred until
+        // the client signature actually changes to avoid reshaping reducers speculatively.
         if let worktreeID {
           state.worktreePathHint = Self.worktreePath(in: hierarchyClient.snapshot(), worktreeID: worktreeID)
         } else {
@@ -249,6 +269,16 @@ struct GitViewerFeature {
         // Monotonic nonce; view observes the change and shifts focus to the TextField.
         // Overflow is impossible in practice (would need 2^63 key presses in one session).
         state.filterFocusToken = state.filterFocusToken &+ 1
+        return .none
+
+      case .copyLargeDiffCommandRequested:
+        // Guard: only fire when the large-diff placeholder is actually on screen AND we
+        // have the path cached. Otherwise the keybinding is a no-op — matches the intent
+        // expressed in the M4b.1 review "guarded by diffState == .error(.diffTooLarge)".
+        guard case .error(.diffTooLarge) = state.diffState, state.worktreePathHint != nil else {
+          return .none
+        }
+        state.copyLargeDiffCommandToken = state.copyLargeDiffCommandToken &+ 1
         return .none
       }
     }

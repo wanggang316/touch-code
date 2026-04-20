@@ -15,6 +15,9 @@ import TouchCodeCore
 /// - `.`      — whitespaceToggled                  (unmodified only)
 /// - `/`      — filterFocusRequested                (unmodified only; pulls focus into
 ///                                                   FileChangeListView's filter field)
+/// - `⌘⇧C`   — copyLargeDiffCommandRequested       (reducer-guarded: only acts when
+///                                                   `diffState == .error(.diffTooLarge)`
+///                                                   AND a worktree path is cached)
 ///
 /// Every unmodified binding guards against `Cmd-X` / `Control-X` / `Option-X` via
 /// `press.modifiers.isEmpty` so standard macOS shortcuts (Cmd-R reload, Cmd-1 tab switch,
@@ -74,6 +77,12 @@ struct GitViewerKeybindings: ViewModifier {
       .onKeyPress(keys: ["/"]) { press in
         guard press.modifiers.isEmpty else { return .ignored }
         store.send(.filterFocusRequested)
+        return .handled
+      }
+      .onKeyPress(keys: ["c", "C"]) { press in
+        // ⌘⇧C only. The reducer guards that the placeholder is actually on screen.
+        guard press.modifiers == [.command, .shift] else { return .ignored }
+        store.send(.copyLargeDiffCommandRequested)
         return .handled
       }
       .onKeyPress(keys: [.tab]) { press in

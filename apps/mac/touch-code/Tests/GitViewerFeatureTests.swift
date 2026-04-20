@@ -520,6 +520,74 @@ struct GitViewerFeatureTests {
 
   // MARK: - File selection
 
+  // MARK: - Copy large-diff command
+
+  @Test
+  func copyCommandBumpsTokenWhenDiffTooLargeAndPathCached() async {
+    var initial = GitViewerFeature.State()
+    initial.worktreeID = Self.sampleWorktreeID
+    initial.projectID = Self.sampleProjectID
+    initial.scope = .working
+    initial.diffState = .error(.diffTooLarge)
+    initial.worktreePathHint = Self.samplePath
+
+    let store = TestStore(initialState: initial) {
+      GitViewerFeature()
+    } withDependencies: {
+      $0.gitService = GitServiceClient.testValue
+      $0.hierarchyClient = HierarchyClient.testValue
+      $0.editorFacade = EditorServiceFacade.testValue
+    }
+    #expect(store.state.copyLargeDiffCommandToken == 0)
+    await store.send(.copyLargeDiffCommandRequested) {
+      $0.copyLargeDiffCommandToken = 1
+    }
+    await store.send(.copyLargeDiffCommandRequested) {
+      $0.copyLargeDiffCommandToken = 2
+    }
+  }
+
+  @Test
+  func copyCommandIsNoopOutsideDiffTooLargeError() async {
+    // Guard (a): placeholder is not on screen.
+    var initial = GitViewerFeature.State()
+    initial.worktreeID = Self.sampleWorktreeID
+    initial.projectID = Self.sampleProjectID
+    initial.scope = .working
+    initial.diffState = .loaded(Self.sampleDiff())
+    initial.worktreePathHint = Self.samplePath
+
+    let store = TestStore(initialState: initial) {
+      GitViewerFeature()
+    } withDependencies: {
+      $0.gitService = GitServiceClient.testValue
+      $0.hierarchyClient = HierarchyClient.testValue
+      $0.editorFacade = EditorServiceFacade.testValue
+    }
+    await store.send(.copyLargeDiffCommandRequested) // no mutation
+  }
+
+  @Test
+  func copyCommandIsNoopWhenWorktreePathNotCached() async {
+    // Guard (b): placeholder IS on screen but worktreePathHint is nil. Fires e.g. when the
+    // user navigated through a path-less intermediate state. The token must stay pinned.
+    var initial = GitViewerFeature.State()
+    initial.worktreeID = Self.sampleWorktreeID
+    initial.projectID = Self.sampleProjectID
+    initial.scope = .working
+    initial.diffState = .error(.diffTooLarge)
+    initial.worktreePathHint = nil
+
+    let store = TestStore(initialState: initial) {
+      GitViewerFeature()
+    } withDependencies: {
+      $0.gitService = GitServiceClient.testValue
+      $0.hierarchyClient = HierarchyClient.testValue
+      $0.editorFacade = EditorServiceFacade.testValue
+    }
+    await store.send(.copyLargeDiffCommandRequested) // no mutation
+  }
+
   @Test
   func fileSelectedUpdatesStateNoEffect() async {
     let store = TestStore(initialState: GitViewerFeature.State()) {
