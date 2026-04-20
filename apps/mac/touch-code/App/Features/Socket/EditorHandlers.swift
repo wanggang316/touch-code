@@ -40,7 +40,8 @@ final class EditorHandlers {
 
   // MARK: - editor.open
 
-  /// Resolves the target Worktree, then spawns the requested editor against its directory.
+  /// Resolves the target Worktree, then spawns the requested editor against its directory
+  /// (or a `request.path` sub-path contained within that directory).
   ///
   /// Worktree resolution order:
   ///   1. `request.worktreeID` — explicit UUID wins; must point to a live Worktree in the
@@ -52,6 +53,10 @@ final class EditorHandlers {
   /// The `preferred` editor id is forwarded verbatim to `EditorClient.open`, which owns the
   /// 4-tier fallback chain (explicit → per-Project override → global default → Finder). The
   /// resolved Project is passed through so per-Project overrides apply.
+  ///
+  /// When `request.path` is present, it must resolve to a directory whose canonical path is
+  /// contained within the resolved Worktree's root — otherwise `EditorIPCError.notADirectory`.
+  /// This prevents `tc open --path /etc` from escaping the Worktree via a handcrafted request.
   func open(_ request: EditorOpenRequest) async throws -> EditorOpenResponse {
     guard let (project, worktree) = resolveWorktree(
       worktreeID: request.worktreeID,
@@ -60,13 +65,30 @@ final class EditorHandlers {
       throw EditorIPCError.unresolvedWorktree
     }
 
-    let directory = URL(fileURLWithPath: worktree.path, isDirectory: true)
+    let target = try Self.resolveOpenTarget(worktreePath: worktree.path, requestedPath: request.path)
     do {
-      let choice = try await editor.open(directory, request.preferred, project.id)
+      let choice = try await editor.open(target, request.preferred, project.id)
       return EditorOpenResponse(choice: choice.toDTO(), worktreePath: worktree.path)
     } catch let error as EditorError {
       throw Self.mapToIPCError(error)
     }
+  }
+
+  /// Resolves the directory to open. Returns the Worktree root when `requestedPath` is nil or
+  /// empty; otherwise returns the standardised `requestedPath` after confirming it lies
+  /// within the Worktree. Throws `EditorIPCError.notADirectory` for escapes — the same error
+  /// the spawner would raise for a non-existent path, keeping the wire surface narrow.
+  static func resolveOpenTarget(worktreePath: String, requestedPath: String?) throws -> URL {
+    let worktreeRoot = URL(fileURLWithPath: worktreePath, isDirectory: true)
+    guard let raw = requestedPath, !raw.isEmpty else { return worktreeRoot }
+    let requested = URL(fileURLWithPath: raw).standardizedFileURL
+    let root = worktreeRoot.standardizedFileURL
+    let rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"
+    let candidatePath = requested.path
+    if candidatePath == root.path || candidatePath.hasPrefix(rootPath) {
+      return requested
+    }
+    throw EditorIPCError.notADirectory
   }
 
   // MARK: - editor.setDefault
