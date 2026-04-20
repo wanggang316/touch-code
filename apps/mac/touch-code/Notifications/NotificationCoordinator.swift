@@ -205,7 +205,16 @@ final class NotificationCoordinator {
   /// into this method once plan 0003's CLI follow-up lands.
   func reloadRules() throws {
     guard let ruleStore, let router else {
-      logger.warning("reloadRules called without ruleStore/router dependencies; no-op.")
+      // Programmer error — the bootstrap always injects these; seeing this
+      // message means a caller constructed a coordinator without the
+      // reload capability, then tried to reload. Debug builds trap
+      // loudly so the wiring bug is caught; release builds degrade to a
+      // safe no-op with an .error log so a shipped app doesn't crash.
+      assertionFailure(
+        "NotificationCoordinator.reloadRules called without ruleStore/router dependencies. "
+        + "Bootstrap must inject both via init or attach(ruleStore:router:)."
+      )
+      logger.error("reloadRules called without ruleStore/router dependencies; no-op.")
       return
     }
     let newRules = try ruleStore.reloadAndRematerialise()

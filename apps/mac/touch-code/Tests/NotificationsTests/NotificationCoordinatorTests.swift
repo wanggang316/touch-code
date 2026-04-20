@@ -280,6 +280,7 @@ final class MockOSNotifier: OSNotifier {
   var nextRequestResult: AuthorizationStatus?
   private(set) var postedNotifications: [AgentNotification] = []
   private(set) var requestAuthorizationCalls = 0
+  private var postWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
   init(initialStatus: AuthorizationStatus) {
     self.currentStatus = initialStatus
@@ -292,10 +293,30 @@ final class MockOSNotifier: OSNotifier {
     if let next = nextRequestResult { currentStatus = next }
     return currentStatus
   }
+  // swiftlint:enable async_without_await
+
+  // swiftlint:disable:next async_without_await
   func post(_ notification: AgentNotification) async {
     postedNotifications.append(notification)
+    let currentCount = postedNotifications.count
+    postWaiters = postWaiters.filter { waiter in
+      if currentCount >= waiter.count {
+        waiter.continuation.resume()
+        return false
+      }
+      return true
+    }
   }
-  // swiftlint:enable async_without_await
+
+  /// Deterministic wait for `postedNotifications.count` to reach `target`.
+  /// Replaces ad-hoc `Task.sleep` fences in integration tests — the
+  /// waiter resumes inside `post(_:)` the instant the count is satisfied.
+  func waitForPostCount(_ target: Int) async {
+    if postedNotifications.count >= target { return }
+    await withCheckedContinuation { cont in
+      postWaiters.append((target, cont))
+    }
+  }
 }
 
 @MainActor

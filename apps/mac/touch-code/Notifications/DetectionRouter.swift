@@ -53,7 +53,7 @@ final class DetectionRouter: InternalHookSubscriber {
   /// refreshed both disk and the C3 dispatcher's sentinel-subscription
   /// set. In-flight envelopes already dispatched keep their captured
   /// rule; only envelopes arriving after this call resolve against the
-  /// new table.
+  /// new table. Must be called on the MainActor (router is `@MainActor`).
   func setRules(_ newRules: AgentDetectionRules, renderer newRenderer: TemplateRenderer) {
     rules = Dictionary(uniqueKeysWithValues: newRules.rules.map { ($0.id, $0) })
     renderer = newRenderer

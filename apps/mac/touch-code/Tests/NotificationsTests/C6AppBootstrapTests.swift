@@ -24,8 +24,9 @@ struct C6AppBootstrapTests {
     let envelope = Self.outputMatchEnvelope(panelID: panelID, agent: "claude")
     harness.bootstrap.router.handle(envelope: envelope, ruleID: "claude.completed")
 
-    // Give the bind loop a tick to drain router.transitions → coordinator.
-    try await Task.sleep(nanoseconds: 80_000_000)
+    // Deterministic wait — MockOSNotifier.post resumes the waiter as
+    // soon as the post count is satisfied. No wall-clock fence.
+    await harness.mockNotifier.waitForPostCount(1)
 
     #expect(harness.mockNotifier.postedNotifications.count == 1)
     #expect(harness.bootstrap.inboxStore.inbox.notifications.count == 1)
@@ -95,19 +96,25 @@ struct C6AppBootstrapTests {
 
     try harness.bootstrap.coordinator.reloadRules()
 
-    // Drive the router with an envelope referencing the old rule id —
-    // it must NOT fire because the router's table has been swapped.
+    // Drive the router with an envelope referencing the old rule id.
+    // The router's in-memory rule table no longer has this id, so the
+    // envelope is counted as dropped synchronously — no sleep fence
+    // needed to "prove absence" via a non-event.
     let panelID = PanelID()
     harness.bootstrap.registry.create(for: panelID)
+    let droppedBefore = harness.bootstrap.router.droppedEnvelopesCount
     let stalePrevious = Self.outputMatchEnvelope(panelID: panelID, agent: "claude")
     harness.bootstrap.router.handle(envelope: stalePrevious, ruleID: "claude.completed")
-    try await Task.sleep(nanoseconds: 50_000_000)
+    #expect(harness.bootstrap.router.droppedEnvelopesCount == droppedBefore + 1)
     #expect(harness.mockNotifier.postedNotifications.isEmpty)
 
-    // The new rule should fire as expected.
+    // The new rule should fire as expected. waitForPostCount replaces
+    // the wall-clock sleep fence — MockOSNotifier.post resumes the
+    // waiter the instant the count is satisfied, so there's no flake
+    // window under CI load.
     let newEnvelope = Self.outputMatchEnvelope(panelID: panelID, agent: "custom")
     harness.bootstrap.router.handle(envelope: newEnvelope, ruleID: "custom.done")
-    try await Task.sleep(nanoseconds: 50_000_000)
+    await harness.mockNotifier.waitForPostCount(1)
     #expect(harness.mockNotifier.postedNotifications.count == 1)
     #expect(harness.mockNotifier.postedNotifications.first?.title == "Custom finished")
 
