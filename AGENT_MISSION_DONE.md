@@ -41,4 +41,25 @@ C3 landed on sibling branch `origin/worktree-design+c3-c4-hooks-cli` with concre
 ### Commits
 
 - `ea0daca` — v1 initial draft + push.
-- (this commit) — v2 schema alignment.
+- `1f35f4c` — v2 schema alignment (HookEnvelope / FSM table / sentinel bridge / rule relocation).
+
+## v2.1 (tiny follow-up — InternalHookSubscriber direction fix)
+
+C3 v2 DEC-16 landed. C6 v2 had the protocol inverted: it defined
+`InternalHookSubscriber` as a registration API on C3's side. Authoritative
+shape per C3 DEC-16: subscriber is the callback C6 implements
+(`func handle(envelope: HookEnvelope) async`); registration lives on
+`HookDispatcher.register(subscriber:for:) / unregister(prefix:)`.
+
+Realigned:
+- § Consumer contract with C3 — replaced the fictional `registerInternal` /
+  `unregisterInternal` shape with C3's authoritative protocol + the
+  extension methods on `HookDispatcher`. Spelled out the three-step C6
+  startup flow (read rules, write sentinel-prefixed subscriptions to
+  `hooks.json`, register once under the prefix).
+- § Component Boundaries — corrected the exported-protocol line.
+- Dependency-rules bullet — rewrote to describe C6 implementing the
+  protocol, dispatcher providing register/unregister.
+- DEC-12 — tightened to reference C3 DEC-16 rather than re-describing the
+  mechanism.
+- Added **DEC-15** logging the correction from the prior inverted assumption.

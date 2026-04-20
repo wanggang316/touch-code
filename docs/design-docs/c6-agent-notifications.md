@@ -1,6 +1,6 @@
 # Design Doc: Agent Notification Aggregation (C6)
 
-**Status:** Draft (v2 — aligned with C3 schema)
+**Status:** Draft (v2.1 — aligned with C3 DEC-16 subscriber shape)
 **Author:** Gump (with Claude)
 **Date:** 2026-04-20
 
@@ -252,20 +252,31 @@ C6 reads events via `HookDispatcher.internalEventStream()` — an **in-process**
 
 C3's `hook.events` RPC remains as C3 designed it — a **secondary seam for third-party tools** (other MCP servers, external dashboards, `tc hook tail`). C6 is not its consumer.
 
-To receive `.panelOutputMatch` envelopes, C6 must register its detection rules as C3 `HookSubscription`s. At startup, C6 reads `detection-rules.json` and calls a small, C3-provided API:
+To receive matched envelopes without forking `/bin/sh -c` per event, C6 uses C3's **sentinel-prefix route** (C3 DEC-16). C3 exposes:
 
 ```swift
-// Provided by C3 (add during integration)
-@MainActor
-protocol InternalHookSubscriber: AnyObject {
-  func registerInternal(_ subscription: HookSubscription, id: String) throws
-  func unregisterInternal(id: String)
+// Provided by C3 — authoritative shape:
+public protocol InternalHookSubscriber: AnyObject, Sendable {
+  func handle(envelope: HookEnvelope) async
+}
+
+// Registration lives on HookDispatcher, not on the subscriber.
+// (Called in-process; C6 implements InternalHookSubscriber.)
+extension HookDispatcher {
+  func register(subscriber: InternalHookSubscriber, for prefix: String) throws
+  func unregister(prefix: String)
 }
 ```
 
-Each C6 rule is translated to one `HookSubscription` with `event: .panelOutputMatch`, `matchPattern`, and `command: "__touch-code/internal:notifications:<rule.id>"` — a sentinel `command` string the C3 dispatcher recognises and routes to C6's in-process stream **instead of** forking `/bin/sh -c`. C3's `HookExecutor` protocol is already swappable (C3 § Execution model); we extend the dispatcher with a tiny router that short-circuits internal-sentinel subscriptions.
+C6 implements `InternalHookSubscriber` on its `NotificationCoordinator` (or a thin `DetectionRouter` façade). At startup, C6:
 
-This arrangement preserves C3 as the single owner of regex compilation and scope matching, while letting C6 avoid spawning a shell for every agent transition.
+1. Reads `detection-rules.json`.
+2. Writes one C3 `HookSubscription` per rule into `hooks.json` with `event: .panelOutputMatch`, the rule's `matchPattern`, and `command: "__touch-code/internal:notifications:<rule.id>"`. The `__touch-code/internal:` namespace is reserved by C3 (load-time rejects user-authored rows unless `authoredBy: "touch-code"`).
+3. Calls `hookDispatcher.register(subscriber: self, for: "__touch-code/internal:notifications:")` once.
+
+When the dispatcher matches a subscription whose `command` starts with that prefix, it calls `subscriber.handle(envelope:)` on `@MainActor` and skips `ProcessHookExecutor` entirely (C3 routing rule). C6's `handle` splits the command suffix back into the rule id, looks up the rule, applies the `AppliesWhen.panelLabelledAgent` / `panelID` filters C3's `scope` can't express, renders the template, and feeds the resulting `AgentStateTransition` to the tracker.
+
+This preserves C3 as the single owner of regex compilation, scope matching, recursion-guard, rate-limiting, and `hook.recent` bookkeeping — C6 only receives the envelope and classifies it.
 
 #### IPC surface (owned by C4, consumed by users)
 
@@ -320,13 +331,14 @@ touch-code/Notifications  (NEW in-app module)
 
 touch-code/Hooks  (C3 — owned by C3 design doc)
 ├── HookDispatcher                 — exposes internalEventStream(): AsyncStream<HookEnvelope>
-│                                    and InternalHookSubscriber (see § Consumer contract)
-└── (C6 subscribes; does not import internals beyond these two protocols)
+│                                    plus register(subscriber:for:) / unregister(prefix:)
+│                                    for the sentinel-prefix route (C3 DEC-16)
+└── InternalHookSubscriber         — protocol C6 implements: handle(envelope:) async
 ```
 
 **Dependency rules.**
 
-- `Notifications` imports `TouchCodeCore` (domain types), `Hooks` (two small protocols — `HookEventStreaming`, `InternalHookSubscriber`), `Runtime` (reads `HierarchyManager` for provenance; never mutates). SwiftUI + AppKit are imported only by the Views + Badger/Notifier adapter files.
+- `Notifications` imports `TouchCodeCore` (domain types) and `Hooks` (the `HookDispatcher` façade for `internalEventStream()` + `register(subscriber:for:)`, plus the `InternalHookSubscriber` protocol it implements). It reads `HierarchyManager` for provenance but never mutates it. SwiftUI + AppKit are imported only by the Views + Badger/Notifier adapter files.
 - `TouchCodeCore` must not import `UserNotifications` or AppKit — it stays pure. CLI list commands read the inbox file through `AtomicFileStore<NotificationInbox>` without any UI framework dependency.
 - No reverse edges. C3 does not know C6 exists beyond the `command: "__touch-code/internal:..."` sentinel routing convention, which is opaque to C3. `HierarchyManager` does not know C6 exists; it is a read dependency.
 
@@ -641,9 +653,10 @@ Locked at approval; revisit only via amendment.
 - **DEC-9 — Inbox retention.** 500 rows, 7-day soft-delete sweep on load.
 - **DEC-10 — No new IPC namespace.** C6 verbs attach to `system.*`.
 - **DEC-11 — C6 consumes `HookDispatcher.internalEventStream()` in-process.** C3's `hook.events` streaming RPC is retained by C3 as a **secondary seam for third-party tools** (`tc hook tail`, external dashboards). C6 does not go through the socket for its own operation.
-- **DEC-12 — Detection rules live in a C6-owned file.** `~/.config/touch-code/detection-rules.json`. C3 owns `hooks.json` unchanged; C6 materialises its rules as C3 `HookSubscription`s at startup using a C3-provided `InternalHookSubscriber` protocol and a `__touch-code/internal:notifications:<rule.id>` sentinel command that the C3 dispatcher routes to C6 in-process (instead of forking `/bin/sh -c`).
+- **DEC-12 — Detection rules live in a C6-owned file.** `~/.config/touch-code/detection-rules.json`. C3 owns `hooks.json` unchanged; C6 materialises its rules as C3 `HookSubscription`s at startup and routes matches via C3's sentinel-prefix mechanism (C3 DEC-16) under the reserved `__touch-code/internal:notifications:` namespace.
 - **DEC-13 — Dock badge counts unread non-dismissed notifications regardless of OS mute.** The badge mirrors the inbox's "Unread" filter exactly. Keeps the badge meaningful for users who mute noisy rules but still want to know when the inbox has content.
 - **DEC-14 — Agent-internal completion signals bridge via pty sentinel.** A `::touchcode:agent-complete <panel-id>` line printed to the Panel's stdout (by the agent's own Stop hook, shipped via `touch-code-skill`) is matched by C3's `panel.outputMatch` and converted by C6 to a `Completed` transition. No new C3 `HookEvent` case; no new IPC method; no per-agent integration code in the app.
+- **DEC-15 — `InternalHookSubscriber` is a receiver protocol; registration lives on `HookDispatcher`.** An earlier C6 v2 draft inverted the direction — it defined `InternalHookSubscriber` as a registration API (`registerInternal(_:id:)`) on the dispatcher side. C3 v2 DEC-16 is authoritative: the subscriber is the **callback** C6 implements (`func handle(envelope: HookEnvelope) async`), and registration is `HookDispatcher.register(subscriber:for:) / unregister(prefix:)`. C6 v2.1 adopts the C3 shape; code examples and the Consumer-contract section were realigned accordingly.
 
 ## Risks
 
