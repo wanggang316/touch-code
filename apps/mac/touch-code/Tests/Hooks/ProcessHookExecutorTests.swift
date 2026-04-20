@@ -19,6 +19,36 @@ struct ProcessHookExecutorTests {
   }
 
   @Test
+  func envAllowlistDropsArbitraryHostKeysAndReservedNamespace() {
+    // Two arbitrary host-only keys and one TOUCH_CODE_* reserved key —
+    // none should leak into the handler's environment.
+    setenv("TC_TEST_ARBITRARY_1", "leaked1", 1)
+    setenv("TC_TEST_ARBITRARY_2", "leaked2", 1)
+    setenv("TOUCH_CODE_RESERVED_TEST", "leaked-reserved", 1)
+    defer {
+      unsetenv("TC_TEST_ARBITRARY_1")
+      unsetenv("TC_TEST_ARBITRARY_2")
+      unsetenv("TOUCH_CODE_RESERVED_TEST")
+    }
+
+    let sub = HookSubscription(event: .panelReady, command: "echo")
+    let env = ProcessHookExecutor.buildEnvironment(subscription: sub)
+
+    #expect(env["TC_TEST_ARBITRARY_1"] == nil)
+    #expect(env["TC_TEST_ARBITRARY_2"] == nil)
+    #expect(env["TOUCH_CODE_RESERVED_TEST"] == nil)
+
+    // The allowlist keys that are set on the host are the only things
+    // that may appear. Anything outside that set is a leak.
+    for key in env.keys {
+      #expect(
+        ProcessHookExecutor.inheritedKeys.contains(key) || sub.env.keys.contains(key),
+        "non-allowlist key leaked: \(key)"
+      )
+    }
+  }
+
+  @Test
   func subscriptionEnvOverridesAllowlist() {
     let sub = HookSubscription(
       event: .panelReady,
