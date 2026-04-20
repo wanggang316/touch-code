@@ -1,5 +1,41 @@
-# pi Examples
+# pi — Example Prompts
 
-TODO: 3-5 example prompts showing how pi uses the skill.
+pi-specific sketches; the underlying `tc` commands are the same as the Claude Code
+and Codex examples.
 
-<!-- STUB: filled in by exec plan 0004 M8 -->
+## 1. Install into a fresh pi cache
+
+From inside a touch-code Panel, with pi already installed and on `$PATH`:
+
+```bash
+tc skill install --pi
+pi list | grep touch-code-skill
+```
+
+## 2. Ask pi what command to use
+
+> What command opens a new tab in touch-code?
+
+Expected: `tc tab new`, with pi referencing `--focus` and `--in` as options per
+[references/tc-cli.md](../../references/tc-cli.md).
+
+## 3. Send a command to the current Panel via pi
+
+> Send `clear` to the panel I'm in.
+
+Expected: `tc panel send "$TOUCH_CODE_PANEL_ID" 'clear'` — pi should use the ambient
+env var rather than hardcoding a UUID.
+
+## 4. Get the skill bundle path
+
+> Where is the touch-code skill installed?
+
+Expected: `tc skill bundle-path` (source), and `pi list touch-code-skill` (pi's cache
+entry).
+
+## 5. Upgrade the skill
+
+> Refresh the touch-code skill to the latest version.
+
+Expected: `pi update` (since pi owns the cache), or `tc skill install --pi` which
+delegates back to `pi install git:…`.

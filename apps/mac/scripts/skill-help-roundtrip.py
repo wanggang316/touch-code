@@ -76,6 +76,24 @@ IGNORED_TOKENS = {
 }
 
 
+# Subcommand subtrees that are documented as planned but not yet implemented in `tc`.
+# A reference under any of these prefixes is treated as satisfied even if `tc help-json`
+# doesn't list it, so the skill can teach the full product surface ahead of C1-C4
+# landing. Each entry is paired with the exec plan that delivers it, so when that plan
+# ships we delete the entry and the checker starts demanding the real subcommand.
+PLANNED_TOKENS: dict[str, str] = {
+    "tc ls":       "exec plan 0002 (Terminal + Hierarchy)",
+    "tc space":    "exec plan 0002",
+    "tc worktree": "exec plan 0002",
+    "tc tab":      "exec plan 0002",
+    "tc panel":    "exec plan 0002",
+    "tc send":     "exec plan 0003 (C4 CLI)",
+    "tc broadcast":"exec plan 0003",
+    "tc open":     "exec plan 0003",
+    "tc agent":    "exec plan 0003",
+}
+
+
 def normalise(raw: str) -> str | None:
     """Return the canonical "tc …" command path, or None if it should be skipped."""
     tokens = raw.split()
@@ -116,9 +134,15 @@ def main() -> int:
     known = collect_commands(tree)
     references = find_references(refs_dir)
 
-    unknown: list[tuple[str, list[tuple[Path, int]]]] = [
-        (cmd, locs) for cmd, locs in sorted(references.items()) if cmd not in known
-    ]
+    unknown: list[tuple[str, list[tuple[Path, int]]]] = []
+    planned_hit = 0
+    for cmd, locs in sorted(references.items()):
+        if cmd in known:
+            continue
+        if matches_planned_prefix(cmd):
+            planned_hit += 1
+            continue
+        unknown.append((cmd, locs))
 
     if not references:
         print("skill-help-roundtrip: no `tc …` references in markdown yet (M8 writes content)")
@@ -133,10 +157,27 @@ def main() -> int:
         print("Known commands:", file=sys.stderr)
         for cmd in sorted(known):
             print(f"  {cmd}", file=sys.stderr)
+        if PLANNED_TOKENS:
+            print("", file=sys.stderr)
+            print("Planned (allowed) subtrees:", file=sys.stderr)
+            for prefix, owner in sorted(PLANNED_TOKENS.items()):
+                print(f"  {prefix}  — {owner}", file=sys.stderr)
         return 1
 
-    print(f"skill-help-roundtrip: {len(references)} reference(s) verified against tc help-json")
+    shipped = len(references) - planned_hit
+    print(
+        f"skill-help-roundtrip: {shipped} shipped + {planned_hit} planned reference(s) "
+        f"verified"
+    )
     return 0
+
+
+def matches_planned_prefix(command: str) -> bool:
+    """Return True if `command` falls under one of PLANNED_TOKENS' subtrees."""
+    for prefix in PLANNED_TOKENS:
+        if command == prefix or command.startswith(prefix + " "):
+            return True
+    return False
 
 
 if __name__ == "__main__":
