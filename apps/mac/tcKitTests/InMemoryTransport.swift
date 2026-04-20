@@ -13,8 +13,14 @@ import TouchCodeIPC
 /// `RPCClient` in tcKitTests without depending on the touch-code binary.
 public final class InMemoryTransport: Transport, @unchecked Sendable {
   public enum Scripted {
+    /// Unary success.
     case success(id: String, result: JSONValue)
+    /// Unary error, OR stream-ending error (stream: false).
     case error(id: String, error: IPCError)
+    /// One frame in a streaming response (`stream: true`).
+    case streamFrame(id: String, result: JSONValue)
+    /// Graceful streaming terminator (`stream: false`, no result, no error).
+    case streamEnd(id: String)
   }
 
   public typealias ScriptBlock = @Sendable ([Data]) throws -> [Scripted]
@@ -85,6 +91,10 @@ public final class InMemoryTransport: Transport, @unchecked Sendable {
         envelope = IPC.Response(id: id, result: result)
       case .error(let id, let error):
         envelope = IPC.Response(id: id, error: error)
+      case .streamFrame(let id, let result):
+        envelope = IPC.Response(id: id, stream: true, result: result)
+      case .streamEnd(let id):
+        envelope = IPC.Response(id: id, stream: false)
       }
       let body = try JSONEncoder().encode(envelope)
       let framed = try Framing.encode(body)

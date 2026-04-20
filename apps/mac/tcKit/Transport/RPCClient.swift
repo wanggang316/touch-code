@@ -154,8 +154,15 @@ public actor RPCClient {
             paramsJSON: paramsJSON,
             idleTimeout: idleTimeout
           ) { frame in
-            if let decoded = try? frame.decoded(as: Element.self) {
+            // Surface per-frame decode failures as stream errors instead
+            // of silently dropping them — a shaped-wrong frame is a server
+            // bug the caller should see, not a missing line in the tail
+            // output (M5 review #1).
+            do {
+              let decoded = try frame.decoded(as: Element.self)
               continuation.yield(decoded)
+            } catch {
+              continuation.finish(throwing: RPCError.decodeFailed(String(describing: error)))
             }
           }
           continuation.finish()

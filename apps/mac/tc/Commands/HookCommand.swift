@@ -117,7 +117,10 @@ struct HookInstall: AsyncParsableCommand {
 
   private func readPayload() throws -> Data {
     if source == "-" {
-      return FileHandle.standardInput.availableData
+      // `availableData` caps at a single buffer (~64 KB on macOS); a
+      // pipe bigger than that silently truncates. `readToEnd()` drains
+      // the entire stream, which is what `tc hook install -` needs.
+      return try FileHandle.standardInput.readToEnd() ?? Data()
     }
     return try Data(contentsOf: URL(fileURLWithPath: source))
   }
@@ -337,21 +340,32 @@ struct HookTail: AsyncParsableCommand {
   )
   @OptionGroup var globals: GlobalOptions
 
+  @Option(
+    name: .long,
+    help: """
+          Maximum seconds without an event before the stream is considered
+          dead (default: 86400 = 24h). The server does not currently send
+          keepalives (TODO(M3.1) — adding keepalive frames will let this
+          shrink to a few minutes without killing legit idle tails).
+          """
+  )
+  var idleTimeout: Double = 86_400
+
   func run() async throws {
     let client = try CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
-    // Idle timeout is very high — `tc hook tail` is expected to sit idle
-    // between events. The server sends a keepalive-free stream.
     let envelopes = client.stream(
       .hookEvents,
       params: EmptyParams(),
       elementType: HookEnvelope.self,
-      idleTimeout: .seconds(86_400)
+      idleTimeout: .seconds(idleTimeout)
     )
+    // Hoist the encoder out of the loop — single allocation for the
+    // tail lifetime (M5 review suggestion).
+    let encoder = HookEnvelope.encoder()
+    encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
     do {
       for try await envelope in envelopes {
-        let encoder = HookEnvelope.encoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let data = try encoder.encode(envelope)
         let json = String(bytes: data, encoding: .utf8) ?? ""
         print(json)
@@ -389,8 +403,15 @@ struct HookEdit: AsyncParsableCommand {
     process.standardError = FileHandle.standardError
     try process.run()
     process.waitUntilExit()
-    // Trigger reload on the live server (best-effort — the app may not be
-    // running, in which case the next launch will pick up the new file).
+    // Trigger reload on the live server (best-effort — the app may not
+    // be running, in which case the next launch will pick up the new
+    // file). This is the single connect used by `tc hook edit` — the
+    // command deliberately does NOT pre-connect before invoking the
+    // editor, because a long interactive session would hold the socket
+    // open and block other `tc` invocations. `try?` collapses both the
+    // no-app case and any transient reload error into a silent skip;
+    // the editor side-effect (the file on disk) is what the user cares
+    // about and it's already complete by this point.
     if let client = try? CLISession.connect(globals: globals) {
       defer { Task { await client.shutdown() } }
       _ = try? await client.callRaw(.hookReload, params: EmptyParams())
