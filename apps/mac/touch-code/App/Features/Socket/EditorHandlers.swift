@@ -80,7 +80,7 @@ final class EditorHandlers {
     guard let space = snapshot.spaces.first(where: { space in
       space.projects.contains(where: { $0.id == projectID })
     }) else {
-      throw EditorIPCError.unresolvedWorktree
+      throw EditorIPCError.unknownProject
     }
     try hierarchy.setDefaultEditor(projectID, space.id, request.editorID)
     return EditorSetDefaultResponse()

@@ -266,6 +266,32 @@ struct EditorHandlersTests {
     }
   }
 
+  /// Parameterized end-to-end pass through `open()` that covers the remaining `EditorError`
+  /// variants the individual tests don't hit (`notInstalled` / `spawnFailed` are covered above;
+  /// this harness layers on `nonZeroExit` / `timedOut` / `badTemplate` / `notADirectory`). Guards
+  /// against a map-table drift where `mapToIPCErrorIsExhaustiveOverEditorErrorVariants` passes
+  /// but the live call path fails to re-throw the translated error.
+  @Test(arguments: [
+    (EditorError.nonZeroExit(code: 1, stderr: "fatal"), EditorIPCError.nonZeroExit),
+    (EditorError.timedOut, EditorIPCError.timedOut),
+    (EditorError.badTemplate(id: "helix", reason: "empty binary"), EditorIPCError.badTemplate),
+    (EditorError.notADirectory(path: "/tmp/not-a-dir"), EditorIPCError.notADirectory),
+  ])
+  func openTranslatesEditorErrorThroughLiveCallPath(
+    input: EditorError, expected: EditorIPCError
+  ) async {
+    let fixture = Self.makeFixture()
+    var editorClient = EditorClient.testValue
+    editorClient.open = { _, _, _ in throw input }
+    let handlers = EditorHandlers(
+      editor: editorClient,
+      hierarchy: Self.makeHierarchyClient(catalog: fixture.catalog)
+    )
+    await #expect(throws: expected) {
+      _ = try await handlers.open(EditorOpenRequest(worktreeID: fixture.worktreeID.raw))
+    }
+  }
+
   // MARK: - setDefault
 
   @Test
@@ -310,13 +336,13 @@ struct EditorHandlersTests {
   }
 
   @Test
-  func setDefaultWithUnknownProjectIDThrowsUnresolvedWorktree() {
+  func setDefaultWithUnknownProjectIDThrowsUnknownProject() {
     let fixture = Self.makeFixture()
     let handlers = EditorHandlers(
       editor: EditorClient.testValue,
       hierarchy: Self.makeHierarchyClient(catalog: fixture.catalog)
     )
-    #expect(throws: EditorIPCError.unresolvedWorktree) {
+    #expect(throws: EditorIPCError.unknownProject) {
       _ = try handlers.setDefault(EditorSetDefaultRequest(
         projectID: UUID(), editorID: "vscode"
       ))

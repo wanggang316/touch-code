@@ -27,6 +27,10 @@ struct GitViewerSnapshotTests {
     ProcessInfo.processInfo.environment["TC_RUN_SNAPSHOT_TESTS"] == "1"
   }()
 
+  /// Flip to `true` for a record pass; flip back to `false` before commit. `assertSnapshot`
+  /// takes the value as its `record:` parameter so the decision is per-call and local.
+  nonisolated static let recordMode: Bool = false
+
   nonisolated static let inspectorSize = CGSize(width: 480, height: 640)
 
   // MARK: - Happy paths
@@ -41,7 +45,7 @@ struct GitViewerSnapshotTests {
     state.logState = .loaded(Self.fixtureLogPage(count: 8))
 
     let hosting = Self.makeHostingView(state: state)
-    assertSnapshot(of: hosting, as: .image)
+    assertSnapshot(of: hosting, as: .image, record: Self.recordMode ? .all : nil)
   }
 
   @Test(.enabled(if: GitViewerSnapshotTests.snapshotsEnabled))
@@ -55,7 +59,7 @@ struct GitViewerSnapshotTests {
     state.selectedFilePath = "src/parser.swift"
 
     let hosting = Self.makeHostingView(state: state)
-    assertSnapshot(of: hosting, as: .image)
+    assertSnapshot(of: hosting, as: .image, record: Self.recordMode ? .all : nil)
   }
 
   @Test(.enabled(if: GitViewerSnapshotTests.snapshotsEnabled))
@@ -69,7 +73,7 @@ struct GitViewerSnapshotTests {
     state.selectedFilePath = "src/renamed.swift"
 
     let hosting = Self.makeHostingView(state: state)
-    assertSnapshot(of: hosting, as: .image)
+    assertSnapshot(of: hosting, as: .image, record: Self.recordMode ? .all : nil)
   }
 
   @Test(.enabled(if: GitViewerSnapshotTests.snapshotsEnabled))
@@ -82,7 +86,7 @@ struct GitViewerSnapshotTests {
     state.diffState = .error(.notARepo)
 
     let hosting = Self.makeHostingView(state: state)
-    assertSnapshot(of: hosting, as: .image)
+    assertSnapshot(of: hosting, as: .image, record: Self.recordMode ? .all : nil)
   }
 
   // MARK: - Error paths
@@ -97,7 +101,7 @@ struct GitViewerSnapshotTests {
     state.diffState = .error(.diffTooLarge)
 
     let hosting = Self.makeHostingView(state: state)
-    assertSnapshot(of: hosting, as: .image)
+    assertSnapshot(of: hosting, as: .image, record: Self.recordMode ? .all : nil)
   }
 
   @Test(.enabled(if: GitViewerSnapshotTests.snapshotsEnabled))
@@ -110,7 +114,7 @@ struct GitViewerSnapshotTests {
     state.diffState = .error(.exec(code: 1, stderr: "fatal: unable to read current working directory"))
 
     let hosting = Self.makeHostingView(state: state)
-    assertSnapshot(of: hosting, as: .image)
+    assertSnapshot(of: hosting, as: .image, record: Self.recordMode ? .all : nil)
   }
 
   // MARK: - Fixtures + helpers
@@ -124,6 +128,14 @@ struct GitViewerSnapshotTests {
   /// `SnapshotTesting` (macOS `NSView` → `.image` strategy) can render it. The reducer is
   /// a no-op so effects never fire during snapshot capture; state is baked in by the
   /// caller.
+  ///
+  /// DEC-20 workaround: the hosting view is installed as the contentView of a real
+  /// `NSWindow` so SwiftUI's `List` + `@FocusState` can resolve their key-view / first-
+  /// responder chain. Without this, a record-mode pass crashes deep inside
+  /// `NSTextInputContext.handleEvent` looking for a non-nil presentation window.
+  /// We retain the `WindowContainer` with associated-object lifetime tied to the hosting
+  /// view so the test's local scope doesn't release the window before the snapshot
+  /// strategy captures the image.
   @MainActor static func makeHostingView(state: GitViewerFeature.State) -> NSHostingView<some View> {
     let store = Store(initialState: state) {
       Reduce<GitViewerFeature.State, GitViewerFeature.Action> { _, _ in .none }
@@ -133,7 +145,40 @@ struct GitViewerSnapshotTests {
       .background(Color(nsColor: .windowBackgroundColor))
     let hosting = NSHostingView(rootView: view)
     hosting.frame = CGRect(origin: .zero, size: inspectorSize)
+    WindowContainer.attach(to: hosting, size: inspectorSize)
+    hosting.layoutSubtreeIfNeeded()
     return hosting
+  }
+
+  /// AssociatedObject-backed retainer for the offscreen window that hosts the snapshot
+  /// view. `NSHostingView` weakly references its window, so the window must outlive any
+  /// in-flight `assertSnapshot` call. Storing it on the hosting view via objc_setAssociatedObject
+  /// ties the window lifetime to the returned `NSHostingView`.
+  private final class WindowContainer {
+    let window: NSWindow
+
+    init(size: CGSize) {
+      self.window = NSWindow(
+        contentRect: CGRect(origin: .zero, size: size),
+        styleMask: [.titled],
+        backing: .buffered,
+        defer: false
+      )
+      window.isReleasedWhenClosed = false
+    }
+
+    nonisolated(unsafe) static var key: UInt8 = 0
+
+    @MainActor static func attach(to hosting: NSView, size: CGSize) {
+      let container = WindowContainer(size: size)
+      container.window.contentView = hosting
+      objc_setAssociatedObject(
+        hosting,
+        &Self.key,
+        container,
+        .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+      )
+    }
   }
 
   nonisolated static func fixtureLogPage(count: Int) -> LogPage {

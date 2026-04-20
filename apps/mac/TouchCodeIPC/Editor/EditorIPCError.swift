@@ -29,6 +29,11 @@ public nonisolated enum EditorIPCError: Int, Error, Equatable, Sendable {
 
   /// The directory passed to `open` does not exist or is a file, not a directory.
   case notADirectory = 106
+
+  /// Request referenced a `projectID` that does not exist in the catalog. Distinct from
+  /// `unresolvedWorktree` because callers of `editor.setDefault` ask about a Project, not
+  /// a Worktree — surfacing the wrong noun sends the CLI's error message off-topic.
+  case unknownProject = 107
 }
 
 public extension EditorIPCError {
@@ -51,6 +56,8 @@ public extension EditorIPCError {
       return "Editor template failed validation."
     case .notADirectory:
       return "Path is not a directory."
+    case .unknownProject:
+      return "Project not found."
     }
   }
 }
