@@ -32,10 +32,43 @@ struct InMemoryIPCServerTests {
 
     try server.send(IPC.Request(id: "bad-1", method: .systemPing))
     let response = try await server.awaitResponse()
-    if case .versionMismatch = response.error {
+    // M3.1 fix: non-hello first frame is a handshake-ordering violation,
+    // surfaced as `.invalidParams` on the `method` path — not
+    // `.versionMismatch`, which is reserved for actual version clashes
+    // that happen on a well-formed `system.hello`.
+    if case .invalidParams(_, let path) = response.error {
+      #expect(path == ["method"])
+    } else {
+      Issue.record("expected invalidParams, got \(String(describing: response.error))")
+    }
+  }
+
+  @Test
+  func oversizeFrameClosesConnection() async throws {
+    let server = Self.makeHarness()
+    defer { server.stop() }
+
+    try Self.sendHello(server)
+    _ = try await server.awaitResponse()
+
+    // Craft a frame whose length header declares a body larger than the
+    // 16 MiB cap. The server must respond with `.invalidFrame` and close
+    // the connection.
+    let oversize = UInt32(Framing.maxFrameBytes) &+ 1
+    var header = Data(count: 4)
+    header[0] = UInt8((oversize >> 24) & 0xFF)
+    header[1] = UInt8((oversize >> 16) & 0xFF)
+    header[2] = UInt8((oversize >> 8) & 0xFF)
+    header[3] = UInt8(oversize & 0xFF)
+    // `InMemoryIPCServer.send` goes through Framing.encode which would
+    // reject oversize locally; feed the raw header via the inbound
+    // stream instead.
+    server._test_feedRaw(header)
+    let response = try await server.awaitResponse()
+    if case .invalidFrame = response.error {
       // expected
     } else {
-      Issue.record("expected versionMismatch, got \(String(describing: response.error))")
+      Issue.record("expected .invalidFrame, got \(String(describing: response.error))")
     }
   }
 

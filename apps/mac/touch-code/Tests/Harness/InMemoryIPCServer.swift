@@ -64,6 +64,12 @@ public final class InMemoryIPCServer {
     inboundContinuation?.yield(frame)
   }
 
+  /// Test-only escape hatch to inject raw bytes (e.g. a malformed header)
+  /// that the normal `send(_:)` path would reject locally.
+  public func _test_feedRaw(_ data: Data) {
+    inboundContinuation?.yield(data)
+  }
+
   /// Await the next response produced by the server. Fails with a
   /// timeout error if no response arrives within `timeout`.
   public func awaitResponse(timeout: Duration = .seconds(2)) async throws -> IPC.Response {

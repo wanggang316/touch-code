@@ -30,6 +30,7 @@ This plan implements those decisions; it does not relitigate them.
 - [ ] M2.1 — Hot-path internals + ProcessHookExecutor + full EventMapper
 - [x] M3 — App-side `SocketServer` + `MethodRouter` + `hook.*` + `system.*` handlers + `InMemoryIPCServer` test harness — 2026-04-20 (66 tests / 12 suites green; lint clean; app boots the Unix socket at `/tmp/touch-code-<uid>.sock` on launch outside XCTest). Hot-path items deferred to **M3.1**: per-connection backpressure queue (DEC-9), `LOCAL_PEERCRED` peer auth, `HierarchyReadHandlers`, and end-to-end multicaster streaming test with `hook.events`.
 - [ ] M3.1 — Per-connection backpressure queue + SocketPeerAuth + HierarchyReadHandlers + streaming hook.events test
+- [x] M3.0.1 — M3 review hardening: DispatchSource accept loop, TOCTOU-safe stale-socket probe, umask-before-bind, write short-write loop, Framing error surface, exhaustive switches — 2026-04-20 (67 tests / 12 suites green; lint clean)
 - [ ] M4 — `tc` CLI scaffold (ArgumentParser root, `RPCClient`, `SocketDiscovery`, `AliasResolver` UUID-fast-path, `TextRenderer` + `JSONRenderer`, exit-code mapping, `system.hello` pipelining)
 - [ ] M5 — `tc hook {list,install,remove,enable,disable,reload,test,fire,recent,tail,edit}` including streaming tail
 - [ ] M6 — `tc {space,project,worktree,tab,panel,send,broadcast}` hierarchy + terminal verbs + mutation handlers

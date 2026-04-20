@@ -47,8 +47,17 @@ public actor SocketConnection {
 
     for await chunk in reader {
       readBuffer.append(chunk)
-      while let frame = try? Framing.decode(from: &readBuffer) {
-        await handleFrame(frame)
+      do {
+        while let frame = try Framing.decode(from: &readBuffer) {
+          await handleFrame(frame)
+        }
+      } catch {
+        // DEC-3: oversize / malformed frames close the connection after
+        // a single well-formed `.invalidFrame` response. Swallowing the
+        // error and continuing to append to the buffer would desync the
+        // byte stream and hang the peer.
+        await sendError(id: "<malformed>", .invalidFrame(reason: "\(error)"))
+        return
       }
     }
   }
@@ -66,7 +75,14 @@ public actor SocketConnection {
 
     if !helloCompleted {
       guard request.method == .systemHello else {
-        await sendError(id: request.id, .versionMismatch(client: "unknown", server: "unknown"))
+        // Non-hello first frame is a handshake-ordering violation, not
+        // a version clash — `.invalidParams` carries the correct
+        // semantics and lets clients distinguish this from an actual
+        // versionMismatch on a well-formed `system.hello`.
+        await sendError(id: request.id, .invalidParams(
+          message: "first frame on a new connection must be system.hello",
+          path: ["method"]
+        ))
         return
       }
     }

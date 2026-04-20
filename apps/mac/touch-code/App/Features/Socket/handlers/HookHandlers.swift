@@ -78,10 +78,17 @@ public final class HookHandlers {
     }
     if let panelID = filter.panelID {
       subs = subs.filter { sub in
+        // Exhaustive switch — adding a new HookSubscription.Scope case
+        // (e.g. when C6 extends the taxonomy) forces a conscious choice
+        // here rather than falling through a silent `default`.
         switch sub.scope {
-        case .anyPanel: return true
-        case .panelID(let id): return id == panelID
-        default: return false
+        case .anyPanel:                 return true
+        case .panelID(let id):          return id == panelID
+        case .panelLabel,
+             .tabID,
+             .tabLabel,
+             .worktreeID,
+             .worktreePathGlob:         return false
         }
       }
     }
