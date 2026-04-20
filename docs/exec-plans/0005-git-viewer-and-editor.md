@@ -18,14 +18,18 @@ This is the first plan that gives touch-code real workflow value beyond "a termi
 
 ## Progress
 
-- [ ] M1 — Pure data models in `TouchCodeCore` + `TouchCodeIPC` (Git + Editor value types; Codable round-trip tests; template/ID validators)
-- [ ] M2 — `touch-code/Git/` service layer (`GitService` protocol, `LiveGitService` with `Process`, `DiffParser`, `GitOutputParser`, env stripping, output caps, timeout, error surface)
-- [ ] M3 — `GitViewerFeature` TCA reducer + `GitServiceClient` DependencyKey + `TestStore`-driven reducer tests (no UI yet)
-- [ ] M4 — SwiftUI viewer (`GitViewerView`, `CommitLogView`, `FileChangeListView`, `UnifiedDiffView`, keyboard bindings, 50k-line cap, POSIX-quoted Copy-command) and viewer-region wiring
-- [ ] M5 — `touch-code/App/Clients/Editor/` service layer (`EditorService`, `EditorRegistry`, `PathProber`, `ProcessSpawner`, env whitelist, 5 s spawn contract)
-- [ ] M6 — `EditorFeature` TCA + Settings editor section + per-Project override + Worktree header `Open in ▾` button + `SettingsStore` wiring
-- [ ] M7 — `editor.*` IPC namespace in `TouchCodeIPC`, `SocketServer` dispatch, `tc open [--in <editor>] [<worktree>]` with Worktree-resolution order (explicit → `TOUCH_CODE_PANEL_ID` → error exit 2)
-- [ ] M8 — Cross-feature integration tests, performance smoke (1 000-line diff < 200 ms signpost), acceptance walkthrough, and doc clean-up (update `architecture.md` codemap, close Open Question #7)
+- [ ] M1  — Pure data models in `TouchCodeCore` + `TouchCodeIPC` (Git + Editor value types; Codable round-trip tests; template/ID validators; placeholder error)
+- [ ] M2  — `touch-code/Git/` service layer (`GitService` protocol, `LiveGitService` with `Process`, `DiffParser`, `GitOutputParser`, env stripping, output caps, timeout, error surface)
+- [ ] M3  — `GitViewerFeature` TCA reducer + `GitServiceClient` DependencyKey + `EditorServiceFacade` placeholder + `TestStore`-driven reducer tests (no UI yet)
+- [ ] M4a — SwiftUI viewer shell (`GitViewerView`, `CommitLogView`, `FileChangeListView`, `UnifiedDiffView`, keyboard bindings, viewer-region wiring)
+- [ ] M4b — Snapshot harness (`swift-snapshot-testing`) + 50k-line cap `LargeDiffPlaceholderView` + POSIX-quoted Copy-command helper + snapshot fixtures
+- [ ] M5  — `touch-code/App/Clients/Editor/` service layer (`EditorService`, `EditorRegistry`, `PathProber`, `ProcessSpawner`, env whitelist, 5 s spawn contract)
+- [ ] M6  — `EditorFeature` TCA + Settings editor section + per-Project override + Worktree header `Open in ▾` button + `SettingsStore` wiring; deletes M3's `EditorServiceFacade` placeholder
+- [ ] M7a — `editor.*` IPC wire types in `TouchCodeIPC` + `tc open [--in <editor>] [<worktree>]` (ArgumentParser) + thin `IPCClient` helper in `tc`; pure unit tests with fake IPC
+- [ ] M7b — `SocketServer` dispatch of `editor.*` methods (depends on `SocketServer` from the in-flight `0003-hooks-and-cli.md` plan; falls back to a narrow editor-only dispatcher if 0003 has not landed — see DEC-3)
+- [ ] M8  — Measure baseline perf first, then cross-feature integration tests, performance smoke (1 000-line diff < 200 ms signpost), acceptance walkthrough, and doc clean-up (update `architecture.md` codemap, close Open Question #7)
+
+Each unchecked entry will be updated with a completion timestamp in the form `— 2026-MM-DD` when the milestone lands (matching the convention established in `0002`).
 
 ## Surprises & Discoveries
 
@@ -33,7 +37,10 @@ This is the first plan that gives touch-code real workflow value beyond "a termi
 
 ## Decision Log
 
-(None yet)
+- **DEC-1 (pre-M1, 2026-04-20): M3 facade throws `EditorPlaceholderError.notYetImplemented` rather than `fatalError` or a no-op.** Three options were considered. (a) Throw a dedicated `EditorPlaceholderError.notYetImplemented` added to `TouchCodeCore/Editor/` in M1 — **chosen**. Pro: the UI path is complete (error → toast) from M3 onward; no crash if an early build of M3 ships before M5. Con: adds one enum case that becomes unused after M5. (b) Return a synthetic `EditorChoiceDTO` as if success — rejected: the user would see "success" but no editor would open, which is a worse lie than a surfaced error. (c) `fatalError` in `liveValue` — rejected: violates the project's no-crash-in-UI-paths discipline and forces callers to guard against a placeholder in a way that would leak into the real code.
+- **DEC-2 (pre-M4, 2026-04-20): Snapshot harness is `pointfreeco/swift-snapshot-testing`, pinned in `apps/mac/Tuist/Package.swift`.** Rejected alternatives: Apple's newer Swift Testing snapshot helpers (not yet broadly adopted in our reference projects; churn risk on macOS 15 image APIs) and hand-rolled `XCTAssertEqual(view.snapshot, fixture)` (reinvents the harness). Point-Free's library matches the TCA stack we already pulled in via `swift-composable-architecture`, runs under XCTest, and supports both `ViewImageConfig` and `PreviewLayout` — enough for M4b. The dep is added once in M4b; no M3/M5 dependency.
+- **DEC-3 (pre-M7, 2026-04-20): M7 is split into M7a (IPC wire types + `tc open` parser + `IPCClient` helper) and M7b (`SocketServer` dispatch of `editor.*`).** M7a has zero socket-server dependency and is fully unit-testable via a fake `IPCClient`. M7b requires a `SocketServer` implementation; the plan of record is that `SocketServer` lands in the in-flight C3+C4 exec plan (to be numbered `0003-hooks-and-cli.md`) currently being drafted in a sibling worktree. If `0003`'s SocketServer has not landed by the time M7b is ready, M7b itself lands a narrow editor-only dispatcher under `apps/mac/touch-code/App/Features/Socket/` and records the fallback in this Decision Log so the C3+C4 plan knows to generalise rather than reimplement. No reverse dependency: C3+C4 does not need anything from this plan.
+- **DEC-4 (pre-M1, 2026-04-20): Multiple commits per milestone, not one-per-milestone.** This plan follows the existing `0002` convention and the user's per-small-feature commit cadence (see [feedback memory](../../.claude/projects/-Users-wanggang-dev-00-touch-code/memory/feedback_commit_cadence.md)). Each "Expected commits" line corresponds to one independently-buildable, test-passing chunk. The /commit skill invocation cadence remains "after each small feature change", not "after each milestone". Review-round feedback suggesting 1-commit/milestone was declined on this basis.
 
 ## Outcomes & Retrospective
 
@@ -98,6 +105,7 @@ Under `apps/mac/TouchCodeCore/Editor/` (new subfolder), create:
 
 - `EditorStorageModels.swift` — `public typealias EditorID = String`, `public struct CommandTemplate: Equatable, Sendable, Codable { let binary: String; let args: [String] }`, `public struct CustomEditor: Equatable, Sendable, Codable, Identifiable { var id: EditorID; var displayName: String; var template: CommandTemplate }`.
 - `EditorValidators.swift` — two validators: `CustomEditor.validatedID(_:) throws -> EditorID` (matches `^[a-z][a-z0-9_-]{1,31}$` per design Resolved Item #9), and `CommandTemplate.validate() throws` (non-empty `binary`; `args` contains **exactly one** literal `"{dir}"` element). Both throw a new `public enum EditorTemplateError: Error, Equatable { case emptyBinary; case missingDirPlaceholder; case duplicateDirPlaceholder; case invalidID(String) }`.
+- `EditorPlaceholderError.swift` — **one** public case: `public enum EditorPlaceholderError: Error, Equatable { case notYetImplemented }`. This is the error the M3 `EditorServiceFacade.liveValue` throws before M5 lands the real service. It lives in `TouchCodeCore` so M3 can throw it without importing any app-tier type, and it stays after M5 deletes its only caller (benign, zero-site; optional M6 clean-up may remove it). Flagged in Decision Log (DEC-1).
 
 Under `apps/mac/TouchCodeIPC/Editor/` (new subfolder), create:
 
@@ -110,7 +118,7 @@ Tests under `apps/mac/TouchCodeCoreTests/`:
 
 - `GitModelsCodableTests.swift` — round-trip every struct with both minimal and fully populated fixtures. One fixture per `FileChange.Kind` case, one per `DiffLine.Kind` case, `LogPage` with a merge commit (two parents) and a root commit (zero parents). Assert `Commit.shortID == id.prefix(7)` for SHA-1 (40 chars) and SHA-256 (64 chars) inputs.
 - `GitShaValidatorTests.swift` — accept: 7-char lowercase, 7-char uppercase, 40-char SHA-1, 64-char SHA-256. Reject: 6-char, 65-char, non-hex (`g`), empty, whitespace-padded.
-- `EditorValidatorsTests.swift` — accept `CommandTemplate(binary: "code", args: ["{dir}"])`, `(binary: "open", args: ["-a", "Xcode", "{dir}"])`. Reject: empty binary, zero `{dir}` tokens, two `{dir}` tokens. Accept IDs `"vscode"`, `"my-editor"`, `"a_b_c"`; reject `"1abc"` (leading digit), `"Vscode"` (uppercase), `""`, `"a"` (too short — below 2-char minimum), `"a\(String(repeating: \"a\", count: 32))"` (33 chars).
+- `EditorValidatorsTests.swift` — accept `CommandTemplate(binary: "code", args: ["{dir}"])`, `(binary: "open", args: ["-a", "Xcode", "{dir}"])`. Reject: empty binary, zero `{dir}` tokens, two `{dir}` tokens. Accept IDs `"vscode"`, `"my-editor"`, `"a_b_c"`; reject `"1abc"` (leading digit), `"Vscode"` (uppercase), `""`, `"a"` (too short — below 2-char minimum), and `"a" + String(repeating: "a", count: 32)` (33 chars — above the 32-char upper bound).
 
 No tests for `TouchCodeIPC` DTOs in M1 beyond a single Codable round-trip covering both variants of `EditorInstallationStatusDTO`. (Deeper IPC tests arrive with M7.)
 
@@ -184,7 +192,7 @@ Under `apps/mac/touch-code/App/Features/GitViewer/`, create `GitViewerFeature.sw
 - `PaneFocus = .list | .files | .hunks` and `Direction = .up | .down | .home | .end` nested enums.
 - Body: scope changes cancel any in-flight request and issue the new one via `@Dependency(\.gitService)`. `.fileSelected` updates `selectedFilePath` (no git invocation). `.commitSelected(sha:)` transitions to `.commit(sha:)` scope after `GitShaValidator.isValid` passes. `.openInEditorRequested` delegates to `@Dependency(\.editorService)` **without blocking** the reducer — fire-and-forget effect, but the effect itself awaits the service call so errors surface via `.editorOpenResult(Result<EditorChoice, EditorError>)` (a new action added here for completeness; the service is introduced in M5 so M3 wires to a protocol + `@Dependency` placeholder that M5 fills).
 
-To avoid a forward dependency on M5's `EditorService`, M3 defines a *minimal* placeholder `protocol EditorServiceFacade: Sendable { func openDirectory(_ url: URL, preferred: EditorID?, projectID: ProjectID?) async throws -> EditorChoiceDTO }` in `apps/mac/touch-code/App/Clients/EditorServiceFacade.swift`. The `testValue` implementation is `unimplemented()`; the `liveValue` throws `EditorError.notYetImplemented` (a new error case added to M1 as a placeholder? — no, keep M1 stable; instead, the facade's live default in M3 returns a `fatalError` that M5 replaces). This keeps M3 reviewable without waiting on M5.
+To avoid a forward dependency on M5's `EditorService`, M3 defines a *minimal* placeholder `protocol EditorServiceFacade: Sendable { func openDirectory(_ url: URL, preferred: EditorID?, projectID: ProjectID?) async throws -> EditorChoiceDTO }` in `apps/mac/touch-code/App/Clients/EditorServiceFacade.swift`. The `testValue` implementation is `unimplemented()` (TCA's `XCTFail`-on-call); the `liveValue` **throws `EditorPlaceholderError.notYetImplemented`** (a one-case error added to `TouchCodeCore/Editor/` in M1) — never `fatalError`, never a UI-crasher. If a `.openInEditorRequested` action fires between M3 landing and M5 landing, the reducer receives a clean `Result.failure` and the UI renders it as a toast. M5 replaces the facade with the real `EditorClient` and the case becomes benign-unused (optional M6 clean-up). See [Decision Log §DEC-1](#decision-log) for why option (a) (placeholder error) was chosen over option (b) (live no-op returning a synthetic `EditorChoiceDTO`).
 
 Tests under `apps/mac/touch-code/Tests/GitViewerTests/` (new subfolder):
 
@@ -202,46 +210,68 @@ Tests under `apps/mac/touch-code/Tests/GitViewerTests/` (new subfolder):
 
 **Expected commits.** `feat(app): GitServiceClient dependency + EditorServiceFacade placeholder`, `feat(app): GitViewerFeature TCA reducer + TestStore coverage`.
 
-### Milestone 4: C7 SwiftUI viewer + app-shell wiring
+### Milestone 4a: C7 SwiftUI viewer shell
 
-**Goal after this milestone.** The user sees a working read-only viewer inside the running app. Selecting any Worktree in the sidebar populates the viewer; keyboard shortcuts navigate; a commit click renders its diff; the `Enter` key calls the editor facade (which is still the M3 placeholder until M5 replaces it with the real service); the 50 000-line cutoff renders a placeholder with a POSIX-quoted `cd` copy command.
+**Goal after this milestone.** The user sees a working read-only viewer inside the running app. Selecting any Worktree in the sidebar populates the viewer; keyboard shortcuts navigate; a commit click renders its diff; the `Enter` key calls the M3 editor facade (which still throws `EditorPlaceholderError.notYetImplemented` until M5 replaces it with the real service — the error surfaces as a toast, not a crash). Large-diff handling is **not** in M4a — that moves to M4b alongside the snapshot harness.
 
 **Work.**
 
 Under `apps/mac/touch-code/App/Features/GitViewer/Views/` (new subfolder), create:
 
-- `GitViewerView.swift` — root three-pane `SwiftUI.View`. Uses `@State private var store: StoreOf<GitViewerFeature>` (or Bindable / observation as `0002 M5` establishes). Pane layout: left column 280 pt (list), center 300 pt (file list; only when scope is `.log` with a commit selected, otherwise hidden), right column flex (hunks). Scope switcher sits at the top as a segmented control bound to `.scope`.
+- `GitViewerView.swift` — root three-pane `SwiftUI.View`. Uses whatever state-binding idiom `0002 M5` establishes for its other features (typically `@Bindable var store: StoreOf<GitViewerFeature>`). Pane layout: left column 280 pt (list), center 300 pt (file list; only when scope is `.log` with a commit selected, otherwise hidden), right column flex (hunks). Scope switcher sits at the top as a segmented control bound to `.scope`.
 - `CommitLogView.swift` — `List` over `state.log.page?.commits ?? []`. Each row is `Commit.shortID` (monospace, dimmed), `authorName`, `subject` (truncating tail), `date` (relative-time formatter). `.onAppear` of the last row dispatches `.logScrolledToBottom`.
 - `FileChangeListView.swift` — `List` over `state.diff.unifiedDiff?.files ?? []`. Row is `[kindGlyph] [path]  +N −M`. Glyphs: `A`, `M`, `D`, `R→`, `C→`, `T`. Selection drives `.fileSelected(path:)`.
-- `UnifiedDiffView.swift` — `ScrollView` with a single `LazyVStack(spacing: 0)` over the selected file's `hunks.flatMap(\.lines)`. Each line is an `HStack { oldLineNumber; newLineNumber; marker; Text(line.text).monospaced() }`. Marker is `+` / `-` / ` ` / `\` (no-newline). Colour via `Theme.git.{added,removed,context}` tokens (a new `Theme.git` namespace introduced in this milestone under `apps/mac/touch-code/App/Theme/ThemeGit.swift`).
+- `UnifiedDiffView.swift` — `ScrollView` with a single `LazyVStack(spacing: 0)` over the selected file's `hunks.flatMap(\.lines)`. Each line is an `HStack { oldLineNumber; newLineNumber; marker; Text(line.text).monospaced() }`. Marker is `+` / `-` / ` ` / `\` (no-newline). Colour via `Theme.git.{added,removed,context}` tokens (a new `Theme.git` namespace under `apps/mac/touch-code/App/Theme/ThemeGit.swift`).
 - `GitViewerKeybindings.swift` — a `.focused` / `.onKeyPress` modifier chain wired to `Direction` actions: `j`/`k` → `.keyboardNavigation(.up/.down)`, `g` → `.home`, `G` → `.end`, `Tab` → `.paneFocusCycled`, `Enter` → `.commitSelected(shortID)` in log, `.openInEditorRequested` in files/hunks, `r` → `.refreshRequested`, `1`/`2`/`3` → `.scopeChanged(.working|.staged|.log)`, `.` → `.whitespaceToggled`, `/` → `.filterFocused`.
-- `LargeDiffPlaceholderView.swift` — renders when `diffState == .error(GitError.diffTooLarge)`. Shows per-file summary rows plus a "Copy command" button. Clipboard text is computed by a pure helper in `GitViewer/LargeDiffCommand.swift`: `func largeDiffCommand(scope: DiffScope, worktreePath: String, sha: String?) -> String`. The helper POSIX-quotes `worktreePath` (single-quotes wrapping, internal `'` → `'\''`) and emits the exact strings from [c7-git-viewer.md §Rendering](../design-docs/c7-git-viewer.md#rendering).
 
 App-shell wiring (relies on the sidebar / tab bar from `0002 M5` already existing):
 
-- Add a new pane slot to `RootFeature`'s state: `var gitViewer: GitViewerFeature.State = .init()`. A presentation modifier (sheet, or a right-pane inspector) hosts `GitViewerView`. In v1 ship it as a toggle in the Worktree-header area (the same area M6 will add the "Open in" button to) so activation is explicit and the user sees the viewer on demand.
+- Add a new pane slot to `RootFeature`'s state: `var gitViewer: GitViewerFeature.State = .init()`. A presentation modifier (right-pane inspector) hosts `GitViewerView`. Ship it as a toggle in the Worktree-header area (the same area M6 will add the "Open in" button to) so activation is explicit and the user sees the viewer on demand.
 - `RootFeature` subscribes to `HierarchyManager` selection changes; on a new `selectedWorktreeID`, dispatch `.gitViewer(.worktreeSelected(…))`.
 
-Snapshot tests under `apps/mac/touch-code/Tests/GitViewerTests/Snapshots/`:
+No snapshot tests in M4a. The reducer tests from M3 already cover state transitions; M4a's acceptance is visual and manual. Snapshot coverage lands in M4b once the harness is wired.
 
-- Four happy-path snapshots: log (populated), working diff (10-file fixture), commit diff (rename + binary + added file), `.notARepo` empty state.
-- Two error-path snapshots: `.diffTooLarge` placeholder (verifies the Copy-command string reflects POSIX quoting for a path with a space).
+**Observable acceptance.** `make mac-build && make mac-run-app`. Add a Project pointing at this repo (using M5's sidebar from 0002), select a Worktree, hit the Git-viewer toggle on the header. See the commit log populate within ~500 ms on a warm cache. Type `j`/`k` to navigate; press `Enter` on a commit to see its diff. Press `r` to refresh. Type `3` to switch to log scope, `1` to working, `2` to staged. Pressing `Enter` on a file row before M5 lands shows an "editor not yet available" toast (the placeholder-error surface) — no crash. No mouse interaction is required to reach any state.
 
-Snapshot library: re-use whichever snapshot harness `0002 M5` adopted; if none (likely for v1), use `pointfreeco/swift-snapshot-testing` by adding it to `Tuist/Package.swift` (document as a decision).
+**Expected commits.** `feat(app): GitViewer SwiftUI views + keybindings`, `feat(app): viewer region + Worktree-header toggle`.
 
-Pure-helper tests:
+### Milestone 4b: Snapshot harness + large-diff placeholder + Copy-command
 
-- `LargeDiffCommandTests.swift` — fixture table:
+**Goal after this milestone.** The 50 000-line cutoff renders a `LargeDiffPlaceholderView` whose "Copy command" button puts an exact POSIX-quoted `cd '<abs-path>' && git …` string on the clipboard. A snapshot harness is wired to the test target, and the viewer's render states are locked by snapshot fixtures.
+
+**Work.**
+
+Add `pointfreeco/swift-snapshot-testing` to `apps/mac/Tuist/Package.swift` (see [DEC-2](#decision-log) for why this library). Pin the version to whichever the TCA dep pulls in transitively at install time; fall back to a float like `"1.17.0"` if TCA does not transitively depend on it.
+
+Under `apps/mac/touch-code/App/Features/GitViewer/Views/`, create:
+
+- `LargeDiffPlaceholderView.swift` — renders when `diffState == .error(GitError.diffTooLarge)`. Shows per-file summary rows (`[kind] [path]  +N −M`) and a "Copy command" button.
+
+Under `apps/mac/touch-code/App/Features/GitViewer/` (alongside the reducer), create:
+
+- `LargeDiffCommand.swift` — pure helper:
+
+      enum LargeDiffCommand {
+        static func build(scope: DiffScope, worktreePath: String, sha: String?) throws -> String
+      }
+
+  Throws `LargeDiffCommandError.logScopeUnsupported` for `.log` (the log scope paginates; it never hits the cutoff). POSIX-quotes `worktreePath` (wrap in `'…'`; replace internal `'` with `'\''`) and returns the exact strings from [c7-git-viewer.md §Rendering](../design-docs/c7-git-viewer.md#rendering).
+
+Tests:
+
+- `LargeDiffCommandTests.swift` — fixture table (pure helper; no UI):
   | Worktree path | Scope | Expected |
   |---|---|---|
   | `/Users/gump/x` | `.working` | `cd '/Users/gump/x' && git diff --no-color` |
   | `/tmp/with space` | `.staged` | `cd '/tmp/with space' && git diff --no-color --cached` |
   | `/a/b's/c` | `.commit(sha:"deadbee")` | `cd '/a/b'\''s/c' && git show --no-color deadbee` |
-  | `/x` | `.log` | (helper throws — log never hits the cutoff) |
+  | `/x` | `.log` | (helper throws `LargeDiffCommandError.logScopeUnsupported`) |
 
-**Observable acceptance.** `make mac-build && make mac-run-app`. Add a Project pointing at this repo (using M5's sidebar from 0002), select a Worktree, hit the Git-viewer toggle on the header. See the commit log populate within ~500 ms on a warm cache. Type `j`/`k` to navigate; press `Enter` on a commit to see its diff. Press `r` to refresh. Type `3` to switch to log scope, `1` to working, `2` to staged. In a large-diff scenario (e.g. `git commit -m big …` with a 60 000-line generated file), the placeholder appears and pressing "Copy command" places the exact `cd '<path>' && git show --no-color <sha>` text on the pasteboard (verify via `pbpaste`). No mouse interaction is required to reach any state.
+- `GitViewerSnapshotTests.swift` under `apps/mac/touch-code/Tests/GitViewerTests/Snapshots/` — four happy-path snapshots (log populated, working diff with 10 files, commit diff with rename+binary+added, `.notARepo` empty state) plus two error-path snapshots (`.diffTooLarge` placeholder with a path containing a space, `.exec` error toast). Stored reference images live under the same folder with the default `.png` suffix the library produces.
 
-**Expected commits.** `feat(app): GitViewer SwiftUI view + keybindings`, `feat(app): large-diff placeholder with POSIX-quoted Copy command`, `test(app): GitViewer snapshot coverage`.
+**Observable acceptance.** `pbpaste` after pressing "Copy command" on a synthetic 60 000-line diff (generated by `yes 'x' | head -n 60001 > bigfile && git add bigfile && git commit -m big`) returns exactly the string the table above predicts for the current worktree path. Snapshot tests pass on the CI runner. `make mac-lint` clean.
+
+**Expected commits.** `feat(app): large-diff placeholder + POSIX-quoted Copy command`, `test(app): GitViewer snapshot fixtures + harness`.
 
 ### Milestone 5: C8 editor service layer
 
@@ -255,6 +285,18 @@ Under `apps/mac/touch-code/App/Clients/Editor/`, create the files named in [c8-e
 
 - `EditorService.swift` — the protocol. Three async methods (`describe`, `resolve`, `open`).
 - `EditorService+Live.swift` — `LiveEditorService` (struct holding a `ProcessSpawner`, a `PathProber`, and closures that read the global default + custom editors from `SettingsStore` and the per-Project override from `HierarchyManager`). `resolve` implements the four-tier fallback chain from the design with **no silent fallthrough**. `open` runs the resolved template through `ProcessSpawner`.
+
+  Closure shape and lifetime: every read-closure is typed `@Sendable () -> T?` (not an escaping method reference), and the captures reference `SettingsStore` / `HierarchyManager` via `weak` to avoid a retain cycle that would outlive app-shutdown teardown. Concretely:
+
+        init(
+          spawner: ProcessSpawner,
+          prober: PathProber,
+          globalDefault: @Sendable @escaping () -> EditorID?,
+          customEditors: @Sendable @escaping () -> [CustomEditor],
+          projectOverride: @Sendable @escaping (ProjectID) -> EditorID?
+        )
+
+  The live factory in `EditorClient.liveValue` builds the closures with `{ [weak settings] in settings?.defaultEditorID }` and `{ [weak hierarchy] projectID in hierarchy?.catalog.project(id: projectID)?.defaultEditor }`. Returning `nil` on a collected store is correct: the fallback chain moves to the next tier.
 - `EditorService+Test.swift` — in-memory implementation records every `open` call into an array; `describe` returns a caller-supplied array.
 - `EditorRegistry.swift` — the six `EditorDescriptor` entries exactly as in [c8-editor-integration.md §Built-in allowlist](../design-docs/c8-editor-integration.md#built-in-allowlist-hard-coded-versioned-with-the-app). A `merged(with customs: [CustomEditor]) -> [EditorDescriptor]` helper that rejects ID collisions with a thrown error.
 - `EditorModels.swift` — `EditorDescriptor`, `EditorChoice`, `InstallationStatus`, `EditorDescriptor.Origin`. These are **App-tier** types; the IPC-crossing DTOs in M1 are distinct so the live EditorService can carry richer state (e.g., an `@Observable` installation cache) without that state leaking to the wire. Bridging helpers `EditorDescriptor.toDTO() -> EditorDescriptorDTO` and symmetric `EditorChoice.toDTO()` are added here for M7.
@@ -352,70 +394,114 @@ Tests:
 
 **Expected commits.** `feat(editor): EditorClient TCA bridge + EditorFeature`, `feat(settings): SettingsStore + editors section`, `feat(app): Worktree-header Open-in dropdown`, `feat(runtime): setDefaultEditor through HierarchyClient`.
 
-### Milestone 7: `editor.*` IPC + `tc open` subcommand
+### Milestone 7a: `editor.*` IPC wire types + `tc open` subcommand
 
-**Goal after this milestone.** `tc open [--in <editor>] [<worktree>]` works from inside any Panel. It prints `"opened <Worktree name> in <Editor name>"` on success; on unresolved Worktree it exits 2 with a precise stderr message; on every other error it exits non-zero with the error's message on stderr.
+**Goal after this milestone.** `tc open [--in <editor>] [<worktree>]` parses correctly, the Worktree-resolution order is exercised in tests, and every envelope crosses the wire correctly against a **fake** IPC client. No real socket is exercised here; M7b wires the app side. Landing M7a independently is safe because nothing beyond the CLI target and the IPC wire types changes.
 
 **Work.**
 
-Under `apps/mac/TouchCodeIPC/Editor/`:
+Under `apps/mac/TouchCodeIPC/Editor/`, expand `EditorIPCTypes.swift` (created in M1) with request/response envelopes:
 
-- Expand `EditorIPCTypes.swift` (created in M1) with request/response envelopes:
+    public struct EditorOpenRequest: Codable, Equatable, Sendable {
+      public var worktreeID: UUID?           // nil means: resolve via TOUCH_CODE_PANEL_ID
+      public var preferred: EditorID?
+      public var panelID: UUID?              // app uses this to resolve worktreeID when above is nil
+    }
+    public struct EditorOpenResponse: Codable, Equatable, Sendable {
+      public var choice: EditorChoiceDTO
+    }
+    public struct EditorDescribeResponse: Codable, Equatable, Sendable {
+      public var descriptors: [EditorDescriptorDTO]
+    }
+    public struct EditorSetDefaultRequest: Codable, Equatable, Sendable {
+      public var projectID: UUID
+      public var editorID: EditorID?         // nil unsets the override
+    }
 
-      public struct EditorOpenRequest: Codable, Equatable, Sendable {
-        public var worktreeID: UUID?           // nil means: resolve via TOUCH_CODE_PANEL_ID
-        public var preferred: EditorID?
-        public var panelID: UUID?              // app uses this to resolve worktreeID when above is nil
-      }
-      public struct EditorOpenResponse: Codable, Equatable, Sendable {
-        public var choice: EditorChoiceDTO
-      }
-      public struct EditorDescribeResponse: Codable, Equatable, Sendable {
-        public var descriptors: [EditorDescriptorDTO]
-      }
-      public struct EditorSetDefaultRequest: Codable, Equatable, Sendable {
-        public var projectID: UUID
-        public var editorID: EditorID?         // nil unsets the override
-      }
+Add `EditorIPCError.swift` — wraps the app's `EditorError` into wire-safe codes: `.unresolvedWorktree = 100`, `.notInstalled = 101`, `.nonZeroExit = 102`, `.timedOut = 103`, `.spawnFailed = 104`, `.badTemplate = 105`, `.notADirectory = 106`. The JSON-RPC `{ error: { code, message } }` envelope re-uses this code table.
 
-- `EditorIPCError.swift` — wraps the app's `EditorError` into wire-safe codes: `.unresolvedWorktree = 100`, `.notInstalled = 101`, `.nonZeroExit = 102`, `.timedOut = 103`, `.spawnFailed = 104`, `.badTemplate = 105`, `.notADirectory = 106`. The JSON-RPC `{ error: { code, message } }` envelope re-uses the code table.
+Under `apps/mac/tc/Commands/` (new subfolder — update `tc` target's `buildableFolders` accordingly), create `OpenCommand.swift`:
 
-Under `apps/mac/touch-code/App/Features/Socket/` (this feature is created by a future plan for `0002 M4+` socket-server bring-up; if not yet present, this plan adds a minimal `SocketServer` focused on `editor.*` — flag in Decision Log if we land that early):
+    struct OpenCommand: ParsableCommand {
+      static let configuration = CommandConfiguration(
+        commandName: "open",
+        abstract: "Open the current Worktree directory in an external editor."
+      )
+      @Option(name: .customLong("in"))  var editorID: String?
+      @Argument(help: "Worktree name or UUID; optional inside a Panel.")
+      var worktree: String?
+      func run() throws { /* … */ }
+    }
 
-- Dispatch `editor.describe` → call `editorClient.describe()` → wrap in `EditorDescribeResponse`.
-- Dispatch `editor.open` → if `request.worktreeID == nil`, resolve via `request.panelID → HierarchyManager.panel(byID: …).parentWorktreeID`; if still nil, return `EditorIPCError.unresolvedWorktree`. Otherwise resolve the `Worktree.path`, call `editorClient.open(directory:preferred:projectID:)`, wrap in `EditorOpenResponse`.
-- Dispatch `editor.setDefault` → call `HierarchyClient.setDefaultEditor`.
+`run()` resolves the Worktree ID in order: (1) explicit `--worktree`/positional; (2) `ProcessInfo.processInfo.environment["TOUCH_CODE_PANEL_ID"]` passed via the IPC envelope's `panelID` field; (3) neither → print `"error: no worktree (pass <worktree> or run from inside a touch-code Panel)"` to stderr and `throw ExitCode(2)`. For (1) and (2), it issues `editor.open` via a lightweight `IPCClient` helper under `apps/mac/tc/IPCClient.swift`.
 
-Under `apps/mac/tc/Commands/` (new subfolder — update `tc` target's `buildableFolders` accordingly if needed):
+Also under `apps/mac/tc/`, add `IPCClient.swift` — a thin helper that encodes requests to JSON and decodes responses. Protocol-based so tests inject a `RecordingIPCClient`:
 
-- `OpenCommand.swift` — `ArgumentParser` subcommand:
+    protocol IPCClient: Sendable {
+      func call<Request: Encodable, Response: Decodable>(
+        method: String, request: Request, response: Response.Type
+      ) async throws -> Response
+    }
 
-      struct OpenCommand: ParsableCommand {
-        static let configuration = CommandConfiguration(
-          commandName: "open",
-          abstract: "Open the current Worktree directory in an external editor."
-        )
-        @Option(name: .customLong("in"))  var editorID: String?
-        @Argument(help: "Worktree name or UUID; optional inside a Panel.")
-        var worktree: String?
-        func run() throws { /* … */ }
-      }
+Update `apps/mac/tc/main.swift` to include `OpenCommand.self` in its subcommands array.
 
-  `run()` resolves the Worktree ID in order: (1) explicit `--worktree`/positional; (2) `ProcessInfo.processInfo.environment["TOUCH_CODE_PANEL_ID"]` → IPC `system.get_context` → Worktree ID; (3) neither → `FoundationError.notUserInteractable` — print `"error: no worktree (pass <worktree> or run from inside a touch-code Panel)"` to stderr and `throw ExitCode(2)`. Then issues `editor.open` via a lightweight `IPCClient` helper (under `apps/mac/tc/IPCClient.swift`).
-- `main.swift` is updated to include `OpenCommand.self` in its subcommands array.
+Tests (host the tests under `touch-codeTests` — see DEC-3 note about declining to add a `tcTests` target in this plan):
+
+- `OpenCommandParseTests.swift` — `ArgumentParser` tests:
+  - `tc open --in vscode main-worktree` → `(editorID: "vscode", worktree: "main-worktree")`.
+  - `tc open` with no args → `(editorID: nil, worktree: nil)`.
+  - `tc open --in xcode` → `(editorID: "xcode", worktree: nil)`.
+- `OpenCommandResolutionTests.swift` — drive with a `RecordingIPCClient` fake and a synthetic env:
+  - With `TOUCH_CODE_PANEL_ID = <uuid>` set → asserts the call payload is `EditorOpenRequest(worktreeID: nil, preferred: "vscode", panelID: <uuid>)`.
+  - With no env and no positional → asserts stderr contains `"no worktree"`, exit code 2, **zero** IPC calls on the recorder.
+  - With explicit positional `main-worktree` → asserts the call payload resolves through the name. (Names are resolved server-side in M7b; the CLI passes the positional through as a `hierarchy.resolveWorktree` pre-call, or as a `worktreeID?` + a separate name field — leave this as a minor design choice for M7b.)
+
+**Observable acceptance.** `make mac-build-cli`. From a regular terminal:
+
+    tc open
+    # stderr: "error: no worktree (pass <worktree> or run from inside a touch-code Panel)"
+    # exit code: 2
+    echo $?
+    # 2
+
+    tc open --help
+    # stdout: usage message with --in option and worktree argument
+
+Unit tests pass under `xcodebuild test -scheme touch-codeTests`. `make mac-lint` clean.
+
+**Expected commits.** `feat(ipc): editor.* wire types + error codes`, `feat(tc): open subcommand + IPCClient helper`.
+
+### Milestone 7b: `SocketServer` dispatch of `editor.*`
+
+**Goal after this milestone.** `tc open` from inside a Panel actually opens the editor end-to-end. Method dispatch lives in the `SocketServer`; the `editor.*` handlers bridge to `EditorClient` and `HierarchyClient`.
+
+**Prerequisite.** Per [DEC-3](#decision-log), the plan of record is that `SocketServer` is delivered by `docs/exec-plans/0003-hooks-and-cli.md` (the in-flight C3+C4 plan). Before starting M7b, check whether `0003` has landed a `SocketServer` with a method-dispatch hook. If yes, M7b only adds `editor.*` handlers under an existing dispatch map. If no, M7b lands a narrow editor-only dispatcher under `apps/mac/touch-code/App/Features/Socket/` with just enough socket-accept + JSON-RPC framing to drive the three `editor.*` methods, and Decision Log records the fallback (so `0003` generalises instead of reimplementing).
+
+**Work (when `0003` SocketServer is present).**
+
+Under `apps/mac/touch-code/App/Features/Socket/`, extend the existing dispatch map with three handlers:
+
+- `editor.describe` → call `editorClient.describe()` → wrap in `EditorDescribeResponse`.
+- `editor.open` → if `request.worktreeID == nil`, resolve via `request.panelID → HierarchyManager.panel(byID: …).parentWorktreeID`; if still nil, return `EditorIPCError.unresolvedWorktree` (code 100). Otherwise resolve the `Worktree.path`, call `editorClient.open(directory:preferred:projectID:)`, wrap in `EditorOpenResponse`.
+- `editor.setDefault` → call `HierarchyClient.setDefaultEditor`.
+
+**Work (fallback, when `0003` has not landed).**
+
+Under `apps/mac/touch-code/App/Features/Socket/`, add:
+
+- `SocketServer.swift` — minimal `@MainActor` class that listens on `TOUCH_CODE_SOCKET_PATH ?? "/tmp/touch-code-$UID.sock"` using `SwiftNIO`'s `ServerBootstrap` (or a `dispatch_io`-based hand-rolled server if adding SwiftNIO is contentious — prefer the SwiftNIO path, it's how supaterm does it; record as a decision). Accepts connections; frames length-prefixed JSON per the architecture doc; dispatches to a method map that contains only the three `editor.*` entries. All non-editor methods return `-32601 Method not found`.
+- `SocketServerLifecycle.swift` — starts the server at app launch; stops cleanly on `applicationWillTerminate`.
+- **Explicitly note in Decision Log** that this is a narrow editor-only dispatcher, so `0003` replaces rather than extends it.
 
 Tests:
 
-- `OpenCommandTests.swift` under `apps/mac/tc/Tests/` (new `.unitTests` target `tcTests` if one does not exist — if adding the target is a material change, flag in Decision Log and prefer hosting the tests in `touch-codeTests`):
-  - Parse `tc open --in vscode main-worktree` → `OpenCommand(editorID: "vscode", worktree: "main-worktree")`.
-  - Parse `tc open` with `TOUCH_CODE_PANEL_ID` set → asserts `IPCClient` is invoked with `panelID` populated.
-  - Parse `tc open` with no `TOUCH_CODE_PANEL_ID` → expected: stderr contains `"no worktree"`, exit code 2, zero IPC calls.
-- `SocketServerEditorDispatchTests.swift` under `touch-codeTests` — feed a synthetic `editor.open` JSON-RPC envelope through the dispatcher with a fake `EditorClient.testValue` that records calls; assert the call payload and the envelope result matches `EditorOpenResponse`.
+- `SocketServerEditorDispatchTests.swift` — synthetic JSON-RPC envelope in, parsed response out. Cover: `editor.describe` returns the registry; `editor.open` with missing IDs surfaces code 100; `editor.open` with a valid worktree ID invokes the recording `EditorClient.testValue` with the expected args.
+- `TcOpenE2ETests.swift` (gated behind `TC_RUN_IPC_INTEGRATION_TESTS=1`) — spin up a real `SocketServer` on a temp socket path; spawn `tc open` as a subprocess with `TOUCH_CODE_SOCKET_PATH` overridden; assert stdout `"opened <name> in Finder"` and exit 0.
 
-**Observable acceptance.** Build `tc` via `make mac-build-cli`, then from inside a touch-code Panel:
+**Observable acceptance.** Build `tc` and the app via `make mac-build`. Launch the app, open a Panel, then inside it:
 
     tc open
-    # expected stdout: "opened <Worktree name> in <Editor display>"
+    # stdout: "opened <Worktree name> in <Editor display>"
     # exit code 0
 
     tc open --in zed
@@ -424,9 +510,7 @@ Tests:
     tc open some-other-worktree --in finder
     # opens Finder on the named Worktree
 
-From outside a Panel (regular terminal, `TOUCH_CODE_PANEL_ID` unset), `tc open` prints `error: no worktree (pass <worktree> or run from inside a touch-code Panel)` to stderr and exits 2 — confirmed by `echo $?`.
-
-**Expected commits.** `feat(ipc): editor.* method dispatch + wire DTOs`, `feat(tc): open subcommand with TOUCH_CODE_PANEL_ID fallback`, `feat(app): SocketServer editor dispatch`.
+**Expected commits.** `feat(ipc): editor.* method handlers`, `feat(app): SocketServer editor dispatch (+ fallback scaffold if 0003 hasn't landed)`, `test(ipc): end-to-end tc open smoke`.
 
 ### Milestone 8: Cross-feature integration + performance + docs close-out
 
@@ -437,7 +521,7 @@ From outside a Panel (regular terminal, `TOUCH_CODE_PANEL_ID` unset), `tc open` 
 Tests:
 
 - `apps/mac/touch-code/Tests/Integration/GitViewerEditorIntegrationTests.swift` — `TestStore` spanning `RootFeature` with real `GitViewerFeature`, real `EditorFeature`, real `HierarchyManager`, and a `RecordingProcessSpawner` + mock `GitService`. Scenario: launch → select Worktree → scope `.log` → pick commit → press `Enter` → assert the editor dispatcher is called with the resolved editor ID and the Worktree path.
-- `apps/mac/touch-code/Tests/Performance/GitViewerPerformanceTests.swift` — uses a synthetic 1 000-line `git diff` fixture; measures parse + reducer-state-update wall-clock via `ContinuousClock.Instant`. Asserts **< 80 ms for parse** and **< 20 ms for reducer dispatch**, leaving headroom within the design's 200 ms budget. Runs under `TC_RUN_PERFORMANCE_TESTS=1`.
+- `apps/mac/touch-code/Tests/Performance/GitViewerPerformanceTests.swift` — uses a synthetic 1 000-line `git diff` fixture; measures parse + reducer-state-update wall-clock via `ContinuousClock.Instant`. **Pre-step: measure a baseline first** by running the test ten times and recording the 95th-percentile value on the target machine (checked in under `apps/mac/touch-code/Tests/Performance/baseline.json`). The thresholds used as assertions are then `max(designedBudget, observedP95 × 1.25)` — i.e. < 80 ms for parse and < 20 ms for reducer dispatch are the *design ceilings*, but the assertion tracks the *actual baseline* plus a 25 % drift margin. If the baseline on an M1 is already > 80 ms for parse, that's a finding worth recording in Surprises & Discoveries rather than a passing test that lies about the spec. Runs under `TC_RUN_PERFORMANCE_TESTS=1`.
 - `apps/mac/touch-code/Tests/Integration/EditorFallbackChainTests.swift` — end-to-end exercises the fallback chain: (a) per-project override set + editor installed → opens the override; (b) per-project override set + editor missing → surfaces `.notInstalled` without falling through to global; (c) no override, global set, installed → opens global; (d) nothing set → opens Finder.
 - `apps/mac/touch-code/Tests/Integration/IPCEditorTests.swift` — spins up a real `SocketServer` on a temp socket path, runs `tc open` as a subprocess against it with a `TOUCH_CODE_SOCKET_PATH` override, asserts the response envelope round-trip.
 
@@ -505,12 +589,18 @@ Run every command from the repository root (`/Users/wanggang/dev/00/touch-code`)
                       -scheme touch-codeTests \
                       -only-testing touch-codeTests/GitViewerFeatureTests | xcbeautify
 
-### M4 steps
+### M4a steps
 
     make mac-generate
     make mac-build
     make mac-run-app
-    # Manual: toggle the Git viewer on the active Worktree's header; verify keybindings.
+    # Manual: toggle the Git viewer on the active Worktree's header; verify keybindings work for j/k/g/G/Tab/1/2/3/r.
+    # Pressing Enter on a file row should produce an "editor not yet available" toast (placeholder-error surface) — no crash.
+
+### M4b steps
+
+    # Add swift-snapshot-testing to Tuist/Package.swift, then regenerate.
+    make mac-generate
 
     DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
       xcodebuild test -workspace apps/mac/touch-code.xcworkspace \
@@ -544,30 +634,56 @@ Run every command from the repository root (`/Users/wanggang/dev/00/touch-code`)
                       -only-testing touch-codeTests/EditorFeatureTests \
                       -only-testing touch-codeTests/SettingsStoreTests | xcbeautify
 
-### M7 steps
+### M7a steps
 
-    make mac-build          # builds tc + app
-    # Launch the app, open a Panel, then inside it:
+    make mac-build-cli       # builds tc; no app dependency needed for M7a
+    # From a regular terminal (no TOUCH_CODE_PANEL_ID):
+    tc open
+    # Expected: stderr "error: no worktree (pass <worktree> or run from inside a touch-code Panel)"
+    echo $?
+    # 2
+
+    tc open --help
+    # Expected: usage text with --in option and <worktree> argument
+
+    DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+      xcodebuild test -workspace apps/mac/touch-code.xcworkspace \
+                      -scheme touch-codeTests \
+                      -only-testing touch-codeTests/OpenCommandParseTests \
+                      -only-testing touch-codeTests/OpenCommandResolutionTests | xcbeautify
+
+### M7b steps
+
+    # First, check whether 0003's SocketServer has landed. If no, we land the fallback narrow dispatcher.
+    grep -rl 'class SocketServer' apps/mac/touch-code/App/Features/Socket/ 2>/dev/null || echo "0003 SocketServer NOT landed — using fallback dispatcher"
+
+    make mac-build           # builds tc + app
+    # Launch the app via `make mac-run-app`, open a Panel, then inside that Panel:
     tc open
     # Expected: stdout "opened <name> in Finder", exit 0.
 
-    # From a regular terminal (TOUCH_CODE_PANEL_ID unset):
-    tc open
-    # Expected: stderr "error: no worktree (pass <worktree> or run from inside a touch-code Panel)"
-    # Expected exit code: 2.
-    echo $?
+    TC_RUN_IPC_INTEGRATION_TESTS=1 \
+    DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+      xcodebuild test -workspace apps/mac/touch-code.xcworkspace \
+                      -scheme touch-codeTests \
+                      -only-testing touch-codeTests/TcOpenE2ETests | xcbeautify
 
 ### M8 steps
+
+    # Baseline perf first — run ten times, capture 95th percentile.
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+      TC_RUN_PERFORMANCE_TESTS=1 \
+      DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+        xcodebuild test -workspace apps/mac/touch-code.xcworkspace \
+                        -scheme touch-codeTests \
+                        -only-testing touch-codeTests/GitViewerPerformanceTests 2>&1 | \
+        grep -E 'parse_ms|reducer_ms'
+    done | tee apps/mac/touch-code/Tests/Performance/baseline.run.txt
+    # Then compute P95 and write apps/mac/touch-code/Tests/Performance/baseline.json by hand (one-time).
 
     DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
       xcodebuild test -workspace apps/mac/touch-code.xcworkspace \
                       -scheme touch-codeTests | xcbeautify
-
-    TC_RUN_PERFORMANCE_TESTS=1 \
-    DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
-      xcodebuild test -workspace apps/mac/touch-code.xcworkspace \
-                      -scheme touch-codeTests \
-                      -only-testing touch-codeTests/GitViewerPerformanceTests | xcbeautify
 
     # Run the dogfooding walkthrough from the Milestone 8 section above.
 
@@ -772,8 +888,14 @@ The following types, functions, and signatures must exist by plan completion. Na
 
     struct OpenCommand: ParsableCommand { … }
 
-**External dependencies added by this plan**: none beyond what `0002 M5` already brings in (`swift-composable-architecture`, `swift-snapshot-testing` if not already added).
+**External dependencies added by this plan**: `pointfreeco/swift-snapshot-testing` (pinned in M4b; see [DEC-2](#decision-log)). `swift-composable-architecture` is assumed already present via `0002 M5`.
 
-**Tuist targets added by this plan**: none. All tests land under the existing `TouchCodeCoreTests` and `touch-codeTests` targets, whose `buildableFolders` pick up new subfolders automatically. If M7 elects a dedicated `tcTests` target, that becomes a deliberate Decision Log entry at implementation time.
+**Tuist targets added by this plan**: none. All tests land under the existing `TouchCodeCoreTests` and `touch-codeTests` targets, whose `buildableFolders` pick up new subfolders automatically. A dedicated `tcTests` target is deliberately declined in M7a; if later needed, it becomes a Decision Log entry at implementation time.
 
-**Prerequisite ordering.** M1 and M2 can begin before `0002` completes because they do not touch the app target. M3 through M8 require `0002 M5` (TCA wired, sidebar landed). M7 requires a minimal `SocketServer`; if `0002` has not brought one up by M7-time, this plan lands a narrow editor-only dispatcher and flags the expansion for the IPC/CLI plan.
+**Prerequisite ordering.**
+
+- **M1** and **M2** can begin before `0002` completes because they do not touch the app target.
+- **M3** through **M6** require `0002 M5` (TCA wired, sidebar and clients landed).
+- **M7a** only depends on M5 and M6 (IPC wire types + CLI; no socket-server yet) — safe to land as soon as M6 is green.
+- **M7b** depends on `SocketServer` from the in-flight `docs/exec-plans/0003-hooks-and-cli.md` (C3+C4). If `0003` has not landed by M7b-time, M7b lands a narrow editor-only dispatcher and records the fallback in Decision Log so `0003` generalises rather than reimplements. See [DEC-3](#decision-log).
+- **M8** depends on every milestone above being green.
