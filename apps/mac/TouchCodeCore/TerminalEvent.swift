@@ -13,6 +13,11 @@ public nonisolated enum HierarchyMutationScope: Sendable, Equatable {
   case selection
 }
 
+public nonisolated enum TabAutoCloseCause: Sendable, Equatable {
+  case crashLoop(count: Int, window: TimeInterval)
+  case other(reason: String)
+}
+
 public nonisolated enum TerminalEvent: Sendable {
   case panelCreated(PanelID, TabID)
   case panelReady(PanelID)
@@ -27,7 +32,7 @@ public nonisolated enum TerminalEvent: Sendable {
   case panelExited(PanelID, code: Int32, signal: Int32?)
   case panelCrashed(PanelID, reason: String)
   case tabActivated(TabID)
-  case tabAutoClosed(TabID, reason: String)
+  case tabAutoClosed(TabID, cause: TabAutoCloseCause)
   case worktreeActivated(WorktreeID)
   case hierarchyMutated(HierarchyMutationScope)
 }

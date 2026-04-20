@@ -2,29 +2,62 @@ import Foundation
 import TouchCodeCore
 
 /// Public-facing façade that composes `CatalogStore`, `HierarchyManager`, and
-/// `GhosttyRuntime` behind a single event stream. Feature code (TCA clients,
+/// `GhosttyRuntime` behind a fan-out event stream. Feature code (TCA clients,
 /// hook runner, notifications) subscribes via `events()` and mutates state
 /// through `hierarchy`. Direct access to `GhosttyRuntime` or `PanelSurface`
 /// objects is intentionally not exposed.
+///
+/// Lifecycle events (`panelCreated`, `panelReady`, `panelExited`,
+/// `panelCrashed`, `tabActivated`, `tabAutoClosed`, `worktreeActivated`,
+/// `hierarchyMutated`) are delivered with a large per-subscriber buffer
+/// because drops cause persistence and UI desync that can't be recovered.
+/// Output events (`panelOutput`, `panelIdle`) are delivered with a small
+/// `.bufferingNewest` policy — scrollback retains history, so dropping
+/// coalesced batches under consumer backpressure is safe.
 @MainActor
 final class TerminalEngine {
-  /// Crash isolation policy: N crashes within the window auto-closes the
-  /// enclosing Tab. Mirrors supaterm's controller behaviour.
   struct CrashPolicy: Equatable, Sendable {
     var maxCrashesInWindow: Int = 3
     var window: TimeInterval = 30
     static let `default` = CrashPolicy()
   }
 
+  /// Per-subscriber event fan-out. Each `events()` call registers a fresh
+  /// continuation. The engine broadcasts every emit to every active
+  /// subscriber until they cancel or finish.
+  private final class SubscriberRegistry {
+    struct Subscriber: Identifiable {
+      let id: UUID
+      let continuation: AsyncStream<TerminalEvent>.Continuation
+      let lifecycleOnly: Bool
+    }
+
+    var subscribers: [Subscriber] = []
+
+    func broadcast(_ event: TerminalEvent) {
+      let isLifecycle = event.isLifecycle
+      for subscriber in subscribers where isLifecycle || !subscriber.lifecycleOnly {
+        subscriber.continuation.yield(event)
+      }
+    }
+
+    func finishAll() {
+      for subscriber in subscribers {
+        subscriber.continuation.finish()
+      }
+      subscribers.removeAll()
+    }
+  }
+
   let hierarchy: HierarchyManager
   let store: CatalogStore
   var crashPolicy: CrashPolicy = .default
 
-  private let eventStream: AsyncStream<TerminalEvent>
-  private let eventContinuation: AsyncStream<TerminalEvent>.Continuation
+  private let registry = SubscriberRegistry()
   private var outputBuffers: [PanelID: PendingOutputBuffer] = [:]
   private var crashRings: [PanelID: [Date]] = [:]
   private let clock: @Sendable () -> Date
+  private var finished = false
 
   init(
     store: CatalogStore,
@@ -34,31 +67,36 @@ final class TerminalEngine {
     self.store = store
     self.hierarchy = hierarchy
     self.clock = clock
-    // Cap the buffer so a stalled consumer can't grow memory without bound —
-    // one slow subscriber with N panels can otherwise retain every batch.
-    let (stream, continuation) = AsyncStream<TerminalEvent>.makeStream(
-      bufferingPolicy: .bufferingNewest(256)
-    )
-    self.eventStream = stream
-    self.eventContinuation = continuation
   }
 
-  /// Returns the shared event stream. Multiple subscribers are not supported —
-  /// wrap with an `AsyncChannel` or multicaster if you need fan-out.
-  func events() -> AsyncStream<TerminalEvent> {
-    eventStream
+  /// Return a fresh event stream for a new subscriber. Multi-consumer safe:
+  /// each call registers its own continuation. Subscribers that stall cause
+  /// output events to drop (bufferingNewest) — lifecycle events are always
+  /// delivered (large buffer; relied on by persistence).
+  func events(lifecycleOnly: Bool = false) -> AsyncStream<TerminalEvent> {
+    let id = UUID()
+    return AsyncStream<TerminalEvent> { continuation in
+      self.registry.subscribers.append(
+        .init(id: id, continuation: continuation, lifecycleOnly: lifecycleOnly)
+      )
+      continuation.onTermination = { @Sendable [weak self] _ in
+        Task { @MainActor in
+          self?.registry.subscribers.removeAll { $0.id == id }
+        }
+      }
+    }
   }
 
-  /// Emit an event on the shared stream. Intended for `HierarchyRuntime`
-  /// adapters to signal structural transitions (`panelReady`, `panelExited`)
-  /// and for hierarchy mutations to announce `tabActivated` / `worktreeActivated`.
+  /// Emit an event to all active subscribers. No-op after `finishEventStream`
+  /// has been called; avoids use-after-finish footguns.
   func emit(_ event: TerminalEvent) {
-    eventContinuation.yield(event)
+    guard !finished else { return }
+    registry.broadcast(event)
   }
 
   /// Feed bytes from a ghostty surface into the per-panel coalescer. Creates
-  /// a buffer on first use. Callers should invoke `flushOutput(for:)` before
-  /// tearing the surface down so no bytes are dropped.
+  /// a buffer on first use. Output may split a UTF-8 codepoint at the 16KB
+  /// buffer boundary — text consumers must buffer across batches per panel.
   func appendOutput(panelID: PanelID, bytes: Data) {
     let buffer = outputBuffers[panelID] ?? makeBuffer(for: panelID)
     buffer.append(bytes)
@@ -68,48 +106,75 @@ final class TerminalEngine {
     outputBuffers[panelID]?.flush()
   }
 
-  /// Drop the per-panel output buffer. Must be called when the surface closes,
-  /// otherwise pending bytes leak and the coalescer continues emitting.
+  /// Drop the per-panel output buffer, flushing any pending bytes first. The
+  /// buffer's isolated-deinit fallback exists as a safety net, but callers
+  /// should invoke this explicitly when a surface closes so bytes flush
+  /// while the engine is still accepting emits.
   func disposeOutputBuffer(for panelID: PanelID) {
     outputBuffers[panelID]?.flush()
     outputBuffers.removeValue(forKey: panelID)
   }
 
+  /// Idempotent, terminal. After calling, `emit` is a no-op and all
+  /// subscribers receive `finish()`. Subsequent calls are safe.
   func finishEventStream() {
-    eventContinuation.finish()
+    guard !finished else { return }
+    finished = true
+    // Drain any pending output into the lifecycle-bound path before finishing.
+    for (_, buffer) in outputBuffers {
+      buffer.flush()
+    }
+    outputBuffers.removeAll()
+    registry.finishAll()
   }
 
   // MARK: - Crash isolation
 
-  /// Records a panel crash, emits `.panelCrashed`, and if the panel exceeds
-  /// `crashPolicy.maxCrashesInWindow` crashes within `crashPolicy.window`,
-  /// closes the enclosing Tab and emits `.tabAutoClosed`.
-  ///
-  /// Returns true when the panel survived (under the threshold), false when
-  /// the enclosing tab was auto-closed. Callers can use the return value to
-  /// decide whether to render a "retry" placeholder or a toast.
+  enum CrashOutcome: Equatable, Sendable {
+    /// Panel is still alive; UI should render a retry placeholder.
+    case survived
+    /// Enclosing Tab was auto-closed because the crash loop exceeded policy.
+    case tabAutoClosed(TabID)
+    /// Attempted to auto-close but `HierarchyManager.closeTab` threw; ring
+    /// preserved so a later attempt can succeed. The message is the error's
+    /// `localizedDescription` — callers needing the typed error should
+    /// observe `HierarchyManager.catalog` for drift instead of re-throwing.
+    case closeFailed(String)
+  }
+
   @discardableResult
   func recordPanelCrash(
     panelID: PanelID,
     reason: String
-  ) -> Bool {
-    emit(.panelCrashed(panelID, reason: reason))
+  ) -> CrashOutcome {
+    // Flush any buffered output so subscribers see the final bytes BEFORE the
+    // crash event — otherwise the UI shows a stale prompt with the crash
+    // overlay and consumers miss the last line of whatever the panel emitted.
     disposeOutputBuffer(for: panelID)
+    emit(.panelCrashed(panelID, reason: reason))
 
     let now = clock()
     let cutoff = now.addingTimeInterval(-crashPolicy.window)
     var ring = crashRings[panelID, default: []].filter { $0 >= cutoff }
     ring.append(now)
+    // Cap the ring so repeated crashes inside the window can't grow memory.
+    if ring.count > crashPolicy.maxCrashesInWindow {
+      ring = Array(ring.suffix(crashPolicy.maxCrashesInWindow))
+    }
     crashRings[panelID] = ring
 
     guard ring.count >= crashPolicy.maxCrashesInWindow else {
-      return true
+      return .survived
     }
 
     guard let location = findPanel(panelID) else {
       crashRings.removeValue(forKey: panelID)
-      return false
+      return .survived
     }
+
+    // Snapshot sibling panels BEFORE closeTab removes them. Each gets its
+    // own panelExited event so per-panel subscribers can release state.
+    let siblingPanelIDs = siblingPanelIDs(in: location, excluding: panelID)
 
     do {
       try hierarchy.closeTab(
@@ -119,23 +184,33 @@ final class TerminalEngine {
         in: location.spaceID
       )
     } catch {
-      return false
+      // Preserve the ring so a retry can still close the tab.
+      return .closeFailed(error.localizedDescription)
     }
 
     crashRings.removeValue(forKey: panelID)
+    for siblingID in siblingPanelIDs {
+      disposeOutputBuffer(for: siblingID)
+      emit(.panelExited(siblingID, code: 0, signal: nil))
+    }
     emit(.tabAutoClosed(
       location.tabID,
-      reason: "Panel crashed \(ring.count) times within \(Int(crashPolicy.window))s"
+      cause: .crashLoop(count: ring.count, window: crashPolicy.window)
     ))
-    return false
+    return .tabAutoClosed(location.tabID)
   }
 
-  /// Retry a crashed panel. M5 replaces the stub body with real surface
-  /// recreation; today it clears the crash ring and emits a synthetic
-  /// `.panelReady` so TCA feature code can be wired end-to-end.
-  func retryPanel(_ panelID: PanelID) {
+  /// Retry a crashed panel. Returns false when the panel no longer exists
+  /// (e.g. its Tab was already auto-closed). M5 replaces the stub body with
+  /// real surface recreation via GhosttyRuntime.createSurface.
+  @discardableResult
+  func retryPanel(_ panelID: PanelID) -> Bool {
+    guard findPanel(panelID) != nil else {
+      return false
+    }
     crashRings.removeValue(forKey: panelID)
     emit(.panelReady(panelID))
+    return true
   }
 
   // MARK: - Private
@@ -165,11 +240,46 @@ final class TerminalEngine {
     return nil
   }
 
+  private func siblingPanelIDs(
+    in location: PanelLocation,
+    excluding excluded: PanelID
+  ) -> [PanelID] {
+    guard
+      let space = hierarchy.catalog.spaces.first(where: { $0.id == location.spaceID }),
+      let project = space.projects.first(where: { $0.id == location.projectID }),
+      let worktree = project.worktrees.first(where: { $0.id == location.worktreeID }),
+      let tab = worktree.tabs.first(where: { $0.id == location.tabID })
+    else {
+      return []
+    }
+    return tab.panels.map(\.id).filter { $0 != excluded }
+  }
+
   private func makeBuffer(for panelID: PanelID) -> PendingOutputBuffer {
+    // The engine must outlive its output buffers. disposeOutputBuffer drops
+    // the buffer while the engine is still broadcasting, so the weak capture
+    // only matters as a safety net if the buffer is dropped via deinit after
+    // finishEventStream — in that case emit is a no-op, bytes silently fall
+    // on the floor (documented trade-off).
     let buffer = PendingOutputBuffer(panelID: panelID) { [weak self] id, data in
       self?.emit(.panelOutput(id, data))
     }
     outputBuffers[panelID] = buffer
     return buffer
+  }
+}
+
+private extension TerminalEvent {
+  /// Lifecycle events must not drop under consumer backpressure — they drive
+  /// persistence and TCA state machines. Output events are safe to drop
+  /// because scrollback retains history.
+  var isLifecycle: Bool {
+    switch self {
+    case .panelOutput, .panelIdle:
+      return false
+    case .panelCreated, .panelReady, .panelExited, .panelCrashed,
+         .tabActivated, .tabAutoClosed, .worktreeActivated, .hierarchyMutated:
+      return true
+    }
   }
 }

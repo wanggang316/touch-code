@@ -3,8 +3,11 @@ import TouchCodeCore
 
 /// Per-panel output coalescer. Batches `append(bytes:)` calls and emits a
 /// single `.panelOutput` event at most once per `flushInterval`, or when the
-/// buffer reaches `maxBufferSize`. Caller must arrange a flush before drop
-/// (or rely on the `deinit` fallback, which hops to the main queue).
+/// buffer reaches `maxBufferSize`. Callers should invoke `flush()` (or
+/// `TerminalEngine.disposeOutputBuffer`) before releasing the buffer —
+/// the `isolated deinit` drain is a MainActor-synchronous safety net, but
+/// if the owning engine has already called `finishEventStream` the emit is
+/// a no-op and the bytes silently fall on the floor.
 @MainActor
 final class PendingOutputBuffer {
   let panelID: PanelID

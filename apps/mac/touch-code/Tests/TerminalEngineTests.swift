@@ -6,77 +6,130 @@ import TouchCodeCore
 @MainActor
 struct TerminalEngineTests {
   private final class MutableClock: @unchecked Sendable {
-    var now: Date = Date(timeIntervalSince1970: 1_700_000_000)
+    private(set) var now: Date = Date(timeIntervalSince1970: 1_700_000_000)
+    func advance(by seconds: TimeInterval) {
+      now = now.addingTimeInterval(seconds)
+    }
+  }
+
+  private final class TempFile {
+    let url: URL
+    init() {
+      self.url = FileManager.default.temporaryDirectory
+        .appending(component: UUID().uuidString + ".json")
+    }
+    deinit {
+      try? FileManager.default.removeItem(at: url)
+    }
   }
 
   private func makeEngine(
     clock: MutableClock = MutableClock()
-  ) -> (TerminalEngine, FakeHierarchyRuntime, HierarchyManager, MutableClock) {
-    let tempURL = FileManager.default.temporaryDirectory
-      .appending(component: UUID().uuidString + ".json")
+  ) -> (TerminalEngine, HierarchyManager, MutableClock, TempFile) {
+    let temp = TempFile()
     let fakeRuntime = FakeHierarchyRuntime()
-    let store = CatalogStore(fileURL: tempURL)
+    let store = CatalogStore(fileURL: temp.url)
     let manager = HierarchyManager(catalog: .default, store: store, runtime: fakeRuntime)
     let engine = TerminalEngine(store: store, hierarchy: manager) { clock.now }
-    return (engine, fakeRuntime, manager, clock)
+    return (engine, manager, clock, temp)
   }
 
-  private func makeEngine() -> (TerminalEngine, FakeHierarchyRuntime) {
-    let (engine, runtime, _, _) = makeEngine(clock: MutableClock())
-    return (engine, runtime)
-  }
+  // MARK: - Fan-out
 
   @Test
-  func eventStreamEmitsEmittedEventsInOrder() async throws {
-    let (engine, _) = makeEngine()
+  func subscribeThenEmitDeliversInOrder() async {
+    let (engine, _, _, _) = makeEngine()
     let tabID = TabID()
     let panelID = PanelID()
 
+    // Register the continuation synchronously by calling events() first —
+    // the AsyncStream initializer closure registers with the engine during
+    // this call, so subsequent emits reach the buffer even before the
+    // async iterator runs.
     let stream = engine.events()
-    var iterator = stream.makeAsyncIterator()
-
     engine.emit(.panelCreated(panelID, tabID))
     engine.emit(.panelReady(panelID))
-    engine.emit(.tabActivated(tabID))
-    engine.finishEventStream()
 
-    let first = await iterator.next()
-    let second = await iterator.next()
-    let third = await iterator.next()
-
-    guard case .panelCreated(let pid1, let tid1) = first else {
-      Issue.record("expected panelCreated; got \(String(describing: first))")
+    var iterator = stream.makeAsyncIterator()
+    guard case .panelCreated(let pid1, let tid1) = await iterator.next() else {
+      Issue.record("expected panelCreated")
       return
     }
     #expect(pid1 == panelID && tid1 == tabID)
-
-    guard case .panelReady(let pid2) = second else {
-      Issue.record("expected panelReady; got \(String(describing: second))")
+    guard case .panelReady(let pid2) = await iterator.next() else {
+      Issue.record("expected panelReady")
       return
     }
     #expect(pid2 == panelID)
-
-    guard case .tabActivated(let tid3) = third else {
-      Issue.record("expected tabActivated; got \(String(describing: third))")
-      return
-    }
-    #expect(tid3 == tabID)
   }
 
   @Test
+  func multipleSubscribersEachReceiveAllEvents() async {
+    let (engine, _, _, _) = makeEngine()
+    let tabID = TabID()
+
+    let streamA = engine.events()
+    let streamB = engine.events()
+
+    engine.emit(.tabActivated(tabID))
+    engine.emit(.tabActivated(tabID))
+    engine.emit(.tabActivated(tabID))
+
+    var iterA = streamA.makeAsyncIterator()
+    var iterB = streamB.makeAsyncIterator()
+    var countA = 0
+    var countB = 0
+    for _ in 0..<3 {
+      _ = await iterA.next()
+      countA += 1
+      _ = await iterB.next()
+      countB += 1
+    }
+    #expect(countA == 3)
+    #expect(countB == 3)
+  }
+
+  @Test
+  func lifecycleOnlySubscriberSkipsOutputEvents() async {
+    let (engine, _, _, _) = makeEngine()
+    let tabID = TabID()
+    let panelID = PanelID()
+
+    let stream = engine.events(lifecycleOnly: true)
+    engine.emit(.panelOutput(panelID, Data([0x01])))
+    engine.emit(.panelOutput(panelID, Data([0x02])))
+    engine.emit(.tabActivated(tabID))
+    engine.emit(.panelReady(panelID))
+
+    var iterator = stream.makeAsyncIterator()
+    let first = await iterator.next()
+    let second = await iterator.next()
+
+    for event in [first, second].compactMap({ $0 }) {
+      switch event {
+      case .panelOutput, .panelIdle:
+        Issue.record("output event leaked to lifecycle-only subscriber")
+      default:
+        break
+      }
+    }
+  }
+
+  // MARK: - Output coalescing
+
+  @Test
   func appendOutputCoalescesIntoSingleEvent() async throws {
-    let (engine, _) = makeEngine()
+    let (engine, _, _, _) = makeEngine()
     let panelID = PanelID()
     let stream = engine.events()
-    var iterator = stream.makeAsyncIterator()
 
     engine.appendOutput(panelID: panelID, bytes: Data([0x01, 0x02]))
     engine.appendOutput(panelID: panelID, bytes: Data([0x03]))
     engine.flushOutput(for: panelID)
 
-    let first = await iterator.next()
-    guard case .panelOutput(let pid, let data) = first else {
-      Issue.record("expected panelOutput; got \(String(describing: first))")
+    var iterator = stream.makeAsyncIterator()
+    guard case .panelOutput(let pid, let data) = await iterator.next() else {
+      Issue.record("expected panelOutput")
       return
     }
     #expect(pid == panelID)
@@ -85,107 +138,182 @@ struct TerminalEngineTests {
 
   @Test
   func disposeOutputBufferFlushesPendingBytes() async throws {
-    let (engine, _) = makeEngine()
+    let (engine, _, _, _) = makeEngine()
     let panelID = PanelID()
     let stream = engine.events()
-    var iterator = stream.makeAsyncIterator()
 
     engine.appendOutput(panelID: panelID, bytes: Data([0xAA]))
     engine.disposeOutputBuffer(for: panelID)
 
-    let event = await iterator.next()
-    guard case .panelOutput(_, let data) = event else {
-      Issue.record("expected panelOutput; got \(String(describing: event))")
-      return
+    var iterator = stream.makeAsyncIterator()
+    if case .panelOutput(_, let data) = await iterator.next() {
+      #expect(data == Data([0xAA]))
+    } else {
+      Issue.record("expected panelOutput")
     }
-    #expect(data == Data([0xAA]))
+  }
+
+  // MARK: - Teardown
+
+  @Test
+  func finishEventStreamIsIdempotentAndSilencesEmit() async {
+    let (engine, _, _, _) = makeEngine()
+    let tabID = TabID()
+    let stream = engine.events()
+
+    engine.emit(.tabActivated(tabID))
+    engine.finishEventStream()
+    // Post-finish emits are silent no-ops.
+    engine.emit(.tabActivated(tabID))
+    engine.finishEventStream()  // second call safe.
+
+    var count = 0
+    for await _ in stream { count += 1 }
+    #expect(count == 1)
+  }
+
+  // MARK: - Crash isolation
+
+  // MARK: - Crash isolation helpers
+
+  private func seedPanel(
+    in manager: HierarchyManager
+  ) throws -> (SpaceID, ProjectID, WorktreeID, TabID, PanelID) {
+    let spaceID = manager.createSpace(name: "s")
+    let projectID = try manager.addProject(to: spaceID, name: "p", rootPath: "/", gitRoot: "/")
+    let worktreeID = try manager.createWorktree(in: projectID, in: spaceID, name: "w", path: "/w", branch: "main")
+    let tabID = try manager.createTab(in: worktreeID, in: projectID, in: spaceID, name: nil)
+    let panelID = try manager.openPanel(
+      in: tabID, in: worktreeID, in: projectID, in: spaceID,
+      workingDirectory: "/w", initialCommand: nil
+    )
+    return (spaceID, projectID, worktreeID, tabID, panelID)
   }
 
   // MARK: - Crash isolation
 
   @Test
-  func firstCrashSurvivesReturnsTrue() throws {
-    let (engine, _, manager, _) = makeEngine(clock: MutableClock())
-    let spaceID = manager.createSpace(name: "s")
-    let projectID = try manager.addProject(to: spaceID, name: "p", rootPath: "/", gitRoot: "/")
-    let worktreeID = try manager.createWorktree(in: projectID, in: spaceID, name: "w", path: "/w", branch: "main")
-    let tabID = try manager.createTab(in: worktreeID, in: projectID, in: spaceID, name: nil)
-    let panelID = try manager.openPanel(
-      in: tabID, in: worktreeID, in: projectID, in: spaceID,
-      workingDirectory: "/w", initialCommand: nil
-    )
+  func firstCrashSurvives() throws {
+    let (engine, manager, _, _) = makeEngine()
+    let (_, _, _, tabID, panelID) = try seedPanel(in: manager)
 
-    let survived = engine.recordPanelCrash(panelID: panelID, reason: "segv")
-    #expect(survived)
-    // Tab still present.
+    let outcome = engine.recordPanelCrash(panelID: panelID, reason: "segv")
+    #expect(outcome == .survived)
     #expect(manager.catalog.spaces[0].projects[0].worktrees[0].tabs.contains(where: { $0.id == tabID }))
   }
 
   @Test
-  func threeCrashesWithinWindowAutoClosesTab() throws {
-    let clock = MutableClock()
-    let (engine, _, manager, clk) = makeEngine(clock: clock)
-    let spaceID = manager.createSpace(name: "s")
-    let projectID = try manager.addProject(to: spaceID, name: "p", rootPath: "/", gitRoot: "/")
-    let worktreeID = try manager.createWorktree(in: projectID, in: spaceID, name: "w", path: "/w", branch: "main")
-    let tabID = try manager.createTab(in: worktreeID, in: projectID, in: spaceID, name: nil)
-    let panelID = try manager.openPanel(
-      in: tabID, in: worktreeID, in: projectID, in: spaceID,
-      workingDirectory: "/w", initialCommand: nil
-    )
+  func threeCrashesWithinWindowAutoClosesTabAndEmitsCrashLoopCause() async throws {
+    let (engine, manager, clk, _) = makeEngine()
+    let (_, _, _, tabID, panelID) = try seedPanel(in: manager)
 
-    #expect(engine.recordPanelCrash(panelID: panelID, reason: "1"))
-    clk.now = clk.now.addingTimeInterval(5)
-    #expect(engine.recordPanelCrash(panelID: panelID, reason: "2"))
-    clk.now = clk.now.addingTimeInterval(5)
-    let survived = engine.recordPanelCrash(panelID: panelID, reason: "3")
-    #expect(!survived)
+    let stream = engine.events(lifecycleOnly: true)
+
+    #expect(engine.recordPanelCrash(panelID: panelID, reason: "1") == .survived)
+    clk.advance(by: 5)
+    #expect(engine.recordPanelCrash(panelID: panelID, reason: "2") == .survived)
+    clk.advance(by: 5)
+    let outcome = engine.recordPanelCrash(panelID: panelID, reason: "3")
+    #expect(outcome == .tabAutoClosed(tabID))
     #expect(manager.catalog.spaces[0].projects[0].worktrees[0].tabs.isEmpty)
+
+    var events: [TerminalEvent] = []
+    var iterator = stream.makeAsyncIterator()
+    while let event = await iterator.next() {
+      events.append(event)
+      if case .tabAutoClosed = event { break }
+    }
+
+    guard case .tabAutoClosed(let closedTabID, let cause) = events.last else {
+      Issue.record("expected last event to be tabAutoClosed; got \(String(describing: events.last))")
+      return
+    }
+    #expect(closedTabID == tabID)
+    #expect(cause == .crashLoop(count: 3, window: 30))
+    let crashCount = events.reduce(into: 0) { count, event in
+      if case .panelCrashed = event { count += 1 }
+    }
+    #expect(crashCount == 3)
   }
 
   @Test
   func crashesOlderThanWindowDropFromRing() throws {
-    let clock = MutableClock()
-    let (engine, _, manager, clk) = makeEngine(clock: clock)
-    let spaceID = manager.createSpace(name: "s")
-    let projectID = try manager.addProject(to: spaceID, name: "p", rootPath: "/", gitRoot: "/")
-    let worktreeID = try manager.createWorktree(in: projectID, in: spaceID, name: "w", path: "/w", branch: "main")
-    let tabID = try manager.createTab(in: worktreeID, in: projectID, in: spaceID, name: nil)
-    let panelID = try manager.openPanel(
-      in: tabID, in: worktreeID, in: projectID, in: spaceID,
-      workingDirectory: "/w", initialCommand: nil
-    )
+    let (engine, manager, clk, _) = makeEngine()
+    let (_, _, _, tabID, panelID) = try seedPanel(in: manager)
 
-    // 2 crashes, then advance past window, then 2 more — should survive (ring
-    // only has 2 entries after the prune).
-    #expect(engine.recordPanelCrash(panelID: panelID, reason: "1"))
-    #expect(engine.recordPanelCrash(panelID: panelID, reason: "2"))
-    clk.now = clk.now.addingTimeInterval(31)
-    #expect(engine.recordPanelCrash(panelID: panelID, reason: "3"))
-    #expect(engine.recordPanelCrash(panelID: panelID, reason: "4"))
-    // Tab should still be alive.
+    #expect(engine.recordPanelCrash(panelID: panelID, reason: "1") == .survived)
+    #expect(engine.recordPanelCrash(panelID: panelID, reason: "2") == .survived)
+    clk.advance(by: 31)
+    #expect(engine.recordPanelCrash(panelID: panelID, reason: "3") == .survived)
+    #expect(engine.recordPanelCrash(panelID: panelID, reason: "4") == .survived)
     #expect(manager.catalog.spaces[0].projects[0].worktrees[0].tabs.contains(where: { $0.id == tabID }))
   }
 
   @Test
+  func crashExactlyAtWindowBoundaryIsStillCounted() throws {
+    let (engine, manager, clk, _) = makeEngine()
+    let (_, _, _, tabID, panelID) = try seedPanel(in: manager)
+
+    // t=0
+    #expect(engine.recordPanelCrash(panelID: panelID, reason: "1") == .survived)
+    // advance to exactly window boundary (30s). Older entry should still be
+    // included (>= cutoff, not > cutoff).
+    clk.advance(by: 30)
+    #expect(engine.recordPanelCrash(panelID: panelID, reason: "2") == .survived)
+    let outcome = engine.recordPanelCrash(panelID: panelID, reason: "3")
+    #expect(outcome == .tabAutoClosed(tabID))
+  }
+
+  @Test
   func retryPanelClearsRingAndEmitsReady() throws {
-    let (engine, _, manager, _) = makeEngine(clock: MutableClock())
-    let spaceID = manager.createSpace(name: "s")
-    let projectID = try manager.addProject(to: spaceID, name: "p", rootPath: "/", gitRoot: "/")
-    let worktreeID = try manager.createWorktree(in: projectID, in: spaceID, name: "w", path: "/w", branch: "main")
-    let tabID = try manager.createTab(in: worktreeID, in: projectID, in: spaceID, name: nil)
-    let panelID = try manager.openPanel(
+    let (engine, manager, _, _) = makeEngine()
+    let (_, _, _, tabID, panelID) = try seedPanel(in: manager)
+
+    _ = engine.recordPanelCrash(panelID: panelID, reason: "1")
+    _ = engine.recordPanelCrash(panelID: panelID, reason: "2")
+    #expect(engine.retryPanel(panelID))
+
+    #expect(engine.recordPanelCrash(panelID: panelID, reason: "3") == .survived)
+    #expect(engine.recordPanelCrash(panelID: panelID, reason: "4") == .survived)
+    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].tabs.contains(where: { $0.id == tabID }))
+  }
+
+  @Test
+  func retryPanelReturnsFalseForUnknownID() {
+    let (engine, _, _, _) = makeEngine()
+    #expect(!engine.retryPanel(PanelID()))
+  }
+
+  @Test
+  func tabAutoCloseEmitsPanelExitedForSiblings() async throws {
+    let (engine, manager, clk, _) = makeEngine()
+    let (spaceID, projectID, worktreeID, tabID, panelA) = try seedPanel(in: manager)
+    let panelB = try manager.splitPanel(
+      panelA, direction: .right,
       in: tabID, in: worktreeID, in: projectID, in: spaceID,
       workingDirectory: "/w", initialCommand: nil
     )
 
-    _ = engine.recordPanelCrash(panelID: panelID, reason: "1")
-    _ = engine.recordPanelCrash(panelID: panelID, reason: "2")
-    engine.retryPanel(panelID)
+    let stream = engine.events(lifecycleOnly: true)
 
-    // Two more crashes should now not trigger auto-close (ring was cleared).
-    #expect(engine.recordPanelCrash(panelID: panelID, reason: "3"))
-    #expect(engine.recordPanelCrash(panelID: panelID, reason: "4"))
-    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].tabs.contains(where: { $0.id == tabID }))
+    _ = engine.recordPanelCrash(panelID: panelA, reason: "1")
+    clk.advance(by: 5)
+    _ = engine.recordPanelCrash(panelID: panelA, reason: "2")
+    clk.advance(by: 5)
+    _ = engine.recordPanelCrash(panelID: panelA, reason: "3")
+
+    var events: [TerminalEvent] = []
+    var iterator = stream.makeAsyncIterator()
+    while let event = await iterator.next() {
+      events.append(event)
+      if case .tabAutoClosed = event { break }
+    }
+
+    let exitedSiblings = events.compactMap { event -> PanelID? in
+      if case .panelExited(let pid, _, _) = event { return pid }
+      return nil
+    }
+    #expect(exitedSiblings.contains(panelB))
+    #expect(!exitedSiblings.contains(panelA))  // panelA emitted .panelCrashed, not .panelExited
   }
 }
