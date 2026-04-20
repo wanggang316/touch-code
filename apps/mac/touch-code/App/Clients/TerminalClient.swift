@@ -22,6 +22,12 @@ nonisolated struct TerminalClient: Sendable {
   ) throws -> Void
   var closeSurface: @MainActor @Sendable (_ panelID: PanelID) -> Void
 
+  /// Look up an existing `PanelSurface` registered with the engine. Returns
+  /// `nil` when no surface has been created for the panel yet; callers
+  /// (notably `LazyPanelHost`) should call `ensureSurface` first on a
+  /// cache miss.
+  var surface: @MainActor @Sendable (_ panelID: PanelID) -> PanelSurface?
+
   /// Event stream from the engine. Multi-consumer: each call returns a fresh
   /// subscriber registration. Lifecycle events always delivered; output
   /// events drop under per-subscriber backpressure (shipped M4.5 semantic).
@@ -60,6 +66,7 @@ extension TerminalClient {
         _ = try engine.ensureSurface(for: panel, in: worktree)
       },
       closeSurface: { panelID in engine.closeSurface(for: panelID) },
+      surface: { panelID in engine.ghosttyRuntime?.surface(for: panelID) },
       events: { engine.events() }
     )
   }
@@ -74,6 +81,7 @@ extension TerminalClient: DependencyKey {
     retryPanel: { _ in fatalError("TerminalClient.liveValue not configured") },
     ensureSurface: { _, _, _, _, _ in fatalError("TerminalClient.liveValue not configured") },
     closeSurface: { _ in fatalError("TerminalClient.liveValue not configured") },
+    surface: { _ in nil },
     events: { AsyncStream { $0.finish() } }
   )
 
@@ -83,6 +91,7 @@ extension TerminalClient: DependencyKey {
     retryPanel: unimplemented("TerminalClient.retryPanel", placeholder: false),
     ensureSurface: unimplemented("TerminalClient.ensureSurface"),
     closeSurface: unimplemented("TerminalClient.closeSurface"),
+    surface: unimplemented("TerminalClient.surface", placeholder: nil),
     events: unimplemented(
       "TerminalClient.events",
       placeholder: AsyncStream { $0.finish() }

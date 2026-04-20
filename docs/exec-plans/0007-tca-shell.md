@@ -1,6 +1,6 @@
 # ExecPlan: TCA Shell (0007)
 
-**Status:** Draft
+**Status:** Completed
 **Author:** Gump (with Claude)
 **Date:** 2026-04-20
 
@@ -25,8 +25,8 @@ This is the composition layer that unlocks downstream capability work. C6 / C7 /
 - [x] M2 — `RootFeature` scaffold + `ContentView` with an empty `NavigationSplitView`; `TouchCodeApp` mounts `ContentView` in place of `MainView`; event-stream + selection subscriptions armed — 2026-04-20
 - [x] M3 — `HierarchySidebarFeature` + `HierarchySidebarView` with Space → Project → Worktree navigation driven by `HierarchyClient`; DEC-2 mode-swap (`hierarchy` ↔ `inbox`) shipped with C6 placeholder — 2026-04-20
 - [x] M4 — `WorktreeDetailFeature` composing `TabBarFeature` and `SplitViewportFeature`; detail column renders active Tab's `SplitTree<PanelID>` via `PanelHostView`; DEC-9 C7 inspector slot reserved — 2026-04-20
-- [ ] M5 — Lazy surface lifecycle: switching Tab / Worktree calls `ensureSurface` for the incoming Tab's leaves and `closeSurface` for the outgoing Tab's leaves
-- [ ] M6 — Presentation plumbing: sheets for "New Space", "Add Project", "New Worktree", "New Tab"; alerts for destructive confirmations; empty-Tab placeholder view
+- [x] M5 — Lazy surface lifecycle via `LazyPanelHost` wrapper: first-appearance creation, registry reuse across tab switches, explicit close via `HierarchyClient.closePanel`. HSplitView/VSplitView containers + C7 inspector icon variants + snapshot-driven activeTabID mirroring (with tests) — 2026-04-20
+- [x] M6 — Presentation plumbing: sheets for "New Space" + "New Tab"; destructive alert for Worktree removal; C8 settings slot reserved; `MainView` + `SingleSurfaceHostTests` deleted; LazyPanelHost refactored to TerminalClient dependency + 3 tests — 2026-04-20. (AddProject folder picker and NewWorktree path templating deferred to a follow-up plan — minimal shell scope.)
 
 ## Surprises & Discoveries
 
@@ -107,6 +107,38 @@ This is the composition layer that unlocks downstream capability work. C6 / C7 /
 **Verification:** `make mac-build` → `BUILD SUCCEEDED`. `make mac-lint` → clean. `xcodebuild test -scheme touch-code` → **57 tests in 11 suites pass** (48 prior + 9 new: 3 TabBar + 4 SplitViewport + 2 RootFeature additions). App binary launches; toolbar shows sidebar-mode picker + inspector toggle; sidebar + detail + hidden inspector compose without layout glitches.
 
 **Carry-forward to M5:** Lazy surface lifecycle. M5 observes `.tabActivated` on the engine event stream + `.selectionChanged` route in root reducer; iterates the incoming tab's panels and calls `terminalClient.ensureSurface` for each. Outgoing tabs' surfaces are NOT destroyed (product NFR: tab switch < 16ms; reopening surfaces would cost shell bootstrap time). The `SplitViewportView.placeholderCell` stands in for panels whose surface hasn't been lazily created yet — M5 should see it only briefly on first tab visit.
+
+### M5 — Lazy surface lifecycle + M4 polish (2026-04-20)
+
+**What landed:**
+- `apps/mac/touch-code/App/Features/SplitViewport/LazyPanelHost.swift` — new `View` wrapper implementing the M5 lifecycle: `.task(id: panelID)` calls `terminalEngine.ensureSurface` on first appearance, renders `PanelHostView` on success, shows a labelled placeholder with a "Retry" button on failure. Surfaces are reused across tab switches via the engine registry (`ghosttyRuntime.surface(for:)`); view appearance does not destroy them. Close flows through `HierarchyClient.closePanel` → `HierarchyManager.closePanel` → `TerminalEngine.closeSurface`.
+- `apps/mac/touch-code/App/Features/SplitViewport/SplitViewportView.swift` — `panelLeaf` replaced with `LazyPanelHost`; the stale "Surface not yet created" placeholder + os_log warning removed in favour of the live loading/retry states inside `LazyPanelHost`.
+- M4 polish folded in:
+  - Split containers switched from `HStack`/`VStack` to `HSplitView`/`VSplitView` for free drag-resize dividers; doc comment updated.
+  - Inspector toolbar button uses distinct icons (`sidebar.right` visible / `sidebar.squares.right` hidden).
+  - `RootFeature.reducer` now documents the `hierarchyClient.snapshot` TestStore contract as an inline comment on `.selectionChanged`.
+- `apps/mac/touch-code/Tests/WorktreeDetailFeatureTests.swift` — 2 tests covering the two Scope routings.
+- `apps/mac/touch-code/Tests/RootFeatureTests.swift` — `selectionChangedMirrorsActiveTabFromSnapshot` asserts that a selection pointing at a worktree with a selected tab populates `state.detail.splitViewport.activeTabID` correctly.
+
+**Verification:** `make mac-build` → `BUILD SUCCEEDED`. `make mac-lint` → clean. `xcodebuild test -scheme touch-code` → **60 tests in 12 suites pass** (57 prior + 3 new: 2 WorktreeDetail + 1 snapshot mirroring). App binary launches with the split viewport lazy-creation path active.
+
+**Carry-forward to M6:** Creation sheets (Space/Project/Worktree/Tab), destructive confirmation alerts, `@Presents settingsSheet` placeholder for C8 (DEC-4), delete `MainView.swift` + `SingleSurfaceHostTests.swift`.
+
+### M6 — Modals, confirmation, cleanup, LazyPanelHost refactor (2026-04-20)
+
+**What landed:**
+- `apps/mac/touch-code/App/Clients/TerminalClient.swift` — gains `surface(panelID)` closure for registry lookup after `ensureSurface`. `live(engine:)` forwards to `engine.ghosttyRuntime?.surface(for:)`; `testValue` uses `unimplemented(…, placeholder: nil)`.
+- `apps/mac/touch-code/App/Features/SplitViewport/LazyPanelHost.swift` — refactored to `@Dependency(TerminalClient.self)` (no longer takes a `TerminalEngine` parameter; no longer reads `HierarchyManager` from the environment). Registry short-circuit via `terminalClient.surface(panelID)`; if nil, calls `ensureSurface`, then re-looks-up and transitions state. Retry button re-invokes.
+- `SplitViewportView` / `WorktreeDetailView` / `ContentView` / `TouchCodeApp` — drop the `terminalEngine` parameter chain, one less explicit dependency through the view tree.
+- `apps/mac/touch-code/App/Features/Modals/CreationModals.swift` + `CreationModalViews.swift` — `NewSpaceFeature` + `NewTabFeature` reducers and sheet views. Both use `BindableAction` for `TextField` binding, dispatch through `HierarchyClient`, dismiss via `@Dependency(\.dismiss)`. AddProject folder-picker and NewWorktree path-templating flows are deferred — minimal shell ships 2 creation paths as proof, follow-up plan fills in 2 more.
+- `apps/mac/touch-code/App/Features/Root/RootFeature.swift` — state gains `@Presents var newSpaceSheet`, `@Presents var newTabSheet`, `@Presents var confirmAlert: AlertState<ConfirmAlertAction>?`. Actions `newSpaceButtonTapped` / `newTabButtonTapped` / `removeWorktreeButtonTapped` open the right presentation; `confirmRemoveWorktree` routes to `hierarchyClient.removeWorktree`. C8 reservation is an inline commented `@Presents var settingsSheet` that C8 M6 uncomments and types.
+- `apps/mac/touch-code/App/ContentView.swift` — new `+` toolbar button fires `.newSpaceButtonTapped`; `.sheet(item:)` + `.alert(…)` modifiers bind the scoped stores.
+- Deleted `MainView.swift` (pre-TCA bring-up path; `ContentView` is now the only entry) and `Tests/SingleSurfaceHostTests.swift` (the host type it covered no longer exists).
+- `apps/mac/touch-code/Tests/LazyPanelHostTests.swift` (3 tests) — covers first-appearance ensureSurface, retry re-invokes, registry short-circuit.
+
+**Verification:** `make mac-build` → `BUILD SUCCEEDED`. `make mac-lint` → clean. `xcodebuild test -scheme touch-code` → **61 tests in 12 suites pass** (60 prior - 2 deleted SingleSurfaceHostTests + 3 LazyPanelHostTests). App launches; toolbar "+" opens New Space sheet; submitting adds a Space; sidebar reflects the addition.
+
+**Exec plan 0007 CLOSED.** C6 M5 (InboxSidebarPlaceholder slot), C7 M3/M4 (inspector slot + GitViewerFeature), C8 M6 (settings sheet slot) are unblocked.
 
 ## Context and Orientation
 

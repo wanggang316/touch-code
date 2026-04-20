@@ -74,6 +74,48 @@ struct RootFeatureTests {
   }
 
   @Test
+  func selectionChangedMirrorsActiveTabFromSnapshot() async {
+    // Build a catalog snapshot with a Worktree whose selectedTabID is a
+    // known value; assert the reducer reads through the snapshot and
+    // mirrors that TabID into state.detail.splitViewport.activeTabID.
+    let spaceID = SpaceID()
+    let projectID = ProjectID()
+    let worktreeID = WorktreeID()
+    let tabID = TabID()
+
+    let tab = Tab(id: tabID, name: "t", splitTree: SplitTree(), panels: [])
+    let worktree = Worktree(
+      id: worktreeID, name: "w", path: "/w", branch: "main",
+      tabs: [tab], selectedTabID: tabID
+    )
+    let project = Project(
+      id: projectID, name: "p", rootPath: "/", gitRoot: "/",
+      worktreesDirectory: nil, defaultEditor: nil,
+      worktrees: [worktree], selectedWorktreeID: worktreeID
+    )
+    let space = Space(
+      id: spaceID, name: "s", projects: [project], selectedProjectID: projectID
+    )
+    let catalog = Catalog(windows: [], spaces: [space], selectedSpaceID: spaceID)
+
+    let store = TestStore(initialState: RootFeature.State()) {
+      RootFeature()
+    } withDependencies: {
+      $0.terminalClient.events = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.snapshot = { catalog }
+    }
+
+    let selection = HierarchySelection(
+      spaceID: spaceID, projectID: projectID, worktreeID: worktreeID
+    )
+    await store.send(.selectionChanged(selection)) { state in
+      state.selection = selection
+      state.detail.splitViewport.activeTabID = tabID
+    }
+  }
+
+  @Test
   func inspectorVisibilityTogglesBothWays() async {
     let store = TestStore(initialState: RootFeature.State()) {
       RootFeature()
