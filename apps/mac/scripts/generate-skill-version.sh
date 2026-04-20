@@ -24,9 +24,11 @@ fi
 # First argument wins; otherwise extract semver from the version: "…" literal.
 version="${1:-}"
 if [ -z "${version}" ]; then
-  # Pulls the first X.Y.Z substring from any `version:` line in main.swift. Robust to
-  # whatever surrounding text the banner has ("touch-code 0.1.0 (build 1)" etc.).
-  version="$(sed -n 's/.*version:.*[^0-9]\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' \
+  # Strict match: only pick up the version inside the literal
+  #     version: "touch-code X.Y.Z (build N)"
+  # emitted by TouchCodeCLI's CommandConfiguration. Anything else — a comment like
+  # `// version: 0.0.1` or a TODO that mentions a version — is ignored.
+  version="$(sed -n 's/.*version:.*"touch-code \([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' \
     "${main_swift}" | head -n 1)"
 fi
 

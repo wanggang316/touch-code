@@ -32,23 +32,37 @@ def collect_commands(node: dict, prefix: str = "") -> set[str]:
     return paths
 
 
-# Only pick up `tc <subcmd>…` references that start with literal "tc " and run until a
-# whitespace, backtick, or end-of-line character. Flag lookup (--foo) is not validated
-# here; only the subcommand name chain is.
-REFERENCE_RE = re.compile(r"\btc(?:\s+[a-z][a-z0-9-]*)+", re.IGNORECASE)
+# Only match `tc <subcommand>` tokens that live inside a fenced code block or an inline
+# backtick span. Prose like "run tc foo first" without backticks is intentionally
+# ignored — a real CLI claim is always set in `backticks` or a ``` fenced block by
+# convention. This keeps the check strict about what counts as a contract assertion.
+TC_IN_CODE_RE = re.compile(r"\btc(?:\s+[a-z][a-z0-9-]*)+", re.IGNORECASE)
+FENCE_RE = re.compile(r"^```")
+INLINE_CODE_RE = re.compile(r"`([^`]+)`")
 
 
 def find_references(dir_path: Path) -> dict[str, list[tuple[Path, int]]]:
-    """Walk every .md under dir_path and yield every "tc …" mention with its location."""
+    """Walk every .md under dir_path and yield every code-scope `tc …` mention."""
     refs: dict[str, list[tuple[Path, int]]] = {}
     for md in sorted(dir_path.rglob("*.md")):
         with md.open("r", encoding="utf-8") as fh:
+            in_fence = False
             for lineno, line in enumerate(fh, start=1):
-                for match in REFERENCE_RE.finditer(line):
-                    token = normalise(match.group(0))
-                    if token is None:
-                        continue
-                    refs.setdefault(token, []).append((md, lineno))
+                if FENCE_RE.match(line.lstrip()):
+                    in_fence = not in_fence
+                    continue
+                segments: list[str] = []
+                if in_fence:
+                    segments.append(line)
+                else:
+                    # Inline spans only; everything outside backticks is prose.
+                    segments.extend(INLINE_CODE_RE.findall(line))
+                for segment in segments:
+                    for match in TC_IN_CODE_RE.finditer(segment):
+                        token = normalise(match.group(0))
+                        if token is None:
+                            continue
+                        refs.setdefault(token, []).append((md, lineno))
     return refs
 
 

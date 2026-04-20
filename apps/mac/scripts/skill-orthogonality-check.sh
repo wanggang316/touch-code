@@ -30,11 +30,20 @@ ALLOWED_BASENAMES=(
   "HelpJSONCommand.swift"
 )
 
-allowed_pattern=""
+# Build the allowlist as a strict grep pattern that only matches on the file-path
+# column of `grep -rn` output (`<path>:<line>:<content>`). Without the anchor, a mere
+# mention of, say, "SkillInstaller.swift" inside a comment or docstring under
+# TouchCodeCore/ would silently exempt the line. The invariant is load-bearing.
+file_alternation=""
 for name in "${ALLOWED_BASENAMES[@]}"; do
-  allowed_pattern+="${name}|"
+  # Escape '.' and '+' in filenames; build a single ERE alternation.
+  escaped="${name//./\\.}"
+  file_alternation+="${escaped}|"
 done
-allowed_pattern="${allowed_pattern%|}"
+file_alternation="${file_alternation%|}"
+# Match either at start-of-line (when grep strips the dir prefix) or after a `/`, then
+# the basename, then the `:line:` column separator. Anything else is a violation.
+allowlist_re="(^|/)(${file_alternation}):[0-9]+:"
 
 scan_targets=(
   "${srcroot}/apps/mac/TouchCodeCore"
@@ -55,7 +64,7 @@ matches="$(grep -rn 'SKILL.md\|touch-code-skill' \
   "${present_targets[@]}" \
   --include='*.swift' \
   2>/dev/null \
-  | grep -v -E "${allowed_pattern}" \
+  | grep -v -E "${allowlist_re}" \
   || true)"
 
 if [ -n "${matches}" ]; then

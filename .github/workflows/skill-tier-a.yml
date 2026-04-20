@@ -12,6 +12,11 @@ on:
     branches:
       - main
 
+# Avoid duplicate macos-14 minutes on back-to-back PR pushes.
+concurrency:
+  group: skill-tier-a-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   tier-a:
     runs-on: macos-14
