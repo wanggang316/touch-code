@@ -5,14 +5,25 @@ import TouchCodeCore
 
 @MainActor
 struct TerminalEngineTests {
-  private func makeEngine() -> (TerminalEngine, FakeHierarchyRuntime) {
+  private final class MutableClock: @unchecked Sendable {
+    var now: Date = Date(timeIntervalSince1970: 1_700_000_000)
+  }
+
+  private func makeEngine(
+    clock: MutableClock = MutableClock()
+  ) -> (TerminalEngine, FakeHierarchyRuntime, HierarchyManager, MutableClock) {
     let tempURL = FileManager.default.temporaryDirectory
       .appending(component: UUID().uuidString + ".json")
     let fakeRuntime = FakeHierarchyRuntime()
     let store = CatalogStore(fileURL: tempURL)
     let manager = HierarchyManager(catalog: .default, store: store, runtime: fakeRuntime)
-    let engine = TerminalEngine(store: store, hierarchy: manager)
-    return (engine, fakeRuntime)
+    let engine = TerminalEngine(store: store, hierarchy: manager) { clock.now }
+    return (engine, fakeRuntime, manager, clock)
+  }
+
+  private func makeEngine() -> (TerminalEngine, FakeHierarchyRuntime) {
+    let (engine, runtime, _, _) = makeEngine(clock: MutableClock())
+    return (engine, runtime)
   }
 
   @Test
@@ -88,5 +99,93 @@ struct TerminalEngineTests {
       return
     }
     #expect(data == Data([0xAA]))
+  }
+
+  // MARK: - Crash isolation
+
+  @Test
+  func firstCrashSurvivesReturnsTrue() throws {
+    let (engine, _, manager, _) = makeEngine(clock: MutableClock())
+    let spaceID = manager.createSpace(name: "s")
+    let projectID = try manager.addProject(to: spaceID, name: "p", rootPath: "/", gitRoot: "/")
+    let worktreeID = try manager.createWorktree(in: projectID, in: spaceID, name: "w", path: "/w", branch: "main")
+    let tabID = try manager.createTab(in: worktreeID, in: projectID, in: spaceID, name: nil)
+    let panelID = try manager.openPanel(
+      in: tabID, in: worktreeID, in: projectID, in: spaceID,
+      workingDirectory: "/w", initialCommand: nil
+    )
+
+    let survived = engine.recordPanelCrash(panelID: panelID, reason: "segv")
+    #expect(survived)
+    // Tab still present.
+    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].tabs.contains(where: { $0.id == tabID }))
+  }
+
+  @Test
+  func threeCrashesWithinWindowAutoClosesTab() throws {
+    let clock = MutableClock()
+    let (engine, _, manager, clk) = makeEngine(clock: clock)
+    let spaceID = manager.createSpace(name: "s")
+    let projectID = try manager.addProject(to: spaceID, name: "p", rootPath: "/", gitRoot: "/")
+    let worktreeID = try manager.createWorktree(in: projectID, in: spaceID, name: "w", path: "/w", branch: "main")
+    let tabID = try manager.createTab(in: worktreeID, in: projectID, in: spaceID, name: nil)
+    let panelID = try manager.openPanel(
+      in: tabID, in: worktreeID, in: projectID, in: spaceID,
+      workingDirectory: "/w", initialCommand: nil
+    )
+
+    #expect(engine.recordPanelCrash(panelID: panelID, reason: "1"))
+    clk.now = clk.now.addingTimeInterval(5)
+    #expect(engine.recordPanelCrash(panelID: panelID, reason: "2"))
+    clk.now = clk.now.addingTimeInterval(5)
+    let survived = engine.recordPanelCrash(panelID: panelID, reason: "3")
+    #expect(!survived)
+    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].tabs.isEmpty)
+  }
+
+  @Test
+  func crashesOlderThanWindowDropFromRing() throws {
+    let clock = MutableClock()
+    let (engine, _, manager, clk) = makeEngine(clock: clock)
+    let spaceID = manager.createSpace(name: "s")
+    let projectID = try manager.addProject(to: spaceID, name: "p", rootPath: "/", gitRoot: "/")
+    let worktreeID = try manager.createWorktree(in: projectID, in: spaceID, name: "w", path: "/w", branch: "main")
+    let tabID = try manager.createTab(in: worktreeID, in: projectID, in: spaceID, name: nil)
+    let panelID = try manager.openPanel(
+      in: tabID, in: worktreeID, in: projectID, in: spaceID,
+      workingDirectory: "/w", initialCommand: nil
+    )
+
+    // 2 crashes, then advance past window, then 2 more — should survive (ring
+    // only has 2 entries after the prune).
+    #expect(engine.recordPanelCrash(panelID: panelID, reason: "1"))
+    #expect(engine.recordPanelCrash(panelID: panelID, reason: "2"))
+    clk.now = clk.now.addingTimeInterval(31)
+    #expect(engine.recordPanelCrash(panelID: panelID, reason: "3"))
+    #expect(engine.recordPanelCrash(panelID: panelID, reason: "4"))
+    // Tab should still be alive.
+    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].tabs.contains(where: { $0.id == tabID }))
+  }
+
+  @Test
+  func retryPanelClearsRingAndEmitsReady() throws {
+    let (engine, _, manager, _) = makeEngine(clock: MutableClock())
+    let spaceID = manager.createSpace(name: "s")
+    let projectID = try manager.addProject(to: spaceID, name: "p", rootPath: "/", gitRoot: "/")
+    let worktreeID = try manager.createWorktree(in: projectID, in: spaceID, name: "w", path: "/w", branch: "main")
+    let tabID = try manager.createTab(in: worktreeID, in: projectID, in: spaceID, name: nil)
+    let panelID = try manager.openPanel(
+      in: tabID, in: worktreeID, in: projectID, in: spaceID,
+      workingDirectory: "/w", initialCommand: nil
+    )
+
+    _ = engine.recordPanelCrash(panelID: panelID, reason: "1")
+    _ = engine.recordPanelCrash(panelID: panelID, reason: "2")
+    engine.retryPanel(panelID)
+
+    // Two more crashes should now not trigger auto-close (ring was cleared).
+    #expect(engine.recordPanelCrash(panelID: panelID, reason: "3"))
+    #expect(engine.recordPanelCrash(panelID: panelID, reason: "4"))
+    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].tabs.contains(where: { $0.id == tabID }))
   }
 }
