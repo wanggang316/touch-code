@@ -1,6 +1,6 @@
 # ExecPlan: Agent Notification Aggregation (C6)
 
-**Status:** In Progress
+**Status:** Completed (2026-04-20)
 **Author:** Gump (with Claude)
 **Date:** 2026-04-20
 
@@ -28,9 +28,9 @@ This plan is the first capability that makes touch-code **aware** of what its Pa
 - [x] M4b — NotificationCoordinator fan-out + muting/permission flow — 2026-04-20, commit `bcf7236`.
 - [x] M4c — 11-step app-shell wiring via `C6AppBootstrap` + `HookConfigStoreAdapter` + end-to-end integration tests — 2026-04-20. Hierarchy-event subscription step (6) deferred until `HierarchyManager` exposes a stream; Panel add/remove mid-session requires explicit `registry.create/destroy` calls.
 - [x] M5 — InboxSidebar SwiftUI surface + InboxFeature TCA reducer + InboxClient dependency — 2026-04-20, built on 0007 M3 DEC-2 mode-swap slot. NotificationPermissionSheet + full deeplink-to-Panel chain deferred (HierarchyClient needs a `resolvePanel` helper that doesn't exist yet; InboxFeature emits `.deeplinkRequested(panelID)` as a delegate action for RootFeature to consume later).
-- [ ] M6a — Bundled JSON defaults + `DefaultRules.installIfMissing(at:)` + Stop-hook shim scripts at `touch-code-skill/shims/` — 2026-04-20
+- [x] M6a — Bundled JSON defaults + `DefaultRules.installIfMissing(at:)` + Stop-hook shim scripts at `touch-code-skill/shims/` — 2026-04-20
 - [x] M6b — `AgentDetectionRules` round-trip test on `DefaultRules.json` + `coordinator.reloadRules()` app-internal wiring — 2026-04-20 (`tc notifications rules reload` CLI verb still deferred to follow-up PR on 0003 per DEC-P4).
-- [ ] M7 — Integration tests (mock HookDispatcher, mock UNUserNotificationCenter, fake Clock) + end-to-end flow asserting a sentinel match transitions a tracker and surfaces all three sinks
+- [x] M7 — End-to-end integration tests driving a live C3 `HookDispatcher` (from plan 0003 M2.1): lifecycle events via `dispatcher.fire()` + `attach(to:catalog:)` stream, rule-driven paths via the `router.handle(envelope:ruleID:)` explicit seam, muting + permission-denied semantics — 2026-04-20.
 
 ## Surprises & Discoveries
 
@@ -238,6 +238,71 @@ Reviewer flagged that `SettingsStore.backupBrokenFile` still used the silent-`tr
 - Sentinel extraction from `HookEnvelope` — today `DetectionRouter.ruleID(from:)` pulls the id out of the `match` text of a `.panelOutputMatch` envelope (defensive fallback); C3 M2 is expected to pass the subscription id sidechannel-style, at which point the router reads it cleanly.
 
 These don't block M4b (coordinator) — M4b binds to `RouterOutput` and the tracker's stream, not to C3's dispatcher directly.
+
+### M7 — End-to-end integration with live C3 dispatcher (2026-04-20)
+
+**Unblocked by** cherry-picking C3 exec plan 0003 M2.1 (commit `ba68113`, lands locally as `2a11b53`): `EventMapper`, real `HookDispatcher.attach(to:catalog:)`, and `ProcessHookExecutor`. Conflict on C3's own `0003-hooks-and-cli.md` plan file resolved by removing (belongs on C3's branch only).
+
+**What landed:**
+- `apps/mac/touch-code/Tests/NotificationsTests/C6EndToEndTests.swift` — 7 integration tests covering the full C6 pipeline with a **live C3 HookDispatcher**:
+  - `panelCrashedFiresThroughDispatcherAndPostsCrashedNotification` — dispatcher.fire(panel.crashed envelope) → dispatch() → DetectionRouter.handle → tracker.ingest → coordinator → MockOSNotifier posts `.crashed`.
+  - `panelExitedZeroFiresCompletedNotification` — same path for `.panelExited(0)` → `.completed`.
+  - `panelExitedNonZeroFiresCrashedNotification` — non-zero exit code routes to `.crashed` kind.
+  - `blockedOnInputRuleDrivesFullStack` — rule-driven via explicit `router.handle(envelope:ruleID:)` seam. Covers the path C3 M2.1.1 will eventually wire through `dispatcher.fire()` once the command sidechannel lands.
+  - `mutedRuleStillInboxesButDoesNotPost` — mute policy: inbox accrues, OS post suppressed. Deterministic wait via `InboxStore.observeInbox()` (not a sleep fence).
+  - `deniedPermissionInboxesButSkipsOSPost` — permission-denied: same semantics as muted rule.
+  - `attachedEventStreamRoutesPanelCrashedEndToEnd` — uses `dispatcher.attach(to: stream, catalog: { ... })` to drive a real `AsyncStream<TerminalEvent>`. EventMapper produces a fully-anchored envelope, fire() matches the sentinel sub, dispatch() hands to DetectionRouter, full downstream chain fires. This is the path every live Runtime event takes in production.
+- `TrackerRegistry.hierarchy` changed from `private let` to `let` — the M7 harness needs it to pass the same catalog closure to `dispatcher.attach(to:catalog:)`. Read-only; no existing caller relied on it being private.
+
+**Coverage gap openly documented:** C3's `InternalHookSubscriber.handle(envelope:)` protocol method does not carry the matched subscription's `command` or ruleID, so `DetectionRouter.handle(envelope:)` cannot resolve rule id for `.panelOutputMatch` envelopes — it logs and drops them (increments `droppedEnvelopesCount`). The rule-driven path therefore goes through the `router.handle(envelope:ruleID:)` explicit seam, which M7 tests directly. When C3 M2.1.1 extends the sidechannel, the protocol method's `.panelOutputMatch` branch can route through to the same seam and one more end-to-end test via `dispatcher.fire` becomes possible.
+
+**Verification:** `xcodebuild test -scheme touch-code` → **214 tests / 36 suites green** (186 pre-M7 + 21 from C3 M2.1 cherry-pick + 7 new M7). `make mac-lint` clean.
+
+## Plan Retrospective (2026-04-20)
+
+**Ship sequence (commits on branch `worktree-design+c6-agent-notifications`):**
+
+| Phase | Commits | Headline |
+|---|---|---|
+| Design | `ea0daca` → `45276d1` | Design doc v1 → v2 (C3 DEC-16 shape) |
+| Planning | `9f5d2fb` → `904345b` | Exec plan + review v2 |
+| Implementation | `932e6b4` → `7a188cd` | M1–M6 with review cycles |
+| Integration | `2a11b53` | C3 M2.1 cherry-pick |
+| Closure | (this commit) | M7 end-to-end + plan closeout |
+
+**What went well:**
+- **DEC-P1 revision mid-flight** caught C3's silent reserved-prefix filter in `HookConfigStore.load()` before it shipped as a silent data-loss bug. `upsertInternal`/`removeInternal` replaced the original load/save retry loop; net result was simpler code + closed the latent correctness gap.
+- **Protocol-first design** — `InternalHookSubscriber`, `HookConfigWriting`, `DockBadger`, `OSNotifier`, `NotificationPermissionDelegate` all shipped as protocols first, concrete adapters second, test doubles third. Let M4a ship the macOS surfaces in parallel with M2 (router/tracker) because every consumer of the surfaces was protocol-typed.
+- **Template validation at init** (`TemplateRenderer.init(rules:)`) caught every `{path}`/`|filter:` malformation at rule-load time. `DefaultRulesRoundTripTests` catches the four drift modes between `DefaultRules.json` literal and `AgentDetectionRules` schema — low-cost regression insurance.
+- **Split-milestone discipline** (M1a/M1b, M4a/M4b/M4c/M4c.1, M6a/M6b) kept C6 shipping forward while C3 progressed in parallel. Each sub-milestone was a compilable + review-ready unit; no "build the whole thing before any review" plateau.
+- **Review-cycle turnaround** — every milestone was reviewed within hours of landing; findings were addressed in small follow-up commits (`-fix` / `-polish` / `-review`) instead of being folded into the next milestone. The paper trail is dense and every decision is attributable.
+
+**What I'd do differently:**
+- The architecture gap in C3's `handle(envelope:)` (no command sidechannel) was flagged in M2 review but accepted through to M7. The `router.handle(envelope:ruleID:)` explicit seam works, but end-to-end-via-fire for rule-driven paths is still blocked on C3 M2.1.1. A dedicated flag in M2 or M4c to negotiate the protocol extension with C3 earlier would have shortened the integration critical path.
+- Early M1 was split reactively when C3 0003 M1 hadn't shipped. A more explicit dependency-graph diagram in the plan up front (who blocks whom with specific deliverables) would have avoided the M1a/M1b retrofit.
+
+**Deliverables shipped:**
+- **4 design docs:** c6-agent-notifications.md (v2.1), c6-m5-inbox-sidebar.md (implementation sketch).
+- **1 exec plan:** 0006-agent-notifications.md (this file).
+- **18 TouchCodeCore + in-app source files:** `AgentState`/`AgentNotification`/`NotificationInbox`/`AgentDetectionRules`/`MuteSettings`/`TemplateField`/`AgentStateTransition` (Core); `InboxStore`/`SettingsStore`/`OSNotifier`/`DockBadger`/`NotificationPermissionDelegate`/`NotificationCoordinator`/`DetectionRouter`/`TrackerRegistry`/`AgentStateTracker`/`RuleStore`/`TemplateRenderer`/`BrokenFileBackup`/`ConfigPaths`/`C6AppBootstrap`/`DefaultRules`/`InboxClient`/`InboxFilter`/`InboxSidebarFeature`/`InboxSidebarView`/`HookConfigWriting`/`HookConfigStoreAdapter` (app).
+- **3 user-facing shim scripts:** `touch-code-skill/shims/claude-stop-hook.sh`, `codex-complete-hook.sh`, `aider-idle-hook.sh`.
+- **14 test files** spanning 36 test suites; **214 tests total green** (88 TouchCodeCore + 93 pre-M7 touch-code + 7 M7 + 26 from merged Runtime/Hooks work).
+
+**Known deferrals (non-blocking, recorded in M5 Outcomes as F1/F2/F3):**
+- F1: Full deeplink focus chain from `InboxFeature.deeplinkRequested` — needs `HierarchyClient.resolvePanel(panelID)`.
+- F2: `NotificationPermissionSheet` SwiftUI — `NullPermissionDelegate` is acceptable until a Settings feature exists.
+- F3: Mute-rule row action — `AgentNotification` needs a `ruleID: String?` field, small schema bump on the next coordinator-touching commit.
+- F4 (new, M7): End-to-end `.panelOutputMatch` fire via `dispatcher.fire()` — blocks on C3 M2.1.1 command-sidechannel extension.
+
+**Decisions locked via plan review (all DEC-P1..P6 resolved):**
+- DEC-P1 — `HookConfigWriting` uses `upsertInternal`/`removeInternal` (revised from load/save).
+- DEC-P2 — `TrackerRegistry` is the single owner of tracker lifecycle.
+- DEC-P3 — 11-step app-shell wiring with restart-time permission sweep.
+- DEC-P4 — M6 ships app-internal `reloadRules`; CLI verb deferred to 0003 follow-up.
+- DEC-P5 — M1 split into M1a (C3-independent) + M1b (C3-dependent).
+- DEC-P6 — `MuteSettings` JSON keys are camelCase per project convention.
+
+**Plan 0006 closed.** Forward work tracked in the C3 (M2.1.1 command sidechannel), C4 (CLI verbs), and C8 (Settings feature) plans.
 
 ## Context and Orientation
 

@@ -14,7 +14,11 @@ import TouchCodeCore
 /// (see design §Known-Agent Rule Templates).
 @MainActor
 final class TrackerRegistry {
-  private let hierarchy: HierarchyManager
+  /// Read-only access to the manager the registry observes. Exposed so
+  /// the M7 integration harness can hand the same catalog closure to
+  /// `HookDispatcher.attach(to:catalog:)` without re-plumbing the
+  /// manager through C6AppBootstrap.
+  let hierarchy: HierarchyManager
   private let idleThreshold: TimeInterval
   private let clock: any Clock<Duration>
   private var trackers: [PanelID: AgentStateTracker] = [:]
