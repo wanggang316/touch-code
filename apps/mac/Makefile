@@ -1,4 +1,5 @@
-.PHONY: help bootstrap build-ghostty generate build run-app format lint check test clean build-cli
+.PHONY: help bootstrap build-ghostty generate build run-app format lint check test clean build-cli \
+  skill-version skill-validate skill-golden-update
 
 # Use full Xcode.app when xcode-select points at Command Line Tools only.
 # See DEC-10 in docs/exec-plans/0001-bootstrap-monorepo.md.
@@ -17,6 +18,9 @@ help:
 	@echo "  check            - format + lint"
 	@echo "  test             - (placeholder)"
 	@echo "  clean            - Remove workspace + project + Package.resolved"
+	@echo "  skill-version    - Sync tc version into touch-code-skill/VERSION + package.json"
+	@echo "  skill-validate   - Tier-A skill checks (tc help-json roundtrip + golden + orthogonality)"
+	@echo "  skill-golden-update - Regenerate apps/mac/scripts/skill-golden-manifest.txt"
 
 bootstrap:
 	cd ../.. && git submodule update --init --recursive && mise install
@@ -51,3 +55,14 @@ test:
 
 clean:
 	rm -rf .build touch-code.xcworkspace touch-code.xcodeproj Tuist/Package.resolved
+
+# --- Skill package (C5) ---
+
+skill-version:
+	./scripts/generate-skill-version.sh
+
+skill-validate: build-cli
+	./scripts/skill-tier-a.sh
+
+skill-golden-update: build-cli
+	./scripts/skill-golden-update.sh

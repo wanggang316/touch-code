@@ -7,7 +7,7 @@ struct TouchCodeCLI: ParsableCommand {
     commandName: "tc",
     abstract: "Control touch-code from the terminal.",
     version: "touch-code 0.1.0 (build 1)",
-    subcommands: [SkillCommand.self]
+    subcommands: [SkillCommand.self, HelpJSONCommand.self]
   )
 
   func run() throws {

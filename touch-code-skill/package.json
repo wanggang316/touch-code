@@ -1,6 +1,4 @@
 {
-  "name": "@touch-code/skill",
-  "version": "0.1.0",
   "description": "Agent skill for touch-code",
   "keywords": [
     "pi",
@@ -9,10 +7,12 @@
     "touch-code"
   ],
   "license": "Unlicense",
-  "private": true,
+  "name": "@touch-code/skill",
   "pi": {
     "skills": [
       "./"
     ]
-  }
+  },
+  "private": true,
+  "version": "0.1.0"
 }

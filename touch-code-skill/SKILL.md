@@ -8,21 +8,20 @@ already running inside a touch-code Panel.
 
 ## Terminology
 
-- Space: top-level workspace grouping; contains one or more Projects.
-- Project: a git repository tracked by touch-code; lives inside one Space.
-- Worktree: a `git worktree` of a Project; has its own directory, branch, and Tabs.
-- Tab: a named grouping of Panels inside a Worktree.
-- Panel: a single terminal session rendered by libghostty.
+<!-- STUB: filled in by exec plan 0004 M8 -->
+
+- Space, Project, Worktree, Tab, Panel — see
+  [references/hierarchy-model.md](references/hierarchy-model.md).
 
 ## Fast Start
 
-<!-- STUB: filled in by exec plan 0004 M8 -->
+Install this skill into your agent (M4 surface — M8 adds the rest):
 
-- `tc ls --json` — discover the current tree.
-- `tc worktree new <branch>` — create a new worktree.
-- `tc tab new --focus -- <cmd>` — open a new tab and focus it.
-- `tc panel split right` — split the current panel to the right.
-- `tc panel send <id> 'echo hi'` — send text to a panel.
+```
+tc skill install --claude-code
+tc skill status
+tc skill bundle-path
+```
 
 ## Deep-Dive References
 

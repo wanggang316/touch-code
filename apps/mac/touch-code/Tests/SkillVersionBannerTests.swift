@@ -144,6 +144,42 @@ struct SkillVersionBannerTests {
     #expect(defaults.string(forKey: SkillVersionBanner.dismissKey(for: .claudeCode)) == nil)
   }
 
+  @Test
+  func installedNewerThanBundledDoesNotNag() {
+    // Developer override: someone points TOUCH_CODE_SKILL_BUNDLE at an older bundle and
+    // already has a newer skill installed. The banner should stay hidden — an "upgrade"
+    // nudge going backwards is noise.
+    let banner = SkillVersionBanner(
+      bundleVersionProvider: { "0.1.0" },
+      installedVersionProvider: { agent in agent == .claudeCode ? "0.2.0" : nil },
+      defaults: Self.ephemeralDefaults()
+    )
+    banner.check()
+    #expect(banner.status == .hidden)
+  }
+
+  @Test
+  func semverOrderingHandlesTwoDigitMinor() {
+    // String-wise "0.10.0" < "0.9.0", but numerically "0.9.0" < "0.10.0". The banner's
+    // `.numeric` comparison must pick the numeric order.
+    #expect(SkillVersionBanner.isOlder("0.9.0", than: "0.10.0"))
+    #expect(!SkillVersionBanner.isOlder("0.10.0", than: "0.9.0"))
+    #expect(!SkillVersionBanner.isOlder("0.1.0", than: "0.1.0"))
+  }
+
+  @Test
+  func piAgentSkippedAtLoopSiteEvenIfProviderReturnsLaggingVersion() {
+    // `tc skill install --pi` shells out to pi; there's no actionable upgrade CTA for
+    // the banner to surface. Regression guard against comment/code drift.
+    let banner = SkillVersionBanner(
+      bundleVersionProvider: { "0.2.0" },
+      installedVersionProvider: { agent in agent == .pi ? "0.1.0" : nil },
+      defaults: Self.ephemeralDefaults()
+    )
+    banner.check()
+    #expect(banner.status == .hidden)
+  }
+
   // MARK: - Helpers
 
   /// Per-test `UserDefaults` so tests don't pollute each other or the real domain.

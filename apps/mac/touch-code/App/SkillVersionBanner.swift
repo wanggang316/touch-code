@@ -59,9 +59,11 @@ public final class SkillVersionBanner {
     )
   }
 
-  /// Polls every known agent in `AgentID.allCases` (pi is skipped because its cache is
-  /// managed externally). On the first lagging install that has not been dismissed for
-  /// *this* bundle version, surface `.needsUpgrade` and stop — one banner at a time.
+  /// Polls every copy-mode agent in `AgentID.allCases` — pi is skipped at the loop site
+  /// because its cache is managed by pi itself, not by `tc skill install`, so the banner
+  /// has no actionable upgrade CTA to surface. On the first lagging install that has not
+  /// been dismissed for *this* bundle version, surface `.needsUpgrade` and stop — one
+  /// banner at a time.
   ///
   /// Synchronous even though the call-site is `.task { ... }`: the work is pure file
   /// reads plus a `UserDefaults` check, both of which are negligible on launch. Tests
@@ -72,13 +74,22 @@ public final class SkillVersionBanner {
       return
     }
     for agent in AgentID.allCases {
+      if agent == .pi { continue } // pi has no `tc skill install --pi` upgrade path
       guard let installed = installedVersionProvider(agent) else { continue }
-      if installed == bundled { continue }
+      if !Self.isOlder(installed, than: bundled) { continue }
       if wasDismissed(for: agent, bundleVersion: bundled) { continue }
       status = .needsUpgrade(agent: agent, installed: installed, bundled: bundled)
       return
     }
     status = .hidden
+  }
+
+  /// Compares two version strings using `String.compare(_:options:)` with `.numeric`, so
+  /// "0.9.0" < "0.10.0" and "0.1.0" < "0.2.0" behave correctly. An installed version
+  /// *newer* than the bundle (dev override, or user manually replaced files) does NOT
+  /// trigger the upgrade banner — surfacing "upgrade" in that direction is noise.
+  static func isOlder(_ installed: String, than bundled: String) -> Bool {
+    installed.compare(bundled, options: .numeric) == .orderedAscending
   }
 
   /// Records the current `(agent, bundled)` pair as dismissed and hides the banner.

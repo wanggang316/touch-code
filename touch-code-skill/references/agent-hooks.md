@@ -1,7 +1,7 @@
 # Agent Hooks
 
-touch-code can install hook bridges into Claude Code, Codex, and pi so agent completion / notification events surface in the app.
+touch-code will install hook bridges into Claude Code, Codex, and pi once C3 / C6 land.
 
-TODO: document `tc agent install-hook <agent>`, `tc agent remove-hook <agent>`, `tc agent receive-agent-hook --agent <agent>`.
+TODO: document the agent-hook surface once the corresponding commands ship.
 
 <!-- STUB: filled in by exec plan 0004 M8 -->
