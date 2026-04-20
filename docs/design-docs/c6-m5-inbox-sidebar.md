@@ -18,13 +18,38 @@ and the settings toggles for `MuteSettings`. All underlying services
 shipped and tested. M5 wires them into the 0007 TCA feature tree and
 writes the SwiftUI views.
 
+## Sidebar slot — decision deferred to 0007
+
+This sketch originally assumed a **trailing overlay slide-in** (320pt
+panel, `.transition(.move(edge: .trailing))`) cohabiting with whatever
+primary sidebar + detail 0007 lands. That is a **third option** alongside
+the two 707A645A outlined for the root composition:
+
+- **(a)** Three-column `NavigationSplitView` (primary hierarchy sidebar +
+  inbox as a second column + detail).
+- **(b)** Root-level mode swap (toggle primary sidebar between
+  `HierarchySidebar` and `InboxSidebar` depending on a mode selector).
+- **(c)** *This sketch's preferred option* — trailing overlay that
+  coexists with (a)/(b), triggered by the toolbar bell / ⌘⇧N and
+  doesn't steal the primary sidebar slot.
+
+Implementation preference: (c). It matches the design doc's "slide-in
+sidebar" language, avoids fighting whatever primary sidebar 0007 picks,
+and keeps the inbox reachable without a mode switch. Fallback if (c)
+doesn't compose cleanly with 0007's window-chrome: (b) — swap in
+`InboxSidebar` as the primary when the user requests it.
+
+**Hard alignment deferred to 0007 M2/M3 landing.** Once `RootFeature`
+surfaces stabilise, this sketch gets another pass and the final slot
+is picked. The view + reducer interfaces below are slot-agnostic.
+
 ## What lands
 
 Under `apps/mac/touch-code/Notifications/Views/`:
 
-- `InboxSidebar.swift` — root view. 320pt trailing panel, slides in/out
-  via `transition(.move(edge: .trailing))`. Bound to a
-  `@Bindable` `InboxViewModel`.
+- `InboxSidebar.swift` — root view. 320pt panel. Entry animation TBD
+  per §Sidebar slot above (overlay transition vs. primary-sidebar
+  swap). Bound to a `@Bindable` `InboxViewModel`.
 - `InboxRow.swift` — single-row cell. Agent avatar (32pt circle with
   first letter uppercase), title, body (1 line, truncated to the cell),
   provenance (Project · Worktree · Tab · Panel), relative `createdAt`,
@@ -67,13 +92,71 @@ struct InboxFeature {
     case rowSwipedDismiss(AgentNotification.ID)
     case muteRuleTapped(ruleID: String)
     case clearAllTapped
-    case inboxUpdated(NotificationInbox)        // from InboxClient stream
-    case unreadCountUpdated(Int)                // from unreadPublisher
+    case onAppear                                // kick off the subscribe effects
+    case inboxUpdated(NotificationInbox)         // from InboxClient.observe()
+    case unreadCountUpdated(Int)                 // from InboxClient.observeUnread()
+    case deeplinkRequested(PanelID)              // delegate up to RootFeature
   }
 
   @Dependency(\.inboxClient) var inboxClient
 
-  var body: some ReducerOf<Self> { /* … */ }
+  var body: some ReducerOf<Self> {
+    Reduce { state, action in
+      switch action {
+      case .onAppear:
+        return .merge(
+          .run { send in
+            for await inbox in inboxClient.observe() {
+              await send(.inboxUpdated(inbox))
+            }
+          },
+          .run { send in
+            for await n in inboxClient.observeUnread() {
+              await send(.unreadCountUpdated(n))
+            }
+          }
+        )
+
+      case .toggleSidebar:
+        state.isPresented.toggle()
+        return .none
+
+      case .filterChanged(let filter):
+        state.filter = filter
+        return .none
+
+      case .rowTapped(let id):
+        let panelID = state.notifications.first(where: { $0.id == id })?.panelID
+        return .run { send in
+          await inboxClient.markRead([id])
+          if let panelID {
+            await send(.deeplinkRequested(panelID))
+          }
+        }
+
+      case .rowSwipedDismiss(let id):
+        return .run { _ in await inboxClient.dismiss([id]) }
+
+      case .muteRuleTapped(let ruleID):
+        return .run { _ in await inboxClient.muteRule(ruleID) }
+
+      case .clearAllTapped:
+        return .run { _ in await inboxClient.clearAll() }
+
+      case .inboxUpdated(let inbox):
+        state.notifications = inbox.notifications.filter { $0.dismissedAt == nil }
+        return .none
+
+      case .unreadCountUpdated(let n):
+        state.unreadCount = n
+        return .none
+
+      case .deeplinkRequested:
+        // Consumed by RootFeature — see §Deeplink chain below.
+        return .none
+      }
+    }
+  }
 }
 ```
 
@@ -99,11 +182,38 @@ records every call.
 - Toolbar bell icon in `MainView` with a badge reading from
   `InboxFeature.State.unreadCount`. Tapping sends `.toggleSidebar`.
 - ⌘⇧N keyboard shortcut bound to the same action.
-- `DeeplinkRouter` (already exists per architecture §URL scheme) —
-  the OS banner's `touch-code://panel/<id>/focus` URL and the row
-  double-click both go through this router. When the Panel is closed,
-  router opens the inbox sidebar filtered to the source notification's
-  id.
+- `DeeplinkRouter` (architecture §URL scheme — file path pending 0007).
+
+### Deeplink chain
+
+Row-tap and OS-banner click both resolve through the same
+`RootFeature`-level action chain. M5 does not own the final navigation
+— `InboxFeature` emits a `.deeplinkRequested(PanelID)` delegate action
+and `RootFeature` decides how to surface it. The expected chain,
+assuming 0007 ships `tabSelect` / `splitFocus` conventions similar to
+supaterm:
+
+```
+InboxFeature.Action.rowTapped(id)
+  → InboxClient.markRead([id])
+  → InboxFeature.Action.deeplinkRequested(panelID)
+RootFeature.Action.inbox(.deeplinkRequested(panelID))
+  → HierarchyClient.resolvePanel(panelID) → (spaceID, projectID, worktreeID, tabID)
+  → RootFeature.Action.hierarchy(.spaceSelect(spaceID))
+  → RootFeature.Action.hierarchy(.worktreeSelect(worktreeID))
+  → RootFeature.Action.hierarchy(.tabSelect(tabID))
+  → RootFeature.Action.hierarchy(.splitFocus(panelID))
+  → RootFeature.Action.inbox(.toggleSidebar)    // optional, close on focus
+```
+
+If `resolvePanel` returns nil (Panel was closed since the banner
+fired), emit a `toast` action with copy "Panel closed; inbox entry
+remains." and leave the sidebar open with the row highlighted.
+
+External surface: OS-banner click goes through AppDelegate's
+`handle(url:)` → `DeeplinkRouter` → same `RootFeature.Action.inbox
+(.deeplinkRequested(panelID))` entry. One code path for row-tap and
+banner-click.
 
 ## Open design decisions
 
@@ -112,9 +222,17 @@ records every call.
    minute) or hand-rolled? Leaning: `RelativeDateTimeFormatter` with
    `.abbreviated` style + a `TimelineView(.periodic(after:every:))`
    wrapper so the rendered string refreshes without state churn.
-2. **Swipe gesture affordance** — AppKit's swipe is subtle on
-   trackpads; confirm with a hover-activated trailing "Dismiss" button
-   as a redundant affordance.
+2. **Swipe gesture affordance — SwiftUI `List.swipeActions` vs.
+   AppKit `NSTableView` host.** SwiftUI's `List.swipeActions(edge:
+   allowsFullSwipe:)` gives free trackpad swipe + keyboard + hover on
+   macOS 14+, composes with `@Bindable` cleanly, and costs zero AppKit
+   code. `NSTableView` via `NSViewRepresentable` would give tighter
+   control (row height measurement, right-click menu) but at the cost
+   of bridging the selection back through TCA. Leaning: ship `List`
+   first; reach for `NSTableView` only if row-height or context-menu
+   requirements become blockers during dogfood. Redundant hover-
+   activated trailing "Dismiss" button stays regardless — swipe
+   discovery is poor for first-time users.
 3. **Empty-state copy location** — keep "No agent pings. Nice." inline
    or promote to a reusable `EmptyStatePanel` component? Leaning:
    inline until a second empty state shows up.
