@@ -32,9 +32,10 @@ public extension HookEnvelope {
 /// project + space; `tab.*` must carry tab + ancestors; `worktree.*` must
 /// carry worktree + ancestors. Debug builds call it on encode; release
 /// builds trust the producer.
-public nonisolated struct HookEnvelope: Equatable, Codable, Sendable {
+public nonisolated struct HookEnvelope: Equatable, Codable, Sendable, Identifiable {
   public static let currentVersion = 1
 
+  public var id: UUID
   public var version: Int
   public var event: HookEvent
   public var timestamp: Date
@@ -46,6 +47,7 @@ public nonisolated struct HookEnvelope: Equatable, Codable, Sendable {
   public var data: HookEventData
 
   public init(
+    id: UUID = UUID(),
     version: Int = HookEnvelope.currentVersion,
     event: HookEvent,
     timestamp: Date = Date(),
@@ -56,6 +58,7 @@ public nonisolated struct HookEnvelope: Equatable, Codable, Sendable {
     panel: PanelRef? = nil,
     data: HookEventData
   ) {
+    self.id = id
     self.version = version
     self.event = event
     self.timestamp = timestamp

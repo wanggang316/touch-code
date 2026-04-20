@@ -65,12 +65,14 @@ public final class HookRecentRing {
   }
 
   /// Most recent entries first. Optional `limit` caps the returned slice.
+  /// Avoids materialising the whole buffer as an intermediate array when
+  /// `limit` is small — reads the last `limit` entries directly and
+  /// reverses them in-place.
   public func recent(limit: Int? = nil) -> [HookFireRecord] {
-    let reversed = Array(buffer.reversed())
-    if let limit, limit < reversed.count {
-      return Array(reversed.prefix(limit))
+    if let limit, limit < buffer.count {
+      return Array(buffer.suffix(limit).reversed())
     }
-    return reversed
+    return Array(buffer.reversed())
   }
 
   public var count: Int { buffer.count }
