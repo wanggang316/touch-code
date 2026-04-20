@@ -14,10 +14,11 @@ struct TouchCodeApp: App {
 
   var body: some Scene {
     WindowGroup {
-      if let store = appState.store {
+      if let store = appState.store, let engine = appState.terminalEngine {
         ContentView(
           store: store,
-          hierarchyManager: appState.hierarchyManager
+          hierarchyManager: appState.hierarchyManager,
+          terminalEngine: engine
         )
         .frame(minWidth: 800, minHeight: 600)
         .navigationTitle("touch-code")
