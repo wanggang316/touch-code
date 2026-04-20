@@ -24,8 +24,8 @@ This plan is the first capability that makes touch-code **aware** of what its Pa
 - [x] M1b — C3-dependent TouchCodeCore types (AgentStateTransition + Trigger.envelope, AgentDetectionRules with version + missingMatch gates, TemplateField.validPaths per HookEvent) — 2026-04-20, cherry-picked C3 commit `e70553b` + added M1b files on top
 - [x] M2 — `touch-code/Notifications/` module: DetectionRouter (InternalHookSubscriber impl), TrackerRegistry (single owner of tracker lifecycle), AgentStateTracker (4-state FSM), RuleStore (read-modify-write via C3 load/save), TemplateRenderer — 2026-04-20
 - [x] M3 — InboxStore persistence (notifications.json via AtomicFileStore, 500-row cap, 7-day sweep) + codable round-trip + debounced writer — 2026-04-20
-- [ ] M4a — OSNotifier (UN wrapper) + DockBadger (AppKit wrapper) + NotificationPermissionDelegate + NullPermissionDelegate + SettingsStore (C3-independent) — 2026-04-20
-- [ ] M4b — NotificationCoordinator fan-out wiring to AgentStateTransition + 11-step app-shell bootstrap — blocked on M1b/M2
+- [x] M4a — OSNotifier (UN wrapper) + DockBadger (AppKit wrapper) + NotificationPermissionDelegate + NullPermissionDelegate + SettingsStore (C3-independent) — 2026-04-20
+- [x] M4b — NotificationCoordinator fan-out + muting/permission flow — 2026-04-20, commit `bcf7236`. App-shell 11-step wiring still pending C3 M2 for HookDispatcher/HookConfigStore concrete.
 - [ ] M5 — InboxSidebar SwiftUI surface (320pt, filter chips, swipe-dismiss, deeplink-on-click) + Settings toggles
 - [ ] M6a — Bundled JSON defaults + `DefaultRules.installIfMissing(at:)` + Stop-hook shim scripts at `touch-code-skill/shims/` — 2026-04-20
 - [ ] M6b — `AgentDetectionRules` round-trip test on `DefaultRules.json` + `coordinator.reloadRules()` app-internal wiring — blocked on M1b/M2 (`tc notifications rules reload` CLI verb deferred to follow-up PR on 0003 per DEC-P4)
