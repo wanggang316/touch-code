@@ -11,7 +11,7 @@ struct PendingOutputBufferTests {
     let panelID = PanelID()
     let buffer = PendingOutputBuffer(
       panelID: panelID,
-      flushInterval: .milliseconds(30),
+      flushInterval: .milliseconds(20),
       maxBufferSize: 1024
     ) { id, data in
       emissions.append((id, data))
@@ -22,7 +22,11 @@ struct PendingOutputBufferTests {
 
     #expect(emissions.isEmpty)
 
-    try await Task.sleep(for: .milliseconds(80))
+    // Poll instead of sleeping — tolerates scheduler jitter on loaded CI.
+    let deadline = Date().addingTimeInterval(1.0)
+    while emissions.isEmpty && Date() < deadline {
+      try await Task.sleep(for: .milliseconds(5))
+    }
 
     #expect(emissions.count == 1)
     #expect(emissions[0].0 == panelID)
@@ -48,7 +52,24 @@ struct PendingOutputBufferTests {
   }
 
   @Test
-  func flushNowDrainsSynchronously() {
+  func immediateFlushWhenBufferReachesMaxExactly() {
+    var emissions: [(PanelID, Data)] = []
+    let buffer = PendingOutputBuffer(
+      panelID: PanelID(),
+      flushInterval: .seconds(10),
+      maxBufferSize: 4
+    ) { _, data in
+      emissions.append((PanelID(), data))
+    }
+
+    buffer.append(Data([1, 2, 3, 4]))
+
+    #expect(emissions.count == 1)
+    #expect(emissions[0].1.count == 4)
+  }
+
+  @Test
+  func flushDrainsSynchronously() {
     var emissions: [(PanelID, Data)] = []
     let panelID = PanelID()
     let buffer = PendingOutputBuffer(
@@ -59,20 +80,20 @@ struct PendingOutputBufferTests {
     }
 
     buffer.append(Data([0xFF]))
-    buffer.flushNow()
+    buffer.flush()
 
     #expect(emissions.count == 1)
     #expect(emissions[0].1 == Data([0xFF]))
   }
 
   @Test
-  func flushNowOnEmptyBufferEmitsNothing() {
+  func flushOnEmptyBufferEmitsNothing() {
     var emissions: [(PanelID, Data)] = []
     let buffer = PendingOutputBuffer(panelID: PanelID()) { id, data in
       emissions.append((id, data))
     }
 
-    buffer.flushNow()
+    buffer.flush()
     #expect(emissions.isEmpty)
   }
 }

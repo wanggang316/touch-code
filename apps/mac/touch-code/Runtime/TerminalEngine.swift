@@ -18,7 +18,11 @@ final class TerminalEngine {
   init(store: CatalogStore, hierarchy: HierarchyManager) {
     self.store = store
     self.hierarchy = hierarchy
-    let (stream, continuation) = AsyncStream<TerminalEvent>.makeStream()
+    // Cap the buffer so a stalled consumer can't grow memory without bound —
+    // one slow subscriber with N panels can otherwise retain every batch.
+    let (stream, continuation) = AsyncStream<TerminalEvent>.makeStream(
+      bufferingPolicy: .bufferingNewest(256)
+    )
     self.eventStream = stream
     self.eventContinuation = continuation
   }
@@ -45,13 +49,13 @@ final class TerminalEngine {
   }
 
   func flushOutput(for panelID: PanelID) {
-    outputBuffers[panelID]?.flushNow()
+    outputBuffers[panelID]?.flush()
   }
 
   /// Drop the per-panel output buffer. Must be called when the surface closes,
   /// otherwise pending bytes leak and the coalescer continues emitting.
   func disposeOutputBuffer(for panelID: PanelID) {
-    outputBuffers[panelID]?.flushNow()
+    outputBuffers[panelID]?.flush()
     outputBuffers.removeValue(forKey: panelID)
   }
 
