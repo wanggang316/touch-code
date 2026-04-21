@@ -541,10 +541,10 @@ struct HierarchySidebarFeatureTests {
     )
   }
 
-  // MARK: - Project rename (M6)
+  // MARK: - Project Options (P3.2 / P3.3 replaces Rename Project M6 coverage)
 
   @Test
-  func projectRenameFlow() async {
+  func projectOptionsTappedPopulatesSheetFromSnapshot() async {
     let fix = Self.twoSpaceFixture()
     let calls = LockIsolated(ClientCalls())
     let store = TestStore(initialState: HierarchySidebarFeature.State()) {
@@ -556,57 +556,24 @@ struct HierarchySidebarFeatureTests {
         snapshotProvider: { fix.catalog }
       )
     }
+    store.exhaustivity = .off(showSkippedAssertions: false)
 
     await store.send(
-      .projectRenameTapped(projectID: fix.projectP, inSpace: fix.spaceA, currentName: "P")
+      .projectOptionsTapped(projectID: fix.projectP, inSpace: fix.spaceA)
     ) {
-      $0.renameProjectSheet = RenameProjectSheet(
-        projectID: fix.projectP,
-        spaceID: fix.spaceA,
-        draft: "P"
-      )
-    }
-    await store.send(.projectRenameDraftChanged("P2")) {
-      $0.renameProjectSheet?.draft = "P2"
-    }
-    await store.send(.projectRenameConfirmed) {
-      $0.renameProjectSheet = nil
-    }
-
-    let recorded = calls.value
-    #expect(recorded.renameProject.count == 1)
-    #expect(recorded.renameProject[0].0 == fix.projectP)
-    #expect(recorded.renameProject[0].1 == fix.spaceA)
-    #expect(recorded.renameProject[0].2 == "P2")
-  }
-
-  @Test
-  func projectRenameCancelledSkipsClient() async {
-    let fix = Self.twoSpaceFixture()
-    let calls = LockIsolated(ClientCalls())
-    let store = TestStore(initialState: HierarchySidebarFeature.State()) {
-      HierarchySidebarFeature()
-    } withDependencies: { deps in
-      Self.installRecorders(
-        on: &deps,
-        calls: calls,
-        snapshotProvider: { fix.catalog }
+      $0.projectOptions = ProjectOptionsFeature.State(
+        targetSpaceID: fix.spaceA,
+        targetProjectID: fix.projectP,
+        originalName: "P",
+        originalDefaultEditor: nil,
+        originalWorktreesDirectory: nil,
+        nameDraft: "P",
+        defaultEditorDraft: nil,
+        worktreesDirectoryDraft: ""
       )
     }
 
-    await store.send(
-      .projectRenameTapped(projectID: fix.projectP, inSpace: fix.spaceA, currentName: "P")
-    ) {
-      $0.renameProjectSheet = RenameProjectSheet(
-        projectID: fix.projectP,
-        spaceID: fix.spaceA,
-        draft: "P"
-      )
-    }
-    await store.send(.projectRenameCancelled) {
-      $0.renameProjectSheet = nil
-    }
-
+    // No client mutation yet — this action just opens the sheet.
     #expect(calls.value.renameProject.isEmpty)
   }
 
