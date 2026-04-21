@@ -33,11 +33,13 @@ enum GhosttyBootstrap {
   private static func resolveResourceDirs() -> (ghostty: URL, terminfo: URL) {
     let fm = FileManager.default
     if let bundleURL = Bundle.main.resourceURL,
-       let pair = candidatePair(at: bundleURL, fileManager: fm) {
+      let pair = candidatePair(at: bundleURL, fileManager: fm)
+    {
       return pair
     }
     if let override = ProcessInfo.processInfo.environment["TOUCH_CODE_GHOSTTY_RESOURCES"],
-       let pair = candidatePair(at: URL(fileURLWithPath: override), fileManager: fm) {
+      let pair = candidatePair(at: URL(fileURLWithPath: override), fileManager: fm)
+    {
       return pair
     }
 
@@ -61,7 +63,8 @@ enum GhosttyBootstrap {
     let terminfo = root.appendingPathComponent("terminfo", isDirectory: true)
     var isDir = ObjCBool(false)
     guard fm.fileExists(atPath: ghostty.path, isDirectory: &isDir), isDir.boolValue,
-          fm.fileExists(atPath: terminfo.path, isDirectory: &isDir), isDir.boolValue else {
+      fm.fileExists(atPath: terminfo.path, isDirectory: &isDir), isDir.boolValue
+    else {
       return nil
     }
     return (ghostty, terminfo)

@@ -2,9 +2,9 @@ import Foundation
 import Testing
 import tcKit
 
-@testable import touch_code
 @testable import TouchCodeCore
 @testable import TouchCodeIPC
+@testable import touch_code
 
 /// End-to-end integration tests: a real `RPCClient` (with its pipelined
 /// handshake, inbound-pump actor, and typed Codable decode) driving a
@@ -38,7 +38,10 @@ struct EndToEndRPCIntegrationTests {
   @Test
   func systemVersionReportsHarnessVersions() async throws {
     try await withStack { client in
-      struct Version: Codable { let server: String; let appBundle: String }
+      struct Version: Codable {
+        let server: String
+        let appBundle: String
+      }
       let version: Version = try await client.call(.systemVersion, params: Empty())
       #expect(version.server == "0.3.0")
       #expect(version.appBundle == "0.3.0+test")
@@ -95,7 +98,10 @@ struct EndToEndRPCIntegrationTests {
   @Test
   func hierarchyCreateActivateDescribeRoundtrip() async throws {
     try await withStack { client in
-      struct CreateParams: Codable { let name: String; let activate: Bool }
+      struct CreateParams: Codable {
+        let name: String
+        let activate: Bool
+      }
       struct IDResult: Codable { let id: SpaceID }
       let created: IDResult = try await client.call(
         .hierarchyCreateSpace,
@@ -165,7 +171,10 @@ struct EndToEndRPCIntegrationTests {
   @Test
   func terminalSendWithNoSinkReturnsUnsupported() async throws {
     try await withStack { client in
-      struct Params: Codable { let panelID: PanelID; let text: String }
+      struct Params: Codable {
+        let panelID: PanelID
+        let text: String
+      }
       do {
         _ = try await client.callRaw(
           .terminalSendInput,

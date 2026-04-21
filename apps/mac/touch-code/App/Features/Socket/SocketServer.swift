@@ -1,9 +1,9 @@
 import Darwin
 import Dispatch
 import Foundation
-import os
 import TouchCodeCore
 import TouchCodeIPC
+import os
 
 /// Unix-domain-socket listener. Binds the configured path, accepts
 /// connections via a `DispatchSourceRead`, and routes each one through a
@@ -100,7 +100,7 @@ public final class SocketServer {
 
   public func stop() {
     if let source = acceptSource {
-      source.cancel() // source's cancel handler closes listenFD
+      source.cancel()  // source's cancel handler closes listenFD
       acceptSource = nil
     } else if listenFD >= 0 {
       Darwin.close(listenFD)
@@ -150,7 +150,8 @@ public final class SocketServer {
     case .success:
       break
     case .failure(let err):
-      logger.warning("peer auth rejected fd \(clientFD, privacy: .public): \(String(describing: err), privacy: .public)")
+      logger.warning(
+        "peer auth rejected fd \(clientFD, privacy: .public): \(String(describing: err), privacy: .public)")
       Self.shutdownAndClose(fd: clientFD)
       return
     }

@@ -1,8 +1,8 @@
 import Foundation
 import Testing
 
-@testable import touch_code
 @testable import TouchCodeCore
+@testable import touch_code
 
 @MainActor
 struct HookDispatcherAttachTests {

@@ -5,6 +5,7 @@ import SnapshotTesting
 import SwiftUI
 import Testing
 import TouchCodeCore
+
 @testable import touch_code
 
 /// Visual regression tests for the C7 git viewer. Six fixture snapshots cover the happy-path
@@ -199,7 +200,8 @@ struct GitViewerSnapshotTests {
   nonisolated static func fixtureWorkingDiff(fileCount: Int) -> UnifiedDiff {
     let files = (0..<fileCount).map { idx -> FileChange in
       FileChange(
-        id: "src/\(["parser", "lexer", "ast", "types", "driver", "util", "codec", "net", "ui", "tests"][idx % 10]).swift",
+        id:
+          "src/\(["parser", "lexer", "ast", "types", "driver", "util", "codec", "net", "ui", "tests"][idx % 10]).swift",
         kind: idx == 0 ? .added : (idx == 1 ? .deleted : .modified),
         isBinary: false,
         linesAdded: idx * 3 + 1,

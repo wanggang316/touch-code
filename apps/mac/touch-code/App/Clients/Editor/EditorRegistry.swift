@@ -69,20 +69,21 @@ nonisolated enum EditorRegistry {
       out.append(entry.toDescriptor(prober: prober))
     }
     for custom in customs {
-      try custom.template.validate() // surfaces .badTemplate on bad user input
+      try custom.template.validate()  // surfaces .badTemplate on bad user input
       let status: EditorDescriptor.InstallationStatus
       if let resolved = prober.locate(binaryName: custom.template.binary) {
         status = .installed(resolvedBinary: resolved)
       } else {
         status = .missingBinary(expected: custom.template.binary)
       }
-      out.append(EditorDescriptor(
-        id: custom.id,
-        displayName: custom.displayName,
-        origin: .custom,
-        template: custom.template,
-        installation: status
-      ))
+      out.append(
+        EditorDescriptor(
+          id: custom.id,
+          displayName: custom.displayName,
+          origin: .custom,
+          template: custom.template,
+          installation: status
+        ))
     }
     return out
   }

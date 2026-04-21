@@ -1,7 +1,7 @@
 import Foundation
-import os
 import TouchCodeCore
 import TouchCodeIPC
+import os
 
 /// Handlers for `terminal.*` — send input into a panel, broadcast across
 /// a scope. Backed by an injected `TerminalInputSink` so the router can
@@ -37,7 +37,8 @@ public final class TerminalHandlers {
   public func sendInput(_ params: JSONValue) async -> RouterOutcome {
     await Task.yield()
     guard let sink else {
-      return .failed(.unsupported(reason: "no GhosttyRuntime bound — terminal.sendInput requires the app with panels live"))
+      return .failed(
+        .unsupported(reason: "no GhosttyRuntime bound — terminal.sendInput requires the app with panels live"))
     }
     let req: SendInputParams
     do {
@@ -59,7 +60,8 @@ public final class TerminalHandlers {
   public func broadcastInput(_ params: JSONValue) async -> RouterOutcome {
     await Task.yield()
     guard let sink else {
-      return .failed(.unsupported(reason: "no GhosttyRuntime bound — terminal.broadcastInput requires the app with panels live"))
+      return .failed(
+        .unsupported(reason: "no GhosttyRuntime bound — terminal.broadcastInput requires the app with panels live"))
     }
     let req: BroadcastParams
     do {

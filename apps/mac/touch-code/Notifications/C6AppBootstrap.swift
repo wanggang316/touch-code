@@ -23,7 +23,7 @@ import TouchCodeCore
 ///  11. Task { await coordinator.bind(to: router.transitions) }
 @MainActor
 final class C6AppBootstrap {
-  let settingsStore: NotificationSettingsStore
+  let settingsStore: SettingsStore
   let inboxStore: InboxStore
   let ruleStore: RuleStore
   let registry: TrackerRegistry
@@ -41,9 +41,8 @@ final class C6AppBootstrap {
     hierarchy: HierarchyManager,
     hookDispatcher: HookDispatcher,
     hookConfigStore: HookConfigStore,
-    settingsStore: NotificationSettingsStore? = nil,
+    settingsStore: SettingsStore,
     inboxStore: InboxStore? = nil,
-    settingsURL: URL = ConfigPaths.configDirectory().appendingPathComponent("settings.json", isDirectory: false),
     inboxURL: URL = ConfigPaths.notificationInbox(),
     detectionRulesURL: URL = ConfigPaths.detectionRules(),
     osNotifier: any OSNotifier,
@@ -51,18 +50,10 @@ final class C6AppBootstrap {
     permissionDelegate: any NotificationPermissionDelegate,
     clock: any Clock<Duration> = ContinuousClock()
   ) async throws -> C6AppBootstrap {
-    // Step 1 — settings. Prefer the caller-supplied store so the app shell
-    // and `InboxClient` share a single instance; otherwise fall back to a
-    // URL-driven store for tests / harnesses.
-    let settings: NotificationSettingsStore
-    if let settingsStore {
-      settings = settingsStore
-    } else {
-      settings = NotificationSettingsStore(fileURL: settingsURL, clock: clock)
-      _ = try settings.load()
-    }
+    // Step 1 — settings is now the single-writer SettingsStore shared across the app shell.
+    let settings = settingsStore
 
-    // Step 2 — inbox (same shared-instance pattern as settings).
+    // Step 2 — inbox.
     let inbox: InboxStore
     if let inboxStore {
       inbox = inboxStore
@@ -101,7 +92,10 @@ final class C6AppBootstrap {
       inbox: inbox,
       badger: badger,
       osNotifier: osNotifier,
-      settings: settings,
+      settingsReader: settings,
+      mutateSettings: { [weak settings] transform in
+        settings?.mutateNotifications(transform)
+      },
       registry: registry,
       permissionDelegate: permissionDelegate,
       ruleStore: ruleStore,
@@ -137,7 +131,7 @@ final class C6AppBootstrap {
   }
 
   init(
-    settingsStore: NotificationSettingsStore,
+    settingsStore: SettingsStore,
     inboxStore: InboxStore,
     ruleStore: RuleStore,
     registry: TrackerRegistry,
@@ -180,6 +174,6 @@ final class C6AppBootstrap {
   /// Synchronous flush for app termination (`applicationWillTerminate`).
   func flushPendingWrites() throws {
     try inboxStore.saveNow()
-    try settingsStore.saveNow()
+    try settingsStore.saveNow()  // SettingsStore.saveNow is throwing; matches the old API.
   }
 }

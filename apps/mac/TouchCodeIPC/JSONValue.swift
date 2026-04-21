@@ -52,11 +52,11 @@ extension JSONValue: Codable {
   }
 }
 
-public extension JSONValue {
+extension JSONValue {
   /// Decode this value as the given Codable type by round-tripping through
   /// JSON bytes. Convenient for router code that receives a `JSONValue` and
   /// wants a typed `params` struct.
-  func decoded<T: Decodable>(
+  public func decoded<T: Decodable>(
     as type: T.Type,
     decoder: JSONDecoder = JSONDecoder()
   ) throws -> T {
@@ -67,7 +67,7 @@ public extension JSONValue {
   /// Build a `JSONValue` by round-tripping through JSON bytes. Convenient for
   /// callers that have a typed `params` struct and want to stuff it into an
   /// `IPC.Request` envelope.
-  static func encoded<T: Encodable>(
+  public static func encoded<T: Encodable>(
     _ value: T,
     encoder: JSONEncoder = JSONEncoder()
   ) throws -> JSONValue {

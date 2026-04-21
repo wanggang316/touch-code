@@ -1,6 +1,6 @@
 import Foundation
-import os.log
 import TouchCodeCore
+import os.log
 
 /// C6's `InternalHookSubscriber` implementation — the single class C3's
 /// `HookDispatcher` calls for every envelope whose `command` starts with
@@ -33,7 +33,8 @@ final class DetectionRouter: InternalHookSubscriber {
   private let registry: TrackerRegistry
   private var renderer: TemplateRenderer
   private let logger = Logger(subsystem: "com.touch-code.notifications", category: "router")
-  private let (transitionStream, transitionContinuation): (AsyncStream<RouterOutput>, AsyncStream<RouterOutput>.Continuation)
+  private let (transitionStream, transitionContinuation):
+    (AsyncStream<RouterOutput>, AsyncStream<RouterOutput>.Continuation)
 
   init(
     rules: AgentDetectionRules,
@@ -149,13 +150,14 @@ final class DetectionRouter: InternalHookSubscriber {
     let transition = tracker.applyRuleTransition(to: rule.transitionTo, ruleID: rule.id)
     guard let transition else { return }
     let (title, body) = render(rule: rule, envelope: envelope, transition: transition)
-    transitionContinuation.yield(RouterOutput(
-      transition: transition,
-      agent: rule.agent,
-      title: title,
-      body: body,
-      kind: Self.resolveKind(transition: transition, envelope: envelope)
-    ))
+    transitionContinuation.yield(
+      RouterOutput(
+        transition: transition,
+        agent: rule.agent,
+        title: title,
+        body: body,
+        kind: Self.resolveKind(transition: transition, envelope: envelope)
+      ))
   }
 
   private func emitLifecycleTransition(
@@ -169,13 +171,14 @@ final class DetectionRouter: InternalHookSubscriber {
     // tracker should not exist in that case, but defensive).
     let agent = envelope.panel.flatMap { _ in Self.resolveAgent(for: tracker.panelID) } ?? ""
     let kindCopy = Self.lifecycleCopy(for: transition.trigger)
-    transitionContinuation.yield(RouterOutput(
-      transition: transition,
-      agent: agent,
-      title: kindCopy.title,
-      body: kindCopy.body,
-      kind: Self.resolveKind(transition: transition, envelope: envelope)
-    ))
+    transitionContinuation.yield(
+      RouterOutput(
+        transition: transition,
+        agent: agent,
+        title: kindCopy.title,
+        body: kindCopy.body,
+        kind: Self.resolveKind(transition: transition, envelope: envelope)
+      ))
   }
 
   private func render(

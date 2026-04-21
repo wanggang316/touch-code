@@ -1,8 +1,8 @@
 import Foundation
 import Testing
 
-@testable import touch_code
 @testable import TouchCodeCore
+@testable import touch_code
 
 @MainActor
 struct HookDispatcherTests {
@@ -41,7 +41,7 @@ struct HookDispatcherTests {
     let sub = HookSubscription(event: .panelCrashed, command: "echo")
     dispatcher.setConfig(HookConfig(subscriptions: [sub]))
 
-    await dispatcher.fire(Self.makePanelReadyEnvelope()) // event = panelReady
+    await dispatcher.fire(Self.makePanelReadyEnvelope())  // event = panelReady
     #expect(executor.invocations.isEmpty)
   }
 
@@ -161,7 +161,8 @@ final class RecordingInternalSubscriber: InternalHookSubscriber, @unchecked Send
   init() {}
 
   var receivedEnvelopes: [HookEnvelope] {
-    lock.lock(); defer { lock.unlock() }
+    lock.lock()
+    defer { lock.unlock() }
     return _envelopes
   }
 

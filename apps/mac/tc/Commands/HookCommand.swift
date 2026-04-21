@@ -1,9 +1,9 @@
 import ArgumentParser
 import Darwin
 import Foundation
-import tcKit
 import TouchCodeCore
 import TouchCodeIPC
+import tcKit
 
 struct HookCommand: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
@@ -72,7 +72,8 @@ struct HookListRenderable: Encodable, CustomStringConvertible {
       let enabled = sub.disabled ? "disabled" : "enabled "
       let short = String(sub.id.uuidString.prefix(8))
       let pattern = sub.matchPattern.map { "  ~= /\($0)/" } ?? ""
-      return "\(short)  \(enabled)  \(sub.event.rawValue.padding(toLength: 20, withPad: " ", startingAt: 0))  \(sub.command)\(pattern)"
+      return
+        "\(short)  \(enabled)  \(sub.event.rawValue.padding(toLength: 20, withPad: " ", startingAt: 0))  \(sub.command)\(pattern)"
     }.joined(separator: "\n")
   }
 }
@@ -176,7 +177,10 @@ struct HookEnable: AsyncParsableCommand {
     guard let uuid = UUID(uuidString: id) else {
       CLIError(code: .userError, message: "not a valid UUID: \(id)").exitProcess()
     }
-    struct Params: Codable { let id: UUID; let enabled: Bool }
+    struct Params: Codable {
+      let id: UUID
+      let enabled: Bool
+    }
     do {
       _ = try await client.callRaw(.hookEnable, params: Params(id: uuid, enabled: enabled))
       try Renderer.emitObject(
@@ -260,7 +264,10 @@ struct HookTest: AsyncParsableCommand {
     } else {
       CLIError(code: .userError, message: "--payload is required for tc hook test").exitProcess()
     }
-    struct Params: Codable { let id: UUID; let envelope: HookEnvelope }
+    struct Params: Codable {
+      let id: UUID
+      let envelope: HookEnvelope
+    }
     do {
       let json = try await client.callRaw(
         .hookTest,
@@ -343,11 +350,11 @@ struct HookTail: AsyncParsableCommand {
   @Option(
     name: .long,
     help: """
-          Maximum seconds without an event before the stream is considered
-          dead (default: 86400 = 24h). The server does not currently send
-          keepalives (TODO(M3.1) — adding keepalive frames will let this
-          shrink to a few minutes without killing legit idle tails).
-          """
+      Maximum seconds without an event before the stream is considered
+      dead (default: 86400 = 24h). The server does not currently send
+      keepalives (TODO(M3.1) — adding keepalive frames will let this
+      shrink to a few minutes without killing legit idle tails).
+      """
   )
   var idleTimeout: Double = 86_400
 

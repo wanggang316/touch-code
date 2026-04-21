@@ -3,12 +3,17 @@ import Observation
 import TouchCodeCore
 import os.log
 
-/// `@MainActor @Observable` owner of `~/.config/touch-code/settings.json`. Mirrors the
+/// `@MainActor @Observable` owner of `~/.config/touch-code/settings.json` (v2). Single writer
+/// for the file — the former `NotificationSettingsStore` is deleted in this step. Mirrors the
 /// `CatalogStore` pattern: atomic-rename writes via `AtomicFileStore`, 500 ms trailing
-/// debounce on structural mutations, broken-file backup on decode failure.
+/// debounce on structural mutations, broken-file backup on decode failure. On first launch
+/// after the v1→v2 transition, any pre-v2 `settings.json` is routed through
+/// `SettingsMigration.load` and its original is preserved as `settings.json.v1-<ts>`.
 ///
-/// Mutations happen through the exposed methods (never direct property assignment) so the
-/// debounced save is always armed. Views subscribe through the `@Observable` surface.
+/// Mutations go through section-scoped `mutate*` closures or the editor-specific
+/// convenience methods; direct property assignment is not exposed. Views subscribe through
+/// the `@Observable` surface. Notifications consumers read through the
+/// `NotificationSettingsReader` conformance and write through `mutateNotifications`.
 @MainActor
 @Observable
 final class SettingsStore {
@@ -18,6 +23,10 @@ final class SettingsStore {
   private let logger = Logger(subsystem: "com.touch-code.persistence", category: "settings")
   @ObservationIgnored private var pendingSaveTask: Task<Void, Never>?
   @ObservationIgnored private let debounceWindow: Duration
+  /// `false` when migration returned `.migrationBackupFailed` — the original settings.json
+  /// is still at the canonical URL and must not be overwritten. In this state all mutate
+  /// APIs still work in-memory but `scheduleSave` / `saveNow` / `flush` become no-ops.
+  @ObservationIgnored private var persistenceEnabled: Bool = true
 
   /// Production debounce window between a mutation and the atomic-rename write. Matches
   /// `CatalogStore`. Tests inject a shorter window via the initializer.
@@ -29,23 +38,105 @@ final class SettingsStore {
   ) {
     self.fileURL = fileURL
     self.debounceWindow = debounceWindow
-    if let existing = Self.safeLoad(from: fileURL, logger: logger) {
-      self.settings = existing
-    } else {
+    // `migrationSafeToPersist` gates every subsequent save attempt. When the migration
+    // helper returns `.migrationBackupFailed`, the original v1 file may still be sitting at
+    // the canonical URL — writing on top of it would destroy the user's historical data.
+    // Setting the flag to false puts the store into a read-only / in-memory-only mode.
+    var safeToPersist = true
+
+    do {
+      switch try SettingsMigration.load(from: fileURL) {
+      case .fresh:
+        self.settings = .default
+      case .v2(let existing):
+        self.settings = existing
+      case .migratedFromV1(_, let backupURL):
+        // Migration already committed both the new canonical file and the backup durably —
+        // we just read the migrated tree back from disk so the in-memory copy matches what
+        // the next launch will see.
+        let persisted = (try? AtomicFileStore.read(Settings.self, at: fileURL)) ?? nil
+        if let persisted {
+          self.settings = persisted
+          logger.info("Loaded migrated v2 settings.json (backup: \(backupURL.lastPathComponent, privacy: .public))")
+        } else {
+          // Extraordinarily unlikely: migration claimed success but the file isn't readable.
+          // Treat as unsafe — don't overwrite whatever IS on disk.
+          logger.error("Migration reported success but settings.json is not readable; refusing to persist")
+          self.settings = .default
+          safeToPersist = false
+        }
+      case .unsupported(let version, let backupURL):
+        logger.error(
+          "settings.json had unsupported version \(version, privacy: .public); starting defaults (backup: \(backupURL.lastPathComponent, privacy: .public))"
+        )
+        self.settings = .default
+      case .corrupt(let backupURL):
+        logger.error(
+          "settings.json was unparseable; starting defaults (backup: \(backupURL.lastPathComponent, privacy: .public))"
+        )
+        self.settings = .default
+      case .migrationBackupFailed(let description):
+        // The original file is still at the canonical URL (or was restored there). Do NOT
+        // persist anything on top of it — the user's data is intact and takes precedence
+        // over the in-memory defaults until a human intervenes.
+        logger.error(
+          "settings.json migration could not preserve original atomically: \(description, privacy: .public); starting defaults in read-only mode"
+        )
+        self.settings = .default
+        safeToPersist = false
+      }
+    } catch {
+      logger.error(
+        "SettingsMigration.load failed with \(String(describing: error), privacy: .public); starting defaults in read-only mode"
+      )
       self.settings = .default
+      safeToPersist = false
     }
+    self.persistenceEnabled = safeToPersist
   }
 
-  // MARK: - Mutations
+  // MARK: - Section mutators
 
-  func setDefaultEditorID(_ id: EditorID?) {
-    settings.defaultEditorID = id
+  func mutateGeneral(_ transform: (inout GeneralSettings) -> Void) {
+    transform(&settings.general)
     scheduleSave()
   }
 
-  /// Adds a custom editor. Validates the template and the ID. Returns `false` if validation
-  /// failed (caller can surface a UI error without a thrown-error propagation chain through
-  /// SwiftUI).
+  func mutateNotifications(_ transform: (inout NotificationsSettings) -> Void) {
+    transform(&settings.notifications)
+    scheduleSave()
+  }
+
+  func mutateDeveloper(_ transform: (inout DeveloperSettings) -> Void) {
+    transform(&settings.developer)
+    scheduleSave()
+  }
+
+  /// Mutates the `RepositorySettings` for `projectID`, creating an empty entry if none
+  /// exists. The pre-save garbage collection in `scheduleSave` drops any entry that ends up
+  /// effectively empty so `settings.json` never accumulates useless `{}` objects.
+  func mutateRepository(
+    _ projectID: ProjectID,
+    _ transform: (inout RepositorySettings) -> Void
+  ) {
+    var entry = settings.repositories[projectID] ?? RepositorySettings()
+    transform(&entry)
+    settings.repositories[projectID] = entry
+    scheduleSave()
+  }
+
+  // MARK: - Editor convenience (legacy surface kept for SettingsWriter)
+
+  func setDefaultEditorID(_ id: EditorID?) {
+    settings.general.defaultEditorID = id
+    scheduleSave()
+  }
+
+  func setAppearance(_ appearance: AppearancePreference) {
+    settings.general.appearance = appearance
+    scheduleSave()
+  }
+
   @discardableResult
   func addCustomEditor(_ editor: CustomEditor) -> Result<Void, EditorTemplateError> {
     do {
@@ -56,16 +147,14 @@ final class SettingsStore {
     } catch {
       return .failure(.invalidID(editor.id))
     }
-    // Reject collisions with built-ins.
     let builtinIDs = Set(EditorRegistry.builtins.map(\.id))
     if builtinIDs.contains(editor.id) {
       return .failure(.invalidID(editor.id))
     }
-    // Replace on ID collision with an existing custom (upsert semantics; avoids duplicate IDs).
-    if let idx = settings.customEditors.firstIndex(where: { $0.id == editor.id }) {
-      settings.customEditors[idx] = editor
+    if let idx = settings.general.customEditors.firstIndex(where: { $0.id == editor.id }) {
+      settings.general.customEditors[idx] = editor
     } else {
-      settings.customEditors.append(editor)
+      settings.general.customEditors.append(editor)
     }
     scheduleSave()
     return .success(())
@@ -73,14 +162,17 @@ final class SettingsStore {
 
   @discardableResult
   func updateCustomEditor(id: EditorID, _ transform: (inout CustomEditor) -> Void) -> Bool {
-    guard let idx = settings.customEditors.firstIndex(where: { $0.id == id }) else { return false }
-    transform(&settings.customEditors[idx])
-    // Revalidate in case the transform mutated the template or ID.
+    guard let idx = settings.general.customEditors.firstIndex(where: { $0.id == id }) else { return false }
+    let original = settings.general.customEditors[idx]
+    transform(&settings.general.customEditors[idx])
     do {
-      _ = try CustomEditor.validatedID(settings.customEditors[idx].id)
-      try settings.customEditors[idx].template.validate()
+      _ = try CustomEditor.validatedID(settings.general.customEditors[idx].id)
+      try settings.general.customEditors[idx].template.validate()
     } catch {
-      // Revert on invalid transform — avoids persisting a broken state.
+      // Revert the in-memory mutation — the doc comment used to claim we did this but the
+      // code only logged. PR #22 review N3 flagged the mismatch. Without the revert, the
+      // broken CustomEditor lives in memory and the next scheduled save persists it.
+      settings.general.customEditors[idx] = original
       logger.error("updateCustomEditor rejected invalid transform: \(String(describing: error), privacy: .public)")
       return false
     }
@@ -90,9 +182,9 @@ final class SettingsStore {
 
   @discardableResult
   func removeCustomEditor(id: EditorID) -> Bool {
-    let before = settings.customEditors.count
-    settings.customEditors.removeAll { $0.id == id }
-    let changed = settings.customEditors.count != before
+    let before = settings.general.customEditors.count
+    settings.general.customEditors.removeAll { $0.id == id }
+    let changed = settings.general.customEditors.count != before
     if changed { scheduleSave() }
     return changed
   }
@@ -106,14 +198,21 @@ final class SettingsStore {
   // MARK: - Persistence
 
   func saveNow() throws {
+    guard persistenceEnabled else {
+      logger.error("saveNow skipped: persistence disabled (migration did not complete atomically)")
+      return
+    }
+    // Cancel any pending debounced save BEFORE writing so the in-flight task can't clobber
+    // us with a stale snapshot after this call returns. Matches PR #22 review N6.
+    pendingSaveTask?.cancel()
+    pendingSaveTask = nil
+    settings.garbageCollect()
     try AtomicFileStore.write(settings, to: fileURL)
   }
 
   /// Cancels any pending debounced write and flushes immediately. Callers:
   /// `applicationWillTerminate`, explicit user Save, test teardown.
   func flush() {
-    pendingSaveTask?.cancel()
-    pendingSaveTask = nil
     do {
       try saveNow()
     } catch {
@@ -122,10 +221,14 @@ final class SettingsStore {
   }
 
   private func scheduleSave() {
+    guard persistenceEnabled else {
+      logger.debug("scheduleSave skipped: persistence disabled (migration did not complete atomically)")
+      return
+    }
     pendingSaveTask?.cancel()
-    let snapshot = settings
+    var snapshot = settings
+    snapshot.garbageCollect()
     pendingSaveTask = Task { [weak self] in
-      // Use the instance window so tests can shorten it to milliseconds.
       let window = self?.debounceWindow ?? Self.debounceWindow
       try? await Task.sleep(for: window)
       guard !Task.isCancelled else { return }
@@ -133,49 +236,24 @@ final class SettingsStore {
       do {
         try AtomicFileStore.write(snapshot, to: self.fileURL)
       } catch {
-        // Log and leave the existing file untouched. Transient disk-full /
-        // permissions flips shouldn't cost the user their persisted settings;
-        // the next successful save will pick up the in-memory snapshot. Only
-        // the load path (decode failure / unsupported version) moves corrupt
-        // files aside — that's where a bad file blocks startup and needs
-        // unsticking.
+        // Log and leave the existing file untouched. Transient disk-full / permissions flips
+        // shouldn't cost the user their persisted settings; the next successful save picks up
+        // the in-memory snapshot. Only the load path moves corrupt files aside.
         self.logger.error("Failed to save settings: \(String(describing: error), privacy: .public)")
       }
     }
   }
+}
 
-  // MARK: - Load helper
+// MARK: - NotificationSettingsReader
 
-  /// Best-effort load. Returns nil on file-missing or unrecoverable decode failure. Moves a
-  /// corrupt file aside to `settings.json.broken-<YYYYMMDD-HHMMSS>` so the next launch
-  /// starts from a clean default without blocking on repair.
-  private static func safeLoad(from url: URL, logger: Logger) -> Settings? {
-    do {
-      return try AtomicFileStore.read(Settings.self, at: url)
-    } catch let Settings.DecodingIssue.unsupportedVersion(version) {
-      logger.error("Settings file has unsupported version \(version, privacy: .public); backing up")
-      moveAside(url: url, timestamp: filesystemSafeTimestamp())
-      return nil
-    } catch {
-      logger.error("Failed to decode settings: \(String(describing: error), privacy: .public); backing up")
-      moveAside(url: url, timestamp: filesystemSafeTimestamp())
-      return nil
-    }
-  }
-
-  private static func moveAside(url: URL, timestamp: String) {
-    let backupURL = url.deletingLastPathComponent()
-      .appendingPathComponent("settings.json.broken-\(timestamp)")
-    try? FileManager.default.moveItem(at: url, to: backupURL)
-  }
-
-  /// `yyyyMMdd-HHmmss` — filesystem-safe across case-insensitive and ':'-averse tooling.
-  /// ISO-8601 with its `:` separators confuses some backup + archive utilities.
-  private static func filesystemSafeTimestamp() -> String {
-    let formatter = DateFormatter()
-    formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.timeZone = TimeZone(identifier: "UTC")
-    formatter.dateFormat = "yyyyMMdd-HHmmss"
-    return formatter.string(from: Date())
-  }
+extension SettingsStore: NotificationSettingsReader {
+  var mute: MuteSettings { settings.notifications.mute }
+  var authStatus: AuthorizationStatusCache { settings.notifications.authStatus }
+  var neverPrompt: Bool { settings.notifications.neverPrompt }
+  var notNowUntil: Date? { settings.notifications.notNowUntil }
+  var inAppEnabled: Bool { settings.notifications.inAppEnabled }
+  var systemEnabled: Bool { settings.notifications.systemEnabled }
+  var soundEnabled: Bool { settings.notifications.soundEnabled }
+  var dockBadgeEnabled: Bool { settings.notifications.dockBadgeEnabled }
 }

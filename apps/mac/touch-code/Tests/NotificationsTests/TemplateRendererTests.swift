@@ -1,8 +1,8 @@
 import Foundation
 import Testing
+import TouchCodeCore
 
 @testable import touch_code
-import TouchCodeCore
 
 struct TemplateRendererTests {
   // MARK: - Init validation
@@ -66,7 +66,9 @@ struct TemplateRendererTests {
     let renderer = try TemplateRenderer(rules: Self.rules(title: "{data.output | firstLine}"))
     let multiline = Data("first\nsecond\nthird".utf8)
     let envelope = Self.envelope(
-      data: .panelOutputMatch(match: "first", matchedRange: HookMatchRange(start: 0, length: 5), output: multiline, outputBytes: multiline.count)
+      data: .panelOutputMatch(
+        match: "first", matchedRange: HookMatchRange(start: 0, length: 5), output: multiline,
+        outputBytes: multiline.count)
     )
     let output = renderer.render(
       template: "{data.output | firstLine}",
@@ -83,7 +85,8 @@ struct TemplateRendererTests {
     let renderer = try TemplateRenderer(rules: rules)
     let data = Data("Hello, world!".utf8)
     let envelope = Self.envelope(
-      data: .panelOutputMatch(match: "Hello", matchedRange: HookMatchRange(start: 0, length: 5), output: data, outputBytes: data.count)
+      data: .panelOutputMatch(
+        match: "Hello", matchedRange: HookMatchRange(start: 0, length: 5), output: data, outputBytes: data.count)
     )
     let output = renderer.render(
       template: "{data.output | truncate: 5}",
@@ -127,7 +130,8 @@ struct TemplateRendererTests {
     let renderer = try TemplateRenderer(rules: rules)
     let data = Data("Hello\nworld".utf8)
     let envelope = Self.envelope(
-      data: .panelOutputMatch(match: "x", matchedRange: HookMatchRange(start: 0, length: 1), output: data, outputBytes: data.count)
+      data: .panelOutputMatch(
+        match: "x", matchedRange: HookMatchRange(start: 0, length: 1), output: data, outputBytes: data.count)
     )
     let output = renderer.render(
       template: "{data.output | firstLine | truncate: 3}",
@@ -156,13 +160,14 @@ struct TemplateRendererTests {
           transitionTo: .completed,
           title: title,
           body: body
-        ),
+        )
       ]
     )
   }
 
   private static func envelope(
-    data: HookEventData = .panelOutputMatch(match: "x", matchedRange: HookMatchRange(start: 0, length: 1), output: Data(), outputBytes: 0)
+    data: HookEventData = .panelOutputMatch(
+      match: "x", matchedRange: HookMatchRange(start: 0, length: 1), output: Data(), outputBytes: 0)
   ) -> HookEnvelope {
     HookEnvelope(
       version: HookEnvelope.currentVersion,

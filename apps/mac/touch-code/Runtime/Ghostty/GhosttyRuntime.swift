@@ -31,19 +31,21 @@ final class GhosttyRuntime {
   static var info: Info {
     _ = GhosttyBootstrap.initialize
     let raw = ghostty_info()
-    let version = (NSString(
-      bytes: raw.version,
-      length: Int(raw.version_len),
-      encoding: NSUTF8StringEncoding
-    ) as String?) ?? "unknown"
+    let version =
+      (NSString(
+        bytes: raw.version,
+        length: Int(raw.version_len),
+        encoding: NSUTF8StringEncoding
+      ) as String?) ?? "unknown"
 
-    let mode: String = switch raw.build_mode {
-    case GHOSTTY_BUILD_MODE_DEBUG: "Debug"
-    case GHOSTTY_BUILD_MODE_RELEASE_SAFE: "ReleaseSafe"
-    case GHOSTTY_BUILD_MODE_RELEASE_FAST: "ReleaseFast"
-    case GHOSTTY_BUILD_MODE_RELEASE_SMALL: "ReleaseSmall"
-    default: "Unknown"
-    }
+    let mode: String =
+      switch raw.build_mode {
+      case GHOSTTY_BUILD_MODE_DEBUG: "Debug"
+      case GHOSTTY_BUILD_MODE_RELEASE_SAFE: "ReleaseSafe"
+      case GHOSTTY_BUILD_MODE_RELEASE_FAST: "ReleaseFast"
+      case GHOSTTY_BUILD_MODE_RELEASE_SMALL: "ReleaseSmall"
+      default: "Unknown"
+      }
     return Info(version: version, buildMode: mode)
   }
 
@@ -143,7 +145,8 @@ final class GhosttyRuntime {
     }
   }
 
-  private static let actionCallback: (@convention(c) (ghostty_app_t?, ghostty_target_s, ghostty_action_s) -> Bool) = { _, _, _ in
+  private static let actionCallback: (@convention(c) (ghostty_app_t?, ghostty_target_s, ghostty_action_s) -> Bool) = {
+    _, _, _ in
     // Real routing lands with the action-dispatch seam in M5.2+; until then
     // no app-level action is consumed and ghostty gets to keep default
     // handling.
@@ -160,7 +163,8 @@ final class GhosttyRuntime {
   /// PanelID lookup via the runtime registry is UAF-safe — the registry
   /// maps a PanelID (value type) to a live PanelSurface, and if the panel
   /// was already unregistered the lookup returns nil and we no-op.
-  private static let closeSurfaceCallback: (@convention(c) (UnsafeMutableRawPointer?, Bool) -> Void) = { userdata, processAlive in
+  private static let closeSurfaceCallback: (@convention(c) (UnsafeMutableRawPointer?, Bool) -> Void) = {
+    userdata, processAlive in
     guard let userdata else { return }
     // Copy the UUID bytes out of the userdata payload now, before hopping
     // to main — the memory may be freed if the PanelSurface is dropped.

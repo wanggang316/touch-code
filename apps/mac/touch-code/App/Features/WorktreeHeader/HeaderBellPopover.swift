@@ -88,9 +88,10 @@ struct HeaderBellPopover: View {
     worktreeID: WorktreeID
   ) -> some View {
     Button {
-      store.send(.notificationTapped(
-        spaceID: spaceID, projectID: projectID, worktreeID: worktreeID
-      ))
+      store.send(
+        .notificationTapped(
+          spaceID: spaceID, projectID: projectID, worktreeID: worktreeID
+        ))
     } label: {
       HStack(spacing: 6) {
         Image(systemName: "arrow.turn.down.right")
