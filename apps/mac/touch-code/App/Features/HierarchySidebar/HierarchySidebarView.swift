@@ -116,7 +116,7 @@ struct HierarchySidebarView: View {
         store.send(.projectRemoveCancelled)
       }
     } message: {
-      Text("Removes the Project and every Worktree under it. This closes all their panels and cannot be undone.")
+      Text("Removes the Project and closes all its panels. Files on disk are not affected.")
     }
     // Archived Worktrees sheet (opened from Project ⋯ menu).
     .sheet(
