@@ -33,6 +33,8 @@ struct RootFeature {
     var gitViewer: GitViewerFeature.State = .init()
     /// C8 M6b (0005): editor preferences + per-Project override state.
     var editor: EditorFeature.State = .init()
+    /// T2: Header feature (bell + Open-in split button + GV toggle).
+    var worktreeHeader: WorktreeHeaderFeature.State = .init()
 
     /// DEC-9 (M4, 2026-04-20): `true` shows the trailing inspector column
     /// (git diff/history viewer). `ContentView` hosts `GitViewerView` there
@@ -90,6 +92,7 @@ struct RootFeature {
     case detail(WorktreeDetailFeature.Action)
     case gitViewer(GitViewerFeature.Action)
     case editor(EditorFeature.Action)
+    case worktreeHeader(WorktreeHeaderFeature.Action)
   }
 
   nonisolated enum CancelID: Sendable { case events, selectionChanges }
@@ -110,6 +113,9 @@ struct RootFeature {
     }
     Scope(state: \.editor, action: \.editor) {
       EditorFeature()
+    }
+    Scope(state: \.worktreeHeader, action: \.worktreeHeader) {
+      WorktreeHeaderFeature()
     }
 
     Reduce { state, action in
@@ -217,6 +223,13 @@ struct RootFeature {
         return .none
 
       case .editor:
+        return .none
+
+      case .worktreeHeader:
+        // Delegate routing (open editor, settings sheet, project override)
+        // lands in M6; for the interim the Scope keeps the feature alive and
+        // the reducer self-handles everything except the delegate emit,
+        // which is a parent-consumed no-op here.
         return .none
 
       case .settingsSheetShown:

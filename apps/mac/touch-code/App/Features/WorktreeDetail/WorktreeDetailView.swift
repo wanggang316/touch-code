@@ -17,6 +17,9 @@ struct WorktreeDetailView: View {
   /// Open-result toasts are driven by `editorStore.state.lastOpenResult` directly from
   /// `ContentView`, so this view no longer accepts a callback (0005 M6c).
   let editorStore: StoreOf<EditorFeature>
+  /// T2 Header feature — scoped by `ContentView` from the root. Drives the bell
+  /// badge, the Open-in split button's delegate routing, and the Git Viewer toggle.
+  let headerStore: StoreOf<WorktreeHeaderFeature>
   @Environment(HierarchyManager.self) private var hierarchyManager
 
   var body: some View {
@@ -48,39 +51,28 @@ struct WorktreeDetailView: View {
     }
   }
 
-  /// Worktree-header strip: shows branch + path on the left and the "Open in ▾" dropdown
-  /// on the right (added in 0005 M6b).
+  /// Worktree Header row (T2): branch label + bell + Open-in split button +
+  /// GV toggle. Delegates to `WorktreeHeaderView`; path string is no longer
+  /// rendered per the redesign spec (path visibility moves to hover/tooltip
+  /// surfaces if reintroduced).
   @ViewBuilder
   private func worktreeHeader(address: Address) -> some View {
     let worktree = hierarchyManager.catalog
       .spaces.first(where: { $0.id == address.space })?
       .projects.first(where: { $0.id == address.project })?
       .worktrees.first(where: { $0.id == address.worktree })
-    HStack(spacing: 10) {
-      if let worktree {
-        Label(worktree.branch ?? worktree.name, systemImage: "point.3.connected.trianglepath.dotted")
-          .font(.callout)
-          .foregroundStyle(.secondary)
-        Text(worktree.path)
-          .font(.system(.caption, design: .monospaced))
-          .foregroundStyle(.tertiary)
-          .lineLimit(1)
-          .truncationMode(.middle)
-      }
-      Spacer(minLength: 8)
-      if let worktree {
-        WorktreeHeaderOpenButton(
-          store: editorStore,
-          spaceID: address.space,
-          projectID: address.project,
-          worktreeID: address.worktree,
-          worktreePath: worktree.path
-        )
-      }
+    if let worktree {
+      WorktreeHeaderView(
+        store: headerStore,
+        editorStore: editorStore,
+        spaceID: address.space,
+        projectID: address.project,
+        worktreeID: address.worktree,
+        worktreePath: worktree.path,
+        branchLabel: worktree.branch ?? worktree.name,
+        gitViewerVisible: worktree.gitViewerVisible
+      )
     }
-    .padding(.horizontal, 10)
-    .padding(.vertical, 6)
-    .frame(maxWidth: .infinity, alignment: .leading)
   }
 
   private struct Address {

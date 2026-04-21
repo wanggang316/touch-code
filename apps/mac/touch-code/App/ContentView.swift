@@ -47,7 +47,8 @@ struct ContentView: View {
         WorktreeDetailView(
           store: store.scope(state: \.detail, action: \.detail),
           selection: store.selection,
-          editorStore: store.scope(state: \.editor, action: \.editor)
+          editorStore: store.scope(state: \.editor, action: \.editor),
+          headerStore: store.scope(state: \.worktreeHeader, action: \.worktreeHeader)
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         if store.inspectorVisible {
@@ -89,6 +90,7 @@ struct ContentView: View {
     .environment(inboxStore)
     .task {
       store.send(.onLaunch)
+      store.send(.worktreeHeader(.onAppear))
     }
     .onChange(of: store.editor.lastOpenResult) { _, new in
       guard let new else { return }
