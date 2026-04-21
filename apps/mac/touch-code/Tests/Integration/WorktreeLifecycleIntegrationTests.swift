@@ -90,6 +90,14 @@ struct WorktreeLifecycleIntegrationTests {
     #expect(entries.allSatisfy { !$0.isBare })
     #expect(entries.contains(where: { $0.branch == "feature-a" }))
 
+    // Issue #24 (c): the returned path must be a real entry in
+    // `wt ls --json`, not something parsed from stray stdout. The
+    // diff-based picker guarantees this invariant; a regression
+    // would trigger this #expect.
+    #expect(entries.contains(where: {
+      URL(fileURLWithPath: $0.path).standardizedFileURL == worktreePath
+    }))
+
     // Safe-remove the clean worktree.
     try await client.removeWorktree(repo, worktreePath, false)
     let afterRemove = try await client.lsWorktrees(repo)

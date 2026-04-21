@@ -256,6 +256,90 @@ struct GitWorktreeClientTests {
     #expect(GitWorktreeClient.parsePorcelainPaths(output) == ["path/to/a.swift", "path/to/b.swift"])
   }
 
+  // MARK: - pickNewWorktreePath (issue #24 (c))
+
+  private func entry(path: String, branch: String = "x") -> GitWtEntry {
+    GitWtEntry(branch: branch, path: path, head: "abc123", isBare: false)
+  }
+
+  @Test
+  func pickNewWorktreePathCleanDiffReturnsNewPath() {
+    let pre = [entry(path: "/tmp/repo", branch: "main")]
+    let post = [
+      entry(path: "/tmp/repo", branch: "main"),
+      entry(path: "/tmp/repo/.worktrees/feature", branch: "feature"),
+    ]
+    let picked = GitWorktreeClient.pickNewWorktreePath(
+      preEntries: pre, postEntries: post, fallbackStdoutLast: ""
+    )
+    #expect(picked?.path == "/tmp/repo/.worktrees/feature")
+  }
+
+  @Test
+  func pickNewWorktreePathNoDiffReturnsNil() {
+    let entries = [entry(path: "/tmp/repo", branch: "main")]
+    let picked = GitWorktreeClient.pickNewWorktreePath(
+      preEntries: entries,
+      postEntries: entries,
+      fallbackStdoutLast: "/tmp/something"
+    )
+    #expect(picked == nil)
+  }
+
+  @Test
+  func pickNewWorktreePathMultipleNewDisambiguatesByFallback() {
+    let pre = [entry(path: "/tmp/repo", branch: "main")]
+    let post = [
+      entry(path: "/tmp/repo", branch: "main"),
+      entry(path: "/tmp/repo/.worktrees/a", branch: "a"),
+      entry(path: "/tmp/repo/.worktrees/b", branch: "b"),
+    ]
+    let picked = GitWorktreeClient.pickNewWorktreePath(
+      preEntries: pre,
+      postEntries: post,
+      fallbackStdoutLast: "/tmp/repo/.worktrees/b"
+    )
+    #expect(picked?.path == "/tmp/repo/.worktrees/b")
+  }
+
+  @Test
+  func pickNewWorktreePathMultipleNewNoFallbackMatchReturnsFirst() {
+    let pre = [entry(path: "/tmp/repo", branch: "main")]
+    let post = [
+      entry(path: "/tmp/repo", branch: "main"),
+      entry(path: "/tmp/repo/.worktrees/a", branch: "a"),
+      entry(path: "/tmp/repo/.worktrees/b", branch: "b"),
+    ]
+    // Fallback doesn't match any new entry — pickNewWorktreePath
+    // returns the first new one so the caller isn't blocked.
+    let picked = GitWorktreeClient.pickNewWorktreePath(
+      preEntries: pre,
+      postEntries: post,
+      fallbackStdoutLast: "/unrelated/path"
+    )
+    #expect(picked?.path == "/tmp/repo/.worktrees/a")
+  }
+
+  @Test
+  func pickNewWorktreePathCanonicalizesTrailingSlash() {
+    // wt ls may emit paths with a trailing slash where the stdoutLast
+    // doesn't (or vice versa); standardizedFileURL handles that.
+    let pre = [entry(path: "/tmp/repo", branch: "main")]
+    let post = [
+      entry(path: "/tmp/repo", branch: "main"),
+      entry(path: "/tmp/repo/.worktrees/feat/", branch: "feat"),
+    ]
+    let picked = GitWorktreeClient.pickNewWorktreePath(
+      preEntries: pre,
+      postEntries: post,
+      fallbackStdoutLast: "/tmp/repo/.worktrees/feat"
+    )
+    // standardizedFileURL strips the trailing slash from a directory
+    // path at comparison time; the returned URL should be the
+    // canonical form.
+    #expect(picked?.path == "/tmp/repo/.worktrees/feat")
+  }
+
   @Test
   func porcelainIgnoresBlankLines() {
     let output = "\n M a\n\n\n ? b\n"

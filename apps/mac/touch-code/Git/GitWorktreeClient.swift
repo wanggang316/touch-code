@@ -176,6 +176,53 @@ nonisolated extension GitWorktreeClient {
     )
   }
 
+  /// Identifies the created worktree path by diffing `wt ls --json`
+  /// snapshots taken immediately before and after `wt sw`. Returns
+  /// the single new entry's path; falls back to matching
+  /// `fallbackStdoutLast` (the legacy last-line heuristic) when the
+  /// diff is ambiguous, and nil when the diff is empty. Pure — all
+  /// decisions flow from the arguments so the unit tests don't need a
+  /// live git.
+  ///
+  /// Paths are compared via `URL.standardizedFileURL.path` so a
+  /// trailing slash or `.` component difference between `wt sw`'s
+  /// echo and `wt ls`'s canonicalized JSON doesn't produce a false
+  /// mismatch. Issue #24 (c).
+  static func pickNewWorktreePath(
+    preEntries: [GitWtEntry],
+    postEntries: [GitWtEntry],
+    fallbackStdoutLast: String
+  ) -> URL? {
+    func canonical(_ path: String) -> String {
+      URL(fileURLWithPath: path).standardizedFileURL.path
+    }
+    let prePaths = Set(preEntries.map { canonical($0.path) })
+    let newEntries = postEntries.filter { !prePaths.contains(canonical($0.path)) }
+    if newEntries.count == 1 {
+      return URL(fileURLWithPath: newEntries[0].path).standardizedFileURL
+    }
+    if newEntries.isEmpty {
+      // wt claimed success but ls still doesn't see a new entry —
+      // caller will surface .commandFailed so the sheet reports
+      // something rather than yielding a ghost path.
+      return nil
+    }
+    // Multiple new entries — disambiguate via the legacy
+    // last-non-empty-stdout heuristic. This is the belt-and-braces
+    // path the plan calls out: if upstream `wt` ever prints a
+    // reliable worktree path as its last stdout line, we still
+    // honour it; if not, we fall through to the first entry and
+    // let the caller log a warning.
+    let fallbackTrimmed = fallbackStdoutLast.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !fallbackTrimmed.isEmpty {
+      let fallbackCanonical = canonical(fallbackTrimmed)
+      if let match = newEntries.first(where: { canonical($0.path) == fallbackCanonical }) {
+        return URL(fileURLWithPath: match.path).standardizedFileURL
+      }
+    }
+    return URL(fileURLWithPath: newEntries[0].path).standardizedFileURL
+  }
+
   /// Parses `git status --porcelain` output into a list of file paths.
   /// Strips the two-character status prefix (XY) plus the following space.
   /// Index arithmetic is byte-safe: we drop a fixed three-byte prefix from
@@ -559,6 +606,16 @@ nonisolated extension GitWorktreeClient {
                 }
               }
 
+              // Snapshot the live worktree set BEFORE spawning `wt sw`.
+              // After exit we diff against this to identify the new
+              // entry — more robust than treating wt's last-non-empty
+              // stdout line as the path (issue #24 (c)). Best-effort:
+              // if wt ls fails for any reason, we fall through with an
+              // empty snapshot and the diff will surface every
+              // post-create entry; the fallbackStdoutLast path then
+              // picks the right one.
+              let preEntries = await liveLsEntries(wt: wt, repoRoot: spec.repoRoot)
+
               let args = makeCreateArguments(for: spec)
               let outcome = await GitWorktreeShell.runStream(
                 executable: wt,
@@ -586,15 +643,22 @@ nonisolated extension GitWorktreeClient {
                 ))
                 return
               }
-              let pathString = outcome.stdoutLast
-              guard !pathString.isEmpty else {
+
+              // Post-snapshot + diff. We don't require stdoutLast to
+              // be non-empty anymore — it's a tiebreaker, not the
+              // primary source.
+              let postEntries = await liveLsEntries(wt: wt, repoRoot: spec.repoRoot)
+              guard let worktreeURL = pickNewWorktreePath(
+                preEntries: preEntries,
+                postEntries: postEntries,
+                fallbackStdoutLast: outcome.stdoutLast
+              ) else {
                 continuation.finish(throwing: GitWorktreeError.commandFailed(
                   command: "wt \(args.joined(separator: " "))",
-                  stderr: "wt exited 0 without reporting a worktree path"
+                  stderr: "wt exited 0 but no new worktree appeared in wt ls"
                 ))
                 return
               }
-              let worktreeURL = URL(fileURLWithPath: pathString).standardizedFileURL
               continuation.yield(.finished(worktreePath: worktreeURL))
               continuation.finish()
             } catch {
@@ -719,19 +783,27 @@ nonisolated extension GitWorktreeClient {
     )
   }
 
+  /// Best-effort `wt ls --json` → `[GitWtEntry]`. Returns `[]` on any
+  /// failure — used by `createWorktreeStream` for the diff-based
+  /// path-picking (issue #24 (c)) and by `pruneWorktrees` for its
+  /// before/after count. Both callers tolerate empty on error.
+  fileprivate static func liveLsEntries(wt: URL, repoRoot: URL) async -> [GitWtEntry] {
+    let outcome = await GitWorktreeShell.run(
+      executable: wt, arguments: ["ls", "--json"], cwd: repoRoot
+    )
+    guard case .exited(let code, let data, _, _) = outcome, code == 0 else { return [] }
+    let text = GitWorktreeShell.decodeUTF8(data).trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !text.isEmpty,
+          let entries = try? JSONDecoder().decode([GitWtEntry].self, from: Data(text.utf8))
+    else { return [] }
+    return entries.filter { !$0.isBare }
+  }
+
   /// Helper for `pruneWorktrees` — best-effort count of non-bare entries
   /// from `wt ls --json`; returns 0 on any failure so the caller's diff
   /// degrades to reporting zero pruned instead of throwing.
   fileprivate static func liveLsCount(wt: URL, repoRoot: URL) async -> Int {
-    let outcome = await GitWorktreeShell.run(
-      executable: wt, arguments: ["ls", "--json"], cwd: repoRoot
-    )
-    guard case .exited(let code, let data, _, _) = outcome, code == 0 else { return 0 }
-    let text = GitWorktreeShell.decodeUTF8(data).trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !text.isEmpty,
-          let entries = try? JSONDecoder().decode([GitWtEntry].self, from: Data(text.utf8))
-    else { return 0 }
-    return entries.filter { !$0.isBare }.count
+    await liveLsEntries(wt: wt, repoRoot: repoRoot).count
   }
 
   /// Unwraps a `CommandOutcome`'s successful stdout or throws a mapped
