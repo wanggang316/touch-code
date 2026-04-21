@@ -60,9 +60,29 @@ struct SettingsWindowView: View {
     case .about:
       AboutSettingsView()
     case .repositoryGeneral(let projectID):
-      RepositoryGeneralSettingsView(projectID: projectID)
+      if let idx = store.state.repositoryPanes.firstIndex(where: { $0.id == projectID }) {
+        RepositoryGeneralSettingsView(projectID: projectID)
+          .environment(
+            store.scope(
+              state: \.repositoryPanes[idx],
+              action: \.repositoryPane(_, for: projectID)
+            )
+          )
+      } else {
+        RepositoryGeneralSettingsView(projectID: projectID)
+      }
     case .repositoryHooks(let projectID):
-      RepositoryHooksSettingsView(projectID: projectID)
+      if let idx = store.state.repositoryPanes.firstIndex(where: { $0.id == projectID }) {
+        RepositoryHooksSettingsView(projectID: projectID)
+          .environment(
+            store.scope(
+              state: \.repositoryPanes[idx],
+              action: \.repositoryPane(_, for: projectID)
+            )
+          )
+      } else {
+        RepositoryHooksSettingsView(projectID: projectID)
+      }
     }
   }
 }
