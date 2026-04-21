@@ -198,6 +198,7 @@ let project = Project(
         .target(name: "TouchCodeCore"),
         .target(name: "TouchCodeIPC"),
         .target(name: "tc"),
+        .target(name: "tcKit"),
         .target(name: "GhosttyKit"),
         .external(name: "ComposableArchitecture"),
       ],
