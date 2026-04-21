@@ -26,7 +26,7 @@ T2 (Header) will reuse the same toggle action for its GV button, so the Header b
 - [x] M4 — EditorFeature `.openDefaultInCurrentWorktreeRequested` + new static `resolveDefaultEditorID` helper (T2 absent at this round; reuse path deferred) (2026-04-21)
 - [x] M5 — MainWindowCommands + attach to WindowGroup; ⌘K dispatches `.openSpaceSwitcherRequested` (token path per D1b-round1) (2026-04-21)
 - [x] M6 — Tests: RootFeature (projection, toggle, token, no-selection guard), EditorFeature (openDefault × 3 branches + pure resolver), WorktreeDetailView width clamp — 480 tests green (2026-04-21)
-- [ ] M7 — Lint + full test schemes green; push; open PR against feature/main-window; push PR_READY (lint + TouchCodeCore + touch-code + tcKit green; push/PR pending)
+- [x] M7 REV1 — Rebase onto ee3f088 (T1+T2 merged); three conditionals re-checked per D1a/b/c-round2; D8 sidebar follow-up shipped; lint + TouchCodeCore + touch-code + tcKit green; force-push + PR_READY (REV1) (2026-04-21)
 
 ## Surprises & Discoveries
 
@@ -44,6 +44,10 @@ T2 (Header) will reuse the same toggle action for its GV button, so the Header b
 - **D1a-round1** (execute M0, 2026-04-21): `HierarchyClient.setWorktreeGitViewerVisible` ABSENT → T3 adds the closure per M1. T1/T2 not yet merged; re-check after each future rebase.
 - **D1b-round1** (execute M0, 2026-04-21): T1 sidebar popover action ABSENT (T1 still in Plan per master) → T3 adds `spaceSwitcherOpenToken` + `.openSpaceSwitcherRequested` per M1. Re-check after each future rebase.
 - **D1c-round1** (execute M0, 2026-04-21): T2 `resolveDefault` helper ABSENT (T2 just entered Execute per master) → T3 introduces `resolveDefaultEditorID` static helper on `EditorFeature` per M4. Re-check after each future rebase.
+- **D1a-round2** (post-rebase REV1 onto ee3f088, 2026-04-21): T2 landed `HierarchyClient.setWorktreeGitViewerVisible` — **PRESENT**. Kept T2's declaration + doc-comment; removed my duplicate during rebase. Live binding / liveValue / testValue entries auto-merged cleanly.
+- **D1b-round2** (post-rebase REV1 onto ee3f088, 2026-04-21): T1 did **not** expose an open-only sidebar popover action (sidebar uses `spaceFooterTapped` toggle). Token path stands: `spaceSwitcherOpenToken` + `.openSpaceSwitcherRequested` retained. T1 sidebar view will need to add `.onChange(of:)` to observe the token when wiring ⌘K — called out in PR.
+- **D1c-round2** (post-rebase REV1 onto ee3f088, 2026-04-21): T2 landed `EditorFeature.resolveDefault(projectOverride:globalDefault:descriptors:) -> ResolvedDefault` + `EditorFeature.finderEditorID` — **PRESENT**. Removed my local `resolveDefaultEditorID`. `.openDefaultInCurrentWorktreeRequested` now reads the per-Project override from the catalog, calls `resolveDefault`, and maps `.editor`/`.finder` to the `EditorID` that `.openRequested` expects. EditorFeatureTests kept T2's pure-helper suite and replaced my helper test with three TestStore forwarding cases on the new shape.
+- **D8** (rebase REV1 follow-up, 2026-04-21): Replaced the inline override → global → Finder resolution inside `.sidebar(.delegate(.openInDefaultEditor))` with a call to `EditorFeature.resolveDefault` + `projectOverrideEditorID(for:)`. Semantic delta: the sidebar no longer filters on `isInstalled` — the shared helper accepts any descriptor in the cache, and the downstream `.openRequested` surfaces `.notInstalled` via the editor toast. Rationale: unify all three entry points (Header dropdown, sidebar context menu, ⌘E) on one resolver; a visible failure beats silent fall-through to Finder.
 
 ## Outcomes & Retrospective
 
