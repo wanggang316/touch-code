@@ -110,9 +110,49 @@ struct HierarchySidebarFeature {
     var addProjectSheet: AddProjectSheet?
     var addWorktreeSheet: AddWorktreeSheet?
     var createWorktreeSheet: CreateWorktreeFeature.State?
+    var archivedWorktreesSheet: ArchivedWorktreesFeature.State?
     var renameProjectSheet: RenameProjectSheet?
     var pendingWorktreeRemoval: PendingWorktreeRemoval?
     var pendingProjectRemoval: PendingProjectRemoval?
+    /// Pending force-remove follow-up on the main sidebar row (outside
+    /// the Archived sheet). Triggered when safe-remove fails with
+    /// `.uncommittedChanges`. Distinct from
+    /// `ArchivedWorktreesFeature.pendingForceRemove`, which governs the
+    /// in-sheet variant.
+    var pendingForceRemove: PendingForceRemoval?
+    /// Second-stage confirmation for force-remove when the Worktree
+    /// has live terminal surfaces. Non-nil → "This will terminate N
+    /// running processes" alert visible.
+    var pendingRunningTerminalWarning: PendingRunningTerminalWarning?
+    /// Session-scoped "seen it" flag for the first-archive explainer.
+    /// Lives on this reducer (sidebar is the sole archive entry point
+    /// for the main list; Archived sheet handles its own flow).
+    var hasShownArchiveExplainer: Bool = false
+    /// Pending archive awaiting the first-archive explainer dialog.
+    var pendingArchiveExplainer: WorktreeID?
+    /// Transient toast after Prune completes.
+    var pruneToast: String?
+  }
+
+  /// Payload for the safe-remove → force-remove escalation on the main
+  /// sidebar row. Captured at `.uncommittedChanges` time so the alert
+  /// message can enumerate the offending files.
+  struct PendingForceRemoval: Equatable {
+    var worktreeID: WorktreeID
+    var projectID: ProjectID
+    var spaceID: SpaceID
+    var displayName: String
+    var uncommittedFiles: [String]
+  }
+
+  /// Second stage of the force-remove ladder — asks for explicit
+  /// consent before the runtime hard-kills the Worktree's terminals.
+  struct PendingRunningTerminalWarning: Equatable {
+    var worktreeID: WorktreeID
+    var projectID: ProjectID
+    var spaceID: SpaceID
+    var displayName: String
+    var count: Int
   }
 
   enum Action: Equatable {
@@ -152,6 +192,42 @@ struct HierarchySidebarFeature {
     )
     case worktreeRemoveConfirmed
     case worktreeRemoveCancelled
+
+    // Safe-remove → force-remove ladder (feat/worktree-mgmt)
+    case worktreeRemoveFailed(
+      worktreeID: WorktreeID,
+      inProject: ProjectID,
+      inSpace: SpaceID,
+      name: String,
+      error: GitWorktreeError
+    )
+    case worktreeForceRemoveConfirmed
+    case worktreeForceRemoveCancelled
+    case worktreeRunningTerminalWarningConfirmed
+    case worktreeRunningTerminalWarningCancelled
+
+    // Archive actions on the main worktree row.
+    case worktreeArchiveTapped(
+      worktreeID: WorktreeID,
+      inProject: ProjectID,
+      inSpace: SpaceID,
+      name: String
+    )
+    case worktreeArchiveConfirmed
+    case worktreeArchiveCancelled
+    case worktreeUnarchiveTapped(
+      worktreeID: WorktreeID,
+      inProject: ProjectID,
+      inSpace: SpaceID
+    )
+
+    // Project ⋯ menu: Archived + Prune.
+    case projectShowArchivedTapped(projectID: ProjectID, inSpace: SpaceID)
+    case archivedWorktreesSheet(ArchivedWorktreesFeature.Action)
+    case archivedWorktreesSheetDismissed
+    case projectPruneTapped(projectID: ProjectID, inSpace: SpaceID)
+    case projectPruneCompleted(pruned: Int, error: String?)
+    case pruneToastDismissed
     case worktreeRevealInFinderTapped(path: String)
     case worktreeOpenInDefaultEditorTapped(
       worktreeID: WorktreeID,
@@ -207,12 +283,20 @@ struct HierarchySidebarFeature {
         // Other child actions are handled by the ifLet-scoped
         // reducer; no-op at the parent level.
         return .none
+      case .archivedWorktreesSheet(.delegate(.dismissed)):
+        state.archivedWorktreesSheet = nil
+        return .none
+      case .archivedWorktreesSheet:
+        return .none
       default:
         return coreReduce(into: &state, action: action)
       }
     }
     .ifLet(\.createWorktreeSheet, action: \.createWorktreeSheet) {
       CreateWorktreeFeature()
+    }
+    .ifLet(\.archivedWorktreesSheet, action: \.archivedWorktreesSheet) {
+      ArchivedWorktreesFeature()
     }
   }
 
@@ -356,12 +440,163 @@ struct HierarchySidebarFeature {
 
       case .worktreeRemoveConfirmed:
         guard let pending = state.pendingWorktreeRemoval else { return .none }
-        try? hierarchyClient.removeWorktree(pending.worktreeID, pending.projectID, pending.spaceID)
         state.pendingWorktreeRemoval = nil
-        return .none
+        let client = hierarchyClient
+        let wid = pending.worktreeID
+        let pid = pending.projectID
+        let sid = pending.spaceID
+        let name = pending.displayName
+        return .run { send in
+          do {
+            try await client.removeWorktreeWithGit(wid, pid, sid, false)
+          } catch let error as GitWorktreeError {
+            await send(.worktreeRemoveFailed(
+              worktreeID: wid, inProject: pid, inSpace: sid, name: name, error: error
+            ))
+          } catch {
+            await send(.worktreeRemoveFailed(
+              worktreeID: wid, inProject: pid, inSpace: sid, name: name,
+              error: .commandFailed(command: "remove", stderr: error.localizedDescription)
+            ))
+          }
+        }
 
       case .worktreeRemoveCancelled:
         state.pendingWorktreeRemoval = nil
+        return .none
+
+      case let .worktreeRemoveFailed(wid, pid, sid, name, error):
+        // Uncommitted changes → offer Force Remove. Anything else →
+        // sit the error on the root-feature delegate path as a banner
+        // caller might surface; for now log silently.
+        if case .uncommittedChanges(let files) = error {
+          state.pendingForceRemove = PendingForceRemoval(
+            worktreeID: wid,
+            projectID: pid,
+            spaceID: sid,
+            displayName: name,
+            uncommittedFiles: files
+          )
+        }
+        return .none
+
+      case .worktreeForceRemoveConfirmed:
+        guard let pending = state.pendingForceRemove else { return .none }
+        // W-Q3 ladder step 2: if live terminals, warn before hard-kill.
+        let runningCount = hierarchyClient.runningPanelCount(pending.worktreeID)
+        if runningCount > 0 {
+          state.pendingRunningTerminalWarning = PendingRunningTerminalWarning(
+            worktreeID: pending.worktreeID,
+            projectID: pending.projectID,
+            spaceID: pending.spaceID,
+            displayName: pending.displayName,
+            count: runningCount
+          )
+          state.pendingForceRemove = nil
+          return .none
+        }
+        // No terminals — proceed directly.
+        let client = hierarchyClient
+        let wid = pending.worktreeID
+        let pid = pending.projectID
+        let sid = pending.spaceID
+        state.pendingForceRemove = nil
+        return .run { _ in
+          try? await client.removeWorktreeWithGit(wid, pid, sid, true)
+        }
+
+      case .worktreeForceRemoveCancelled:
+        state.pendingForceRemove = nil
+        return .none
+
+      case .worktreeRunningTerminalWarningConfirmed:
+        guard let pending = state.pendingRunningTerminalWarning else { return .none }
+        let client = hierarchyClient
+        let wid = pending.worktreeID
+        let pid = pending.projectID
+        let sid = pending.spaceID
+        state.pendingRunningTerminalWarning = nil
+        return .run { _ in
+          try? await client.removeWorktreeWithGit(wid, pid, sid, true)
+        }
+
+      case .worktreeRunningTerminalWarningCancelled:
+        state.pendingRunningTerminalWarning = nil
+        return .none
+
+      case let .worktreeArchiveTapped(wid, _, _, _):
+        if state.hasShownArchiveExplainer {
+          try? hierarchyClient.setWorktreeArchived(wid, true)
+        } else {
+          state.pendingArchiveExplainer = wid
+        }
+        return .none
+
+      case .worktreeArchiveConfirmed:
+        guard let wid = state.pendingArchiveExplainer else { return .none }
+        state.hasShownArchiveExplainer = true
+        state.pendingArchiveExplainer = nil
+        try? hierarchyClient.setWorktreeArchived(wid, true)
+        return .none
+
+      case .worktreeArchiveCancelled:
+        state.pendingArchiveExplainer = nil
+        return .none
+
+      case let .worktreeUnarchiveTapped(wid, _, _):
+        try? hierarchyClient.setWorktreeArchived(wid, false)
+        return .none
+
+      case let .projectShowArchivedTapped(projectID, spaceID):
+        state.archivedWorktreesSheet = ArchivedWorktreesFeature.State(
+          projectID: projectID,
+          spaceID: spaceID
+        )
+        return .none
+
+      case .archivedWorktreesSheetDismissed:
+        state.archivedWorktreesSheet = nil
+        return .none
+
+      case let .projectPruneTapped(projectID, spaceID):
+        let snapshot = hierarchyClient.snapshot()
+        guard let space = snapshot.spaces.first(where: { $0.id == spaceID }),
+              let project = space.projects.first(where: { $0.id == projectID }),
+              let gitRoot = project.gitRoot
+        else { return .none }
+        let gitRootURL = URL(fileURLWithPath: gitRoot)
+        @Dependency(GitWorktreeClient.self) var gitClient
+        let client = gitClient
+        return .run { send in
+          do {
+            let pruned = try await client.pruneWorktrees(gitRootURL)
+            await send(.projectPruneCompleted(pruned: pruned, error: nil))
+          } catch let error as GitWorktreeError {
+            let msg: String
+            if case .commandFailed(_, let stderr) = error { msg = stderr }
+            else { msg = "\(error)" }
+            await send(.projectPruneCompleted(pruned: 0, error: msg))
+          } catch {
+            await send(.projectPruneCompleted(pruned: 0, error: error.localizedDescription))
+          }
+        }
+
+      case let .projectPruneCompleted(pruned, error):
+        if let error {
+          state.pruneToast = "Prune failed: \(error)"
+        } else {
+          state.pruneToast = pruned == 1
+            ? "Pruned 1 stale worktree"
+            : "Pruned \(pruned) stale worktrees"
+        }
+        return .none
+
+      case .pruneToastDismissed:
+        state.pruneToast = nil
+        return .none
+
+      case .archivedWorktreesSheet:
+        // Routed through the top-level Reducer; unreachable here.
         return .none
 
       case .worktreeRevealInFinderTapped(let path):

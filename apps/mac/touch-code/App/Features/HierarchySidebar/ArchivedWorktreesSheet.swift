@@ -1,0 +1,123 @@
+import ComposableArchitecture
+import SwiftUI
+import TouchCodeCore
+
+/// Sheet listing a Project's archived Worktrees with Unarchive /
+/// Remove actions per row. State flows through
+/// `ArchivedWorktreesFeature`; the structural list of archived
+/// worktrees is read live from `HierarchyManager.catalog` on every
+/// render.
+struct ArchivedWorktreesSheet: View {
+  @Bindable var store: StoreOf<ArchivedWorktreesFeature>
+  @Environment(HierarchyManager.self) private var hierarchyManager
+
+  var body: some View {
+    let archived = archivedWorktrees()
+    VStack(alignment: .leading, spacing: 12) {
+      HStack {
+        Text("Archived Worktrees").font(.headline)
+        Spacer()
+        Button("Close") { store.send(.closeButtonTapped) }
+          .keyboardShortcut(.cancelAction)
+      }
+      if let banner = store.banner {
+        Text(banner)
+          .font(.caption)
+          .foregroundStyle(.red)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      if archived.isEmpty {
+        VStack(spacing: 8) {
+          Image(systemName: "archivebox")
+            .font(.title)
+            .foregroundStyle(.secondary)
+            .accessibilityHidden(true)
+          Text("No archived worktrees.")
+            .font(.callout)
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+      } else {
+        List {
+          ForEach(archived) { worktree in
+            HStack(spacing: 8) {
+              VStack(alignment: .leading, spacing: 2) {
+                Text(worktree.name)
+                  .lineLimit(1)
+                if let branch = worktree.branch {
+                  Text(branch)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                }
+                Text(worktree.path)
+                  .font(.caption)
+                  .foregroundStyle(.tertiary)
+                  .lineLimit(1)
+                  .truncationMode(.middle)
+              }
+              Spacer()
+              Button("Unarchive") {
+                store.send(.unarchiveTapped(worktree.id))
+              }
+              .buttonStyle(.borderless)
+              Button(role: .destructive) {
+                store.send(.removeTapped(worktree.id, displayName: worktree.name))
+              } label: {
+                Image(systemName: "trash")
+              }
+              .buttonStyle(.borderless)
+              .help("Remove")
+            }
+            .padding(.vertical, 4)
+          }
+        }
+        .listStyle(.inset)
+      }
+    }
+    .padding(20)
+    .frame(width: 480, height: 360)
+    .alert(
+      forceRemoveTitle,
+      isPresented: Binding(
+        get: { store.pendingForceRemove != nil },
+        set: { if !$0 { store.send(.forceRemoveCancelled) } }
+      )
+    ) {
+      Button("Force Remove", role: .destructive) {
+        store.send(.forceRemoveConfirmed)
+      }
+      Button("Cancel", role: .cancel) {
+        store.send(.forceRemoveCancelled)
+      }
+    } message: {
+      Text(forceRemoveMessage)
+    }
+  }
+
+  private func archivedWorktrees() -> [Worktree] {
+    let catalog = hierarchyManager.catalog
+    guard let space = catalog.spaces.first(where: { $0.id == store.spaceID }),
+          let project = space.projects.first(where: { $0.id == store.projectID })
+    else { return [] }
+    return project.worktrees.filter { $0.archived }
+  }
+
+  private var forceRemoveTitle: String {
+    guard let pending = store.pendingForceRemove else { return "Force Remove?" }
+    return "Force Remove “\(pending.worktreeName)”?"
+  }
+
+  private var forceRemoveMessage: String {
+    guard let pending = store.pendingForceRemove else {
+      return "Uncommitted changes will be discarded. This cannot be undone."
+    }
+    if pending.uncommittedFiles.isEmpty {
+      return "Uncommitted changes will be discarded. This cannot be undone."
+    }
+    let shown = pending.uncommittedFiles.prefix(3).joined(separator: ", ")
+    let more = pending.uncommittedFiles.count > 3
+      ? " and \(pending.uncommittedFiles.count - 3) more"
+      : ""
+    return "\(pending.uncommittedFiles.count) file(s) have uncommitted changes: \(shown)\(more). Force remove will discard them. This cannot be undone."
+  }
+}
