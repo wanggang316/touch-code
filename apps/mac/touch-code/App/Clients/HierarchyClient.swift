@@ -166,6 +166,7 @@ nonisolated struct HierarchySelection: Equatable, Sendable {
 
 extension HierarchyClient {
   @MainActor
+  // swiftlint:disable:next function_body_length
   static func live(
     manager: HierarchyManager,
     gitWorktreeClient: GitWorktreeClient = .makeLive()
