@@ -25,7 +25,7 @@ No user-visible UX change; all fixes are resilience / correctness / operability.
 - [x] T3 — (b) `GitWorktreeClient.mapGitStderr` regexes all case-insensitive (inline `(?i)` on the two regex branches; `stderr.lowercased()` branches unchanged); three mixed-case tests added (uppercase / title-case for branchExists, mixed for invalidBranchName). 21 tests in suite, all green.
 - [x] T4 — (a) `GitWorktreeShell.runStream` exposes `onSpawn` callback; `createWorktreeStream`'s `continuation.onTermination` terminates the captured Process via `CreateWorktreeProcessBox` (NSLock-backed) before task cancellation; `makeLive(onCreateWorktreeSpawn:)` adds an optional test seam letting the integration test capture a weak Process reference and assert `!isRunning` within 2 s of cancel. Test completes in ~350 ms — far under deadline, no flake risk from wt speed. 3 integration tests green.
 - [x] T5 — (c) `createWorktreeStream` picks the new worktree path by diffing `wt ls --json` before/after via `pickNewWorktreePath` static pure helper; `stdoutLast` retained only as tiebreaker for multi-entry diffs. 5 unit tests cover clean diff / empty diff / multiple-new-w-fallback / multiple-new-no-match / trailing-slash canonicalization. `fullLifecycle` integration test extended with an assertion that the returned path shows up in `wt ls --json` output. 26 unit + 3 integration = 29 tests green.
-- [ ] T6 — full local validation (`make mac-lint` + three test schemes), push, open PR to `feature/hierarchy-management`, push `PR_READY` to master
+- [x] T6 — full local validation (swiftlint clean + 894 tests green across all four schemes), push, PR #29 opened against `feature/hierarchy-management`, PR_READY pushed to master.
 
 ## Surprises & Discoveries
 
@@ -82,7 +82,36 @@ No user-visible UX change; all fixes are resilience / correctness / operability.
 
 ## Outcomes & Retrospective
 
-(To be filled at milestone completion)
+All 6 tasks landed on 2026-04-21. PR #29 open to
+`feature/hierarchy-management`.
+
+What went smooth:
+
+- `.enabled(if: Self.wtBundled)` pattern is already idiomatic in the
+  repo — T1 was copy-paste from `LiveGitServiceIntegrationTests`.
+- The T4 `onCreateWorktreeSpawn` testing seam let the integration
+  test assert on the literal invariant master asked for
+  (`!process.isRunning` within 2 s of cancel). No file-based
+  heuristics, no flake risk.
+- `pickNewWorktreePath`'s pure shape made the 5 edge-case tests
+  trivial — no fake process runner needed.
+
+Minor execution surprises:
+
+- T1: the struct was `@MainActor`, so the `static let` inherited
+  MainActor isolation and the `.enabled(if:)` trait's Sendable
+  predicate couldn't call it. Fix: prepend `nonisolated` to the
+  static let. Worth recording for future trait adoption on any
+  other @MainActor test struct.
+- T4: `CreateWorktreeProcessBox` needed an explicit `nonisolated`
+  annotation on the class declaration for the same default-MainActor
+  reason — accessing its methods from the onSpawn / onTermination
+  closures (both Sendable, non-isolated) hit the same diagnostic.
+- T6 lint: a duplicate blank line crept in after the ProcessBox
+  class. Separate tiny style-only commit b329d0c rather than
+  amending T4.
+
+Closes #24 once PR #29 lands.
 
 ## Context and Orientation
 
