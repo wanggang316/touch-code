@@ -138,23 +138,11 @@ struct RootFeatureTests {
     await store.send(.inspectorVisibilityToggled) { $0.inspectorVisible = false }
   }
 
-  @Test
-  func sidebarModeChangedUpdatesState() async {
-    let store = TestStore(initialState: RootFeature.State()) {
-      RootFeature()
-    } withDependencies: {
-      $0.terminalClient.events = { AsyncStream { $0.finish() } }
-      $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
-    }
-
-    #expect(store.state.sidebarMode == .hierarchy)
-    await store.send(.sidebarModeChanged(.inbox)) { state in
-      state.sidebarMode = .inbox
-    }
-    await store.send(.sidebarModeChanged(.hierarchy)) { state in
-      state.sidebarMode = .hierarchy
-    }
-  }
+  // Removed in T1: `sidebarModeChangedUpdatesState` covered the
+  // SidebarMode / .sidebarModeChanged plumbing that T0 left as
+  // "T2 must either reuse or remove". T1 deleted the plumbing (the
+  // sidebar unconditionally renders the hierarchy tree; T2 built the
+  // Header bell fresh on WorktreeHeader).
 
   @Test
   func onLaunchExhaustivelyPropagatesSelectionFromStream() async {

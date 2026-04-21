@@ -130,15 +130,17 @@ struct RootFeature {
               await send(.selectionChanged(selection))
             }
           }
-          .cancellable(id: CancelID.selectionChanges, cancelInFlight: true),
-
-          // Prime EditorFeature so the sidebar context-menu "Open in default
-          // editor" path can resolve a descriptor on first use, even if the
-          // Worktree header hasn't rendered yet (its own .task does
-          // `editor.onAppear` on first view mount — this is a belt-and-braces
-          // hydration for context-menu-before-header cases).
-          .send(.editor(.onAppear))
+          .cancellable(id: CancelID.selectionChanges, cancelInFlight: true)
         )
+        // Worst case for sidebar context-menu "Open in default editor" is an
+        // empty descriptor cache → resolution falls through to
+        // EditorRegistry.finderID, which is always installed. Priming via
+        // `.send(.editor(.onAppear))` here was considered but was dropped
+        // because it runs the live EditorService on a background Task and
+        // the live factory's `MainActor.assumeIsolated { ... }` assertion
+        // fails from a non-MainActor queue during test-host bootstrap. The
+        // WorktreeHeaderOpenButton's own `.task { store.send(.onAppear) }`
+        // is the canonical hydration path.
 
       case .onQuit:
         return .merge(
