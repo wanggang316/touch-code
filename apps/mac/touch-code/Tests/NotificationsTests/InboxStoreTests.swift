@@ -224,15 +224,94 @@ struct InboxStoreTests {
     #expect(second == 2)
   }
 
+  // MARK: - Worktree-scoped mutations (T0 M5)
+
+  @Test
+  func markReadForWorktreeOnlyMarksScopedNotifications() throws {
+    let url = Self.temporaryURL()
+    defer { try? FileManager.default.removeItem(at: url) }
+    let store = InboxStore(fileURL: url, clock: ContinuousClock(), debounce: .milliseconds(1))
+
+    let panelA = Panel(workingDirectory: "/a")
+    let panelB = Panel(workingDirectory: "/b")
+    let worktreeA = Worktree(
+      name: "a", path: "/a",
+      tabs: [Tab(splitTree: SplitTree(leaf: panelA.id), panels: [panelA])]
+    )
+    let worktreeB = Worktree(
+      name: "b", path: "/b",
+      tabs: [Tab(splitTree: SplitTree(leaf: panelB.id), panels: [panelB])]
+    )
+    let project = Project(
+      name: "p", rootPath: "/p", gitRoot: "/p", worktrees: [worktreeA, worktreeB]
+    )
+    let catalog = Catalog(spaces: [Space(name: "s", projects: [project])])
+
+    store.append(Self.makeNotification(panelID: panelA.id))
+    store.append(Self.makeNotification(panelID: panelA.id))
+    store.append(Self.makeNotification(panelID: panelB.id))
+    #expect(store.unreadCount == 3)
+
+    store.markRead(forWorktree: worktreeA.id, in: catalog)
+    #expect(store.unreadCount == 1)
+    #expect(store.inbox.unreadCount(forWorktree: worktreeA.id, in: catalog) == 0)
+    #expect(store.inbox.unreadCount(forWorktree: worktreeB.id, in: catalog) == 1)
+  }
+
+  @Test
+  func markReadForWorktreeIsIdempotent() throws {
+    let url = Self.temporaryURL()
+    defer { try? FileManager.default.removeItem(at: url) }
+    let store = InboxStore(fileURL: url, clock: ContinuousClock(), debounce: .milliseconds(1))
+
+    let panel = Panel(workingDirectory: "/a")
+    let worktree = Worktree(
+      name: "a", path: "/a",
+      tabs: [Tab(splitTree: SplitTree(leaf: panel.id), panels: [panel])]
+    )
+    let project = Project(name: "p", rootPath: "/p", gitRoot: "/p", worktrees: [worktree])
+    let catalog = Catalog(spaces: [Space(name: "s", projects: [project])])
+
+    store.append(Self.makeNotification(panelID: panel.id))
+    store.markRead(forWorktree: worktree.id, in: catalog)
+    let firstRead = store.inbox.notifications.first?.readAt
+    store.markRead(forWorktree: worktree.id, in: catalog)
+    #expect(store.inbox.notifications.first?.readAt == firstRead)
+  }
+
+  @Test
+  func markReadForUnknownWorktreeIsSilentNoOp() throws {
+    let url = Self.temporaryURL()
+    defer { try? FileManager.default.removeItem(at: url) }
+    let store = InboxStore(fileURL: url)
+    store.append(Self.makeNotification())
+    #expect(store.unreadCount == 1)
+    store.markRead(forWorktree: WorktreeID(), in: Catalog())
+    #expect(store.unreadCount == 1)
+  }
+
+  @Test
+  func dismissAllDelegatesToClearAll() throws {
+    let url = Self.temporaryURL()
+    defer { try? FileManager.default.removeItem(at: url) }
+    let store = InboxStore(fileURL: url, clock: ContinuousClock(), debounce: .milliseconds(1))
+    store.append(Self.makeNotification())
+    store.dismissAll()
+    let notification = try #require(store.inbox.notifications.first)
+    #expect(notification.isUnread == false)
+    #expect(notification.dismissedAt != nil)
+  }
+
   // MARK: - Helpers
 
   private static func makeNotification(
     agent: String = "claude",
     body: String = "b",
-    dismissedAt: Date? = nil
+    dismissedAt: Date? = nil,
+    panelID: PanelID = PanelID()
   ) -> AgentNotification {
     AgentNotification(
-      panelID: PanelID(),
+      panelID: panelID,
       agent: agent,
       kind: .completed,
       title: "t",

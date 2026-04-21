@@ -20,6 +20,9 @@ nonisolated struct HierarchyClient: Sendable {
     _ spaceID: SpaceID, _ name: String, _ rootPath: String, _ gitRoot: String?
   ) throws -> ProjectID
   var removeProject: @MainActor @Sendable (_ projectID: ProjectID, _ inSpace: SpaceID) throws -> Void
+  var renameProject: @MainActor @Sendable (
+    _ projectID: ProjectID, _ inSpace: SpaceID, _ name: String
+  ) throws -> Void
 
   var createWorktree: @MainActor @Sendable (
     _ projectID: ProjectID, _ inSpace: SpaceID, _ name: String, _ path: String, _ branch: String?
@@ -27,6 +30,13 @@ nonisolated struct HierarchyClient: Sendable {
   var removeWorktree: @MainActor @Sendable (
     _ worktreeID: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
   ) throws -> Void
+
+  /// Records which Worktree to restore when the window re-activates this Space.
+  /// `nil` clears. Missing space / unchanged value is a silent no-op — matches
+  /// `HierarchyManager.setSpaceLastActiveWorktree` contract.
+  var setSpaceLastActiveWorktree: @MainActor @Sendable (
+    _ spaceID: SpaceID, _ worktreeID: WorktreeID?
+  ) -> Void
 
   var selectSpace: @MainActor @Sendable (_ id: SpaceID?) -> Void
   var selectProject: @MainActor @Sendable (_ id: ProjectID?, _ inSpace: SpaceID) throws -> Void
@@ -73,6 +83,14 @@ nonisolated struct HierarchyClient: Sendable {
     _ projectID: ProjectID, _ inSpace: SpaceID, _ editorID: EditorID?
   ) throws -> Void
 
+  /// Flips `Worktree.gitViewerVisible` for the given Worktree. Silent no-op on
+  /// unknown `worktreeID`; persists through the standard debounced
+  /// `store.scheduleSave(catalog)` pipeline (T0 §D5). Consumed by the T2
+  /// Header Git Viewer toggle and by T3's overlay presentation binding.
+  var setWorktreeGitViewerVisible: @MainActor @Sendable (
+    _ worktreeID: WorktreeID, _ visible: Bool
+  ) -> Void
+
   var snapshot: @MainActor @Sendable () -> Catalog
 
   /// Emits whenever the selection chain `(spaceID, projectID, worktreeID)`
@@ -104,11 +122,17 @@ extension HierarchyClient {
       removeSpace: { try manager.removeSpace($0) },
       addProject: { try manager.addProject(to: $0, name: $1, rootPath: $2, gitRoot: $3) },
       removeProject: { try manager.removeProject($0, from: $1) },
+      renameProject: { projectID, spaceID, name in
+        try manager.renameProject(projectID, in: spaceID, name: name)
+      },
       createWorktree: { projectID, spaceID, name, path, branch in
         try manager.createWorktree(in: projectID, in: spaceID, name: name, path: path, branch: branch)
       },
       removeWorktree: { worktreeID, projectID, spaceID in
         try manager.removeWorktree(worktreeID, from: projectID, in: spaceID)
+      },
+      setSpaceLastActiveWorktree: { spaceID, worktreeID in
+        manager.setSpaceLastActiveWorktree(spaceID: spaceID, worktreeID: worktreeID)
       },
       selectSpace: { manager.selectSpace($0) },
       selectProject: { try manager.selectProject($0, in: $1) },
@@ -151,6 +175,9 @@ extension HierarchyClient {
       },
       setDefaultEditor: { projectID, spaceID, editorID in
         try manager.setDefaultEditor(editorID, for: projectID, in: spaceID)
+      },
+      setWorktreeGitViewerVisible: { worktreeID, visible in
+        manager.setWorktreeGitViewerVisible(worktreeID: worktreeID, visible: visible)
       },
       snapshot: { manager.catalog },
       selectionChanges: { makeSelectionStream(manager: manager) }
@@ -221,8 +248,10 @@ extension HierarchyClient: DependencyKey {
     removeSpace: { _ in fatalError("HierarchyClient.liveValue not configured") },
     addProject: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     removeProject: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    renameProject: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     createWorktree: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     removeWorktree: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    setSpaceLastActiveWorktree: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     selectSpace: { _ in fatalError("HierarchyClient.liveValue not configured") },
     selectProject: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     selectWorktree: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
@@ -235,6 +264,7 @@ extension HierarchyClient: DependencyKey {
     focusPanel: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     resizeSplit: { _, _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     setDefaultEditor: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    setWorktreeGitViewerVisible: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     snapshot: { fatalError("HierarchyClient.liveValue not configured") },
     selectionChanges: { AsyncStream { $0.finish() } }
   )
@@ -245,8 +275,10 @@ extension HierarchyClient: DependencyKey {
     removeSpace: unimplemented("HierarchyClient.removeSpace"),
     addProject: unimplemented("HierarchyClient.addProject", placeholder: ProjectID()),
     removeProject: unimplemented("HierarchyClient.removeProject"),
+    renameProject: unimplemented("HierarchyClient.renameProject"),
     createWorktree: unimplemented("HierarchyClient.createWorktree", placeholder: WorktreeID()),
     removeWorktree: unimplemented("HierarchyClient.removeWorktree"),
+    setSpaceLastActiveWorktree: unimplemented("HierarchyClient.setSpaceLastActiveWorktree"),
     selectSpace: unimplemented("HierarchyClient.selectSpace"),
     selectProject: unimplemented("HierarchyClient.selectProject"),
     selectWorktree: unimplemented("HierarchyClient.selectWorktree"),
@@ -259,6 +291,7 @@ extension HierarchyClient: DependencyKey {
     focusPanel: unimplemented("HierarchyClient.focusPanel"),
     resizeSplit: unimplemented("HierarchyClient.resizeSplit"),
     setDefaultEditor: unimplemented("HierarchyClient.setDefaultEditor"),
+    setWorktreeGitViewerVisible: unimplemented("HierarchyClient.setWorktreeGitViewerVisible"),
     snapshot: unimplemented(
       "HierarchyClient.snapshot",
       placeholder: Catalog(windows: [], spaces: [], selectedSpaceID: nil)

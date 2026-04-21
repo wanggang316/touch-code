@@ -39,6 +39,27 @@ struct HierarchyClientTests {
   }
 
   @Test
+  func liveSetWorktreeGitViewerVisibleTogglesCatalog() throws {
+    let (client, manager) = makeLiveClient()
+    let spaceID = client.createSpace("s")
+    let projectID = try client.addProject(spaceID, "p", "/tmp", "/tmp")
+    let worktreeID = try client.createWorktree(projectID, spaceID, "w", "/tmp/w", "main")
+
+    // Default is false.
+    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].gitViewerVisible == false)
+
+    client.setWorktreeGitViewerVisible(worktreeID, true)
+    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].gitViewerVisible == true)
+
+    client.setWorktreeGitViewerVisible(worktreeID, false)
+    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].gitViewerVisible == false)
+
+    // Unknown worktreeID is a silent no-op; nothing should crash, state unchanged.
+    client.setWorktreeGitViewerVisible(WorktreeID(), true)
+    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].gitViewerVisible == false)
+  }
+
+  @Test
   func selectionChangesEmitsInitialAndOnMutation() async throws {
     let (client, _) = makeLiveClient()
     let stream = client.selectionChanges()

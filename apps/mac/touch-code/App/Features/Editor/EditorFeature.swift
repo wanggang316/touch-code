@@ -53,11 +53,22 @@ struct EditorFeature {
     case removeCustomEditor(id: EditorID)
     case setProjectOverride(projectID: ProjectID, spaceID: SpaceID, editorID: EditorID?)
     case setProjectOverrideFailed(reason: String)
-    /// Requested open from WorktreeHeaderOpenButton. The action flows through the reducer
-    /// so TestStore can observe the effect; the view doesn't hold a direct `@Dependency`.
+    /// Open request routed from the Worktree Header split button (and any other editor
+    /// consumer). The action flows through the reducer so TestStore observes the effect;
+    /// views do not hold a direct `@Dependency(EditorClient.self)`.
     case openRequested(editorID: EditorID, worktreePath: String, projectID: ProjectID?)
     case openSucceeded(editorID: EditorID, displayName: String)
     case openFailed(reason: String)
+    /// T3 (⌘E shortcut): resolve the current Worktree's default editor via the
+    /// per-Project override → global default → Finder fallback chain and forward to
+    /// `.openRequested`. The caller (MainWindowCommands) supplies the already-resolved
+    /// IDs + path so the reducer reads the catalog snapshot only for the override lookup.
+    case openDefaultInCurrentWorktreeRequested(
+      spaceID: SpaceID,
+      projectID: ProjectID,
+      worktreeID: WorktreeID,
+      worktreePath: String
+    )
   }
 
   @Dependency(EditorClient.self) var editorClient
@@ -163,8 +174,72 @@ struct EditorFeature {
       case .openFailed(let reason):
         state.lastOpenResult = .failed(reason: reason)
         return .none
+
+      case .openDefaultInCurrentWorktreeRequested(let spaceID, let projectID, _, let worktreePath):
+        // T3 ⌘E: reuse T2's shared resolver. Look up the per-Project override
+        // from the catalog snapshot, then delegate to `resolveDefault` which
+        // already encodes the cascade-on-missing semantics. Map the returned
+        // `ResolvedDefault` to an `EditorID` for `.openRequested`.
+        let catalog = hierarchyClient.snapshot()
+        let projectOverride = catalog
+          .spaces.first(where: { $0.id == spaceID })?
+          .projects.first(where: { $0.id == projectID })?
+          .defaultEditor
+        let resolvedID: EditorID
+        switch Self.resolveDefault(
+          projectOverride: projectOverride,
+          globalDefault: state.globalDefault,
+          descriptors: state.descriptors
+        ) {
+        case .editor(let descriptor): resolvedID = descriptor.id
+        case .finder: resolvedID = Self.finderEditorID
+        }
+        return .send(.openRequested(
+          editorID: resolvedID,
+          worktreePath: worktreePath,
+          projectID: projectID
+        ))
       }
     }
+  }
+
+  /// Built-in Finder `EditorID`. Named alias of `EditorRegistry.finderID` so callers
+  /// that need to dispatch the always-available fallback (T2 Header split button) do
+  /// not re-hardcode the string `"finder"`.
+  nonisolated static let finderEditorID: EditorID = EditorRegistry.finderID
+
+  /// Result of resolving the Worktree's default editor for the Header's Open-in
+  /// primary action. Resolution chain:
+  ///   - per-Project override → descriptor, if present in `descriptors`
+  ///   - global default       → descriptor, if present in `descriptors`
+  ///   - otherwise             → `.finder`
+  ///
+  /// **Cascade-on-missing semantics.** If a configured override id is not in
+  /// `descriptors` (e.g. the custom editor was removed), resolution does not
+  /// fall through to `.finder` — it cascades to the global default, and only
+  /// falls to Finder when neither override nor global resolves. This preserves
+  /// the behavior users saw in the pre-T2 dropdown so a stale override id does
+  /// not strand them on Finder when a global default is set. See
+  /// `docs/exec-plans/0009-mw-t2-header.md` Decision Log D5.
+  nonisolated enum ResolvedDefault: Equatable {
+    case editor(EditorDescriptor)
+    case finder
+  }
+
+  nonisolated static func resolveDefault(
+    projectOverride: EditorID?,
+    globalDefault: EditorID?,
+    descriptors: [EditorDescriptor]
+  ) -> ResolvedDefault {
+    if let override = projectOverride,
+       let match = descriptors.first(where: { $0.id == override }) {
+      return .editor(match)
+    }
+    if let global = globalDefault,
+       let match = descriptors.first(where: { $0.id == global }) {
+      return .editor(match)
+    }
+    return .finder
   }
 
   /// Human-readable reason for an `EditorError`, surfaced as a toast subtitle by views.

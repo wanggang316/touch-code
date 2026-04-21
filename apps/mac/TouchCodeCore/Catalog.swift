@@ -58,3 +58,38 @@ extension Catalog: Codable {
     self.selectedSpaceID = try container.decodeIfPresent(SpaceID.self, forKey: .selectedSpaceID)
   }
 }
+
+extension Catalog {
+  /// Resolve a `PanelID` to the Worktree that currently hosts it, if any.
+  /// Walks `spaces → projects → worktrees → tabs → panels` and returns the
+  /// first match. Linear in the total panel count. Returns `nil` if the
+  /// panel has been closed or never belonged to this catalog.
+  public func worktreeID(forPanel panelID: PanelID) -> WorktreeID? {
+    for space in spaces {
+      for project in space.projects {
+        for worktree in project.worktrees {
+          for tab in worktree.tabs where tab.panels.contains(where: { $0.id == panelID }) {
+            return worktree.id
+          }
+        }
+      }
+    }
+    return nil
+  }
+
+  /// All `PanelID`s currently living under the given Worktree, flat across
+  /// every tab. Returns an empty set if the Worktree is not in the catalog.
+  public func panelIDs(inWorktree worktreeID: WorktreeID) -> Set<PanelID> {
+    for space in spaces {
+      for project in space.projects {
+        guard let worktree = project.worktrees.first(where: { $0.id == worktreeID }) else { continue }
+        var ids: Set<PanelID> = []
+        for tab in worktree.tabs {
+          for panel in tab.panels { ids.insert(panel.id) }
+        }
+        return ids
+      }
+    }
+    return []
+  }
+}
