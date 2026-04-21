@@ -30,9 +30,6 @@ jobs:
           path: apps/mac/.build/ghostty
           key: ghostty-${{ runner.os }}-${{ hashFiles('apps/mac/ThirdParty/ghostty/build.zig.zon', 'apps/mac/scripts/build-ghostty.sh', 'mise.toml') }}
 
-      - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_16.0.app
-
       - run: make mac-generate
       - run: make mac-build-cli
       - run: make mac-build
