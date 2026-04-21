@@ -269,6 +269,7 @@ struct HierarchySidebarFeature {
       /// Emitted from AddProjectFeature's Reveal banner. `RootFeature` selects
       /// the Space + Project so the user lands on the existing row.
       case revealExistingProject(SpaceID, ProjectID)
+      case openSpaceManager
     }
   }
 

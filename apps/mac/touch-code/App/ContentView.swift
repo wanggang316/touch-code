@@ -74,6 +74,9 @@ struct ContentView: View {
           store.send(.settingsSheet(.dismiss))
         }
       }
+      .sheet(item: $store.scope(state: \.spaceManagerSheet, action: \.spaceManagerSheet)) { sheetStore in
+        SpaceManagerView(store: sheetStore)
+      }
     }
     .environment(hierarchyManager)
     .environment(settingsStore)
