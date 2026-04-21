@@ -136,6 +136,7 @@ struct RepositorySettingsFeatureTests {
   @Test
   func onHooksAppearLoadsHooksAndClassifiesToRepository() async {
     let projectID = ProjectID()
+    let subscriptionID = UUID()
     let wtree = Worktree(
       id: WorktreeID(),
       name: "main",
@@ -155,6 +156,7 @@ struct RepositorySettingsFeatureTests {
     let catalog = Catalog(windows: [], spaces: [space], selectedSpaceID: space.id)
 
     let subscription = HookSubscription(
+      id: subscriptionID,
       event: .gitPush,
       command: "echo test",
       scope: .worktreeID(wtree.id)  // Repository-scoped
@@ -167,13 +169,7 @@ struct RepositorySettingsFeatureTests {
     store.dependencies.hierarchyClient.snapshot = { catalog }
 
     // Simulate successful load and classification.
-    let hookRow = HookRow(
-      id: subscription.id,
-      event: subscription.event.rawValue,
-      command: subscription.command,
-      scope: subscription.scope.debugDescription,
-      source: .repository
-    )
+    let hookRow = makeTestHookRow(id: subscriptionID, source: .repository)
 
     await store.send(.onHooksAppear) {
       $0.hooksLoad = .loading
@@ -187,6 +183,7 @@ struct RepositorySettingsFeatureTests {
   @Test
   func onHooksAppearClassifiesToGlobalWhenScopeDoesNotMatch() async {
     let projectID = ProjectID()
+    let subscriptionID = UUID()
     let project = Project(
       id: projectID,
       name: "test",
@@ -197,6 +194,7 @@ struct RepositorySettingsFeatureTests {
     let catalog = Catalog(windows: [], spaces: [space], selectedSpaceID: space.id)
 
     let subscription = HookSubscription(
+      id: subscriptionID,
       event: .gitPush,
       command: "echo test",
       scope: .anyPanel  // Global scope
@@ -208,13 +206,7 @@ struct RepositorySettingsFeatureTests {
     }
     store.dependencies.hierarchyClient.snapshot = { catalog }
 
-    let hookRow = HookRow(
-      id: subscription.id,
-      event: subscription.event.rawValue,
-      command: subscription.command,
-      scope: subscription.scope.debugDescription,
-      source: .global
-    )
+    let hookRow = makeTestHookRow(id: subscriptionID, source: .global)
 
     await store.send(.onHooksAppear) {
       $0.hooksLoad = .loading
@@ -296,61 +288,22 @@ struct RepositorySettingsFeatureTests {
   }
 }
 
-// MARK: - HookRow Helper (mock for testing)
+// MARK: - Test Helpers
 
-nonisolated struct HookRow: Equatable, Identifiable {
-  let id: UUID
-  let event: String
-  let command: String
-  let scope: String
-  let source: HookSource
-
-  init(
-    id: UUID,
-    event: String,
-    command: String,
-    scope: String,
-    source: HookSource
-  ) {
-    self.id = id
-    self.event = event
-    self.command = command
-    self.scope = scope
-    self.source = source
-  }
-}
-
-// MARK: - HookRowBuilder Helper
-
-enum HookRowBuilder {
-  static func make(from subscription: HookSubscription, source: HookSource) -> HookRow {
-    HookRow(
-      id: subscription.id,
-      event: subscription.event.rawValue,
-      command: subscription.command,
-      scope: subscription.scope.debugDescription,
-      source: source
-    )
-  }
-}
-
-// MARK: - HookSource and HookEvent extensions
-
-enum HookSource: Equatable {
-  case global
-  case repository
-}
-
-extension HookSubscription.Scope {
-  var debugDescription: String {
-    switch self {
-    case .anyPanel: return "anyPanel"
-    case .panelID(let id): return "panelID(\(id.raw.uuidString))"
-    case .panelLabel(let label): return "panelLabel(\(label))"
-    case .tabID(let id): return "tabID(\(id.raw.uuidString))"
-    case .tabLabel(let label): return "tabLabel(\(label))"
-    case .worktreeID(let id): return "worktreeID(\(id.raw.uuidString))"
-    case .worktreePathGlob(let glob): return "worktreePathGlob(\(glob))"
-    }
-  }
+/// Construct a HookRow for testing. Uses mock values since the builder
+/// is normally called during the load effect.
+private func makeTestHookRow(
+  id: UUID,
+  displayName: String = "test",
+  source: HookSource = .global,
+  enabled: Bool = true
+) -> HookRow {
+  HookRow(
+    id: id,
+    displayName: displayName,
+    eventLabel: "git-push",
+    matchSummary: nil,
+    enabled: enabled,
+    source: source
+  )
 }
