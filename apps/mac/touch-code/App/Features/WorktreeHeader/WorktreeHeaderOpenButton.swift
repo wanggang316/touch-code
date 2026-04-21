@@ -100,19 +100,18 @@ struct WorktreeHeaderOpenButton: View {
   // MARK: - Label
 
   /// The dropdown label honours the full resolution chain: per-Project override →
-  /// global default → Finder fallback. Reads the per-Project override directly from the
-  /// environment `HierarchyManager` so the label tracks catalog mutations in real time;
-  /// global default reads from the EditorFeature cache.
+  /// global default → Finder fallback. Resolution lives in
+  /// `EditorFeature.resolveDefault` so the T2 Header split-button and this legacy
+  /// dropdown share one source of truth.
   private var currentDefaultLabel: String {
-    if let override = projectOverrideID,
-       let match = store.state.descriptors.first(where: { $0.id == override }) {
-      return "Open in \(match.displayName)"
+    switch EditorFeature.resolveDefault(
+      projectOverride: projectOverrideID,
+      globalDefault: store.state.globalDefault,
+      descriptors: store.state.descriptors
+    ) {
+    case .editor(let match): return "Open in \(match.displayName)"
+    case .finder: return "Open in Finder"
     }
-    if let global = store.state.globalDefault,
-       let match = store.state.descriptors.first(where: { $0.id == global }) {
-      return "Open in \(match.displayName)"
-    }
-    return "Open in Finder"
   }
 
   private var projectOverrideID: EditorID? {

@@ -167,6 +167,41 @@ struct EditorFeature {
     }
   }
 
+  /// Built-in Finder `EditorID`. Named alias of `EditorRegistry.finderID` so callers
+  /// that need to dispatch the always-available fallback (T2 Header split button) do
+  /// not re-hardcode the string `"finder"`.
+  nonisolated static let finderEditorID: EditorID = EditorRegistry.finderID
+
+  /// Result of resolving the Worktree's default editor for the Header's Open-in
+  /// primary action. Mirrors the label-resolution chain originally in
+  /// `WorktreeHeaderOpenButton.currentDefaultLabel`:
+  ///   - per-Project override → descriptor, if present in `descriptors`
+  ///   - global default       → descriptor, if present in `descriptors`
+  ///   - otherwise             → `.finder`
+  ///
+  /// Cascades through a missing override to the global default so a removed
+  /// custom editor does not strand users on Finder when a global is set.
+  nonisolated enum ResolvedDefault: Equatable {
+    case editor(EditorDescriptor)
+    case finder
+  }
+
+  nonisolated static func resolveDefault(
+    projectOverride: EditorID?,
+    globalDefault: EditorID?,
+    descriptors: [EditorDescriptor]
+  ) -> ResolvedDefault {
+    if let override = projectOverride,
+       let match = descriptors.first(where: { $0.id == override }) {
+      return .editor(match)
+    }
+    if let global = globalDefault,
+       let match = descriptors.first(where: { $0.id == global }) {
+      return .editor(match)
+    }
+    return .finder
+  }
+
   /// Human-readable reason for an `EditorError`, surfaced as a toast subtitle by views.
   nonisolated static func editorErrorDescription(_ error: EditorError) -> String {
     switch error {
