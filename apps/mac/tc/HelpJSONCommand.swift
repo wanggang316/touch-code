@@ -1,10 +1,9 @@
 import ArgumentParser
 import Foundation
 
-/// Emits a JSON tree of every `tc` subcommand. Consumed by
-/// `apps/mac/scripts/skill-help-roundtrip.py` to assert that every `tc <subcommand>`
-/// referenced in the skill's `references/tc-cli.md` still exists in the binary. Hidden
-/// from the default `--help` output but reachable via `tc help-json`.
+/// Emits a JSON tree of every `tc` subcommand. Hidden from the default `--help` output
+/// but reachable via `tc help-json`. Useful for external tooling that wants to reason
+/// about the CLI's shape without parsing `--help` text.
 struct HelpJSONCommand: ParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "help-json",

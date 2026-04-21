@@ -1,4 +1,4 @@
-.PHONY: help bootstrap build-ghostty generate build run-app format lint check test clean build-cli
+.PHONY: help bootstrap build-ghostty generate build run-app format lint check test clean build-cli check-skill-decoupling
 
 # Use full Xcode.app when xcode-select points at Command Line Tools only.
 # See DEC-10 in docs/exec-plans/0001-bootstrap-monorepo.md.
@@ -14,9 +14,10 @@ help:
 	@echo "  run-app          - Build and launch touch-code.app"
 	@echo "  format           - swift-format in-place"
 	@echo "  lint             - swiftlint"
-	@echo "  check            - format + lint"
+	@echo "  check            - format + lint + skill-decoupling"
 	@echo "  test             - (placeholder)"
 	@echo "  clean            - Remove workspace + project + Package.resolved"
+	@echo "  check-skill-decoupling - Enforce that engineering code does not reference skills/"
 
 bootstrap:
 	cd ../.. && git submodule update --init --recursive && mise install
@@ -44,7 +45,10 @@ format:
 lint:
 	mise exec -- swiftlint lint --quiet --config .swiftlint.yml
 
-check: format lint
+check: format lint check-skill-decoupling
+
+check-skill-decoupling:
+	./scripts/check-skill-decoupling.sh
 
 test:
 	@echo "no tests yet"

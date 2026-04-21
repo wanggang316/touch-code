@@ -1,4 +1,4 @@
-.PHONY: help bootstrap mac-bootstrap mac-build-ghostty mac-generate mac-build mac-build-cli mac-run-app mac-format mac-lint mac-check mac-test mac-clean
+.PHONY: help bootstrap mac-bootstrap mac-build-ghostty mac-generate mac-build mac-build-cli mac-run-app mac-format mac-lint mac-check mac-test mac-clean mac-check-skill-decoupling
 
 MAC_APP_DIR := apps/mac
 
@@ -15,10 +15,11 @@ help:
 	@echo "  mac-check         - format + lint"
 	@echo "  mac-test          - (placeholder)"
 	@echo "  mac-clean         - Remove workspace + project + Package.resolved"
+	@echo "  mac-check-skill-decoupling - Enforce that engineering code does not reference skills/"
 
 bootstrap:
 	git submodule update --init --recursive
 	mise install
 
-mac-bootstrap mac-build-ghostty mac-generate mac-build mac-build-cli mac-run-app mac-format mac-lint mac-check mac-test mac-clean:
+mac-bootstrap mac-build-ghostty mac-generate mac-build mac-build-cli mac-run-app mac-format mac-lint mac-check mac-test mac-clean mac-check-skill-decoupling:
 	$(MAKE) -C $(MAC_APP_DIR) $(subst mac-,,$@)
