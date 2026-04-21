@@ -21,13 +21,12 @@ T2 (Header) will reuse the same toggle action for its GV button, so the Header b
 ## Progress
 
 - [x] M0 — Rebase onto origin/feature/main-window (tip 61bfeef; T1/T2 not yet merged); three conditionals all ABSENT → add path (2026-04-21)
-- [ ] M1 — RootFeature: derived `gitViewerOverlayVisible` + `.gitViewerToggledForCurrentWorktree` + `.openSpaceSwitcherRequested`; remove `inspectorVisible`; HierarchyClient `setWorktreeGitViewerVisible` (conditional add)
-- [ ] M2 — WorktreeDetailView overlay host + `Constants.gvOverlay*` + width-clamp helper
-- [ ] M3 — ContentView simplification: NavigationSplitView two columns, toolbar cleanup, editor-toast untouched
-- [ ] M4 — EditorFeature `.openDefaultInCurrentWorktreeRequested` (or reuse T2's `resolveDefault` helper if present) + forward to `.openRequested`
-- [ ] M5 — MainWindowCommands + attach to WindowGroup; ⌘K mode (token vs direct) decided at M0
-- [ ] M6 — Tests: RootFeature (projection, toggle, token, no-selection guard), EditorFeature (openDefault × 3 branches), WorktreeDetailView width clamp
-- [ ] M7 — Lint + full test schemes green; push; open PR against feature/main-window; push PR_READY
+- [x] M1 — RootFeature: derived `gitViewerOverlayVisible` + `.gitViewerToggledForCurrentWorktree` + `.openSpaceSwitcherRequested`; remove `inspectorVisible`; HierarchyClient `setWorktreeGitViewerVisible` added (2026-04-21; touch-code tests green)
+- [x] M2 + M3 — WorktreeDetailView overlay host + `MainWindowConstants` + width-clamp helper; ContentView 2-col simplification (2026-04-21; shared commit per plan; tests green)
+- [x] M4 — EditorFeature `.openDefaultInCurrentWorktreeRequested` + new static `resolveDefaultEditorID` helper (T2 absent at this round; reuse path deferred) (2026-04-21)
+- [x] M5 — MainWindowCommands + attach to WindowGroup; ⌘K dispatches `.openSpaceSwitcherRequested` (token path per D1b-round1) (2026-04-21)
+- [x] M6 — Tests: RootFeature (projection, toggle, token, no-selection guard), EditorFeature (openDefault × 3 branches + pure resolver), WorktreeDetailView width clamp — 480 tests green (2026-04-21)
+- [ ] M7 — Lint + full test schemes green; push; open PR against feature/main-window; push PR_READY (lint + TouchCodeCore + touch-code + tcKit green; push/PR pending)
 
 ## Surprises & Discoveries
 
@@ -48,7 +47,26 @@ T2 (Header) will reuse the same toggle action for its GV button, so the Header b
 
 ## Outcomes & Retrospective
 
-(To be filled at milestone completion)
+**2026-04-21 — M0 through M6 shipped on `feat/mw-gitviewer-shortcuts`; M7 push + PR pending.**
+
+Shipped:
+- Lint suppression unblocks T3 on the rebased baseline (matches T0 M7 precedent).
+- RootFeature: per-Worktree `gitViewerOverlayVisible` derived projection; `.gitViewerToggledForCurrentWorktree` optimistic toggle + persist; `.openSpaceSwitcherRequested` bumps a monotonic token T1 can observe.
+- HierarchyClient: new `setWorktreeGitViewerVisible` closure forwarding to `HierarchyManager.setWorktreeGitViewerVisible`.
+- WorktreeDetailView: terminal-region overlay hosts `GitViewerView` at a fixed 360-pt width with a 480-pt min-terminal clamp; pure `shouldShowOverlay(totalWidth:)` helper; suppressed-width hint badge.
+- ContentView: simplified to a two-column NavigationSplitView; old inspector toolbar + HStack third column removed.
+- EditorFeature: `.openDefaultInCurrentWorktreeRequested` + shared static `resolveDefaultEditorID` (override → globalDefault → Finder) feeding the existing `.openRequested` pipeline.
+- MainWindowCommands: ⌘E / ⌘⇧G / ⌘K attached to WindowGroup.
+- Tests: four new RootFeature cases, four new EditorFeature cases, two-case WorktreeDetailView layout suite; 480 tests green via `xcodebuild test -scheme touch-code`; `TouchCodeCore` + `tcKit` also green.
+
+Gaps / deferred:
+- T1/T2 not yet merged; D1a/D1b/D1c re-check scheduled for every future rebase. After T2 merges the expectation is to drop the local `HierarchyClient.setWorktreeGitViewerVisible` closure and reuse T2's. After T1 merges, if a direct popover action lands, ⌘K swaps to it and the token field goes.
+- `WorktreeHeaderOpenButton` still carries its own private override→globalDefault→Finder resolution inline; when a shared helper becomes clearly useful to a second caller (beyond ⌘E), consolidate onto `EditorFeature.resolveDefaultEditorID`. Not in scope to rewrite the header right now.
+
+Lessons:
+- `EditorClient.open`'s signature is `(URL, EditorID?, ProjectID?) -> EditorChoice`; writing a typed test stub caught the optional-EditorID contract that wasn't obvious from usage sites.
+- Pure static helper (`resolveDefaultEditorID`) + exhaustivity-off TestStore + exact-action `store.receive(...)` turned out to be the cleanest way to cover a multi-branch forwarding reducer without duplicating fixture scaffolding.
+- `buildableFolders` in Tuist recurses into new sub-directories automatically — creating `App/Commands/` required no Project.swift edit.
 
 ## Context and Orientation
 
