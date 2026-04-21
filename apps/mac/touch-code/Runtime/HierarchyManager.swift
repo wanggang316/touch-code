@@ -686,7 +686,7 @@ final class HierarchyManager {
   /// builds assert at most one Space owns the id. Used by the Settings
   /// Repository panes which carry only a `ProjectID`.
   private func findProjectAnySpace(_ projectID: ProjectID) -> (Int, Int)? {
-    var found: (Int, Int)? = nil
+    var found: (Int, Int)?
     for (sIdx, space) in catalog.spaces.enumerated() {
       if let pIdx = space.projects.firstIndex(where: { $0.id == projectID }) {
         assert(found == nil, "Project \(projectID) appears in multiple spaces")

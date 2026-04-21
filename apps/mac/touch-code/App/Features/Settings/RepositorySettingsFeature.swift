@@ -127,7 +127,7 @@ nonisolated func classifyHooks(
   catalog: Catalog
 ) throws -> [(HookSubscription, HookSource)] {
   // Find the project in the catalog.
-  var project: Project? = nil
+  var project: Project?
   for space in catalog.spaces {
     if let found = space.projects.first(where: { $0.id == projectID }) {
       project = found
@@ -142,7 +142,8 @@ nonisolated func classifyHooks(
   }
 
   return subscriptions.map { subscription in
-    let source = isRepositoryScope(subscription.scope, project: project)
+    let source =
+      isRepositoryScope(subscription.scope, project: project)
       ? HookSource.repository
       : HookSource.global
     return (subscription, source)
@@ -184,7 +185,8 @@ nonisolated private func doesPathMatchGlob(_ path: String, glob: String) -> Bool
 
   // Convert glob to a basic regex: escape special chars except *, then
   // replace * with .*
-  let escaped = glob
+  let escaped =
+    glob
     .replacingOccurrences(of: ".", with: "\\.")
     .replacingOccurrences(of: "?", with: "\\?")
     .replacingOccurrences(of: "[", with: "\\[")
