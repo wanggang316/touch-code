@@ -42,6 +42,10 @@ struct RootFeature {
     /// a subset of `editor` for isolated in-sheet edits.
     @Presents var settingsSheet: SettingsSheetFeature.State?
 
+    /// T4: space manager sheet presentation. `nil` = hidden; non-nil
+    /// presents the sheet for managing (list / rename / reorder / delete) Spaces.
+    @Presents var spaceManagerSheet: SpaceManagerFeature.State?
+
     /// T3: live read of the current Worktree's `gitViewerVisible` against
     /// a catalog snapshot. Not a cached field — views pass in
     /// `hierarchyManager.catalog` so SwiftUI's `@Observable` tracking
@@ -118,6 +122,9 @@ struct RootFeature {
     case openSpaceSwitcherRequested
     case settingsSheetShown
     case settingsSheet(PresentationAction<SettingsSheetFeature.Action>)
+    case spaceManagerSheetShown
+    case spaceManagerSheet(PresentationAction<SpaceManagerFeature.Action>)
+    case switchToSpaceAtIndex(Int)
     case sidebar(HierarchySidebarFeature.Action)
     case detail(WorktreeDetailFeature.Action)
     case gitViewer(GitViewerFeature.Action)
@@ -279,6 +286,9 @@ struct RootFeature {
         try? hierarchyClient.selectProject(projectID, spaceID)
         return .none
 
+      case .sidebar(.delegate(.openSpaceManager)):
+        return .send(.spaceManagerSheetShown)
+
       case .sidebar:
         return .none
 
@@ -348,6 +358,23 @@ struct RootFeature {
       case .settingsSheet:
         return .none
 
+      case .spaceManagerSheetShown:
+        state.spaceManagerSheet = SpaceManagerFeature.State()
+        return .none
+
+      case .spaceManagerSheet(.dismiss):
+        state.spaceManagerSheet = nil
+        return .none
+
+      case .spaceManagerSheet:
+        return .none
+
+      case .switchToSpaceAtIndex(let index):
+        let snapshot = hierarchyClient.snapshot()
+        guard index >= 1 && index <= snapshot.spaces.count else { return .none }
+        let targetID = snapshot.spaces[index - 1].id
+        return .send(.sidebar(.spaceRowTapped(targetID)))
+
       case .gitViewerToggledForCurrentWorktree:
         guard let worktreeID = state.selection.worktreeID else { return .none }
         // Read the current visibility from the live catalog — the view
@@ -387,6 +414,9 @@ struct RootFeature {
     }
     .ifLet(\.$settingsSheet, action: \.settingsSheet) {
       SettingsSheetFeature()
+    }
+    .ifLet(\.$spaceManagerSheet, action: \.spaceManagerSheet) {
+      SpaceManagerFeature()
     }
   }
 
