@@ -85,6 +85,7 @@ struct SpaceManagerView: View {
           .onTapGesture {
             store.send(.renameRowTapped(space.id, currentName: space.name))
           }
+          .accessibilityAddTraits(.isButton)
       }
 
       Spacer()
