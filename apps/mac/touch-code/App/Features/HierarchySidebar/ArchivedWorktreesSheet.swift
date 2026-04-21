@@ -64,6 +64,7 @@ struct ArchivedWorktreesSheet: View {
                 store.send(.removeTapped(worktree.id, displayName: worktree.name))
               } label: {
                 Image(systemName: "trash")
+                  .accessibilityLabel("Remove Worktree")
               }
               .buttonStyle(.borderless)
               .help("Remove")

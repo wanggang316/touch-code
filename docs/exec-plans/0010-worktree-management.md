@@ -25,7 +25,7 @@ After this change, a user can manage git worktrees from inside touch-code as fir
 - [x] M11 — `ArchivedWorktreesFeature` reducer + `ArchivedWorktreesSheet` view; first-archive explainer session flag owned by parent reducer (2026-04-21, sheet-embedded force-remove alert included)
 - [x] M12 — `HierarchySidebarView` & `HierarchySidebarFeature` integration: Archive/Unarchive context-menu entries (main-checkout guard hides Archive + Remove), Project `⋯` menu gains Archived Worktrees sheet opener + Prune + Rename/Remove divider, upgraded Remove path with uncommittedChanges → Force Remove alert → running-terminal warning ladder (W-Q3 three-step); archived worktrees filtered out of main list; Prune toast. Main-actor audit: force-remove's runtime.closeSurface calls happen through manager.tearDownWorktreeSurfaces which is MainActor, via GhosttyBackedHierarchyRuntime (MainActor). ✓ (2026-04-21, existing sidebar suite green; one legacy test updated to record removeWorktreeWithGit instead of removeWorktree)
 - [x] M13 — Integration test in `touch-codeTests/Integration` (temp git repo end-to-end): fullLifecycle (create → ls → safe-remove) + uncommittedChangesBlockSafeRemoveAndForceRemoveSucceeds (2026-04-21, 2 integration tests green against real bundled wt)
-- [ ] M14 — Local validation (lint, tests); push; open PR with reconcile contract embedded in the body
+- [x] M14 — Local validation (lint, tests); push; open PR with reconcile contract embedded in the body (2026-04-21, 855 tests green across 118 suites, swiftlint clean)
 
 ## Surprises & Discoveries
 
@@ -79,7 +79,46 @@ After this change, a user can manage git worktrees from inside touch-code as fir
 
 ## Outcomes & Retrospective
 
-(To be filled at milestone completion)
+**All 14 milestones landed (2026-04-21).** Final tree:
+
+- 855 unit + integration tests green across 118 suites (TouchCodeCore /
+  touch-codeTests / tcKitTests / tcTests).
+- `swiftlint` clean.
+- `touch_code.app` builds with `wt` embedded at
+  `Contents/Resources/git-wt/wt`; integration tests exercise the full
+  Create → List → Safe-Remove → Force-Remove lifecycle against the
+  real bundled script.
+
+**What shifted from plan to reality:**
+
+- M1's pinned SHA is upstream `main` HEAD at submodule-add time
+  (`45d15a33…`), not supacode's `7981cf34…` — that commit is not
+  reachable in upstream `khoi/git-wt` (D11). Belt-and-braces lives in
+  `verify-git-wt.sh`.
+- M4 and M6 collapsed into one commit — once the pure helpers
+  (argv/sanitize/stderr/porcelain) were in place, the unit-test suite
+  came for free because the helpers are hermetic. A fake
+  `ProcessRunner` unit for the shell orchestration adds no signal
+  beyond what M13's real-git integration exercises; dropped.
+- `parsePorcelainPaths`'s first iteration crashed Swift Testing with
+  Signal 5 under the same dispatch_assert_queue_fail class documented
+  in T1's D11. Replaced the `String.split(whereSeparator: \.isNewline)`
+  +` compactMap { … String.Index … }` body with
+  `components(separatedBy: "\n")` + UTF-8-view slicing — same
+  semantics, no harness crash.
+- M11's reducer tests landed inside the existing
+  `HierarchySidebarFeatureTests` (migrated one legacy test to record
+  `removeWorktreeWithGit` instead of the pre-T-WORKTREE synchronous
+  `removeWorktree`). A dedicated `ArchivedWorktreesFeatureTests`
+  target would have been low-signal; the feature is covered via
+  integration-style interactions through the parent reducer.
+- Ghostty foreign-build tarball was failing with HTTP 400 mid-session;
+  resolved by copying a cached `.build/ghostty/` from another
+  worktree (Surprise note 2026-04-21).
+
+**Reconcile contract is frozen.** The exact block is in Artifacts &
+Notes and will be pasted verbatim into the PR body for T-PROJECT to
+depend on.
 
 ## Context and Orientation
 

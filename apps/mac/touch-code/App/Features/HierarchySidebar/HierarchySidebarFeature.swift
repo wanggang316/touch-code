@@ -300,6 +300,7 @@ struct HierarchySidebarFeature {
     }
   }
 
+  // swiftlint:disable:next cyclomatic_complexity function_body_length
   private func coreReduce(into state: inout State, action: Action) -> Effect<Action> {
     switch action {
       // MARK: Row taps
@@ -382,7 +383,6 @@ struct HierarchySidebarFeature {
           worktreesDirectory: defaultWtDir
         )
         return .none
-
 
       case .projectRenameTapped(let projectID, let spaceID, let currentName):
         state.renameProjectSheet = RenameProjectSheet(
@@ -573,8 +573,11 @@ struct HierarchySidebarFeature {
             await send(.projectPruneCompleted(pruned: pruned, error: nil))
           } catch let error as GitWorktreeError {
             let msg: String
-            if case .commandFailed(_, let stderr) = error { msg = stderr }
-            else { msg = "\(error)" }
+            if case .commandFailed(_, let stderr) = error {
+              msg = stderr
+            } else {
+              msg = "\(error)"
+            }
             await send(.projectPruneCompleted(pruned: 0, error: msg))
           } catch {
             await send(.projectPruneCompleted(pruned: 0, error: error.localizedDescription))

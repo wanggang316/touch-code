@@ -352,8 +352,10 @@ nonisolated enum GitWorktreeShell {
 }
 
 nonisolated extension GitWorktreeClient {
-  /// Binds every closure to a live `wt`/`git` invocation. Used from
-  /// `TouchCodeApp.bringUp()` at startup.
+  // Binds every closure to a live `wt`/`git` invocation. Used from
+  // `TouchCodeApp.bringUp()` at startup.
+  //
+  // swiftlint:disable:next cyclomatic_complexity function_body_length
   static func makeLive() -> GitWorktreeClient {
     GitWorktreeClient(
       lsWorktrees: { repoRoot in

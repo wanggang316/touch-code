@@ -16,7 +16,7 @@ import Testing
 struct WorktreeLifecycleIntegrationTests {
   private let fm = FileManager.default
 
-  private func makeTempRepo() async throws -> URL {
+  private func makeTempRepo() throws -> URL {
     let base = fm.temporaryDirectory
       .appending(path: "touch-code-wt-\(UUID().uuidString)", directoryHint: .isDirectory)
     try fm.createDirectory(at: base, withIntermediateDirectories: true)
@@ -54,7 +54,7 @@ struct WorktreeLifecycleIntegrationTests {
   @Test
   func fullLifecycle() async throws {
     try #require(wtAvailable(), "wt script not bundled in test target")
-    let repo = try await makeTempRepo()
+    let repo = try makeTempRepo()
     defer { try? fm.removeItem(at: repo) }
 
     let client = GitWorktreeClient.makeLive()
@@ -94,7 +94,7 @@ struct WorktreeLifecycleIntegrationTests {
   @Test
   func uncommittedChangesBlockSafeRemoveAndForceRemoveSucceeds() async throws {
     try #require(wtAvailable(), "wt script not bundled in test target")
-    let repo = try await makeTempRepo()
+    let repo = try makeTempRepo()
     defer { try? fm.removeItem(at: repo) }
 
     let client = GitWorktreeClient.makeLive()
