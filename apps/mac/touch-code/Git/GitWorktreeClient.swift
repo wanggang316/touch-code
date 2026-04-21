@@ -197,6 +197,32 @@ nonisolated extension GitWorktreeClient {
 
 // MARK: - Live implementation helpers
 
+/// Thread-safe box holding the spawned `wt` Process so a cancellation
+/// path on a different thread (`AsyncThrowingStream.onTermination`
+/// is not isolated to any particular actor) can terminate it without
+/// racing the Task body that assigned it. `@unchecked Sendable`
+/// because the NSLock discipline is what actually enforces safety.
+/// Issue #24 (a).
+nonisolated final class CreateWorktreeProcessBox: @unchecked Sendable {
+  private let lock = NSLock()
+  private var process: Process?
+
+  func set(_ p: Process) {
+    lock.lock()
+    process = p
+    lock.unlock()
+  }
+
+  func terminateIfRunning() {
+    lock.lock()
+    let captured = process
+    lock.unlock()
+    guard let captured, captured.isRunning else { return }
+    captured.terminate()
+  }
+}
+
+
 /// Resolves the bundled `wt` script out of the app bundle's Resources
 /// folder. Debug and Release builds alike embed the script via Tuist's
 /// post-build `embed-git-wt.sh` (see `apps/mac/scripts/`).
@@ -245,10 +271,17 @@ nonisolated enum GitWorktreeShell {
   /// per-line stdout/stderr handlers, and yields line-level events until
   /// the child exits. On success the final event is
   /// `.exited(code, stderr)`.
+  ///
+  /// The optional `onSpawn` callback fires immediately before
+  /// `process.run()` so the caller can capture the `Process` reference
+  /// for external cancellation (see `createWorktreeStream`'s
+  /// `continuation.onTermination` wiring — issue #24 (a)). Default
+  /// is a no-op so existing callers stay source-compatible.
   static func runStream(
     executable: URL,
     arguments: [String],
     cwd: URL,
+    onSpawn: @Sendable (Process) -> Void = { _ in },
     onStdout: @escaping @Sendable (String) -> Void,
     onStderr: @escaping @Sendable (String) -> Void
   ) async -> (exitCode: Int32, stdoutLast: String, stderrCollected: String, spawnFailedReason: String?) {
@@ -344,6 +377,11 @@ nonisolated enum GitWorktreeShell {
         ))
       }
 
+      // Hand the Process to the caller before run() so a
+      // cancellation path can hold a reference before the child
+      // actually starts.
+      onSpawn(process)
+
       do {
         try process.run()
       } catch {
@@ -362,8 +400,17 @@ nonisolated extension GitWorktreeClient {
   // Binds every closure to a live `wt`/`git` invocation. Used from
   // `TouchCodeApp.bringUp()` at startup.
   //
+  // `onCreateWorktreeSpawn` is an optional testing seam — the live
+  // `createWorktreeStream` path calls it with the spawned `wt`
+  // Process immediately before `process.run()`. Production code
+  // leaves it nil; integration tests pass a closure that captures a
+  // weak reference to the Process so they can assert
+  // `!process.isRunning` after cancelling the stream (issue #24 (a)).
+  //
   // swiftlint:disable:next cyclomatic_complexity function_body_length
-  static func makeLive() -> GitWorktreeClient {
+  static func makeLive(
+    onCreateWorktreeSpawn: (@Sendable (Process) -> Void)? = nil
+  ) -> GitWorktreeClient {
     GitWorktreeClient(
       lsWorktrees: { repoRoot in
         let wt = try wtScriptURL()
@@ -483,6 +530,13 @@ nonisolated extension GitWorktreeClient {
 
       createWorktreeStream: { spec in
         AsyncThrowingStream { continuation in
+          // Locked box so `continuation.onTermination` (fires on any
+          // thread / isolation context) can safely read the Process
+          // reference and terminate the child. Without this, a
+          // cancelled consumer leaks the `wt` child until it finishes
+          // on its own — see issue #24 (a).
+          let processBox = CreateWorktreeProcessBox()
+
           let task = Task {
             do {
               let wt = try wtScriptURL()
@@ -510,6 +564,10 @@ nonisolated extension GitWorktreeClient {
                 executable: wt,
                 arguments: args,
                 cwd: spec.repoRoot,
+                onSpawn: { process in
+                  processBox.set(process)
+                  onCreateWorktreeSpawn?(process)
+                },
                 onStdout: { line in continuation.yield(.progressLine(line)) },
                 onStderr: { line in continuation.yield(.progressLine(line)) }
               )
@@ -543,7 +601,17 @@ nonisolated extension GitWorktreeClient {
               continuation.finish(throwing: error)
             }
           }
-          continuation.onTermination = { _ in task.cancel() }
+          continuation.onTermination = { _ in
+            // Order matters: terminate the child FIRST so
+            // `runStream`'s terminationHandler fires and resumes its
+            // continuation naturally (Task body completes, reaches
+            // the final `continuation.finish(...)`). Cancelling the
+            // Task first would still leave the wt child alive until
+            // it finished, defeating the point of this handler.
+            // Issue #24 (a).
+            processBox.terminateIfRunning()
+            task.cancel()
+          }
         }
       },
 
