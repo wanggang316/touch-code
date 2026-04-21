@@ -86,7 +86,7 @@ nonisolated struct GitWorktreeClient: Sendable {
 
 // MARK: - Pure helpers (visible for tests)
 
-extension GitWorktreeClient {
+nonisolated extension GitWorktreeClient {
   /// Derives a filesystem-safe directory name from a branch name. Replaces
   /// `/` with `-`, strips characters that break on macOS filesystems (`\0`,
   /// `:`), collapses consecutive `-` runs, and trims leading/trailing
@@ -188,29 +188,502 @@ extension GitWorktreeClient {
   }
 }
 
+// MARK: - Live implementation helpers
+
+/// Resolves the bundled `wt` script out of the app bundle's Resources
+/// folder. Debug and Release builds alike embed the script via Tuist's
+/// post-build `embed-git-wt.sh` (see `apps/mac/scripts/`).
+nonisolated func wtScriptURL() throws -> URL {
+  guard let url = Bundle.main.url(
+    forResource: "wt", withExtension: nil, subdirectory: "git-wt"
+  ) else {
+    throw GitWorktreeError.executableMissing
+  }
+  return url
+}
+
+/// Shell-out primitives used by `GitWorktreeClient.makeLive`. Kept at
+/// file scope rather than as struct statics so tests can mock them per
+/// closure if needed — unused by default because the M13 integration
+/// test exercises the real live implementation.
+nonisolated enum GitWorktreeShell {
+  static let runner = FoundationCommandRunner()
+  static let gitURL = URL(fileURLWithPath: "/usr/bin/git")
+  /// 60 s covers the slowest non-copy git operation we issue. Streaming
+  /// `wt sw` bypasses this limit by using its own pipe-driven runner.
+  static let defaultTimeout: Duration = .seconds(60)
+  static let maxOutputBytes = 4 * 1024 * 1024
+
+  /// One-shot invocation returning captured stdout/stderr.
+  static func run(
+    executable: URL, arguments: [String], cwd: URL
+  ) async -> CommandOutcome {
+    await runner.run(
+      executable: executable,
+      arguments: arguments,
+      env: ProcessInfo.processInfo.environment,
+      cwd: cwd,
+      timeout: defaultTimeout,
+      maxOutputBytes: maxOutputBytes
+    )
+  }
+
+  /// Decodes stdout bytes to UTF-8, returning `""` on decode failure so
+  /// the caller gets a deterministic empty result rather than a throw.
+  static func decodeUTF8(_ data: Data) -> String {
+    String(data: data, encoding: .utf8) ?? ""
+  }
+
+  /// Low-level streaming runner for `wt sw` — spawns a `Process`, wires
+  /// per-line stdout/stderr handlers, and yields line-level events until
+  /// the child exits. On success the final event is
+  /// `.exited(code, stderr)`.
+  static func runStream(
+    executable: URL,
+    arguments: [String],
+    cwd: URL,
+    onStdout: @escaping @Sendable (String) -> Void,
+    onStderr: @escaping @Sendable (String) -> Void
+  ) async -> (exitCode: Int32, stdoutLast: String, stderrCollected: String, spawnFailedReason: String?) {
+    await withCheckedContinuation { cont in
+      let process = Process()
+      process.executableURL = executable
+      process.arguments = arguments
+      process.currentDirectoryURL = cwd
+      process.environment = ProcessInfo.processInfo.environment
+      process.standardInput = FileHandle.nullDevice
+
+      let stdoutPipe = Pipe()
+      let stderrPipe = Pipe()
+      process.standardOutput = stdoutPipe
+      process.standardError = stderrPipe
+
+      // Box mutable line buffers so the Sendable readability handlers can
+      // accumulate partial lines across reads without data races.
+      final class LineBuffer: @unchecked Sendable {
+        var buffer = ""
+        var lastNonEmpty = ""
+      }
+      let stdoutState = LineBuffer()
+      let stderrState = LineBuffer()
+      let stdoutLock = NSLock()
+      let stderrLock = NSLock()
+
+      stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
+        let chunk = handle.availableData
+        guard !chunk.isEmpty, let str = String(data: chunk, encoding: .utf8) else { return }
+        stdoutLock.lock()
+        stdoutState.buffer += str
+        var lines: [String] = []
+        while let nl = stdoutState.buffer.firstIndex(of: "\n") {
+          let line = String(stdoutState.buffer[..<nl])
+          stdoutState.buffer.removeSubrange(...nl)
+          lines.append(line)
+        }
+        for line in lines {
+          let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+          if !trimmed.isEmpty { stdoutState.lastNonEmpty = trimmed }
+        }
+        stdoutLock.unlock()
+        for line in lines { onStdout(line) }
+      }
+      stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+        let chunk = handle.availableData
+        guard !chunk.isEmpty, let str = String(data: chunk, encoding: .utf8) else { return }
+        stderrLock.lock()
+        stderrState.buffer += str
+        var lines: [String] = []
+        while let nl = stderrState.buffer.firstIndex(of: "\n") {
+          let line = String(stderrState.buffer[..<nl])
+          stderrState.buffer.removeSubrange(...nl)
+          lines.append(line)
+        }
+        stderrLock.unlock()
+        for line in lines { onStderr(line) }
+      }
+
+      process.terminationHandler = { proc in
+        stdoutPipe.fileHandleForReading.readabilityHandler = nil
+        stderrPipe.fileHandleForReading.readabilityHandler = nil
+        // Drain any trailing bytes that did not end in a newline.
+        let tailOut = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        if !tailOut.isEmpty, let str = String(data: tailOut, encoding: .utf8) {
+          stdoutLock.lock()
+          let combined = stdoutState.buffer + str
+          stdoutState.buffer = ""
+          let trimmed = combined.trimmingCharacters(in: .whitespacesAndNewlines)
+          if !trimmed.isEmpty { stdoutState.lastNonEmpty = trimmed }
+          stdoutLock.unlock()
+          onStdout(combined)
+        }
+        let tailErr = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        if !tailErr.isEmpty, let str = String(data: tailErr, encoding: .utf8) {
+          stderrLock.lock()
+          stderrState.buffer += str
+          stderrLock.unlock()
+          onStderr(str)
+        }
+        stdoutLock.lock()
+        let finalLastNonEmpty = stdoutState.lastNonEmpty
+        stdoutLock.unlock()
+        stderrLock.lock()
+        let finalStderr = stderrState.buffer
+        stderrLock.unlock()
+        cont.resume(returning: (
+          exitCode: proc.terminationStatus,
+          stdoutLast: finalLastNonEmpty,
+          stderrCollected: finalStderr,
+          spawnFailedReason: nil
+        ))
+      }
+
+      do {
+        try process.run()
+      } catch {
+        cont.resume(returning: (
+          exitCode: -1,
+          stdoutLast: "",
+          stderrCollected: "",
+          spawnFailedReason: error.localizedDescription
+        ))
+      }
+    }
+  }
+}
+
+nonisolated extension GitWorktreeClient {
+  /// Binds every closure to a live `wt`/`git` invocation. Used from
+  /// `TouchCodeApp.bringUp()` at startup.
+  static func makeLive() -> GitWorktreeClient {
+    GitWorktreeClient(
+      lsWorktrees: { repoRoot in
+        let wt = try wtScriptURL()
+        let outcome = await GitWorktreeShell.run(
+          executable: wt, arguments: ["ls", "--json"], cwd: repoRoot
+        )
+        switch outcome {
+        case .exited(let code, let stdout, let stderr, _):
+          guard code == 0 else {
+            throw GitWorktreeError.commandFailed(
+              command: "wt ls --json",
+              stderr: GitWorktreeShell.decodeUTF8(stderr)
+            )
+          }
+          let trimmed = GitWorktreeShell.decodeUTF8(stdout)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+          guard !trimmed.isEmpty else { return [] }
+          let entries = try JSONDecoder().decode([GitWtEntry].self, from: Data(trimmed.utf8))
+          return entries.filter { !$0.isBare }
+        case .timedOut:
+          throw GitWorktreeError.commandFailed(command: "wt ls --json", stderr: "timed out")
+        case .spawnFailed(let reason):
+          throw GitWorktreeError.commandFailed(command: "wt ls --json", stderr: reason)
+        }
+      },
+
+      localBranchNames: { repoRoot in
+        let outcome = await GitWorktreeShell.run(
+          executable: GitWorktreeShell.gitURL,
+          arguments: [
+            "-C", repoRoot.path(percentEncoded: false),
+            "for-each-ref", "--format=%(refname:short)", "refs/heads",
+          ],
+          cwd: repoRoot
+        )
+        let stdout = try extractStdout(outcome, command: "git for-each-ref refs/heads")
+        return Set(
+          stdout
+            .components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+            .filter { !$0.isEmpty }
+        )
+      },
+
+      branchRefs: { repoRoot in
+        let outcome = await GitWorktreeShell.run(
+          executable: GitWorktreeShell.gitURL,
+          arguments: [
+            "-C", repoRoot.path(percentEncoded: false),
+            "for-each-ref", "--format=%(refname:short)", "refs/heads", "refs/remotes",
+          ],
+          cwd: repoRoot
+        )
+        let stdout = try extractStdout(outcome, command: "git for-each-ref refs/heads refs/remotes")
+        return
+          stdout
+          .components(separatedBy: "\n")
+          .map { $0.trimmingCharacters(in: .whitespaces) }
+          .filter { !$0.isEmpty && !$0.hasSuffix("/HEAD") }
+      },
+
+      defaultRemoteBranchRef: { repoRoot in
+        // Try symbolic-ref first (fast; succeeds when `origin/HEAD` is set locally).
+        let symbolic = await GitWorktreeShell.run(
+          executable: GitWorktreeShell.gitURL,
+          arguments: [
+            "-C", repoRoot.path(percentEncoded: false),
+            "symbolic-ref", "--short", "refs/remotes/origin/HEAD",
+          ],
+          cwd: repoRoot
+        )
+        if case .exited(let code, let data, _, _) = symbolic, code == 0 {
+          let trimmed = GitWorktreeShell.decodeUTF8(data)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+          if !trimmed.isEmpty { return trimmed }
+        }
+        // Fallback: parse `git remote show origin` for "HEAD branch: X".
+        let show = await GitWorktreeShell.run(
+          executable: GitWorktreeShell.gitURL,
+          arguments: [
+            "-C", repoRoot.path(percentEncoded: false),
+            "remote", "show", "origin",
+          ],
+          cwd: repoRoot
+        )
+        if case .exited(let code, let data, _, _) = show, code == 0 {
+          let text = GitWorktreeShell.decodeUTF8(data)
+          for line in text.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("HEAD branch:") {
+              let branch = trimmed
+                .dropFirst("HEAD branch:".count)
+                .trimmingCharacters(in: .whitespaces)
+              if !branch.isEmpty && branch != "(unknown)" {
+                return "origin/\(branch)"
+              }
+            }
+          }
+        }
+        return nil
+      },
+
+      isValidBranchName: { repoRoot, name in
+        let outcome = await GitWorktreeShell.run(
+          executable: GitWorktreeShell.gitURL,
+          arguments: [
+            "-C", repoRoot.path(percentEncoded: false),
+            "check-ref-format", "--branch", name,
+          ],
+          cwd: repoRoot
+        )
+        if case .exited(let code, _, _, _) = outcome, code == 0 {
+          return true
+        }
+        return false
+      },
+
+      createWorktreeStream: { spec in
+        AsyncThrowingStream { continuation in
+          let task = Task {
+            do {
+              let wt = try wtScriptURL()
+              // Optional pre-fetch.
+              if spec.fetchOrigin {
+                let fetch = await GitWorktreeShell.run(
+                  executable: GitWorktreeShell.gitURL,
+                  arguments: [
+                    "-C", spec.repoRoot.path(percentEncoded: false),
+                    "fetch", "origin",
+                  ],
+                  cwd: spec.repoRoot
+                )
+                if case .exited(let code, _, let err, _) = fetch, code != 0 {
+                  continuation.finish(throwing: GitWorktreeError.fetchFailed(
+                    GitWorktreeShell.decodeUTF8(err)
+                      .trimmingCharacters(in: .whitespacesAndNewlines)
+                  ))
+                  return
+                }
+              }
+
+              let args = makeCreateArguments(for: spec)
+              let outcome = await GitWorktreeShell.runStream(
+                executable: wt,
+                arguments: args,
+                cwd: spec.repoRoot,
+                onStdout: { line in continuation.yield(.progressLine(line)) },
+                onStderr: { line in continuation.yield(.progressLine(line)) }
+              )
+              if let reason = outcome.spawnFailedReason {
+                continuation.finish(throwing: GitWorktreeError.commandFailed(
+                  command: "wt \(args.joined(separator: " "))",
+                  stderr: reason
+                ))
+                return
+              }
+              guard outcome.exitCode == 0 else {
+                let command = "wt \(args.joined(separator: " "))"
+                continuation.finish(throwing: mapGitStderr(
+                  command: command,
+                  stderr: outcome.stderrCollected
+                ))
+                return
+              }
+              let pathString = outcome.stdoutLast
+              guard !pathString.isEmpty else {
+                continuation.finish(throwing: GitWorktreeError.commandFailed(
+                  command: "wt \(args.joined(separator: " "))",
+                  stderr: "wt exited 0 without reporting a worktree path"
+                ))
+                return
+              }
+              let worktreeURL = URL(fileURLWithPath: pathString).standardizedFileURL
+              continuation.yield(.finished(worktreePath: worktreeURL))
+              continuation.finish()
+            } catch {
+              continuation.finish(throwing: error)
+            }
+          }
+          continuation.onTermination = { _ in task.cancel() }
+        }
+      },
+
+      removeWorktree: { repoRoot, path, force in
+        var args = [
+          "-C", repoRoot.path(percentEncoded: false),
+          "worktree", "remove",
+        ]
+        if force { args.append("--force") }
+        args.append(path.path(percentEncoded: false))
+        let outcome = await GitWorktreeShell.run(
+          executable: GitWorktreeShell.gitURL,
+          arguments: args,
+          cwd: repoRoot
+        )
+        switch outcome {
+        case .exited(let code, _, let stderr, _) where code == 0:
+          return
+        case .exited(_, _, let stderrData, _):
+          let stderrText = GitWorktreeShell.decodeUTF8(stderrData)
+          let command = "git " + args.joined(separator: " ")
+          let mapped = mapGitStderr(command: command, stderr: stderrText)
+          // For uncommittedChanges, enrich with porcelain file list.
+          if case .uncommittedChanges = mapped, !force {
+            let porcelain = await GitWorktreeShell.run(
+              executable: GitWorktreeShell.gitURL,
+              arguments: [
+                "-C", path.path(percentEncoded: false),
+                "status", "--porcelain",
+              ],
+              cwd: path
+            )
+            if case .exited(_, let porcelainData, _, _) = porcelain {
+              let files = parsePorcelainPaths(GitWorktreeShell.decodeUTF8(porcelainData))
+              throw GitWorktreeError.uncommittedChanges(files: files)
+            }
+            throw GitWorktreeError.uncommittedChanges(files: [])
+          }
+          throw mapped
+        case .timedOut:
+          throw GitWorktreeError.commandFailed(
+            command: "git " + args.joined(separator: " "), stderr: "timed out"
+          )
+        case .spawnFailed(let reason):
+          throw GitWorktreeError.commandFailed(
+            command: "git " + args.joined(separator: " "), stderr: reason
+          )
+        }
+      },
+
+      pruneWorktrees: { repoRoot in
+        // Diff lsWorktrees before/after so the caller can surface an accurate
+        // toast. `git worktree prune` itself prints nothing on success.
+        let wt = try wtScriptURL()
+        let before = await liveLsCount(wt: wt, repoRoot: repoRoot)
+        let outcome = await GitWorktreeShell.run(
+          executable: GitWorktreeShell.gitURL,
+          arguments: [
+            "-C", repoRoot.path(percentEncoded: false),
+            "worktree", "prune",
+          ],
+          cwd: repoRoot
+        )
+        _ = try extractStdout(outcome, command: "git worktree prune")
+        let after = await liveLsCount(wt: wt, repoRoot: repoRoot)
+        return max(0, before - after)
+      },
+
+      fetchRemote: { repoRoot, remote in
+        let outcome = await GitWorktreeShell.run(
+          executable: GitWorktreeShell.gitURL,
+          arguments: [
+            "-C", repoRoot.path(percentEncoded: false),
+            "fetch", remote,
+          ],
+          cwd: repoRoot
+        )
+        switch outcome {
+        case .exited(let code, _, let stderr, _) where code == 0:
+          return
+        case .exited(_, _, let stderrData, _):
+          throw GitWorktreeError.fetchFailed(
+            GitWorktreeShell.decodeUTF8(stderrData)
+              .trimmingCharacters(in: .whitespacesAndNewlines)
+          )
+        case .timedOut:
+          throw GitWorktreeError.fetchFailed("timed out")
+        case .spawnFailed(let reason):
+          throw GitWorktreeError.fetchFailed(reason)
+        }
+      },
+
+      changedFiles: { worktreeRoot in
+        let outcome = await GitWorktreeShell.run(
+          executable: GitWorktreeShell.gitURL,
+          arguments: [
+            "-C", worktreeRoot.path(percentEncoded: false),
+            "status", "--porcelain",
+          ],
+          cwd: worktreeRoot
+        )
+        let stdout = try extractStdout(outcome, command: "git status --porcelain")
+        return parsePorcelainPaths(stdout)
+      }
+    )
+  }
+
+  /// Helper for `pruneWorktrees` — best-effort count of non-bare entries
+  /// from `wt ls --json`; returns 0 on any failure so the caller's diff
+  /// degrades to reporting zero pruned instead of throwing.
+  fileprivate static func liveLsCount(wt: URL, repoRoot: URL) async -> Int {
+    let outcome = await GitWorktreeShell.run(
+      executable: wt, arguments: ["ls", "--json"], cwd: repoRoot
+    )
+    guard case .exited(let code, let data, _, _) = outcome, code == 0 else { return 0 }
+    let text = GitWorktreeShell.decodeUTF8(data).trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !text.isEmpty,
+          let entries = try? JSONDecoder().decode([GitWtEntry].self, from: Data(text.utf8))
+    else { return 0 }
+    return entries.filter { !$0.isBare }.count
+  }
+
+  /// Unwraps a `CommandOutcome`'s successful stdout or throws a mapped
+  /// `GitWorktreeError`. Used by the live closures for one-shot git
+  /// calls that don't need specialized error handling.
+  fileprivate static func extractStdout(_ outcome: CommandOutcome, command: String) throws -> String {
+    switch outcome {
+    case .exited(let code, let stdout, let stderr, _):
+      guard code == 0 else {
+        throw mapGitStderr(command: command, stderr: GitWorktreeShell.decodeUTF8(stderr))
+      }
+      return GitWorktreeShell.decodeUTF8(stdout)
+    case .timedOut:
+      throw GitWorktreeError.commandFailed(command: command, stderr: "timed out")
+    case .spawnFailed(let reason):
+      throw GitWorktreeError.commandFailed(command: command, stderr: reason)
+    }
+  }
+}
+
 // MARK: - DependencyKey
 
 extension GitWorktreeClient: DependencyKey {
-  /// Unusable placeholder — the real implementation lands in a follow-up
-  /// commit. Attempting to invoke any closure throws
-  /// `GitWorktreeError.executableMissing` so callers that accidentally
-  /// depend on it before wiring fail loudly and clearly.
-  static let liveValue: GitWorktreeClient = GitWorktreeClient(
-    lsWorktrees: { _ in throw GitWorktreeError.executableMissing },
-    localBranchNames: { _ in throw GitWorktreeError.executableMissing },
-    branchRefs: { _ in throw GitWorktreeError.executableMissing },
-    defaultRemoteBranchRef: { _ in throw GitWorktreeError.executableMissing },
-    isValidBranchName: { _, _ in false },
-    createWorktreeStream: { _ in
-      AsyncThrowingStream { continuation in
-        continuation.finish(throwing: GitWorktreeError.executableMissing)
-      }
-    },
-    removeWorktree: { _, _, _ in throw GitWorktreeError.executableMissing },
-    pruneWorktrees: { _ in throw GitWorktreeError.executableMissing },
-    fetchRemote: { _, _ in throw GitWorktreeError.executableMissing },
-    changedFiles: { _ in throw GitWorktreeError.executableMissing }
-  )
+  /// Live value — bound to `makeLive()` which uses the bundled `wt`
+  /// script and `/usr/bin/git`. Closures throw
+  /// `GitWorktreeError.executableMissing` if the `wt` resource cannot
+  /// be resolved (which the pre-build `verify-git-wt.sh` makes
+  /// impossible in a clean build).
+  static let liveValue: GitWorktreeClient = .makeLive()
 
   static let testValue: GitWorktreeClient = GitWorktreeClient(
     lsWorktrees: unimplemented("GitWorktreeClient.lsWorktrees", placeholder: []),
