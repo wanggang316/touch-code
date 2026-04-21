@@ -185,9 +185,19 @@ private struct HookRowView: View {
 /// Shared mapping rule `HookSubscription` → `HookRow`. Keeps the display
 /// derivation in one place so T3 and T4 render identical looking rows for the
 /// same underlying subscription.
+///
+/// **Truncation contract (frozen).** Both `maxDisplayNameLength` and
+/// `matchSummaryLimit` are expressed as the *final rendered length including
+/// the ellipsis character*. When a source string exceeds the limit, the row
+/// ends with `"…"` (one glyph) and the total character count is exactly
+/// `limit`, not `limit + 1`. Callers — especially T4's Repository Hooks pane —
+/// can rely on this when reserving visual width.
 public nonisolated enum HookRowBuilder {
-  /// Longer than this and the display is truncated with an ellipsis.
+  /// Maximum final visual width of `HookRow.displayName`, **including** the
+  /// trailing ellipsis when truncation occurs.
   static let maxDisplayNameLength = 60
+  /// Maximum final visual width of `HookRow.matchSummary`, **including** the
+  /// trailing ellipsis when truncation occurs.
   static let matchSummaryLimit = 80
 
   public static func make(
@@ -205,9 +215,7 @@ public nonisolated enum HookRowBuilder {
   }
 
   static func displayName(for command: String) -> String {
-    if command.count <= maxDisplayNameLength { return command }
-    let prefixLength = maxDisplayNameLength - 3
-    return String(command.prefix(prefixLength)) + "…"
+    truncated(command, limit: maxDisplayNameLength)
   }
 
   static func matchSummary(for subscription: HookSubscription) -> String? {
@@ -220,7 +228,12 @@ public nonisolated enum HookRowBuilder {
     return nil
   }
 
-  private static func truncated(_ value: String, limit: Int) -> String {
+  /// Returns `value` unchanged when its character count is `<= limit`,
+  /// otherwise `<prefix><ellipsis>` whose final total character count is
+  /// exactly `limit`. `limit` is interpreted as the final visual width
+  /// including the ellipsis — see the truncation contract on
+  /// `HookRowBuilder`.
+  static func truncated(_ value: String, limit: Int) -> String {
     guard value.count > limit else { return value }
     return String(value.prefix(limit - 1)) + "…"
   }

@@ -20,15 +20,46 @@ struct HookRowBuilderTests {
 
   @Test
   func truncatesLongCommandWithEllipsis() {
+    // Truncation contract: 60 is the *final rendered width including the
+    // ellipsis*. Long command → 59 "a"s + "…" = 60 glyphs total.
     let cmd = String(repeating: "a", count: 100)
     let sub = HookSubscription(event: .panelOutput, command: cmd)
 
     let row = HookRowBuilder.make(from: sub, source: .global)
 
-    // 60-char cap with a three-char ellipsis budget → 57 "a"s + "…".
-    #expect(row.displayName.count == 58)
+    #expect(row.displayName.count == 60)
     #expect(row.displayName.hasSuffix("…"))
-    #expect(row.displayName.hasPrefix(String(repeating: "a", count: 57)))
+    #expect(row.displayName.hasPrefix(String(repeating: "a", count: 59)))
+  }
+
+  @Test
+  func displayNameAtLimitIsReturnedVerbatim() {
+    // Boundary check: 60 glyphs exactly should not be truncated (no ellipsis
+    // appended). Proves the contract excludes an off-by-one truncation of
+    // a legitimately 60-wide command.
+    let cmd = String(repeating: "a", count: 60)
+    let sub = HookSubscription(event: .panelOutput, command: cmd)
+
+    let row = HookRowBuilder.make(from: sub, source: .global)
+
+    #expect(row.displayName == cmd)
+    #expect(!row.displayName.hasSuffix("…"))
+  }
+
+  @Test
+  func truncatesLongMatchPatternWithEllipsis() {
+    // Same contract for matchSummary: 80 is the *final rendered width
+    // including the ellipsis*. A 100-char pattern → 79 glyphs + "…" = 80.
+    let pattern = String(repeating: "b", count: 100)
+    let sub = HookSubscription(
+      event: .panelOutputMatch, command: "run", matchPattern: pattern)
+
+    let row = HookRowBuilder.make(from: sub, source: .global)
+
+    let summary = row.matchSummary ?? ""
+    #expect(summary.count == 80)
+    #expect(summary.hasSuffix("…"))
+    #expect(summary.hasPrefix(String(repeating: "b", count: 79)))
   }
 
   @Test
