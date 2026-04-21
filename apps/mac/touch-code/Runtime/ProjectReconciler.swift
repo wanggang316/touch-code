@@ -1,0 +1,121 @@
+import ComposableArchitecture
+import Foundation
+import TouchCodeCore
+
+/// Drives per-Project health reconciliation. Stats the `rootPath`, labels the
+/// Project `.failed(reason:)` when the folder is gone, otherwise hands off to
+/// `HierarchyClient.reconcileDiscoveredWorktrees` (owned by T-WORKTREE;
+/// append-only / idempotent / swallows errors / main-actor serialized) and
+/// flips the load state to `.ready`.
+///
+/// The actor does not import `GitWorktreeCLI`; worktree-list discovery is
+/// entirely the responsibility of the consumed closure. See
+/// `docs/design-docs/pm-project-management.md` §Boundary with T-WORKTREE.
+///
+/// Single-flight by `ProjectID` and debounced at the `reconcileAll` entry
+/// point so focus-change notification storms do not fan out into N calls.
+actor ProjectReconciler {
+  private let client: HierarchyClient
+  private let now: @Sendable () -> Date
+  private let debounceInterval: TimeInterval
+  private var inFlight: Set<ProjectID> = []
+  private var lastAllRun: Date?
+
+  /// `now` is injected as a closure rather than threading `any Clock<Duration>`
+  /// because (a) we need no sleep/timer — only a monotonic "is 2 s past?"
+  /// check, (b) storing an `any Clock`'s `Instant` as actor state forces
+  /// generics for no behavioral gain, and (c) a `Date`-returning closure is
+  /// trivial to script in tests (`now: { fixedDate }` and advance it between
+  /// calls).
+  init(
+    client: HierarchyClient,
+    now: @escaping @Sendable () -> Date = Date.init,
+    debounceInterval: TimeInterval = 2.0
+  ) {
+    self.client = client
+    self.now = now
+    self.debounceInterval = debounceInterval
+  }
+
+  /// Reconcile a single Project. Single-flight per `ProjectID`; overlapping
+  /// calls early-return. The missing-Project branch is also a silent no-op
+  /// (the Project may have been removed between the caller's snapshot and
+  /// this call).
+  func reconcile(projectID: ProjectID, spaceID: SpaceID) async {
+    guard !inFlight.contains(projectID) else { return }
+    inFlight.insert(projectID)
+    defer { inFlight.remove(projectID) }
+
+    let snapshot = await client.snapshot()
+    guard let project = snapshot.spaces.first(where: { $0.id == spaceID })?
+      .projects.first(where: { $0.id == projectID })
+    else {
+      return
+    }
+
+    await client.setProjectLoadState(projectID, spaceID, .loading)
+
+    guard FileManager.default.fileExists(atPath: project.rootPath) else {
+      await client.setProjectLoadState(
+        projectID, spaceID,
+        .failed(reason: "Folder no longer exists at \(project.rootPath)")
+      )
+      return
+    }
+
+    // T-WORKTREE's closure handles git-vs-non-git routing, `GitWorktreeCLI`
+    // orchestration, error recovery, and the append-only mutation of
+    // `project.worktrees`. Per its contract it does not throw; the Project
+    // lands in `.ready` unconditionally after the call returns.
+    await client.reconcileDiscoveredWorktrees(projectID, spaceID)
+    await client.setProjectLoadState(projectID, spaceID, .ready)
+  }
+
+  /// Fan out across all Projects in the current snapshot. Debounced by
+  /// `debounceInterval` — repeated calls within the window are dropped.
+  /// Per-project single-flight inside `reconcile` absorbs the case where a
+  /// debounce window closes while a prior `reconcileAll` is still running.
+  func reconcileAll() async {
+    let current = now()
+    if let last = lastAllRun, current.timeIntervalSince(last) < debounceInterval {
+      return
+    }
+    lastAllRun = current
+
+    let snapshot = await client.snapshot()
+    await withTaskGroup(of: Void.self) { group in
+      for space in snapshot.spaces {
+        for project in space.projects {
+          let pid = project.id
+          let sid = space.id
+          group.addTask { [self] in
+            await reconcile(projectID: pid, spaceID: sid)
+          }
+        }
+      }
+    }
+  }
+}
+
+extension ProjectReconciler: DependencyKey {
+  /// `HierarchyClient.liveValue` is MainActor-isolated because its initializer
+  /// takes `@MainActor @Sendable` closures; reading it requires MainActor. DI
+  /// resolution happens on the main thread in practice (TCA reducer wiring at
+  /// `TouchCodeApp.bringUp`, SwiftUI view graph), so `assumeIsolated` is
+  /// precise: it crashes loudly with a clear message if ever accessed off the
+  /// main thread rather than risking UB. The real reconciler is installed in
+  /// `bringUp` via `.withDependencies`; this is only the unconfigured
+  /// fallback.
+  static var liveValue: ProjectReconciler {
+    MainActor.assumeIsolated {
+      ProjectReconciler(client: .liveValue)
+    }
+  }
+}
+
+extension DependencyValues {
+  var projectReconciler: ProjectReconciler {
+    get { self[ProjectReconciler.self] }
+    set { self[ProjectReconciler.self] = newValue }
+  }
+}
