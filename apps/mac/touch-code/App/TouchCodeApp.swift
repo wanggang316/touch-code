@@ -24,7 +24,8 @@ struct TouchCodeApp: App {
         ContentView(
           store: store,
           hierarchyManager: appState.hierarchyManager,
-          settingsStore: appState.settingsStore
+          settingsStore: appState.settingsStore,
+          inboxStore: appState.inboxStore
         )
         .frame(minWidth: 800, minHeight: 600)
         .navigationTitle("touch-code")
@@ -47,6 +48,11 @@ struct TouchCodeApp: App {
       }
     }
     .windowStyle(.titleBar)
+    .commands {
+      if let store = appState.store {
+        MainWindowCommands(store: store)
+      }
+    }
   }
 }
 
@@ -82,7 +88,11 @@ final class AppState {
   private let catalogStore: CatalogStore
   private let hierarchyRuntime: GhosttyBackedHierarchyRuntime
   private var ghosttyRuntime: GhosttyRuntime?
-  private let inboxStore: InboxStore
+  /// Exposed to `ContentView` so the sidebar view can read
+  /// `inbox.inbox` directly for unread-dot aggregation — matches the
+  /// `HierarchyManager`-through-`@Environment` pattern the sidebar
+  /// already uses for structural data.
+  let inboxStore: InboxStore
   private let notificationSettingsStore: NotificationSettingsStore
 
   // IPC stack (C3+C4): HookDispatcher + SocketServer + handlers.

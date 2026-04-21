@@ -6,6 +6,13 @@ import TouchCodeCore
 ///
 /// Adding an editor is a code change here; users add arbitrary entries via `CustomEditor`.
 nonisolated enum EditorRegistry {
+  /// Canonical ID for the Finder builtin. Always-installed; the ultimate
+  /// fallback in every default-editor resolution chain. Centralizes the
+  /// magic string `"finder"` that would otherwise leak into delegate
+  /// handlers and tests. T2's Header split button routes through
+  /// `EditorFeature.finderEditorID`, an alias of this constant.
+  static let finderID: EditorID = "finder"
+
   static let builtins: [BuiltinEntry] = [
     BuiltinEntry(
       id: "vscode",

@@ -281,4 +281,243 @@ struct EditorFeatureTests {
     #expect(EditorFeature.editorErrorDescription(.unresolvedWorktree) ==
             "No worktree resolved")
   }
+
+  // MARK: - resolveDefault (T2 shared helper)
+
+  @Test
+  func resolveDefaultPrefersProjectOverride() {
+    let resolved = EditorFeature.resolveDefault(
+      projectOverride: "cursor",
+      globalDefault: "vscode",
+      descriptors: Self.sampleDescriptors
+    )
+    #expect(resolved == .editor(Self.sampleDescriptors[1]))
+  }
+
+  @Test
+  func resolveDefaultFallsBackToGlobalWhenNoOverride() {
+    let resolved = EditorFeature.resolveDefault(
+      projectOverride: nil,
+      globalDefault: "vscode",
+      descriptors: Self.sampleDescriptors
+    )
+    #expect(resolved == .editor(Self.sampleDescriptors[0]))
+  }
+
+  @Test
+  func resolveDefaultCascadesThroughMissingOverrideToGlobal() {
+    let resolved = EditorFeature.resolveDefault(
+      projectOverride: "ghost-editor",
+      globalDefault: "vscode",
+      descriptors: Self.sampleDescriptors
+    )
+    #expect(resolved == .editor(Self.sampleDescriptors[0]))
+  }
+
+  @Test
+  func resolveDefaultReturnsFinderWhenNothingResolves() {
+    let noOverride = EditorFeature.resolveDefault(
+      projectOverride: nil,
+      globalDefault: nil,
+      descriptors: Self.sampleDescriptors
+    )
+    #expect(noOverride == .finder)
+
+    let bothMissing = EditorFeature.resolveDefault(
+      projectOverride: "ghost",
+      globalDefault: "also-ghost",
+      descriptors: Self.sampleDescriptors
+    )
+    #expect(bothMissing == .finder)
+  }
+
+  // MARK: - ⌘E default-editor resolution (T3)
+  //
+  // These TestStore cases prove that `.openDefaultInCurrentWorktreeRequested`
+  // consumes the shared `resolveDefault` helper and forwards to `.openRequested`
+  // with the expected editorID. Cascade semantics (e.g. missing override → global)
+  // are exercised by the pure `resolveDefault*` tests above.
+
+  private static func catalog(
+    spaceID: SpaceID,
+    projectID: ProjectID,
+    worktreeID: WorktreeID,
+    projectOverride: EditorID?
+  ) -> Catalog {
+    let worktree = Worktree(
+      id: worktreeID, name: "w", path: "/w", branch: "main",
+      tabs: [], selectedTabID: nil
+    )
+    let project = Project(
+      id: projectID, name: "p", rootPath: "/", gitRoot: "/",
+      worktreesDirectory: nil, defaultEditor: projectOverride,
+      worktrees: [worktree], selectedWorktreeID: worktreeID
+    )
+    let space = Space(
+      id: spaceID, name: "s", projects: [project], selectedProjectID: projectID
+    )
+    return Catalog(windows: [], spaces: [space], selectedSpaceID: spaceID)
+  }
+
+  private static func makeOpenStub() -> @Sendable (
+    _ url: URL, _ editorID: EditorID?, _ projectID: ProjectID?
+  ) async throws -> EditorChoice {
+    { _, id, _ in
+      let resolved = id ?? "finder"
+      return EditorChoice(
+        id: resolved,
+        displayName: resolved.capitalized,
+        binaryPath: URL(fileURLWithPath: "/usr/local/bin/\(resolved)"),
+        argv: ["/usr/local/bin/\(resolved)", "/w"]
+      )
+    }
+  }
+
+  @Test
+  func openDefaultInCurrentWorktreeWithInstalledOverrideForwardsOverride() async {
+    // Positive case: project override "vscode" is present AND `.installed`.
+    // resolve picks vscode over the configured globalDefault ("cursor").
+    let spaceID = SpaceID()
+    let projectID = ProjectID()
+    let worktreeID = WorktreeID()
+    let snap = Self.catalog(
+      spaceID: spaceID, projectID: projectID, worktreeID: worktreeID,
+      projectOverride: "vscode"
+    )
+
+    var initial = EditorFeature.State()
+    initial.descriptors = Self.sampleDescriptors
+    initial.globalDefault = "cursor"
+
+    let store = TestStore(initialState: initial) {
+      EditorFeature()
+    } withDependencies: {
+      $0.editorClient = EditorClient.testValue
+      $0.editorClient.open = Self.makeOpenStub()
+      $0.settingsWriter = SettingsWriter.testValue
+      $0.hierarchyClient = HierarchyClient.testValue
+      $0.hierarchyClient.snapshot = { snap }
+    }
+    store.exhaustivity = .off
+    await store.send(.openDefaultInCurrentWorktreeRequested(
+      spaceID: spaceID, projectID: projectID, worktreeID: worktreeID,
+      worktreePath: "/w"
+    ))
+    await store.receive(.openRequested(
+      editorID: "vscode",
+      worktreePath: "/w",
+      projectID: projectID
+    ))
+  }
+
+  @Test
+  func openDefaultInCurrentWorktreeForwardsOverrideEvenIfUninstalled() async {
+    // Documents the cascade-on-missing semantics from T2's resolveDefault:
+    // an override that is present in `descriptors` but reports
+    // `.missingBinary(...)` is still forwarded. The downstream
+    // `.openRequested → EditorClient.open` surfaces the failure as a toast
+    // rather than silently falling through to Finder. `sampleDescriptors`
+    // ships cursor as the missing-binary descriptor.
+    let spaceID = SpaceID()
+    let projectID = ProjectID()
+    let worktreeID = WorktreeID()
+    let snap = Self.catalog(
+      spaceID: spaceID, projectID: projectID, worktreeID: worktreeID,
+      projectOverride: "cursor"
+    )
+
+    var initial = EditorFeature.State()
+    initial.descriptors = Self.sampleDescriptors
+    initial.globalDefault = "vscode"
+
+    let store = TestStore(initialState: initial) {
+      EditorFeature()
+    } withDependencies: {
+      $0.editorClient = EditorClient.testValue
+      $0.editorClient.open = Self.makeOpenStub()
+      $0.settingsWriter = SettingsWriter.testValue
+      $0.hierarchyClient = HierarchyClient.testValue
+      $0.hierarchyClient.snapshot = { snap }
+    }
+    store.exhaustivity = .off
+    await store.send(.openDefaultInCurrentWorktreeRequested(
+      spaceID: spaceID, projectID: projectID, worktreeID: worktreeID,
+      worktreePath: "/w"
+    ))
+    await store.receive(.openRequested(
+      editorID: "cursor",
+      worktreePath: "/w",
+      projectID: projectID
+    ))
+  }
+
+  @Test
+  func openDefaultInCurrentWorktreeFallsBackToGlobalDefault() async {
+    // No override; globalDefault "vscode" present in descriptors → resolve picks vscode.
+    let spaceID = SpaceID()
+    let projectID = ProjectID()
+    let worktreeID = WorktreeID()
+    let snap = Self.catalog(
+      spaceID: spaceID, projectID: projectID, worktreeID: worktreeID,
+      projectOverride: nil
+    )
+
+    var initial = EditorFeature.State()
+    initial.descriptors = Self.sampleDescriptors
+    initial.globalDefault = "vscode"
+
+    let store = TestStore(initialState: initial) {
+      EditorFeature()
+    } withDependencies: {
+      $0.editorClient = EditorClient.testValue
+      $0.editorClient.open = Self.makeOpenStub()
+      $0.settingsWriter = SettingsWriter.testValue
+      $0.hierarchyClient = HierarchyClient.testValue
+      $0.hierarchyClient.snapshot = { snap }
+    }
+    store.exhaustivity = .off
+    await store.send(.openDefaultInCurrentWorktreeRequested(
+      spaceID: spaceID, projectID: projectID, worktreeID: worktreeID,
+      worktreePath: "/w"
+    ))
+    await store.receive(.openRequested(
+      editorID: "vscode",
+      worktreePath: "/w",
+      projectID: projectID
+    ))
+  }
+
+  @Test
+  func openDefaultInCurrentWorktreeFallsBackToFinder() async {
+    // No override, no globalDefault → resolve returns .finder → forwards finder ID.
+    let spaceID = SpaceID()
+    let projectID = ProjectID()
+    let worktreeID = WorktreeID()
+    let snap = Self.catalog(
+      spaceID: spaceID, projectID: projectID, worktreeID: worktreeID,
+      projectOverride: nil
+    )
+
+    var initial = EditorFeature.State()
+    initial.descriptors = Self.sampleDescriptors
+    let store = TestStore(initialState: initial) {
+      EditorFeature()
+    } withDependencies: {
+      $0.editorClient = EditorClient.testValue
+      $0.editorClient.open = Self.makeOpenStub()
+      $0.settingsWriter = SettingsWriter.testValue
+      $0.hierarchyClient = HierarchyClient.testValue
+      $0.hierarchyClient.snapshot = { snap }
+    }
+    store.exhaustivity = .off
+    await store.send(.openDefaultInCurrentWorktreeRequested(
+      spaceID: spaceID, projectID: projectID, worktreeID: worktreeID,
+      worktreePath: "/w"
+    ))
+    await store.receive(.openRequested(
+      editorID: EditorFeature.finderEditorID,
+      worktreePath: "/w",
+      projectID: projectID
+    ))
+  }
 }

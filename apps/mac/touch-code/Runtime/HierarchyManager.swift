@@ -55,6 +55,18 @@ final class HierarchyManager {
     store.scheduleSave(catalog)
   }
 
+  /// Records which Worktree to restore when the window re-activates this Space.
+  /// Pass `nil` to clear. Missing `spaceID` is a silent no-op; unchanged value
+  /// is a silent no-op (no save scheduled). Persists via the standard
+  /// debounced `store.scheduleSave(catalog)` pipeline used by every other
+  /// catalog mutation.
+  func setSpaceLastActiveWorktree(spaceID: SpaceID, worktreeID: WorktreeID?) {
+    guard let index = catalog.spaces.firstIndex(where: { $0.id == spaceID }) else { return }
+    guard catalog.spaces[index].lastActiveWorktreeID != worktreeID else { return }
+    catalog.spaces[index].lastActiveWorktreeID = worktreeID
+    store.scheduleSave(catalog)
+  }
+
   // MARK: - Project mutations
 
   func addProject(to spaceID: SpaceID, name: String, rootPath: String, gitRoot: String? = nil) throws -> ProjectID {
@@ -93,6 +105,18 @@ final class HierarchyManager {
     catalog.spaces[spaceIndex].selectedProjectID = projectID
     store.scheduleSave(catalog)
     return projectID
+  }
+
+  /// Renames the Project in place. Missing project is `.notFound`; an unchanged
+  /// name is a silent no-op (no catalog churn, no save). The caller is
+  /// responsible for trimming / empty-string validation — matches `renameSpace`.
+  func renameProject(_ id: ProjectID, in spaceID: SpaceID, name: String) throws {
+    guard let (spaceIndex, projectIndex) = findProjectIndices(projectID: id, spaceID: spaceID) else {
+      throw HierarchyError.notFound("Project \(id)")
+    }
+    guard catalog.spaces[spaceIndex].projects[projectIndex].name != name else { return }
+    catalog.spaces[spaceIndex].projects[projectIndex].name = name
+    store.scheduleSave(catalog)
   }
 
   func removeProject(_ id: ProjectID, from spaceID: SpaceID) throws {
@@ -188,6 +212,29 @@ final class HierarchyManager {
     }
     catalog.spaces[spaceIndex].projects[projectIndex].selectedWorktreeID = id
     store.scheduleSave(catalog)
+  }
+
+  /// Records whether the right-side Git Viewer overlay is visible for this
+  /// Worktree. Visibility persists across Space switches and app restarts —
+  /// each Worktree remembers its own. Missing `worktreeID` is a silent no-op;
+  /// unchanged value is a silent no-op (no save scheduled). Persists via the
+  /// standard debounced `store.scheduleSave(catalog)` pipeline. The
+  /// `(projectID, spaceID)` arguments are not required — the method scans
+  /// all Worktrees in the catalog so the caller does not have to thread
+  /// parent IDs through the UI-toggle path.
+  func setWorktreeGitViewerVisible(worktreeID: WorktreeID, visible: Bool) {
+    for spaceIndex in catalog.spaces.indices {
+      for projectIndex in catalog.spaces[spaceIndex].projects.indices {
+        guard let worktreeIndex = catalog.spaces[spaceIndex].projects[projectIndex]
+          .worktrees.firstIndex(where: { $0.id == worktreeID }) else { continue }
+        guard catalog.spaces[spaceIndex].projects[projectIndex]
+          .worktrees[worktreeIndex].gitViewerVisible != visible else { return }
+        catalog.spaces[spaceIndex].projects[projectIndex]
+          .worktrees[worktreeIndex].gitViewerVisible = visible
+        store.scheduleSave(catalog)
+        return
+      }
+    }
   }
 
   // MARK: - Tab mutations

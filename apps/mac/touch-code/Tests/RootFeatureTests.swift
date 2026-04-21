@@ -59,7 +59,10 @@ struct RootFeatureTests {
     await store.send(.selectionChanged(selection)) { state in
       state.selection = selection
     }
-    // Forwarding step: RootFeature turns .selectionChanged into a .gitViewer action.
+    // Forwarding step: RootFeature turns .selectionChanged into a
+    // `.gitViewer(.worktreeSelected)` action. The Header feature does
+    // not need a dispatched signal — its badge count reads the live
+    // `hierarchyManager.catalog` via `State.unreadCount(in:)`.
     await store.receive(\.gitViewer.worktreeSelected) { state in
       state.gitViewer.projectID = selection.projectID
       state.gitViewer.worktreeID = selection.worktreeID
@@ -124,37 +127,368 @@ struct RootFeatureTests {
     }
   }
 
+  // `inspectorVisibilityTogglesBothWays` removed in T3: replaced by the
+  // per-Worktree `gitViewerOverlayVisible` projection and
+  // `.gitViewerToggledForCurrentWorktree` action — covered below.
+
+  // MARK: - T3 overlay projection + shortcuts
+
+  /// Shared catalog fixture for T3 GV overlay tests. Worktree A is visible,
+  /// B is hidden. The second Worktree lives under the same Project so the
+  /// selection delta is just the worktree leg.
+  private static func gvFixtureCatalog(
+    spaceID: SpaceID, projectID: ProjectID,
+    worktreeA: WorktreeID, worktreeB: WorktreeID,
+    aVisible: Bool, bVisible: Bool
+  ) -> Catalog {
+    let wtA = Worktree(
+      id: worktreeA, name: "A", path: "/a", branch: "a",
+      tabs: [], selectedTabID: nil, gitViewerVisible: aVisible
+    )
+    let wtB = Worktree(
+      id: worktreeB, name: "B", path: "/b", branch: "b",
+      tabs: [], selectedTabID: nil, gitViewerVisible: bVisible
+    )
+    let project = Project(
+      id: projectID, name: "p", rootPath: "/", gitRoot: "/",
+      worktreesDirectory: nil, defaultEditor: nil,
+      worktrees: [wtA, wtB], selectedWorktreeID: worktreeA
+    )
+    let space = Space(
+      id: spaceID, name: "s", projects: [project], selectedProjectID: projectID
+    )
+    return Catalog(windows: [], spaces: [space], selectedSpaceID: spaceID)
+  }
+
   @Test
-  func inspectorVisibilityTogglesBothWays() async {
+  func gitViewerOverlayVisibleTracksSelectionAgainstCatalog() async {
+    // With the T3-REV2 single-source-of-truth rewrite, the view reads
+    // `State.gitViewerOverlayVisible(in: catalog)` directly. After a
+    // `.selectionChanged`, that read returns the target Worktree's
+    // persisted `gitViewerVisible` — no reducer projection in between.
+    let spaceID = SpaceID()
+    let projectID = ProjectID()
+    let worktreeA = WorktreeID()
+    let worktreeB = WorktreeID()
+    let catalog = Self.gvFixtureCatalog(
+      spaceID: spaceID, projectID: projectID,
+      worktreeA: worktreeA, worktreeB: worktreeB,
+      aVisible: true, bVisible: false
+    )
+
+    let store = TestStore(initialState: RootFeature.State()) {
+      RootFeature()
+    } withDependencies: {
+      $0.terminalClient.events = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.snapshot = { catalog }
+      $0.gitService = GitServiceClient.testValue
+      $0.gitService.workingTreeDiff = { _, _ in UnifiedDiff(scope: .working, files: []) }
+      $0.editorClient = EditorClient.testValue
+    }
+    store.exhaustivity = .off
+
+    // Initially no selection → helper returns false.
+    #expect(store.state.gitViewerOverlayVisible(in: catalog) == false)
+
+    let selectionA = HierarchySelection(
+      spaceID: spaceID, projectID: projectID, worktreeID: worktreeA
+    )
+    await store.send(.selectionChanged(selectionA)) { $0.selection = selectionA }
+    #expect(store.state.gitViewerOverlayVisible(in: catalog) == true)
+
+    let selectionB = HierarchySelection(
+      spaceID: spaceID, projectID: projectID, worktreeID: worktreeB
+    )
+    await store.send(.selectionChanged(selectionB)) { $0.selection = selectionB }
+    #expect(store.state.gitViewerOverlayVisible(in: catalog) == false)
+  }
+
+  @Test
+  func gitViewerOverlayVisibleFollowsCatalogMutationWithSameSelection() {
+    // Second half of the single-source-of-truth contract: flipping the
+    // catalog value (T2 Header button path) must flip the helper read
+    // without any selection change and without any reducer projection.
+    let spaceID = SpaceID()
+    let projectID = ProjectID()
+    let worktreeA = WorktreeID()
+    let worktreeB = WorktreeID()
+
+    var initial = RootFeature.State()
+    initial.selection = HierarchySelection(
+      spaceID: spaceID, projectID: projectID, worktreeID: worktreeA
+    )
+    let store = TestStore(initialState: initial) {
+      RootFeature()
+    }
+
+    let hidden = Self.gvFixtureCatalog(
+      spaceID: spaceID, projectID: projectID,
+      worktreeA: worktreeA, worktreeB: worktreeB,
+      aVisible: false, bVisible: false
+    )
+    let shown = Self.gvFixtureCatalog(
+      spaceID: spaceID, projectID: projectID,
+      worktreeA: worktreeA, worktreeB: worktreeB,
+      aVisible: true, bVisible: false
+    )
+    #expect(store.state.gitViewerOverlayVisible(in: hidden) == false)
+    #expect(store.state.gitViewerOverlayVisible(in: shown) == true)
+  }
+
+  @Test
+  func gitViewerToggleInvokesHierarchyClientWithFlippedValue() async {
+    // The reducer now reads the current value from the catalog snapshot
+    // and writes the flipped value; no state mutation. Both entry points
+    // (⌘⇧G + Header button) share a single write path.
+    let spaceID = SpaceID()
+    let projectID = ProjectID()
+    let worktreeA = WorktreeID()
+    let worktreeB = WorktreeID()
+    let recorded = LockIsolated<[(WorktreeID, Bool)]>([])
+    let catalog = Self.gvFixtureCatalog(
+      spaceID: spaceID, projectID: projectID,
+      worktreeA: worktreeA, worktreeB: worktreeB,
+      aVisible: false, bVisible: false
+    )
+
+    var initial = RootFeature.State()
+    initial.selection = HierarchySelection(
+      spaceID: spaceID, projectID: projectID, worktreeID: worktreeA
+    )
+
+    let store = TestStore(initialState: initial) {
+      RootFeature()
+    } withDependencies: {
+      $0.hierarchyClient.snapshot = { catalog }
+      $0.hierarchyClient.setWorktreeGitViewerVisible = { wt, visible in
+        recorded.withValue { $0.append((wt, visible)) }
+      }
+    }
+
+    await store.send(.gitViewerToggledForCurrentWorktree)
+    await store.finish()
+    #expect(recorded.value.count == 1)
+    #expect(recorded.value.first?.0 == worktreeA)
+    // Starting from `gitViewerVisible: false`, toggle writes `true`.
+    #expect(recorded.value.first?.1 == true)
+  }
+
+  @Test
+  func gitViewerToggleWithoutSelectionIsNoOp() async {
+    // When no Worktree is selected, the toggle must not fire the setter.
+    let recorded = LockIsolated<[(WorktreeID, Bool)]>([])
+    let store = TestStore(initialState: RootFeature.State()) {
+      RootFeature()
+    } withDependencies: {
+      $0.hierarchyClient.snapshot = { Catalog(windows: [], spaces: [], selectedSpaceID: nil) }
+      $0.hierarchyClient.setWorktreeGitViewerVisible = { wt, visible in
+        recorded.withValue { $0.append((wt, visible)) }
+      }
+    }
+    await store.send(.gitViewerToggledForCurrentWorktree)
+    await store.finish()
+    #expect(recorded.value.isEmpty)
+  }
+
+  @Test
+  func openSpaceSwitcherRequestedForwardsToSidebar() async {
+    // ⌘K dispatches this; the root reducer forwards to the sidebar via
+    // `.externalSpacePopoverOpenRequested` (open-only, not a toggle). The
+    // sidebar reducer flips `isSpacePopoverPresented = true`.
+    let store = TestStore(initialState: RootFeature.State()) {
+      RootFeature()
+    }
+    #expect(store.state.sidebar.isSpacePopoverPresented == false)
+    await store.send(.openSpaceSwitcherRequested)
+    await store.receive(\.sidebar.externalSpacePopoverOpenRequested) { state in
+      state.sidebar.isSpacePopoverPresented = true
+    }
+    // Idempotent: a second dispatch with the popover already open is a no-op
+    // on the visible flag (already true).
+    await store.send(.openSpaceSwitcherRequested)
+    await store.receive(\.sidebar.externalSpacePopoverOpenRequested)
+  }
+
+  // MARK: - T2 worktreeHeader delegate routing
+
+  @Test
+  func headerOpenEditorWithExplicitIDForwardsToEditor() async {
+    let store = TestStore(initialState: RootFeature.State()) {
+      RootFeature()
+    } withDependencies: {
+      $0.terminalClient.events = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
+      $0.editorClient = EditorClient.testValue
+      $0.editorClient.open = { _, id, _ in
+        EditorChoice(
+          id: id ?? "finder", displayName: "x",
+          binaryPath: URL(fileURLWithPath: "/bin/x"), argv: []
+        )
+      }
+    }
+    store.exhaustivity = .off
+
+    let projectID = ProjectID()
+    await store.send(.worktreeHeader(.delegate(.openEditor(
+      editorID: "vscode", worktreePath: "/tmp/w", projectID: projectID
+    ))))
+    await store.receive(.editor(.openRequested(
+      editorID: "vscode", worktreePath: "/tmp/w", projectID: projectID
+    )))
+  }
+
+  @Test
+  func headerOpenEditorWithNilResolvesDefaultThenForwards() async {
+    // Pre-populate EditorFeature cache with a descriptor + matching global
+    // default. ResolveDefault should pick "cursor" and the root should
+    // re-emit .editor(.openRequested) with that id.
+    let descriptor = EditorDescriptor(
+      id: "cursor",
+      displayName: "Cursor",
+      origin: .builtin,
+      template: CommandTemplate(binary: "cursor", args: ["{dir}"]),
+      installation: .installed(resolvedBinary: URL(fileURLWithPath: "/usr/local/bin/cursor"))
+    )
+    var initial = RootFeature.State()
+    initial.editor.descriptors = [descriptor]
+    initial.editor.globalDefault = "cursor"
+    let store = TestStore(initialState: initial) {
+      RootFeature()
+    } withDependencies: {
+      $0.terminalClient.events = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.snapshot = { Catalog() }
+      $0.editorClient = EditorClient.testValue
+      $0.editorClient.open = { _, id, _ in
+        EditorChoice(
+          id: id ?? "finder", displayName: "x",
+          binaryPath: URL(fileURLWithPath: "/bin/x"), argv: []
+        )
+      }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.worktreeHeader(.delegate(.openEditor(
+      editorID: nil, worktreePath: "/tmp/w", projectID: nil
+    ))))
+    await store.receive(.editor(.openRequested(
+      editorID: "cursor", worktreePath: "/tmp/w", projectID: nil
+    )))
+  }
+
+  @Test
+  func headerOpenEditorWithNilFallsBackToFinderID() async {
+    let store = TestStore(initialState: RootFeature.State()) {
+      RootFeature()
+    } withDependencies: {
+      $0.terminalClient.events = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.snapshot = { Catalog() }
+      $0.editorClient = EditorClient.testValue
+      $0.editorClient.open = { _, id, _ in
+        EditorChoice(
+          id: id ?? "finder", displayName: "x",
+          binaryPath: URL(fileURLWithPath: "/bin/x"), argv: []
+        )
+      }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.worktreeHeader(.delegate(.openEditor(
+      editorID: nil, worktreePath: "/tmp/w", projectID: nil
+    ))))
+    await store.receive(.editor(.openRequested(
+      editorID: EditorFeature.finderEditorID,
+      worktreePath: "/tmp/w",
+      projectID: nil
+    )))
+  }
+
+  @Test
+  func headerShowCustomEditorsSettingsOpensSheet() async {
     let store = TestStore(initialState: RootFeature.State()) {
       RootFeature()
     } withDependencies: {
       $0.terminalClient.events = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
     }
+    store.exhaustivity = .off
 
-    #expect(!store.state.inspectorVisible)
-    await store.send(.inspectorVisibilityToggled) { $0.inspectorVisible = true }
-    await store.send(.inspectorVisibilityToggled) { $0.inspectorVisible = false }
+    await store.send(.worktreeHeader(.delegate(.showCustomEditorsSettings)))
+    await store.receive(\.settingsSheetShown) { state in
+      state.settingsSheet = SettingsSheetFeature.State()
+    }
+  }
+  @Test
+  func headerGitViewerToggleDelegateRoutesThroughToggleBranch() async {
+    // Nit 1 convergence: the Header GV delegate is consumed by the root
+    // reducer and re-dispatched as `.gitViewerToggledForCurrentWorktree`
+    // — the same action ⌘⇧G sends. This proves both entry points share
+    // one write path (the hierarchyClient mutation is covered by the
+    // dedicated `gitViewerToggleInvokesHierarchyClientWithFlippedValue`
+    // test; here we only need to prove routing).
+    let spaceID = SpaceID()
+    let projectID = ProjectID()
+    let worktreeA = WorktreeID()
+    let worktreeB = WorktreeID()
+    let catalog = Self.gvFixtureCatalog(
+      spaceID: spaceID, projectID: projectID,
+      worktreeA: worktreeA, worktreeB: worktreeB,
+      aVisible: false, bVisible: false
+    )
+
+    var initial = RootFeature.State()
+    initial.selection = HierarchySelection(
+      spaceID: spaceID, projectID: projectID, worktreeID: worktreeA
+    )
+    let recorded = LockIsolated<[(WorktreeID, Bool)]>([])
+    let store = TestStore(initialState: initial) {
+      RootFeature()
+    } withDependencies: {
+      $0.terminalClient.events = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.snapshot = { catalog }
+      $0.hierarchyClient.setWorktreeGitViewerVisible = { wt, v in
+        recorded.withValue { $0.append((wt, v)) }
+      }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.worktreeHeader(.delegate(.gitViewerToggleRequested)))
+    await store.receive(\.gitViewerToggledForCurrentWorktree)
+    await store.finish()
+    #expect(recorded.value.count == 1)
+    #expect(recorded.value.first?.0 == worktreeA)
+    #expect(recorded.value.first?.1 == true)
   }
 
   @Test
-  func sidebarModeChangedUpdatesState() async {
+  func headerSetProjectOverrideForwardsToEditor() async {
     let store = TestStore(initialState: RootFeature.State()) {
       RootFeature()
     } withDependencies: {
       $0.terminalClient.events = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.setDefaultEditor = { _, _, _ in }
     }
+    store.exhaustivity = .off
 
-    #expect(store.state.sidebarMode == .hierarchy)
-    await store.send(.sidebarModeChanged(.inbox)) { state in
-      state.sidebarMode = .inbox
-    }
-    await store.send(.sidebarModeChanged(.hierarchy)) { state in
-      state.sidebarMode = .hierarchy
-    }
+    let spaceID = SpaceID()
+    let projectID = ProjectID()
+    await store.send(.worktreeHeader(.delegate(.setProjectOverride(
+      projectID: projectID, spaceID: spaceID, editorID: "zed"
+    ))))
+    await store.receive(.editor(.setProjectOverride(
+      projectID: projectID, spaceID: spaceID, editorID: "zed"
+    )))
   }
+
+  // Removed in T1: `sidebarModeChangedUpdatesState` covered the
+  // SidebarMode / .sidebarModeChanged plumbing that T0 left as
+  // "T2 must either reuse or remove". T1 deleted the plumbing (the
+  // sidebar unconditionally renders the hierarchy tree; T2 built the
+  // Header bell fresh on WorktreeHeader).
 
   @Test
   func onLaunchExhaustivelyPropagatesSelectionFromStream() async {

@@ -17,6 +17,15 @@ struct WorktreeDetailView: View {
   /// Open-result toasts are driven by `editorStore.state.lastOpenResult` directly from
   /// `ContentView`, so this view no longer accepts a callback (0005 M6c).
   let editorStore: StoreOf<EditorFeature>
+  /// T2 Header feature — scoped by `ContentView` from the root. Drives the bell
+  /// badge, the Open-in split button's delegate routing, and the Git Viewer toggle.
+  let headerStore: StoreOf<WorktreeHeaderFeature>
+  /// T3: scoped Git Viewer store, hosted as a right-edge overlay on the terminal region
+  /// when `overlayVisible == true` AND the terminal has enough width to keep the
+  /// overlay + the minimum terminal gutter side-by-side.
+  let gitViewerStore: StoreOf<GitViewerFeature>
+  /// T3: derived from `RootFeature.State.gitViewerOverlayVisible`; never assigned locally.
+  let overlayVisible: Bool
   @Environment(HierarchyManager.self) private var hierarchyManager
 
   var body: some View {
@@ -31,56 +40,91 @@ struct WorktreeDetailView: View {
           worktreeID: address.worktree,
           activeTabID: address.activeTab
         )
-        if let tabID = address.activeTab {
-          SplitViewportView(
-            store: store.scope(state: \.splitViewport, action: \.splitViewport),
-            spaceID: address.space,
-            projectID: address.project,
-            worktreeID: address.worktree,
-            tabID: tabID
-          )
-        } else {
-          emptyTab
-        }
+        terminalRegion(address: address)
+          .overlay(alignment: .trailing) { overlayContent }
+          .animation(.easeInOut(duration: 0.15), value: overlayVisible)
       }
     } else {
       placeholder
     }
   }
 
-  /// Worktree-header strip: shows branch + path on the left and the "Open in ▾" dropdown
-  /// on the right (added in 0005 M6b).
+  @ViewBuilder
+  private func terminalRegion(address: Address) -> some View {
+    if let tabID = address.activeTab {
+      SplitViewportView(
+        store: store.scope(state: \.splitViewport, action: \.splitViewport),
+        spaceID: address.space,
+        projectID: address.project,
+        worktreeID: address.worktree,
+        tabID: tabID
+      )
+    } else {
+      emptyTab
+    }
+  }
+
+  /// T3 overlay content: the Git Viewer occupies a fixed-width slot on the trailing edge
+  /// when there's room, otherwise a compact suppressed-hint badge nudges the user to
+  /// widen the window. Width clamp logic lives in `shouldShowOverlay(totalWidth:)` so
+  /// the threshold is unit-testable independently of SwiftUI layout.
+  @ViewBuilder
+  private var overlayContent: some View {
+    if overlayVisible {
+      GeometryReader { proxy in
+        if Self.shouldShowOverlay(totalWidth: proxy.size.width) {
+          GitViewerView(store: gitViewerStore)
+            .frame(width: MainWindowConstants.gvOverlayWidth)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .transition(.move(edge: .trailing).combined(with: .opacity))
+        } else {
+          overlaySuppressedHint
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            .padding(8)
+        }
+      }
+    }
+  }
+
+  private var overlaySuppressedHint: some View {
+    Text("Widen window to show Git Viewer")
+      .font(.caption)
+      .foregroundStyle(.secondary)
+      .padding(.horizontal, 10)
+      .padding(.vertical, 5)
+      .background(.thinMaterial, in: .capsule)
+  }
+
+  /// Pure width-clamp helper. The overlay only renders when the host has room to keep
+  /// the overlay at its fixed width AND leave at least `gvOverlayMinTerminalWidth` for
+  /// the terminal. Equivalence with `>=` keeps the exact threshold inclusive — matches
+  /// the paired unit tests in `WorktreeDetailViewLayoutTests`.
+  static func shouldShowOverlay(totalWidth: CGFloat) -> Bool {
+    totalWidth >= MainWindowConstants.gvOverlayMinTerminalWidth
+      + MainWindowConstants.gvOverlayWidth
+  }
+
+  /// Worktree Header row (T2): branch label + bell + Open-in split button +
+  /// GV toggle. Delegates to `WorktreeHeaderView`; path string is no longer
+  /// rendered per the redesign spec (path visibility moves to hover/tooltip
+  /// surfaces if reintroduced).
   @ViewBuilder
   private func worktreeHeader(address: Address) -> some View {
     let worktree = hierarchyManager.catalog
       .spaces.first(where: { $0.id == address.space })?
       .projects.first(where: { $0.id == address.project })?
       .worktrees.first(where: { $0.id == address.worktree })
-    HStack(spacing: 10) {
-      if let worktree {
-        Label(worktree.branch ?? worktree.name, systemImage: "point.3.connected.trianglepath.dotted")
-          .font(.callout)
-          .foregroundStyle(.secondary)
-        Text(worktree.path)
-          .font(.system(.caption, design: .monospaced))
-          .foregroundStyle(.tertiary)
-          .lineLimit(1)
-          .truncationMode(.middle)
-      }
-      Spacer(minLength: 8)
-      if let worktree {
-        WorktreeHeaderOpenButton(
-          store: editorStore,
-          spaceID: address.space,
-          projectID: address.project,
-          worktreeID: address.worktree,
-          worktreePath: worktree.path
-        )
-      }
+    if let worktree {
+      WorktreeHeaderView(
+        store: headerStore,
+        editorStore: editorStore,
+        spaceID: address.space,
+        projectID: address.project,
+        worktreePath: worktree.path,
+        branchLabel: worktree.branch ?? worktree.name,
+        gitViewerVisible: worktree.gitViewerVisible
+      )
     }
-    .padding(.horizontal, 10)
-    .padding(.vertical, 6)
-    .frame(maxWidth: .infinity, alignment: .leading)
   }
 
   private struct Address {

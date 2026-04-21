@@ -7,21 +7,12 @@ import TouchCodeCore
 /// two long-running subscriptions that every feature depends on:
 ///   - `terminalClient.events()` — drives crash / exit / output lifecycle
 ///   - `hierarchyClient.selectionChanges()` — drives worktree-scoped
-///     features (C6 inbox filter, C7 diff viewer, M4 detail column swap)
+///     features (C7 diff viewer, M4 detail column swap)
 ///
-/// Sub-feature Scopes for M3 (`HierarchySidebarFeature`) and M4
-/// (`WorktreeDetailFeature`) are intentionally commented out — their state
-/// types don't exist yet. The wiring is a one-line drop-in when they land.
-/// Which sidebar content the leading column renders. Per DEC-2, C6
-/// (agent-notification inbox) ships as an alternate mode in the leading
-/// column rather than a third NavigationSplitView column. The toggle lives
-/// on `RootFeature` because multiple features may dispatch it (keyboard
-/// shortcut, C6-originated "new notifications" pulse, menu item).
-nonisolated enum SidebarMode: String, Equatable, CaseIterable, Sendable {
-  case hierarchy
-  case inbox
-}
-
+/// T1 removed the T0-era `SidebarMode` plumbing (the sidebar unconditionally
+/// renders the hierarchy tree; T2's Header bell is its own feature on
+/// `WorktreeHeader`, not a reuse of `InboxSidebarFeature`). `InboxSidebar`
+/// source files remain in the tree but are no longer mounted in `RootFeature`.
 @Reducer
 struct RootFeature {
   @ObservableState
@@ -34,12 +25,7 @@ struct RootFeature {
     /// observe the stream directly via child-feature subscriptions.
     var lastEvent: LastEventMarker?
 
-    /// DEC-2: leading column toggles between `HierarchySidebarView` and
-    /// the C6 inbox placeholder.
-    var sidebarMode: SidebarMode = .hierarchy
-
     var sidebar: HierarchySidebarFeature.State = .init()
-    var inbox: InboxSidebarFeature.State = .init()
     var detail: WorktreeDetailFeature.State = .init()
     /// C7 M3/M4 (0005): read-only git viewer hosted in the trailing
     /// inspector slot. Selection is forwarded by the `.selectionChanged`
@@ -47,16 +33,33 @@ struct RootFeature {
     var gitViewer: GitViewerFeature.State = .init()
     /// C8 M6b (0005): editor preferences + per-Project override state.
     var editor: EditorFeature.State = .init()
-
-    /// DEC-9 (M4, 2026-04-20): `true` shows the trailing inspector column
-    /// (git diff/history viewer). `ContentView` hosts `GitViewerView` there
-    /// once the 0005 M4a wiring lands.
-    var inspectorVisible: Bool = false
+    /// T2: Header feature (bell + Open-in split button + GV toggle).
+    var worktreeHeader: WorktreeHeaderFeature.State = .init()
 
     /// C8 M6b (0005): settings sheet presentation. `nil` = hidden; non-nil
     /// presents the sheet with a dedicated sub-feature state that mirrors
     /// a subset of `editor` for isolated in-sheet edits.
     @Presents var settingsSheet: SettingsSheetFeature.State?
+
+    /// T3: live read of the current Worktree's `gitViewerVisible` against
+    /// a catalog snapshot. Not a cached field — views pass in
+    /// `hierarchyManager.catalog` so SwiftUI's `@Observable` tracking
+    /// re-renders on catalog mutation from any writer (⌘⇧G, Header GV
+    /// button, external API). This avoids the state-divergence risk of
+    /// caching the value on State: both toggle entry points write through
+    /// `HierarchyClient.setWorktreeGitViewerVisible`, and the view reads
+    /// the authoritative catalog each render.
+    func gitViewerOverlayVisible(in catalog: Catalog) -> Bool {
+      guard
+        let spaceID = selection.spaceID,
+        let projectID = selection.projectID,
+        let worktreeID = selection.worktreeID,
+        let space = catalog.spaces.first(where: { $0.id == spaceID }),
+        let project = space.projects.first(where: { $0.id == projectID }),
+        let worktree = project.worktrees.first(where: { $0.id == worktreeID })
+      else { return false }
+      return worktree.gitViewerVisible
+    }
   }
 
   /// Opaque marker for diagnostic logging / tests — the full `TerminalEvent`
@@ -97,21 +100,35 @@ struct RootFeature {
     case onQuit
     case selectionChanged(HierarchySelection)
     case engineEventReceived(LastEventMarker)
-    case sidebarModeChanged(SidebarMode)
-    case inspectorVisibilityToggled
+    /// T3: Toggles the Git Viewer overlay for the current Worktree.
+    /// Sources: Header GV button (T2) + ⌘⇧G (T3 Commands). Optimistically
+    /// flips `state.gitViewerOverlayVisible` and fires
+    /// `HierarchyClient.setWorktreeGitViewerVisible` to persist.
+    case gitViewerToggledForCurrentWorktree
+    /// T3: ⌘E entry point. Resolves the current Worktree's path from the
+    /// catalog snapshot (via `hierarchyClient` — reducer-scoped dependency,
+    /// unlike SwiftUI `Commands` structs where `@Dependency` falls through
+    /// to `liveValue` and crashes on the stubbed `snapshot` accessor) and
+    /// dispatches `.editor(.openDefaultInCurrentWorktreeRequested)`.
+    case openDefaultForCurrentWorktreeRequested
+    /// T3: ⌘K entry point. Forwards to the sidebar so its Space-switcher
+    /// popover opens. Handled inline by the root reducer as a `.send` into
+    /// `.sidebar(.externalSpacePopoverOpenRequested)`.
+    case openSpaceSwitcherRequested
     case settingsSheetShown
     case settingsSheet(PresentationAction<SettingsSheetFeature.Action>)
     case sidebar(HierarchySidebarFeature.Action)
-    case inbox(InboxSidebarFeature.Action)
     case detail(WorktreeDetailFeature.Action)
     case gitViewer(GitViewerFeature.Action)
     case editor(EditorFeature.Action)
+    case worktreeHeader(WorktreeHeaderFeature.Action)
   }
 
   nonisolated enum CancelID: Sendable { case events, selectionChanges }
 
   @Dependency(TerminalClient.self) private var terminalClient
   @Dependency(HierarchyClient.self) private var hierarchyClient
+  @Dependency(FinderClient.self) private var finderClient
 
   var body: some Reducer<State, Action> {
     Scope(state: \.sidebar, action: \.sidebar) {
@@ -126,9 +143,8 @@ struct RootFeature {
     Scope(state: \.editor, action: \.editor) {
       EditorFeature()
     }
-
-    Scope(state: \.inbox, action: \.inbox) {
-      InboxSidebarFeature()
+    Scope(state: \.worktreeHeader, action: \.worktreeHeader) {
+      WorktreeHeaderFeature()
     }
 
     Reduce { state, action in
@@ -151,6 +167,15 @@ struct RootFeature {
           }
           .cancellable(id: CancelID.selectionChanges, cancelInFlight: true)
         )
+        // Worst case for sidebar context-menu "Open in default editor" is an
+        // empty descriptor cache → resolution falls through to
+        // EditorRegistry.finderID, which is always installed. Priming via
+        // `.send(.editor(.onAppear))` here was considered but was dropped
+        // because it runs the live EditorService on a background Task and
+        // the live factory's `MainActor.assumeIsolated { ... }` assertion
+        // fails from a non-MainActor queue during test-host bootstrap. The
+        // WorktreeHeaderOpenButton's own `.task { store.send(.onAppear) }`
+        // is the canonical hydration path.
 
       case .onQuit:
         return .merge(
@@ -166,7 +191,11 @@ struct RootFeature {
         let tabID = resolveActiveTab(selection: selection)
         state.detail.splitViewport.activeTabID = tabID
         // Forward the (projectID, worktreeID) pair to GitViewerFeature so
-        // the inspector always reflects the current selection.
+        // the inspector always reflects the current selection. The Header
+        // feature does not need a dispatched `.catalogChanged` signal —
+        // its unread count is now computed from the live
+        // `@Environment(HierarchyManager.self).catalog`, which re-renders
+        // on any catalog mutation.
         return .send(.gitViewer(.worktreeSelected(
           projectID: selection.projectID,
           worktreeID: selection.worktreeID
@@ -176,24 +205,38 @@ struct RootFeature {
         state.lastEvent = marker
         return .none
 
-      case .sidebarModeChanged(let mode):
-        state.sidebarMode = mode
-        return .none
+      // Sidebar delegate routing. Must come before the catch-all
+      // `case .sidebar:` so the nested pattern matches first.
+
+      case .sidebar(.delegate(.openInDefaultEditor(let path, let projectID))):
+        // T3 rebase: route through the shared `EditorFeature.resolveDefault`
+        // helper so the sidebar context menu, the Header Open-in button, and
+        // the ⌘E shortcut use one resolution path. Cascade-on-missing
+        // semantics (documented on `resolveDefault`) are the canonical
+        // behavior; a non-installed descriptor resolves to its id and the
+        // downstream `.openRequested` surfaces `.failed` through the toast.
+        let resolvedID: EditorID
+        switch EditorFeature.resolveDefault(
+          projectOverride: projectOverrideEditorID(for: projectID),
+          globalDefault: state.editor.globalDefault,
+          descriptors: state.editor.descriptors
+        ) {
+        case .editor(let descriptor): resolvedID = descriptor.id
+        case .finder: resolvedID = EditorFeature.finderEditorID
+        }
+        return .send(.editor(.openRequested(
+          editorID: resolvedID,
+          worktreePath: path,
+          projectID: projectID
+        )))
+
+      case .sidebar(.delegate(.revealInFinder(let path))):
+        let client = finderClient
+        return .run { _ in
+          await MainActor.run { client.reveal(path) }
+        }
 
       case .sidebar:
-        return .none
-
-      case .inbox(.deeplinkRequested(let panelID)):
-        // Follow-up: resolve panelID → (space, project, worktree, tab)
-        // via HierarchyClient and dispatch the select chain per the
-        // design sketch's §Deeplink chain. HierarchyClient does not yet
-        // expose a `resolvePanel` helper — this branch is a no-op until
-        // that lands. The inbox row still marks-read (the InboxFeature
-        // reducer handles that before emitting this delegate).
-        _ = panelID
-        return .none
-
-      case .inbox:
         return .none
 
       case .detail:
@@ -203,6 +246,48 @@ struct RootFeature {
         return .none
 
       case .editor:
+        return .none
+
+      case .worktreeHeader(.delegate(let delegate)):
+        switch delegate {
+        case .openEditor(let editorID, let worktreePath, let projectID):
+          let resolvedID: EditorID
+          if let editorID {
+            resolvedID = editorID
+          } else {
+            switch EditorFeature.resolveDefault(
+              projectOverride: projectOverrideEditorID(for: projectID),
+              globalDefault: state.editor.globalDefault,
+              descriptors: state.editor.descriptors
+            ) {
+            case .editor(let descriptor): resolvedID = descriptor.id
+            case .finder: resolvedID = EditorFeature.finderEditorID
+            }
+          }
+          return .send(.editor(.openRequested(
+            editorID: resolvedID,
+            worktreePath: worktreePath,
+            projectID: projectID
+          )))
+
+        case .showCustomEditorsSettings:
+          return .send(.settingsSheetShown)
+
+        case .setProjectOverride(let projectID, let spaceID, let editorID):
+          return .send(.editor(.setProjectOverride(
+            projectID: projectID,
+            spaceID: spaceID,
+            editorID: editorID
+          )))
+
+        case .gitViewerToggleRequested:
+          // Route through the same reducer branch ⌘⇧G uses so both entry
+          // points share one write path (reads current visibility from the
+          // catalog, writes the flipped value).
+          return .send(.gitViewerToggledForCurrentWorktree)
+        }
+
+      case .worktreeHeader:
         return .none
 
       case .settingsSheetShown:
@@ -220,14 +305,60 @@ struct RootFeature {
       case .settingsSheet:
         return .none
 
-      case .inspectorVisibilityToggled:
-        state.inspectorVisible.toggle()
-        return .none
+      case .gitViewerToggledForCurrentWorktree:
+        guard let worktreeID = state.selection.worktreeID else { return .none }
+        // Read the current visibility from the live catalog — the view
+        // layer's `State.gitViewerOverlayVisible(in:)` reads the same
+        // source, so flipping from here and from the Header button
+        // (which writes the catalog directly) can't diverge.
+        let catalog = hierarchyClient.snapshot()
+        let target = !state.gitViewerOverlayVisible(in: catalog)
+        let setter = hierarchyClient.setWorktreeGitViewerVisible
+        return .run { _ in
+          await MainActor.run { setter(worktreeID, target) }
+        }
+
+      case .openDefaultForCurrentWorktreeRequested:
+        guard
+          let spaceID = state.selection.spaceID,
+          let projectID = state.selection.projectID,
+          let worktreeID = state.selection.worktreeID
+        else { return .none }
+        let catalog = hierarchyClient.snapshot()
+        guard
+          let path = catalog
+            .spaces.first(where: { $0.id == spaceID })?
+            .projects.first(where: { $0.id == projectID })?
+            .worktrees.first(where: { $0.id == worktreeID })?.path
+        else { return .none }
+        return .send(.editor(.openDefaultInCurrentWorktreeRequested(
+          spaceID: spaceID,
+          projectID: projectID,
+          worktreeID: worktreeID,
+          worktreePath: path
+        )))
+
+      case .openSpaceSwitcherRequested:
+        return .send(.sidebar(.externalSpacePopoverOpenRequested))
       }
     }
     .ifLet(\.$settingsSheet, action: \.settingsSheet) {
       SettingsSheetFeature()
     }
+  }
+
+  /// Per-Project editor override, if any. Used to resolve the Header's
+  /// default-editor dispatch through `EditorFeature.resolveDefault` without
+  /// the reducer needing to hold a second cache of the catalog.
+  private func projectOverrideEditorID(for projectID: ProjectID?) -> EditorID? {
+    guard let projectID else { return nil }
+    let catalog = hierarchyClient.snapshot()
+    for space in catalog.spaces {
+      if let project = space.projects.first(where: { $0.id == projectID }) {
+        return project.defaultEditor
+      }
+    }
+    return nil
   }
 
   /// Resolve the active tab for a selection using the snapshot from the
@@ -246,4 +377,5 @@ struct RootFeature {
     else { return nil }
     return worktree.selectedTabID
   }
+
 }
