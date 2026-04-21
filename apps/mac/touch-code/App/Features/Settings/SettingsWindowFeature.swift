@@ -15,10 +15,16 @@ struct SettingsWindowFeature {
   struct State: Equatable {
     var selection: SettingsSection?
     var general: EditorFeature.State = .init()
+    var repositoryPanes: IdentifiedArrayOf<RepositorySettingsFeature.State> = []
 
-    init(selection: SettingsSection? = nil, general: EditorFeature.State = .init()) {
+    init(
+      selection: SettingsSection? = nil,
+      general: EditorFeature.State = .init(),
+      repositoryPanes: IdentifiedArrayOf<RepositorySettingsFeature.State> = []
+    ) {
       self.selection = selection
       self.general = general
+      self.repositoryPanes = repositoryPanes
     }
 
     /// Section the detail column should render. Falls back to `.general` when nothing is
@@ -30,6 +36,7 @@ struct SettingsWindowFeature {
   enum Action: Equatable {
     case selectionChanged(SettingsSection?)
     case general(EditorFeature.Action)
+    case repositoryPane(RepositorySettingsFeature.Action, for: ProjectID)
     /// Fired by `SettingsWindowView`'s `.onDisappear`. Clears sidebar selection per M16.
     case windowClosed
     /// Fired from the view on every `HierarchyManager.catalog` delta. Reducer prunes a
@@ -49,10 +56,15 @@ struct SettingsWindowFeature {
         return .none
       case .general:
         return .none
+      case .repositoryPane:
+        return .none
       case .windowClosed:
         state.selection = nil
         return .none
       case .projectsChanged(let currentIDs):
+        // Prune repository panes for projects that no longer exist.
+        state.repositoryPanes.removeAll { !currentIDs.contains($0.id) }
+        // Clear selection if it points to a disappeared project.
         switch state.selection {
         case .repositoryGeneral(let projectID), .repositoryHooks(let projectID):
           if !currentIDs.contains(projectID) {
@@ -63,6 +75,9 @@ struct SettingsWindowFeature {
         }
         return .none
       }
+    }
+    .forEach(\.repositoryPanes, action: /Action.repositoryPane) {
+      RepositorySettingsFeature()
     }
   }
 }
