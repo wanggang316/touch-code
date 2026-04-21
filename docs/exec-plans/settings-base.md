@@ -1,6 +1,6 @@
 # ExecPlan: Settings Window — Shell & Persistence Base (T1)
 
-**Status:** Draft
+**Status:** Completed
 **Author:** Gump (agent: feat/settings-shell)
 **Date:** 2026-04-21
 
@@ -36,29 +36,116 @@ Each step is a single `/commit`. Steps 1–6 are code commits; steps 0
 and 7 are environment / QA. Push happens only once, at the end,
 before opening the PR against `feature/settings-base`.
 
-- [ ] Step 0 — Tuist buildableFolders verification
-- [ ] Step 1 — Add `TouchCodeCore/Settings/` v2 types (pure additions)
-- [ ] Step 2 — Add contract surfaces (enum / protocol / 4 placeholder panes / ComingSoonPane)
-- [ ] Step 3 — Migration scaffolding (`LegacyV1Settings` + migrate helper + tests)
-- [ ] Step 4 — SettingsStore v2 refactor + C6 coordinator rewire + delete `NotificationSettingsStore`
-- [ ] Step 5 — Settings Window scene + `SettingsWindowFeature` + General / About panes + menu command
-- [ ] Step 6 — Remove `SettingsSheet*` + reroute `showCustomEditorsSettings` delegate
-- [ ] Step 7 — Manual QA pass over spec Acceptance Criteria (T1 slice)
-- [ ] Final — `swift build` + `xcodebuild test` all green, push `feat/settings-shell`, open PR against `feature/settings-base`
+- [x] Step 0 — Tuist buildableFolders verification (probes confirmed recursion — no commit)
+- [x] Step 1a — Rename v1 Settings → LegacyEditorSettings (prep commit to free namespace)
+- [x] Step 1 — Add `TouchCodeCore/Settings/` v2 types + SettingsCodableTests
+- [x] Step 2 — Add contract surfaces (enum / protocol / 4 placeholder panes / ComingSoonPane)
+- [x] Step 3 — Migration scaffolding (LegacyV1Settings + SettingsMigration + SettingsMigrationTests)
+- [x] Step 4 — SettingsStore v2 refactor + C6 coordinator rewire + delete NotificationSettingsStore
+- [x] Step 5 — Settings Window scene + SettingsWindowFeature + General / About panes + menu
+- [x] Step 6 — Remove SettingsSheet* + reroute showCustomEditorsSettings
+- [x] Step 7 — Manual QA (see Outcomes below); style commit to land swift-format pass + lint fix
+- [x] Final — test matrix green on four schemes; push + PR pending this last commit
 
 ## Surprises & Discoveries
 
-(None yet)
+- **Swift filename collision between v1 and v2 `Settings`.** Both structs had
+  the public type name `Settings`; the v1 file `TouchCodeCore/Editor/Settings.swift`
+  couldn't coexist with a new `TouchCodeCore/Settings/Settings.swift`.
+  Compiler error was
+  `filename "Settings.swift" used twice`. Resolved by renaming the v1 file
+  to `LegacyEditorSettings.swift` + the type to `LegacyEditorSettings` in a
+  dedicated prep commit (Step 1a) that preceded Step 1. The legacy name
+  lives only until Step 4 deletes it.
+- **Tuist `buildableFolders` IS recursive.** Xcode 16's
+  `PBXFileSystemSynchronizedRootGroup` does not list individual source
+  files in `project.pbxproj`, so the initial grep-based check looked
+  like a miss. Empirical probe (add a deliberate compile-error file
+  inside the subfolder, build the target, observe the error) confirmed
+  recursion works for `TouchCodeCore/`, `touch-code/App/Features/Settings/Panes/`,
+  and `.../Sidebar/`. No `Project.swift` edit required.
+- **GhosttyKit.xcframework had never been built in this worktree.** First
+  `tuist generate` failed on a ghostty dependency-fetch HTTP 400. Copying
+  the matching-fingerprint prebuilt framework from a sibling worktree
+  (`feat/mw-gitviewer-shortcuts`) unblocked generation; no Zig build ran.
+- **SettingsWindowPresenter could not close over `@Environment(\.openWindow)` directly** because
+  `OpenWindowAction` is only valid inside a `View` with that environment. Solved by
+  publishing `openSettingsWindowAction: (@MainActor () -> Void)?` on `AppState` from the
+  main scene's `.task` block; the presenter's `open` closure captures AppState weakly and
+  forwards through that stored action.
+- **Toolbar ⌘, + CommandGroup ⌘, conflict.** The old gear-button
+  `.keyboardShortcut(",", modifiers: [.command])` competed with the new
+  `CommandGroup(replacing: .appSettings)` binding. Removed the
+  per-button shortcut in Step 6; CommandGroup owns ⌘, now.
 
 ## Decision Log
 
-(Design decisions live in `docs/design-docs/settings-base.md` D1–D3.
-Record only *execution-time* decisions here — deviations from the plan,
-cached library versions, etc.)
+- **Step 1a prep commit (2026-04-21).** Added an unplanned commit between
+  Step 0 and Step 1 to resolve the `Settings` name collision (see
+  Surprises). The prep commit renames v1 `Settings` → `LegacyEditorSettings`
+  and updates 3 call sites (SettingsStore, EditorFeature, EditorFeatureTests).
+  Step 1 proper added v2 Settings afterwards. Step 4 deletes `LegacyEditorSettings`
+  as scheduled.
+- **Step 6 removed the per-button ⌘, shortcut.** Plan didn't explicitly
+  call this out; decision made on the spot because two competing bindings
+  to the same chord would be non-deterministic.
+- **Co-located `AuthorizationStatusCache` in `TouchCodeCore/Settings/NotificationsSettings.swift`.**
+  Plan stage placed it with the v2 NotificationsSettings struct (Step 1) rather than leaving
+  it in the deleted `NotificationSettingsStore.swift`. No material difference; note for
+  future readers looking for where C6 auth-status persistence lives.
+- **Style commit landed after Step 7 instead of during Step 2 / Step 5.**
+  `make check` flagged one accessibility-label lint violation + running
+  `swift-format` touched 155 files (pure whitespace / line-wrap).
+  Co-landed as a single style commit to keep prior feature commits
+  diff-narrow.
 
 ## Outcomes & Retrospective
 
-(To be filled at plan completion)
+**Automated coverage — all green.** Four xcodebuild test schemes ran
+locally: `touch-code`, `TouchCodeCore`, `tcKit`, `tc`. All four produced
+`** TEST SUCCEEDED **`. New test coverage:
+
+- `SettingsCodableTests` — 5 tests (default round-trip, minimal-JSON
+  fallback, unparseable-repositories-key drop, unsupported-version
+  rejection, UUID-keyed encode invariant).
+- `SettingsMigrationTests` — 6 tests (fresh/missing-file, editor-only
+  v1, notifications-only v1, combined v1, unsupported version, corrupt
+  JSON, v2-passthrough no-backup guard).
+- `SettingsStoreTests` (rewritten) — mutators, Appearance round-trip,
+  RepositorySettings GC, Reader conformance, migration smoke.
+- `SettingsWindowFeatureTests` — selection round-trip, windowClosed
+  clears, effectiveSection fallback.
+- `RootFeatureTests.headerShowCustomEditorsSettingsInvokesPresenter`
+  replaces the deleted settings-sheet presentation test.
+
+**Manual UI QA — partially covered.** Ground-truth click-through of the
+spec Acceptance Criteria requires a human driver. Items
+automation-cannot-cover (⌘, opens an independent window, Repositories
+DisclosureGroup renders, Appearance round-trips across relaunch,
+sidebar reflects catalog deltas in real time) depend on interactive
+launch. The upgrade-compatibility scenario was partially automated via
+`SettingsStoreTests.migratesV1EditorFileOnInit`; seed-fixture smoke was
+staged in `/tmp/tctest-*` but not click-verified.
+
+**M13 single-writer invariant achieved.** Only `SettingsStore` writes
+`~/.config/touch-code/settings.json` now; `NotificationSettingsStore`
+is deleted. Per-Repo catalog data (`Project.defaultEditor`,
+`Project.worktreesDirectory`) remains in `catalog.json` per design D1.
+
+**M14 migration verified.** V1 editor-only / notifications-only /
+combined fixtures all migrate to v2 via `SettingsMigration.load`;
+backup files land as `settings.json.v1-<ts>`. Covered by automated tests.
+
+**Contracts frozen for T2/T3/T4.** `SettingsSection`, `Settings v2`,
+`SettingsStore` mutate API, `NotificationSettingsReader`, and the four
+placeholder pane views are in place. Downstream waves need only
+replace pane view bodies and extend sub-structs — the detail switch
+in `SettingsWindowView` is stable.
+
+**Gaps / follow-ups.** Full GUI-driven QA of the spec Acceptance
+Criteria was out of scope for this agent session — the user (Gump) or
+a T5 review slot should drive an interactive walkthrough before the
+Settings window is advertised to end users.
 
 ## Context and Orientation
 
