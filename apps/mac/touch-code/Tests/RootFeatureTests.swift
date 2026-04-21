@@ -406,19 +406,25 @@ struct RootFeatureTests {
   }
 
   @Test
-  func headerShowCustomEditorsSettingsOpensSheet() async {
+  func headerShowCustomEditorsSettingsInvokesPresenter() async {
+    // The Header "+ Custom editors…" delegate now opens the standalone Settings window via
+    // `SettingsWindowPresenter` (post Step 6). Test overrides the presenter with a recorder
+    // and asserts the closure fires exactly once when the delegate is dispatched.
+    let openCount = LockIsolated(0)
     let store = TestStore(initialState: RootFeature.State()) {
       RootFeature()
     } withDependencies: {
       $0.terminalClient.events = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
+      $0.settingsWindowPresenter = SettingsWindowPresenter(open: {
+        openCount.withValue { $0 += 1 }
+      })
     }
     store.exhaustivity = .off
 
     await store.send(.worktreeHeader(.delegate(.showCustomEditorsSettings)))
-    await store.receive(\.settingsSheetShown) { state in
-      state.settingsSheet = SettingsSheetFeature.State()
-    }
+    await store.finish()
+    #expect(openCount.value == 1)
   }
   @Test
   func headerGitViewerToggleDelegateRoutesThroughToggleBranch() async {

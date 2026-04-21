@@ -36,11 +36,6 @@ struct RootFeature {
     /// T2: Header feature (bell + Open-in split button + GV toggle).
     var worktreeHeader: WorktreeHeaderFeature.State = .init()
 
-    /// C8 M6b (0005): settings sheet presentation. `nil` = hidden; non-nil
-    /// presents the sheet with a dedicated sub-feature state that mirrors
-    /// a subset of `editor` for isolated in-sheet edits.
-    @Presents var settingsSheet: SettingsSheetFeature.State?
-
     /// T3: live read of the current Worktree's `gitViewerVisible` against
     /// a catalog snapshot. Not a cached field — views pass in
     /// `hierarchyManager.catalog` so SwiftUI's `@Observable` tracking
@@ -115,8 +110,6 @@ struct RootFeature {
     /// popover opens. Handled inline by the root reducer as a `.send` into
     /// `.sidebar(.externalSpacePopoverOpenRequested)`.
     case openSpaceSwitcherRequested
-    case settingsSheetShown
-    case settingsSheet(PresentationAction<SettingsSheetFeature.Action>)
     case sidebar(HierarchySidebarFeature.Action)
     case detail(WorktreeDetailFeature.Action)
     case gitViewer(GitViewerFeature.Action)
@@ -129,6 +122,7 @@ struct RootFeature {
   @Dependency(TerminalClient.self) private var terminalClient
   @Dependency(HierarchyClient.self) private var hierarchyClient
   @Dependency(FinderClient.self) private var finderClient
+  @Dependency(SettingsWindowPresenter.self) private var settingsWindowPresenter
 
   var body: some Reducer<State, Action> {
     Scope(state: \.sidebar, action: \.sidebar) {
@@ -271,7 +265,8 @@ struct RootFeature {
           )))
 
         case .showCustomEditorsSettings:
-          return .send(.settingsSheetShown)
+          let presenter = settingsWindowPresenter
+          return .run { _ in await MainActor.run { presenter.open() } }
 
         case .setProjectOverride(let projectID, let spaceID, let editorID):
           return .send(.editor(.setProjectOverride(
@@ -288,21 +283,6 @@ struct RootFeature {
         }
 
       case .worktreeHeader:
-        return .none
-
-      case .settingsSheetShown:
-        state.settingsSheet = SettingsSheetFeature.State()
-        return .none
-
-      case .settingsSheet(.dismiss):
-        state.settingsSheet = nil
-        // Sheet edited its own EditorFeature state in isolation. The root's
-        // EditorFeature (drives the Worktree-header dropdown + toast label) reads the same
-        // underlying SettingsStore, but its in-memory cache is stale until we re-fetch.
-        // Re-running onAppear is a cheap round-trip through describe + readSnapshot.
-        return .send(.editor(.onAppear))
-
-      case .settingsSheet:
         return .none
 
       case .gitViewerToggledForCurrentWorktree:
@@ -341,9 +321,6 @@ struct RootFeature {
       case .openSpaceSwitcherRequested:
         return .send(.sidebar(.externalSpacePopoverOpenRequested))
       }
-    }
-    .ifLet(\.$settingsSheet, action: \.settingsSheet) {
-      SettingsSheetFeature()
     }
   }
 

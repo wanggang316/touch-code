@@ -24,6 +24,7 @@ struct ContentView: View {
   /// for Worktree / Project unread-dot aggregation — matches the
   /// `HierarchyManager`-through-`@Environment` pattern already in use.
   let inboxStore: InboxStore
+  @Environment(\.openWindow) private var openWindow
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
   /// Transient toast for editor-open outcomes (success + failure). Non-nil = visible;
@@ -60,18 +61,12 @@ struct ContentView: View {
       .toolbar {
         ToolbarItem(placement: .primaryAction) {
           Button {
-            store.send(.settingsSheetShown)
+            openWindow(id: TouchCodeApp.settingsWindowID)
           } label: {
             Image(systemName: "gearshape")
               .accessibilityLabel("Settings")
           }
           .help("Settings (⌘,)")
-          .keyboardShortcut(",", modifiers: [.command])
-        }
-      }
-      .sheet(item: $store.scope(state: \.settingsSheet, action: \.settingsSheet)) { sheetStore in
-        SettingsSheetView(store: sheetStore) {
-          store.send(.settingsSheet(.dismiss))
         }
       }
     }
