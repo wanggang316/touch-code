@@ -116,4 +116,66 @@ struct HierarchyClientTests {
     #expect(initial?.projectID == projectID)
     #expect(initial?.worktreeID == worktreeID)
   }
+
+  // MARK: - Settings Repository panes (T4) — projectID-only repository closures
+
+  @Test
+  func setRepositoryDefaultEditorSetsAndClearsAcrossSpaces() throws {
+    let (client, manager) = makeLiveClient()
+    let spaceID = client.createSpace("s")
+    let projectID = try client.addProject(spaceID, "p", "/tmp", "/tmp")
+
+    try client.setRepositoryDefaultEditor(projectID, "vscode")
+    #expect(manager.catalog.spaces[0].projects[0].defaultEditor == "vscode")
+
+    try client.setRepositoryDefaultEditor(projectID, nil)
+    #expect(manager.catalog.spaces[0].projects[0].defaultEditor == nil)
+  }
+
+  @Test
+  func setRepositoryDefaultEditorThrowsForUnknownProject() throws {
+    let (client, _) = makeLiveClient()
+    let bogusProject = ProjectID()
+    #expect(throws: (any Error).self) {
+      try client.setRepositoryDefaultEditor(bogusProject, "vscode")
+    }
+  }
+
+  @Test
+  func setRepositoryWorktreeBaseDirectorySetsAndClearsAcrossSpaces() throws {
+    let (client, manager) = makeLiveClient()
+    let spaceID = client.createSpace("s")
+    let projectID = try client.addProject(spaceID, "p", "/tmp", "/tmp")
+
+    try client.setRepositoryWorktreeBaseDirectory(projectID, "/Users/me/worktrees")
+    #expect(manager.catalog.spaces[0].projects[0].worktreesDirectory == "/Users/me/worktrees")
+
+    try client.setRepositoryWorktreeBaseDirectory(projectID, nil)
+    #expect(manager.catalog.spaces[0].projects[0].worktreesDirectory == nil)
+  }
+
+  @Test
+  func setRepositoryWorktreeBaseDirectoryThrowsForUnknownProject() throws {
+    let (client, _) = makeLiveClient()
+    let bogusProject = ProjectID()
+    #expect(throws: (any Error).self) {
+      try client.setRepositoryWorktreeBaseDirectory(bogusProject, "/some/path")
+    }
+  }
+
+  @Test
+  func repositoryClosuresResolveProjectAcrossMultipleSpaces() throws {
+    let (client, manager) = makeLiveClient()
+    let spaceA = client.createSpace("A")
+    let spaceB = client.createSpace("B")
+    _ = try client.addProject(spaceA, "a1", "/tmp/a1", "/tmp/a1")
+    let projectInB = try client.addProject(spaceB, "b1", "/tmp/b1", "/tmp/b1")
+
+    try client.setRepositoryDefaultEditor(projectInB, "xcode")
+    let bIdx = manager.catalog.spaces.firstIndex(where: { $0.id == spaceB })!
+    #expect(manager.catalog.spaces[bIdx].projects[0].defaultEditor == "xcode")
+
+    try client.setRepositoryWorktreeBaseDirectory(projectInB, "/tmp/wts/b1")
+    #expect(manager.catalog.spaces[bIdx].projects[0].worktreesDirectory == "/tmp/wts/b1")
+  }
 }

@@ -98,6 +98,21 @@ nonisolated struct HierarchyClient: Sendable {
       _ projectID: ProjectID, _ inSpace: SpaceID, _ editorID: EditorID?
     ) throws -> Void
 
+  /// Sibling of `setDefaultEditor` for Settings Repository pane; projects without a
+  /// known Space are resolved across all Spaces. `nil` clears the override. T4.
+  var setRepositoryDefaultEditor:
+    @MainActor @Sendable (
+      _ projectID: ProjectID, _ editorID: EditorID?
+    ) throws -> Void
+
+  /// Sets the per-Project worktree base directory override for Settings Repository pane.
+  /// `nil` clears so worktree creation falls back to the global default. Unused value is
+  /// a silent no-op. Resolves projectID across all Spaces. T4.
+  var setRepositoryWorktreeBaseDirectory:
+    @MainActor @Sendable (
+      _ projectID: ProjectID, _ path: String?
+    ) throws -> Void
+
   /// Flips `Worktree.gitViewerVisible` for the given Worktree. Silent no-op on
   /// unknown `worktreeID`; persists through the standard debounced
   /// `store.scheduleSave(catalog)` pipeline (T0 §D5). Consumed by the T2
@@ -192,6 +207,12 @@ extension HierarchyClient {
       setDefaultEditor: { projectID, spaceID, editorID in
         try manager.setDefaultEditor(editorID, for: projectID, in: spaceID)
       },
+      setRepositoryDefaultEditor: { projectID, editorID in
+        try manager.setDefaultEditorAnySpace(editorID, for: projectID)
+      },
+      setRepositoryWorktreeBaseDirectory: { projectID, path in
+        try manager.setWorktreesDirectory(path, for: projectID)
+      },
       setWorktreeGitViewerVisible: { worktreeID, visible in
         manager.setWorktreeGitViewerVisible(worktreeID: worktreeID, visible: visible)
       },
@@ -282,6 +303,8 @@ extension HierarchyClient: DependencyKey {
     focusPanel: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     resizeSplit: { _, _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     setDefaultEditor: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    setRepositoryDefaultEditor: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    setRepositoryWorktreeBaseDirectory: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     setWorktreeGitViewerVisible: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     snapshot: { fatalError("HierarchyClient.liveValue not configured") },
     selectionChanges: { AsyncStream { $0.finish() } }
@@ -309,6 +332,8 @@ extension HierarchyClient: DependencyKey {
     focusPanel: unimplemented("HierarchyClient.focusPanel"),
     resizeSplit: unimplemented("HierarchyClient.resizeSplit"),
     setDefaultEditor: unimplemented("HierarchyClient.setDefaultEditor"),
+    setRepositoryDefaultEditor: unimplemented("HierarchyClient.setRepositoryDefaultEditor"),
+    setRepositoryWorktreeBaseDirectory: unimplemented("HierarchyClient.setRepositoryWorktreeBaseDirectory"),
     setWorktreeGitViewerVisible: unimplemented("HierarchyClient.setWorktreeGitViewerVisible"),
     snapshot: unimplemented(
       "HierarchyClient.snapshot",
