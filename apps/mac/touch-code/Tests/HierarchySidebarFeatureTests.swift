@@ -49,6 +49,11 @@ struct HierarchySidebarFeatureTests {
       $0.hierarchyClient.selectWorktree = { id, project, space in
         received.withValue { $0 = (id, project, space) }
       }
+      // Empty snapshot → the lastActive-dedup branch finds no matching space
+      // and skips the setSpaceLastActiveWorktree write.
+      $0.hierarchyClient.snapshot = {
+        Catalog(windows: [], spaces: [], selectedSpaceID: nil)
+      }
     }
 
     await store.send(.worktreeRowTapped(worktreeID, inProject: projectID, inSpace: spaceID))
