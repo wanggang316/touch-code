@@ -58,16 +58,9 @@ struct HierarchySidebarView: View {
         }
     }
     .sheet(
-      isPresented: Binding(
-        get: { store.addProjectSheet != nil },
-        set: { if !$0 { store.send(.addProjectSheetDismissed) } }
-      )
-    ) {
-      stubSheet(
-        title: "Add Project",
-        body: "The Add-Project flow is not yet implemented in this iteration.",
-        dismiss: .addProjectSheetDismissed
-      )
+      item: $store.scope(state: \.addProject, action: \.addProject)
+    ) { childStore in
+      AddProjectSheet(store: childStore)
     }
     .sheet(
       isPresented: Binding(

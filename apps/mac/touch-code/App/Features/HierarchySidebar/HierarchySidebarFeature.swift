@@ -37,12 +37,6 @@ func nextUntitledSpaceName(in spaces: [Space]) -> String {
 
 // MARK: - Transient sheet / dialog payloads
 
-/// Stub-sheet payload for "+ Add Project". Spec Won't-Have keeps the body as a
-/// placeholder; the action path is real so the reducer + view wiring are exercised.
-struct AddProjectSheet: Equatable {
-  var spaceID: SpaceID
-}
-
 /// Stub-sheet payload for Project-header "+" (add Worktree). Retained
 /// for the brief window between `.projectAddWorktreeTapped` firing and
 /// the real `CreateWorktreeFeature.State` being seeded in the next
@@ -107,7 +101,11 @@ struct HierarchySidebarFeature {
 
     var isSpacePopoverPresented: Bool = false
 
-    var addProjectSheet: AddProjectSheet?
+    /// Add Project sheet state. Presence-driven: non-nil means the sheet is
+    /// visible. `.addProject` actions are scoped into `AddProjectFeature`.
+    /// `@Presents` gives us `.sheet(item:)`-compatible scoping and wires
+    /// dismiss semantics (`PresentationAction.dismiss`) automatically.
+    @Presents var addProject: AddProjectFeature.State?
     var addWorktreeSheet: AddWorktreeSheet?
     var createWorktreeSheet: CreateWorktreeFeature.State?
     var archivedWorktreesSheet: ArchivedWorktreesFeature.State?
@@ -235,8 +233,9 @@ struct HierarchySidebarFeature {
       path: String
     )
 
+    // Add Project — scoped into AddProjectFeature via @Presents.
+    case addProject(PresentationAction<AddProjectFeature.Action>)
     // Sheet stubs
-    case addProjectSheetDismissed
     case addWorktreeSheetDismissed
     /// Child-feature actions for the Create Worktree sheet. Parent
     /// dismisses on either delegate case (dismiss or submitted).
@@ -258,9 +257,16 @@ struct HierarchySidebarFeature {
 
     // Delegate up to RootFeature for effects that cross feature boundaries.
     case delegate(Delegate)
+    @CasePathable
     enum Delegate: Equatable {
       case openInDefaultEditor(worktreePath: String, projectID: ProjectID?)
       case revealInFinder(path: String)
+      /// Emitted after a Project is added (or via Retry on a `.failed` row).
+      /// `RootFeature` forwards to `ProjectReconciler.reconcile`.
+      case reconcileProjectRequested(ProjectID, SpaceID)
+      /// Emitted from AddProjectFeature's Reveal banner. `RootFeature` selects
+      /// the Space + Project so the user lands on the existing row.
+      case revealExistingProject(SpaceID, ProjectID)
     }
   }
 
@@ -297,6 +303,9 @@ struct HierarchySidebarFeature {
     }
     .ifLet(\.archivedWorktreesSheet, action: \.archivedWorktreesSheet) {
       ArchivedWorktreesFeature()
+    }
+    .ifLet(\.$addProject, action: \.addProject) {
+      AddProjectFeature()
     }
   }
 
@@ -353,7 +362,7 @@ struct HierarchySidebarFeature {
 
       case .toolbarAddProjectTapped:
         if let spaceID = hierarchyClient.snapshot().selectedSpaceID {
-          state.addProjectSheet = AddProjectSheet(spaceID: spaceID)
+          state.addProject = AddProjectFeature.State(targetSpaceID: spaceID)
         }
         return .none
 
@@ -608,11 +617,24 @@ struct HierarchySidebarFeature {
       case .worktreeOpenInDefaultEditorTapped(_, let projectID, let path):
         return .send(.delegate(.openInDefaultEditor(worktreePath: path, projectID: projectID)))
 
-      // MARK: Sheet stubs
+      // MARK: Add Project — scoped child
 
-      case .addProjectSheetDismissed:
-        state.addProjectSheet = nil
+      case .addProject(.presented(.delegate(.projectAdded(let projectID, let spaceID)))):
+        state.addProject = nil
+        return .send(.delegate(.reconcileProjectRequested(projectID, spaceID)))
+
+      case .addProject(.presented(.delegate(.revealExisting(let spaceID, let projectID)))):
+        state.addProject = nil
+        return .send(.delegate(.revealExistingProject(spaceID, projectID)))
+
+      case .addProject(.presented(.delegate(.dismiss))), .addProject(.dismiss):
+        state.addProject = nil
         return .none
+
+      case .addProject:
+        return .none
+
+      // MARK: Sheet stubs
 
       case .addWorktreeSheetDismissed:
         state.addWorktreeSheet = nil

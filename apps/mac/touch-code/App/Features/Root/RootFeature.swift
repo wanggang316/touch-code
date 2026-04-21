@@ -129,6 +129,7 @@ struct RootFeature {
   @Dependency(TerminalClient.self) private var terminalClient
   @Dependency(HierarchyClient.self) private var hierarchyClient
   @Dependency(FinderClient.self) private var finderClient
+  @Dependency(ProjectReconciler.self) private var projectReconciler
 
   var body: some Reducer<State, Action> {
     Scope(state: \.sidebar, action: \.sidebar) {
@@ -235,6 +236,22 @@ struct RootFeature {
         return .run { _ in
           await MainActor.run { client.reveal(path) }
         }
+
+      case .sidebar(.delegate(.reconcileProjectRequested(let projectID, let spaceID))):
+        // Kick the ProjectReconciler so the newly-added (or retried)
+        // Project transitions through .loading → .ready (or .failed) and the
+        // worktree list populates via T-WORKTREE's reconcileDiscoveredWorktrees
+        // closure (once that PR lands; currently a no-op stub).
+        return .run { _ in
+          await projectReconciler.reconcile(projectID: projectID, spaceID: spaceID)
+        }
+
+      case .sidebar(.delegate(.revealExistingProject(let spaceID, let projectID))):
+        // AddProjectFeature's "Reveal existing" banner fired — jump the user
+        // to the already-registered row.
+        hierarchyClient.selectSpace(spaceID)
+        try? hierarchyClient.selectProject(projectID, spaceID)
+        return .none
 
       case .sidebar:
         return .none
