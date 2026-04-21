@@ -101,61 +101,55 @@ nonisolated struct HierarchyClient: Sendable {
   var selectionChanges: @MainActor @Sendable () -> AsyncStream<HierarchySelection>
 
   // MARK: - Worktree Management additions (feat/worktree-mgmt)
-  //
-  // These closures are appended at the end of the struct (spec rule: do
-  // not insert mid-file) so the diff against main stays local and the
-  // existing liveValue / testValue blocks grow by pure addition. See
-  // docs/design-docs/worktree-management-design.md §API Design.
 
-  /// Flips `Worktree.archived` for the given Worktree. Throws
-  /// `HierarchyError.invariantViolation` when called on the main
-  /// checkout (path == project.rootPath). On `archived == true` every
-  /// Panel in the Worktree has its surface torn down via
-  /// `runtime.closeSurface(for:)`. Idempotent — unchanged value is a
-  /// silent no-op.
+  /// Flips `Worktree.archived` for the given Worktree.
   var setWorktreeArchived: @MainActor @Sendable (
     _ worktreeID: WorktreeID, _ archived: Bool
   ) throws -> Void
 
   /// Reads the Project's git root, calls `GitWorktreeClient.lsWorktrees`
   /// off the main actor, and merges on-disk worktrees into the catalog.
-  /// Append-only — never removes catalog rows, even when entries
-  /// disappear from disk (stale state is surfaced by the view layer;
-  /// only the user-invoked Prune action deletes). Swallows
-  /// `GitWorktreeError` and logs; never throws. See the reconcile
-  /// contract in the PR body for T-PROJECT consumers.
+  /// Append-only — never removes catalog rows. Swallows errors. Consumed
+  /// by `ProjectReconciler` on feat/project-mgmt.
   var reconcileDiscoveredWorktrees: @MainActor @Sendable (
     _ projectID: ProjectID, _ inSpace: SpaceID
   ) async -> Void
 
-  /// Catalog-append step for Create Worktree. The git work (spawning
-  /// `wt sw`, streaming output, etc.) is done by the caller through
-  /// `GitWorktreeClient.createWorktreeStream`; this closure only
-  /// inserts the resulting row and selects it. Kept synchronous so
-  /// features do not need to reason about actor hops for the mutation.
+  /// Catalog-append step for Create Worktree.
   var createWorktreeWithGit: @MainActor @Sendable (
     _ projectID: ProjectID, _ inSpace: SpaceID,
     _ branch: String, _ directoryName: String, _ path: String
   ) throws -> WorktreeID
 
-  /// End-to-end Remove Worktree. Runs `GitWorktreeClient.removeWorktree`
-  /// off the main actor; on success calls `HierarchyManager.removeWorktree`
-  /// to drop the row. On `force == true`, first iterates the Worktree's
-  /// Panels and tears down every live surface via
-  /// `runtime.closeSurface(for:)` (W-Q3 hard-kill) so `git worktree
-  /// remove --force` finds no open file handles in the directory.
-  /// `GitWorktreeError.uncommittedChanges` is re-thrown so the sidebar
-  /// can surface the specific files and offer a Force upgrade; other
-  /// errors propagate to the caller for banner display.
+  /// End-to-end Remove Worktree. `GitWorktreeError.uncommittedChanges` is
+  /// re-thrown so the sidebar can surface the specific files.
   var removeWorktreeWithGit: @MainActor @Sendable (
     _ worktreeID: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID,
     _ force: Bool
   ) async throws -> Void
 
-  /// Forwards `HierarchyManager.runningPanelCount`. Used by the
-  /// sidebar's force-remove dialog to format "This will terminate
-  /// N running processes".
+  /// Forwards `HierarchyManager.runningPanelCount`.
   var runningPanelCount: @MainActor @Sendable (_ worktreeID: WorktreeID) -> Int
+
+  // MARK: - Project Management (pm) — added on feat/project-mgmt.
+
+  /// Transient Project health signal. Written by `ProjectReconciler` only.
+  var setProjectLoadState: @MainActor @Sendable (
+    _ projectID: ProjectID, _ inSpace: SpaceID, _ state: ProjectLoadState
+  ) -> Void
+
+  /// Reorder Projects inside a Space. Mirrors `ForEach.onMove`'s signature.
+  var reorderProjects: @MainActor @Sendable (
+    _ inSpace: SpaceID, _ from: IndexSet, _ to: Int
+  ) throws -> Void
+
+  /// Per-Project worktrees-directory override. Empty/whitespace clears.
+  var setProjectWorktreesDirectory: @MainActor @Sendable (
+    _ projectID: ProjectID, _ inSpace: SpaceID, _ path: String?
+  ) throws -> Void
+
+  /// Duplicate-add guard. Caller canonicalizes before querying.
+  var isPathRegistered: @MainActor @Sendable (_ canonicalPath: String) -> (SpaceID, ProjectID)?
 }
 
 /// Coarse selection payload. `nil` for any level means "no selection at that
@@ -270,6 +264,18 @@ extension HierarchyClient {
       },
       runningPanelCount: { worktreeID in
         manager.runningPanelCount(worktreeID: worktreeID)
+      },
+      setProjectLoadState: { projectID, spaceID, state in
+        manager.setProjectLoadState(state, projectID: projectID, spaceID: spaceID)
+      },
+      reorderProjects: { spaceID, from, to in
+        try manager.reorderProjects(in: spaceID, from: from, to: to)
+      },
+      setProjectWorktreesDirectory: { projectID, spaceID, path in
+        try manager.setProjectWorktreesDirectory(path, projectID: projectID, spaceID: spaceID)
+      },
+      isPathRegistered: { canonicalPath in
+        manager.isPathRegistered(canonical: canonicalPath)
       }
     )
   }
@@ -435,7 +441,11 @@ extension HierarchyClient: DependencyKey {
     reconcileDiscoveredWorktrees: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     createWorktreeWithGit: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     removeWorktreeWithGit: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    runningPanelCount: { _ in fatalError("HierarchyClient.liveValue not configured") }
+    runningPanelCount: { _ in fatalError("HierarchyClient.liveValue not configured") },
+    setProjectLoadState: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    reorderProjects: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    setProjectWorktreesDirectory: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    isPathRegistered: { _ in fatalError("HierarchyClient.liveValue not configured") }
   )
 
   static let testValue: HierarchyClient = HierarchyClient(
@@ -475,7 +485,11 @@ extension HierarchyClient: DependencyKey {
       "HierarchyClient.createWorktreeWithGit", placeholder: WorktreeID()
     ),
     removeWorktreeWithGit: unimplemented("HierarchyClient.removeWorktreeWithGit"),
-    runningPanelCount: unimplemented("HierarchyClient.runningPanelCount", placeholder: 0)
+    runningPanelCount: unimplemented("HierarchyClient.runningPanelCount", placeholder: 0),
+    setProjectLoadState: unimplemented("HierarchyClient.setProjectLoadState"),
+    reorderProjects: unimplemented("HierarchyClient.reorderProjects"),
+    setProjectWorktreesDirectory: unimplemented("HierarchyClient.setProjectWorktreesDirectory"),
+    isPathRegistered: unimplemented("HierarchyClient.isPathRegistered", placeholder: nil)
   )
 }
 
