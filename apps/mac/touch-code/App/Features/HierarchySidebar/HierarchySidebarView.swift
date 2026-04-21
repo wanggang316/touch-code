@@ -71,15 +71,20 @@ struct HierarchySidebarView: View {
     }
     .sheet(
       isPresented: Binding(
-        get: { store.addWorktreeSheet != nil },
-        set: { if !$0 { store.send(.addWorktreeSheetDismissed) } }
+        get: { store.createWorktreeSheet != nil },
+        set: { isPresented in
+          if !isPresented {
+            store.send(.createWorktreeSheet(.cancelButtonTapped))
+          }
+        }
       )
     ) {
-      stubSheet(
-        title: "Add Worktree",
-        body: "The Add-Worktree flow is not yet implemented in this iteration.",
-        dismiss: .addWorktreeSheetDismissed
-      )
+      if let childStore = store.scope(
+        state: \.createWorktreeSheet,
+        action: \.createWorktreeSheet
+      ) {
+        CreateWorktreeSheet(store: childStore)
+      }
     }
     .sheet(
       isPresented: Binding(

@@ -43,8 +43,11 @@ struct AddProjectSheet: Equatable {
   var spaceID: SpaceID
 }
 
-/// Stub-sheet payload for Project-header "+" (add Worktree). Same rationale
-/// as `AddProjectSheet` — stub body, real action path.
+/// Stub-sheet payload for Project-header "+" (add Worktree). Retained
+/// for the brief window between `.projectAddWorktreeTapped` firing and
+/// the real `CreateWorktreeFeature.State` being seeded in the next
+/// reducer step. Carries just the parent IDs needed to resolve the
+/// Project from `HierarchyManager.catalog` when building the child state.
 struct AddWorktreeSheet: Equatable {
   var projectID: ProjectID
   var spaceID: SpaceID
@@ -106,6 +109,7 @@ struct HierarchySidebarFeature {
 
     var addProjectSheet: AddProjectSheet?
     var addWorktreeSheet: AddWorktreeSheet?
+    var createWorktreeSheet: CreateWorktreeFeature.State?
     var renameProjectSheet: RenameProjectSheet?
     var pendingWorktreeRemoval: PendingWorktreeRemoval?
     var pendingProjectRemoval: PendingProjectRemoval?
@@ -158,6 +162,9 @@ struct HierarchySidebarFeature {
     // Sheet stubs
     case addProjectSheetDismissed
     case addWorktreeSheetDismissed
+    /// Child-feature actions for the Create Worktree sheet. Parent
+    /// dismisses on either delegate case (dismiss or submitted).
+    case createWorktreeSheet(CreateWorktreeFeature.Action)
 
     // Space footer + popover
     case spaceFooterTapped
@@ -185,7 +192,32 @@ struct HierarchySidebarFeature {
 
   var body: some Reducer<State, Action> {
     Reduce { state, action in
+      // Parent-side handling for Create-Worktree delegate events.
+      // The child reducer (attached via `.ifLet` below) runs first via
+      // TCA's reducer composition order; these cases fire after the
+      // child's own logic has already dispatched, so clearing
+      // `createWorktreeSheet` here is the correct "dismiss the sheet"
+      // effect.
       switch action {
+      case .createWorktreeSheet(.delegate(.dismissed)),
+           .createWorktreeSheet(.delegate(.submitted)):
+        state.createWorktreeSheet = nil
+        return .none
+      case .createWorktreeSheet:
+        // Other child actions are handled by the ifLet-scoped
+        // reducer; no-op at the parent level.
+        return .none
+      default:
+        return coreReduce(into: &state, action: action)
+      }
+    }
+    .ifLet(\.createWorktreeSheet, action: \.createWorktreeSheet) {
+      CreateWorktreeFeature()
+    }
+  }
+
+  private func coreReduce(into state: inout State, action: Action) -> Effect<Action> {
+    switch action {
       // MARK: Row taps
 
       case .spaceRowTapped(let spaceID):
@@ -247,8 +279,26 @@ struct HierarchySidebarFeature {
       // MARK: Project hover chrome
 
       case .projectAddWorktreeTapped(let projectID, let spaceID):
-        state.addWorktreeSheet = AddWorktreeSheet(projectID: projectID, spaceID: spaceID)
+        // Resolve the Project from the catalog to feed repoRoot +
+        // worktreesDirectory into CreateWorktreeFeature. If the Project
+        // has no gitRoot the sheet wouldn't be useful — silently
+        // no-op in that case (the Add-Worktree "+" row is hidden for
+        // non-git Projects anyway).
+        let snapshot = hierarchyClient.snapshot()
+        guard let space = snapshot.spaces.first(where: { $0.id == spaceID }),
+              let project = space.projects.first(where: { $0.id == projectID }),
+              let gitRoot = project.gitRoot
+        else { return .none }
+        let defaultWtDir = URL(fileURLWithPath: project.worktreesDirectory
+          ?? (NSHomeDirectory() + "/.touch-code/repos/\(project.name)"))
+        state.createWorktreeSheet = CreateWorktreeFeature.State(
+          projectID: projectID,
+          spaceID: spaceID,
+          repoRoot: URL(fileURLWithPath: gitRoot),
+          worktreesDirectory: defaultWtDir
+        )
         return .none
+
 
       case .projectRenameTapped(let projectID, let spaceID, let currentName):
         state.renameProjectSheet = RenameProjectSheet(
@@ -361,8 +411,11 @@ struct HierarchySidebarFeature {
       case .delegate:
         // Handled by the parent reducer.
         return .none
+
+      case .createWorktreeSheet:
+        // Routed through the top-level Reducer; unreachable here.
+        return .none
       }
-    }
   }
 
   /// Space-switch choreography. See design doc §Alternatives A — lives in the

@@ -21,7 +21,7 @@ After this change, a user can manage git worktrees from inside touch-code as fir
 - [x] M7 — `HierarchyManager` additions: `setWorktreeArchived`, `reconcileDiscoveredWorktrees`, `runningPanelCount`, main-checkout guard; unit tests (2026-04-21, 9 tests passing)
 - [x] M8 — `HierarchyClient`: append 5 new closures at end of struct; factory gains GitWorktreeClient parameter with .makeLive() default; update `liveValue` (fatalError) + `testValue` (unimplemented); `HierarchyManager.tearDownWorktreeSurfaces` helper for force-remove path (2026-04-21, 29 hierarchy tests green)
 - [x] M9 — `CreateWorktreeFeature` reducer + tests (live validation, base-ref dropdown, streaming progress, error banner) (2026-04-21, 6 focused validator/cancel tests passing; async option-load and streaming-create covered by M13 integration)
-- [ ] M10 — `CreateWorktreeSheet` view + wire into `HierarchySidebarView` at the current stub lines 78-83
+- [x] M10 — `CreateWorktreeSheet` view + wire into `HierarchySidebarView` at the current stub lines 78-83 (2026-04-21, 30 sidebar + create tests green, stub replaced with real child-scoped sheet)
 - [ ] M11 — `ArchivedWorktreesFeature` reducer + tests; `ArchivedWorktreesSheet` view; first-archive confirmation flag
 - [ ] M12 — `HierarchySidebarView` & `HierarchySidebarFeature` integration: Archive context-menu entry, main-checkout guard, Project `⋯` Prune + Archived menu items, upgraded Remove path (uncommittedChanges error → Force Remove button, running-terminal warning)
 - [ ] M13 — Integration test in `touch-codeTests/Integration` (temp git repo end-to-end)
