@@ -23,6 +23,10 @@ final class SettingsStore {
   private let logger = Logger(subsystem: "com.touch-code.persistence", category: "settings")
   @ObservationIgnored private var pendingSaveTask: Task<Void, Never>?
   @ObservationIgnored private let debounceWindow: Duration
+  /// `false` when migration returned `.migrationBackupFailed` — the original settings.json
+  /// is still at the canonical URL and must not be overwritten. In this state all mutate
+  /// APIs still work in-memory but `scheduleSave` / `saveNow` / `flush` become no-ops.
+  @ObservationIgnored private var persistenceEnabled: Bool = true
 
   /// Production debounce window between a mutation and the atomic-rename write. Matches
   /// `CatalogStore`. Tests inject a shorter window via the initializer.
@@ -34,22 +38,32 @@ final class SettingsStore {
   ) {
     self.fileURL = fileURL
     self.debounceWindow = debounceWindow
+    // `migrationSafeToPersist` gates every subsequent save attempt. When the migration
+    // helper returns `.migrationBackupFailed`, the original v1 file may still be sitting at
+    // the canonical URL — writing on top of it would destroy the user's historical data.
+    // Setting the flag to false puts the store into a read-only / in-memory-only mode.
+    var safeToPersist = true
+
     do {
       switch try SettingsMigration.load(from: fileURL) {
       case .fresh:
         self.settings = .default
       case .v2(let existing):
         self.settings = existing
-      case .migratedFromV1(let migrated, let backupURL):
-        self.settings = migrated
-        // Persist the migrated tree immediately so the next launch sees a v2 file and the
-        // backup is not mistaken for active data. Use a direct write (no debounce) so the
-        // new file exists before any subsequent mutation can race the save task.
-        do {
-          try AtomicFileStore.write(migrated, to: fileURL)
-          logger.info("Wrote migrated v2 settings.json (backup: \(backupURL.lastPathComponent, privacy: .public))")
-        } catch {
-          logger.error("Failed to persist migrated settings: \(String(describing: error), privacy: .public)")
+      case .migratedFromV1(_, let backupURL):
+        // Migration already committed both the new canonical file and the backup durably —
+        // we just read the migrated tree back from disk so the in-memory copy matches what
+        // the next launch will see.
+        let persisted = (try? AtomicFileStore.read(Settings.self, at: fileURL)) ?? nil
+        if let persisted {
+          self.settings = persisted
+          logger.info("Loaded migrated v2 settings.json (backup: \(backupURL.lastPathComponent, privacy: .public))")
+        } else {
+          // Extraordinarily unlikely: migration claimed success but the file isn't readable.
+          // Treat as unsafe — don't overwrite whatever IS on disk.
+          logger.error("Migration reported success but settings.json is not readable; refusing to persist")
+          self.settings = .default
+          safeToPersist = false
         }
       case .unsupported(let version, let backupURL):
         logger.error(
@@ -58,14 +72,27 @@ final class SettingsStore {
         self.settings = .default
       case .corrupt(let backupURL):
         logger.error(
-          "settings.json was unparseable; starting defaults (backup: \(backupURL.lastPathComponent, privacy: .public))")
+          "settings.json was unparseable; starting defaults (backup: \(backupURL.lastPathComponent, privacy: .public))"
+        )
         self.settings = .default
+      case .migrationBackupFailed(let description):
+        // The original file is still at the canonical URL (or was restored there). Do NOT
+        // persist anything on top of it — the user's data is intact and takes precedence
+        // over the in-memory defaults until a human intervenes.
+        logger.error(
+          "settings.json migration could not preserve original atomically: \(description, privacy: .public); starting defaults in read-only mode"
+        )
+        self.settings = .default
+        safeToPersist = false
       }
     } catch {
       logger.error(
-        "SettingsMigration.load failed with \(String(describing: error), privacy: .public); starting defaults")
+        "SettingsMigration.load failed with \(String(describing: error), privacy: .public); starting defaults in read-only mode"
+      )
       self.settings = .default
+      safeToPersist = false
     }
+    self.persistenceEnabled = safeToPersist
   }
 
   // MARK: - Section mutators
@@ -166,6 +193,14 @@ final class SettingsStore {
   // MARK: - Persistence
 
   func saveNow() throws {
+    guard persistenceEnabled else {
+      logger.error("saveNow skipped: persistence disabled (migration did not complete atomically)")
+      return
+    }
+    // Cancel any pending debounced save BEFORE writing so the in-flight task can't clobber
+    // us with a stale snapshot after this call returns. Matches PR #22 review N6.
+    pendingSaveTask?.cancel()
+    pendingSaveTask = nil
     settings.garbageCollect()
     try AtomicFileStore.write(settings, to: fileURL)
   }
@@ -173,8 +208,6 @@ final class SettingsStore {
   /// Cancels any pending debounced write and flushes immediately. Callers:
   /// `applicationWillTerminate`, explicit user Save, test teardown.
   func flush() {
-    pendingSaveTask?.cancel()
-    pendingSaveTask = nil
     do {
       try saveNow()
     } catch {
@@ -183,6 +216,10 @@ final class SettingsStore {
   }
 
   private func scheduleSave() {
+    guard persistenceEnabled else {
+      logger.debug("scheduleSave skipped: persistence disabled (migration did not complete atomically)")
+      return
+    }
     pendingSaveTask?.cancel()
     var snapshot = settings
     snapshot.garbageCollect()

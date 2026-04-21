@@ -43,7 +43,49 @@ struct SettingsMigrationTests {
     #expect(settings.repositories.isEmpty)
     #expect(backupURL.lastPathComponent.hasPrefix("settings.json.v1-"))
     #expect(FileManager.default.fileExists(atPath: backupURL.path))
-    #expect(!FileManager.default.fileExists(atPath: harness.fileURL.path))
+    // Post PR #22 review B2: migration now commits the v2 tree atomically, so the canonical
+    // URL must already hold the migrated content when `.migratedFromV1` returns.
+    #expect(FileManager.default.fileExists(atPath: harness.fileURL.path))
+    let readBack = try #require(try AtomicFileStore.read(Settings.self, at: harness.fileURL))
+    #expect(readBack == settings)
+  }
+
+  @Test
+  func migrationFailureDoesNotDestroyOriginalWhenBackupRenameFails() throws {
+    // Simulate a step-2 rename failure by making the parent directory non-writable after
+    // the v1 seed lands. moveItem throws, `load` returns `.migrationBackupFailed`, and the
+    // canonical URL still holds the user's v1 content.
+    let harness = MigrationHarness()
+    defer {
+      // Re-enable write perms so the cleanup path can remove the dir.
+      _ = try? FileManager.default.setAttributes(
+        [.posixPermissions: 0o755], ofItemAtPath: harness.directory.path
+      )
+      harness.cleanup()
+    }
+
+    let originalJSON = #"{"version":1,"defaultEditorID":"vscode","customEditors":[]}"#
+    try Data(originalJSON.utf8).write(to: harness.fileURL)
+
+    // Read-only the parent dir so rename fails.
+    try FileManager.default.setAttributes(
+      [.posixPermissions: 0o500], ofItemAtPath: harness.directory.path
+    )
+
+    let outcome = try SettingsMigration.load(from: harness.fileURL, clock: harness.clock)
+    if case .migrationBackupFailed(let description) = outcome {
+      #expect(!description.isEmpty)
+    } else {
+      Issue.record("Expected .migrationBackupFailed, got \(outcome)")
+    }
+
+    // Restore write perms so we can inspect.
+    try FileManager.default.setAttributes(
+      [.posixPermissions: 0o755], ofItemAtPath: harness.directory.path
+    )
+    // Original v1 JSON must still be at the canonical URL.
+    let still = try String(contentsOf: harness.fileURL, encoding: .utf8)
+    #expect(still == originalJSON)
   }
 
   @Test
