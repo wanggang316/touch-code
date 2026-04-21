@@ -313,4 +313,8 @@ final class GhosttyBackedHierarchyRuntime: HierarchyRuntime {
   func closeSurface(for panelID: PanelID) {
     engine?.closeSurface(for: panelID)
   }
+
+  func hasSurface(for panelID: PanelID) -> Bool {
+    engine?.hasSurface(for: panelID) ?? false
+  }
 }
