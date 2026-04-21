@@ -21,7 +21,7 @@ No user-visible UX change; all fixes are resilience / correctness / operability.
 ## Progress
 
 - [x] T1 — (e) `WorktreeLifecycleIntegrationTests` switch from `#require(wtAvailable(), …)` (counts as failure) to `.enabled(if: Self.wtBundled)` trait (counts as skip) — needed `nonisolated` on the static let because the @MainActor struct would otherwise make the predicate MainActor-isolated and the trait context is Sendable; 2 tests pass in 2.1s
-- [ ] T2 — (d) `HierarchyClient.reconcile` catch wires an `os_log` `Logger.error(...)` call; comment updated
+- [x] T2 — (d) `HierarchyClient.reconcile` catch wires an `os_log` `Logger.error(...)` call; comment updated. Subsystem `com.touch-code.hierarchy`, category `reconcile` (matches SettingsStore / CatalogStore / IPC handlers' `com.touch-code.<area>` convention). `OSLog` import added.
 - [ ] T3 — (b) `GitWorktreeClient.mapGitStderr` regexes all case-insensitive; unit-test matrix expanded to cover uppercase / title-case / lowercase stderr variants
 - [ ] T4 — (a) `GitWorktreeShell.runStream` exposes `onSpawn` callback; `createWorktreeStream`'s `continuation.onTermination` terminates the captured `Process` before task cancellation; integration test for mid-stream cancellation
 - [ ] T5 — (c) `createWorktreeStream` picks the new worktree path by diffing `wt ls --json` before/after; extracted static helper `pickNewWorktreePath` with unit-test matrix; integration test asserts returned path matches a real `wt ls` entry
