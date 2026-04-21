@@ -99,6 +99,63 @@ nonisolated struct HierarchyClient: Sendable {
   /// needing a reference to the `@Observable` `HierarchyManager`. The stream
   /// finishes only when the engine shuts down.
   var selectionChanges: @MainActor @Sendable () -> AsyncStream<HierarchySelection>
+
+  // MARK: - Worktree Management additions (feat/worktree-mgmt)
+  //
+  // These closures are appended at the end of the struct (spec rule: do
+  // not insert mid-file) so the diff against main stays local and the
+  // existing liveValue / testValue blocks grow by pure addition. See
+  // docs/design-docs/worktree-management-design.md §API Design.
+
+  /// Flips `Worktree.archived` for the given Worktree. Throws
+  /// `HierarchyError.invariantViolation` when called on the main
+  /// checkout (path == project.rootPath). On `archived == true` every
+  /// Panel in the Worktree has its surface torn down via
+  /// `runtime.closeSurface(for:)`. Idempotent — unchanged value is a
+  /// silent no-op.
+  var setWorktreeArchived: @MainActor @Sendable (
+    _ worktreeID: WorktreeID, _ archived: Bool
+  ) throws -> Void
+
+  /// Reads the Project's git root, calls `GitWorktreeClient.lsWorktrees`
+  /// off the main actor, and merges on-disk worktrees into the catalog.
+  /// Append-only — never removes catalog rows, even when entries
+  /// disappear from disk (stale state is surfaced by the view layer;
+  /// only the user-invoked Prune action deletes). Swallows
+  /// `GitWorktreeError` and logs; never throws. See the reconcile
+  /// contract in the PR body for T-PROJECT consumers.
+  var reconcileDiscoveredWorktrees: @MainActor @Sendable (
+    _ projectID: ProjectID, _ inSpace: SpaceID
+  ) async -> Void
+
+  /// Catalog-append step for Create Worktree. The git work (spawning
+  /// `wt sw`, streaming output, etc.) is done by the caller through
+  /// `GitWorktreeClient.createWorktreeStream`; this closure only
+  /// inserts the resulting row and selects it. Kept synchronous so
+  /// features do not need to reason about actor hops for the mutation.
+  var createWorktreeWithGit: @MainActor @Sendable (
+    _ projectID: ProjectID, _ inSpace: SpaceID,
+    _ branch: String, _ directoryName: String, _ path: String
+  ) throws -> WorktreeID
+
+  /// End-to-end Remove Worktree. Runs `GitWorktreeClient.removeWorktree`
+  /// off the main actor; on success calls `HierarchyManager.removeWorktree`
+  /// to drop the row. On `force == true`, first iterates the Worktree's
+  /// Panels and tears down every live surface via
+  /// `runtime.closeSurface(for:)` (W-Q3 hard-kill) so `git worktree
+  /// remove --force` finds no open file handles in the directory.
+  /// `GitWorktreeError.uncommittedChanges` is re-thrown so the sidebar
+  /// can surface the specific files and offer a Force upgrade; other
+  /// errors propagate to the caller for banner display.
+  var removeWorktreeWithGit: @MainActor @Sendable (
+    _ worktreeID: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID,
+    _ force: Bool
+  ) async throws -> Void
+
+  /// Forwards `HierarchyManager.runningPanelCount`. Used by the
+  /// sidebar's force-remove dialog to format "This will terminate
+  /// N running processes".
+  var runningPanelCount: @MainActor @Sendable (_ worktreeID: WorktreeID) -> Int
 }
 
 /// Coarse selection payload. `nil` for any level means "no selection at that
@@ -115,7 +172,10 @@ nonisolated struct HierarchySelection: Equatable, Sendable {
 
 extension HierarchyClient {
   @MainActor
-  static func live(manager: HierarchyManager) -> HierarchyClient {
+  static func live(
+    manager: HierarchyManager,
+    gitWorktreeClient: GitWorktreeClient = .makeLive()
+  ) -> HierarchyClient {
     HierarchyClient(
       createSpace: { manager.createSpace(name: $0) },
       renameSpace: { try manager.renameSpace($0, name: $1) },
@@ -180,8 +240,112 @@ extension HierarchyClient {
         manager.setWorktreeGitViewerVisible(worktreeID: worktreeID, visible: visible)
       },
       snapshot: { manager.catalog },
-      selectionChanges: { makeSelectionStream(manager: manager) }
+      selectionChanges: { makeSelectionStream(manager: manager) },
+      setWorktreeArchived: { worktreeID, archived in
+        try manager.setWorktreeArchived(worktreeID: worktreeID, archived: archived)
+      },
+      reconcileDiscoveredWorktrees: { projectID, spaceID in
+        await reconcile(
+          projectID: projectID,
+          spaceID: spaceID,
+          manager: manager,
+          gitWorktreeClient: gitWorktreeClient
+        )
+      },
+      createWorktreeWithGit: { projectID, spaceID, branch, _, path in
+        try manager.createWorktree(
+          in: projectID, in: spaceID,
+          name: branch, path: path, branch: branch
+        )
+      },
+      removeWorktreeWithGit: { worktreeID, projectID, spaceID, force in
+        try await removeWorktreeWithGit(
+          worktreeID: worktreeID,
+          projectID: projectID,
+          spaceID: spaceID,
+          force: force,
+          manager: manager,
+          gitWorktreeClient: gitWorktreeClient
+        )
+      },
+      runningPanelCount: { worktreeID in
+        manager.runningPanelCount(worktreeID: worktreeID)
+      }
     )
+  }
+
+  /// Factored out so the closure body stays one-line-callable. Resolves
+  /// the Project's git root, lists on-disk worktrees via `wt ls --json`,
+  /// and hands the result to `manager.reconcileDiscoveredWorktrees`.
+  /// Each entry's `path` is passed through `HierarchyManager.canonicalPath`
+  /// so `wt ls`'s `/var/...` output matches the symlink-resolved form
+  /// T-PROJECT stores for `Project.rootPath` — without this normalization
+  /// the main checkout would duplicate on every reconcile under `/tmp`
+  /// and `/var`. Swallows and logs `GitWorktreeError` — this path is
+  /// idempotent and must never crash a reconcile (see design doc
+  /// §Discovery / Reconcile).
+  @MainActor
+  private static func reconcile(
+    projectID: ProjectID,
+    spaceID: SpaceID,
+    manager: HierarchyManager,
+    gitWorktreeClient: GitWorktreeClient
+  ) async {
+    guard let space = manager.catalog.spaces.first(where: { $0.id == spaceID }),
+          let project = space.projects.first(where: { $0.id == projectID }),
+          let gitRoot = project.gitRoot
+    else { return }
+    do {
+      let entries = try await gitWorktreeClient.lsWorktrees(
+        URL(fileURLWithPath: gitRoot)
+      )
+      let mapped = entries.map { entry -> (path: String, branch: String?) in
+        let branch = entry.branch.isEmpty ? nil : entry.branch
+        return (path: HierarchyManager.canonicalPath(entry.path), branch: branch)
+      }
+      _ = manager.reconcileDiscoveredWorktrees(
+        projectID: projectID,
+        inSpace: spaceID,
+        entries: mapped
+      )
+    } catch {
+      // Swallow to preserve the "never throw, never crash a reconcile"
+      // contract. A follow-up PR wires a Logger call here — see PR
+      // review item (d).
+    }
+  }
+
+  /// Factored out of the `removeWorktreeWithGit` closure so the
+  /// control flow stays readable. On force, tears down surfaces first
+  /// (releases file handles), then runs git, then drops the catalog
+  /// row. On safe, skips the pre-teardown so uncommitted-changes
+  /// recovery does not kill a live terminal. Re-throws
+  /// `GitWorktreeError` for the caller to surface.
+  @MainActor
+  private static func removeWorktreeWithGit(
+    worktreeID: WorktreeID,
+    projectID: ProjectID,
+    spaceID: SpaceID,
+    force: Bool,
+    manager: HierarchyManager,
+    gitWorktreeClient: GitWorktreeClient
+  ) async throws {
+    guard let space = manager.catalog.spaces.first(where: { $0.id == spaceID }),
+          let project = space.projects.first(where: { $0.id == projectID }),
+          let worktree = project.worktrees.first(where: { $0.id == worktreeID }),
+          let gitRoot = project.gitRoot
+    else {
+      throw HierarchyError.notFound("Worktree \(worktreeID)")
+    }
+    if force {
+      manager.tearDownWorktreeSurfaces(worktreeID: worktreeID)
+    }
+    try await gitWorktreeClient.removeWorktree(
+      URL(fileURLWithPath: gitRoot),
+      URL(fileURLWithPath: worktree.path),
+      force
+    )
+    try manager.removeWorktree(worktreeID, from: projectID, in: spaceID)
   }
 
   /// AsyncStream backed by Swift Observation — samples `manager.catalog`'s
@@ -266,7 +430,12 @@ extension HierarchyClient: DependencyKey {
     setDefaultEditor: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     setWorktreeGitViewerVisible: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     snapshot: { fatalError("HierarchyClient.liveValue not configured") },
-    selectionChanges: { AsyncStream { $0.finish() } }
+    selectionChanges: { AsyncStream { $0.finish() } },
+    setWorktreeArchived: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    reconcileDiscoveredWorktrees: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    createWorktreeWithGit: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    removeWorktreeWithGit: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    runningPanelCount: { _ in fatalError("HierarchyClient.liveValue not configured") }
   )
 
   static let testValue: HierarchyClient = HierarchyClient(
@@ -299,7 +468,14 @@ extension HierarchyClient: DependencyKey {
     selectionChanges: unimplemented(
       "HierarchyClient.selectionChanges",
       placeholder: AsyncStream { $0.finish() }
-    )
+    ),
+    setWorktreeArchived: unimplemented("HierarchyClient.setWorktreeArchived"),
+    reconcileDiscoveredWorktrees: unimplemented("HierarchyClient.reconcileDiscoveredWorktrees"),
+    createWorktreeWithGit: unimplemented(
+      "HierarchyClient.createWorktreeWithGit", placeholder: WorktreeID()
+    ),
+    removeWorktreeWithGit: unimplemented("HierarchyClient.removeWorktreeWithGit"),
+    runningPanelCount: unimplemented("HierarchyClient.runningPanelCount", placeholder: 0)
   )
 }
 

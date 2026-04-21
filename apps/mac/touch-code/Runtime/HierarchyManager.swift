@@ -214,6 +214,142 @@ final class HierarchyManager {
     store.scheduleSave(catalog)
   }
 
+  /// Sets the archived flag on a Worktree (spec W-Q1, soft-hide). The
+  /// main checkout (path == project.rootPath) cannot be archived and
+  /// throws `.invariantViolation`. Archiving `true` iterates the
+  /// Worktree's Panels and calls `runtime.closeSurface(for:)` each so
+  /// terminal surfaces are torn down; the on-disk directory and git
+  /// refs are NOT touched. Idempotent: unchanged value is a silent
+  /// no-op (no save scheduled). Silent no-op when the id is unknown.
+  func setWorktreeArchived(worktreeID: WorktreeID, archived: Bool) throws {
+    for spaceIndex in catalog.spaces.indices {
+      for projectIndex in catalog.spaces[spaceIndex].projects.indices {
+        let project = catalog.spaces[spaceIndex].projects[projectIndex]
+        guard let worktreeIndex = project.worktrees.firstIndex(where: { $0.id == worktreeID })
+        else { continue }
+        let worktree = project.worktrees[worktreeIndex]
+        if worktree.path == project.rootPath {
+          throw HierarchyError.invariantViolation("Cannot archive main checkout")
+        }
+        guard worktree.archived != archived else { return }
+        if archived {
+          for panel in worktree.tabs.flatMap({ $0.panels }) {
+            runtime.closeSurface(for: panel.id)
+          }
+        }
+        catalog.spaces[spaceIndex].projects[projectIndex]
+          .worktrees[worktreeIndex].archived = archived
+        store.scheduleSave(catalog)
+        return
+      }
+    }
+  }
+
+  /// Merges worktrees discovered on disk (typically from
+  /// `wt ls --json`) into the catalog. Path-canonicalized dedupe
+  /// against existing rows — both sides go through
+  /// `URL(fileURLWithPath:).resolvingSymlinksInPath().standardizedFileURL.path`
+  /// so `/var/...` vs. `/private/var/...` don't cause duplicate rows
+  /// against T-PROJECT's `Project.rootPath` which is stored in the
+  /// symlink-resolved form. Never removes or mutates existing rows —
+  /// stale rows are surfaced in the view layer and only deleted by the
+  /// user-initiated Prune action. Idempotent across repeated calls
+  /// with the same entries. Returns the count of appended rows so the
+  /// caller can surface a toast.
+  ///
+  /// - Parameters:
+  ///   - projectID: target Project.
+  ///   - spaceID: parent Space.
+  ///   - entries: on-disk worktree metadata (path, branch) from
+  ///     `GitWorktreeClient.lsWorktrees`.
+  @discardableResult
+  func reconcileDiscoveredWorktrees(
+    projectID: ProjectID,
+    inSpace spaceID: SpaceID,
+    entries: [(path: String, branch: String?)]
+  ) -> Int {
+    guard let (spaceIndex, projectIndex) = findProjectIndices(
+      projectID: projectID, spaceID: spaceID
+    ) else { return 0 }
+    let project = catalog.spaces[spaceIndex].projects[projectIndex]
+    let existingPaths = Set(
+      project.worktrees.map { Self.canonicalPath($0.path) }
+    )
+    var appended = 0
+    for entry in entries {
+      let canonical = Self.canonicalPath(entry.path)
+      guard !existingPaths.contains(canonical) else { continue }
+      let name = (entry.branch?.isEmpty == false)
+        ? entry.branch!
+        : (canonical as NSString).lastPathComponent
+      let worktree = Worktree(
+        id: WorktreeID(),
+        name: name,
+        path: canonical,
+        branch: entry.branch,
+        tabs: [],
+        selectedTabID: nil
+      )
+      catalog.spaces[spaceIndex].projects[projectIndex].worktrees.append(worktree)
+      appended += 1
+    }
+    if appended > 0 {
+      store.scheduleSave(catalog)
+    }
+    return appended
+  }
+
+  /// Canonical form used by reconcile dedupe and by T-PROJECT's
+  /// stored `Project.rootPath`. MUST stay symmetric with the
+  /// T-PROJECT side — both resolve symlinks first, then standardize.
+  /// On macOS, symlink resolution maps `/var/...` to
+  /// `/private/var/...` (and similar for `/tmp`, `/etc`); without
+  /// this step a `wt ls --json` entry reported as `/var/folders/...`
+  /// would fail to match a `Project.rootPath` stored as
+  /// `/private/var/folders/...` and the main checkout would
+  /// duplicate on every reconcile.
+  static func canonicalPath(_ path: String) -> String {
+    URL(fileURLWithPath: path)
+      .resolvingSymlinksInPath()
+      .standardizedFileURL
+      .path
+  }
+
+  /// Tears down every terminal surface attached to the Worktree without
+  /// mutating the catalog. Used by force-remove so any held file handles
+  /// are released before `git worktree remove --force` runs; the catalog
+  /// row is dropped afterwards via `removeWorktree`. Silent no-op when
+  /// the id is unknown. Idempotent.
+  func tearDownWorktreeSurfaces(worktreeID: WorktreeID) {
+    for space in catalog.spaces {
+      for project in space.projects {
+        guard let worktree = project.worktrees.first(where: { $0.id == worktreeID })
+        else { continue }
+        for panel in worktree.tabs.flatMap({ $0.panels }) {
+          runtime.closeSurface(for: panel.id)
+        }
+        return
+      }
+    }
+  }
+
+  /// Counts the number of Panels in this Worktree whose terminal surface
+  /// is live. Used by force-remove to size the confirmation copy
+  /// ("This will terminate N running processes"). 0 when the id is unknown.
+  func runningPanelCount(worktreeID: WorktreeID) -> Int {
+    for space in catalog.spaces {
+      for project in space.projects {
+        guard let worktree = project.worktrees.first(where: { $0.id == worktreeID })
+        else { continue }
+        return worktree.tabs
+          .flatMap { $0.panels }
+          .filter { runtime.hasSurface(for: $0.id) }
+          .count
+      }
+    }
+    return 0
+  }
+
   /// Records whether the right-side Git Viewer overlay is visible for this
   /// Worktree. Visibility persists across Space switches and app restarts —
   /// each Worktree remembers its own. Missing `worktreeID` is a silent no-op;

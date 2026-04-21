@@ -215,6 +215,28 @@ let project = Project(
         "touch-code/Git",
         "touch-code/Notifications",
       ],
+      // git-wt submodule wiring. Pre-script fails the build cleanly when
+      // the submodule is not checked out; post-script copies only the `wt`
+      // file into Resources/git-wt/wt so Bundle.main.url(forResource:
+      // "wt", subdirectory: "git-wt") resolves at runtime.
+      scripts: [
+        .pre(
+          script: "\"${SRCROOT}/scripts/verify-git-wt.sh\"",
+          name: "Verify git-wt",
+          basedOnDependencyAnalysis: false
+        ),
+        .post(
+          script: "\"${SRCROOT}/scripts/embed-git-wt.sh\"",
+          name: "Embed git-wt",
+          inputPaths: [
+            "$(SRCROOT)/ThirdParty/git-wt/wt",
+          ],
+          outputPaths: [
+            "$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/git-wt/wt",
+          ],
+          basedOnDependencyAnalysis: false
+        ),
+      ],
       dependencies: [
         .target(name: "TouchCodeCore"),
         .target(name: "TouchCodeIPC"),

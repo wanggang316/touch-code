@@ -186,6 +186,10 @@ struct HierarchySidebarFeatureTests {
     var selectSpace: [SpaceID?] = []
     var selectWorktree: [(WorktreeID?, ProjectID, SpaceID)] = []
     var removeWorktree: [(WorktreeID, ProjectID, SpaceID)] = []
+    /// Post-T-WORKTREE: the Worktree-Remove confirmation now routes
+    /// through `removeWorktreeWithGit` (async) instead of the legacy
+    /// synchronous `removeWorktree`. Recorded here.
+    var removeWorktreeWithGit: [(WorktreeID, ProjectID, SpaceID, Bool)] = []
     var removeProject: [(ProjectID, SpaceID)] = []
     var renameProject: [(ProjectID, SpaceID, String)] = []
     var createSpace: [String] = []
@@ -214,6 +218,11 @@ struct HierarchySidebarFeatureTests {
     }
     deps.hierarchyClient.removeWorktree = { worktree, project, space in
       calls.withValue { $0.removeWorktree.append((worktree, project, space)) }
+    }
+    deps.hierarchyClient.removeWorktreeWithGit = { worktree, project, space, force in
+      calls.withValue {
+        $0.removeWorktreeWithGit.append((worktree, project, space, force))
+      }
     }
     deps.hierarchyClient.removeProject = { project, space in
       calls.withValue { $0.removeProject.append((project, space)) }
@@ -430,15 +439,16 @@ struct HierarchySidebarFeatureTests {
         displayName: "W2"
       )
     }
-    await store.send(.worktreeRemoveConfirmed) {
-      $0.pendingWorktreeRemoval = nil
-    }
+    store.exhaustivity = .off
+    await store.send(.worktreeRemoveConfirmed)
+    await store.finish()
 
     let recorded = calls.value
-    #expect(recorded.removeWorktree.count == 1)
-    #expect(recorded.removeWorktree[0].0 == fix.w2)
-    #expect(recorded.removeWorktree[0].1 == fix.projectP)
-    #expect(recorded.removeWorktree[0].2 == fix.spaceA)
+    #expect(recorded.removeWorktreeWithGit.count == 1)
+    #expect(recorded.removeWorktreeWithGit[0].0 == fix.w2)
+    #expect(recorded.removeWorktreeWithGit[0].1 == fix.projectP)
+    #expect(recorded.removeWorktreeWithGit[0].2 == fix.spaceA)
+    #expect(recorded.removeWorktreeWithGit[0].3 == false)
   }
 
   @Test
