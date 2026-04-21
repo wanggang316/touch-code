@@ -55,15 +55,14 @@ T1 (Sidebar) and T3 (Git Viewer overlay + shortcuts) proceed in parallel on sibl
 Introduce one new TCA feature, `WorktreeHeaderFeature`, scoped from `RootFeature` alongside `editor` and `detail`. The feature owns:
 
 - Cached `NotificationInbox` snapshot (last value from `InboxClient.observe()`).
-- Cached `Catalog` snapshot (last value from `HierarchyClient.selectionChanges`) — used to compute Project → Worktree groupings. In practice we reuse `RootFeature.State.selection` + a fresh `hierarchyClient.snapshot()` call at event time, since the header only needs the catalog at click time (row-tap / dismiss-all) and render time (popover build). For render-hot paths the view pulls `@Environment(HierarchyManager.self).catalog` directly, matching how `WorktreeDetailView` already reads it.
+- Catalog is **not** cached in state. The Project → Worktree grouping and the badge both read `@Environment(HierarchyManager.self).catalog` at render time. For reducer-internal needs (e.g. `markReadForWorktree` at row-tap) the feature pulls `hierarchyClient.snapshot()`.
 - `popoverOpen: Bool` — local UI state.
-- `unreadCount: Int` — derived and cached from `(inbox, catalog)`: count of unread, non-dismissed notifications whose `panelID` resolves to a Worktree that still exists in the current catalog. Implemented via a new `NotificationInbox.totalUnread(in catalog: Catalog) -> Int` extension that walks the `panelWorktreeIndex()` once, matching the same PanelID → WorktreeID semantics used by the popover. Orphaned notifications (panel removed from the catalog) are excluded from *both* the badge and the popover, so the counter and the rendered row count never diverge.
+- `unreadCount(in catalog: Catalog) -> Int` — **computed**, not a cached field. Returns `inbox.totalUnread(in: catalog)`. Views call it with the live `hierarchyManager.catalog`; reducers call it with `hierarchyClient.snapshot()` when they need a point-in-time value. Returning a computed value rather than caching means any catalog mutation (including ones unrelated to selection changes — e.g. removing a non-selected Worktree) invalidates the badge via ordinary SwiftUI observation of the `@Observable` `HierarchyManager`, without the reducer needing a parallel `.catalogChanged` dispatch. `NotificationInbox.totalUnread(in:)` is the shared implementation — it walks `panelWorktreeIndex()` once and excludes orphans so badge count and popover row count never diverge.
 
 Actions are:
 
 - `.onAppear` — starts the `InboxClient.observe()` stream, cancellable on disappear.
-- `.inboxUpdated(NotificationInbox)` — caches snapshot, re-computes `unreadCount` via `NotificationInbox.totalUnread(in:)` against the current `hierarchyClient.snapshot()`.
-- `.catalogChanged` — re-computes `unreadCount` when the catalog changes (e.g. a Worktree is removed, flipping its panels to orphan status). Fired from the existing `selectionChanges` stream at the `RootFeature` level and forwarded in as `.worktreeHeader(.catalogChanged)`; no new subscription in this feature.
+- `.inboxUpdated(NotificationInbox)` — caches the inbox snapshot. No per-action badge recompute is needed: the badge is computed at view render time via `State.unreadCount(in: hierarchyManager.catalog)`.
 - `.popoverToggled(Bool)` — pure UI.
 - `.notificationTapped(worktreeID: WorktreeID, spaceID: SpaceID, projectID: ProjectID)` — calls `hierarchyClient.selectSpace` → `selectProject` → `selectWorktree`; then calls `inboxClient.markReadForWorktree(worktreeID, catalog)`; closes popover.
 - `.dismissAllTapped` — calls `inboxClient.clearAll()`; closes popover.
@@ -190,6 +189,8 @@ static func resolveDefault(
 ```
 
 Both the existing dropdown and the new split-button consume this.
+
+**Cascade-on-missing semantics** (clarified after execution, see ExecPlan D5): if the project override is set to an id that is not in `descriptors` (e.g. the custom editor was removed), resolution cascades to the global default and only falls to `.finder` when neither override nor global resolves. This matches the pre-T2 dropdown's behavior and avoids stranding users on Finder when a global default is configured.
 
 ### Data Storage
 

@@ -53,8 +53,9 @@ struct EditorFeature {
     case removeCustomEditor(id: EditorID)
     case setProjectOverride(projectID: ProjectID, spaceID: SpaceID, editorID: EditorID?)
     case setProjectOverrideFailed(reason: String)
-    /// Requested open from WorktreeHeaderOpenButton. The action flows through the reducer
-    /// so TestStore can observe the effect; the view doesn't hold a direct `@Dependency`.
+    /// Open request routed from the Worktree Header split button (and any other editor
+    /// consumer). The action flows through the reducer so TestStore observes the effect;
+    /// views do not hold a direct `@Dependency(EditorClient.self)`.
     case openRequested(editorID: EditorID, worktreePath: String, projectID: ProjectID?)
     case openSucceeded(editorID: EditorID, displayName: String)
     case openFailed(reason: String)
@@ -173,14 +174,18 @@ struct EditorFeature {
   nonisolated static let finderEditorID: EditorID = EditorRegistry.finderID
 
   /// Result of resolving the Worktree's default editor for the Header's Open-in
-  /// primary action. Mirrors the label-resolution chain originally in
-  /// `WorktreeHeaderOpenButton.currentDefaultLabel`:
+  /// primary action. Resolution chain:
   ///   - per-Project override → descriptor, if present in `descriptors`
   ///   - global default       → descriptor, if present in `descriptors`
   ///   - otherwise             → `.finder`
   ///
-  /// Cascades through a missing override to the global default so a removed
-  /// custom editor does not strand users on Finder when a global is set.
+  /// **Cascade-on-missing semantics.** If a configured override id is not in
+  /// `descriptors` (e.g. the custom editor was removed), resolution does not
+  /// fall through to `.finder` — it cascades to the global default, and only
+  /// falls to Finder when neither override nor global resolves. This preserves
+  /// the behavior users saw in the pre-T2 dropdown so a stale override id does
+  /// not strand them on Finder when a global default is set. See
+  /// `docs/exec-plans/0009-mw-t2-header.md` Decision Log D5.
   nonisolated enum ResolvedDefault: Equatable {
     case editor(EditorDescriptor)
     case finder
