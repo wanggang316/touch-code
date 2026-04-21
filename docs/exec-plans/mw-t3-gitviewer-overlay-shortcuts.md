@@ -27,6 +27,7 @@ T2 (Header) will reuse the same toggle action for its GV button, so the Header b
 - [x] M5 — MainWindowCommands + attach to WindowGroup; ⌘K dispatches `.openSpaceSwitcherRequested` (token path per D1b-round1) (2026-04-21)
 - [x] M6 — Tests: RootFeature (projection, toggle, token, no-selection guard), EditorFeature (openDefault × 3 branches + pure resolver), WorktreeDetailView width clamp — 480 tests green (2026-04-21)
 - [x] M7 REV1 — Rebase onto ee3f088 (T1+T2 merged); three conditionals re-checked per D1a/b/c-round2; D8 sidebar follow-up shipped; lint + TouchCodeCore + touch-code + tcKit green; force-push + PR_READY (REV1) (2026-04-21)
+- [x] M7 REV2 — BLOCKER fix per D9: drop cached `gitViewerOverlayVisible`, replace with live-catalog helper so Header-button write path and ⌘⇧G reducer path share one source of truth. NIT 1 (docs refer to `MainWindowConstants`) + NIT 2 (EditorFeature override tests split into installed + uninstalled cases). lint + TouchCodeCore + touch-code + tcKit green; force-push + PR_READY (REV2) (2026-04-21)
 
 ## Surprises & Discoveries
 
@@ -48,6 +49,7 @@ T2 (Header) will reuse the same toggle action for its GV button, so the Header b
 - **D1b-round2** (post-rebase REV1 onto ee3f088, 2026-04-21): T1 did **not** expose an open-only sidebar popover action (sidebar uses `spaceFooterTapped` toggle). Token path stands: `spaceSwitcherOpenToken` + `.openSpaceSwitcherRequested` retained. T1 sidebar view will need to add `.onChange(of:)` to observe the token when wiring ⌘K — called out in PR.
 - **D1c-round2** (post-rebase REV1 onto ee3f088, 2026-04-21): T2 landed `EditorFeature.resolveDefault(projectOverride:globalDefault:descriptors:) -> ResolvedDefault` + `EditorFeature.finderEditorID` — **PRESENT**. Removed my local `resolveDefaultEditorID`. `.openDefaultInCurrentWorktreeRequested` now reads the per-Project override from the catalog, calls `resolveDefault`, and maps `.editor`/`.finder` to the `EditorID` that `.openRequested` expects. EditorFeatureTests kept T2's pure-helper suite and replaced my helper test with three TestStore forwarding cases on the new shape.
 - **D8** (rebase REV1 follow-up, 2026-04-21): Replaced the inline override → global → Finder resolution inside `.sidebar(.delegate(.openInDefaultEditor))` with a call to `EditorFeature.resolveDefault` + `projectOverrideEditorID(for:)`. Semantic delta: the sidebar no longer filters on `isInstalled` — the shared helper accepts any descriptor in the cache, and the downstream `.openRequested` surfaces `.notInstalled` via the editor toast. Rationale: unify all three entry points (Header dropdown, sidebar context menu, ⌘E) on one resolver; a visible failure beats silent fall-through to Finder.
+- **D9** (REV2 BLOCKER fix per master, 2026-04-21): Drop the cached `RootFeature.State.gitViewerOverlayVisible` Bool; replace with `State.gitViewerOverlayVisible(in: Catalog) -> Bool` that views call with the observed `hierarchyManager.catalog`. Supersedes D1 + D2. Reason: T2's `WorktreeHeaderFeature.gitViewerToggled` writes `gitViewerVisible` directly through `hierarchyClient.setWorktreeGitViewerVisible` without going through `.gitViewerToggledForCurrentWorktree`, so a cached projection diverges from the catalog between a Header click and the next `.selectionChanged`. Modelling the visibility as a live read against the catalog makes SwiftUI `@Observable` tracking the sync mechanism — both toggle entry points write the catalog, and both the view and the reducer read it the same way. `.gitViewerToggledForCurrentWorktree` simplifies to "read catalog snapshot → setter with flipped value"; `.selectionChanged` no longer refreshes a projection. Matches the pattern T2 REV1 used for the bell's unread count.
 
 ## Outcomes & Retrospective
 
@@ -103,7 +105,7 @@ Test targets:
 Terms of art:
 
 - **Overlay host**: the view (`WorktreeDetailView`'s terminal region) that attaches `.overlay(alignment: .trailing) { GitViewerView }`. The overlay is a SwiftUI *view modifier*, not a child column; the host view's own layout is unaffected by the overlay's presence.
-- **Width-clamp**: the rule that suppresses overlay rendering when `geometry.size.width < Constants.gvOverlayMinTerminalWidth + Constants.gvOverlayWidth`. State stays `true`; only rendering is skipped. Reappears when the window widens.
+- **Width-clamp**: the rule that suppresses overlay rendering when `geometry.size.width < MainWindowConstants.gvOverlayMinTerminalWidth + MainWindowConstants.gvOverlayWidth`. State stays `true`; only rendering is skipped. Reappears when the window widens.
 - **Derived projection**: a field on `RootFeature.State` recomputed from other state + the catalog snapshot on specific trigger actions, rather than set independently. Views read it like any other state; reducer owns its lifecycle.
 - **Space-switcher open token**: a `UInt` counter on `RootFeature.State` that the reducer increments on ⌘K. The Sidebar view observes `onChange(of: token)` and opens a popover; token value is meaningless beyond "changed".
 
@@ -179,7 +181,7 @@ Acceptance: the reducer compiles; `xcodebuild test -scheme touch-code` runs the 
 
 Goal: the new overlay rendering site exists inside `WorktreeDetailView`, gated by an `overlayVisible: Bool` parameter and by a width-clamp helper. Not yet wired into ContentView — M3 does that.
 
-In `apps/mac/touch-code/App/Theme/Constants.swift` (create if absent):
+In `apps/mac/touch-code/App/Theme/MainWindowConstants.swift` (create if absent):
 
 ```swift
 enum Constants {
@@ -188,14 +190,14 @@ enum Constants {
 }
 ```
 
-If `Constants.swift` already exists, add the two properties to the existing enum without reshuffling.
+If `MainWindowConstants.swift` already exists, add the two properties to the existing enum without reshuffling.
 
 In `apps/mac/touch-code/App/Features/WorktreeDetail/WorktreeDetailView.swift`:
 
 - Add two new parameters: `gitViewerStore: StoreOf<GitViewerFeature>` and `overlayVisible: Bool`.
 - Extract the existing `if let tabID = address.activeTab { SplitViewportView(...) } else { emptyTab }` block into a private `@ViewBuilder` method `terminalRegion(address:)` so the overlay attaches to exactly that subtree.
 - Attach `.overlay(alignment: .trailing) { overlayContent(...) }` to `terminalRegion`, where `overlayContent` uses a `GeometryReader` to compute whether the overlay should render or show a suppressed hint, per the design doc §API Design §6.
-- Add a pure helper (file-private or nested) `static func shouldShowOverlay(totalWidth: CGFloat) -> Bool { totalWidth >= Constants.gvOverlayMinTerminalWidth + Constants.gvOverlayWidth }`. The helper is the unit-test target in M6.
+- Add a pure helper (file-private or nested) `static func shouldShowOverlay(totalWidth: CGFloat) -> Bool { totalWidth >= MainWindowConstants.gvOverlayMinTerminalWidth + MainWindowConstants.gvOverlayWidth }`. The helper is the unit-test target in M6.
 - The suppressed-hint variant is a small static badge: *"Widen window to show Git Viewer"* in `.caption.foregroundStyle(.secondary)` inside a `.background(.thinMaterial, in: .capsule)` padding; placed near the trailing edge so the user sees it without covering terminal content. Not animated.
 
 The Worktree header strip and `TabBarView` remain outside the overlay host; do not move them.
@@ -499,7 +501,7 @@ And a resolver with the shape (conditional on D1c — either new or reused):
       globalDefault: EditorID?
     ) -> EditorID
 
-At the end of M2, `apps/mac/touch-code/App/Theme/Constants.swift` must define:
+At the end of M2, `apps/mac/touch-code/App/Theme/MainWindowConstants.swift` must define:
 
     enum Constants {
       static let gvOverlayWidth: CGFloat = 360

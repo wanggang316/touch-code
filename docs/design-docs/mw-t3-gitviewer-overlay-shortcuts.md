@@ -64,7 +64,7 @@ inside `GitViewerFeature` — only its hosting container and keyboard entry poin
   Switching Worktrees (or Spaces via T1) updates the overlay deterministically.
 - Toggling the overlay (via T2's Header button **and** via `⌘⇧G`) calls
   `HierarchyManager.setWorktreeGitViewerVisible(...)`; persistence is automatic.
-- If the terminal would be forced below `Constants.gvOverlayMinTerminalWidth` (480 pt),
+- If the terminal would be forced below `MainWindowConstants.gvOverlayMinTerminalWidth` (480 pt),
   the overlay is suppressed for that layout pass (visibility stays `true` in state; it
   re-appears when the window widens). A small inline hint makes the suppression
   discoverable.
@@ -391,10 +391,10 @@ After T3 the terminal region (the `if let tabID` branch) is wrapped to host the 
 terminalRegion(address: address, tabID: address.activeTab)
   .overlay(alignment: .trailing) {
     GeometryReader { proxy in
-      if overlayVisible && proxy.size.width >= Constants.gvOverlayMinTerminalWidth
-         + Constants.gvOverlayWidth {
+      if overlayVisible && proxy.size.width >= MainWindowConstants.gvOverlayMinTerminalWidth
+         + MainWindowConstants.gvOverlayWidth {
         GitViewerView(store: gitViewerStore)
-          .frame(width: Constants.gvOverlayWidth)
+          .frame(width: MainWindowConstants.gvOverlayWidth)
           .transition(.move(edge: .trailing).combined(with: .opacity))
       } else if overlayVisible {
         suppressedHint   // small "↔ Widen window to show Git Viewer" badge
@@ -408,7 +408,7 @@ Tab bar and Worktree header are not inside the overlay host, so they stay fully
 clickable. The overlay does not introduce a Divider on the terminal side — a
 subtle 1-px leading border on the GitViewerView itself provides the visual break.
 
-`Constants` namespace (new or extended `apps/mac/touch-code/App/Theme/Constants.swift`):
+`MainWindowConstants` namespace (new or extended `apps/mac/touch-code/App/Theme/MainWindowConstants.swift`):
 
 ```swift
 enum Constants {
