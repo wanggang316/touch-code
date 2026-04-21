@@ -244,6 +244,15 @@ struct HierarchySidebarView: View {
           ForEach(activeSpace.projects) { project in
             projectSection(project, in: activeSpace, panelIndex: panelIndex, inbox: inbox)
           }
+          .onMove { source, destination in
+            store.send(
+              .reorderProjects(
+                from: source,
+                to: destination,
+                inSpace: activeSpace.id
+              )
+            )
+          }
         }
         .listStyle(.sidebar)
       }

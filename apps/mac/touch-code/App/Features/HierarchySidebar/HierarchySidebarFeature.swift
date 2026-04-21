@@ -164,6 +164,9 @@ struct HierarchySidebarFeature {
     /// Placeholder for future sidebar-toolbar "⋯" menu items. No-op today.
     case toolbarMenuTapped
 
+    // Reorder Projects within a Space (ForEach.onMove forwarder).
+    case reorderProjects(from: IndexSet, to: Int, inSpace: SpaceID)
+
     // Project section hover chrome
     case projectAddWorktreeTapped(projectID: ProjectID, inSpace: SpaceID)
     /// Open the Project Options sheet for the given row. Replaces the
@@ -368,6 +371,10 @@ struct HierarchySidebarFeature {
         return .none
 
       // MARK: Project hover chrome
+
+      case .reorderProjects(let source, let destination, let spaceID):
+        try? hierarchyClient.reorderProjects(spaceID, source, destination)
+        return .none
 
       case .projectAddWorktreeTapped(let projectID, let spaceID):
         // Resolve the Project from the catalog to feed repoRoot +

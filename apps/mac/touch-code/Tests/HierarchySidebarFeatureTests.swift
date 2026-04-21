@@ -193,6 +193,7 @@ struct HierarchySidebarFeatureTests {
     var removeProject: [(ProjectID, SpaceID)] = []
     var renameProject: [(ProjectID, SpaceID, String)] = []
     var createSpace: [String] = []
+    var reorderProjects: [(SpaceID, IndexSet, Int)] = []
   }
 
   /// Installs recorder overrides for every HierarchyClient entry the reducer
@@ -233,6 +234,9 @@ struct HierarchySidebarFeatureTests {
     deps.hierarchyClient.createSpace = { name in
       calls.withValue { $0.createSpace.append(name) }
       return createSpaceReturn
+    }
+    deps.hierarchyClient.reorderProjects = { space, from, to in
+      calls.withValue { $0.reorderProjects.append((space, from, to)) }
     }
   }
 
@@ -539,6 +543,33 @@ struct HierarchySidebarFeatureTests {
     await store.receive(
       .delegate(.openInDefaultEditor(worktreePath: "/tmp/demo", projectID: projectID))
     )
+  }
+
+  // MARK: - Reorder Projects (P6.1)
+
+  @Test
+  func reorderProjectsDispatchesClientCall() async {
+    let fix = Self.twoSpaceFixture()
+    let calls = LockIsolated(ClientCalls())
+    let store = TestStore(initialState: HierarchySidebarFeature.State()) {
+      HierarchySidebarFeature()
+    } withDependencies: { deps in
+      Self.installRecorders(
+        on: &deps,
+        calls: calls,
+        snapshotProvider: { fix.catalog }
+      )
+    }
+    store.exhaustivity = .off(showSkippedAssertions: false)
+
+    await store.send(
+      .reorderProjects(from: IndexSet(integer: 1), to: 0, inSpace: fix.spaceA)
+    )
+    let recorded = calls.value.reorderProjects
+    #expect(recorded.count == 1)
+    #expect(recorded.first?.0 == fix.spaceA)
+    #expect(recorded.first?.1 == IndexSet(integer: 1))
+    #expect(recorded.first?.2 == 0)
   }
 
   // MARK: - Project Options (P3.2 / P3.3 replaces Rename Project M6 coverage)
