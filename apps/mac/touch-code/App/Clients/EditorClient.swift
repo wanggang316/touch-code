@@ -30,10 +30,10 @@ extension EditorClient {
       prober: LivePathProber(),
       globalDefault: { [weak settings] in
         // @MainActor-isolated read; SettingsStore is @Observable on MainActor.
-        MainActor.assumeIsolated { settings?.settings.defaultEditorID }
+        MainActor.assumeIsolated { settings?.settings.general.defaultEditorID }
       },
       customEditors: { [weak settings] in
-        MainActor.assumeIsolated { settings?.settings.customEditors ?? [] }
+        MainActor.assumeIsolated { settings?.settings.general.customEditors ?? [] }
       },
       projectOverride: { [weak hierarchy] projectID in
         MainActor.assumeIsolated {

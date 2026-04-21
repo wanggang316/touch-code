@@ -85,8 +85,8 @@ struct EditorFeature {
           .run { send in
             let snapshot = await reader()
             await send(.settingsObserved(
-              globalDefault: snapshot.defaultEditorID,
-              customEditors: snapshot.customEditors
+              globalDefault: snapshot.general.defaultEditorID,
+              customEditors: snapshot.general.customEditors
             ))
           }
         )
@@ -119,8 +119,8 @@ struct EditorFeature {
           case .success:
             let snapshot = await reader()
             await send(.settingsObserved(
-              globalDefault: snapshot.defaultEditorID,
-              customEditors: snapshot.customEditors
+              globalDefault: snapshot.general.defaultEditorID,
+              customEditors: snapshot.general.customEditors
             ))
           case .failure(let err):
             await send(.addCustomEditorFailed(err))
@@ -272,7 +272,7 @@ struct EditorFeature {
 /// and mocks cleanly for TestStore.
 nonisolated struct SettingsWriter: Sendable {
   /// Reads a snapshot of the current settings. `@MainActor`-pumped.
-  var readSnapshot: @Sendable () async -> LegacyEditorSettings
+  var readSnapshot: @Sendable () async -> Settings
   /// Writes the global default ID (nil clears).
   var setDefaultEditorID: @Sendable (EditorID?) async -> Void
   /// Upserts a custom editor. Returns `.success` on accept, `.failure` on validation error.

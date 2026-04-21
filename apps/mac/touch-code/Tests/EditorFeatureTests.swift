@@ -46,15 +46,17 @@ struct EditorFeatureTests {
 
   @Test
   func onAppearObservesSettings() async {
-    let snapshot = LegacyEditorSettings(
-      defaultEditorID: "vscode",
-      customEditors: [
-        CustomEditor(
-          id: "helix",
-          displayName: "Helix",
-          template: CommandTemplate(binary: "hx", args: ["{dir}"])
-        )
-      ]
+    let snapshot = Settings(
+      general: GeneralSettings(
+        defaultEditorID: "vscode",
+        customEditors: [
+          CustomEditor(
+            id: "helix",
+            displayName: "Helix",
+            template: CommandTemplate(binary: "hx", args: ["{dir}"])
+          )
+        ]
+      )
     )
     let store = TestStore(initialState: EditorFeature.State()) {
       EditorFeature()
@@ -68,7 +70,7 @@ struct EditorFeatureTests {
     await store.send(.onAppear)
     await store.receive(\.settingsObserved) { state in
       state.globalDefault = "vscode"
-      state.customEditors = snapshot.customEditors
+      state.customEditors = snapshot.general.customEditors
     }
   }
 
@@ -92,15 +94,17 @@ struct EditorFeatureTests {
 
   @Test
   func addCustomEditorSuccessRefreshesObservedSettings() async {
-    let snapshot = LegacyEditorSettings(
-      defaultEditorID: nil,
-      customEditors: [
-        CustomEditor(
-          id: "helix",
-          displayName: "Helix",
-          template: CommandTemplate(binary: "hx", args: ["{dir}"])
-        )
-      ]
+    let snapshot = Settings(
+      general: GeneralSettings(
+        defaultEditorID: nil,
+        customEditors: [
+          CustomEditor(
+            id: "helix",
+            displayName: "Helix",
+            template: CommandTemplate(binary: "hx", args: ["{dir}"])
+          )
+        ]
+      )
     )
     let store = TestStore(initialState: EditorFeature.State()) {
       EditorFeature()
@@ -118,7 +122,7 @@ struct EditorFeatureTests {
     )
     await store.send(.addCustomEditor(helix))
     await store.receive(\.settingsObserved) {
-      $0.customEditors = snapshot.customEditors
+      $0.customEditors = snapshot.general.customEditors
     }
   }
 

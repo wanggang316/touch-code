@@ -117,8 +117,8 @@ struct C6EndToEndTests {
     defer { harness.bootstrap.shutdown() }
     let panelID = try #require(harness.seedPanelIDs.first)
 
-    harness.bootstrap.settingsStore.mutate {
-      $0.notifications.mute.mutedRuleIDs.insert("claude.blocked_on_input")
+    harness.bootstrap.settingsStore.mutateNotifications {
+      $0.mute.mutedRuleIDs.insert("claude.blocked_on_input")
     }
 
     let envelope = Self.outputMatchEnvelope(panelID: panelID, match: "Do you want to proceed?")
@@ -235,15 +235,15 @@ struct C6EndToEndTests {
     let inboxURL = temp.appendingPathComponent("notifications.json")
     let rulesURL = temp.appendingPathComponent("detection-rules.json")
 
-    let settings = NotificationSettingsStore(fileURL: settingsURL, debounce: .seconds(3600))
-    settings.mutate { $0.notifications.authStatus = authStatus }
+    let settings = SettingsStore(fileURL: settingsURL, debounceWindow: .seconds(3600))
+    settings.mutateNotifications { $0.authStatus = authStatus }
     try settings.saveNow()
 
     let bootstrap = try await C6AppBootstrap.start(
       hierarchy: hierarchy,
       hookDispatcher: dispatcher,
       hookConfigStore: hookStore,
-      settingsURL: settingsURL,
+      settingsStore: settings,
       inboxURL: inboxURL,
       detectionRulesURL: rulesURL,
       osNotifier: notifier,

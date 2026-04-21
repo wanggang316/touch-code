@@ -156,7 +156,7 @@ struct NotificationCoordinatorTests {
   @Test
   func neverPromptFlagSuppressesDelegate() async throws {
     let harness = Self.make(authStatus: .notDetermined)
-    harness.settings.mutate { $0.notifications.neverPrompt = true }
+    harness.settings.mutateNotifications { $0.neverPrompt = true }
     await harness.coordinator.onAgentPanelCreated(PanelID())
     #expect(harness.mockDelegate.presentPromptCalls == 0)
   }
@@ -212,8 +212,8 @@ struct NotificationCoordinatorTests {
     #expect(harness.settings.settings.notifications.notNowUntil != nil)
 
     // Advance the clock past the cool-down.
-    harness.settings.mutate {
-      $0.notifications.notNowUntil = Date().addingTimeInterval(-1)
+    harness.settings.mutateNotifications {
+      $0.notNowUntil = Date().addingTimeInterval(-1)
     }
 
     await harness.coordinator.onAgentPanelCreated(PanelID())
@@ -253,11 +253,11 @@ struct NotificationCoordinatorTests {
       debounce: .seconds(3600)
     )
     let notifier = MockOSNotifier(initialStatus: .notDetermined)
-    let settings = NotificationSettingsStore(
+    let settings = SettingsStore(
       fileURL: FileManager.default.temporaryDirectory.appending(component: "\(UUID()).json"),
-      debounce: .seconds(3600)
+      debounceWindow: .seconds(3600)
     )
-    settings.mutate { $0.notifications.authStatus = .notDetermined }
+    settings.mutateNotifications { $0.authStatus = .notDetermined }
     let registry = TrackerRegistry(
       hierarchy: HierarchyManager(
         catalog: .default,
@@ -270,7 +270,10 @@ struct NotificationCoordinatorTests {
       inbox: inbox,
       badger: MockDockBadger(),
       osNotifier: notifier,
-      settings: settings,
+      settingsReader: settings,
+      mutateSettings: { [weak settings] transform in
+        settings?.mutateNotifications(transform)
+      },
       registry: registry,
       permissionDelegate: delegate
     )
@@ -309,17 +312,17 @@ struct NotificationCoordinatorTests {
     let notifier = MockOSNotifier(initialStatus: authStatus.asAuthorizationStatus())
     let delegate = MockPermissionDelegate(decision: decision)
 
-    let settings = NotificationSettingsStore(
+    let settings = SettingsStore(
       fileURL: FileManager.default.temporaryDirectory.appending(component: "\(UUID()).json"),
-      debounce: .seconds(3600)
+      debounceWindow: .seconds(3600)
     )
-    settings.mutate {
-      $0.notifications.authStatus = authStatus
-      $0.notifications.mute.enabled = globalEnabled
-      $0.notifications.mute.surfaceIdle = surfaceIdle
-      $0.notifications.mute.redactBodies = redactBodies
-      $0.notifications.mute.mutedRuleIDs = mutedRuleIDs
-      $0.notifications.mute.mutedPanelIDs = mutedPanelIDs
+    settings.mutateNotifications {
+      $0.authStatus = authStatus
+      $0.mute.enabled = globalEnabled
+      $0.mute.surfaceIdle = surfaceIdle
+      $0.mute.redactBodies = redactBodies
+      $0.mute.mutedRuleIDs = mutedRuleIDs
+      $0.mute.mutedPanelIDs = mutedPanelIDs
     }
 
     let registry = TrackerRegistry(
@@ -334,7 +337,10 @@ struct NotificationCoordinatorTests {
       inbox: inbox,
       badger: badger,
       osNotifier: notifier,
-      settings: settings,
+      settingsReader: settings,
+      mutateSettings: { [weak settings] transform in
+        settings?.mutateNotifications(transform)
+      },
       registry: registry,
       permissionDelegate: delegate
     )
@@ -476,7 +482,7 @@ struct Harness {
   let badger: MockDockBadger
   let mockNotifier: MockOSNotifier
   let mockDelegate: MockPermissionDelegate
-  let settings: NotificationSettingsStore
+  let settings: SettingsStore
   let coordinator: NotificationCoordinator
 
   /// Drive one RouterOutput through the coordinator. Uses the direct

@@ -187,17 +187,16 @@ struct C6AppBootstrapTests {
     let inboxURL = temp.appendingPathComponent("notifications.json")
     let rulesURL = temp.appendingPathComponent("detection-rules.json")
 
-    // Pre-stamp the auth status so the coordinator skips re-prompting when
-    // the test wants an authorized path.
-    let settings = NotificationSettingsStore(fileURL: settingsURL, debounce: .seconds(3600))
-    settings.mutate { $0.notifications.authStatus = authStatus }
+    // Pre-stamp the auth status on a v2-shaped file so the migration path passes through.
+    let settings = SettingsStore(fileURL: settingsURL, debounceWindow: .seconds(3600))
+    settings.mutateNotifications { $0.authStatus = authStatus }
     try settings.saveNow()
 
     let bootstrap = try await C6AppBootstrap.start(
       hierarchy: hierarchy,
       hookDispatcher: dispatcher,
       hookConfigStore: hookStore,
-      settingsURL: settingsURL,
+      settingsStore: settings,
       inboxURL: inboxURL,
       detectionRulesURL: rulesURL,
       osNotifier: notifier,

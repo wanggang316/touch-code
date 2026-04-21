@@ -14,8 +14,9 @@ struct TouchCodeApp: App {
   @State private var skillBanner = SkillVersionBanner.live()
   /// `SwiftUI.App` gives us no `applicationWillTerminate` hook on its own;
   /// the adaptor bridges AppKit's termination callback so we can flush
-  /// debounced writes from `SettingsStore`, `InboxStore`, and
-  /// `NotificationSettingsStore` before the process exits.
+  /// debounced writes from `SettingsStore` and `InboxStore` before the
+  /// process exits. `NotificationSettingsStore` was retired in Step 4 —
+  /// settings.json now has a single writer (`SettingsStore`).
   @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
   var body: some Scene {
@@ -93,7 +94,6 @@ final class AppState {
   /// `HierarchyManager`-through-`@Environment` pattern the sidebar
   /// already uses for structural data.
   let inboxStore: InboxStore
-  private let notificationSettingsStore: NotificationSettingsStore
 
   // IPC stack (C3+C4): HookDispatcher + SocketServer + handlers.
   private var hookConfigStore: HookConfigStore?
@@ -129,7 +129,6 @@ final class AppState {
     // surface is alive for the full app lifetime. Views observe it via
     // env injection; EditorClient closes over it in bringUp().
     self.inboxStore = InboxStore()
-    self.notificationSettingsStore = NotificationSettingsStore()
     self.settingsStore = SettingsStore()
     // TerminalEngine is constructed in bringUp() once we know whether a
     // GhosttyRuntime is available — this avoids a throwaway engine.
@@ -153,12 +152,10 @@ final class AppState {
     // Load C6 + C8 state — best-effort; decode errors are logged inside each
     // store and do not block the app from launching.
     _ = try? inboxStore.load()
-    _ = try? notificationSettingsStore.load()
-    // C7+C8 SettingsStore loads itself from disk during `init(fileURL:)`.
+    // SettingsStore loads itself (with v1→v2 migration) during `init(fileURL:)`.
 
     let manager = hierarchyManager
     let inbox = inboxStore
-    let notifSettings = notificationSettingsStore
     let settings = settingsStore
     // Build the editor + hierarchy clients once so the reducer stack AND the IPC
     // handlers share the exact same live instances — avoids two parallel
@@ -178,7 +175,7 @@ final class AppState {
       // closes over `manager` (per-Project override).
       $0.editorClient = editor
       $0.settingsWriter = .live(settings)
-      $0[InboxClient.self] = .live(inbox: inbox, settings: notifSettings)
+      $0[InboxClient.self] = .live(inbox: inbox, settings: settings)
     }
 
     startIPC(hierarchy: manager, editor: editor, hierarchyClient: hierarchy)
@@ -198,7 +195,7 @@ final class AppState {
           let dispatcher = hookDispatcher,
           let hookStore = hookConfigStore else { return }
     let inbox = inboxStore
-    let settings = notificationSettingsStore
+    let settings = settingsStore
     Task { @MainActor [weak self] in
       do {
         let bootstrap = try await C6AppBootstrap.start(
@@ -288,7 +285,6 @@ final class AppState {
   func flushAllPersistedState() {
     settingsStore.flush()
     try? inboxStore.saveNow()
-    try? notificationSettingsStore.saveNow()
     try? notificationBootstrap?.flushPendingWrites()
     notificationBootstrap?.shutdown()
     // `CatalogStore` writes on scheduleSave and on app termination via its own signals.
