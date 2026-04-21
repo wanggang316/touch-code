@@ -59,7 +59,19 @@ struct SettingsSidebarView: View {
       Label("Hooks", systemImage: "link")
         .tag(Optional(SettingsSection.repositoryHooks(project.id)))
     } label: {
+      // Spec M10: a tap on the Repository name should select its General pane when the
+      // disclosure is currently collapsed (and expand it to reveal the two child rows).
+      // `simultaneousGesture` runs alongside DisclosureGroup's built-in label tap so the
+      // expansion toggle still happens — we only add the selection write.
       Label(project.name, systemImage: "folder")
+        .contentShape(Rectangle())
+        .simultaneousGesture(
+          TapGesture().onEnded {
+            if !(expandedProjects[project.id] ?? false) {
+              selection = .repositoryGeneral(project.id)
+            }
+          }
+        )
     }
   }
 

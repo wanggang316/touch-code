@@ -32,6 +32,10 @@ struct SettingsWindowFeature {
     case general(EditorFeature.Action)
     /// Fired by `SettingsWindowView`'s `.onDisappear`. Clears sidebar selection per M16.
     case windowClosed
+    /// Fired from the view on every `HierarchyManager.catalog` delta. Reducer prunes a
+    /// Repository-scoped selection whose backing Project has disappeared from the catalog —
+    /// spec Acceptance Criteria "当主窗口关闭 Project A，则选中自动回落到全局 General".
+    case projectsChanged(Set<ProjectID>)
   }
 
   var body: some Reducer<State, Action> {
@@ -47,6 +51,16 @@ struct SettingsWindowFeature {
         return .none
       case .windowClosed:
         state.selection = nil
+        return .none
+      case .projectsChanged(let currentIDs):
+        switch state.selection {
+        case .repositoryGeneral(let projectID), .repositoryHooks(let projectID):
+          if !currentIDs.contains(projectID) {
+            state.selection = nil
+          }
+        default:
+          break
+        }
         return .none
       }
     }

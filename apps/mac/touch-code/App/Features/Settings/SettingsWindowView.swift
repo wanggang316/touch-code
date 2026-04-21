@@ -11,6 +11,8 @@ struct SettingsWindowView: View {
   /// Strong reference to the store so Appearance / future pane writes route through the
   /// single-writer SettingsStore without TCA scoping churn. Injected at scene construction.
   let settingsStore: SettingsStore
+  /// Read for the sidebar's Repositories disclosure + the B8 pruning subscription below.
+  @Environment(HierarchyManager.self) private var hierarchyManager
 
   var body: some View {
     let selection = Binding<SettingsSection?>(
@@ -24,9 +26,19 @@ struct SettingsWindowView: View {
     }
     .frame(minWidth: 750, minHeight: 500)
     .navigationTitle("Settings")
+    .onChange(of: projectIDs, initial: true) { _, current in
+      // B8: when the catalog drops a Project the user is viewing, fall back to General.
+      store.send(.projectsChanged(current))
+    }
     .onDisappear {
       store.send(.windowClosed)
     }
+  }
+
+  /// Stable snapshot of the current Project IDs. `@Observable` catalog access re-evaluates
+  /// this on every mutation; `onChange(of:)` dedupes equal values.
+  private var projectIDs: Set<ProjectID> {
+    Set(hierarchyManager.catalog.spaces.flatMap { $0.projects.map(\.id) })
   }
 
   @ViewBuilder
