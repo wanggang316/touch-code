@@ -22,7 +22,11 @@ public enum HookConfigError: Error, Equatable, Sendable {
 public final class HookConfigStore {
   public static let defaultDebounceSeconds: TimeInterval = 0.5
 
-  private let fileURL: URL
+  /// On-disk location this store reads and writes. Exposed so callers — e.g.
+  /// `HookConfigClient.ensureExists` (T4) — can check physical presence without
+  /// a back-channel lookup through `HookConfig.defaultURL()`, which would
+  /// miss test-time overrides.
+  public let fileURL: URL
   private let debounceSeconds: TimeInterval
   private var debounceTask: Task<Void, Never>?
   /// Latest payload handed to `scheduleSave` but not yet flushed. `flush()`

@@ -1,16 +1,19 @@
+import AppKit
 import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
 
 /// Repository General detail pane (spec M11): per-Project editor override and
 /// worktree base directory override. Reads/writes through `HierarchyClient` per
-/// design D1. Signature and `projectID` parameter are frozen contracts.
+/// design D1. `store` is scoped by `SettingsWindowView` before construction and
+/// keyed by `projectID`; `descriptors` flows from the parent's `general` substate
+/// so the picker renders the same editor list the global Default Editor pane shows.
 struct RepositoryGeneralSettingsView: View {
-  @Environment(\.hierarchyManager) var hierarchyManager
-  @Environment(SettingsWindowFeature.self) var windowFeature
-  @Environment(StoreOf<RepositorySettingsFeature>.self) var repositoryStore
-
   let projectID: ProjectID
+  let store: StoreOf<RepositorySettingsFeature>
+  let descriptors: [EditorDescriptor]
+
+  @Environment(HierarchyManager.self) private var hierarchyManager
 
   var body: some View {
     ScrollView {
@@ -20,14 +23,17 @@ struct RepositoryGeneralSettingsView: View {
           Text("Default Editor")
             .font(.headline)
           if let project = projectInCatalog() {
-            Picker("Editor", selection: Binding(
-              get: { project.defaultEditor },
-              set: { repositoryStore.send(.setDefaultEditorOverride($0)) }
-            )) {
-              Text("Use global default").tag(String?(nil))
+            Picker(
+              "Editor",
+              selection: Binding<EditorID?>(
+                get: { project.defaultEditor },
+                set: { store.send(.setDefaultEditorOverride($0)) }
+              )
+            ) {
+              Text("Use global default").tag(EditorID?(nil))
               Divider()
-              ForEach(windowFeature.general.descriptors, id: \.id) { descriptor in
-                Text(descriptor.name).tag(String?(descriptor.id))
+              ForEach(descriptors, id: \.id) { descriptor in
+                Text(descriptor.displayName).tag(EditorID?(descriptor.id))
               }
             }
           }
@@ -41,21 +47,16 @@ struct RepositoryGeneralSettingsView: View {
             HStack {
               TextField(
                 "Path",
-                text: Binding(
-                  get: { project.worktreesDirectory ?? "" },
-                  set: { _ in }
-                )
+                text: .constant(project.worktreesDirectory ?? "")
               )
               .disabled(true)
 
-              Button("Choose") {
-                chooseWorktreeDirectory()
-              }
-              .buttonStyle(.bordered)
+              Button("Choose") { chooseWorktreeDirectory() }
+                .buttonStyle(.bordered)
 
               if project.worktreesDirectory != nil {
                 Button("Clear") {
-                  repositoryStore.send(.setWorktreeBaseDirectory(nil))
+                  store.send(.setWorktreeBaseDirectory(nil))
                 }
                 .buttonStyle(.bordered)
               }
@@ -63,14 +64,12 @@ struct RepositoryGeneralSettingsView: View {
           }
         }
 
-        // Error banner
-        if let error = repositoryStore.lastWriteFailure, !error.isEmpty {
-          VStack(alignment: .leading, spacing: 8) {
-            Label(error, systemImage: "exclamationmark.circle.fill")
-              .foregroundColor(.red)
-          }
-          .padding(8)
-          .background(Color(nsColor: .systemRed).opacity(0.1), in: .rect(cornerRadius: 6))
+        // Error banner — sticky until next successful write clears it.
+        if let error = store.state.lastWriteFailure, !error.isEmpty {
+          Label(error, systemImage: "exclamationmark.circle.fill")
+            .foregroundColor(.red)
+            .padding(8)
+            .background(Color(nsColor: .systemRed).opacity(0.1), in: .rect(cornerRadius: 6))
         }
 
         Spacer()
@@ -80,8 +79,7 @@ struct RepositoryGeneralSettingsView: View {
   }
 
   private func projectInCatalog() -> Project? {
-    let catalog = hierarchyManager.catalog
-    for space in catalog.spaces {
+    for space in hierarchyManager.catalog.spaces {
       if let project = space.projects.first(where: { $0.id == projectID }) {
         return project
       }
@@ -95,16 +93,10 @@ struct RepositoryGeneralSettingsView: View {
     panel.canChooseFiles = false
     panel.allowsMultipleSelection = false
     panel.message = "Choose a directory for worktree storage"
-
     panel.begin { response in
       if response == .OK, let url = panel.urls.first {
-        repositoryStore.send(.setWorktreeBaseDirectory(url.path))
+        store.send(.setWorktreeBaseDirectory(url.path))
       }
     }
   }
-}
-
-#Preview {
-  RepositoryGeneralSettingsView(projectID: ProjectID())
-    .frame(width: 500, height: 300)
 }

@@ -45,7 +45,7 @@ struct RepositorySettingsFeature {
       case .setDefaultEditorOverride(let editorID):
         return .run { [projectID = state.projectID] send in
           do {
-            try hierarchyClient.setRepositoryDefaultEditor(projectID, editorID)
+            try await hierarchyClient.setRepositoryDefaultEditor(projectID, editorID)
             await send(.writeFailed(""))  // Clear the error on success
           } catch {
             await send(.writeFailed(String(describing: error)))
@@ -55,7 +55,7 @@ struct RepositorySettingsFeature {
       case .setWorktreeBaseDirectory(let path):
         return .run { [projectID = state.projectID] send in
           do {
-            try hierarchyClient.setRepositoryWorktreeBaseDirectory(projectID, path)
+            try await hierarchyClient.setRepositoryWorktreeBaseDirectory(projectID, path)
             await send(.writeFailed(""))  // Clear the error on success
           } catch {
             await send(.writeFailed(String(describing: error)))
@@ -71,10 +71,11 @@ struct RepositorySettingsFeature {
         return .run { [projectID = state.projectID] send in
           do {
             let config = try await hookConfigClient.load()
+            let catalog = await hierarchyClient.snapshot()
             let classified = try classifyHooks(
               config.subscriptions,
               for: projectID,
-              using: hierarchyClient
+              catalog: catalog
             )
             let rows = classified.map { subscription, source in
               HookRowBuilder.make(from: subscription, source: source)
@@ -100,7 +101,7 @@ struct RepositorySettingsFeature {
           do {
             try await hookConfigClient.ensureExists()
             let path = HookConfig.defaultURL().path
-            finderClient.reveal(path)
+            await finderClient.reveal(path)
           } catch {
             let errorMessage = String(describing: error)
             await send(.writeFailed(errorMessage))
@@ -114,18 +115,17 @@ struct RepositorySettingsFeature {
 // MARK: - Hook Classification Helper
 
 /// Classify each hook subscription as Global or Repository based on its scope
-/// and the current project's worktree list. A subscription is Repository if its
-/// scope binds it to one of the project's worktrees; Global otherwise.
+/// and the current project's repo root + worktree list. The caller passes a
+/// pre-fetched `Catalog` snapshot so this helper stays sync (safe to call off
+/// the MainActor).
 ///
 /// Throws LoadError.classificationFailed if the project cannot be resolved in
-/// the current catalog.
-private func classifyHooks(
+/// the supplied catalog.
+nonisolated func classifyHooks(
   _ subscriptions: [HookSubscription],
   for projectID: ProjectID,
-  using hierarchyClient: HierarchyClient
+  catalog: Catalog
 ) throws -> [(HookSubscription, HookSource)] {
-  let catalog = hierarchyClient.snapshot()
-
   // Find the project in the catalog.
   var project: Project? = nil
   for space in catalog.spaces {
@@ -154,7 +154,7 @@ private func classifyHooks(
 /// (matched against project worktrees), or none of the above if the project has
 /// no worktrees. Global-scoped hooks match anyPanel, panelID, panelLabel,
 /// tabID, or tabLabel, regardless of project.
-private func isRepositoryScope(_ scope: HookSubscription.Scope, project: Project) -> Bool {
+nonisolated private func isRepositoryScope(_ scope: HookSubscription.Scope, project: Project) -> Bool {
   switch scope {
   case .anyPanel, .panelID, .panelLabel, .tabID, .tabLabel:
     // Global scopes are not project-specific.
@@ -174,7 +174,7 @@ private func isRepositoryScope(_ scope: HookSubscription.Scope, project: Project
 
 /// Simple glob matching: support `*` wildcard. Full fnmatch() is overkill
 /// for the common case of "match any path under a directory tree".
-private func doesPathMatchGlob(_ path: String, glob: String) -> Bool {
+nonisolated private func doesPathMatchGlob(_ path: String, glob: String) -> Bool {
   // If glob has no wildcards, require exact match.
   guard glob.contains("*") else {
     return path == glob

@@ -29,8 +29,7 @@ extension HookConfigClient {
         try store.load()
       },
       ensureExists: {
-        let url = HookConfig.defaultURL()
-        guard !FileManager.default.fileExists(atPath: url.path) else { return }
+        guard !FileManager.default.fileExists(atPath: store.fileURL.path) else { return }
         try store.save(.empty)
       }
     )

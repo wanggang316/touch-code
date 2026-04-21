@@ -7,270 +7,255 @@ import TouchCodeCore
 
 @MainActor
 struct RepositorySettingsFeatureTests {
-  private func makeTestStore(projectID: ProjectID = ProjectID()) -> StoreOf<RepositorySettingsFeature> {
-    TestStore(
-      initialState: RepositorySettingsFeature.State(projectID: projectID),
-      reducer: { RepositorySettingsFeature() },
-      withDependencies: { deps in
-        deps.hierarchyClient = .testValue
-        deps.hookConfigClient = .testValue
-        deps.finderClient = .testValue
-      }
-    )
-  }
-
-  // MARK: - setDefaultEditorOverride tests
+  // MARK: - setDefaultEditorOverride
 
   @Test
-  func setDefaultEditorOverrideCallsHierarchyClient() async {
+  func setDefaultEditorOverrideForwardsToHierarchyClient() async {
     let projectID = ProjectID()
-    let store = makeTestStore(projectID: projectID)
-    var setEditorCalled = false
-    var capturedProjectID: ProjectID?
-    var capturedEditorID: EditorID?
-
-    store.dependencies.hierarchyClient.setRepositoryDefaultEditor = { pid, eid in
-      setEditorCalled = true
-      capturedProjectID = pid
-      capturedEditorID = eid
+    let captured = LockIsolated<(ProjectID, EditorID?)?>(nil)
+    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: projectID)) {
+      RepositorySettingsFeature()
+    } withDependencies: {
+      $0.hierarchyClient = .testValue
+      $0.hierarchyClient.setRepositoryDefaultEditor = { pid, eid in
+        captured.setValue((pid, eid))
+      }
+      $0.hookConfigClient = .testValue
+      $0.finderClient = .testValue
     }
 
     await store.send(.setDefaultEditorOverride("vscode"))
-    #expect(setEditorCalled)
-    #expect(capturedProjectID == projectID)
-    #expect(capturedEditorID == "vscode")
+    await store.receive(\.writeFailed)
+    #expect(captured.value?.0 == projectID)
+    #expect(captured.value?.1 == "vscode")
   }
 
   @Test
-  func setDefaultEditorOverrideClearsOverrideWhenPassedNil() async {
-    let projectID = ProjectID()
-    let store = makeTestStore(projectID: projectID)
-    var capturedEditorID: EditorID??  = .some(.some("initial"))
-
-    store.dependencies.hierarchyClient.setRepositoryDefaultEditor = { _, eid in
-      capturedEditorID = eid
+  func setDefaultEditorOverridePassesNilForClearRequest() async {
+    let captured = LockIsolated<EditorID??>(nil)
+    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: ProjectID())) {
+      RepositorySettingsFeature()
+    } withDependencies: {
+      $0.hierarchyClient = .testValue
+      $0.hierarchyClient.setRepositoryDefaultEditor = { _, eid in
+        captured.setValue(.some(eid))
+      }
+      $0.hookConfigClient = .testValue
+      $0.finderClient = .testValue
     }
 
     await store.send(.setDefaultEditorOverride(nil))
-    #expect(capturedEditorID == nil)
+    await store.receive(\.writeFailed)
+    #expect(captured.value == .some(nil))
   }
 
   @Test
-  func setDefaultEditorOverrideSetsClearsLastWriteFailureOnSuccess() async {
-    let store = makeTestStore()
-    store.dependencies.hierarchyClient.setRepositoryDefaultEditor = { _, _ in
-      // Success — no throw
+  func setDefaultEditorOverrideClearsLastWriteFailureOnSuccess() async {
+    var initial = RepositorySettingsFeature.State(projectID: ProjectID())
+    initial.lastWriteFailure = "previous error"
+    let store = TestStore(initialState: initial) {
+      RepositorySettingsFeature()
+    } withDependencies: {
+      $0.hierarchyClient = .testValue
+      $0.hierarchyClient.setRepositoryDefaultEditor = { _, _ in }
+      $0.hookConfigClient = .testValue
+      $0.finderClient = .testValue
     }
 
-    store.state.lastWriteFailure = "previous error"
-    await store.send(.setDefaultEditorOverride("xcode")) {
+    await store.send(.setDefaultEditorOverride("xcode"))
+    await store.receive(\.writeFailed) {
       $0.lastWriteFailure = nil
     }
   }
 
   @Test
-  func setDefaultEditorOverrideSetsLastWriteFailureOnError() async {
-    let store = makeTestStore()
-    struct TestError: Error { let message: String }
-    let testError = TestError(message: "test write failed")
-
-    store.dependencies.hierarchyClient.setRepositoryDefaultEditor = { _, _ in
-      throw testError
+  func setDefaultEditorOverrideStoresErrorMessageOnThrow() async {
+    struct DummyError: Error, CustomStringConvertible { var description: String { "boom" } }
+    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: ProjectID())) {
+      RepositorySettingsFeature()
+    } withDependencies: {
+      $0.hierarchyClient = .testValue
+      $0.hierarchyClient.setRepositoryDefaultEditor = { _, _ in throw DummyError() }
+      $0.hookConfigClient = .testValue
+      $0.finderClient = .testValue
     }
 
-    await store.send(.setDefaultEditorOverride("xcode")) {
-      $0.lastWriteFailure = String(describing: testError)
+    await store.send(.setDefaultEditorOverride("xcode"))
+    await store.receive(\.writeFailed) {
+      $0.lastWriteFailure = "boom"
     }
   }
 
-  // MARK: - setWorktreeBaseDirectory tests
+  // MARK: - setWorktreeBaseDirectory
 
   @Test
-  func setWorktreeBaseDirectoryCallsHierarchyClient() async {
+  func setWorktreeBaseDirectoryForwardsToHierarchyClient() async {
     let projectID = ProjectID()
-    let store = makeTestStore(projectID: projectID)
-    var setPathCalled = false
-    var capturedProjectID: ProjectID?
-    var capturedPath: String?
-
-    store.dependencies.hierarchyClient.setRepositoryWorktreeBaseDirectory = { pid, path in
-      setPathCalled = true
-      capturedProjectID = pid
-      capturedPath = path
+    let captured = LockIsolated<(ProjectID, String?)?>(nil)
+    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: projectID)) {
+      RepositorySettingsFeature()
+    } withDependencies: {
+      $0.hierarchyClient = .testValue
+      $0.hierarchyClient.setRepositoryWorktreeBaseDirectory = { pid, path in
+        captured.setValue((pid, path))
+      }
+      $0.hookConfigClient = .testValue
+      $0.finderClient = .testValue
     }
 
     await store.send(.setWorktreeBaseDirectory("/Users/me/worktrees"))
-    #expect(setPathCalled)
-    #expect(capturedProjectID == projectID)
-    #expect(capturedPath == "/Users/me/worktrees")
+    await store.receive(\.writeFailed)
+    #expect(captured.value?.0 == projectID)
+    #expect(captured.value?.1 == "/Users/me/worktrees")
   }
 
   @Test
-  func setWorktreeBaseDirectoryClearsOverrideWhenPassedNil() async {
-    let projectID = ProjectID()
-    let store = makeTestStore(projectID: projectID)
-    var capturedPath: String??  = .some(.some("/some/path"))
-
-    store.dependencies.hierarchyClient.setRepositoryWorktreeBaseDirectory = { _, path in
-      capturedPath = path
+  func setWorktreeBaseDirectoryPassesNilForClearRequest() async {
+    let captured = LockIsolated<String??>(nil)
+    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: ProjectID())) {
+      RepositorySettingsFeature()
+    } withDependencies: {
+      $0.hierarchyClient = .testValue
+      $0.hierarchyClient.setRepositoryWorktreeBaseDirectory = { _, path in
+        captured.setValue(.some(path))
+      }
+      $0.hookConfigClient = .testValue
+      $0.finderClient = .testValue
     }
 
     await store.send(.setWorktreeBaseDirectory(nil))
-    #expect(capturedPath == nil)
+    await store.receive(\.writeFailed)
+    #expect(captured.value == .some(nil))
   }
 
-  // MARK: - onHooksAppear and hooksLoaded tests
+  // MARK: - onHooksAppear + classification
 
   @Test
-  func onHooksAppearSetsLoadingState() async {
-    let store = makeTestStore()
-    store.dependencies.hookConfigClient.load = {
-      HookConfig(subscriptions: [])
-    }
-
-    await store.send(.onHooksAppear) {
-      $0.hooksLoad = .loading
-    }
-  }
-
-  @Test
-  func onHooksAppearLoadsHooksAndClassifiesToRepository() async {
+  func onHooksAppearTagsRepositoryScopedSubscription() async {
     let projectID = ProjectID()
-    let subscriptionID = UUID()
-    let wtree = Worktree(
-      id: WorktreeID(),
-      name: "main",
-      path: "/path/to/wt",
-      branch: "main"
-    )
+    let subID = UUID()
+    let wtID = WorktreeID()
     let project = Project(
       id: projectID,
-      name: "test",
-      rootPath: "/root",
-      gitRoot: "/root",
-      worktrees: [wtree],
-      defaultEditor: nil,
-      worktreesDirectory: nil
+      name: "P",
+      rootPath: "/repo",
+      gitRoot: "/repo",
+      worktrees: [Worktree(id: wtID, name: "main", path: "/repo/main", branch: "main")]
     )
-    let space = Space(id: SpaceID(), name: "space", projects: [project])
+    let space = Space(id: SpaceID(), name: "S", projects: [project])
     let catalog = Catalog(windows: [], spaces: [space], selectedSpaceID: space.id)
-
-    let subscription = HookSubscription(
-      id: subscriptionID,
-      event: .gitPush,
+    let sub = HookSubscription(
+      id: subID,
+      event: .panelCreated,
       command: "echo test",
-      scope: .worktreeID(wtree.id)  // Repository-scoped
+      scope: .worktreeID(wtID)
     )
 
-    let store = makeTestStore(projectID: projectID)
-    store.dependencies.hookConfigClient.load = {
-      HookConfig(subscriptions: [subscription])
+    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: projectID)) {
+      RepositorySettingsFeature()
+    } withDependencies: {
+      $0.hookConfigClient = .testValue
+      $0.hookConfigClient.load = { HookConfig(subscriptions: [sub]) }
+      $0.hierarchyClient = .testValue
+      $0.hierarchyClient.snapshot = { catalog }
+      $0.finderClient = .testValue
     }
-    store.dependencies.hierarchyClient.snapshot = { catalog }
 
-    // Simulate successful load and classification.
-    let hookRow = makeTestHookRow(id: subscriptionID, source: .repository)
-
+    let expected = HookRowBuilder.make(from: sub, source: .repository)
     await store.send(.onHooksAppear) {
       $0.hooksLoad = .loading
     }
-
-    await store.receive(.hooksLoaded(.success([hookRow]))) {
-      $0.hooksLoad = .loaded([hookRow])
+    await store.receive(\.hooksLoaded.success) {
+      $0.hooksLoad = .loaded([expected])
     }
   }
 
   @Test
-  func onHooksAppearClassifiesToGlobalWhenScopeDoesNotMatch() async {
+  func onHooksAppearTagsGlobalScopedSubscriptionAsGlobal() async {
     let projectID = ProjectID()
-    let subscriptionID = UUID()
-    let project = Project(
-      id: projectID,
-      name: "test",
-      rootPath: "/root",
-      gitRoot: "/root"
-    )
-    let space = Space(id: SpaceID(), name: "space", projects: [project])
+    let subID = UUID()
+    let project = Project(id: projectID, name: "P", rootPath: "/repo", gitRoot: "/repo")
+    let space = Space(id: SpaceID(), name: "S", projects: [project])
     let catalog = Catalog(windows: [], spaces: [space], selectedSpaceID: space.id)
-
-    let subscription = HookSubscription(
-      id: subscriptionID,
-      event: .gitPush,
+    let sub = HookSubscription(
+      id: subID,
+      event: .panelCreated,
       command: "echo test",
-      scope: .anyPanel  // Global scope
+      scope: .anyPanel
     )
 
-    let store = makeTestStore(projectID: projectID)
-    store.dependencies.hookConfigClient.load = {
-      HookConfig(subscriptions: [subscription])
+    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: projectID)) {
+      RepositorySettingsFeature()
+    } withDependencies: {
+      $0.hookConfigClient = .testValue
+      $0.hookConfigClient.load = { HookConfig(subscriptions: [sub]) }
+      $0.hierarchyClient = .testValue
+      $0.hierarchyClient.snapshot = { catalog }
+      $0.finderClient = .testValue
     }
-    store.dependencies.hierarchyClient.snapshot = { catalog }
 
-    let hookRow = makeTestHookRow(id: subscriptionID, source: .global)
-
+    let expected = HookRowBuilder.make(from: sub, source: .global)
     await store.send(.onHooksAppear) {
       $0.hooksLoad = .loading
     }
-
-    await store.receive(.hooksLoaded(.success([hookRow]))) {
-      $0.hooksLoad = .loaded([hookRow])
+    await store.receive(\.hooksLoaded.success) {
+      $0.hooksLoad = .loaded([expected])
     }
   }
 
-  @Test
-  func hooksLoadedFailureSetsFailedState() async {
-    let store = makeTestStore()
-    let errorMessage = "test load error"
-
-    await store.send(.hooksLoaded(.failure(.loadFailed(errorMessage)))) {
-      $0.hooksLoad = .failed(errorMessage)
-    }
-  }
-
-  // MARK: - revealHooksJSONRequested tests
+  // MARK: - revealHooksJSONRequested
 
   @Test
   func revealHooksJSONRequestedCallsEnsureExistsThenReveal() async {
-    let store = makeTestStore()
-    var ensureExistsCalled = false
-    var revealCalled = false
-    var revealedPath: String?
-
-    store.dependencies.hookConfigClient.ensureExists = {
-      ensureExistsCalled = true
-    }
-    store.dependencies.finderClient.reveal = { path in
-      revealCalled = true
-      revealedPath = path
+    let ensureCalled = LockIsolated(false)
+    let revealed = LockIsolated<String?>(nil)
+    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: ProjectID())) {
+      RepositorySettingsFeature()
+    } withDependencies: {
+      $0.hookConfigClient = .testValue
+      $0.hookConfigClient.ensureExists = { ensureCalled.setValue(true) }
+      $0.finderClient = .testValue
+      $0.finderClient.reveal = { path in revealed.setValue(path) }
+      $0.hierarchyClient = .testValue
     }
 
     await store.send(.revealHooksJSONRequested)
-    #expect(ensureExistsCalled)
-    #expect(revealCalled)
-    #expect(revealedPath == HookConfig.defaultURL().path)
+    await store.finish()
+    #expect(ensureCalled.value)
+    #expect(revealed.value == HookConfig.defaultURL().path)
   }
 
   @Test
-  func revealHooksJSONRequestedSetsErrorOnEnsureExistsFailure() async {
-    let store = makeTestStore()
-    struct TestError: Error { let message: String }
-    let testError = TestError(message: "ensure failed")
-
-    store.dependencies.hookConfigClient.ensureExists = {
-      throw testError
+  func revealHooksJSONRequestedSurfacesEnsureExistsFailure() async {
+    struct DummyError: Error, CustomStringConvertible { var description: String { "ensure boom" } }
+    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: ProjectID())) {
+      RepositorySettingsFeature()
+    } withDependencies: {
+      $0.hookConfigClient = .testValue
+      $0.hookConfigClient.ensureExists = { throw DummyError() }
+      $0.finderClient = .testValue
+      $0.hierarchyClient = .testValue
     }
 
-    await store.send(.revealHooksJSONRequested) {
-      $0.lastWriteFailure = String(describing: testError)
+    await store.send(.revealHooksJSONRequested)
+    await store.receive(\.writeFailed) {
+      $0.lastWriteFailure = "ensure boom"
     }
   }
 
-  // MARK: - writeFailed action tests
+  // MARK: - writeFailed
 
   @Test
-  func writeFailedWithEmptyStringSetsNil() async {
-    let store = makeTestStore()
-    store.state.lastWriteFailure = "some error"
+  func writeFailedEmptyStringClearsError() async {
+    var initial = RepositorySettingsFeature.State(projectID: ProjectID())
+    initial.lastWriteFailure = "something"
+    let store = TestStore(initialState: initial) {
+      RepositorySettingsFeature()
+    } withDependencies: {
+      $0.hierarchyClient = .testValue
+      $0.hookConfigClient = .testValue
+      $0.finderClient = .testValue
+    }
 
     await store.send(.writeFailed("")) {
       $0.lastWriteFailure = nil
@@ -278,32 +263,33 @@ struct RepositorySettingsFeatureTests {
   }
 
   @Test
-  func writeFailedWithMessageSetsMessage() async {
-    let store = makeTestStore()
-    let errorMessage = "connection failed"
+  func writeFailedNonEmptyRecordsMessage() async {
+    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: ProjectID())) {
+      RepositorySettingsFeature()
+    } withDependencies: {
+      $0.hierarchyClient = .testValue
+      $0.hookConfigClient = .testValue
+      $0.finderClient = .testValue
+    }
 
-    await store.send(.writeFailed(errorMessage)) {
-      $0.lastWriteFailure = errorMessage
+    await store.send(.writeFailed("io error")) {
+      $0.lastWriteFailure = "io error"
     }
   }
-}
 
-// MARK: - Test Helpers
+  @Test
+  func hooksLoadedFailureSetsFailedState() async {
+    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: ProjectID())) {
+      RepositorySettingsFeature()
+    } withDependencies: {
+      $0.hierarchyClient = .testValue
+      $0.hookConfigClient = .testValue
+      $0.finderClient = .testValue
+    }
 
-/// Construct a HookRow for testing. Uses mock values since the builder
-/// is normally called during the load effect.
-private func makeTestHookRow(
-  id: UUID,
-  displayName: String = "test",
-  source: HookSource = .global,
-  enabled: Bool = true
-) -> HookRow {
-  HookRow(
-    id: id,
-    displayName: displayName,
-    eventLabel: "git-push",
-    matchSummary: nil,
-    enabled: enabled,
-    source: source
-  )
+    let err = RepositorySettingsFeature.LoadError.loadFailed("disk gone")
+    await store.send(.hooksLoaded(.failure(err))) {
+      $0.hooksLoad = .failed(String(describing: err))
+    }
+  }
 }

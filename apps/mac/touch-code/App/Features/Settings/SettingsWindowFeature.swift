@@ -3,8 +3,8 @@ import Foundation
 import TouchCodeCore
 
 /// Reducer for the standalone Settings window. Holds sidebar selection + the General pane's
-/// `EditorFeature` state. T2/T3/T4 compose their per-pane reducers alongside `general` in a
-/// future wave — the window shell stays narrow in T1.
+/// `EditorFeature` state plus a per-`ProjectID` slice of `RepositorySettingsFeature.State`
+/// for each Repository pane the user has visited (T4).
 ///
 /// Selection is *not* persisted. Spec M16 requires that closing the window drops the
 /// selection and that re-opening defaults to General. `windowClosed` resets `selection` to
@@ -36,7 +36,7 @@ struct SettingsWindowFeature {
   enum Action: Equatable {
     case selectionChanged(SettingsSection?)
     case general(EditorFeature.Action)
-    case repositoryPane(RepositorySettingsFeature.Action, for: ProjectID)
+    case repositoryPanes(IdentifiedActionOf<RepositorySettingsFeature>)
     /// Fired by `SettingsWindowView`'s `.onDisappear`. Clears sidebar selection per M16.
     case windowClosed
     /// Fired from the view on every `HierarchyManager.catalog` delta. Reducer prunes a
@@ -56,7 +56,7 @@ struct SettingsWindowFeature {
         return .none
       case .general:
         return .none
-      case .repositoryPane:
+      case .repositoryPanes:
         return .none
       case .windowClosed:
         state.selection = nil
@@ -76,7 +76,7 @@ struct SettingsWindowFeature {
         return .none
       }
     }
-    .forEach(\.repositoryPanes, action: /Action.repositoryPane) {
+    .forEach(\.repositoryPanes, action: \.repositoryPanes) {
       RepositorySettingsFeature()
     }
   }

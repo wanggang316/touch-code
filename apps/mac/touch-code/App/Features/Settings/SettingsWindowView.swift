@@ -60,28 +60,29 @@ struct SettingsWindowView: View {
     case .about:
       AboutSettingsView()
     case .repositoryGeneral(let projectID):
-      if let idx = store.state.repositoryPanes.firstIndex(where: { $0.id == projectID }) {
-        RepositoryGeneralSettingsView(projectID: projectID)
-          .environment(
-            store.scope(
-              state: \.repositoryPanes[idx],
-              action: \.repositoryPane(_, for: projectID)
-            )
-          )
+      if let paneStore = store.scope(
+        state: \.repositoryPanes[id: projectID],
+        action: \.repositoryPanes[id: projectID]
+      ) {
+        RepositoryGeneralSettingsView(
+          projectID: projectID,
+          store: paneStore,
+          descriptors: store.state.general.descriptors
+        )
       } else {
-        RepositoryGeneralSettingsView(projectID: projectID)
+        // State entry is lazily instantiated in `selectionChanged`; this arm is a
+        // belt-and-suspenders placeholder for the single frame between a user click
+        // landing and the reducer run finishing.
+        ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
       }
     case .repositoryHooks(let projectID):
-      if let idx = store.state.repositoryPanes.firstIndex(where: { $0.id == projectID }) {
-        RepositoryHooksSettingsView(projectID: projectID)
-          .environment(
-            store.scope(
-              state: \.repositoryPanes[idx],
-              action: \.repositoryPane(_, for: projectID)
-            )
-          )
+      if let paneStore = store.scope(
+        state: \.repositoryPanes[id: projectID],
+        action: \.repositoryPanes[id: projectID]
+      ) {
+        RepositoryHooksSettingsView(projectID: projectID, store: paneStore)
       } else {
-        RepositoryHooksSettingsView(projectID: projectID)
+        ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
       }
     }
   }
