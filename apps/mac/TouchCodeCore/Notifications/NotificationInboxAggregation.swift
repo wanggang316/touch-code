@@ -73,10 +73,13 @@ extension NotificationInbox {
 
 extension Catalog {
   /// `[PanelID: WorktreeID]` over every panel in the catalog. Built from one
-  /// walk of the hierarchy. Intended for aggregation helpers; not public
-  /// because callers should prefer `worktreeID(forPanel:)` or build their
-  /// own snapshot-scoped cache when repeated lookup is needed.
-  nonisolated func panelWorktreeIndex() -> [PanelID: WorktreeID] {
+  /// walk of the hierarchy. Public so render-hot callers can build the index
+  /// once per snapshot and feed it into inline aggregation, sidestepping the
+  /// per-call rebuild the `NotificationInbox.*(forWorktree:in:)` helpers do.
+  /// Keep using the helpers when you only need one or two lookups; reach for
+  /// this raw index when you're iterating over many worktrees/projects in the
+  /// same render pass.
+  public nonisolated func panelWorktreeIndex() -> [PanelID: WorktreeID] {
     var index: [PanelID: WorktreeID] = [:]
     for space in spaces {
       for project in space.projects {

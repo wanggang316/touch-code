@@ -8,14 +8,22 @@ import TouchCodeCore
 /// through `@Environment` so descendant views can read `@Observable`
 /// state directly — TCA state stays focused on selection + transient UI.
 ///
-/// T0 removed the Hierarchy ↔ Inbox Picker; the leading column now always
-/// renders `HierarchySidebarView`. Notifications are reached through the
-/// Header bell (T2). `RootFeature.State.sidebarMode` and the `.inbox`
-/// Scope remain for T2's bell popover to reuse — see their doc-comments.
+/// The leading column always renders `HierarchySidebarView` (T0 removed
+/// the Hierarchy ↔ Inbox Picker; T1 removed the dead `sidebarMode` /
+/// `.inbox` scope plumbing `RootFeature` carried forward). Notifications
+/// are reached through the Header bell (T2), which is a fresh
+/// `WorktreeHeader`-owned feature rather than a reuse of
+/// `InboxSidebarFeature`.
+/// `inboxStore` is injected alongside `hierarchyManager` so the sidebar
+/// view can read `inbox.inbox` directly for Worktree / Project unread dots.
 struct ContentView: View {
   @Bindable var store: StoreOf<RootFeature>
   let hierarchyManager: HierarchyManager
   let settingsStore: SettingsStore
+  /// Injected so `HierarchySidebarView` can read `inboxStore.inbox` directly
+  /// for Worktree / Project unread-dot aggregation — matches the
+  /// `HierarchyManager`-through-`@Environment` pattern already in use.
+  let inboxStore: InboxStore
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
   /// Transient toast for editor-open outcomes (success + failure). Non-nil = visible;
@@ -78,6 +86,7 @@ struct ContentView: View {
     }
     .environment(hierarchyManager)
     .environment(settingsStore)
+    .environment(inboxStore)
     .task {
       store.send(.onLaunch)
     }

@@ -107,6 +107,18 @@ final class HierarchyManager {
     return projectID
   }
 
+  /// Renames the Project in place. Missing project is `.notFound`; an unchanged
+  /// name is a silent no-op (no catalog churn, no save). The caller is
+  /// responsible for trimming / empty-string validation — matches `renameSpace`.
+  func renameProject(_ id: ProjectID, in spaceID: SpaceID, name: String) throws {
+    guard let (spaceIndex, projectIndex) = findProjectIndices(projectID: id, spaceID: spaceID) else {
+      throw HierarchyError.notFound("Project \(id)")
+    }
+    guard catalog.spaces[spaceIndex].projects[projectIndex].name != name else { return }
+    catalog.spaces[spaceIndex].projects[projectIndex].name = name
+    store.scheduleSave(catalog)
+  }
+
   func removeProject(_ id: ProjectID, from spaceID: SpaceID) throws {
     guard let spaceIndex = catalog.spaces.firstIndex(where: { $0.id == spaceID }) else {
       throw HierarchyError.notFound("Space \(spaceID)")

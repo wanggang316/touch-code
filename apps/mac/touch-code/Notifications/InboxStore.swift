@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import os.log
 import TouchCodeCore
 
@@ -11,6 +12,7 @@ import TouchCodeCore
 /// `unreadCount` directly; `unreadPublisher` yields on every mutation so the
 /// M4 coordinator can mirror the badge without polling.
 @MainActor
+@Observable
 final class InboxStore {
   private(set) var inbox: NotificationInbox = .empty
 
@@ -19,7 +21,10 @@ final class InboxStore {
   private let debounce: Duration
   private let logger = Logger(subsystem: "com.touch-code.notifications", category: "inbox")
 
-  private var pendingSaveTask: Task<Void, Never>?
+  // `@ObservationIgnored` on internal bookkeeping that the nonisolated
+  // `deinit` touches — `@Observable` would otherwise require those reads
+  // to hop to the MainActor, which `deinit` cannot do.
+  @ObservationIgnored private var pendingSaveTask: Task<Void, Never>?
   private let unreadContinuation: AsyncStream<Int>.Continuation
   private let unreadStream: AsyncStream<Int>
 
@@ -30,6 +35,7 @@ final class InboxStore {
   /// mutation. C6 M5 `InboxClient.observe()` consumes this; future
   /// settings-pane surfaces may add more subscribers without stepping on
   /// each other.
+  @ObservationIgnored
   private var inboxSubscribers: [UUID: AsyncStream<NotificationInbox>.Continuation] = [:]
 
   /// Design DEC-9 — 500-row retained cap.

@@ -163,6 +163,30 @@ struct NotificationInboxAggregationTests {
     #expect(sorted1.map(\.id) == [idA, idB, idC])
   }
 
+  /// Canary for the T1 `public` visibility bump on
+  /// `Catalog.panelWorktreeIndex()`. Also matches the sidebar's render-pass
+  /// call pattern: build the index once, then use it alongside the
+  /// aggregation helpers. Each call here must stay independently correct
+  /// even though the index is rebuilt every time (helpers are self-contained).
+  @Test
+  func aggregationMatchesSidebarRenderCallPattern() {
+    let f = Fixture()
+    // Externally rebuild the index — proves `panelWorktreeIndex()` is
+    // cross-module reachable, which is the T1 sidebar-view requirement.
+    let index = f.catalog.panelWorktreeIndex()
+    #expect(index[f.panelP1a] == f.worktreeW1a)
+    #expect(index[f.panelP1b] == f.worktreeW1b)
+    #expect(index[f.panelP2] == f.worktreeW2)
+
+    // Mirror the sidebar's per-row calls: one unreadCount per Worktree and
+    // one hasUnread per Project.
+    #expect(f.inbox.unreadCount(forWorktree: f.worktreeW1a, in: f.catalog) == 1)
+    #expect(f.inbox.unreadCount(forWorktree: f.worktreeW1b, in: f.catalog) == 1)
+    #expect(f.inbox.unreadCount(forWorktree: f.worktreeW2, in: f.catalog) == 0)
+    #expect(f.inbox.hasUnread(forProject: f.projectP1, in: f.catalog) == true)
+    #expect(f.inbox.hasUnread(forProject: f.projectP2, in: f.catalog) == false)
+  }
+
   @Test
   func aggregationIgnoresPanelsNotInCatalog() {
     let f = Fixture()

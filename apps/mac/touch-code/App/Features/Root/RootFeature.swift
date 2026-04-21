@@ -7,24 +7,12 @@ import TouchCodeCore
 /// two long-running subscriptions that every feature depends on:
 ///   - `terminalClient.events()` — drives crash / exit / output lifecycle
 ///   - `hierarchyClient.selectionChanges()` — drives worktree-scoped
-///     features (C6 inbox filter, C7 diff viewer, M4 detail column swap)
+///     features (C7 diff viewer, M4 detail column swap)
 ///
-/// Sub-feature Scopes for M3 (`HierarchySidebarFeature`) and M4
-/// (`WorktreeDetailFeature`) are intentionally commented out — their state
-/// types don't exist yet. The wiring is a one-line drop-in when they land.
-/// Reserved for T2 bell-popover reuse; no current dispatch site after T0.
-/// T2 must either reuse or remove.
-///
-/// Pre-T0 this enum drove the Hierarchy ↔ Inbox Picker in the sidebar
-/// toolbar (DEC-2). T0 removed the Picker; the sidebar now always renders
-/// the hierarchy, and notifications are reached through the Header bell
-/// (T2). Kept because `InboxSidebarFeature` likely becomes the bell
-/// popover's content source.
-nonisolated enum SidebarMode: String, Equatable, CaseIterable, Sendable {
-  case hierarchy
-  case inbox
-}
-
+/// T1 removed the T0-era `SidebarMode` plumbing (the sidebar unconditionally
+/// renders the hierarchy tree; T2's Header bell is its own feature on
+/// `WorktreeHeader`, not a reuse of `InboxSidebarFeature`). `InboxSidebar`
+/// source files remain in the tree but are no longer mounted in `RootFeature`.
 @Reducer
 struct RootFeature {
   @ObservableState
@@ -37,23 +25,7 @@ struct RootFeature {
     /// observe the stream directly via child-feature subscriptions.
     var lastEvent: LastEventMarker?
 
-    /// Reserved for T2 bell-popover reuse; no current dispatch site after T0.
-    /// T2 must either reuse or remove. Pre-T0 this drove the Hierarchy ↔
-    /// Inbox Picker; removed in T0 (`ContentView` always renders hierarchy).
-    var sidebarMode: SidebarMode = .hierarchy
-
     var sidebar: HierarchySidebarFeature.State = .init()
-    /// Reserved for T2 bell-popover reuse; no current dispatch site after T0.
-    /// T2 must either reuse or remove.
-    ///
-    /// NOTE: state.inbox is NOT hydrated after T0 — the `.onAppear`
-    /// subscription starter previously relied on InboxSidebarView being
-    /// rendered, which is no longer the case. The underlying on-disk inbox
-    /// (InboxStore) continues to receive writes; consumers that need live
-    /// unread state should either dispatch `.inbox(.onAppear)` themselves
-    /// or query `NotificationInbox` aggregation helpers directly from a
-    /// snapshot.
-    var inbox: InboxSidebarFeature.State = .init()
     var detail: WorktreeDetailFeature.State = .init()
     /// C7 M3/M4 (0005): read-only git viewer hosted in the trailing
     /// inspector slot. Selection is forwarded by the `.selectionChanged`
@@ -111,14 +83,10 @@ struct RootFeature {
     case onQuit
     case selectionChanged(HierarchySelection)
     case engineEventReceived(LastEventMarker)
-    /// Reserved for T2 bell-popover reuse; no current dispatch site after T0.
-    /// T2 must either reuse or remove.
-    case sidebarModeChanged(SidebarMode)
     case inspectorVisibilityToggled
     case settingsSheetShown
     case settingsSheet(PresentationAction<SettingsSheetFeature.Action>)
     case sidebar(HierarchySidebarFeature.Action)
-    case inbox(InboxSidebarFeature.Action)
     case detail(WorktreeDetailFeature.Action)
     case gitViewer(GitViewerFeature.Action)
     case editor(EditorFeature.Action)
@@ -128,6 +96,7 @@ struct RootFeature {
 
   @Dependency(TerminalClient.self) private var terminalClient
   @Dependency(HierarchyClient.self) private var hierarchyClient
+  @Dependency(FinderClient.self) private var finderClient
 
   var body: some Reducer<State, Action> {
     Scope(state: \.sidebar, action: \.sidebar) {
@@ -141,13 +110,6 @@ struct RootFeature {
     }
     Scope(state: \.editor, action: \.editor) {
       EditorFeature()
-    }
-
-    // Reserved for T2 bell-popover reuse; no current dispatch site after T0.
-    // T2 must either reuse or remove. Kept so C6 notification state stays
-    // observable inside the tree.
-    Scope(state: \.inbox, action: \.inbox) {
-      InboxSidebarFeature()
     }
 
     Reduce { state, action in
@@ -170,6 +132,15 @@ struct RootFeature {
           }
           .cancellable(id: CancelID.selectionChanges, cancelInFlight: true)
         )
+        // Worst case for sidebar context-menu "Open in default editor" is an
+        // empty descriptor cache → resolution falls through to
+        // EditorRegistry.finderID, which is always installed. Priming via
+        // `.send(.editor(.onAppear))` here was considered but was dropped
+        // because it runs the live EditorService on a background Task and
+        // the live factory's `MainActor.assumeIsolated { ... }` assertion
+        // fails from a non-MainActor queue during test-host bootstrap. The
+        // WorktreeHeaderOpenButton's own `.task { store.send(.onAppear) }`
+        // is the canonical hydration path.
 
       case .onQuit:
         return .merge(
@@ -195,24 +166,48 @@ struct RootFeature {
         state.lastEvent = marker
         return .none
 
-      case .sidebarModeChanged(let mode):
-        state.sidebarMode = mode
-        return .none
+      // Sidebar delegate routing. Must come before the catch-all
+      // `case .sidebar:` so the nested pattern matches first.
+
+      case .sidebar(.delegate(.openInDefaultEditor(let path, let projectID))):
+        // Inline default-editor resolution: project override → global default
+        // → EditorRegistry.finderID. Each tier is accepted only if the
+        // descriptor is installed. T2 will hoist this into
+        // `EditorFeature.resolveDefault` when it rebases; keeping it inline
+        // now avoids touching `EditorFeature.Action` (T2's boundary).
+        let descriptors = state.editor.descriptors
+        let globalDefault = state.editor.globalDefault
+        let overrideID: EditorID? = projectID.flatMap { pid in
+          let catalog = hierarchyClient.snapshot()
+          for space in catalog.spaces {
+            for project in space.projects where project.id == pid {
+              return project.defaultEditor
+            }
+          }
+          return nil
+        }
+        func installed(_ id: EditorID?) -> EditorID? {
+          guard let id,
+                descriptors.contains(where: { $0.id == id && $0.isInstalled })
+          else { return nil }
+          return id
+        }
+        let resolved: EditorID = installed(overrideID)
+          ?? installed(globalDefault)
+          ?? EditorRegistry.finderID
+        return .send(.editor(.openRequested(
+          editorID: resolved,
+          worktreePath: path,
+          projectID: projectID
+        )))
+
+      case .sidebar(.delegate(.revealInFinder(let path))):
+        let client = finderClient
+        return .run { _ in
+          await MainActor.run { client.reveal(path) }
+        }
 
       case .sidebar:
-        return .none
-
-      case .inbox(.deeplinkRequested(let panelID)):
-        // Follow-up: resolve panelID → (space, project, worktree, tab)
-        // via HierarchyClient and dispatch the select chain per the
-        // design sketch's §Deeplink chain. HierarchyClient does not yet
-        // expose a `resolvePanel` helper — this branch is a no-op until
-        // that lands. The inbox row still marks-read (the InboxFeature
-        // reducer handles that before emitting this delegate).
-        _ = panelID
-        return .none
-
-      case .inbox:
         return .none
 
       case .detail:
