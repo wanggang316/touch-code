@@ -1,3 +1,4 @@
+import ComposableArchitecture
 import Foundation
 
 nonisolated struct GitWorktreeEntry: Equatable, Sendable {
@@ -123,5 +124,31 @@ actor GitWorktreeCLI {
       entries.append(GitWorktreeEntry(path: path, branch: currentBranch, head: head))
     }
     return entries
+  }
+}
+
+// MARK: - Dependency injection
+
+extension GitWorktreeCLI: DependencyKey {
+  /// Single shared actor instance; `GitWorktreeCLI` wraps the system `git`
+  /// binary with no per-instance state (the actor just serializes subprocess
+  /// invocations). Used today by `AddProjectFeature` for add-time gitRoot
+  /// classification — reconcile-time worktree enumeration is owned by
+  /// T-WORKTREE's `HierarchyClient.reconcileDiscoveredWorktrees` and does
+  /// not go through this dependency.
+  static let liveValue = GitWorktreeCLI()
+
+  /// Tests that touch `discoverGitRoot` typically do so against a real
+  /// temp-dir `git init` fixture, so the "test" CLI is the same live actor
+  /// — subprocess calls are deterministic and quick enough. Tests that need
+  /// to avoid `/usr/bin/git` altogether can override the dependency at the
+  /// `TestStore` scope.
+  static let testValue = GitWorktreeCLI()
+}
+
+extension DependencyValues {
+  var gitWorktreeCLI: GitWorktreeCLI {
+    get { self[GitWorktreeCLI.self] }
+    set { self[GitWorktreeCLI.self] = newValue }
   }
 }
