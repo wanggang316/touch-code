@@ -67,6 +67,15 @@ final class HierarchyManager {
     store.scheduleSave(catalog)
   }
 
+  /// Reorder Spaces using the IndexSet (source) and destination offset payload
+  /// from SwiftUI's `.onMove(perform:)`. Silent no-op on empty IndexSet.
+  /// Persists via the standard debounced `store.scheduleSave` pipeline.
+  func reorderSpaces(fromOffsets source: IndexSet, toOffset destination: Int) {
+    guard !source.isEmpty else { return }
+    catalog.spaces.move(fromOffsets: source, toOffset: destination)
+    store.scheduleSave(catalog)
+  }
+
   // MARK: - Project mutations
 
   func addProject(to spaceID: SpaceID, name: String, rootPath: String, gitRoot: String? = nil) throws -> ProjectID {

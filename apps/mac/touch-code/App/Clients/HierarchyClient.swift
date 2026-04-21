@@ -150,6 +150,12 @@ nonisolated struct HierarchyClient: Sendable {
 
   /// Duplicate-add guard. Caller canonicalizes before querying.
   var isPathRegistered: @MainActor @Sendable (_ canonicalPath: String) -> (SpaceID, ProjectID)?
+
+  // MARK: - Space Management additions (feat/space-mgmt)
+
+  /// Reorder Spaces using the IndexSet (source) and destination offset from
+  /// SwiftUI's `.onMove(perform:)`. Silent no-op on empty IndexSet.
+  var reorderSpaces: @MainActor @Sendable (_ source: IndexSet, _ destination: Int) -> Void
 }
 
 /// Coarse selection payload. `nil` for any level means "no selection at that
@@ -277,6 +283,9 @@ extension HierarchyClient {
       },
       isPathRegistered: { canonicalPath in
         manager.isPathRegistered(canonical: canonicalPath)
+      },
+      reorderSpaces: { source, destination in
+        manager.reorderSpaces(fromOffsets: source, toOffset: destination)
       }
     )
   }
@@ -446,7 +455,8 @@ extension HierarchyClient: DependencyKey {
     setProjectLoadState: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     reorderProjects: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     setProjectWorktreesDirectory: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    isPathRegistered: { _ in fatalError("HierarchyClient.liveValue not configured") }
+    isPathRegistered: { _ in fatalError("HierarchyClient.liveValue not configured") },
+    reorderSpaces: { _, _ in fatalError("HierarchyClient.liveValue not configured") }
   )
 
   static let testValue: HierarchyClient = HierarchyClient(
@@ -490,7 +500,8 @@ extension HierarchyClient: DependencyKey {
     setProjectLoadState: unimplemented("HierarchyClient.setProjectLoadState"),
     reorderProjects: unimplemented("HierarchyClient.reorderProjects"),
     setProjectWorktreesDirectory: unimplemented("HierarchyClient.setProjectWorktreesDirectory"),
-    isPathRegistered: unimplemented("HierarchyClient.isPathRegistered", placeholder: nil)
+    isPathRegistered: unimplemented("HierarchyClient.isPathRegistered", placeholder: nil),
+    reorderSpaces: unimplemented("HierarchyClient.reorderSpaces")
   )
 }
 
