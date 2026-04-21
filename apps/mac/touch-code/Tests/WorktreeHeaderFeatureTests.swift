@@ -175,24 +175,19 @@ struct WorktreeHeaderFeatureTests {
   // MARK: - GV toggle
 
   @Test
-  func gitViewerToggledDispatchesFlip() async {
-    let recorded = LockIsolated<(WorktreeID, Bool)?>(nil)
-    let worktreeID = WorktreeID()
+  func gitViewerToggleTappedEmitsDelegate() async {
+    // Nit 1 convergence: the Header GV button no longer writes the catalog
+    // directly. It emits `.delegate(.gitViewerToggleRequested)` so
+    // `RootFeature` performs the flip through the same
+    // `.gitViewerToggledForCurrentWorktree` branch ⌘⇧G uses.
     let store = TestStore(initialState: WorktreeHeaderFeature.State()) {
       WorktreeHeaderFeature()
     } withDependencies: {
       $0[InboxClient.self] = .testValue
       $0.hierarchyClient = HierarchyClient.testValue
-      $0.hierarchyClient.setWorktreeGitViewerVisible = { id, v in
-        recorded.setValue((id, v))
-      }
     }
-    await store.send(.gitViewerToggled(worktreeID: worktreeID, currentVisibility: false))
-    #expect(recorded.value?.0 == worktreeID)
-    #expect(recorded.value?.1 == true)
-
-    await store.send(.gitViewerToggled(worktreeID: worktreeID, currentVisibility: true))
-    #expect(recorded.value?.1 == false)
+    await store.send(.gitViewerToggleTapped)
+    await store.receive(.delegate(.gitViewerToggleRequested))
   }
 
   // MARK: - Delegates

@@ -49,7 +49,12 @@ struct WorktreeHeaderFeature {
     case openDefaultEditorTapped(worktreePath: String, projectID: ProjectID?)
     case openEditorTapped(editorID: EditorID, worktreePath: String, projectID: ProjectID?)
     case customEditorsTapped
-    case gitViewerToggled(worktreeID: WorktreeID, currentVisibility: Bool)
+    /// Header GV button tapped. Emits `.delegate(.gitViewerToggleRequested)`
+    /// so `RootFeature` performs the flip through the same
+    /// `.gitViewerToggledForCurrentWorktree` reducer branch that ⌘⇧G uses.
+    /// Keeping the write on one path avoids the view-supplied visibility
+    /// drifting from the catalog snapshot the reducer reads.
+    case gitViewerToggleTapped
     case setProjectDefaultEditorTapped(spaceID: SpaceID, projectID: ProjectID, editorID: EditorID?)
     case delegate(Delegate)
 
@@ -64,6 +69,9 @@ struct WorktreeHeaderFeature {
       case showCustomEditorsSettings
       /// Mirror of today's "Set default for this Project" sub-menu.
       case setProjectOverride(projectID: ProjectID, spaceID: SpaceID, editorID: EditorID?)
+      /// GV button tapped. Parent flips the current Worktree's visibility
+      /// via `.gitViewerToggledForCurrentWorktree` (shared with ⌘⇧G).
+      case gitViewerToggleRequested
     }
   }
 
@@ -122,9 +130,8 @@ struct WorktreeHeaderFeature {
       case .customEditorsTapped:
         return .send(.delegate(.showCustomEditorsSettings))
 
-      case .gitViewerToggled(let worktreeID, let currentVisibility):
-        hierarchyClient.setWorktreeGitViewerVisible(worktreeID, !currentVisibility)
-        return .none
+      case .gitViewerToggleTapped:
+        return .send(.delegate(.gitViewerToggleRequested))
 
       case .setProjectDefaultEditorTapped(let spaceID, let projectID, let editorID):
         return .send(.delegate(.setProjectOverride(

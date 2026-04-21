@@ -421,6 +421,49 @@ struct RootFeatureTests {
     }
   }
   @Test
+  func headerGitViewerToggleDelegateRoutesThroughToggleBranch() async {
+    // Nit 1 convergence: the Header GV delegate is consumed by the root
+    // reducer and re-dispatched as `.gitViewerToggledForCurrentWorktree`
+    // — the same action ⌘⇧G sends. This proves both entry points share
+    // one write path (the hierarchyClient mutation is covered by the
+    // dedicated `gitViewerToggleInvokesHierarchyClientWithFlippedValue`
+    // test; here we only need to prove routing).
+    let spaceID = SpaceID()
+    let projectID = ProjectID()
+    let worktreeA = WorktreeID()
+    let worktreeB = WorktreeID()
+    let catalog = Self.gvFixtureCatalog(
+      spaceID: spaceID, projectID: projectID,
+      worktreeA: worktreeA, worktreeB: worktreeB,
+      aVisible: false, bVisible: false
+    )
+
+    var initial = RootFeature.State()
+    initial.selection = HierarchySelection(
+      spaceID: spaceID, projectID: projectID, worktreeID: worktreeA
+    )
+    let recorded = LockIsolated<[(WorktreeID, Bool)]>([])
+    let store = TestStore(initialState: initial) {
+      RootFeature()
+    } withDependencies: {
+      $0.terminalClient.events = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.snapshot = { catalog }
+      $0.hierarchyClient.setWorktreeGitViewerVisible = { wt, v in
+        recorded.withValue { $0.append((wt, v)) }
+      }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.worktreeHeader(.delegate(.gitViewerToggleRequested)))
+    await store.receive(\.gitViewerToggledForCurrentWorktree)
+    await store.finish()
+    #expect(recorded.value.count == 1)
+    #expect(recorded.value.first?.0 == worktreeA)
+    #expect(recorded.value.first?.1 == true)
+  }
+
+  @Test
   func headerSetProjectOverrideForwardsToEditor() async {
     let store = TestStore(initialState: RootFeature.State()) {
       RootFeature()

@@ -279,6 +279,12 @@ struct RootFeature {
             spaceID: spaceID,
             editorID: editorID
           )))
+
+        case .gitViewerToggleRequested:
+          // Route through the same reducer branch ⌘⇧G uses so both entry
+          // points share one write path (reads current visibility from the
+          // catalog, writes the flipped value).
+          return .send(.gitViewerToggledForCurrentWorktree)
         }
 
       case .worktreeHeader:
