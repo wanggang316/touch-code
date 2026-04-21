@@ -159,9 +159,11 @@ with five sections, each a section header + control:
 4. **Dock badge** — `Toggle` bound to `settings.notifications.dockBadgeEnabled`.
    Caption: "Shows the unread notification count on the app icon."
 5. **Mute rules** — read-only summary row + "Reveal rules.json in Finder"
-   button. Summary renders one line: `"<N> rule(s), <M> panel(s) muted"`
-   where N = `mute.mutedRuleIDs.count` and M = `mute.mutedPanelIDs.count`,
-   plus a line each for `surfaceIdle` / `redactBodies` when non-default.
+   button. Summary is strictly counts-only per spec M5.5 (Q2 APPROVE):
+   `"<N> rule(s), <M> panel(s) muted"` where N = `mute.mutedRuleIDs.count`
+   and M = `mute.mutedPanelIDs.count`; when both counts are zero the
+   summary collapses to `"No mute rules"`. `surfaceIdle` / `redactBodies`
+   are intentionally omitted — users who want detail click Reveal.
 
 Write path:
 

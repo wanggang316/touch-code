@@ -143,12 +143,10 @@ struct NotificationsSettingsView: View {
   // MARK: - Helpers
 
   private static func muteSummary(for mute: MuteSettings) -> String {
-    var parts: [String] = []
-    parts.append("\(mute.mutedRuleIDs.count) rule(s)")
-    parts.append("\(mute.mutedPanelIDs.count) panel(s) muted")
-    if mute.surfaceIdle { parts.append("idle shown") }
-    if mute.redactBodies { parts.append("bodies redacted") }
-    return parts.joined(separator: ", ")
+    let ruleCount = mute.mutedRuleIDs.count
+    let panelCount = mute.mutedPanelIDs.count
+    if ruleCount == 0 && panelCount == 0 { return "No mute rules" }
+    return "\(ruleCount) rule(s), \(panelCount) panel(s) muted"
   }
 
   private static func revealDetectionRules() {
