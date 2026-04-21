@@ -88,6 +88,13 @@ final class CLIInstallerClient {
   /// Read-only state inspection. Never mutates, never throws; surfaces failures
   /// through `InstallStatus.failed` so the view renders them without special
   /// casing.
+  ///
+  /// `tc` and `tcode` are treated as an **atomic install pair**. The returned
+  /// status collapses the two-dimensional truth table into:
+  /// - any destination foreign → `.collision(owner:)` (the first foreign URL)
+  /// - both destinations `.ourSymlink` → `.installed(...)`
+  /// - every other mix (both absent / one ours + one absent) → `.notInstalled`
+  ///   (running `install()` from there completes the pair idempotently).
   func probe() -> InstallStatus {
     // Any escape from $HOME short-circuits with a dedicated error — even
     // probing a foreign path risks traversing attacker-controlled symlinks.
@@ -95,23 +102,30 @@ final class CLIInstallerClient {
       return .failed(.destinationOutsideHome(escape), lastAttempt: nil)
     }
 
-    let tcState = inspect(paths.tcSymlink)
-    switch tcState {
-    case .absent:
-      return .notInstalled
-    case .ourSymlink:
-      return .installed(at: paths.tcSymlink, pointsToBundle: true)
-    case .foreign:
-      return .collision(owner: paths.tcSymlink)
+    let pair = inspectPair()
+    if let collision = pair.firstForeign {
+      return .collision(owner: collision)
     }
+    if pair.bothOurs {
+      return .installed(at: paths.tcSymlink, pointsToBundle: true)
+    }
+    return .notInstalled
   }
 
   // MARK: - Install
 
-  /// Creates `~/.local/bin` if missing, then symlinks `tc` and `tcode` at that
-  /// directory's bundled-binary target. Idempotent — running twice from an
-  /// installed state returns `.installed` without writing. Foreign files are
-  /// left strictly alone and reported via `.collision`.
+  /// Creates `~/.local/bin` if missing, then symlinks `tc` and `tcode` at the
+  /// bundled binary.
+  ///
+  /// The operation is **atomic on the install pair**:
+  /// 1. Pre-flight: classify both destinations. Any foreign entry aborts with
+  ///    `.destinationExistsNotOurs(foreignURL)` and **zero mutations** are
+  ///    performed.
+  /// 2. Apply: only the destinations that were `.absent` get new symlinks; any
+  ///    already-our symlink is left alone (idempotent).
+  /// 3. Rollback: if the second symlink creation fails, the first one created
+  ///    during this call is removed before the error propagates — so a caller
+  ///    never observes a half-installed pair.
   func install() -> Result<InstallStatus, CLIInstallError> {
     guard let bundled = paths.bundledTcBinary else {
       return .failure(.bundleMissing(nil))
@@ -121,6 +135,12 @@ final class CLIInstallerClient {
     }
     if let escape = firstEscape(from: [paths.tcSymlink, paths.tcodeSymlink, paths.localBin]) {
       return .failure(.destinationOutsideHome(escape))
+    }
+
+    // Pre-flight classification — never writes.
+    let pair = inspectPair()
+    if let foreign = pair.firstForeign {
+      return .failure(.destinationExistsNotOurs(foreign))
     }
 
     // Ensure parent dir exists. `withIntermediateDirectories: true` is idempotent
@@ -133,15 +153,27 @@ final class CLIInstallerClient {
       }
     }
 
-    for destination in [paths.tcSymlink, paths.tcodeSymlink] {
-      switch linkInPlace(at: destination, target: bundled) {
-      case .success:
-        continue
-      case .failure(let error):
+    // Build the plan: only destinations that are currently `.absent` need new
+    // symlinks. Already-our symlinks pass through as no-ops.
+    let plan: [URL] = pair.all.compactMap { (dest, state) in
+      state == .absent ? dest : nil
+    }
+
+    var rollbacks: [URL] = []
+    for destination in plan {
+      do {
+        try fileSystem.createSymbolicLink(at: destination, withDestinationURL: bundled)
+        rollbacks.append(destination)
+      } catch {
+        // Rollback: remove every symlink created during *this* call so the
+        // filesystem returns to its pre-install classification.
+        for created in rollbacks {
+          try? fileSystem.removeItem(at: created)
+        }
         logger.error(
-          "install failed at \(destination.path, privacy: .public): \(String(describing: error), privacy: .public)"
+          "install failed at \(destination.path, privacy: .public); rolled back \(rollbacks.count, privacy: .public) created link(s): \(String(describing: error), privacy: .public)"
         )
-        return .failure(error)
+        return .failure(.symlinkFailed(destination, underlyingDescription: "\(error)"))
       }
     }
 
@@ -151,32 +183,34 @@ final class CLIInstallerClient {
 
   // MARK: - Uninstall
 
-  /// Removes the `tc` and `tcode` symlinks iff they resolve to our bundled
-  /// binary. Foreign files are never touched; `status` becomes `.collision` in
-  /// that case.
+  /// Removes the `tc` and `tcode` symlinks iff both destinations are ours or
+  /// absent.
+  ///
+  /// Pre-flight: if **any** destination is `.foreign`, the call returns
+  /// `.success(.collision(owner: foreignURL))` without deleting anything. This
+  /// is the fix for the B2 non-atomicity bug where `tc` could be removed
+  /// before discovering that `tcode` is foreign.
   func uninstall() -> Result<InstallStatus, CLIInstallError> {
     if let escape = firstEscape(from: [paths.tcSymlink, paths.tcodeSymlink]) {
       return .failure(.destinationOutsideHome(escape))
     }
 
-    for destination in [paths.tcSymlink, paths.tcodeSymlink] {
-      let state = inspect(destination)
-      switch state {
-      case .absent:
-        continue
-      case .ourSymlink:
-        do {
-          try fileSystem.removeItem(at: destination)
-        } catch {
-          logger.error(
-            "uninstall remove failed at \(destination.path, privacy: .public): \(String(describing: error), privacy: .public)"
-          )
-          return .failure(.uninstallFailed(destination, underlyingDescription: "\(error)"))
-        }
-      case .foreign:
-        // Do not delete foreign files; surface the collision so the pane can
-        // explain to the user why uninstall was refused at this path.
-        return .success(.collision(owner: destination))
+    let pair = inspectPair()
+    if let foreign = pair.firstForeign {
+      // Refuse to delete anything when one of the slots is foreign. A future
+      // iteration could add a `--force` flag; v1 surfaces the collision and
+      // leaves both entries intact.
+      return .success(.collision(owner: foreign))
+    }
+
+    for (destination, state) in pair.all where state == .ourSymlink {
+      do {
+        try fileSystem.removeItem(at: destination)
+      } catch {
+        logger.error(
+          "uninstall remove failed at \(destination.path, privacy: .public): \(String(describing: error), privacy: .public)"
+        )
+        return .failure(.uninstallFailed(destination, underlyingDescription: "\(error)"))
       }
     }
 
@@ -214,10 +248,34 @@ final class CLIInstallerClient {
     }
   }
 
-  private enum LinkState {
+  private enum LinkState: Equatable {
     case absent
     case ourSymlink
     case foreign
+  }
+
+  /// Classification of the two-destination install pair. Order is always
+  /// [tcSymlink, tcodeSymlink] so callers can produce deterministic error
+  /// messages.
+  private struct PairInspection {
+    let all: [(URL, LinkState)]
+
+    /// First foreign URL, if any — traversal order matches `all`.
+    var firstForeign: URL? {
+      all.first(where: { $0.1 == .foreign })?.0
+    }
+
+    /// True iff both destinations are our symlinks.
+    var bothOurs: Bool {
+      all.allSatisfy { $0.1 == .ourSymlink }
+    }
+  }
+
+  private func inspectPair() -> PairInspection {
+    PairInspection(all: [
+      (paths.tcSymlink, inspect(paths.tcSymlink)),
+      (paths.tcodeSymlink, inspect(paths.tcodeSymlink)),
+    ])
   }
 
   /// Classifies the destination path without mutating the filesystem. A path is
@@ -253,27 +311,6 @@ final class CLIInstallerClient {
     return resolvedPath == bundledPath ? .ourSymlink : .foreign
   }
 
-  /// Places a symlink at `destination` pointing at `target`. If the destination
-  /// is already our symlink (via `inspect`) the call is a no-op. A foreign
-  /// file/link at the destination produces `.destinationExistsNotOurs`; we
-  /// never overwrite it.
-  private func linkInPlace(at destination: URL, target: URL)
-    -> Result<Void, CLIInstallError>
-  {
-    switch inspect(destination) {
-    case .ourSymlink:
-      return .success(())
-    case .foreign:
-      return .failure(.destinationExistsNotOurs(destination))
-    case .absent:
-      do {
-        try fileSystem.createSymbolicLink(at: destination, withDestinationURL: target)
-        return .success(())
-      } catch {
-        return .failure(.symlinkFailed(destination, underlyingDescription: "\(error)"))
-      }
-    }
-  }
 }
 
 // MARK: - LocalizedError

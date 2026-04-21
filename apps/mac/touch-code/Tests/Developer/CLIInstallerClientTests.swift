@@ -171,14 +171,26 @@ struct CLIInstallerClientTests {
 
   // MARK: - Retry after failure
 
-  /// `SkillFileSystem` fake that fails `createSymbolicLink` a fixed number of
-  /// times before delegating to the real filesystem. Covers the "failed, then
-  /// retry succeeds" flow without relying on OS-level disk faults.
+  /// `SkillFileSystem` fake that fails `createSymbolicLink` on a configurable
+  /// predicate, then delegates to the real filesystem. Covers both "first
+  /// attempt fails, retry succeeds" and "second symlink in a pair fails, first
+  /// rolled back" scenarios without relying on OS-level disk faults.
   private final class FlakySymlinkFileSystem: SkillFileSystem, @unchecked Sendable {
     private let real = RealSkillFileSystem()
-    private var remainingFailures: Int
+    private var shouldFail: (URL) -> Bool
 
-    init(failCount: Int) { self.remainingFailures = failCount }
+    init(shouldFail: @escaping (URL) -> Bool) {
+      self.shouldFail = shouldFail
+    }
+
+    convenience init(failFirstNCalls n: Int) {
+      var remaining = n
+      self.init(shouldFail: { _ in
+        guard remaining > 0 else { return false }
+        remaining -= 1
+        return true
+      })
+    }
 
     func fileExists(atPath path: String) -> Bool { real.fileExists(atPath: path) }
     func isDirectory(atPath path: String) -> Bool { real.isDirectory(atPath: path) }
@@ -188,9 +200,10 @@ struct CLIInstallerClientTests {
     func copyItem(at src: URL, to dst: URL) throws { try real.copyItem(at: src, to: dst) }
     func removeItem(at url: URL) throws { try real.removeItem(at: url) }
     func createSymbolicLink(at url: URL, withDestinationURL dst: URL) throws {
-      if remainingFailures > 0 {
-        remainingFailures -= 1
-        throw NSError(domain: "FakeFS", code: 1, userInfo: [NSLocalizedDescriptionKey: "injected symlink failure"])
+      if shouldFail(url) {
+        throw NSError(
+          domain: "FakeFS", code: 1,
+          userInfo: [NSLocalizedDescriptionKey: "injected symlink failure"])
       }
       try real.createSymbolicLink(at: url, withDestinationURL: dst)
     }
@@ -211,7 +224,7 @@ struct CLIInstallerClientTests {
   func install_failure_thenRetry_succeeds() throws {
     let home = try TempHome()
     let paths = home.paths()
-    let flaky = FlakySymlinkFileSystem(failCount: 1)
+    let flaky = FlakySymlinkFileSystem(failFirstNCalls: 1)
     let client = makeClient(paths: paths, fileSystem: flaky)
 
     let first = client.install()
@@ -226,6 +239,94 @@ struct CLIInstallerClientTests {
     case .success(let status): assertInstalled(status)
     case .failure(let error): Issue.record("Retry failed: \(error)")
     }
+  }
+
+  // MARK: - Atomic install pair (B1 + B2)
+
+  @Test
+  func probe_onlyTcPresent_returnsNotInstalled() throws {
+    // Partially-installed state: tc is our symlink but tcode is absent. The
+    // pair treatment means the status is `.notInstalled` (not `.installed`),
+    // so a subsequent `install()` completes the missing side.
+    let home = try TempHome()
+    let paths = home.paths()
+    try FileManager.default.createDirectory(at: paths.localBin, withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(at: paths.tcSymlink, withDestinationURL: home.bundledTc)
+    let client = makeClient(paths: paths)
+
+    let status = client.probe()
+
+    #expect(status == .notInstalled)
+  }
+
+  @Test
+  func probe_tcOursButTcodeForeign_returnsCollision() throws {
+    let home = try TempHome()
+    let paths = home.paths()
+    try FileManager.default.createDirectory(at: paths.localBin, withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(at: paths.tcSymlink, withDestinationURL: home.bundledTc)
+    try Data("#!/bin/sh\necho foreign\n".utf8).write(to: paths.tcodeSymlink)
+    let client = makeClient(paths: paths)
+
+    let status = client.probe()
+
+    if case .collision(let owner) = status {
+      #expect(owner == paths.tcodeSymlink)
+    } else {
+      Issue.record("Expected .collision owner=tcode, got \(status)")
+    }
+  }
+
+  @Test
+  func install_whenSecondSymlinkFails_rollsBackFirst() throws {
+    // The tcode createSymbolicLink throws; the already-created tc must be
+    // removed before the error surfaces so no half-installed pair leaks.
+    let home = try TempHome()
+    let paths = home.paths()
+    let tcodePath = paths.tcodeSymlink.path
+    let flaky = FlakySymlinkFileSystem(shouldFail: { $0.path == tcodePath })
+    let client = makeClient(paths: paths, fileSystem: flaky)
+
+    let result = client.install()
+
+    if case .failure(.symlinkFailed(let url, _)) = result {
+      #expect(url == paths.tcodeSymlink)
+    } else {
+      Issue.record("Expected .symlinkFailed on tcode, got \(result)")
+    }
+    // The tc symlink was rolled back — neither side exists.
+    #expect(!FileManager.default.fileExists(atPath: paths.tcSymlink.path))
+    #expect(!FileManager.default.fileExists(atPath: paths.tcodeSymlink.path))
+    // Probe agrees: clean slate, ready for a retry.
+    #expect(client.probe() == .notInstalled)
+  }
+
+  @Test
+  func uninstall_whenTcodeIsForeign_refusesAndKeepsTc() throws {
+    // Pre-state: tc is our symlink, tcode is a foreign regular file. Uninstall
+    // must preflight the pair, refuse to delete anything, and surface the
+    // collision — tc is specifically preserved.
+    let home = try TempHome()
+    let paths = home.paths()
+    try FileManager.default.createDirectory(at: paths.localBin, withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(at: paths.tcSymlink, withDestinationURL: home.bundledTc)
+    try Data("#!/bin/sh\necho foreign\n".utf8).write(to: paths.tcodeSymlink)
+    let client = makeClient(paths: paths)
+
+    let result = client.uninstall()
+
+    if case .success(.collision(let owner)) = result {
+      #expect(owner == paths.tcodeSymlink)
+    } else {
+      Issue.record("Expected collision on tcode, got \(result)")
+    }
+    // tc is still our symlink — uninstall did not touch it.
+    #expect(FileManager.default.fileExists(atPath: paths.tcSymlink.path))
+    let resolvedTc = try FileManager.default.destinationOfSymbolicLink(atPath: paths.tcSymlink.path)
+    #expect(URL(fileURLWithPath: resolvedTc).standardizedFileURL == home.bundledTc.standardizedFileURL)
+    // Foreign tcode is untouched too.
+    let foreignContents = try String(contentsOf: paths.tcodeSymlink, encoding: .utf8)
+    #expect(foreignContents.contains("foreign"))
   }
 
   // MARK: - HomeScopeGuard escape
