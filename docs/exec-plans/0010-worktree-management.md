@@ -24,7 +24,7 @@ After this change, a user can manage git worktrees from inside touch-code as fir
 - [x] M10 — `CreateWorktreeSheet` view + wire into `HierarchySidebarView` at the current stub lines 78-83 (2026-04-21, 30 sidebar + create tests green, stub replaced with real child-scoped sheet)
 - [x] M11 — `ArchivedWorktreesFeature` reducer + `ArchivedWorktreesSheet` view; first-archive explainer session flag owned by parent reducer (2026-04-21, sheet-embedded force-remove alert included)
 - [x] M12 — `HierarchySidebarView` & `HierarchySidebarFeature` integration: Archive/Unarchive context-menu entries (main-checkout guard hides Archive + Remove), Project `⋯` menu gains Archived Worktrees sheet opener + Prune + Rename/Remove divider, upgraded Remove path with uncommittedChanges → Force Remove alert → running-terminal warning ladder (W-Q3 three-step); archived worktrees filtered out of main list; Prune toast. Main-actor audit: force-remove's runtime.closeSurface calls happen through manager.tearDownWorktreeSurfaces which is MainActor, via GhosttyBackedHierarchyRuntime (MainActor). ✓ (2026-04-21, existing sidebar suite green; one legacy test updated to record removeWorktreeWithGit instead of removeWorktree)
-- [ ] M13 — Integration test in `touch-codeTests/Integration` (temp git repo end-to-end)
+- [x] M13 — Integration test in `touch-codeTests/Integration` (temp git repo end-to-end): fullLifecycle (create → ls → safe-remove) + uncommittedChangesBlockSafeRemoveAndForceRemoveSucceeds (2026-04-21, 2 integration tests green against real bundled wt)
 - [ ] M14 — Local validation (lint, tests); push; open PR with reconcile contract embedded in the body
 
 ## Surprises & Discoveries
