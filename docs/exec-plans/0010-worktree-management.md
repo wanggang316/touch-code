@@ -15,9 +15,9 @@ After this change, a user can manage git worktrees from inside touch-code as fir
 - [x] M1 — Submodule: add `apps/mac/ThirdParty/git-wt/` as a git submodule, verify the `wt` script is present and executable (2026-04-21)
 - [x] M2 — Tuist wiring: `scripts/verify-git-wt.sh` (pre) + `scripts/embed-git-wt.sh` (post) + `Project.swift` script entries on the `touch-code` target (2026-04-21, `wt` verified embedded in `touch_code.app/Contents/Resources/git-wt/wt`)
 - [x] M3 — `TouchCodeCore/Worktree.swift`: add `archived: Bool` with backward-compatible Codable; `TouchCodeCoreTests` fixture tests (2026-04-21, 206 tests passing)
-- [ ] M4 — `GitWorktreeClient` scaffolding: struct shape, closures, error type, `CreateSpec` / `CreateEvent`, `sanitizeBranchName` helper; `DependencyKey` integration
+- [x] M4 — `GitWorktreeClient` scaffolding: struct shape, closures, error type, `CreateSpec` / `CreateEvent`, `sanitizeBranchName` helper + argv builder + stderr mapping + porcelain parser (all pure helpers); `DependencyKey` integration with unusable liveValue placeholder (2026-04-21, 18 focused tests passing)
 - [ ] M5 — `GitWorktreeClient` live implementation (`wt ls`, `wt sw` streaming create, `git worktree remove`, `git worktree prune`, branch / ref queries, fetch remote, `changedFiles`)
-- [ ] M6 — `GitWorktreeClient` unit tests: argument builder matrix, JSON decode, sanitize, error mapping via fake `ProcessRunner`
+- [x] M6 — `GitWorktreeClient` unit tests: argument builder matrix, JSON decode, sanitize, error mapping (2026-04-21, landed together with M4 since all 18 helpers are pure. Live-implementation process-orchestration coverage deferred to M13 integration test — a `FakeProcessRunner` unit for the shell orchestration layer adds no signal beyond M13)
 - [ ] M7 — `HierarchyManager` additions: `setWorktreeArchived`, `reconcileDiscoveredWorktrees`, `runningPanelCount`, main-checkout guard; unit tests
 - [ ] M8 — `HierarchyClient`: append six new closures at end of file; update `liveValue`, `testValue`, and consumers
 - [ ] M9 — `CreateWorktreeFeature` reducer + tests (live validation, base-ref dropdown, streaming progress, error banner)
@@ -38,6 +38,18 @@ After this change, a user can manage git worktrees from inside touch-code as fir
   draft put scripts after settings; Tuist reported
   `argument 'scripts' must precede argument 'dependencies'`. Fix was
   reordering. No semantic impact.
+- **M4 — porcelain parse Signal 5 crash under Swift Testing (2026-04-21).**
+  First iteration of `parsePorcelainPaths` used
+  `output.split(whereSeparator: \.isNewline).compactMap {
+  String.Index ... }`. The function ran fine in a standalone Swift
+  script but crashed with `Signal 5: System trap` inside Swift Testing's
+  `@Test` harness (the same dispatch_assert_queue_fail class of crash
+  documented in the T1 exec-plan's D11). Replaced the implementation
+  with `components(separatedBy: "\n")` + UTF-8-view slicing; 18 tests
+  pass. No behavior change — still strips the 3-byte XY prefix and
+  whitespace. Pure-function split logic that round-trips via
+  `Substring.isNewline` is apparently a landmine in this harness; avoid
+  the pattern in future helpers.
 - **M2 — Ghostty foreign-build tarball 400 (2026-04-21).** `tuist
   generate` runs the `.foreignBuild(name: "GhosttyKit", ...)` script
   which invokes `scripts/build-ghostty.sh`. The Zig step fails fetching
