@@ -131,6 +131,129 @@ struct RootFeatureTests {
   // per-Worktree `gitViewerOverlayVisible` projection and
   // `.gitViewerToggledForCurrentWorktree` action — covered below.
 
+  // MARK: - T3 overlay projection + shortcuts
+
+  @Test
+  func selectionChangedRefreshesGitViewerOverlayVisible() async {
+    // Catalog with two sibling worktrees: A has gitViewerVisible=true, B has false.
+    // Switching selection between them must flip `state.gitViewerOverlayVisible`
+    // deterministically via the reducer's `.selectionChanged` branch.
+    let spaceID = SpaceID()
+    let projectID = ProjectID()
+    let worktreeA = WorktreeID()
+    let worktreeB = WorktreeID()
+
+    let wtA = Worktree(
+      id: worktreeA, name: "A", path: "/a", branch: "a",
+      tabs: [], selectedTabID: nil, gitViewerVisible: true
+    )
+    let wtB = Worktree(
+      id: worktreeB, name: "B", path: "/b", branch: "b",
+      tabs: [], selectedTabID: nil, gitViewerVisible: false
+    )
+    let project = Project(
+      id: projectID, name: "p", rootPath: "/", gitRoot: "/",
+      worktreesDirectory: nil, defaultEditor: nil,
+      worktrees: [wtA, wtB], selectedWorktreeID: worktreeA
+    )
+    let space = Space(
+      id: spaceID, name: "s", projects: [project], selectedProjectID: projectID
+    )
+    let catalog = Catalog(windows: [], spaces: [space], selectedSpaceID: spaceID)
+
+    let store = TestStore(initialState: RootFeature.State()) {
+      RootFeature()
+    } withDependencies: {
+      $0.terminalClient.events = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.snapshot = { catalog }
+      $0.gitService = GitServiceClient.testValue
+      $0.gitService.workingTreeDiff = { _, _ in UnifiedDiff(scope: .working, files: []) }
+      $0.editorClient = EditorClient.testValue
+    }
+    store.exhaustivity = .off
+
+    let selectionA = HierarchySelection(
+      spaceID: spaceID, projectID: projectID, worktreeID: worktreeA
+    )
+    await store.send(.selectionChanged(selectionA)) { state in
+      state.selection = selectionA
+      state.gitViewerOverlayVisible = true
+    }
+
+    let selectionB = HierarchySelection(
+      spaceID: spaceID, projectID: projectID, worktreeID: worktreeB
+    )
+    await store.send(.selectionChanged(selectionB)) { state in
+      state.selection = selectionB
+      state.gitViewerOverlayVisible = false
+    }
+  }
+
+  @Test
+  func gitViewerToggleUpdatesStateAndCallsHierarchyClient() async {
+    // Arrange a selection and a recording `setWorktreeGitViewerVisible` closure;
+    // toggling optimistically flips state and fires the persist setter.
+    let spaceID = SpaceID()
+    let projectID = ProjectID()
+    let worktreeID = WorktreeID()
+    let recorded = LockIsolated<[(WorktreeID, Bool)]>([])
+
+    var initial = RootFeature.State()
+    initial.selection = HierarchySelection(
+      spaceID: spaceID, projectID: projectID, worktreeID: worktreeID
+    )
+    initial.gitViewerOverlayVisible = false
+
+    let store = TestStore(initialState: initial) {
+      RootFeature()
+    } withDependencies: {
+      $0.hierarchyClient.setWorktreeGitViewerVisible = { wt, visible in
+        recorded.withValue { $0.append((wt, visible)) }
+      }
+    }
+
+    await store.send(.gitViewerToggledForCurrentWorktree) { state in
+      state.gitViewerOverlayVisible = true
+    }
+    await store.finish()
+    #expect(recorded.value.count == 1)
+    #expect(recorded.value.first?.0 == worktreeID)
+    #expect(recorded.value.first?.1 == true)
+  }
+
+  @Test
+  func gitViewerToggleWithoutSelectionIsNoOp() async {
+    // When no Worktree is selected, the toggle must not mutate state and must
+    // not fire the persist setter.
+    let recorded = LockIsolated<[(WorktreeID, Bool)]>([])
+    let store = TestStore(initialState: RootFeature.State()) {
+      RootFeature()
+    } withDependencies: {
+      $0.hierarchyClient.setWorktreeGitViewerVisible = { wt, visible in
+        recorded.withValue { $0.append((wt, visible)) }
+      }
+    }
+    await store.send(.gitViewerToggledForCurrentWorktree)
+    await store.finish()
+    #expect(recorded.value.isEmpty)
+  }
+
+  @Test
+  func openSpaceSwitcherRequestedBumpsToken() async {
+    // ⌘K dispatches this; T1 sidebar observes the monotonic token.
+    let store = TestStore(initialState: RootFeature.State()) {
+      RootFeature()
+    }
+    #expect(store.state.spaceSwitcherOpenToken == 0)
+    await store.send(.openSpaceSwitcherRequested) { state in
+      state.spaceSwitcherOpenToken = 1
+    }
+    await store.send(.openSpaceSwitcherRequested) { state in
+      state.spaceSwitcherOpenToken = 2
+    }
+  }
+
   // MARK: - T2 worktreeHeader delegate routing
 
   @Test
