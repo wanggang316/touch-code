@@ -246,12 +246,16 @@ final class HierarchyManager {
   }
 
   /// Merges worktrees discovered on disk (typically from
-  /// `wt ls --json`) into the catalog. Path-canonicalized dedupe against
-  /// existing rows (both sides compared as `URL.standardizedFileURL.path`).
-  /// Never removes or mutates existing rows — stale rows are surfaced in
-  /// the view layer and only deleted by the user-initiated Prune action.
-  /// Idempotent across repeated calls with the same entries. Returns the
-  /// count of appended rows so the caller can surface a toast.
+  /// `wt ls --json`) into the catalog. Path-canonicalized dedupe
+  /// against existing rows — both sides go through
+  /// `URL(fileURLWithPath:).resolvingSymlinksInPath().standardizedFileURL.path`
+  /// so `/var/...` vs. `/private/var/...` don't cause duplicate rows
+  /// against T-PROJECT's `Project.rootPath` which is stored in the
+  /// symlink-resolved form. Never removes or mutates existing rows —
+  /// stale rows are surfaced in the view layer and only deleted by the
+  /// user-initiated Prune action. Idempotent across repeated calls
+  /// with the same entries. Returns the count of appended rows so the
+  /// caller can surface a toast.
   ///
   /// - Parameters:
   ///   - projectID: target Project.
@@ -269,11 +273,11 @@ final class HierarchyManager {
     ) else { return 0 }
     let project = catalog.spaces[spaceIndex].projects[projectIndex]
     let existingPaths = Set(
-      project.worktrees.map { URL(fileURLWithPath: $0.path).standardizedFileURL.path }
+      project.worktrees.map { Self.canonicalPath($0.path) }
     )
     var appended = 0
     for entry in entries {
-      let canonical = URL(fileURLWithPath: entry.path).standardizedFileURL.path
+      let canonical = Self.canonicalPath(entry.path)
       guard !existingPaths.contains(canonical) else { continue }
       let name = (entry.branch?.isEmpty == false)
         ? entry.branch!
@@ -293,6 +297,22 @@ final class HierarchyManager {
       store.scheduleSave(catalog)
     }
     return appended
+  }
+
+  /// Canonical form used by reconcile dedupe and by T-PROJECT's
+  /// stored `Project.rootPath`. MUST stay symmetric with the
+  /// T-PROJECT side — both resolve symlinks first, then standardize.
+  /// On macOS, symlink resolution maps `/var/...` to
+  /// `/private/var/...` (and similar for `/tmp`, `/etc`); without
+  /// this step a `wt ls --json` entry reported as `/var/folders/...`
+  /// would fail to match a `Project.rootPath` stored as
+  /// `/private/var/folders/...` and the main checkout would
+  /// duplicate on every reconcile.
+  static func canonicalPath(_ path: String) -> String {
+    URL(fileURLWithPath: path)
+      .resolvingSymlinksInPath()
+      .standardizedFileURL
+      .path
   }
 
   /// Tears down every terminal surface attached to the Worktree without

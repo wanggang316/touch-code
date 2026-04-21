@@ -138,6 +138,75 @@ struct HierarchyManagerWorktreeMgmtTests {
     #expect(manager.catalog.spaces[0].projects[0].worktrees.count == 2)
   }
 
+  /// Produces `(varForm, privateForm)` — two aliased paths to the same
+  /// on-disk directory, one with the `/var/folders/...` prefix (what
+  /// `wt ls --json` emits) and one with the `/private/var/folders/...`
+  /// prefix (what T-PROJECT's canonicalized `Project.rootPath` holds
+  /// after `resolvingSymlinksInPath()`). The directory itself is real;
+  /// `resolvingSymlinksInPath()` only walks symlinks for existing
+  /// components, so tests that need both forms to canonicalize to the
+  /// same string must go through a real on-disk path.
+  private static func makeAliasedTempDir(tag: String) throws -> (varForm: String, privateForm: String, url: URL) {
+    let base = FileManager.default.temporaryDirectory
+    let dir = base.appending(
+      path: "touch-code-wt-\(tag)-\(UUID().uuidString)", directoryHint: .isDirectory
+    )
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    // `temporaryDirectory.path` is already in `/var/folders/...` form on
+    // macOS (symlink prefix). The `/private/...` alias is a simple
+    // string prefix transform.
+    let varForm = dir.path
+    let privateForm = varForm.hasPrefix("/private")
+      ? varForm
+      : "/private" + varForm
+    return (varForm, privateForm, dir)
+  }
+
+  @Test
+  func reconcileDedupesSymlinkAliases() throws {
+    // On macOS `/var` is a symlink to `/private/var`; T-PROJECT's
+    // Project.rootPath goes through resolvingSymlinksInPath() and ends
+    // up in the `/private/var/...` form, while `wt ls --json` emits
+    // the unresolved `/var/...` form. Reconcile must canonicalize
+    // both sides so the main checkout doesn't duplicate.
+    let alias = try Self.makeAliasedTempDir(tag: "reconcile")
+    defer { try? FileManager.default.removeItem(at: alias.url) }
+
+    let spaceID = manager.createSpace(name: "s")
+    // Catalog stores the resolved form, matching T-PROJECT's side.
+    let projectID = try manager.addProject(
+      to: spaceID, name: "p", rootPath: alias.privateForm, gitRoot: alias.privateForm
+    )
+    _ = try manager.createWorktree(
+      in: projectID, in: spaceID, name: "main",
+      path: alias.privateForm, branch: "main"
+    )
+    // Reconcile feeds the un-resolved form (what `wt ls --json` would
+    // produce for a repo discovered under /var).
+    let appended = manager.reconcileDiscoveredWorktrees(
+      projectID: projectID,
+      inSpace: spaceID,
+      entries: [(path: alias.varForm, branch: "main")]
+    )
+    #expect(appended == 0)
+    #expect(manager.catalog.spaces[0].projects[0].worktrees.count == 1)
+  }
+
+  @Test
+  func canonicalPathResolvesSymlinksForExistingPaths() throws {
+    // resolvingSymlinksInPath() follows symlinks for existing path
+    // components. Both aliases of the same on-disk temp dir must
+    // collapse to identical canonical strings.
+    let alias = try Self.makeAliasedTempDir(tag: "canonical")
+    defer { try? FileManager.default.removeItem(at: alias.url) }
+
+    let canonicalVar = HierarchyManager.canonicalPath(alias.varForm)
+    let canonicalPrivate = HierarchyManager.canonicalPath(alias.privateForm)
+    #expect(canonicalVar == canonicalPrivate)
+    // Idempotent: re-canonicalizing is a no-op.
+    #expect(HierarchyManager.canonicalPath(canonicalVar) == canonicalVar)
+  }
+
   @Test
   func reconcileNeverDeletesExistingRows() throws {
     let spaceID = manager.createSpace(name: "s")

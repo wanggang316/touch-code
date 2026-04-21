@@ -277,8 +277,13 @@ extension HierarchyClient {
   /// Factored out so the closure body stays one-line-callable. Resolves
   /// the Project's git root, lists on-disk worktrees via `wt ls --json`,
   /// and hands the result to `manager.reconcileDiscoveredWorktrees`.
-  /// Swallows and logs `GitWorktreeError` — this path is idempotent and
-  /// must never crash a reconcile (see design doc §Discovery / Reconcile).
+  /// Each entry's `path` is passed through `HierarchyManager.canonicalPath`
+  /// so `wt ls`'s `/var/...` output matches the symlink-resolved form
+  /// T-PROJECT stores for `Project.rootPath` — without this normalization
+  /// the main checkout would duplicate on every reconcile under `/tmp`
+  /// and `/var`. Swallows and logs `GitWorktreeError` — this path is
+  /// idempotent and must never crash a reconcile (see design doc
+  /// §Discovery / Reconcile).
   @MainActor
   private static func reconcile(
     projectID: ProjectID,
@@ -296,7 +301,7 @@ extension HierarchyClient {
       )
       let mapped = entries.map { entry -> (path: String, branch: String?) in
         let branch = entry.branch.isEmpty ? nil : entry.branch
-        return (path: entry.path, branch: branch)
+        return (path: HierarchyManager.canonicalPath(entry.path), branch: branch)
       }
       _ = manager.reconcileDiscoveredWorktrees(
         projectID: projectID,
@@ -304,8 +309,9 @@ extension HierarchyClient {
         entries: mapped
       )
     } catch {
-      // Logged at call site by the runtime; swallow here to preserve
-      // the "never throw, never crash a reconcile" contract.
+      // Swallow to preserve the "never throw, never crash a reconcile"
+      // contract. A follow-up PR wires a Logger call here — see PR
+      // review item (d).
     }
   }
 
