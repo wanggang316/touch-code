@@ -171,6 +171,51 @@ struct RepositorySettingsFeatureTests {
   }
 
   @Test
+  func onHooksAppearTagsWorktreePathGlobMatchingProjectRootAsRepository() async {
+    // B4 regression guard: worktreePathGlob targeting the repo root must tag as
+    // Repository even when no `worktrees` entry's path matches. Design's Data
+    // Storage § Hook classification requires project.rootPath to be checked too.
+    let projectID = ProjectID()
+    let subID = UUID()
+    let project = Project(
+      id: projectID,
+      name: "P",
+      rootPath: "/Users/me/proj",
+      gitRoot: "/Users/me/proj",
+      worktrees: [
+        Worktree(id: WorktreeID(), name: "feat-a", path: "/Users/me/wts/feat-a", branch: "a")
+      ]
+    )
+    let space = Space(id: SpaceID(), name: "S", projects: [project])
+    let catalog = Catalog(windows: [], spaces: [space], selectedSpaceID: space.id)
+    // Glob matches project.rootPath exactly but does NOT match /Users/me/wts/feat-a.
+    let sub = HookSubscription(
+      id: subID,
+      event: .panelCreated,
+      command: "echo test",
+      scope: .worktreePathGlob("/Users/me/proj")
+    )
+
+    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: projectID)) {
+      RepositorySettingsFeature()
+    } withDependencies: {
+      $0.hookConfigClient = .testValue
+      $0.hookConfigClient.load = { HookConfig(subscriptions: [sub]) }
+      $0.hierarchyClient = .testValue
+      $0.hierarchyClient.snapshot = { catalog }
+      $0.finderClient = .testValue
+    }
+
+    let expected = HookRowBuilder.make(from: sub, source: .repository)
+    await store.send(.onHooksAppear) {
+      $0.hooksLoad = .loading
+    }
+    await store.receive(\.hooksLoaded.success) {
+      $0.hooksLoad = .loaded([expected])
+    }
+  }
+
+  @Test
   func onHooksAppearTagsGlobalScopedSubscriptionAsGlobal() async {
     let projectID = ProjectID()
     let subID = UUID()
