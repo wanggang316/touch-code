@@ -113,12 +113,26 @@ final class AppState {
   init() {
     let catalogStore = CatalogStore()
     let runtime = GhosttyBackedHierarchyRuntime()
-    let catalog = (try? catalogStore.load()) ?? .default
+    var catalog = (try? catalogStore.load()) ?? .default
+
+    // First-run seed: if catalog is empty, create a "Personal" Space
+    let needsSeed = catalog.spaces.isEmpty
+    if needsSeed {
+      let seed = Space(name: "Personal")
+      catalog.spaces = [seed]
+      catalog.selectedSpaceID = seed.id
+    }
+
     let manager = HierarchyManager(
       catalog: catalog,
       store: catalogStore,
       runtime: runtime
     )
+
+    // Persist the seed via the standard debounced save pipeline
+    if needsSeed {
+      catalogStore.scheduleSave(manager.catalog)
+    }
     self.catalogStore = catalogStore
     self.hierarchyRuntime = runtime
     self.hierarchyManager = manager
