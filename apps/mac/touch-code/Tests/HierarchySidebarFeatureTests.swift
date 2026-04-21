@@ -62,6 +62,39 @@ struct HierarchySidebarFeatureTests {
     #expect(captured?.2 == spaceID)
   }
 
+  // MARK: - nextUntitledSpaceName
+
+  @Test
+  func nextUntitledSpaceNameOnEmptyCatalogIsBare() async {
+    #expect(nextUntitledSpaceName(in: []) == "Untitled Space")
+  }
+
+  @Test
+  func nextUntitledSpaceNameWithOnlyBareReturnsTwo() async {
+    let spaces = [Self.space(named: "Untitled Space")]
+    #expect(nextUntitledSpaceName(in: spaces) == "Untitled Space 2")
+  }
+
+  @Test
+  func nextUntitledSpaceNameFillsHoleBetweenBareAndThree() async {
+    let spaces = [
+      Self.space(named: "Untitled Space"),
+      Self.space(named: "Untitled Space 3"),
+      Self.space(named: "My Project"),
+    ]
+    #expect(nextUntitledSpaceName(in: spaces) == "Untitled Space 2")
+  }
+
+  @Test
+  func nextUntitledSpaceNameBareWinsWhenOnlyTwoExists() async {
+    let spaces = [Self.space(named: "Untitled Space 2")]
+    #expect(nextUntitledSpaceName(in: spaces) == "Untitled Space")
+  }
+
+  private static func space(named name: String) -> Space {
+    Space(id: SpaceID(), name: name, projects: [], selectedProjectID: nil)
+  }
+
   @Test
   func pruneExpansionSetsDropsStaleIDs() async {
     let live = SpaceID()

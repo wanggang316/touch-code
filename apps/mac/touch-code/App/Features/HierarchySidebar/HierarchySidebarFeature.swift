@@ -2,6 +2,39 @@ import ComposableArchitecture
 import Foundation
 import TouchCodeCore
 
+/// Returns the smallest-index unused "Untitled Space [N]" name given the
+/// current list of Spaces. Treats bare "Untitled Space" as the N=1 slot;
+/// the first new Space gets bare, the second gets "Untitled Space 2", and
+/// so on, filling holes before extending the tail.
+///
+/// Pure. No disk I/O, no MainActor. Exposed to tests via `@testable import`.
+/// File-scope (not method on the reducer) so the reducer stays focused on
+/// action→effect mapping and the test target can call it without touching
+/// TCA machinery.
+func nextUntitledSpaceName(in spaces: [Space]) -> String {
+  let bare = "Untitled Space"
+  var occupied: Set<Int> = []
+  for space in spaces {
+    if space.name == bare {
+      occupied.insert(1)
+      continue
+    }
+    guard space.name.hasPrefix(bare + " ") else { continue }
+    let suffix = space.name.dropFirst(bare.count + 1)
+    // Reject leading zeros, signs, whitespace — only a clean positive integer counts.
+    guard !suffix.isEmpty,
+          suffix.allSatisfy(\.isNumber),
+          suffix.first != "0",
+          let n = Int(suffix),
+          n > 0
+    else { continue }
+    occupied.insert(n)
+  }
+  var candidate = 1
+  while occupied.contains(candidate) { candidate += 1 }
+  return candidate == 1 ? bare : "\(bare) \(candidate)"
+}
+
 /// Sidebar reducer for the Space → Project → Worktree hierarchy. Holds
 /// local view state (which Spaces / Projects have their disclosure group
 /// expanded) and dispatches selection + creation commands through
