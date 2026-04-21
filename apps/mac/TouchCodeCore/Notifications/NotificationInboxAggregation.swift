@@ -55,6 +55,23 @@ extension NotificationInbox {
   }
 
   /// Render-hot paths should cache a snapshot-scoped index.
+  /// Counts unread, non-dismissed notifications whose panel resolves to
+  /// some Worktree in the given catalog. Shared by the Header bell badge
+  /// (T2) and intended as the canonical "total resolvable unread"
+  /// accessor across the catalog. Orphans — unread entries whose
+  /// `panelID` no longer resolves to any Worktree — are excluded so the
+  /// badge count and the popover grouping derived from
+  /// `panelWorktreeIndex()` agree on the visible row count.
+  public func totalUnread(in catalog: Catalog) -> Int {
+    let index = catalog.panelWorktreeIndex()
+    return notifications.reduce(into: 0) { total, notification in
+      guard notification.isUnread else { return }
+      guard index[notification.panelID] != nil else { return }
+      total += 1
+    }
+  }
+
+  /// Render-hot paths should cache a snapshot-scoped index.
   /// Every notification whose panel resolves to the given Worktree, sorted
   /// newest-first by `createdAt`; ties broken by `id` to ensure
   /// deterministic ordering. Includes read and dismissed entries; the

@@ -188,6 +188,55 @@ struct NotificationInboxAggregationTests {
   }
 
   @Test
+  func totalUnreadCountsAllResolvableUnreadsAcrossCatalog() {
+    let f = Fixture()
+    // Fixture has two unread entries (W1a blockedOnInput + W1b completed);
+    // one read (W1a completed with readAt set). totalUnread should see 2.
+    #expect(f.inbox.totalUnread(in: f.catalog) == 2)
+  }
+
+  @Test
+  func totalUnreadExcludesOrphans() {
+    let f = Fixture()
+    // Add an unread notification keyed to a panel NOT in the catalog —
+    // should not affect the count. Guarantees badge/popover parity.
+    var inbox = f.inbox
+    let orphan = AgentNotification(
+      panelID: PanelID(), agent: "ghost", kind: .blockedOnInput,
+      title: "stray", body: "", createdAt: Date()
+    )
+    inbox.notifications.insert(orphan, at: 0)
+    #expect(inbox.totalUnread(in: f.catalog) == 2)
+  }
+
+  @Test
+  func totalUnreadIsZeroWhenEverythingReadOrDismissed() {
+    let f = Fixture()
+    var inbox = f.inbox
+    let now = Date()
+    for index in inbox.notifications.indices {
+      if inbox.notifications[index].readAt == nil {
+        inbox.notifications[index].readAt = now
+      }
+    }
+    #expect(inbox.totalUnread(in: f.catalog) == 0)
+
+    // Dismissed-only entries also drop out of the count.
+    var dismissed = f.inbox
+    for index in dismissed.notifications.indices {
+      dismissed.notifications[index].dismissedAt = now
+    }
+    #expect(dismissed.totalUnread(in: f.catalog) == 0)
+  }
+
+  @Test
+  func totalUnreadOnEmptyInboxIsZero() {
+    let f = Fixture()
+    let empty = NotificationInbox(notifications: [])
+    #expect(empty.totalUnread(in: f.catalog) == 0)
+  }
+
+  @Test
   func aggregationIgnoresPanelsNotInCatalog() {
     let f = Fixture()
     let stray = AgentNotification(
