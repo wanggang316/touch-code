@@ -49,7 +49,11 @@ struct ContentView: View {
         editorStore: store.scope(state: \.editor, action: \.editor),
         headerStore: store.scope(state: \.worktreeHeader, action: \.worktreeHeader),
         gitViewerStore: store.scope(state: \.gitViewer, action: \.gitViewer),
-        overlayVisible: store.gitViewerOverlayVisible
+        // Live read against the observed `hierarchyManager.catalog` — any
+        // write to `Worktree.gitViewerVisible` (⌘⇧G, Header button, or
+        // external API) re-renders this view without needing a reducer
+        // projection to stay in sync.
+        overlayVisible: store.state.gitViewerOverlayVisible(in: hierarchyManager.catalog)
       )
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .overlay(alignment: .bottom) { editorToastOverlay }

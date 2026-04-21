@@ -374,8 +374,50 @@ struct EditorFeatureTests {
   }
 
   @Test
-  func openDefaultInCurrentWorktreeWithProjectOverrideForwardsOverride() async {
-    // Project override "cursor" present in state.descriptors → resolve picks cursor.
+  func openDefaultInCurrentWorktreeWithInstalledOverrideForwardsOverride() async {
+    // Positive case: project override "vscode" is present AND `.installed`.
+    // resolve picks vscode over the configured globalDefault ("cursor").
+    let spaceID = SpaceID()
+    let projectID = ProjectID()
+    let worktreeID = WorktreeID()
+    let snap = Self.catalog(
+      spaceID: spaceID, projectID: projectID, worktreeID: worktreeID,
+      projectOverride: "vscode"
+    )
+
+    var initial = EditorFeature.State()
+    initial.descriptors = Self.sampleDescriptors
+    initial.globalDefault = "cursor"
+
+    let store = TestStore(initialState: initial) {
+      EditorFeature()
+    } withDependencies: {
+      $0.editorClient = EditorClient.testValue
+      $0.editorClient.open = Self.makeOpenStub()
+      $0.settingsWriter = SettingsWriter.testValue
+      $0.hierarchyClient = HierarchyClient.testValue
+      $0.hierarchyClient.snapshot = { snap }
+    }
+    store.exhaustivity = .off
+    await store.send(.openDefaultInCurrentWorktreeRequested(
+      spaceID: spaceID, projectID: projectID, worktreeID: worktreeID,
+      worktreePath: "/w"
+    ))
+    await store.receive(.openRequested(
+      editorID: "vscode",
+      worktreePath: "/w",
+      projectID: projectID
+    ))
+  }
+
+  @Test
+  func openDefaultInCurrentWorktreeForwardsOverrideEvenIfUninstalled() async {
+    // Documents the cascade-on-missing semantics from T2's resolveDefault:
+    // an override that is present in `descriptors` but reports
+    // `.missingBinary(...)` is still forwarded. The downstream
+    // `.openRequested → EditorClient.open` surfaces the failure as a toast
+    // rather than silently falling through to Finder. `sampleDescriptors`
+    // ships cursor as the missing-binary descriptor.
     let spaceID = SpaceID()
     let projectID = ProjectID()
     let worktreeID = WorktreeID()

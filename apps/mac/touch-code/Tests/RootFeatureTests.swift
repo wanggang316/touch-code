@@ -133,23 +133,21 @@ struct RootFeatureTests {
 
   // MARK: - T3 overlay projection + shortcuts
 
-  @Test
-  func selectionChangedRefreshesGitViewerOverlayVisible() async {
-    // Catalog with two sibling worktrees: A has gitViewerVisible=true, B has false.
-    // Switching selection between them must flip `state.gitViewerOverlayVisible`
-    // deterministically via the reducer's `.selectionChanged` branch.
-    let spaceID = SpaceID()
-    let projectID = ProjectID()
-    let worktreeA = WorktreeID()
-    let worktreeB = WorktreeID()
-
+  /// Shared catalog fixture for T3 GV overlay tests. Worktree A is visible,
+  /// B is hidden. The second Worktree lives under the same Project so the
+  /// selection delta is just the worktree leg.
+  private static func gvFixtureCatalog(
+    spaceID: SpaceID, projectID: ProjectID,
+    worktreeA: WorktreeID, worktreeB: WorktreeID,
+    aVisible: Bool, bVisible: Bool
+  ) -> Catalog {
     let wtA = Worktree(
       id: worktreeA, name: "A", path: "/a", branch: "a",
-      tabs: [], selectedTabID: nil, gitViewerVisible: true
+      tabs: [], selectedTabID: nil, gitViewerVisible: aVisible
     )
     let wtB = Worktree(
       id: worktreeB, name: "B", path: "/b", branch: "b",
-      tabs: [], selectedTabID: nil, gitViewerVisible: false
+      tabs: [], selectedTabID: nil, gitViewerVisible: bVisible
     )
     let project = Project(
       id: projectID, name: "p", rootPath: "/", gitRoot: "/",
@@ -159,7 +157,24 @@ struct RootFeatureTests {
     let space = Space(
       id: spaceID, name: "s", projects: [project], selectedProjectID: projectID
     )
-    let catalog = Catalog(windows: [], spaces: [space], selectedSpaceID: spaceID)
+    return Catalog(windows: [], spaces: [space], selectedSpaceID: spaceID)
+  }
+
+  @Test
+  func gitViewerOverlayVisibleTracksSelectionAgainstCatalog() async {
+    // With the T3-REV2 single-source-of-truth rewrite, the view reads
+    // `State.gitViewerOverlayVisible(in: catalog)` directly. After a
+    // `.selectionChanged`, that read returns the target Worktree's
+    // persisted `gitViewerVisible` — no reducer projection in between.
+    let spaceID = SpaceID()
+    let projectID = ProjectID()
+    let worktreeA = WorktreeID()
+    let worktreeB = WorktreeID()
+    let catalog = Self.gvFixtureCatalog(
+      spaceID: spaceID, projectID: projectID,
+      worktreeA: worktreeA, worktreeB: worktreeB,
+      aVisible: true, bVisible: false
+    )
 
     let store = TestStore(initialState: RootFeature.State()) {
       RootFeature()
@@ -173,63 +188,100 @@ struct RootFeatureTests {
     }
     store.exhaustivity = .off
 
+    // Initially no selection → helper returns false.
+    #expect(store.state.gitViewerOverlayVisible(in: catalog) == false)
+
     let selectionA = HierarchySelection(
       spaceID: spaceID, projectID: projectID, worktreeID: worktreeA
     )
-    await store.send(.selectionChanged(selectionA)) { state in
-      state.selection = selectionA
-      state.gitViewerOverlayVisible = true
-    }
+    await store.send(.selectionChanged(selectionA)) { $0.selection = selectionA }
+    #expect(store.state.gitViewerOverlayVisible(in: catalog) == true)
 
     let selectionB = HierarchySelection(
       spaceID: spaceID, projectID: projectID, worktreeID: worktreeB
     )
-    await store.send(.selectionChanged(selectionB)) { state in
-      state.selection = selectionB
-      state.gitViewerOverlayVisible = false
-    }
+    await store.send(.selectionChanged(selectionB)) { $0.selection = selectionB }
+    #expect(store.state.gitViewerOverlayVisible(in: catalog) == false)
   }
 
   @Test
-  func gitViewerToggleUpdatesStateAndCallsHierarchyClient() async {
-    // Arrange a selection and a recording `setWorktreeGitViewerVisible` closure;
-    // toggling optimistically flips state and fires the persist setter.
+  func gitViewerOverlayVisibleFollowsCatalogMutationWithSameSelection() {
+    // Second half of the single-source-of-truth contract: flipping the
+    // catalog value (T2 Header button path) must flip the helper read
+    // without any selection change and without any reducer projection.
     let spaceID = SpaceID()
     let projectID = ProjectID()
-    let worktreeID = WorktreeID()
-    let recorded = LockIsolated<[(WorktreeID, Bool)]>([])
+    let worktreeA = WorktreeID()
+    let worktreeB = WorktreeID()
 
     var initial = RootFeature.State()
     initial.selection = HierarchySelection(
-      spaceID: spaceID, projectID: projectID, worktreeID: worktreeID
+      spaceID: spaceID, projectID: projectID, worktreeID: worktreeA
     )
-    initial.gitViewerOverlayVisible = false
+    let store = TestStore(initialState: initial) {
+      RootFeature()
+    }
+
+    let hidden = Self.gvFixtureCatalog(
+      spaceID: spaceID, projectID: projectID,
+      worktreeA: worktreeA, worktreeB: worktreeB,
+      aVisible: false, bVisible: false
+    )
+    let shown = Self.gvFixtureCatalog(
+      spaceID: spaceID, projectID: projectID,
+      worktreeA: worktreeA, worktreeB: worktreeB,
+      aVisible: true, bVisible: false
+    )
+    #expect(store.state.gitViewerOverlayVisible(in: hidden) == false)
+    #expect(store.state.gitViewerOverlayVisible(in: shown) == true)
+  }
+
+  @Test
+  func gitViewerToggleInvokesHierarchyClientWithFlippedValue() async {
+    // The reducer now reads the current value from the catalog snapshot
+    // and writes the flipped value; no state mutation. Both entry points
+    // (⌘⇧G + Header button) share a single write path.
+    let spaceID = SpaceID()
+    let projectID = ProjectID()
+    let worktreeA = WorktreeID()
+    let worktreeB = WorktreeID()
+    let recorded = LockIsolated<[(WorktreeID, Bool)]>([])
+    let catalog = Self.gvFixtureCatalog(
+      spaceID: spaceID, projectID: projectID,
+      worktreeA: worktreeA, worktreeB: worktreeB,
+      aVisible: false, bVisible: false
+    )
+
+    var initial = RootFeature.State()
+    initial.selection = HierarchySelection(
+      spaceID: spaceID, projectID: projectID, worktreeID: worktreeA
+    )
 
     let store = TestStore(initialState: initial) {
       RootFeature()
     } withDependencies: {
+      $0.hierarchyClient.snapshot = { catalog }
       $0.hierarchyClient.setWorktreeGitViewerVisible = { wt, visible in
         recorded.withValue { $0.append((wt, visible)) }
       }
     }
 
-    await store.send(.gitViewerToggledForCurrentWorktree) { state in
-      state.gitViewerOverlayVisible = true
-    }
+    await store.send(.gitViewerToggledForCurrentWorktree)
     await store.finish()
     #expect(recorded.value.count == 1)
-    #expect(recorded.value.first?.0 == worktreeID)
+    #expect(recorded.value.first?.0 == worktreeA)
+    // Starting from `gitViewerVisible: false`, toggle writes `true`.
     #expect(recorded.value.first?.1 == true)
   }
 
   @Test
   func gitViewerToggleWithoutSelectionIsNoOp() async {
-    // When no Worktree is selected, the toggle must not mutate state and must
-    // not fire the persist setter.
+    // When no Worktree is selected, the toggle must not fire the setter.
     let recorded = LockIsolated<[(WorktreeID, Bool)]>([])
     let store = TestStore(initialState: RootFeature.State()) {
       RootFeature()
     } withDependencies: {
+      $0.hierarchyClient.snapshot = { Catalog(windows: [], spaces: [], selectedSpaceID: nil) }
       $0.hierarchyClient.setWorktreeGitViewerVisible = { wt, visible in
         recorded.withValue { $0.append((wt, visible)) }
       }
