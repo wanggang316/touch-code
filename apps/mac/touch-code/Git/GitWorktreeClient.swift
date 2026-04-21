@@ -146,12 +146,19 @@ nonisolated extension GitWorktreeClient {
   /// cases. Unknown patterns fall through to `.commandFailed`. Callers
   /// that need `.uncommittedChanges(files:)` populate `files` from
   /// `git status --porcelain` separately.
+  ///
+  /// All patterns are case-insensitive — git's message casing can vary
+  /// with locale + version, and the `stderr.lowercased()` branches
+  /// below matched case-insensitively long before the two regex
+  /// branches did (issue #24 (b)). Inline `(?i)` keeps the original
+  /// casing of the captured branch name so UI surfaces show what the
+  /// user typed instead of a forced-lower version.
   static func mapGitStderr(command: String, stderr: String) -> GitWorktreeError {
     let lower = stderr.lowercased()
-    if let match = stderr.firstMatch(of: /A branch named '([^']+)' already exists/) {
+    if let match = stderr.firstMatch(of: /(?i)A branch named '([^']+)' already exists/) {
       return .branchExists(String(match.1))
     }
-    if let match = stderr.firstMatch(of: /'([^']+)' is not a valid branch name/) {
+    if let match = stderr.firstMatch(of: /(?i)'([^']+)' is not a valid branch name/) {
       return .invalidBranchName(String(match.1))
     }
     if lower.contains("unknown revision") || lower.contains("bad revision") {

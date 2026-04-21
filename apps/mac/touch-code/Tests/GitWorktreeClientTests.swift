@@ -162,12 +162,42 @@ struct GitWorktreeClientTests {
   }
 
   @Test
+  func stderrMapsBranchExistsUppercase() {
+    // Locales or future git releases may emit uppercased stderr. The
+    // pattern is case-insensitive; captured branch-name keeps its
+    // original casing for faithful UI display (issue #24 (b)).
+    let err = GitWorktreeClient.mapGitStderr(
+      command: "git worktree add -b X /tmp/X",
+      stderr: "FATAL: A BRANCH NAMED 'X' ALREADY EXISTS"
+    )
+    #expect(err == .branchExists("X"))
+  }
+
+  @Test
+  func stderrMapsBranchExistsTitleCase() {
+    let err = GitWorktreeClient.mapGitStderr(
+      command: "git worktree add -b Feat /tmp/Feat",
+      stderr: "Fatal: A Branch Named 'Feat' Already Exists"
+    )
+    #expect(err == .branchExists("Feat"))
+  }
+
+  @Test
   func stderrMapsInvalidBranchName() {
     let err = GitWorktreeClient.mapGitStderr(
       command: "git worktree add",
       stderr: "fatal: 'bad name' is not a valid branch name"
     )
     #expect(err == .invalidBranchName("bad name"))
+  }
+
+  @Test
+  func stderrMapsInvalidBranchNameMixedCase() {
+    let err = GitWorktreeClient.mapGitStderr(
+      command: "git worktree add",
+      stderr: "Fatal: 'Bad Name' Is Not A Valid Branch Name"
+    )
+    #expect(err == .invalidBranchName("Bad Name"))
   }
 
   @Test
