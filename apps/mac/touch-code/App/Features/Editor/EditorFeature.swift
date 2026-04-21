@@ -59,6 +59,16 @@ struct EditorFeature {
     case openRequested(editorID: EditorID, worktreePath: String, projectID: ProjectID?)
     case openSucceeded(editorID: EditorID, displayName: String)
     case openFailed(reason: String)
+    /// T3 (⌘E shortcut): resolve the current Worktree's default editor via the
+    /// per-Project override → global default → Finder fallback chain and forward to
+    /// `.openRequested`. The caller (MainWindowCommands) supplies the already-resolved
+    /// IDs + path so the reducer reads the catalog snapshot only for the override lookup.
+    case openDefaultInCurrentWorktreeRequested(
+      spaceID: SpaceID,
+      projectID: ProjectID,
+      worktreeID: WorktreeID,
+      worktreePath: String
+    )
   }
 
   @Dependency(EditorClient.self) var editorClient
@@ -164,6 +174,31 @@ struct EditorFeature {
       case .openFailed(let reason):
         state.lastOpenResult = .failed(reason: reason)
         return .none
+
+      case .openDefaultInCurrentWorktreeRequested(let spaceID, let projectID, _, let worktreePath):
+        // T3 ⌘E: reuse T2's shared resolver. Look up the per-Project override
+        // from the catalog snapshot, then delegate to `resolveDefault` which
+        // already encodes the cascade-on-missing semantics. Map the returned
+        // `ResolvedDefault` to an `EditorID` for `.openRequested`.
+        let catalog = hierarchyClient.snapshot()
+        let projectOverride = catalog
+          .spaces.first(where: { $0.id == spaceID })?
+          .projects.first(where: { $0.id == projectID })?
+          .defaultEditor
+        let resolvedID: EditorID
+        switch Self.resolveDefault(
+          projectOverride: projectOverride,
+          globalDefault: state.globalDefault,
+          descriptors: state.descriptors
+        ) {
+        case .editor(let descriptor): resolvedID = descriptor.id
+        case .finder: resolvedID = Self.finderEditorID
+        }
+        return .send(.openRequested(
+          editorID: resolvedID,
+          worktreePath: worktreePath,
+          projectID: projectID
+        ))
       }
     }
   }
