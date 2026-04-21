@@ -79,13 +79,13 @@ struct DeveloperSettingsView: View {
     subscriptions.map { HookRowBuilder.make(from: $0, source: .global) }
   }
 
-  /// On success: replace `subscriptions` and clear any prior error. The
-  /// `loadHookConfig` closure swallows decode errors and returns
-  /// `HookConfig.empty` on failure; the surrounding structure is kept so a
-  /// future `throws`-returning variant slots in without another rewrite.
+  /// Delegate to `HookReloader` so the "keep previous snapshot on failure"
+  /// rule stays in one place and can be unit-tested without SwiftUI.
   private func reloadHooks() {
-    let config = deps.loadHookConfig()
-    subscriptions = config.subscriptions
-    hookLoadError = nil
+    let outcome = HookReloader.reload(previous: subscriptions) {
+      try deps.loadHookConfig()
+    }
+    subscriptions = outcome.subscriptions
+    hookLoadError = outcome.error
   }
 }

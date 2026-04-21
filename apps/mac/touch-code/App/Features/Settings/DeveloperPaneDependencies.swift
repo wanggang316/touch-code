@@ -26,14 +26,18 @@ struct BundleVersion: Equatable, Sendable {
 @Observable
 final class DeveloperPaneDependencies {
   let installer: CLIInstallerClient
-  let loadHookConfig: @MainActor () -> HookConfig
+  /// Loads the user hook config on demand. **Propagates** decode errors so the
+  /// Developer pane can preserve its previously loaded snapshot and render an
+  /// inline reload error, rather than silently replacing the user's hook list
+  /// with an empty one on JSON corruption.
+  let loadHookConfig: @MainActor () throws -> HookConfig
   let revealInFinder: @MainActor (URL) -> Void
   let copyToPasteboard: @MainActor (String) -> Void
   let bundleVersion: @MainActor () -> BundleVersion
 
   init(
     installer: CLIInstallerClient,
-    loadHookConfig: @escaping @MainActor () -> HookConfig,
+    loadHookConfig: @escaping @MainActor () throws -> HookConfig,
     revealInFinder: @escaping @MainActor (URL) -> Void,
     copyToPasteboard: @escaping @MainActor (String) -> Void,
     bundleVersion: @escaping @MainActor () -> BundleVersion
@@ -61,7 +65,8 @@ extension DeveloperPaneDependencies {
     DeveloperPaneDependencies(
       installer: CLIInstallerClient(),
       loadHookConfig: { [weak hookStore] in
-        (try? hookStore?.load()) ?? .empty
+        guard let store = hookStore else { return .empty }
+        return try store.load()
       },
       revealInFinder: { url in
         Self.revealInFinderEnsuringExists(url, settingsURL: settingsURL, hooksURL: hooksURL)
