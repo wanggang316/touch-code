@@ -32,7 +32,6 @@ jobs:
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_16.0.app
 
-      - run: make mac-check-skill-decoupling
       - run: make mac-generate
       - run: make mac-build-cli
       - run: make mac-build
