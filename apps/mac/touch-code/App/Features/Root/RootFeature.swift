@@ -36,10 +36,38 @@ struct RootFeature {
     /// T2: Header feature (bell + Open-in split button + GV toggle).
     var worktreeHeader: WorktreeHeaderFeature.State = .init()
 
+    /// T3 (main-window redesign): monotonic request token bumped by
+    /// `.openSpaceSwitcherRequested` (⌘K). `HierarchySidebarView` (T1) is
+    /// expected to observe changes via `.onChange(of:)` and open its
+    /// Space-switcher popover. Value is meaningless beyond "changed"; wraps
+    /// on `UInt.max` via `&+=`. Remove if/when T1 exposes a direct
+    /// open-only sidebar action this dispatch can target.
+    var spaceSwitcherOpenToken: UInt = 0
+
     /// C8 M6b (0005): settings sheet presentation. `nil` = hidden; non-nil
     /// presents the sheet with a dedicated sub-feature state that mirrors
     /// a subset of `editor` for isolated in-sheet edits.
     @Presents var settingsSheet: SettingsSheetFeature.State?
+
+    /// T3: live read of the current Worktree's `gitViewerVisible` against
+    /// a catalog snapshot. Not a cached field — views pass in
+    /// `hierarchyManager.catalog` so SwiftUI's `@Observable` tracking
+    /// re-renders on catalog mutation from any writer (⌘⇧G, Header GV
+    /// button, external API). This avoids the state-divergence risk of
+    /// caching the value on State: both toggle entry points write through
+    /// `HierarchyClient.setWorktreeGitViewerVisible`, and the view reads
+    /// the authoritative catalog each render.
+    func gitViewerOverlayVisible(in catalog: Catalog) -> Bool {
+      guard
+        let spaceID = selection.spaceID,
+        let projectID = selection.projectID,
+        let worktreeID = selection.worktreeID,
+        let space = catalog.spaces.first(where: { $0.id == spaceID }),
+        let project = space.projects.first(where: { $0.id == projectID }),
+        let worktree = project.worktrees.first(where: { $0.id == worktreeID })
+      else { return false }
+      return worktree.gitViewerVisible
+    }
   }
 
   /// Opaque marker for diagnostic logging / tests — the full `TerminalEvent`
@@ -80,6 +108,13 @@ struct RootFeature {
     case onQuit
     case selectionChanged(HierarchySelection)
     case engineEventReceived(LastEventMarker)
+    /// T3: Toggles the Git Viewer overlay for the current Worktree.
+    /// Sources: Header GV button (T2) + ⌘⇧G (T3 Commands). Optimistically
+    /// flips `state.gitViewerOverlayVisible` and fires
+    /// `HierarchyClient.setWorktreeGitViewerVisible` to persist.
+    case gitViewerToggledForCurrentWorktree
+    /// T3: Bumps `spaceSwitcherOpenToken`. Fires from ⌘K.
+    case openSpaceSwitcherRequested
     case settingsSheetShown
     case settingsSheet(PresentationAction<SettingsSheetFeature.Action>)
     case sidebar(HierarchySidebarFeature.Action)
@@ -174,33 +209,23 @@ struct RootFeature {
       // `case .sidebar:` so the nested pattern matches first.
 
       case .sidebar(.delegate(.openInDefaultEditor(let path, let projectID))):
-        // Inline default-editor resolution: project override → global default
-        // → EditorRegistry.finderID. Each tier is accepted only if the
-        // descriptor is installed. T2 will hoist this into
-        // `EditorFeature.resolveDefault` when it rebases; keeping it inline
-        // now avoids touching `EditorFeature.Action` (T2's boundary).
-        let descriptors = state.editor.descriptors
-        let globalDefault = state.editor.globalDefault
-        let overrideID: EditorID? = projectID.flatMap { pid in
-          let catalog = hierarchyClient.snapshot()
-          for space in catalog.spaces {
-            for project in space.projects where project.id == pid {
-              return project.defaultEditor
-            }
-          }
-          return nil
+        // T3 rebase: route through the shared `EditorFeature.resolveDefault`
+        // helper so the sidebar context menu, the Header Open-in button, and
+        // the ⌘E shortcut use one resolution path. Cascade-on-missing
+        // semantics (documented on `resolveDefault`) are the canonical
+        // behavior; a non-installed descriptor resolves to its id and the
+        // downstream `.openRequested` surfaces `.failed` through the toast.
+        let resolvedID: EditorID
+        switch EditorFeature.resolveDefault(
+          projectOverride: projectOverrideEditorID(for: projectID),
+          globalDefault: state.editor.globalDefault,
+          descriptors: state.editor.descriptors
+        ) {
+        case .editor(let descriptor): resolvedID = descriptor.id
+        case .finder: resolvedID = EditorFeature.finderEditorID
         }
-        func installed(_ id: EditorID?) -> EditorID? {
-          guard let id,
-                descriptors.contains(where: { $0.id == id && $0.isInstalled })
-          else { return nil }
-          return id
-        }
-        let resolved: EditorID = installed(overrideID)
-          ?? installed(globalDefault)
-          ?? EditorRegistry.finderID
         return .send(.editor(.openRequested(
-          editorID: resolved,
+          editorID: resolvedID,
           worktreePath: path,
           projectID: projectID
         )))
@@ -273,6 +298,23 @@ struct RootFeature {
 
       case .settingsSheet:
         return .none
+
+      case .gitViewerToggledForCurrentWorktree:
+        guard let worktreeID = state.selection.worktreeID else { return .none }
+        // Read the current visibility from the live catalog — the view
+        // layer's `State.gitViewerOverlayVisible(in:)` reads the same
+        // source, so flipping from here and from the Header button
+        // (which writes the catalog directly) can't diverge.
+        let catalog = hierarchyClient.snapshot()
+        let target = !state.gitViewerOverlayVisible(in: catalog)
+        let setter = hierarchyClient.setWorktreeGitViewerVisible
+        return .run { _ in
+          await MainActor.run { setter(worktreeID, target) }
+        }
+
+      case .openSpaceSwitcherRequested:
+        state.spaceSwitcherOpenToken &+= 1
+        return .none
       }
     }
     .ifLet(\.$settingsSheet, action: \.settingsSheet) {
@@ -310,4 +352,5 @@ struct RootFeature {
     else { return nil }
     return worktree.selectedTabID
   }
+
 }

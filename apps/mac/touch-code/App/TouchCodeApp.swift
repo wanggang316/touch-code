@@ -48,6 +48,11 @@ struct TouchCodeApp: App {
       }
     }
     .windowStyle(.titleBar)
+    .commands {
+      if let store = appState.store {
+        MainWindowCommands(store: store)
+      }
+    }
   }
 }
 
