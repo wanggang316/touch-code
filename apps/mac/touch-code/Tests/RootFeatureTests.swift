@@ -59,12 +59,14 @@ struct RootFeatureTests {
     await store.send(.selectionChanged(selection)) { state in
       state.selection = selection
     }
-    // Forwarding step: RootFeature turns .selectionChanged into a .gitViewer action.
+    // Forwarding step: RootFeature turns .selectionChanged into two actions —
+    // `.gitViewer(.worktreeSelected)` and `.worktreeHeader(.catalogChanged)`.
     await store.receive(\.gitViewer.worktreeSelected) { state in
       state.gitViewer.projectID = selection.projectID
       state.gitViewer.worktreeID = selection.worktreeID
       state.gitViewer.diffState = .loading
     }
+    await store.receive(\.worktreeHeader.catalogChanged)
     // Downstream effect: diffRequest fails because the snapshot doesn't contain the
     // worktree, which proves both the forwarding AND the GitViewerFeature is correctly
     // scoped into RootFeature (the reducer ran, not just the action routing).
@@ -124,18 +126,136 @@ struct RootFeatureTests {
     }
   }
 
+  // MARK: - T2 worktreeHeader delegate routing
+
   @Test
-  func inspectorVisibilityTogglesBothWays() async {
+  func headerOpenEditorWithExplicitIDForwardsToEditor() async {
+    let store = TestStore(initialState: RootFeature.State()) {
+      RootFeature()
+    } withDependencies: {
+      $0.terminalClient.events = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
+      $0.editorClient = EditorClient.testValue
+      $0.editorClient.open = { _, id, _ in
+        EditorChoice(
+          id: id ?? "finder", displayName: "x",
+          binaryPath: URL(fileURLWithPath: "/bin/x"), argv: []
+        )
+      }
+    }
+    store.exhaustivity = .off
+
+    let projectID = ProjectID()
+    await store.send(.worktreeHeader(.delegate(.openEditor(
+      editorID: "vscode", worktreePath: "/tmp/w", projectID: projectID
+    ))))
+    await store.receive(.editor(.openRequested(
+      editorID: "vscode", worktreePath: "/tmp/w", projectID: projectID
+    )))
+  }
+
+  @Test
+  func headerOpenEditorWithNilResolvesDefaultThenForwards() async {
+    // Pre-populate EditorFeature cache with a descriptor + matching global
+    // default. ResolveDefault should pick "cursor" and the root should
+    // re-emit .editor(.openRequested) with that id.
+    let descriptor = EditorDescriptor(
+      id: "cursor",
+      displayName: "Cursor",
+      origin: .builtin,
+      template: CommandTemplate(binary: "cursor", args: ["{dir}"]),
+      installation: .installed(resolvedBinary: URL(fileURLWithPath: "/usr/local/bin/cursor"))
+    )
+    var initial = RootFeature.State()
+    initial.editor.descriptors = [descriptor]
+    initial.editor.globalDefault = "cursor"
+    let store = TestStore(initialState: initial) {
+      RootFeature()
+    } withDependencies: {
+      $0.terminalClient.events = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.snapshot = { Catalog() }
+      $0.editorClient = EditorClient.testValue
+      $0.editorClient.open = { _, id, _ in
+        EditorChoice(
+          id: id ?? "finder", displayName: "x",
+          binaryPath: URL(fileURLWithPath: "/bin/x"), argv: []
+        )
+      }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.worktreeHeader(.delegate(.openEditor(
+      editorID: nil, worktreePath: "/tmp/w", projectID: nil
+    ))))
+    await store.receive(.editor(.openRequested(
+      editorID: "cursor", worktreePath: "/tmp/w", projectID: nil
+    )))
+  }
+
+  @Test
+  func headerOpenEditorWithNilFallsBackToFinderID() async {
+    let store = TestStore(initialState: RootFeature.State()) {
+      RootFeature()
+    } withDependencies: {
+      $0.terminalClient.events = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.snapshot = { Catalog() }
+      $0.editorClient = EditorClient.testValue
+      $0.editorClient.open = { _, id, _ in
+        EditorChoice(
+          id: id ?? "finder", displayName: "x",
+          binaryPath: URL(fileURLWithPath: "/bin/x"), argv: []
+        )
+      }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.worktreeHeader(.delegate(.openEditor(
+      editorID: nil, worktreePath: "/tmp/w", projectID: nil
+    ))))
+    await store.receive(.editor(.openRequested(
+      editorID: EditorFeature.finderEditorID,
+      worktreePath: "/tmp/w",
+      projectID: nil
+    )))
+  }
+
+  @Test
+  func headerShowCustomEditorsSettingsOpensSheet() async {
     let store = TestStore(initialState: RootFeature.State()) {
       RootFeature()
     } withDependencies: {
       $0.terminalClient.events = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
     }
+    store.exhaustivity = .off
 
-    #expect(!store.state.inspectorVisible)
-    await store.send(.inspectorVisibilityToggled) { $0.inspectorVisible = true }
-    await store.send(.inspectorVisibilityToggled) { $0.inspectorVisible = false }
+    await store.send(.worktreeHeader(.delegate(.showCustomEditorsSettings)))
+    await store.receive(\.settingsSheetShown) { state in
+      state.settingsSheet = SettingsSheetFeature.State()
+    }
+  }
+
+  @Test
+  func headerSetProjectOverrideForwardsToEditor() async {
+    let store = TestStore(initialState: RootFeature.State()) {
+      RootFeature()
+    } withDependencies: {
+      $0.terminalClient.events = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.setDefaultEditor = { _, _, _ in }
+    }
+    store.exhaustivity = .off
+
+    let spaceID = SpaceID()
+    let projectID = ProjectID()
+    await store.send(.worktreeHeader(.delegate(.setProjectOverride(
+      projectID: projectID, spaceID: spaceID, editorID: "zed"
+    ))))
+    await store.receive(.editor(.setProjectOverride(
+      projectID: projectID, spaceID: spaceID, editorID: "zed"
+    )))
   }
 
   // Removed in T1: `sidebarModeChangedUpdatesState` covered the
@@ -181,6 +301,8 @@ struct RootFeatureTests {
     // state mutation. `store.receive` without a mutation closure is still exhaustive —
     // TestStore asserts the action was dispatched, and the state stayed unchanged.
     await store.receive(\.gitViewer.worktreeSelected)
+    // And the Header feature gets the catalog-changed poke.
+    await store.receive(\.worktreeHeader.catalogChanged)
 
     selectionContinuation.finish()
     await store.send(.onQuit)

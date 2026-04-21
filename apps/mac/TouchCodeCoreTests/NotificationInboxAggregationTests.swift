@@ -214,10 +214,8 @@ struct NotificationInboxAggregationTests {
     let f = Fixture()
     var inbox = f.inbox
     let now = Date()
-    for index in inbox.notifications.indices {
-      if inbox.notifications[index].readAt == nil {
-        inbox.notifications[index].readAt = now
-      }
+    for index in inbox.notifications.indices where inbox.notifications[index].readAt == nil {
+      inbox.notifications[index].readAt = now
     }
     #expect(inbox.totalUnread(in: f.catalog) == 0)
 

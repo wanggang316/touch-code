@@ -97,6 +97,7 @@ struct HeaderBellPopover: View {
         Image(systemName: "arrow.turn.down.right")
           .imageScale(.small)
           .foregroundStyle(.secondary)
+          .accessibilityHidden(true)
         Text(notification.title)
           .font(.callout)
           .foregroundStyle(.primary)
