@@ -69,6 +69,8 @@ struct TouchCodeApp: App {
       if let store = appState.settingsWindowStore {
         SettingsWindowView(store: store, settingsStore: appState.settingsStore)
           .environment(appState.hierarchyManager)
+          .environment(appState.settingsStore)
+          .environment(appState.developerPaneDependencies)
       } else {
         // Settings window can be opened before AppState.bringUp completes (rare but
         // possible during launch). Render a transient placeholder; SwiftUI will
@@ -116,6 +118,11 @@ final class AppState {
   /// store — and its in-memory editor-pane state — survives open/close cycles of the
   /// window (spec M16).
   private(set) var settingsWindowStore: StoreOf<SettingsWindowFeature>?
+  /// Shared dependency container for the Developer pane (T3 — spec M6). Built
+  /// at the tail of `bringUp()` once `hookConfigStore` is available so the
+  /// pane's hook-reload closure captures the live store; nil until then, which
+  /// is why the Settings scene body renders a `ProgressView` placeholder.
+  private(set) var developerPaneDependencies: DeveloperPaneDependencies?
 
   private let catalogStore: CatalogStore
   private let hierarchyRuntime: GhosttyBackedHierarchyRuntime
@@ -228,6 +235,16 @@ final class AppState {
 
     startIPC(hierarchy: manager, editor: editor, hierarchyClient: hierarchy)
     startNotifications(hierarchy: manager)
+
+    // Developer pane dependencies are built last so the HookConfigStore
+    // instance (created inside `startIPC`) is threaded into the live hook
+    // loader. Captured weakly so quitting the IPC stack doesn't keep a stale
+    // reference.
+    self.developerPaneDependencies = DeveloperPaneDependencies.live(
+      hookStore: hookConfigStore,
+      settingsURL: Settings.defaultURL(),
+      hooksURL: HookConfig.defaultURL()
+    )
   }
 
   /// Closure the main-window scene body installs to bridge TCA → `openWindow(id: "settings")`.

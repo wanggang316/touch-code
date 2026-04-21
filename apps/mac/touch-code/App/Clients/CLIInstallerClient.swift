@@ -65,7 +65,10 @@ final class CLIInstallerClient {
     case uninstallFailed(URL, underlyingDescription: String)
   }
 
-  private let paths: Paths
+  /// Surfaced so the Developer pane can point at the installed symlink for
+  /// "Reveal in Finder". Mutating setters are not needed — callers pass a
+  /// different `Paths` through the initializer.
+  let paths: Paths
   private let fileSystem: SkillFileSystem
   private let pathLookup: () -> [URL]
   private let logger = Logger(subsystem: "com.touch-code.ui", category: "cli-installer")
