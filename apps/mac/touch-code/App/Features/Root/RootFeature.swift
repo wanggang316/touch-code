@@ -36,14 +36,6 @@ struct RootFeature {
     /// T2: Header feature (bell + Open-in split button + GV toggle).
     var worktreeHeader: WorktreeHeaderFeature.State = .init()
 
-    /// T3 (main-window redesign): monotonic request token bumped by
-    /// `.openSpaceSwitcherRequested` (⌘K). `HierarchySidebarView` (T1) is
-    /// expected to observe changes via `.onChange(of:)` and open its
-    /// Space-switcher popover. Value is meaningless beyond "changed"; wraps
-    /// on `UInt.max` via `&+=`. Remove if/when T1 exposes a direct
-    /// open-only sidebar action this dispatch can target.
-    var spaceSwitcherOpenToken: UInt = 0
-
     /// C8 M6b (0005): settings sheet presentation. `nil` = hidden; non-nil
     /// presents the sheet with a dedicated sub-feature state that mirrors
     /// a subset of `editor` for isolated in-sheet edits.
@@ -113,7 +105,15 @@ struct RootFeature {
     /// flips `state.gitViewerOverlayVisible` and fires
     /// `HierarchyClient.setWorktreeGitViewerVisible` to persist.
     case gitViewerToggledForCurrentWorktree
-    /// T3: Bumps `spaceSwitcherOpenToken`. Fires from ⌘K.
+    /// T3: ⌘E entry point. Resolves the current Worktree's path from the
+    /// catalog snapshot (via `hierarchyClient` — reducer-scoped dependency,
+    /// unlike SwiftUI `Commands` structs where `@Dependency` falls through
+    /// to `liveValue` and crashes on the stubbed `snapshot` accessor) and
+    /// dispatches `.editor(.openDefaultInCurrentWorktreeRequested)`.
+    case openDefaultForCurrentWorktreeRequested
+    /// T3: ⌘K entry point. Forwards to the sidebar so its Space-switcher
+    /// popover opens. Handled inline by the root reducer as a `.send` into
+    /// `.sidebar(.externalSpacePopoverOpenRequested)`.
     case openSpaceSwitcherRequested
     case settingsSheetShown
     case settingsSheet(PresentationAction<SettingsSheetFeature.Action>)
@@ -312,9 +312,28 @@ struct RootFeature {
           await MainActor.run { setter(worktreeID, target) }
         }
 
+      case .openDefaultForCurrentWorktreeRequested:
+        guard
+          let spaceID = state.selection.spaceID,
+          let projectID = state.selection.projectID,
+          let worktreeID = state.selection.worktreeID
+        else { return .none }
+        let catalog = hierarchyClient.snapshot()
+        guard
+          let path = catalog
+            .spaces.first(where: { $0.id == spaceID })?
+            .projects.first(where: { $0.id == projectID })?
+            .worktrees.first(where: { $0.id == worktreeID })?.path
+        else { return .none }
+        return .send(.editor(.openDefaultInCurrentWorktreeRequested(
+          spaceID: spaceID,
+          projectID: projectID,
+          worktreeID: worktreeID,
+          worktreePath: path
+        )))
+
       case .openSpaceSwitcherRequested:
-        state.spaceSwitcherOpenToken &+= 1
-        return .none
+        return .send(.sidebar(.externalSpacePopoverOpenRequested))
       }
     }
     .ifLet(\.$settingsSheet, action: \.settingsSheet) {

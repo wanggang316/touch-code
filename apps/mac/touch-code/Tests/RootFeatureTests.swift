@@ -292,18 +292,22 @@ struct RootFeatureTests {
   }
 
   @Test
-  func openSpaceSwitcherRequestedBumpsToken() async {
-    // ⌘K dispatches this; T1 sidebar observes the monotonic token.
+  func openSpaceSwitcherRequestedForwardsToSidebar() async {
+    // ⌘K dispatches this; the root reducer forwards to the sidebar via
+    // `.externalSpacePopoverOpenRequested` (open-only, not a toggle). The
+    // sidebar reducer flips `isSpacePopoverPresented = true`.
     let store = TestStore(initialState: RootFeature.State()) {
       RootFeature()
     }
-    #expect(store.state.spaceSwitcherOpenToken == 0)
-    await store.send(.openSpaceSwitcherRequested) { state in
-      state.spaceSwitcherOpenToken = 1
+    #expect(store.state.sidebar.isSpacePopoverPresented == false)
+    await store.send(.openSpaceSwitcherRequested)
+    await store.receive(\.sidebar.externalSpacePopoverOpenRequested) { state in
+      state.sidebar.isSpacePopoverPresented = true
     }
-    await store.send(.openSpaceSwitcherRequested) { state in
-      state.spaceSwitcherOpenToken = 2
-    }
+    // Idempotent: a second dispatch with the popover already open is a no-op
+    // on the visible flag (already true).
+    await store.send(.openSpaceSwitcherRequested)
+    await store.receive(\.sidebar.externalSpacePopoverOpenRequested)
   }
 
   // MARK: - T2 worktreeHeader delegate routing
