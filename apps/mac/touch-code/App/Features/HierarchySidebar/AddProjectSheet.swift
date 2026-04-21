@@ -67,6 +67,7 @@ struct AddProjectSheet: View {
     HStack(alignment: .firstTextBaseline, spacing: 10) {
       Image(systemName: "exclamationmark.triangle.fill")
         .foregroundStyle(.orange)
+        .accessibilityHidden(true)
       Text("This folder is already registered as a Project.")
         .font(.callout)
       Spacer()

@@ -29,10 +29,12 @@ struct FailedProjectRow: View {
         showingFailure.toggle()
       } label: {
         Image(systemName: "exclamationmark.triangle.fill")
+          .accessibilityHidden(true)
       }
       .buttonStyle(.borderless)
       .foregroundStyle(.red)
       .help(reason)
+      .accessibilityLabel("Show load failure")
       .popover(isPresented: $showingFailure) {
         VStack(alignment: .leading, spacing: 10) {
           Label("Load failure", systemImage: "exclamationmark.triangle.fill")
