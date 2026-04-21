@@ -14,7 +14,7 @@ After this change, a user can manage git worktrees from inside touch-code as fir
 
 - [x] M1 — Submodule: add `apps/mac/ThirdParty/git-wt/` as a git submodule, verify the `wt` script is present and executable (2026-04-21)
 - [x] M2 — Tuist wiring: `scripts/verify-git-wt.sh` (pre) + `scripts/embed-git-wt.sh` (post) + `Project.swift` script entries on the `touch-code` target (2026-04-21, `wt` verified embedded in `touch_code.app/Contents/Resources/git-wt/wt`)
-- [ ] M3 — `TouchCodeCore/Worktree.swift`: add `archived: Bool` with backward-compatible Codable; `TouchCodeCoreTests` fixture tests
+- [x] M3 — `TouchCodeCore/Worktree.swift`: add `archived: Bool` with backward-compatible Codable; `TouchCodeCoreTests` fixture tests (2026-04-21, 206 tests passing)
 - [ ] M4 — `GitWorktreeClient` scaffolding: struct shape, closures, error type, `CreateSpec` / `CreateEvent`, `sanitizeBranchName` helper; `DependencyKey` integration
 - [ ] M5 — `GitWorktreeClient` live implementation (`wt ls`, `wt sw` streaming create, `git worktree remove`, `git worktree prune`, branch / ref queries, fetch remote, `changedFiles`)
 - [ ] M6 — `GitWorktreeClient` unit tests: argument builder matrix, JSON decode, sanitize, error mapping via fake `ProcessRunner`

@@ -12,6 +12,12 @@ public nonisolated struct Worktree: Equatable, Sendable, Identifiable {
   /// its own visibility. Defaults to `false` — pre-T0 catalogs also decode
   /// to `false` via the Codable `decodeIfPresent` path.
   public var gitViewerVisible: Bool
+  /// App-layer soft-hide. `true` removes the Worktree from the main sidebar
+  /// list without touching disk or git refs (see the Worktree Management
+  /// spec). Defaults to `false`; pre-archive catalogs decode to `false` via
+  /// `decodeIfPresent`, and the encode path omits the key when `false` so
+  /// existing catalogs round-trip identically.
+  public var archived: Bool
 
   public init(
     id: WorktreeID = WorktreeID(),
@@ -20,7 +26,8 @@ public nonisolated struct Worktree: Equatable, Sendable, Identifiable {
     branch: String? = nil,
     tabs: [Tab] = [],
     selectedTabID: TabID? = nil,
-    gitViewerVisible: Bool = false
+    gitViewerVisible: Bool = false,
+    archived: Bool = false
   ) {
     self.id = id
     self.name = name
@@ -29,12 +36,13 @@ public nonisolated struct Worktree: Equatable, Sendable, Identifiable {
     self.tabs = tabs
     self.selectedTabID = selectedTabID
     self.gitViewerVisible = gitViewerVisible
+    self.archived = archived
   }
 }
 
 extension Worktree: Codable {
   private enum CodingKeys: String, CodingKey {
-    case id, name, path, branch, tabs, selectedTabID, gitViewerVisible
+    case id, name, path, branch, tabs, selectedTabID, gitViewerVisible, archived
   }
 
   public init(from decoder: Decoder) throws {
@@ -46,6 +54,7 @@ extension Worktree: Codable {
     self.tabs = try container.decodeIfPresent([Tab].self, forKey: .tabs) ?? []
     self.selectedTabID = try container.decodeIfPresent(TabID.self, forKey: .selectedTabID)
     self.gitViewerVisible = try container.decodeIfPresent(Bool.self, forKey: .gitViewerVisible) ?? false
+    self.archived = try container.decodeIfPresent(Bool.self, forKey: .archived) ?? false
   }
 
   public func encode(to encoder: Encoder) throws {
@@ -63,6 +72,11 @@ extension Worktree: Codable {
     // `Space.lastActiveWorktreeID` uses `encodeIfPresent`.
     if gitViewerVisible {
       try container.encode(true, forKey: .gitViewerVisible)
+    }
+    // Same rationale as `gitViewerVisible`: omit when false so pre-archive
+    // catalogs round-trip identically.
+    if archived {
+      try container.encode(true, forKey: .archived)
     }
   }
 }
