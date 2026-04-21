@@ -30,6 +30,9 @@ jobs:
           path: apps/mac/.build/ghostty
           key: ghostty-${{ runner.os }}-${{ hashFiles('apps/mac/ThirdParty/ghostty/build.zig.zon', 'apps/mac/scripts/build-ghostty.sh', 'mise.toml') }}
 
+      - name: Probe Xcode installs
+        run: ls -1 /Applications | grep -i '^Xcode' || true
+
       - run: make mac-generate
       - run: make mac-build-cli
       - run: make mac-build
