@@ -296,4 +296,96 @@ struct HierarchyManagerTests {
     manager.setWorktreeGitViewerVisible(worktreeID: bogus, visible: true)
     #expect(manager.catalog.spaces.isEmpty)
   }
+
+  // MARK: - P0.2: Project Management mutations
+
+  @Test
+  func reorderProjectsMovesInPlaceAndPersists() throws {
+    let spaceID = manager.createSpace(name: "work")
+    let a = try manager.addProject(to: spaceID, name: "a", rootPath: "/tmp/a")
+    let b = try manager.addProject(to: spaceID, name: "b", rootPath: "/tmp/b")
+    let c = try manager.addProject(to: spaceID, name: "c", rootPath: "/tmp/c")
+
+    // Move the third entry ("c") to the front.
+    try manager.reorderProjects(in: spaceID, from: IndexSet(integer: 2), to: 0)
+
+    let order = manager.catalog.spaces[0].projects.map(\.id)
+    #expect(order == [c, a, b])
+  }
+
+  @Test
+  func reorderProjectsMissingSpaceThrows() {
+    let bogus = SpaceID()
+    #expect(throws: HierarchyError.self) {
+      try manager.reorderProjects(in: bogus, from: IndexSet(integer: 0), to: 1)
+    }
+  }
+
+  @Test
+  func setProjectLoadStateUpdatesAndHandlesEqualValue() throws {
+    let spaceID = manager.createSpace(name: "work")
+    let projectID = try manager.addProject(to: spaceID, name: "p", rootPath: "/tmp/p")
+    #expect(manager.catalog.spaces[0].projects[0].loadState == .loading)
+
+    manager.setProjectLoadState(.ready, projectID: projectID, spaceID: spaceID)
+    #expect(manager.catalog.spaces[0].projects[0].loadState == .ready)
+
+    // Dedup — setting the same value again is a no-op (same final state, no throw).
+    manager.setProjectLoadState(.ready, projectID: projectID, spaceID: spaceID)
+    #expect(manager.catalog.spaces[0].projects[0].loadState == .ready)
+
+    manager.setProjectLoadState(.failed(reason: "gone"), projectID: projectID, spaceID: spaceID)
+    #expect(manager.catalog.spaces[0].projects[0].loadState == .failed(reason: "gone"))
+  }
+
+  @Test
+  func setProjectLoadStateMissingProjectIsSilentNoOp() {
+    let bogusSpace = SpaceID()
+    let bogusProject = ProjectID()
+    manager.setProjectLoadState(.ready, projectID: bogusProject, spaceID: bogusSpace)
+    #expect(manager.catalog.spaces.isEmpty)
+  }
+
+  @Test
+  func setProjectWorktreesDirectoryClearsOnBlank() throws {
+    let spaceID = manager.createSpace(name: "work")
+    let projectID = try manager.addProject(to: spaceID, name: "p", rootPath: "/tmp/p", gitRoot: "/tmp/p")
+
+    try manager.setProjectWorktreesDirectory("/custom/wt", projectID: projectID, spaceID: spaceID)
+    #expect(manager.catalog.spaces[0].projects[0].worktreesDirectory == "/custom/wt")
+
+    // Whitespace-only clears the override to nil (falls back to the default).
+    try manager.setProjectWorktreesDirectory("  ", projectID: projectID, spaceID: spaceID)
+    #expect(manager.catalog.spaces[0].projects[0].worktreesDirectory == nil)
+
+    try manager.setProjectWorktreesDirectory("/x", projectID: projectID, spaceID: spaceID)
+    try manager.setProjectWorktreesDirectory(nil, projectID: projectID, spaceID: spaceID)
+    #expect(manager.catalog.spaces[0].projects[0].worktreesDirectory == nil)
+  }
+
+  @Test
+  func isPathRegisteredReturnsPairForCanonicalizedMatch() throws {
+    let spaceID = manager.createSpace(name: "work")
+    let projectID = try manager.addProject(
+      to: spaceID,
+      name: "p",
+      rootPath: HierarchyManager.canonical("/tmp/p")
+    )
+
+    let match = manager.isPathRegistered(canonical: HierarchyManager.canonical("/tmp/p"))
+    #expect(match?.0 == spaceID)
+    #expect(match?.1 == projectID)
+
+    // The canonical form strips symlinks and trailing slashes — callers always
+    // pass canonical paths. Passing a non-canonical form intentionally does NOT
+    // match, enforcing the contract.
+    let absent = manager.isPathRegistered(canonical: "/tmp/p/")
+    #expect(absent == nil)
+  }
+
+  @Test
+  func isPathRegisteredReturnsNilWhenAbsent() {
+    let match = manager.isPathRegistered(canonical: "/does/not/exist")
+    #expect(match == nil)
+  }
 }

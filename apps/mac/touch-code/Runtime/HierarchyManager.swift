@@ -153,6 +153,75 @@ final class HierarchyManager {
     store.scheduleSave(catalog)
   }
 
+  /// Transient Project-level health state owned by `ProjectReconciler`. Never
+  /// persisted (`Project.loadState` is a transient field); equal-value writes
+  /// are dropped so repeated reconciliations don't churn the catalog graph.
+  func setProjectLoadState(
+    _ state: ProjectLoadState,
+    projectID: ProjectID,
+    spaceID: SpaceID
+  ) {
+    guard let (spaceIndex, projectIndex) = findProjectIndices(projectID: projectID, spaceID: spaceID) else { return }
+    guard catalog.spaces[spaceIndex].projects[projectIndex].loadState != state else { return }
+    catalog.spaces[spaceIndex].projects[projectIndex].loadState = state
+    // No scheduleSave — transient.
+  }
+
+  /// Reorder Projects inside a Space. Mirrors SwiftUI `ForEach.onMove`'s
+  /// `(IndexSet, Int)` signature so the sidebar can forward directly. Missing
+  /// Space is `.notFound`; Array's `move(fromOffsets:toOffset:)` already
+  /// handles out-of-range destinations by trapping — callers must pass a
+  /// valid index. Persists.
+  func reorderProjects(
+    in spaceID: SpaceID,
+    from source: IndexSet,
+    to destination: Int
+  ) throws {
+    guard let spaceIndex = catalog.spaces.firstIndex(where: { $0.id == spaceID }) else {
+      throw HierarchyError.notFound("Space \(spaceID)")
+    }
+    catalog.spaces[spaceIndex].projects.move(fromOffsets: source, toOffset: destination)
+    store.scheduleSave(catalog)
+  }
+
+  /// Per-Project override for the `worktreesDirectory`. `nil` or whitespace
+  /// clears the override so the default (`~/.touch-code/repos/<name>/`) takes
+  /// effect. Equal-value writes are dropped.
+  func setProjectWorktreesDirectory(
+    _ path: String?,
+    projectID: ProjectID,
+    spaceID: SpaceID
+  ) throws {
+    guard let (spaceIndex, projectIndex) = findProjectIndices(projectID: projectID, spaceID: spaceID) else {
+      throw HierarchyError.notFound("Project \(projectID)")
+    }
+    let normalized = path?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let value: String? = (normalized?.isEmpty ?? true) ? nil : normalized
+    guard catalog.spaces[spaceIndex].projects[projectIndex].worktreesDirectory != value else { return }
+    catalog.spaces[spaceIndex].projects[projectIndex].worktreesDirectory = value
+    store.scheduleSave(catalog)
+  }
+
+  /// Resolves a canonical path to its registered `(SpaceID, ProjectID)` if any
+  /// Project's `rootPath` canonicalizes to the same form. Caller canonicalizes
+  /// its input via `HierarchyManager.canonical(_:)` before querying. Linear in
+  /// total Project count — acceptable at the low cardinality we support
+  /// (Projects per user, not per repo).
+  func isPathRegistered(canonical path: String) -> (SpaceID, ProjectID)? {
+    for space in catalog.spaces {
+      for project in space.projects where Self.canonical(project.rootPath) == path {
+        return (space.id, project.id)
+      }
+    }
+    return nil
+  }
+
+  /// Canonical path form used for duplicate-check joins and for storage as
+  /// `Project.rootPath`. Resolves symlinks and standardizes trailing slashes.
+  static func canonical(_ raw: String) -> String {
+    URL(fileURLWithPath: raw).resolvingSymlinksInPath().standardizedFileURL.path
+  }
+
   // MARK: - Worktree mutations
 
   func createWorktree(
