@@ -80,12 +80,9 @@ struct HierarchySidebarView: View {
       }
     }
     .sheet(
-      isPresented: Binding(
-        get: { store.renameProjectSheet != nil },
-        set: { if !$0 { store.send(.projectRenameCancelled) } }
-      )
-    ) {
-      renameProjectSheet
+      item: $store.scope(state: \.projectOptions, action: \.projectOptions)
+    ) { childStore in
+      ProjectOptionsSheet(store: childStore)
     }
     .confirmationDialog(
       worktreeRemovalTitle,
@@ -531,37 +528,6 @@ struct HierarchySidebarView: View {
     .frame(width: 360)
   }
 
-  // MARK: - Rename Project sheet
-
-  @ViewBuilder
-  private var renameProjectSheet: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      Text("Rename Project").font(.headline)
-      TextField(
-        "Project name",
-        text: Binding(
-          get: { store.renameProjectSheet?.draft ?? "" },
-          set: { store.send(.projectRenameDraftChanged($0)) }
-        )
-      )
-      .textFieldStyle(.roundedBorder)
-      HStack {
-        Spacer()
-        Button("Cancel") { store.send(.projectRenameCancelled) }
-          .keyboardShortcut(.cancelAction)
-        Button("Rename") { store.send(.projectRenameConfirmed) }
-          .keyboardShortcut(.defaultAction)
-          .disabled(
-            (store.renameProjectSheet?.draft ?? "")
-              .trimmingCharacters(in: .whitespacesAndNewlines)
-              .isEmpty
-          )
-      }
-    }
-    .padding(20)
-    .frame(width: 340)
-  }
-
   // MARK: - Confirmation titles
 
   private var worktreeRemovalTitle: String {
@@ -645,13 +611,9 @@ private struct ProjectHeaderRow: View {
         }
         .buttonStyle(.borderless)
         Menu {
-          Button("Rename Project") {
+          Button("Project Options…") {
             store.send(
-              .projectRenameTapped(
-                projectID: project.id,
-                inSpace: space.id,
-                currentName: project.name
-              )
+              .projectOptionsTapped(projectID: project.id, inSpace: space.id)
             )
           }
           let archivedCount = project.worktrees.filter { $0.archived }.count
