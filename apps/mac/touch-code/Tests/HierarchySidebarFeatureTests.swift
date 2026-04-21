@@ -332,13 +332,10 @@ struct HierarchySidebarFeatureTests {
   }
 
   @Test
-  func worktreeRowTappedSecondTimeDoesNotRewriteLastActive() async {
-    // Start with A.lastActiveWorktreeID already == W2. Two identical taps
-    // must leave setSpaceLastActiveWorktree at count 0 (dedup skips both).
+  func spaceRowTappedToSameSpaceIsNoOp() async {
+    // `.spaceRowTapped` with `snapshot.selectedSpaceID == target` must
+    // short-circuit before any catalog mutation or selection call.
     let fix = Self.twoSpaceFixture(currentSelection: .spaceA)
-    var seededCatalog = fix.catalog
-    seededCatalog.spaces[0].lastActiveWorktreeID = fix.w2
-    let catalog = seededCatalog
     let calls = LockIsolated(ClientCalls())
 
     let store = TestStore(initialState: HierarchySidebarFeature.State()) {
@@ -347,16 +344,59 @@ struct HierarchySidebarFeatureTests {
       Self.installRecorders(
         on: &deps,
         calls: calls,
-        snapshotProvider: { catalog }
+        snapshotProvider: { fix.catalog }
       )
+    }
+
+    await store.send(.spaceRowTapped(fix.spaceA))
+
+    let recorded = calls.value
+    #expect(recorded.setLastActive.isEmpty)
+    #expect(recorded.selectSpace.isEmpty)
+    #expect(recorded.selectWorktree.isEmpty)
+  }
+
+  @Test
+  func worktreeRowTappedSecondTimeDoesNotRewriteLastActive() async {
+    // Fresh catalog: A.lastActiveWorktreeID == nil. First tap on W2 writes
+    // it; second identical tap must dedup (count stays at 1). selectWorktree
+    // is NOT deduped — every tap propagates through the selection stream.
+    let fix = Self.twoSpaceFixture(currentSelection: .spaceA)
+    let calls = LockIsolated(ClientCalls())
+    // Stateful snapshot: mirrors real HierarchyManager behavior — a
+    // setSpaceLastActiveWorktree call updates the Catalog so the next
+    // snapshot() observes the new value.
+    let mutableCatalog = LockIsolated(fix.catalog)
+    #expect(fix.catalog.spaces[0].lastActiveWorktreeID == nil) // baseline
+
+    let store = TestStore(initialState: HierarchySidebarFeature.State()) {
+      HierarchySidebarFeature()
+    } withDependencies: { deps in
+      Self.installRecorders(
+        on: &deps,
+        calls: calls,
+        snapshotProvider: { mutableCatalog.value }
+      )
+      // Override the recorder-wrapped setLastActive to ALSO mutate the
+      // shared catalog so the next .snapshot() sees the write — without
+      // this the reducer's dedup branch never fires on the second tap.
+      deps.hierarchyClient.setSpaceLastActiveWorktree = { space, worktree in
+        calls.withValue { $0.setLastActive.append((space, worktree)) }
+        mutableCatalog.withValue { catalog in
+          guard let index = catalog.spaces.firstIndex(where: { $0.id == space }) else { return }
+          catalog.spaces[index].lastActiveWorktreeID = worktree
+        }
+      }
     }
 
     await store.send(.worktreeRowTapped(fix.w2, inProject: fix.projectP, inSpace: fix.spaceA))
     await store.send(.worktreeRowTapped(fix.w2, inProject: fix.projectP, inSpace: fix.spaceA))
 
     let recorded = calls.value
+    #expect(recorded.setLastActive.count == 1)
+    #expect(recorded.setLastActive[0].0 == fix.spaceA)
+    #expect(recorded.setLastActive[0].1 == fix.w2)
     #expect(recorded.selectWorktree.count == 2)
-    #expect(recorded.setLastActive.isEmpty)
   }
 
   // MARK: - Worktree context menu (M6)
@@ -399,6 +439,69 @@ struct HierarchySidebarFeatureTests {
     #expect(recorded.removeWorktree[0].0 == fix.w2)
     #expect(recorded.removeWorktree[0].1 == fix.projectP)
     #expect(recorded.removeWorktree[0].2 == fix.spaceA)
+  }
+
+  @Test
+  func projectRemoveTappedPopulatesPendingAndConfirmCallsRemove() async {
+    let fix = Self.twoSpaceFixture()
+    let calls = LockIsolated(ClientCalls())
+    let store = TestStore(initialState: HierarchySidebarFeature.State()) {
+      HierarchySidebarFeature()
+    } withDependencies: { deps in
+      Self.installRecorders(
+        on: &deps,
+        calls: calls,
+        snapshotProvider: { fix.catalog }
+      )
+    }
+
+    await store.send(
+      .projectRemoveTapped(projectID: fix.projectP, inSpace: fix.spaceA, name: "P")
+    ) {
+      $0.pendingProjectRemoval = PendingProjectRemoval(
+        projectID: fix.projectP,
+        spaceID: fix.spaceA,
+        displayName: "P"
+      )
+    }
+    await store.send(.projectRemoveConfirmed) {
+      $0.pendingProjectRemoval = nil
+    }
+
+    let recorded = calls.value
+    #expect(recorded.removeProject.count == 1)
+    #expect(recorded.removeProject[0].0 == fix.projectP)
+    #expect(recorded.removeProject[0].1 == fix.spaceA)
+  }
+
+  @Test
+  func projectRemoveCancelledClearsWithoutRemoveCall() async {
+    let fix = Self.twoSpaceFixture()
+    let calls = LockIsolated(ClientCalls())
+    let store = TestStore(initialState: HierarchySidebarFeature.State()) {
+      HierarchySidebarFeature()
+    } withDependencies: { deps in
+      Self.installRecorders(
+        on: &deps,
+        calls: calls,
+        snapshotProvider: { fix.catalog }
+      )
+    }
+
+    await store.send(
+      .projectRemoveTapped(projectID: fix.projectP, inSpace: fix.spaceA, name: "P")
+    ) {
+      $0.pendingProjectRemoval = PendingProjectRemoval(
+        projectID: fix.projectP,
+        spaceID: fix.spaceA,
+        displayName: "P"
+      )
+    }
+    await store.send(.projectRemoveCancelled) {
+      $0.pendingProjectRemoval = nil
+    }
+
+    #expect(calls.value.removeProject.isEmpty)
   }
 
   @Test

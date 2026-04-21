@@ -26,6 +26,14 @@ struct HierarchySidebarView: View {
 
   var body: some View {
     let catalog = hierarchyManager.catalog
+    // Build the PanelID→WorktreeID index once per render pass. Worktree rows
+    // and Project headers both fold over `inbox.notifications` using this
+    // shared index instead of calling `NotificationInbox.unreadCount(
+    // forWorktree:in:)` / `.hasUnread(forProject:in:)` per row — those
+    // helpers each rebuild the index internally (see the doc-comment in
+    // `NotificationInboxAggregation.swift`), which is O(rows × panels) per
+    // render. The inline fold is the deliberate amortization the T1 design
+    // calls out in §View Composition / §Unread-dot index caching.
     let panelIndex = catalog.panelWorktreeIndex()
     let inbox = inboxStore.inbox
     let activeSpace = catalog.spaces.first { $0.id == catalog.selectedSpaceID }
