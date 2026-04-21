@@ -167,6 +167,11 @@ struct HierarchySidebarFeature {
     // Reorder Projects within a Space (ForEach.onMove forwarder).
     case reorderProjects(from: IndexSet, to: Int, inSpace: SpaceID)
 
+    /// Fired from `FailedProjectRow.Retry` (or the context menu). Delegates
+    /// to `RootFeature` which calls `ProjectReconciler.reconcile` — same path
+    /// used after Add Project.
+    case retryProjectTapped(projectID: ProjectID, inSpace: SpaceID)
+
     // Project section hover chrome
     case projectAddWorktreeTapped(projectID: ProjectID, inSpace: SpaceID)
     /// Open the Project Options sheet for the given row. Replaces the
@@ -375,6 +380,9 @@ struct HierarchySidebarFeature {
       case .reorderProjects(let source, let destination, let spaceID):
         try? hierarchyClient.reorderProjects(spaceID, source, destination)
         return .none
+
+      case .retryProjectTapped(let projectID, let spaceID):
+        return .send(.delegate(.reconcileProjectRequested(projectID, spaceID)))
 
       case .projectAddWorktreeTapped(let projectID, let spaceID):
         // Resolve the Project from the catalog to feed repoRoot +

@@ -314,24 +314,46 @@ struct HierarchySidebarView: View {
       return project.worktrees.contains(where: { $0.id == worktreeID })
     }
 
-    return DisclosureGroup(
-      isExpanded: Binding(
-        get: { store.expandedProjectIDs.contains(project.id) },
-        set: { _ in store.send(.toggleProjectExpansion(project.id)) }
-      )
-    ) {
-      // Filter archived worktrees out of the main list — they surface
-      // through the Archived Worktrees sheet instead.
-      ForEach(project.worktrees.filter { !$0.archived }) { worktree in
-        worktreeRow(worktree, in: project, space: space, panelIndex: panelIndex, inbox: inbox)
+    return Group {
+      switch project.loadState {
+      case .failed(let reason):
+        FailedProjectRow(
+          name: project.name,
+          rootPath: project.rootPath,
+          reason: reason,
+          retry: {
+            store.send(.retryProjectTapped(projectID: project.id, inSpace: space.id))
+          },
+          remove: {
+            store.send(.projectRemoveTapped(
+              projectID: project.id,
+              inSpace: space.id,
+              name: project.name
+            ))
+          }
+        )
+      case .loading, .ready:
+        DisclosureGroup(
+          isExpanded: Binding(
+            get: { store.expandedProjectIDs.contains(project.id) },
+            set: { _ in store.send(.toggleProjectExpansion(project.id)) }
+          )
+        ) {
+          // Filter archived worktrees out of the main list — they surface
+          // through the Archived Worktrees sheet instead.
+          ForEach(project.worktrees.filter { !$0.archived }) { worktree in
+            worktreeRow(worktree, in: project, space: space, panelIndex: panelIndex, inbox: inbox)
+          }
+        } label: {
+          ProjectHeaderRow(
+            project: project,
+            space: space,
+            hasUnread: projectHasUnread,
+            isLoading: project.loadState == .loading,
+            store: store
+          )
+        }
       }
-    } label: {
-      ProjectHeaderRow(
-        project: project,
-        space: space,
-        hasUnread: projectHasUnread,
-        store: store
-      )
     }
   }
 
@@ -593,6 +615,10 @@ private struct ProjectHeaderRow: View {
   let project: Project
   let space: Space
   let hasUnread: Bool
+  /// When `true`, a small inline `ProgressView` replaces the unread dot so
+  /// the user can see a reconcile pass is in flight without blocking the
+  /// window (P-Q3: inline spinner, never modal).
+  var isLoading: Bool = false
   @Bindable var store: StoreOf<HierarchySidebarFeature>
   @State private var isHovering = false
 
@@ -603,7 +629,12 @@ private struct ProjectHeaderRow: View {
         .accessibilityHidden(true)
       Text(project.name)
       Spacer()
-      if hasUnread {
+      if isLoading {
+        ProgressView()
+          .scaleEffect(0.5)
+          .frame(width: 12, height: 12)
+          .accessibilityLabel("Loading Project")
+      } else if hasUnread {
         Circle()
           .fill(Color.accentColor)
           .frame(width: 6, height: 6)
