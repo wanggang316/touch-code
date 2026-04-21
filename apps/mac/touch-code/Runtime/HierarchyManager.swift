@@ -644,6 +644,33 @@ final class HierarchyManager {
     throw HierarchyError.notFound("Panel \(panelID)")
   }
 
+  // MARK: - Project-only mutators (Settings Repository panes)
+
+  /// Sets or clears the per-Project worktree base directory override. `nil`
+  /// clears so worktree creation falls back to the global default. Unchanged
+  /// value is a silent no-op. `.notFound` when no space owns the Project.
+  func setWorktreesDirectory(_ path: String?, for projectID: ProjectID) throws {
+    guard let (sIdx, pIdx) = findProjectAnySpace(projectID) else {
+      throw HierarchyError.notFound("Project \(projectID)")
+    }
+    guard catalog.spaces[sIdx].projects[pIdx].worktreesDirectory != path else { return }
+    catalog.spaces[sIdx].projects[pIdx].worktreesDirectory = path
+    store.scheduleSave(catalog)
+  }
+
+  /// Sibling of `setDefaultEditor(_:for:in:)` that takes only a `ProjectID`.
+  /// Used by the Settings Repository General pane, which has no `SpaceID` in
+  /// scope. `nil` clears. Unchanged value is a silent no-op. `.notFound` when
+  /// no space owns the Project.
+  func setDefaultEditorAnySpace(_ editorID: EditorID?, for projectID: ProjectID) throws {
+    guard let (sIdx, pIdx) = findProjectAnySpace(projectID) else {
+      throw HierarchyError.notFound("Project \(projectID)")
+    }
+    guard catalog.spaces[sIdx].projects[pIdx].defaultEditor != editorID else { return }
+    catalog.spaces[sIdx].projects[pIdx].defaultEditor = editorID
+    store.scheduleSave(catalog)
+  }
+
   // MARK: - Helpers
 
   private func findProjectIndices(projectID: ProjectID, spaceID: SpaceID) -> (Int, Int)? {
@@ -652,6 +679,21 @@ final class HierarchyManager {
       return nil
     }
     return (spaceIndex, projectIndex)
+  }
+
+  /// Locates the Project across all Spaces. Returns the first match —
+  /// `ProjectID`s are UUIDs so collisions are effectively zero, but in debug
+  /// builds assert at most one Space owns the id. Used by the Settings
+  /// Repository panes which carry only a `ProjectID`.
+  private func findProjectAnySpace(_ projectID: ProjectID) -> (Int, Int)? {
+    var found: (Int, Int)? = nil
+    for (sIdx, space) in catalog.spaces.enumerated() {
+      if let pIdx = space.projects.firstIndex(where: { $0.id == projectID }) {
+        assert(found == nil, "Project \(projectID) appears in multiple spaces")
+        found = (sIdx, pIdx)
+      }
+    }
+    return found
   }
 
   private func findWorktreeIndices(
