@@ -384,6 +384,9 @@ final class MockOSNotifier: OSNotifier {
   var currentStatus: AuthorizationStatus
   var nextRequestResult: AuthorizationStatus?
   private(set) var postedNotifications: [AgentNotification] = []
+  /// Index-aligned with `postedNotifications`; records the `playSound` passed
+  /// by the coordinator so `soundEnabled`-off paths are observable.
+  private(set) var postedPlaySound: [Bool] = []
   private(set) var requestAuthorizationCalls = 0
   private var postWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
@@ -401,8 +404,9 @@ final class MockOSNotifier: OSNotifier {
   // swiftlint:enable async_without_await
 
   // swiftlint:disable:next async_without_await
-  func post(_ notification: AgentNotification) async {
+  func post(_ notification: AgentNotification, playSound: Bool) async {
     postedNotifications.append(notification)
+    postedPlaySound.append(playSound)
     let currentCount = postedNotifications.count
     postWaiters = postWaiters.filter { waiter in
       if currentCount >= waiter.count {

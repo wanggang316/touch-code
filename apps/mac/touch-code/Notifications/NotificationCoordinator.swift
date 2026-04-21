@@ -146,7 +146,7 @@ final class NotificationCoordinator {
         createdAt: notification.createdAt
       )
       : notification
-    await osNotifier.post(posted)
+    await osNotifier.post(posted, playSound: true)
   }
 
   private func shouldPostToOS(
