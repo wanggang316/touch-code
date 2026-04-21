@@ -132,6 +132,33 @@ struct HookConfigStoreTests {
     #expect(Set(raw?.subscriptions.map(\.id) ?? []) == Set([userSub.id, internalSub.id]))
   }
 
+  @Test
+  func flushDrainsPendingScheduledSaveSynchronously() throws {
+    let url = Self.temporaryURL()
+    defer { try? FileManager.default.removeItem(at: url) }
+    // Long enough debounce that the async write absolutely has not fired
+    // by the time flush() runs.
+    let store = HookConfigStore(fileURL: url, debounceSeconds: 60)
+    let sub = HookSubscription(event: .panelReady, command: "echo flushed")
+    store.scheduleSave(HookConfig(subscriptions: [sub]))
+
+    // Nothing on disk yet — the debounce timer has not fired.
+    #expect(!FileManager.default.fileExists(atPath: url.path))
+
+    try store.flush()
+    #expect(FileManager.default.fileExists(atPath: url.path))
+    let reloaded = try HookConfigStore(fileURL: url).load()
+    #expect(reloaded.subscriptions.map(\.id) == [sub.id])
+  }
+
+  @Test
+  func flushIsNoopWhenNothingPending() throws {
+    let url = Self.temporaryURL()
+    let store = HookConfigStore(fileURL: url)
+    try store.flush()
+    #expect(!FileManager.default.fileExists(atPath: url.path))
+  }
+
   // MARK: - Helpers
 
   private static func temporaryURL() -> URL {

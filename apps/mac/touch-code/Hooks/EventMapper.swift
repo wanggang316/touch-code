@@ -19,26 +19,53 @@ import TouchCodeCore
 /// stays pure + synchronous.
 public enum EventMapper {
   public static func map(_ event: TerminalEvent, catalog: Catalog) -> HookEnvelope? {
+    map(event, panel: { panelAnchors($0, catalog: catalog) },
+        tab: { tabAnchors($0, catalog: catalog) },
+        worktree: { worktreeAnchors($0, catalog: catalog) })
+  }
+
+  /// Cache-backed variant. The dispatcher feeds an `EventMapperCache` so
+  /// repeated events re-use the index and skip the O(S·P·W·T·P) walk.
+  /// Invalidation is the caller's job — the dispatcher does it on
+  /// `.hierarchyMutated`.
+  @MainActor
+  public static func map(
+    _ event: TerminalEvent,
+    catalog: Catalog,
+    cache: EventMapperCache
+  ) -> HookEnvelope? {
+    map(event,
+        panel: { cache.panelAnchors($0, catalog: catalog) },
+        tab: { cache.tabAnchors($0, catalog: catalog) },
+        worktree: { cache.worktreeAnchors($0, catalog: catalog) })
+  }
+
+  private static func map(
+    _ event: TerminalEvent,
+    panel: (PanelID) -> Anchors,
+    tab: (TabID) -> Anchors,
+    worktree: (WorktreeID) -> Anchors
+  ) -> HookEnvelope? {
     switch event {
     case .panelCreated(let panelID, _):
       return envelope(
         event: .panelCreated,
         data: .panelCreated(createdVia: "runtime"),
-        anchors: panelAnchors(panelID, catalog: catalog)
+        anchors: panel(panelID)
       )
 
     case .panelReady(let panelID):
       return envelope(
         event: .panelReady,
         data: .panelReady(pid: nil, shell: ""),
-        anchors: panelAnchors(panelID, catalog: catalog)
+        anchors: panel(panelID)
       )
 
     case .panelOutput(let panelID, let data):
       return envelope(
         event: .panelOutput,
         data: .panelOutput(output: data, outputBytes: data.count),
-        anchors: panelAnchors(panelID, catalog: catalog)
+        anchors: panel(panelID)
       )
 
     case .panelIdle(let panelID, let duration):
@@ -49,38 +76,35 @@ public enum EventMapper {
           sinceLastOutput: duration,
           sinceLastInput: duration
         ),
-        anchors: panelAnchors(panelID, catalog: catalog)
+        anchors: panel(panelID)
       )
 
     case .panelExited(let panelID, let code, _):
       return envelope(
         event: .panelExited,
         data: .panelExited(exitCode: code),
-        anchors: panelAnchors(panelID, catalog: catalog)
+        anchors: panel(panelID)
       )
 
     case .panelCrashed(let panelID, let reason):
       return envelope(
         event: .panelCrashed,
         data: .panelCrashed(reason: reason),
-        anchors: panelAnchors(panelID, catalog: catalog)
+        anchors: panel(panelID)
       )
 
     case .panelClosedByTab(let panelID, let cause):
-      // Surfaces as `panel.crashed` so user hooks don't treat it as a
-      // clean exit. The envelope carries the auto-close cause in the
-      // reason string.
       return envelope(
         event: .panelCrashed,
         data: .panelCrashed(reason: "closed by tab: \(describe(cause))"),
-        anchors: panelAnchors(panelID, catalog: catalog)
+        anchors: panel(panelID)
       )
 
     case .tabActivated(let tabID):
       return envelope(
         event: .tabActivated,
         data: .tabActivated(previousTabID: nil),
-        anchors: tabAnchors(tabID, catalog: catalog)
+        anchors: tab(tabID)
       )
 
     case .tabAutoClosed(let tabID, let cause):
@@ -88,18 +112,17 @@ public enum EventMapper {
       return envelope(
         event: .tabAutoClosed,
         data: .tabAutoClosed(reason: reason, crashCount: count, windowSeconds: window),
-        anchors: tabAnchors(tabID, catalog: catalog)
+        anchors: tab(tabID)
       )
 
     case .worktreeActivated(let worktreeID):
       return envelope(
         event: .worktreeActivated,
         data: .worktreeActivated(previousWorktreeID: nil),
-        anchors: worktreeAnchors(worktreeID, catalog: catalog)
+        anchors: worktree(worktreeID)
       )
 
     case .hierarchyMutated:
-      // No user-facing hook surface — TCA consumes this for view refresh.
       return nil
     }
   }

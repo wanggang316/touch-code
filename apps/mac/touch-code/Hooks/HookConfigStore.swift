@@ -25,6 +25,9 @@ public final class HookConfigStore {
   private let fileURL: URL
   private let debounceSeconds: TimeInterval
   private var debounceTask: Task<Void, Never>?
+  /// Latest payload handed to `scheduleSave` but not yet flushed. `flush()`
+  /// drains this on shutdown; `scheduleSave` overwrites it atomically.
+  private var pendingConfig: HookConfig?
   private let logger = Logger(subsystem: "com.touch-code.hooks", category: "config")
 
   public init(
@@ -62,16 +65,32 @@ public final class HookConfigStore {
   /// pending write and restarts the timer with the latest value.
   public func scheduleSave(_ config: HookConfig) {
     debounceTask?.cancel()
+    pendingConfig = config
     debounceTask = Task { [fileURL, debounceSeconds, logger] in
       let nanos = UInt64(debounceSeconds * 1_000_000_000)
       try? await Task.sleep(nanoseconds: nanos)
       guard !Task.isCancelled else { return }
       do {
         try AtomicFileStore.write(config, to: fileURL)
+        self.pendingConfig = nil
       } catch {
         logger.error("debounced save failed: \(String(describing: error), privacy: .public)")
       }
     }
+  }
+
+  /// Cancel any pending debounced save and synchronously flush the last
+  /// `scheduleSave` payload to disk. Call on app-quit so ~500 ms of
+  /// just-scheduled edits don't vanish when the process goes away before
+  /// the debounce timer fires. Idempotent — a no-op when nothing is
+  /// pending. Throws the underlying `AtomicFileStore` error on write
+  /// failure so the shutdown path can log / surface it.
+  public func flush() throws {
+    debounceTask?.cancel()
+    debounceTask = nil
+    guard let pending = pendingConfig else { return }
+    pendingConfig = nil
+    try AtomicFileStore.write(pending, to: fileURL)
   }
 
   // MARK: - Internal-namespace API (exec-plan 0003 M2 for C6 consumption)

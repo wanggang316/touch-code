@@ -41,6 +41,8 @@ final class C6AppBootstrap {
     hierarchy: HierarchyManager,
     hookDispatcher: HookDispatcher,
     hookConfigStore: HookConfigStore,
+    settingsStore: NotificationSettingsStore? = nil,
+    inboxStore: InboxStore? = nil,
     settingsURL: URL = ConfigPaths.configDirectory().appendingPathComponent("settings.json", isDirectory: false),
     inboxURL: URL = ConfigPaths.notificationInbox(),
     detectionRulesURL: URL = ConfigPaths.detectionRules(),
@@ -49,13 +51,25 @@ final class C6AppBootstrap {
     permissionDelegate: any NotificationPermissionDelegate,
     clock: any Clock<Duration> = ContinuousClock()
   ) async throws -> C6AppBootstrap {
-    // Step 1 — settings
-    let settings = NotificationSettingsStore(fileURL: settingsURL, clock: clock)
-    _ = try settings.load()
+    // Step 1 — settings. Prefer the caller-supplied store so the app shell
+    // and `InboxClient` share a single instance; otherwise fall back to a
+    // URL-driven store for tests / harnesses.
+    let settings: NotificationSettingsStore
+    if let settingsStore {
+      settings = settingsStore
+    } else {
+      settings = NotificationSettingsStore(fileURL: settingsURL, clock: clock)
+      _ = try settings.load()
+    }
 
-    // Step 2 — inbox
-    let inbox = InboxStore(fileURL: inboxURL, clock: clock)
-    _ = try inbox.load()
+    // Step 2 — inbox (same shared-instance pattern as settings).
+    let inbox: InboxStore
+    if let inboxStore {
+      inbox = inboxStore
+    } else {
+      inbox = InboxStore(fileURL: inboxURL, clock: clock)
+      _ = try inbox.load()
+    }
 
     // Ensure the defaults are present so step 3 always finds something to load.
     try DefaultRules.installIfMissing(at: detectionRulesURL)

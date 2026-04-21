@@ -60,11 +60,16 @@ extension InboxClient {
 // MARK: - DependencyKey
 
 extension InboxClient: DependencyKey {
+  /// No-op fallback used before `AppState.bringUp` overrides the dependency
+  /// and by SwiftUI previews that render inbox surfaces without the full
+  /// runtime. Unlike `HierarchyClient` / `TerminalClient` whose mutations
+  /// must surface to the runtime to be meaningful, inbox writes are
+  /// safe to silently drop: the UI simply shows no unread state.
   static let liveValue: InboxClient = InboxClient(
-    dismiss: { _ in fatalError("InboxClient.liveValue not configured; wire via .withDependencies at app startup") },
-    markRead: { _ in fatalError("InboxClient.liveValue not configured") },
-    clearAll: { fatalError("InboxClient.liveValue not configured") },
-    muteRule: { _ in fatalError("InboxClient.liveValue not configured") },
+    dismiss: { _ in },
+    markRead: { _ in },
+    clearAll: { },
+    muteRule: { _ in },
     observe: { AsyncStream { $0.finish() } },
     observeUnread: { AsyncStream { $0.finish() } }
   )

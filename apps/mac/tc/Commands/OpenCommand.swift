@@ -47,16 +47,16 @@ struct OpenCommand: AsyncParsableCommand {
     let client = try CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
-      let params = try await Self.buildParams(
+      let request = try await Self.buildRequest(
         path: self.path,
         worktree: self.worktree,
         editor: self.in,
         client: client
       )
-      struct Result: Codable { let editor: String; let path: String }
-      let result: Result = try await client.call(.editorOpen, params: params)
+      let response: EditorOpenResponse = try await client.call(.editorOpen, params: request)
+      let rendered = self.path ?? response.worktreePath
       try Renderer.emitObject(
-        ["editor": result.editor, "path": result.path],
+        ["editor": response.choice.displayName, "path": rendered],
         mode: globals.renderMode
       ) { obj in
         "opened \(obj["path"] ?? "?") in \(obj["editor"] ?? "?")"
@@ -66,28 +66,22 @@ struct OpenCommand: AsyncParsableCommand {
     }
   }
 
-  /// Build `editor.open` params. Shape is aligned with exec-plan 0005
-  /// (C8) — final-merge reconciles any drift.
-  static func buildParams(
+  /// Build the canonical `EditorOpenRequest`. `--path` is threaded through on the optional
+  /// `path` field; the server-side `EditorHandlers` validates it lies within the resolved
+  /// Worktree. The `<worktree>` alias (default `current`) is always resolved to an UUID so
+  /// the server has a base directory for that prefix check even when `--path` is set.
+  static func buildRequest(
     path: String?,
     worktree: String,
     editor: String?,
     client: RPCClient
-  ) async throws -> EditorOpenParams {
-    if let path, !path.isEmpty {
-      return EditorOpenParams(worktreeID: nil, path: path, editor: editor)
-    }
+  ) async throws -> EditorOpenRequest {
     let uuid = try await AliasResolver.resolve(worktree, kind: .worktree, client: client)
-    return EditorOpenParams(
-      worktreeID: WorktreeID(raw: uuid),
-      path: nil,
-      editor: editor
+    return EditorOpenRequest(
+      worktreeID: uuid,
+      preferred: editor,
+      panelID: nil,
+      path: (path?.isEmpty == false) ? path : nil
     )
-  }
-
-  struct EditorOpenParams: Codable, Sendable {
-    let worktreeID: WorktreeID?
-    let path: String?
-    let editor: String?
   }
 }

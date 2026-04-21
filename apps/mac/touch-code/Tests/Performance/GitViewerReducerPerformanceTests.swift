@@ -44,7 +44,7 @@ struct GitViewerReducerPerformanceTests {
     // Warm-up loop — TCA's first dispatch on a store pays an extra one-shot cost.
     for _ in 0..<Self.warmupSamples {
       let store = Store(initialState: initial) { GitViewerFeature() }
-      store.send(.diffSucceeded(diff))
+      store.send(.diffSucceeded(scope: .working, diff: diff))
       _ = store.diffState
     }
 
@@ -53,7 +53,7 @@ struct GitViewerReducerPerformanceTests {
     for _ in Self.warmupSamples..<Self.totalSamples {
       let store = Store(initialState: initial) { GitViewerFeature() }
       let start = ContinuousClock.now
-      store.send(.diffSucceeded(diff))
+      store.send(.diffSucceeded(scope: .working, diff: diff))
       let elapsed = ContinuousClock.now - start
       timings.append(Self.millis(elapsed))
       precondition(store.diffState.asLoaded != nil, "dispatch did not land the diff")

@@ -71,19 +71,28 @@ public nonisolated struct EditorDescribeResponse: Equatable, Codable, Sendable {
 /// `preferred` wire field is the editor the caller explicitly asked for (e.g. `tc open --in zed`).
 /// Omit to let the handler walk the 4-tier precedence chain (Project override → global default →
 /// Finder).
+///
+/// `path` is an optional absolute path the caller wants opened instead of the resolved Worktree
+/// root. The handler validates it lies within the resolved Worktree's directory (standardised
+/// path prefix match) before passing it to the spawner; out-of-tree paths fail with
+/// `EditorIPCError.notADirectory`. Worktree resolution still runs first so per-Project editor
+/// overrides apply even when a sub-path is targeted.
 public nonisolated struct EditorOpenRequest: Equatable, Codable, Sendable {
   public var worktreeID: UUID?
   public var preferred: EditorID?
   public var panelID: UUID?
+  public var path: String?
 
   public init(
     worktreeID: UUID? = nil,
     preferred: EditorID? = nil,
-    panelID: UUID? = nil
+    panelID: UUID? = nil,
+    path: String? = nil
   ) {
     self.worktreeID = worktreeID
     self.preferred = preferred
     self.panelID = panelID
+    self.path = path
   }
 }
 

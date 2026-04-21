@@ -21,32 +21,33 @@ public final class MethodRouter {
   private let systemHandlers: SystemHandlers
   private let hierarchyHandlers: HierarchyHandlers?
   private let terminalHandlers: TerminalHandlers?
+  private let editorHandlers: EditorHandlers?
   private let logger = Logger(subsystem: "com.touch-code.ipc", category: "router")
 
   init(
     hookHandlers: HookHandlers,
     systemHandlers: SystemHandlers,
     hierarchyHandlers: HierarchyHandlers? = nil,
-    terminalHandlers: TerminalHandlers? = nil
+    terminalHandlers: TerminalHandlers? = nil,
+    editorHandlers: EditorHandlers? = nil
   ) {
     self.hookHandlers = hookHandlers
     self.systemHandlers = systemHandlers
     self.hierarchyHandlers = hierarchyHandlers
     self.terminalHandlers = terminalHandlers
+    self.editorHandlers = editorHandlers
   }
 
   /// Route one decoded request to the appropriate handler. The handshake
   /// verb `system.hello` is routed here alongside other `system.*` calls.
   /// Unknown methods produce `RouterOutcome.failed(.unknownMethod)`.
-  ///
-  /// `editor.*` is routed by exec-plan 0005 (C8) — this router stays
-  /// leaf-agnostic; C8's handler is bound at bootstrap post-merge.
   public func route(_ request: IPC.Request) async -> RouterOutcome {
     logger.debug("route \(request.method.rawValue, privacy: .public) id=\(request.id, privacy: .public)")
     if let outcome = await routeSystem(request) { return outcome }
     if let outcome = await routeHook(request) { return outcome }
     if let outcome = await routeHierarchy(request) { return outcome }
     if let outcome = await routeTerminal(request) { return outcome }
+    if let outcome = await routeEditor(request) { return outcome }
     return notWired(request.method)
   }
 
@@ -113,6 +114,74 @@ public final class MethodRouter {
     case .hierarchyFocusPanel:     return await h.focusPanel(request.params)
     case .hierarchySetPanelLabels: return await h.setPanelLabels(request.params)
     default: return nil
+    }
+  }
+
+  /// `editor.*` adapter. `EditorHandlers` exposes typed methods so tests
+  /// can invoke them directly with `EditorOpenRequest` etc.; the router
+  /// decodes `request.params`, invokes the matching method, and re-encodes
+  /// the typed response. `EditorIPCError` is mapped to a `.conflict(reason:)`
+  /// IPC error — the closest wire-level variant whose body carries the
+  /// numeric code + short message without coupling `IPCError` to an
+  /// editor-specific code.
+  private func routeEditor(_ request: IPC.Request) async -> RouterOutcome? {
+    guard let h = editorHandlers else { return nil }
+    switch request.method {
+    case .editorDescribe:
+      let response = await h.describe()
+      return Self.encodeUnary(response)
+    case .editorOpen:
+      do {
+        let params = try request.params.decoded(as: EditorOpenRequest.self)
+        let response = try await h.open(params)
+        return Self.encodeUnary(response)
+      } catch let error as EditorIPCError {
+        return .failed(Self.mapEditorIPCError(error))
+      } catch let error as DecodingError {
+        return .failed(.invalidParams(message: String(describing: error), path: nil))
+      } catch {
+        return .failed(.internal(String(describing: error)))
+      }
+    case .editorSetDefault:
+      do {
+        let params = try request.params.decoded(as: EditorSetDefaultRequest.self)
+        let response = try h.setDefault(params)
+        return Self.encodeUnary(response)
+      } catch let error as EditorIPCError {
+        return .failed(Self.mapEditorIPCError(error))
+      } catch let error as DecodingError {
+        return .failed(.invalidParams(message: String(describing: error), path: nil))
+      } catch {
+        return .failed(.internal(String(describing: error)))
+      }
+    default: return nil
+    }
+  }
+
+  /// Encodes a typed response into a `RouterOutcome.unary(JSONValue)`. Encode
+  /// failure is programmer error (DTOs are always Codable) — surface as
+  /// `.internal` rather than crashing the connection.
+  private static func encodeUnary<T: Encodable>(_ value: T) -> RouterOutcome {
+    do {
+      return .unary(try JSONValue.encoded(value))
+    } catch {
+      return .failed(.internal("encode failed: \(error)"))
+    }
+  }
+
+  /// Maps an `EditorIPCError` to an `IPCError`. `unresolvedWorktree` and
+  /// `unknownProject` carry caller-facing semantics → `notFound`. The rest
+  /// are spawn- or install-time failures → `.unsupported(reason:)` so the
+  /// CLI's existing `unsupported` exit code (4) surfaces them.
+  private static func mapEditorIPCError(_ error: EditorIPCError) -> IPCError {
+    switch error {
+    case .unresolvedWorktree:
+      return .notFound(kind: "worktree", id: "")
+    case .unknownProject:
+      return .notFound(kind: "project", id: "")
+    case .notADirectory, .notInstalled, .nonZeroExit, .timedOut,
+         .spawnFailed, .badTemplate:
+      return .unsupported(reason: "\(error.rawValue): \(error.shortMessage)")
     }
   }
 
