@@ -196,7 +196,7 @@ struct NotificationCoordinatorTests {
   /// drives `handleUnread(_:)` directly — the production loop's inbox
   /// subscription never terminates and would deadlock the harness.
   @Test
-  func dockBadgeEnabledFalseZeroesBadgeOnUnread() async throws {
+  func dockBadgeEnabledFalseZeroesBadgeOnUnread() {
     let off = Self.make(dockBadgeEnabled: false)
     off.coordinator.handleUnread(7)
     #expect(off.badger.calls.last == 0)
