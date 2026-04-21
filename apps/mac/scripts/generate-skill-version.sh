@@ -10,7 +10,7 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 srcroot="$(cd "${script_dir}/../../.." && pwd)"
 main_swift="${srcroot}/apps/mac/tc/main.swift"
-skill_root="${srcroot}/touch-code-skill"
+skill_root="${srcroot}/skills/touch-code-cli"
 
 if [ ! -f "${main_swift}" ]; then
   echo "generate-skill-version: missing ${main_swift}" >&2

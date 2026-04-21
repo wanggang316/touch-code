@@ -22,7 +22,7 @@ struct SkillBundleLocatorTests {
     let synthetic = repoRoot
       .appendingPathComponent("apps/mac/.build/tc-release/tc")
     let url = try SkillBundleLocator.locateSkillBundle(executableURL: synthetic)
-    #expect(url.lastPathComponent == "touch-code-skill")
+    #expect(url.lastPathComponent == "touch-code-cli")
     #expect(url.path.hasPrefix(repoRoot.path))
   }
 

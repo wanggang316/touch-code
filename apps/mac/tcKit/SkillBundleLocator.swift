@@ -40,7 +40,7 @@ public enum SkillBundleLocator {
       }
     }
     if let url = Bundle.main.resourceURL?
-      .appendingPathComponent("touch-code-skill", isDirectory: true),
+      .appendingPathComponent("touch-code-cli", isDirectory: true),
       isDirectory(url, fileSystem: FileManager.default) {
       return url
     }
@@ -49,12 +49,12 @@ public enum SkillBundleLocator {
     let sibling = executable
       .deletingLastPathComponent()            // Contents/MacOS
       .deletingLastPathComponent()            // Contents
-      .appendingPathComponent("Resources/touch-code-skill", isDirectory: true)
+      .appendingPathComponent("Resources/touch-code-cli", isDirectory: true)
     if isDirectory(sibling, fileSystem: FileManager.default) {
       return sibling
     }
 
-    if let repoPeer = repoWalk(from: executable, matching: "touch-code-skill") {
+    if let repoPeer = repoWalk(from: executable, matching: "skills/touch-code-cli") {
       return repoPeer
     }
     throw LocatorError.bundleNotFound

@@ -371,7 +371,7 @@ struct SkillRunnersTests {
       .deletingLastPathComponent() // mac
       .deletingLastPathComponent() // apps
       .deletingLastPathComponent() // repo root
-      .appendingPathComponent("touch-code-skill")
+      .appendingPathComponent("skills/touch-code-cli")
   }
 
   static func config(

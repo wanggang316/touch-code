@@ -330,7 +330,7 @@ struct SkillInstallerTests {
       .deletingLastPathComponent() // mac
       .deletingLastPathComponent() // apps
       .deletingLastPathComponent() // repo root
-      .appendingPathComponent("touch-code-skill")
+      .appendingPathComponent("skills/touch-code-cli")
   }
 
   /// A tempdir under $HOME so the HOME-scope check is satisfied by default.
