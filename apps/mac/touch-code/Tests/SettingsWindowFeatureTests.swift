@@ -90,6 +90,73 @@ struct SettingsWindowFeatureTests {
   }
 
   @Test
+  func selectingRepositoryGeneralLazilyInstantiatesPane() async {
+    let pid = ProjectID()
+    let store = TestStore(initialState: SettingsWindowFeature.State()) {
+      SettingsWindowFeature()
+    } withDependencies: {
+      $0.editorClient = EditorClient.testValue
+      $0.settingsWriter = SettingsWriter.testValue
+      $0.hierarchyClient = HierarchyClient.testValue
+    }
+    await store.send(.selectionChanged(.repositoryGeneral(pid))) {
+      $0.selection = .repositoryGeneral(pid)
+      $0.repositoryPanes.append(RepositorySettingsFeature.State(projectID: pid))
+    }
+    #expect(store.state.repositoryPanes[id: pid] != nil)
+  }
+
+  @Test
+  func selectingRepositoryHooksLazilyInstantiatesPane() async {
+    let pid = ProjectID()
+    let store = TestStore(initialState: SettingsWindowFeature.State()) {
+      SettingsWindowFeature()
+    } withDependencies: {
+      $0.editorClient = EditorClient.testValue
+      $0.settingsWriter = SettingsWriter.testValue
+      $0.hierarchyClient = HierarchyClient.testValue
+    }
+    await store.send(.selectionChanged(.repositoryHooks(pid))) {
+      $0.selection = .repositoryHooks(pid)
+      $0.repositoryPanes.append(RepositorySettingsFeature.State(projectID: pid))
+    }
+    #expect(store.state.repositoryPanes[id: pid] != nil)
+  }
+
+  @Test
+  func reSelectingSameRepositoryPaneDoesNotDuplicateState() async {
+    let pid = ProjectID()
+    var initial = SettingsWindowFeature.State()
+    initial.repositoryPanes.append(RepositorySettingsFeature.State(projectID: pid))
+    let store = TestStore(initialState: initial) {
+      SettingsWindowFeature()
+    } withDependencies: {
+      $0.editorClient = EditorClient.testValue
+      $0.settingsWriter = SettingsWriter.testValue
+      $0.hierarchyClient = HierarchyClient.testValue
+    }
+    await store.send(.selectionChanged(.repositoryGeneral(pid))) {
+      $0.selection = .repositoryGeneral(pid)
+    }
+    #expect(store.state.repositoryPanes.count == 1)
+  }
+
+  @Test
+  func selectingGlobalSectionDoesNotTouchRepositoryPanes() async {
+    let store = TestStore(initialState: SettingsWindowFeature.State()) {
+      SettingsWindowFeature()
+    } withDependencies: {
+      $0.editorClient = EditorClient.testValue
+      $0.settingsWriter = SettingsWriter.testValue
+      $0.hierarchyClient = HierarchyClient.testValue
+    }
+    await store.send(.selectionChanged(.notifications)) {
+      $0.selection = .notifications
+    }
+    #expect(store.state.repositoryPanes.isEmpty)
+  }
+
+  @Test
   func projectsChangedIgnoresGlobalSelection() async {
     let store = TestStore(
       initialState: SettingsWindowFeature.State(selection: .notifications)

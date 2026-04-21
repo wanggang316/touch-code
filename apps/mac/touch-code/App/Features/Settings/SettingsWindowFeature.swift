@@ -53,6 +53,16 @@ struct SettingsWindowFeature {
       switch action {
       case .selectionChanged(let next):
         state.selection = next
+        // T4: selecting a Repository-scoped row lazily materialises the per-ProjectID
+        // slice of `repositoryPanes`. Without this the window's detail switch sees an
+        // empty `repositoryPanes`, `store.scope(...)` returns nil, the pane view can't
+        // dispatch actions, and writes silently drop / hook load never fires.
+        switch next {
+        case .repositoryGeneral(let pid), .repositoryHooks(let pid):
+          Self.ensureRepositoryPane(&state, for: pid)
+        default:
+          break
+        }
         return .none
       case .general:
         return .none
@@ -79,5 +89,13 @@ struct SettingsWindowFeature {
     .forEach(\.repositoryPanes, action: \.repositoryPanes) {
       RepositorySettingsFeature()
     }
+  }
+
+  /// Insert a fresh `RepositorySettingsFeature.State(projectID:)` into
+  /// `repositoryPanes` if no entry already exists for `pid`. Re-selection is a
+  /// no-op — existing state (hook load result, last write failure) is preserved.
+  private static func ensureRepositoryPane(_ state: inout State, for pid: ProjectID) {
+    guard state.repositoryPanes[id: pid] == nil else { return }
+    state.repositoryPanes.append(RepositorySettingsFeature.State(projectID: pid))
   }
 }
