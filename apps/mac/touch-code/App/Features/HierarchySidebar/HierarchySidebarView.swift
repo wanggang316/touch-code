@@ -603,13 +603,18 @@ private struct ProjectHeaderRow: View {
       // Keep the hover chrome from collapsing row width when hidden —
       // use opacity, not conditional rendering.
       HStack(spacing: 4) {
-        Button {
-          store.send(.projectAddWorktreeTapped(projectID: project.id, inSpace: space.id))
-        } label: {
-          Image(systemName: "plus")
-            .accessibilityLabel("Add Worktree under this Project")
+        // Non-git Projects (P-Q4 = a): suppress the Add Worktree affordance.
+        // Worktrees are a git-only concept; a scratch folder renders with a
+        // single synthetic Worktree and nothing to add.
+        if project.supportsWorktrees {
+          Button {
+            store.send(.projectAddWorktreeTapped(projectID: project.id, inSpace: space.id))
+          } label: {
+            Image(systemName: "plus")
+              .accessibilityLabel("Add Worktree under this Project")
+          }
+          .buttonStyle(.borderless)
         }
-        .buttonStyle(.borderless)
         Menu {
           Button("Project Options…") {
             store.send(
