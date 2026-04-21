@@ -15,12 +15,11 @@ struct HeaderBellPopover: View {
   @Environment(HierarchyManager.self) private var hierarchyManager
 
   var body: some View {
-    let groups = Self.groupProjectByWorktree(
-      inbox: store.inbox,
-      catalog: hierarchyManager.catalog
-    )
+    let catalog = hierarchyManager.catalog
+    let groups = Self.groupProjectByWorktree(inbox: store.inbox, catalog: catalog)
+    let hasUnread = store.state.unreadCount(in: catalog) > 0
     VStack(alignment: .leading, spacing: 0) {
-      header
+      header(hasUnread: hasUnread)
       Divider()
       if groups.isEmpty {
         emptyState
@@ -31,7 +30,7 @@ struct HeaderBellPopover: View {
     .frame(minWidth: 320, idealWidth: 360, maxHeight: 420)
   }
 
-  private var header: some View {
+  private func header(hasUnread: Bool) -> some View {
     HStack {
       Text("Notifications")
         .font(.headline)
@@ -41,7 +40,7 @@ struct HeaderBellPopover: View {
       }
       .buttonStyle(.borderless)
       .controlSize(.small)
-      .disabled(store.unreadCount == 0)
+      .disabled(!hasUnread)
     }
     .padding(.horizontal, 12)
     .padding(.vertical, 8)

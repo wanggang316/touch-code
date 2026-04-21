@@ -46,77 +46,69 @@ struct WorktreeHeaderFeatureTests {
   // MARK: - Observation + badge
 
   @Test
-  func inboxUpdatedRecomputesUnread() async {
+  func inboxUpdatedStoresSnapshot() async {
     let f = Fixture()
     let store = TestStore(initialState: WorktreeHeaderFeature.State()) {
       WorktreeHeaderFeature()
     } withDependencies: {
       $0[InboxClient.self] = .testValue
       $0.hierarchyClient = HierarchyClient.testValue
-      $0.hierarchyClient.snapshot = { f.catalog }
     }
     let inbox = NotificationInbox(notifications: [f.unread("a"), f.unread("b")])
     await store.send(.inboxUpdated(inbox)) { state in
       state.inbox = inbox
-      state.unreadCount = 2
     }
+    #expect(store.state.unreadCount(in: f.catalog) == 2)
   }
 
+  /// Parity contract (design doc §Badge/popover parity): the bell badge count
+  /// and the popover's rendered row count share one `PanelID -> WorktreeID`
+  /// resolution. One valid unread + one orphan unread (panelID not in the
+  /// catalog) must yield `unreadCount == 1` *and* a popover grouping with
+  /// exactly one rendered notification row.
   @Test
-  func inboxUpdatedExcludesOrphansFromBadge() async {
+  func unreadBadgeAndPopoverRowsAgreeOnOrphans() async {
     let f = Fixture()
+    let orphan = f.unread("ghost", panelID: PanelID())
+    let inbox = NotificationInbox(notifications: [f.unread("valid"), orphan])
+
     let store = TestStore(initialState: WorktreeHeaderFeature.State()) {
       WorktreeHeaderFeature()
     } withDependencies: {
       $0[InboxClient.self] = .testValue
       $0.hierarchyClient = HierarchyClient.testValue
-      $0.hierarchyClient.snapshot = { f.catalog }
     }
-    // One valid unread + one unread for a panel NOT in the catalog (orphan).
-    let orphan = f.unread("ghost", panelID: PanelID())
-    let inbox = NotificationInbox(notifications: [f.unread("valid"), orphan])
     await store.send(.inboxUpdated(inbox)) { state in
       state.inbox = inbox
-      state.unreadCount = 1
     }
+
+    // Badge counts unreads whose panel resolves in the catalog.
+    #expect(store.state.unreadCount(in: f.catalog) == 1)
+
+    // Popover grouping walks the same index; flattened row count agrees.
+    let groups = HeaderBellPopover.groupProjectByWorktree(inbox: inbox, catalog: f.catalog)
+    let renderedRows = groups.flatMap { $0.worktrees.flatMap { $0.notifications } }
+    #expect(renderedRows.count == 1)
+    #expect(renderedRows.first?.title == "valid")
   }
 
+  /// A catalog-only mutation (e.g. the worktree that owned a panel is
+  /// removed) must be enough to collapse the badge count — no inbox or
+  /// selection event required. Tested at the `State.unreadCount(in:)`
+  /// level because that's the function views call on every render pass;
+  /// SwiftUI observation of `hierarchyManager.catalog` drives the redraw.
   @Test
-  func catalogChangedRecomputesUnread() async {
+  func unreadCountDropsWhenPanelOrphansViaCatalogMutation() {
     let f = Fixture()
-    let strayPanel = PanelID()
-    // Catalog initially contains panel f.panelID only; swap to a catalog
-    // containing strayPanel too to prove the header re-evaluates unreads.
-    let emptyCatalog = Catalog()
-    let snapshot = LockIsolated<Catalog>(emptyCatalog)
-
-    let store = TestStore(
-      initialState: WorktreeHeaderFeature.State(
-        inbox: NotificationInbox(notifications: [f.unread("s", panelID: strayPanel)]),
-        unreadCount: 0
-      )
-    ) {
-      WorktreeHeaderFeature()
-    } withDependencies: {
-      $0[InboxClient.self] = .testValue
-      $0.hierarchyClient = HierarchyClient.testValue
-      $0.hierarchyClient.snapshot = { snapshot.value }
-    }
-
-    // Start with an empty catalog: the unread is an orphan, state already 0.
-    await store.send(.catalogChanged)
-    // Swap in a catalog that resolves strayPanel.
-    let panel = Panel(id: strayPanel, workingDirectory: "/a")
-    let wt = Worktree(
-      name: "w", path: "/a",
-      tabs: [Tab(splitTree: SplitTree(leaf: panel.id), panels: [panel])]
+    let state = WorktreeHeaderFeature.State(
+      inbox: NotificationInbox(notifications: [f.unread("x")])
     )
-    let pr = Project(name: "p", rootPath: "/p", gitRoot: "/p", worktrees: [wt])
-    let sp = Space(name: "s", projects: [pr])
-    snapshot.setValue(Catalog(spaces: [sp], selectedSpaceID: sp.id))
-    await store.send(.catalogChanged) { state in
-      state.unreadCount = 1
-    }
+    #expect(state.unreadCount(in: f.catalog) == 1)
+
+    // Same inbox, different catalog: the panel is no longer resolvable
+    // (empty catalog) — the count drops without any action dispatch.
+    let emptyCatalog = Catalog()
+    #expect(state.unreadCount(in: emptyCatalog) == 0)
   }
 
   // MARK: - Row tap chain

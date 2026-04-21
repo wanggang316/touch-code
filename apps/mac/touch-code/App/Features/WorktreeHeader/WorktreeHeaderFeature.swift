@@ -6,13 +6,16 @@ import TouchCodeCore
 /// T2 reducer backing the Worktree Header row: branch label + notification
 /// bell + Open-in split button + Git Viewer toggle.
 ///
-/// Owns the cached inbox snapshot and the derived `unreadCount` that feeds
-/// the bell badge. `unreadCount` is recomputed against the current catalog
-/// snapshot (via `HierarchyClient.snapshot`) on every inbox and catalog
-/// change, so badge count and popover row count share one `PanelID ->
-/// WorktreeID` resolution — orphan notifications never inflate the badge.
+/// Owns the cached inbox snapshot (from `InboxClient.observe()`) and the
+/// popover presentation bit. The bell badge count is **not** cached in
+/// state — views compute it via `State.unreadCount(in:)` passing the live
+/// `hierarchyManager.catalog` at render time. That keeps the badge and
+/// the popover grouping (which also reads the live catalog via
+/// `@Environment`) on one `PanelID -> WorktreeID` resolution *and* makes
+/// the badge react to catalog mutations (e.g. a Worktree being removed)
+/// without the reducer needing a separate `.catalogChanged` action.
 ///
-/// User-facing side effects are kept in the reducer so TestStore can prove
+/// User-facing side effects stay in the reducer so TestStore can prove
 /// them. Editor opens are emitted as `.delegate(.openEditor(...))` rather
 /// than dispatched through `EditorClient` directly; `RootFeature` forwards
 /// them into `EditorFeature.openRequested` (resolving `editorID: nil` via
@@ -23,16 +26,23 @@ struct WorktreeHeaderFeature {
   struct State: Equatable {
     /// Latest snapshot from `InboxClient.observe()`. `.empty` until `.onAppear`.
     var inbox: NotificationInbox = .empty
-    /// Catalog-resolvable total unread; drives the bell badge.
-    var unreadCount: Int = 0
     /// Popover presentation state.
     var popoverOpen: Bool = false
+
+    /// Catalog-resolvable total unread, computed against the caller-supplied
+    /// catalog. Views call this with the live `hierarchyManager.catalog`;
+    /// reducers can read it via `hierarchyClient.snapshot()`. Returning a
+    /// computed value rather than a stored field avoids a cache-invalidation
+    /// axis and guarantees badge / popover parity at the
+    /// `panelWorktreeIndex` level.
+    func unreadCount(in catalog: Catalog) -> Int {
+      inbox.totalUnread(in: catalog)
+    }
   }
 
   enum Action: Equatable {
     case onAppear
     case inboxUpdated(NotificationInbox)
-    case catalogChanged
     case popoverToggled(Bool)
     case dismissAllTapped
     case notificationTapped(spaceID: SpaceID, projectID: ProjectID, worktreeID: WorktreeID)
@@ -78,11 +88,6 @@ struct WorktreeHeaderFeature {
 
       case .inboxUpdated(let inbox):
         state.inbox = inbox
-        state.unreadCount = inbox.totalUnread(in: hierarchyClient.snapshot())
-        return .none
-
-      case .catalogChanged:
-        state.unreadCount = state.inbox.totalUnread(in: hierarchyClient.snapshot())
         return .none
 
       case .popoverToggled(let open):

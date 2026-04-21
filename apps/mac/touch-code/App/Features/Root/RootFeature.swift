@@ -156,16 +156,15 @@ struct RootFeature {
         let tabID = resolveActiveTab(selection: selection)
         state.detail.splitViewport.activeTabID = tabID
         // Forward the (projectID, worktreeID) pair to GitViewerFeature so
-        // the inspector always reflects the current selection; and notify
-        // the Header that the catalog may have shifted so its resolvable
-        // unread count is re-evaluated against the fresh snapshot.
-        return .merge(
-          .send(.gitViewer(.worktreeSelected(
-            projectID: selection.projectID,
-            worktreeID: selection.worktreeID
-          ))),
-          .send(.worktreeHeader(.catalogChanged))
-        )
+        // the inspector always reflects the current selection. The Header
+        // feature does not need a dispatched `.catalogChanged` signal —
+        // its unread count is now computed from the live
+        // `@Environment(HierarchyManager.self).catalog`, which re-renders
+        // on any catalog mutation.
+        return .send(.gitViewer(.worktreeSelected(
+          projectID: selection.projectID,
+          worktreeID: selection.worktreeID
+        )))
 
       case .engineEventReceived(let marker):
         state.lastEvent = marker

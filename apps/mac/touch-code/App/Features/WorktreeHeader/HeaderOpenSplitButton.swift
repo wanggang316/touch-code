@@ -112,8 +112,12 @@ struct HeaderOpenSplitButton: View {
             }
           }
         }
-        .disabled(!descriptor.isInstalled)
-        .help(descriptor.isInstalled ? descriptor.displayName
+        // Finder is a spec-hard "always enabled" entry; the `isInstalled` check on
+        // `EditorRegistry.finder` currently returns true for `/usr/bin/open`, but we
+        // refuse to rely on that invariant — the UI guards it explicitly.
+        .disabled(!descriptor.isInstalled && descriptor.id != EditorFeature.finderEditorID)
+        .help(descriptor.isInstalled || descriptor.id == EditorFeature.finderEditorID
+              ? descriptor.displayName
               : "\(descriptor.displayName) is not installed")
       }
     }

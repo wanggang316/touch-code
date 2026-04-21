@@ -59,14 +59,15 @@ struct RootFeatureTests {
     await store.send(.selectionChanged(selection)) { state in
       state.selection = selection
     }
-    // Forwarding step: RootFeature turns .selectionChanged into two actions —
-    // `.gitViewer(.worktreeSelected)` and `.worktreeHeader(.catalogChanged)`.
+    // Forwarding step: RootFeature turns .selectionChanged into a
+    // `.gitViewer(.worktreeSelected)` action. The Header feature does
+    // not need a dispatched signal — its badge count reads the live
+    // `hierarchyManager.catalog` via `State.unreadCount(in:)`.
     await store.receive(\.gitViewer.worktreeSelected) { state in
       state.gitViewer.projectID = selection.projectID
       state.gitViewer.worktreeID = selection.worktreeID
       state.gitViewer.diffState = .loading
     }
-    await store.receive(\.worktreeHeader.catalogChanged)
     // Downstream effect: diffRequest fails because the snapshot doesn't contain the
     // worktree, which proves both the forwarding AND the GitViewerFeature is correctly
     // scoped into RootFeature (the reducer ran, not just the action routing).
@@ -301,8 +302,6 @@ struct RootFeatureTests {
     // state mutation. `store.receive` without a mutation closure is still exhaustive —
     // TestStore asserts the action was dispatched, and the state stayed unchanged.
     await store.receive(\.gitViewer.worktreeSelected)
-    // And the Header feature gets the catalog-changed poke.
-    await store.receive(\.worktreeHeader.catalogChanged)
 
     selectionContinuation.finish()
     await store.send(.onQuit)
