@@ -1,6 +1,6 @@
 import Foundation
-import os.log
 import TouchCodeCore
+import os.log
 
 /// Fan-out hub between `DetectionRouter` (producer) and the three notification
 /// sinks (inbox, Dock badge, OS banner). One instance lives for the app's
@@ -20,10 +20,17 @@ import TouchCodeCore
 ///   invocation within the same session is a no-op.
 @MainActor
 final class NotificationCoordinator {
+  /// Closure the coordinator invokes to mutate the persisted `notifications` sub-tree. In
+  /// production this routes through `SettingsStore.mutateNotifications`; tests inject a
+  /// recorder closure. Keeping the reader surface (`NotificationSettingsReader`) separate
+  /// from the write channel prevents accidental debounced-save triggers from observe paths.
+  typealias NotificationsMutator = @MainActor @Sendable (_ transform: (inout NotificationsSettings) -> Void) -> Void
+
   private let inbox: InboxStore
   private let badger: any DockBadger
   private let osNotifier: any OSNotifier
-  private let settings: NotificationSettingsStore
+  private let settingsReader: any NotificationSettingsReader
+  private let mutateSettings: NotificationsMutator
   private let registry: TrackerRegistry
   private let permissionDelegate: any NotificationPermissionDelegate
   private weak var ruleStore: RuleStore?
@@ -39,7 +46,8 @@ final class NotificationCoordinator {
     inbox: InboxStore,
     badger: any DockBadger,
     osNotifier: any OSNotifier,
-    settings: NotificationSettingsStore,
+    settingsReader: any NotificationSettingsReader,
+    mutateSettings: @escaping NotificationsMutator,
     registry: TrackerRegistry,
     permissionDelegate: any NotificationPermissionDelegate,
     ruleStore: RuleStore? = nil,
@@ -48,7 +56,8 @@ final class NotificationCoordinator {
     self.inbox = inbox
     self.badger = badger
     self.osNotifier = osNotifier
-    self.settings = settings
+    self.settingsReader = settingsReader
+    self.mutateSettings = mutateSettings
     self.registry = registry
     self.permissionDelegate = permissionDelegate
     self.ruleStore = ruleStore
@@ -83,7 +92,7 @@ final class NotificationCoordinator {
 
   private func consumeUnreadPublisher() async {
     for await count in inbox.unreadPublisher {
-      if settings.settings.notifications.mute.badgeEnabled {
+      if settingsReader.mute.badgeEnabled {
         badger.setUnreadCount(count)
       } else {
         badger.setUnreadCount(0)
@@ -98,11 +107,11 @@ final class NotificationCoordinator {
   /// (whose `unreadPublisher` consumer never terminates while the inbox
   /// is live).
   func handle(output: DetectionRouter.RouterOutput) async {
-    guard settings.settings.notifications.mute.enabled else {
+    guard settingsReader.mute.enabled else {
       logger.debug("Global notifications disabled; dropping output.")
       return
     }
-    let muting = settings.settings.notifications.mute
+    let muting = settingsReader.mute
 
     let body: String = output.body
     let notification = AgentNotification(
@@ -114,23 +123,28 @@ final class NotificationCoordinator {
     )
     inbox.append(notification)
 
-    guard shouldPostToOS(kind: output.kind, ruleID: Self.ruleID(from: output.transition.trigger), panelID: output.transition.panelID, muting: muting) else {
+    guard
+      shouldPostToOS(
+        kind: output.kind, ruleID: Self.ruleID(from: output.transition.trigger), panelID: output.transition.panelID,
+        muting: muting)
+    else {
       return
     }
-    guard settings.settings.notifications.authStatus.isAuthorized else {
+    guard settingsReader.authStatus.isAuthorized else {
       return
     }
     // Apply body redaction at the OS boundary only; inbox keeps the raw body.
-    let posted: AgentNotification = muting.redactBodies
+    let posted: AgentNotification =
+      muting.redactBodies
       ? AgentNotification(
-          id: notification.id,
-          panelID: notification.panelID,
-          agent: notification.agent,
-          kind: notification.kind,
-          title: notification.title,
-          body: "(redacted)",
-          createdAt: notification.createdAt
-        )
+        id: notification.id,
+        panelID: notification.panelID,
+        agent: notification.agent,
+        kind: notification.kind,
+        title: notification.title,
+        body: "(redacted)",
+        createdAt: notification.createdAt
+      )
       : notification
     await osNotifier.post(posted)
   }
@@ -160,10 +174,10 @@ final class NotificationCoordinator {
   /// sheet via the delegate; subsequent calls are no-ops (idempotent).
   func onAgentPanelCreated(_ panelID: PanelID) async {
     if alreadyPrompted.contains(panelID) { return }
-    let status = settings.settings.notifications.authStatus
+    let status = settingsReader.authStatus
     guard status == .notDetermined else { return }
-    if settings.settings.notifications.neverPrompt { return }
-    if let until = settings.settings.notifications.notNowUntil, Date() < until { return }
+    if settingsReader.neverPrompt { return }
+    if let until = settingsReader.notNowUntil, Date() < until { return }
 
     let decision = await permissionDelegate.presentPrompt()
 
@@ -171,7 +185,7 @@ final class NotificationCoordinator {
     // `.authorized` while we were awaiting the sheet. Re-read here so a
     // user who grants permission in System Settings mid-prompt does not
     // face a redundant `requestAuthorization` call.
-    if settings.settings.notifications.authStatus != .notDetermined {
+    if settingsReader.authStatus != .notDetermined {
       alreadyPrompted.insert(panelID)
       return
     }
@@ -180,12 +194,12 @@ final class NotificationCoordinator {
     switch decision {
     case .continue:
       let newStatus = await osNotifier.requestAuthorization()
-      settings.mutate { $0.notifications.authStatus = Self.cache(from: newStatus) }
+      mutateSettings { $0.authStatus = Self.cache(from: newStatus) }
     case .notNow:
       let cooldown = Date().addingTimeInterval(24 * 60 * 60)
-      settings.mutate { $0.notifications.notNowUntil = cooldown }
+      mutateSettings { $0.notNowUntil = cooldown }
     case .never:
-      settings.mutate { $0.notifications.neverPrompt = true }
+      mutateSettings { $0.neverPrompt = true }
     }
   }
 
@@ -194,7 +208,7 @@ final class NotificationCoordinator {
   /// updates the cache.
   func refreshAuthorizationStatus() async {
     let status = await osNotifier.currentAuthorizationStatus()
-    settings.mutate { $0.notifications.authStatus = Self.cache(from: status) }
+    mutateSettings { $0.authStatus = Self.cache(from: status) }
   }
 
   // MARK: - Rule reload
@@ -222,7 +236,7 @@ final class NotificationCoordinator {
       // safe no-op with an .error log so a shipped app doesn't crash.
       assertionFailure(
         "NotificationCoordinator.reloadRules called without ruleStore/router dependencies. "
-        + "Bootstrap must inject both via init or attach(ruleStore:router:)."
+          + "Bootstrap must inject both via init or attach(ruleStore:router:)."
       )
       logger.error("reloadRules called without ruleStore/router dependencies; no-op.")
       return

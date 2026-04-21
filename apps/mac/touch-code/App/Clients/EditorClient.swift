@@ -30,10 +30,10 @@ extension EditorClient {
       prober: LivePathProber(),
       globalDefault: { [weak settings] in
         // @MainActor-isolated read; SettingsStore is @Observable on MainActor.
-        MainActor.assumeIsolated { settings?.settings.defaultEditorID }
+        MainActor.assumeIsolated { settings?.settings.general.defaultEditorID }
       },
       customEditors: { [weak settings] in
-        MainActor.assumeIsolated { settings?.settings.customEditors ?? [] }
+        MainActor.assumeIsolated { settings?.settings.general.customEditors ?? [] }
       },
       projectOverride: { [weak hierarchy] projectID in
         MainActor.assumeIsolated {
@@ -72,7 +72,9 @@ extension EditorClient: DependencyKey {
   /// Matches `HierarchyClient.liveValue` / `TerminalClient.liveValue` conventions.
   static let liveValue: EditorClient = EditorClient(
     describe: {
-      fatalError("EditorClient.liveValue not configured; wire via `.withDependencies` at app startup with `.live(settings:hierarchy:)`")
+      fatalError(
+        "EditorClient.liveValue not configured; wire via `.withDependencies` at app startup with `.live(settings:hierarchy:)`"
+      )
     },
     resolve: { _, _ in
       fatalError("EditorClient.liveValue not configured")

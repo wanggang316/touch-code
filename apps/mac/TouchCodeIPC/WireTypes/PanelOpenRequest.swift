@@ -1,10 +1,10 @@
 import Foundation
 import TouchCodeCore
 
-public extension IPC {
+extension IPC {
   /// Params for `hierarchy.openPanel`. `labels` seed the new Panel's label
   /// set; `activate` requests focus after creation.
-  struct PanelOpenRequest: Codable, Equatable, Sendable {
+  public struct PanelOpenRequest: Codable, Equatable, Sendable {
     public let tabID: TabID?
     public let workingDirectory: String?
     public let initialCommand: String?

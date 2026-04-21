@@ -1,8 +1,8 @@
 import Foundation
 import Testing
+import TouchCodeCore
 
 @testable import touch_code
-import TouchCodeCore
 
 @MainActor
 struct RuleStoreTests {
@@ -33,7 +33,7 @@ struct RuleStoreTests {
           transitionTo: .blockedOnInput,
           title: "Claude is waiting",
           body: "prompt"
-        ),
+        )
       ]
     )
     try AtomicFileStore.write(rules, to: url)
@@ -67,7 +67,7 @@ struct RuleStoreTests {
           transitionTo: .blockedOnInput,
           title: "t",
           body: "b"
-        ),
+        )
       ]
     )
     try AtomicFileStore.write(rules, to: url)
@@ -101,7 +101,7 @@ struct RuleStoreTests {
           transitionTo: .completed,
           title: "t",
           body: "b"
-        ),
+        )
       ]
     )
     try AtomicFileStore.write(rules, to: url)

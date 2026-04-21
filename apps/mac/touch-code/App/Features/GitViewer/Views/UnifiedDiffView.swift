@@ -23,7 +23,8 @@ struct UnifiedDiffView: View {
       placeholder
     case .loaded(let diff):
       if let selected = store.selectedFilePath,
-         let file = diff.files.first(where: { $0.id == selected }) {
+        let file = diff.files.first(where: { $0.id == selected })
+      {
         fileHunks(file)
       } else if let first = diff.files.first {
         fileHunks(first)

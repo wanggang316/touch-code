@@ -16,10 +16,11 @@ nonisolated struct TerminalClient: Sendable {
   /// resolve inside the current catalog. The client takes the full address
   /// so the engine's `ensureSurface(for:in:)` can hand the `Worktree`
   /// struct to ghostty as the surface config's working directory source.
-  var ensureSurface: @MainActor @Sendable (
-    _ panelID: PanelID, _ inTab: TabID, _ inWorktree: WorktreeID,
-    _ inProject: ProjectID, _ inSpace: SpaceID
-  ) throws -> Void
+  var ensureSurface:
+    @MainActor @Sendable (
+      _ panelID: PanelID, _ inTab: TabID, _ inWorktree: WorktreeID,
+      _ inProject: ProjectID, _ inSpace: SpaceID
+    ) throws -> Void
   var closeSurface: @MainActor @Sendable (_ panelID: PanelID) -> Void
 
   /// Look up an existing `PanelSurface` registered with the engine. Returns
@@ -76,7 +77,9 @@ extension TerminalClient {
 
 extension TerminalClient: DependencyKey {
   static let liveValue: TerminalClient = TerminalClient(
-    sendInput: { _, _ in fatalError("TerminalClient.liveValue not configured; wire via .withDependencies at app startup") },
+    sendInput: { _, _ in
+      fatalError("TerminalClient.liveValue not configured; wire via .withDependencies at app startup")
+    },
     setFocus: { _, _ in fatalError("TerminalClient.liveValue not configured") },
     retryPanel: { _ in fatalError("TerminalClient.liveValue not configured") },
     ensureSurface: { _, _, _, _, _ in fatalError("TerminalClient.liveValue not configured") },

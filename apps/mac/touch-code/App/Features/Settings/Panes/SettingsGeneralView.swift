@@ -2,27 +2,60 @@ import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
 
-/// Editors pane of the Settings sheet. Three sub-sections:
-/// 1. Global default picker — any of the installed editors (built-in or custom).
-/// 2. Built-in editors list — read-only, each row shows installed/missing state + rationale.
-/// 3. Custom editors list — add / edit / remove arbitrary user templates.
-struct SettingsEditorSection: View {
+/// General detail pane. Stack of three sections per spec M4:
+/// 1. Appearance (persisted but inert; caption per D3)
+/// 2. Default editor picker (lifted from the retired SettingsEditorSection)
+/// 3. Built-in editor list + Custom editors list (lifted identically; Add-editor sheet
+///    kept intact)
+///
+/// Appearance writes directly through `SettingsStore.setAppearance(_:)` (injected via the
+/// environment-held store) so no TCA round-trip is needed for a value that does not affect
+/// any other reducer state.
+struct SettingsGeneralView: View {
   @Bindable var store: StoreOf<EditorFeature>
+  let settingsStore: SettingsStore
   @State private var showingAddSheet = false
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 20) {
-      Text("Editors")
-        .font(.title3.bold())
-
-      globalDefaultPicker
-      builtinsList
-      customEditorsList
+    ScrollView {
+      VStack(alignment: .leading, spacing: 28) {
+        appearanceSection
+        globalDefaultPicker
+        builtinsList
+        customEditorsList
+      }
+      .padding(24)
     }
     .task { store.send(.onAppear) }
   }
 
-  // MARK: - Global default
+  // MARK: - Appearance
+
+  private var appearanceSection: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      HStack(spacing: 8) {
+        Text("Appearance").font(.headline)
+      }
+      let appearance = Binding<AppearancePreference>(
+        get: { settingsStore.settings.general.appearance },
+        set: { settingsStore.setAppearance($0) }
+      )
+      Picker("Appearance", selection: appearance) {
+        Text("System").tag(AppearancePreference.system)
+        Text("Light").tag(AppearancePreference.light)
+        Text("Dark").tag(AppearancePreference.dark)
+      }
+      .pickerStyle(.segmented)
+      .labelsHidden()
+      .frame(maxWidth: 280, alignment: .leading)
+
+      Text("Preview — themes will ship in a later release.")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+  }
+
+  // MARK: - Global default editor
 
   private var globalDefaultPicker: some View {
     let selection = Binding<EditorID?>(
@@ -30,8 +63,7 @@ struct SettingsEditorSection: View {
       set: { newValue in store.send(.setGlobalDefault(newValue)) }
     )
     return VStack(alignment: .leading, spacing: 6) {
-      Text("Default editor")
-        .font(.headline)
+      Text("Default editor").font(.headline)
       Text("Used when no Project-specific override is set.")
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -47,13 +79,12 @@ struct SettingsEditorSection: View {
     }
   }
 
-  // MARK: - Built-in list
+  // MARK: - Built-in editors list
 
   private var builtinsList: some View {
     let builtins = store.state.descriptors.filter { $0.origin == .builtin }
     return VStack(alignment: .leading, spacing: 6) {
-      Text("Built-in editors")
-        .font(.headline)
+      Text("Built-in editors").font(.headline)
       if builtins.isEmpty {
         Text("Detecting installed editors…")
           .font(.caption)
@@ -77,13 +108,12 @@ struct SettingsEditorSection: View {
     }
   }
 
-  // MARK: - Custom editors
+  // MARK: - Custom editors list
 
   private var customEditorsList: some View {
     VStack(alignment: .leading, spacing: 6) {
       HStack {
-        Text("Custom editors")
-          .font(.headline)
+        Text("Custom editors").font(.headline)
         Spacer(minLength: 0)
         Button {
           showingAddSheet = true
@@ -193,8 +223,7 @@ private struct AddCustomEditorSheet: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
-      Text("Add custom editor")
-        .font(.title3.bold())
+      Text("Add custom editor").font(.title3.bold())
       VStack(alignment: .leading, spacing: 8) {
         field("Identifier", placeholder: "my-editor (lowercase, 2–32 chars, - or _)", text: $id)
           .font(.system(.body, design: .monospaced))
@@ -207,8 +236,6 @@ private struct AddCustomEditorSheet: View {
           .font(.caption)
           .foregroundStyle(.secondary)
       }
-      // Live-validate: first triggered rule as the user types. Reducer-level error from a
-      // prior save attempt shown only when no local rule is firing.
       if let message = liveValidationMessage() ?? existingError.map(Self.errorMessage) {
         Label(message, systemImage: "exclamationmark.triangle.fill")
           .labelStyle(.titleAndIcon)
@@ -220,11 +247,12 @@ private struct AddCustomEditorSheet: View {
         Button("Cancel", role: .cancel) { onCancel() }
           .keyboardShortcut(.escape)
         Button("Add") {
-          onSave(CustomEditor(
-            id: id,
-            displayName: displayName,
-            template: CommandTemplate(binary: binary, args: parsedArgs())
-          ))
+          onSave(
+            CustomEditor(
+              id: id,
+              displayName: displayName,
+              template: CommandTemplate(binary: binary, args: parsedArgs())
+            ))
         }
         .buttonStyle(.borderedProminent)
         .keyboardShortcut(.return, modifiers: [.command])
@@ -243,22 +271,16 @@ private struct AddCustomEditorSheet: View {
     }
   }
 
-  // MARK: - Live validation
-
-  /// Splits the args text on whitespace once; used by both `canSave` and `onSave`.
   private func parsedArgs() -> [String] {
     argsText.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
   }
 
-  /// True when every validation rule passes. Mirrors the reducer + SettingsStore checks so
-  /// the Save button never dispatches a guaranteed-reject.
   private var canSave: Bool {
     guard !displayName.isEmpty else { return false }
     guard (try? CustomEditor.validatedID(id)) != nil else { return false }
     return (try? CommandTemplate(binary: binary, args: parsedArgs()).validate()) != nil
   }
 
-  /// First-triggered rule, as a human-readable message. Nil when all rules pass.
   private func liveValidationMessage() -> String? {
     if displayName.isEmpty { return "Display name required." }
     do { _ = try CustomEditor.validatedID(id) } catch let err as EditorTemplateError {
@@ -279,7 +301,9 @@ private struct AddCustomEditorSheet: View {
     case .emptyBinary: return "Binary must not be empty."
     case .missingDirPlaceholder: return "Arguments must contain exactly one `{dir}` token."
     case .duplicateDirPlaceholder: return "Arguments may contain only one `{dir}` token."
-    case .invalidID(let raw): return "ID ‘\(raw)’ is invalid. Use lowercase a-z, 0-9, - or _, starting with a letter, 2-32 chars. Must not collide with a built-in."
+    case .invalidID(let raw):
+      return
+        "ID ‘\(raw)’ is invalid. Use lowercase a-z, 0-9, - or _, starting with a letter, 2-32 chars. Must not collide with a built-in."
     }
   }
 }

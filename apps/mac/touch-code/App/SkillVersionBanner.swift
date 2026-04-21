@@ -74,7 +74,7 @@ public final class SkillVersionBanner {
       return
     }
     for agent in AgentID.allCases {
-      if agent == .pi { continue } // pi has no `tc skill install --pi` upgrade path
+      if agent == .pi { continue }  // pi has no `tc skill install --pi` upgrade path
       guard let installed = installedVersionProvider(agent) else { continue }
       if !Self.isOlder(installed, than: bundled) { continue }
       if wasDismissed(for: agent, bundleVersion: bundled) { continue }
@@ -113,7 +113,8 @@ public final class SkillVersionBanner {
     guard let skillURL = try? SkillBundleLocator.locateSkillBundle() else { return nil }
     let versionURL = skillURL.appendingPathComponent("VERSION")
     guard let data = fileSystem.contents(atPath: versionURL.path),
-          let text = String(bytes: data, encoding: .utf8) else {
+      let text = String(bytes: data, encoding: .utf8)
+    else {
       return nil
     }
     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -125,9 +126,10 @@ public final class SkillVersionBanner {
     fileSystem: SkillFileSystem
   ) -> String? {
     guard let config = try? AgentsConfig.loadFromMainBundle(),
-          let agentConfig = config.config(for: agent),
-          agentConfig.installMode == .copy,
-          let path = config.defaultPath(for: agent) else {
+      let agentConfig = config.config(for: agent),
+      agentConfig.installMode == .copy,
+      let path = config.defaultPath(for: agent)
+    else {
       return nil
     }
     let markerURL = URL(fileURLWithPath: path).appendingPathComponent(".touch-code-skill.json")

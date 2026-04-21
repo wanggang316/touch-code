@@ -1,6 +1,6 @@
 import Foundation
-import os
 import TouchCodeCore
+import os
 
 /// Thin adapter translating a `HookAction` into the same in-process verb
 /// the `tc` CLI would drive via RPC. M2 ships a recording stub suitable
@@ -30,7 +30,8 @@ public final class RecordingHookActionDispatcher: HookActionDispatcher, @uncheck
   public init() {}
 
   public var log: [Invocation] {
-    lock.lock(); defer { lock.unlock() }
+    lock.lock()
+    defer { lock.unlock() }
     return _log
   }
 

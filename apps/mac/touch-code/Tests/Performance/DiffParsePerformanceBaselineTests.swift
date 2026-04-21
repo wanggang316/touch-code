@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import TouchCodeCore
+
 @testable import touch_code
 
 /// Parse-only performance baseline for `DiffParser`. Scoped to what is measurable before the
@@ -50,11 +51,13 @@ struct DiffParsePerformanceBaselineTests {
     let baselineURL = try Self.baselineURL()
     if captureMode {
       try Self.writeBaseline(parseMs: stats, at: baselineURL)
-      print("[perf] baseline captured at \(baselineURL.path) — re-run without " +
-            "TC_PERF_BASELINE=capture to assert against it")
+      print(
+        "[perf] baseline captured at \(baselineURL.path) — re-run without "
+          + "TC_PERF_BASELINE=capture to assert against it")
     } else {
       let ceiling = try Self.ceiling(metric: "parse_ms", at: baselineURL, designBudget: Self.parseMsDesignBudget)
-      let message: Comment = "parse_ms P95 \(stats.p95) exceeded ceiling \(ceiling) — baseline P95 × \(Self.driftMargin) vs design budget \(Self.parseMsDesignBudget) ms, whichever is greater"
+      let message: Comment =
+        "parse_ms P95 \(stats.p95) exceeded ceiling \(ceiling) — baseline P95 × \(Self.driftMargin) vs design budget \(Self.parseMsDesignBudget) ms, whichever is greater"
       #expect(stats.p95 <= ceiling, message)
     }
   }
@@ -82,9 +85,9 @@ struct DiffParsePerformanceBaselineTests {
   }
 
   private static func logResult(metric: String, stats: Stats) {
-    print("[perf] \(metric): p50=\(String(format: "%.2f", stats.p50)) ms, " +
-          "p95=\(String(format: "%.2f", stats.p95)) ms, " +
-          "max=\(String(format: "%.2f", stats.max)) ms")
+    print(
+      "[perf] \(metric): p50=\(String(format: "%.2f", stats.p50)) ms, "
+        + "p95=\(String(format: "%.2f", stats.p95)) ms, " + "max=\(String(format: "%.2f", stats.max)) ms")
   }
 
   /// Fixture is bundled with the test target via `buildableFolders`. Loaded from the bundle.
@@ -145,9 +148,9 @@ struct DiffParsePerformanceBaselineTests {
 
   private static func machineKey() -> String {
     #if arch(arm64)
-    return "arm64-apple-macos"
+      return "arm64-apple-macos"
     #else
-    return "x86_64-apple-macos"
+      return "x86_64-apple-macos"
     #endif
   }
 

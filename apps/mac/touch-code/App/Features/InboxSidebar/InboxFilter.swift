@@ -7,9 +7,9 @@ import TouchCodeCore
 nonisolated enum InboxFilter: String, CaseIterable, Identifiable, Hashable, Sendable {
   case all
   case unread
-  case waiting     // kind == .blockedOnInput
-  case completed   // kind == .completed
-  case crashed     // kind == .crashed
+  case waiting  // kind == .blockedOnInput
+  case completed  // kind == .completed
+  case crashed  // kind == .crashed
 
   var id: String { rawValue }
 

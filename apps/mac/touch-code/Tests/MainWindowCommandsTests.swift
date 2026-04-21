@@ -2,8 +2,9 @@ import ComposableArchitecture
 import Foundation
 import SwiftUI
 import Testing
-@testable import touch_code
 import TouchCodeCore
+
+@testable import touch_code
 
 /// Regression tests for the T3 main-window shortcuts
 /// (`MainWindowCommands` + `RootFeature` wiring).
@@ -87,12 +88,14 @@ struct MainWindowCommandsTests {
     store.exhaustivity = .off
 
     await store.send(.openDefaultForCurrentWorktreeRequested)
-    await store.receive(.editor(.openDefaultInCurrentWorktreeRequested(
-      spaceID: spaceID,
-      projectID: projectID,
-      worktreeID: worktreeID,
-      worktreePath: "/repo"
-    )))
+    await store.receive(
+      .editor(
+        .openDefaultInCurrentWorktreeRequested(
+          spaceID: spaceID,
+          projectID: projectID,
+          worktreeID: worktreeID,
+          worktreePath: "/repo"
+        )))
   }
 
   @Test

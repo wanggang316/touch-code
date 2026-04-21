@@ -1,8 +1,8 @@
 import Foundation
 import Testing
+import TouchCodeCore
 
 @testable import touch_code
-import TouchCodeCore
 
 /// M6b Codable round-trip: proves that the bundled `DefaultRules.json`
 /// string decodes cleanly through `AgentDetectionRules` and re-encodes

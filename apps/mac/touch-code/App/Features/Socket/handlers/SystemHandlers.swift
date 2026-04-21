@@ -59,10 +59,11 @@ public final class SystemHandlers {
     do {
       request = try params.decoded(as: HelloRequest.self)
     } catch {
-      return .failed(.invalidParams(
-        message: "system.hello requires clientVersion + clientBinary",
-        path: nil
-      ))
+      return .failed(
+        .invalidParams(
+          message: "system.hello requires clientVersion + clientBinary",
+          path: nil
+        ))
     }
     if !Self.versionsCompatible(client: request.clientVersion, server: versions.server) {
       return .failed(.versionMismatch(client: request.clientVersion, server: versions.server))
@@ -88,22 +89,24 @@ public final class SystemHandlers {
 
   public func version(_ params: JSONValue) async -> RouterOutcome {
     await Task.yield()
-    return .unary(.object([
-      "server": .string(versions.server),
-      "appBundle": .string(versions.appBundle),
-      "protocolMajor": .int(Int64(versions.protocolMajor)),
-      "protocolMinor": .int(Int64(versions.protocolMinor)),
-    ]))
+    return .unary(
+      .object([
+        "server": .string(versions.server),
+        "appBundle": .string(versions.appBundle),
+        "protocolMajor": .int(Int64(versions.protocolMajor)),
+        "protocolMinor": .int(Int64(versions.protocolMinor)),
+      ]))
   }
 
   public func status(_ params: JSONValue) async -> RouterOutcome {
     await Task.yield()
     let uptime = clock().timeIntervalSince(startedAt)
-    return .unary(.object([
-      "server": .string(versions.server),
-      "uptimeSeconds": .double(uptime),
-      "connectedClients": .int(Int64(connectionCount())),
-    ]))
+    return .unary(
+      .object([
+        "server": .string(versions.server),
+        "uptimeSeconds": .double(uptime),
+        "connectedClients": .int(Int64(connectionCount())),
+      ]))
   }
 
   public func quit(_ params: JSONValue) async -> RouterOutcome {

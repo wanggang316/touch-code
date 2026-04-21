@@ -1,9 +1,10 @@
 import ComposableArchitecture
 import Foundation
 import Testing
-@testable import touch_code
 import TouchCodeCore
 import TouchCodeIPC
+
+@testable import touch_code
 
 @MainActor
 struct EditorHandlersTests {
@@ -114,9 +115,11 @@ struct EditorHandlersTests {
 
     #expect(response.descriptors.count == 2)
     #expect(response.descriptors[0].id == "vscode")
-    #expect(response.descriptors[0].installation == .installed(
-      resolvedBinary: URL(fileURLWithPath: "/usr/local/bin/code")
-    ))
+    #expect(
+      response.descriptors[0].installation
+        == .installed(
+          resolvedBinary: URL(fileURLWithPath: "/usr/local/bin/code")
+        ))
     #expect(response.descriptors[1].id == "cursor")
     #expect(response.descriptors[1].installation == .missingBinary(expected: "cursor"))
   }
@@ -137,11 +140,12 @@ struct EditorHandlersTests {
       hierarchy: Self.makeHierarchyClient(catalog: fixture.catalog)
     )
 
-    let response = try await handlers.open(EditorOpenRequest(
-      worktreeID: fixture.worktreeID.raw,
-      preferred: "vscode",
-      panelID: nil
-    ))
+    let response = try await handlers.open(
+      EditorOpenRequest(
+        worktreeID: fixture.worktreeID.raw,
+        preferred: "vscode",
+        panelID: nil
+      ))
 
     let (dir, preferred, projectID) = try #require(captured.value)
     #expect(dir.path == fixture.worktreePath)
@@ -166,11 +170,12 @@ struct EditorHandlersTests {
       hierarchy: Self.makeHierarchyClient(catalog: fixture.catalog)
     )
 
-    _ = try await handlers.open(EditorOpenRequest(
-      worktreeID: nil,
-      preferred: nil,
-      panelID: fixture.panelID.raw
-    ))
+    _ = try await handlers.open(
+      EditorOpenRequest(
+        worktreeID: nil,
+        preferred: nil,
+        panelID: fixture.panelID.raw
+      ))
 
     let (dir, preferred, projectID) = try #require(captured.value)
     #expect(dir.path == fixture.worktreePath)
@@ -228,9 +233,10 @@ struct EditorHandlersTests {
       hierarchy: Self.makeHierarchyClient(catalog: fixture.catalog)
     )
     await #expect(throws: EditorIPCError.notInstalled) {
-      _ = try await handlers.open(EditorOpenRequest(
-        worktreeID: fixture.worktreeID.raw, preferred: "cursor"
-      ))
+      _ = try await handlers.open(
+        EditorOpenRequest(
+          worktreeID: fixture.worktreeID.raw, preferred: "cursor"
+        ))
     }
   }
 
@@ -308,12 +314,13 @@ struct EditorHandlersTests {
       hierarchy: Self.makeHierarchyClient(catalog: fixture.catalog)
     )
 
-    _ = try await handlers.open(EditorOpenRequest(
-      worktreeID: fixture.worktreeID.raw,
-      preferred: nil,
-      panelID: nil,
-      path: "/tmp/touch-code-test-worktree/sub"
-    ))
+    _ = try await handlers.open(
+      EditorOpenRequest(
+        worktreeID: fixture.worktreeID.raw,
+        preferred: nil,
+        panelID: nil,
+        path: "/tmp/touch-code-test-worktree/sub"
+      ))
     #expect(captured.value?.path == "/tmp/touch-code-test-worktree/sub")
   }
 
@@ -327,10 +334,11 @@ struct EditorHandlersTests {
       hierarchy: Self.makeHierarchyClient(catalog: fixture.catalog)
     )
     await #expect(throws: EditorIPCError.notADirectory) {
-      _ = try await handlers.open(EditorOpenRequest(
-        worktreeID: fixture.worktreeID.raw,
-        path: "/etc"
-      ))
+      _ = try await handlers.open(
+        EditorOpenRequest(
+          worktreeID: fixture.worktreeID.raw,
+          path: "/etc"
+        ))
     }
   }
 
@@ -347,10 +355,11 @@ struct EditorHandlersTests {
       editor: editorClient,
       hierarchy: Self.makeHierarchyClient(catalog: fixture.catalog)
     )
-    _ = try await handlers.open(EditorOpenRequest(
-      worktreeID: fixture.worktreeID.raw,
-      path: ""
-    ))
+    _ = try await handlers.open(
+      EditorOpenRequest(
+        worktreeID: fixture.worktreeID.raw,
+        path: ""
+      ))
     #expect(captured.value?.path == fixture.worktreePath)
   }
 
@@ -368,10 +377,11 @@ struct EditorHandlersTests {
     )
     let handlers = EditorHandlers(editor: EditorClient.testValue, hierarchy: hierarchy)
 
-    _ = try handlers.setDefault(EditorSetDefaultRequest(
-      projectID: fixture.projectID.raw,
-      editorID: "zed"
-    ))
+    _ = try handlers.setDefault(
+      EditorSetDefaultRequest(
+        projectID: fixture.projectID.raw,
+        editorID: "zed"
+      ))
 
     let (projectID, spaceID, editorID) = try #require(captured.value)
     #expect(projectID == fixture.projectID)
@@ -389,10 +399,11 @@ struct EditorHandlersTests {
     )
     let handlers = EditorHandlers(editor: EditorClient.testValue, hierarchy: hierarchy)
 
-    _ = try handlers.setDefault(EditorSetDefaultRequest(
-      projectID: fixture.projectID.raw,
-      editorID: nil
-    ))
+    _ = try handlers.setDefault(
+      EditorSetDefaultRequest(
+        projectID: fixture.projectID.raw,
+        editorID: nil
+      ))
 
     #expect(captured.value == nil)
   }
@@ -405,9 +416,10 @@ struct EditorHandlersTests {
       hierarchy: Self.makeHierarchyClient(catalog: fixture.catalog)
     )
     #expect(throws: EditorIPCError.unknownProject) {
-      _ = try handlers.setDefault(EditorSetDefaultRequest(
-        projectID: UUID(), editorID: "vscode"
-      ))
+      _ = try handlers.setDefault(
+        EditorSetDefaultRequest(
+          projectID: UUID(), editorID: "vscode"
+        ))
     }
   }
 }

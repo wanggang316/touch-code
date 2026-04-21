@@ -14,9 +14,11 @@ struct TouchCodeApp: App {
   @State private var skillBanner = SkillVersionBanner.live()
   /// `SwiftUI.App` gives us no `applicationWillTerminate` hook on its own;
   /// the adaptor bridges AppKit's termination callback so we can flush
-  /// debounced writes from `SettingsStore`, `InboxStore`, and
-  /// `NotificationSettingsStore` before the process exits.
+  /// debounced writes from `SettingsStore` and `InboxStore` before the
+  /// process exits. `NotificationSettingsStore` was retired in Step 4 —
+  /// settings.json now has a single writer (`SettingsStore`).
   @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+  @Environment(\.openWindow) private var openWindow
 
   var body: some Scene {
     WindowGroup {
@@ -43,6 +45,9 @@ struct TouchCodeApp: App {
         // load-bearing — SwiftUI re-runs .task on scene reattach.
         .task {
           appDelegate.appState = appState
+          appState.openSettingsWindowAction = {
+            openWindow(id: TouchCodeApp.settingsWindowID)
+          }
           appState.bringUp()
         }
       }
@@ -52,8 +57,31 @@ struct TouchCodeApp: App {
       if let store = appState.store {
         MainWindowCommands(store: store)
       }
+      CommandGroup(replacing: .appSettings) {
+        Button("Settings…") {
+          openWindow(id: TouchCodeApp.settingsWindowID)
+        }
+        .keyboardShortcut(",", modifiers: .command)
+      }
     }
+
+    Window("Settings", id: TouchCodeApp.settingsWindowID) {
+      if let store = appState.settingsWindowStore {
+        SettingsWindowView(store: store, settingsStore: appState.settingsStore)
+          .environment(appState.hierarchyManager)
+      } else {
+        // Settings window can be opened before AppState.bringUp completes (rare but
+        // possible during launch). Render a transient placeholder; SwiftUI will
+        // re-evaluate once the store lands.
+        ProgressView().frame(minWidth: 750, minHeight: 500)
+      }
+    }
+    .windowResizability(.contentMinSize)
   }
+
+  /// Scene id for the Settings `Window`. Referenced from the app-menu Settings… command and
+  /// from `SettingsWindowPresenter` overrides below.
+  static let settingsWindowID = "settings"
 }
 
 /// AppKit delegate that flushes debounced writes on graceful termination.
@@ -84,6 +112,10 @@ final class AppState {
   let settingsStore: SettingsStore
   private(set) var terminalEngine: TerminalEngine?
   private(set) var store: StoreOf<RootFeature>?
+  /// Long-lived store for the Settings window scene. Built during `bringUp()` so the
+  /// store — and its in-memory editor-pane state — survives open/close cycles of the
+  /// window (spec M16).
+  private(set) var settingsWindowStore: StoreOf<SettingsWindowFeature>?
 
   private let catalogStore: CatalogStore
   private let hierarchyRuntime: GhosttyBackedHierarchyRuntime
@@ -93,7 +125,6 @@ final class AppState {
   /// `HierarchyManager`-through-`@Environment` pattern the sidebar
   /// already uses for structural data.
   let inboxStore: InboxStore
-  private let notificationSettingsStore: NotificationSettingsStore
 
   // IPC stack (C3+C4): HookDispatcher + SocketServer + handlers.
   private var hookConfigStore: HookConfigStore?
@@ -129,7 +160,6 @@ final class AppState {
     // surface is alive for the full app lifetime. Views observe it via
     // env injection; EditorClient closes over it in bringUp().
     self.inboxStore = InboxStore()
-    self.notificationSettingsStore = NotificationSettingsStore()
     self.settingsStore = SettingsStore()
     // TerminalEngine is constructed in bringUp() once we know whether a
     // GhosttyRuntime is available — this avoids a throwaway engine.
@@ -153,12 +183,10 @@ final class AppState {
     // Load C6 + C8 state — best-effort; decode errors are logged inside each
     // store and do not block the app from launching.
     _ = try? inboxStore.load()
-    _ = try? notificationSettingsStore.load()
-    // C7+C8 SettingsStore loads itself from disk during `init(fileURL:)`.
+    // SettingsStore loads itself (with v1→v2 migration) during `init(fileURL:)`.
 
     let manager = hierarchyManager
     let inbox = inboxStore
-    let notifSettings = notificationSettingsStore
     let settings = settingsStore
     // Build the editor + hierarchy clients once so the reducer stack AND the IPC
     // handlers share the exact same live instances — avoids two parallel
@@ -167,6 +195,14 @@ final class AppState {
     let hierarchy = HierarchyClient.live(manager: manager)
     self.editorClient = editor
     self.hierarchyClient = hierarchy
+    // `SettingsWindowPresenter.open` forwards to the `OpenWindowAction` captured by the
+    // main-window scene body into `openSettingsWindowAction`. SwiftUI's `OpenWindowAction`
+    // must be read from a `View`'s environment so the reducer cannot hold it directly —
+    // this indirection is what lets `RootFeature` trigger an open without pulling
+    // `@Environment(\.openWindow)` into TCA.
+    let presenter = SettingsWindowPresenter(open: { [weak self] in
+      self?.openSettingsWindowAction?()
+    })
     self.store = Store(initialState: RootFeature.State()) {
       RootFeature()
     } withDependencies: {
@@ -178,12 +214,27 @@ final class AppState {
       // closes over `manager` (per-Project override).
       $0.editorClient = editor
       $0.settingsWriter = .live(settings)
-      $0[InboxClient.self] = .live(inbox: inbox, settings: notifSettings)
+      $0[InboxClient.self] = .live(inbox: inbox, settings: settings)
+      $0.settingsWindowPresenter = presenter
+    }
+
+    self.settingsWindowStore = Store(initialState: SettingsWindowFeature.State()) {
+      SettingsWindowFeature()
+    } withDependencies: {
+      $0.editorClient = editor
+      $0.settingsWriter = .live(settings)
+      $0.hierarchyClient = hierarchy
     }
 
     startIPC(hierarchy: manager, editor: editor, hierarchyClient: hierarchy)
     startNotifications(hierarchy: manager)
   }
+
+  /// Closure the main-window scene body installs to bridge TCA → `openWindow(id: "settings")`.
+  /// Set from `.task { appState.openSettingsWindowAction = { openWindow(id: settingsWindowID) } }`
+  /// inside `TouchCodeApp.body`. The presenter dependency captures `self` weakly and
+  /// forwards `.open()` through this closure.
+  @ObservationIgnored var openSettingsWindowAction: (@MainActor () -> Void)?
 
   /// Async-launches the C6 notification stack. Skipped under XCTest (mirrors
   /// `startIPC`) and when `startIPC` was skipped or failed to bind (no
@@ -191,14 +242,16 @@ final class AppState {
   /// on `self` so `applicationWillTerminate` can flush its debounced writes.
   private func startNotifications(hierarchy: HierarchyManager) {
     if ProcessInfo.processInfo.environment["XCTestBundlePath"] != nil
-      || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+      || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    {
       return
     }
     guard notificationBootstrap == nil,
-          let dispatcher = hookDispatcher,
-          let hookStore = hookConfigStore else { return }
+      let dispatcher = hookDispatcher,
+      let hookStore = hookConfigStore
+    else { return }
     let inbox = inboxStore
-    let settings = notificationSettingsStore
+    let settings = settingsStore
     Task { @MainActor [weak self] in
       do {
         let bootstrap = try await C6AppBootstrap.start(
@@ -231,7 +284,8 @@ final class AppState {
     hierarchyClient: HierarchyClient
   ) {
     if ProcessInfo.processInfo.environment["XCTestBundlePath"] != nil
-      || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+      || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    {
       return
     }
     let hookConfigStore = HookConfigStore()
@@ -288,7 +342,6 @@ final class AppState {
   func flushAllPersistedState() {
     settingsStore.flush()
     try? inboxStore.saveNow()
-    try? notificationSettingsStore.saveNow()
     try? notificationBootstrap?.flushPendingWrites()
     notificationBootstrap?.shutdown()
     // `CatalogStore` writes on scheduleSave and on app termination via its own signals.

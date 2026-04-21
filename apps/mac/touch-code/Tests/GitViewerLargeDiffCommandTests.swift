@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import TouchCodeCore
+
 @testable import touch_code
 
 /// Table-driven tests for `LargeDiffCommand.build`. Locks the exact shell-safe output per

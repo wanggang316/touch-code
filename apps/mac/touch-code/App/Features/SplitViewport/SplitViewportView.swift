@@ -33,11 +33,12 @@ struct SplitViewportView: View {
         .font(.title3)
         .foregroundStyle(.secondary)
       Button("New Panel") {
-        store.send(.newPanelButtonTapped(
-          inTab: tabID, inWorktree: worktreeID,
-          inProject: projectID, inSpace: spaceID,
-          workingDirectory: NSHomeDirectory()
-        ))
+        store.send(
+          .newPanelButtonTapped(
+            inTab: tabID, inWorktree: worktreeID,
+            inProject: projectID, inSpace: spaceID,
+            workingDirectory: NSHomeDirectory()
+          ))
       }
       .buttonStyle(.borderedProminent)
     }

@@ -32,7 +32,8 @@ nonisolated enum BrokenFileBackup {
       try FileManager.default.copyItem(at: fileURL, to: backupURL)
       try FileManager.default.removeItem(at: fileURL)
     } catch {
-      logger.error("Backup copy+delete also failed (\(String(describing: error))); corrupt file remains at \(fileURL.path).")
+      logger.error(
+        "Backup copy+delete also failed (\(String(describing: error))); corrupt file remains at \(fileURL.path).")
     }
   }
 

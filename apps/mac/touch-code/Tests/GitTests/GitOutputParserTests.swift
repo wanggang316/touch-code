@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import TouchCodeCore
+
 @testable import touch_code
 
 struct GitOutputParserTests {
@@ -10,21 +11,23 @@ struct GitOutputParserTests {
   func parseLogLinearTwoCommits() throws {
     // Field separator is NUL (\0). Record separator is also NUL (git log -z appends NUL
     // between records). The primer-style fixture: two commits, linear.
-    let fixture = Self.logRecord(
-      hash: "aaaaaaa1111111111111111111111111111111aa",
-      authorName: "Gump",
-      authorEmail: "gump@example.com",
-      date: "2026-04-20T10:00:00+00:00",
-      subject: "initial",
-      parents: ""
-    ) + Self.logRecord(
-      hash: "bbbbbbb2222222222222222222222222222222bb",
-      authorName: "Claude",
-      authorEmail: "claude@example.com",
-      date: "2026-04-20T11:00:00+00:00",
-      subject: "second",
-      parents: "aaaaaaa1111111111111111111111111111111aa"
-    )
+    let fixture =
+      Self.logRecord(
+        hash: "aaaaaaa1111111111111111111111111111111aa",
+        authorName: "Gump",
+        authorEmail: "gump@example.com",
+        date: "2026-04-20T10:00:00+00:00",
+        subject: "initial",
+        parents: ""
+      )
+      + Self.logRecord(
+        hash: "bbbbbbb2222222222222222222222222222222bb",
+        authorName: "Claude",
+        authorEmail: "claude@example.com",
+        date: "2026-04-20T11:00:00+00:00",
+        subject: "second",
+        parents: "aaaaaaa1111111111111111111111111111111aa"
+      )
     let commits = try GitOutputParser.parseLog(Data(fixture.utf8))
     #expect(commits.count == 2)
     #expect(commits[0].id == "aaaaaaa1111111111111111111111111111111aa")

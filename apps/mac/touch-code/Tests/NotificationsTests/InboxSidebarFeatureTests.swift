@@ -1,9 +1,9 @@
 import ComposableArchitecture
 import Foundation
 import Testing
+import TouchCodeCore
 
 @testable import touch_code
-import TouchCodeCore
 
 @MainActor
 struct InboxSidebarFeatureTests {

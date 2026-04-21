@@ -19,9 +19,10 @@ import TouchCodeCore
 /// stays pure + synchronous.
 public enum EventMapper {
   public static func map(_ event: TerminalEvent, catalog: Catalog) -> HookEnvelope? {
-    map(event, panel: { panelAnchors($0, catalog: catalog) },
-        tab: { tabAnchors($0, catalog: catalog) },
-        worktree: { worktreeAnchors($0, catalog: catalog) })
+    map(
+      event, panel: { panelAnchors($0, catalog: catalog) },
+      tab: { tabAnchors($0, catalog: catalog) },
+      worktree: { worktreeAnchors($0, catalog: catalog) })
   }
 
   /// Cache-backed variant. The dispatcher feeds an `EventMapperCache` so
@@ -34,10 +35,11 @@ public enum EventMapper {
     catalog: Catalog,
     cache: EventMapperCache
   ) -> HookEnvelope? {
-    map(event,
-        panel: { cache.panelAnchors($0, catalog: catalog) },
-        tab: { cache.tabAnchors($0, catalog: catalog) },
-        worktree: { cache.worktreeAnchors($0, catalog: catalog) })
+    map(
+      event,
+      panel: { cache.panelAnchors($0, catalog: catalog) },
+      tab: { cache.tabAnchors($0, catalog: catalog) },
+      worktree: { cache.worktreeAnchors($0, catalog: catalog) })
   }
 
   private static func map(

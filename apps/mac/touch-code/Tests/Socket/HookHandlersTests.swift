@@ -1,9 +1,9 @@
 import Foundation
 import Testing
 
-@testable import touch_code
 @testable import TouchCodeCore
 @testable import TouchCodeIPC
+@testable import touch_code
 
 @MainActor
 struct HookHandlersTests {
@@ -25,7 +25,8 @@ struct HookHandlersTests {
     let listed = try await server.awaitResponse()
     #expect(listed.error == nil)
     if case .object(let obj) = listed.result,
-       case .array(let subs) = obj["subscriptions"] {
+      case .array(let subs) = obj["subscriptions"]
+    {
       #expect(subs.count == 1)
     } else {
       Issue.record("expected { subscriptions: [...] }, got \(String(describing: listed.result))")

@@ -108,7 +108,10 @@ nonisolated struct FoundationCommandRunner: CommandRunner {
     }
   }
 
-  private enum ExitOrTimeout: Sendable { case exited(Int32); case timedOut }
+  private enum ExitOrTimeout: Sendable {
+    case exited(Int32)
+    case timedOut
+  }
 
   /// Consumes `exitStream` with a timeout race. On timeout, sends SIGTERM + grace + SIGKILL
   /// so no stuck child survives, then returns `.timedOut`.
@@ -120,7 +123,7 @@ nonisolated struct FoundationCommandRunner: CommandRunner {
     await withTaskGroup(of: ExitOrTimeout.self) { group in
       group.addTask {
         for await code in exitStream { return .exited(code) }
-        return .exited(Int32(-1)) // stream finished without value — shouldn't happen
+        return .exited(Int32(-1))  // stream finished without value — shouldn't happen
       }
       group.addTask {
         try? await Task.sleep(for: timeout)
@@ -213,14 +216,15 @@ actor RecordingCommandRunner: CommandRunner {
     timeout: Duration,
     maxOutputBytes: Int
   ) -> CommandOutcome {
-    _calls.append(Recorded(
-      executable: executable,
-      arguments: arguments,
-      env: env,
-      cwd: cwd,
-      timeout: timeout,
-      maxOutputBytes: maxOutputBytes
-    ))
+    _calls.append(
+      Recorded(
+        executable: executable,
+        arguments: arguments,
+        env: env,
+        cwd: cwd,
+        timeout: timeout,
+        maxOutputBytes: maxOutputBytes
+      ))
     if let outcome = outcomes.first {
       if outcomes.count > 1 { outcomes.removeFirst() }
       return outcome

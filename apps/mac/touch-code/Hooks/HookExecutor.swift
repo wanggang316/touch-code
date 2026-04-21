@@ -58,7 +58,8 @@ public final class FakeHookExecutor: HookExecutor, @unchecked Sendable {
   }
 
   public var invocations: [Invocation] {
-    lock.lock(); defer { lock.unlock() }
+    lock.lock()
+    defer { lock.unlock() }
     return _invocations
   }
 

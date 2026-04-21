@@ -18,7 +18,7 @@ struct SkillVersionBannerView: View {
       HStack(alignment: .top, spacing: 12) {
         Image(systemName: "arrow.up.circle")
           .foregroundStyle(.orange)
-          .accessibilityHidden(true) // decorative; adjacent text conveys meaning
+          .accessibilityHidden(true)  // decorative; adjacent text conveys meaning
         VStack(alignment: .leading, spacing: 2) {
           Text("touch-code skill \(bundled) is available")
             .font(.headline)

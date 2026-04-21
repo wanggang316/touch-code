@@ -1,7 +1,7 @@
 import Foundation
-import os
 import TouchCodeCore
 import TouchCodeIPC
+import os
 
 /// Handlers for `hierarchy.*` — both reads (list / describe /
 /// resolveAlias) and mutations (create / activate / close / label).
@@ -277,7 +277,9 @@ final class HierarchyHandlers {
     do {
       req = try params.decoded(as: OpenPanelParams.self)
     } catch {
-      return .failed(.invalidParams(message: "openPanel requires {spaceID, projectID, worktreeID, tabID, workingDirectory}", path: nil))
+      return .failed(
+        .invalidParams(
+          message: "openPanel requires {spaceID, projectID, worktreeID, tabID, workingDirectory}", path: nil))
     }
     do {
       let id = try manager.openPanel(
@@ -408,10 +410,11 @@ final class HierarchyHandlers {
     await Task.yield()
     let req: CloseTabParams
     do { req = try params.decoded(as: CloseTabParams.self) } catch {
-      return .failed(.invalidParams(
-        message: "closeTab requires {id, worktreeID, projectID, spaceID}",
-        path: nil
-      ))
+      return .failed(
+        .invalidParams(
+          message: "closeTab requires {id, worktreeID, projectID, spaceID}",
+          path: nil
+        ))
     }
     do {
       try manager.closeTab(req.id, in: req.worktreeID, in: req.projectID, in: req.spaceID)
@@ -432,10 +435,11 @@ final class HierarchyHandlers {
     await Task.yield()
     let req: PanelLocatorParams
     do { req = try params.decoded(as: PanelLocatorParams.self) } catch {
-      return .failed(.invalidParams(
-        message: "closePanel requires {id, tabID, worktreeID, projectID, spaceID}",
-        path: nil
-      ))
+      return .failed(
+        .invalidParams(
+          message: "closePanel requires {id, tabID, worktreeID, projectID, spaceID}",
+          path: nil
+        ))
     }
     do {
       try manager.closePanel(
@@ -455,10 +459,11 @@ final class HierarchyHandlers {
     await Task.yield()
     let req: PanelLocatorParams
     do { req = try params.decoded(as: PanelLocatorParams.self) } catch {
-      return .failed(.invalidParams(
-        message: "focusPanel requires {id, tabID, worktreeID, projectID, spaceID}",
-        path: nil
-      ))
+      return .failed(
+        .invalidParams(
+          message: "focusPanel requires {id, tabID, worktreeID, projectID, spaceID}",
+          path: nil
+        ))
     }
     do {
       try manager.focusPanel(
@@ -504,7 +509,8 @@ final class HierarchyHandlers {
       return .failed(.invalidParams(message: "listWorktrees requires {projectID, spaceID}", path: nil))
     }
     guard let space = manager.catalog.spaces.first(where: { $0.id == req.spaceID }),
-          let project = space.projects.first(where: { $0.id == req.projectID }) else {
+      let project = space.projects.first(where: { $0.id == req.projectID })
+    else {
       return .failed(.notFound(kind: "project", id: req.projectID.description))
     }
     do {
@@ -523,14 +529,16 @@ final class HierarchyHandlers {
     await Task.yield()
     let req: ListTabsParams
     do { req = try params.decoded(as: ListTabsParams.self) } catch {
-      return .failed(.invalidParams(
-        message: "listTabs requires {worktreeID, projectID, spaceID}",
-        path: nil
-      ))
+      return .failed(
+        .invalidParams(
+          message: "listTabs requires {worktreeID, projectID, spaceID}",
+          path: nil
+        ))
     }
     guard let space = manager.catalog.spaces.first(where: { $0.id == req.spaceID }),
-          let project = space.projects.first(where: { $0.id == req.projectID }),
-          let worktree = project.worktrees.first(where: { $0.id == req.worktreeID }) else {
+      let project = space.projects.first(where: { $0.id == req.projectID }),
+      let worktree = project.worktrees.first(where: { $0.id == req.worktreeID })
+    else {
       return .failed(.notFound(kind: "worktree", id: req.worktreeID.description))
     }
     do {
@@ -550,15 +558,17 @@ final class HierarchyHandlers {
     await Task.yield()
     let req: ListPanelsParams
     do { req = try params.decoded(as: ListPanelsParams.self) } catch {
-      return .failed(.invalidParams(
-        message: "listPanels requires {tabID, worktreeID, projectID, spaceID}",
-        path: nil
-      ))
+      return .failed(
+        .invalidParams(
+          message: "listPanels requires {tabID, worktreeID, projectID, spaceID}",
+          path: nil
+        ))
     }
     guard let space = manager.catalog.spaces.first(where: { $0.id == req.spaceID }),
-          let project = space.projects.first(where: { $0.id == req.projectID }),
-          let worktree = project.worktrees.first(where: { $0.id == req.worktreeID }),
-          let tab = worktree.tabs.first(where: { $0.id == req.tabID }) else {
+      let project = space.projects.first(where: { $0.id == req.projectID }),
+      let worktree = project.worktrees.first(where: { $0.id == req.worktreeID }),
+      let tab = worktree.tabs.first(where: { $0.id == req.tabID })
+    else {
       return .failed(.notFound(kind: "tab", id: req.tabID.description))
     }
     do {

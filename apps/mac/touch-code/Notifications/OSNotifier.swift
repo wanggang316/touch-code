@@ -1,6 +1,6 @@
 import Foundation
-@preconcurrency import UserNotifications
 import TouchCodeCore
+@preconcurrency import UserNotifications
 
 /// Cached + query-fresh macOS notification permission status. The app shell
 /// reads the cache once on launch per DEC-4 permission flow; the coordinator
