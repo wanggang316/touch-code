@@ -220,15 +220,26 @@ final class AppState {
       $0.settingsWindowPresenter = presenter
     }
 
+    // T4: HookConfigStore must exist before `settingsWindowStore` so the Repository
+    // Hooks pane's reducer closes over the same instance the IPC stack uses. Created
+    // here (not inside startIPC) so XCTest builds — which skip startIPC — can still
+    // back the settings window.
+    let hookConfigStore = HookConfigStore()
+    self.hookConfigStore = hookConfigStore
+
     self.settingsWindowStore = Store(initialState: SettingsWindowFeature.State()) {
       SettingsWindowFeature()
     } withDependencies: {
       $0.editorClient = editor
       $0.settingsWriter = .live(settings)
       $0.hierarchyClient = hierarchy
+      $0[HookConfigClient.self] = .live(store: hookConfigStore)
     }
 
-    startIPC(hierarchy: manager, editor: editor, hierarchyClient: hierarchy)
+    startIPC(
+      hierarchy: manager, editor: editor, hierarchyClient: hierarchy,
+      hookConfigStore: hookConfigStore
+    )
     startNotifications(hierarchy: manager)
 
     // Developer pane dependencies are built last so the HookConfigStore
@@ -293,15 +304,14 @@ final class AppState {
   private func startIPC(
     hierarchy: HierarchyManager,
     editor: EditorClient,
-    hierarchyClient: HierarchyClient
+    hierarchyClient: HierarchyClient,
+    hookConfigStore: HookConfigStore
   ) {
     if ProcessInfo.processInfo.environment["XCTestBundlePath"] != nil
       || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     {
       return
     }
-    let hookConfigStore = HookConfigStore()
-    self.hookConfigStore = hookConfigStore
     let config = (try? hookConfigStore.load()) ?? .empty
     let dispatcher = HookDispatcher(
       config: config,

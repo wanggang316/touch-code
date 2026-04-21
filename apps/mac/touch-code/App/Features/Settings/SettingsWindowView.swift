@@ -60,9 +60,30 @@ struct SettingsWindowView: View {
     case .about:
       AboutSettingsView()
     case .repositoryGeneral(let projectID):
-      RepositoryGeneralSettingsView(projectID: projectID)
+      if let paneStore = store.scope(
+        state: \.repositoryPanes[id: projectID],
+        action: \.repositoryPanes[id: projectID]
+      ) {
+        RepositoryGeneralSettingsView(
+          projectID: projectID,
+          store: paneStore,
+          descriptors: store.state.general.descriptors
+        )
+      } else {
+        // State entry is lazily instantiated in `selectionChanged`; this arm is a
+        // belt-and-suspenders placeholder for the single frame between a user click
+        // landing and the reducer run finishing.
+        ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+      }
     case .repositoryHooks(let projectID):
-      RepositoryHooksSettingsView(projectID: projectID)
+      if let paneStore = store.scope(
+        state: \.repositoryPanes[id: projectID],
+        action: \.repositoryPanes[id: projectID]
+      ) {
+        RepositoryHooksSettingsView(projectID: projectID, store: paneStore)
+      } else {
+        ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+      }
     }
   }
 }

@@ -297,4 +297,63 @@ struct HierarchyManagerTests {
     manager.setWorktreeGitViewerVisible(worktreeID: bogus, visible: true)
     #expect(manager.catalog.spaces.isEmpty)
   }
+
+  // MARK: - Settings Repository panes (T4) — project-only mutators
+
+  @Test
+  func setWorktreesDirectoryWritesAndClearsOverride() throws {
+    let spaceID = manager.createSpace(name: "test")
+    let projectID = try manager.addProject(to: spaceID, name: "project", rootPath: "/tmp", gitRoot: "/tmp")
+
+    try manager.setWorktreesDirectory("/Users/me/worktrees/a", for: projectID)
+    #expect(manager.catalog.spaces[0].projects[0].worktreesDirectory == "/Users/me/worktrees/a")
+
+    try manager.setWorktreesDirectory(nil, for: projectID)
+    #expect(manager.catalog.spaces[0].projects[0].worktreesDirectory == nil)
+  }
+
+  @Test
+  func setWorktreesDirectoryThrowsForUnknownProject() {
+    _ = manager.createSpace(name: "test")
+    let bogusProject = ProjectID()
+    #expect(throws: (any Error).self) {
+      try manager.setWorktreesDirectory("/somewhere", for: bogusProject)
+    }
+  }
+
+  @Test
+  func setDefaultEditorAnySpaceWritesAndClearsOverride() throws {
+    let spaceID = manager.createSpace(name: "test")
+    let projectID = try manager.addProject(to: spaceID, name: "project", rootPath: "/tmp", gitRoot: "/tmp")
+
+    try manager.setDefaultEditorAnySpace("vscode", for: projectID)
+    #expect(manager.catalog.spaces[0].projects[0].defaultEditor == "vscode")
+
+    try manager.setDefaultEditorAnySpace(nil, for: projectID)
+    #expect(manager.catalog.spaces[0].projects[0].defaultEditor == nil)
+  }
+
+  @Test
+  func setDefaultEditorAnySpaceThrowsForUnknownProject() {
+    _ = manager.createSpace(name: "test")
+    let bogusProject = ProjectID()
+    #expect(throws: (any Error).self) {
+      try manager.setDefaultEditorAnySpace("vscode", for: bogusProject)
+    }
+  }
+
+  @Test
+  func projectOnlyMutatorsResolveProjectAcrossSpaces() throws {
+    let spaceA = manager.createSpace(name: "A")
+    let spaceB = manager.createSpace(name: "B")
+    _ = try manager.addProject(to: spaceA, name: "a1", rootPath: "/tmp/a1", gitRoot: "/tmp/a1")
+    let projectInB = try manager.addProject(to: spaceB, name: "b1", rootPath: "/tmp/b1", gitRoot: "/tmp/b1")
+
+    try manager.setDefaultEditorAnySpace("xcode", for: projectInB)
+    let bIdx = manager.catalog.spaces.firstIndex(where: { $0.id == spaceB })!
+    #expect(manager.catalog.spaces[bIdx].projects[0].defaultEditor == "xcode")
+
+    try manager.setWorktreesDirectory("/tmp/wts/b1", for: projectInB)
+    #expect(manager.catalog.spaces[bIdx].projects[0].worktreesDirectory == "/tmp/wts/b1")
+  }
 }
