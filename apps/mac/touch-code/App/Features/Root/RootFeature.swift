@@ -1,3 +1,4 @@
+import AppKit
 import ComposableArchitecture
 import Foundation
 import TouchCodeCore
@@ -124,7 +125,9 @@ struct RootFeature {
     case worktreeHeader(WorktreeHeaderFeature.Action)
   }
 
-  nonisolated enum CancelID: Sendable { case events, selectionChanges }
+  nonisolated enum CancelID: Sendable {
+    case events, selectionChanges, projectReconcileFocus
+  }
 
   @Dependency(TerminalClient.self) private var terminalClient
   @Dependency(HierarchyClient.self) private var hierarchyClient
@@ -153,6 +156,14 @@ struct RootFeature {
       case .onLaunch:
         let eventStream = terminalClient.events()
         let selectionStream = hierarchyClient.selectionChanges()
+        // `didBecomeActive` fires every time the app window re-gains focus;
+        // per-run debounce lives inside `ProjectReconciler.reconcileAll`, so
+        // click storms collapse into a single scan. The notification stream
+        // via AsyncSequence is fine to hold for the full app lifetime;
+        // `CancelID.projectReconcileFocus` stops it at quit.
+        let focusStream = NotificationCenter.default.notifications(
+          named: NSApplication.didBecomeActiveNotification
+        )
         return .merge(
           .run { send in
             for await event in eventStream {
@@ -166,7 +177,21 @@ struct RootFeature {
               await send(.selectionChanged(selection))
             }
           }
-          .cancellable(id: CancelID.selectionChanges, cancelInFlight: true)
+          .cancellable(id: CancelID.selectionChanges, cancelInFlight: true),
+
+          // Initial sweep: every persisted Project transitions out of .loading
+          // once the reconciler fans out against the current snapshot.
+          .run { [projectReconciler] _ in
+            await projectReconciler.reconcileAll()
+          },
+
+          // Re-sync on window focus. Debounced inside the actor.
+          .run { [projectReconciler] _ in
+            for await _ in focusStream {
+              await projectReconciler.reconcileAll()
+            }
+          }
+          .cancellable(id: CancelID.projectReconcileFocus, cancelInFlight: true)
         )
         // Worst case for sidebar context-menu "Open in default editor" is an
         // empty descriptor cache → resolution falls through to
@@ -181,7 +206,8 @@ struct RootFeature {
       case .onQuit:
         return .merge(
           .cancel(id: CancelID.events),
-          .cancel(id: CancelID.selectionChanges)
+          .cancel(id: CancelID.selectionChanges),
+          .cancel(id: CancelID.projectReconcileFocus)
         )
 
       case .selectionChanged(let selection):

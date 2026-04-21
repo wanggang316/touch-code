@@ -98,19 +98,34 @@ actor ProjectReconciler {
 }
 
 extension ProjectReconciler: DependencyKey {
-  /// `HierarchyClient.liveValue` is MainActor-isolated because its initializer
-  /// takes `@MainActor @Sendable` closures; reading it requires MainActor. DI
-  /// resolution happens on the main thread in practice (TCA reducer wiring at
-  /// `TouchCodeApp.bringUp`, SwiftUI view graph), so `assumeIsolated` is
-  /// precise: it crashes loudly with a clear message if ever accessed off the
-  /// main thread rather than risking UB. The real reconciler is installed in
-  /// `bringUp` via `.withDependencies`; this is only the unconfigured
-  /// fallback.
+  /// Unconfigured fallback reconciler used when the app has not yet installed
+  /// the real one in `TouchCodeApp.bringUp` via `.withDependencies`, and for
+  /// tests that don't exercise reconcile. Its captured `HierarchyClient` is
+  /// a no-op overlay over `.testValue` whose snapshot returns an empty
+  /// Catalog, so `reconcileAll` fans out across zero Projects and the two
+  /// write closures (`setProjectLoadState`, `reconcileDiscoveredWorktrees`)
+  /// don't record `unimplemented(...)` issues.
+  ///
+  /// Accessed on MainActor in practice (TCA reducer wiring, SwiftUI view
+  /// graph); `assumeIsolated` crashes loudly with a clear message if ever
+  /// accessed off the main thread rather than risking UB.
   static var liveValue: ProjectReconciler {
     MainActor.assumeIsolated {
-      ProjectReconciler(client: .liveValue)
+      var noop = HierarchyClient.testValue
+      noop.snapshot = { Catalog(windows: [], spaces: [], selectedSpaceID: nil) }
+      noop.setProjectLoadState = { _, _, _ in }
+      noop.reconcileDiscoveredWorktrees = { _, _ in }
+      return ProjectReconciler(client: noop)
     }
   }
+
+  /// The TCA default `testValue` calls `unimplemented(...)` and records an
+  /// issue on every access, which would trip `@Dependency(ProjectReconciler.self)`
+  /// in tests that don't actually exercise reconcile. Point at the same no-op
+  /// reconciler used by `liveValue` so `.onLaunch` test paths stay clean;
+  /// tests that do care about reconcile behavior override the dependency
+  /// explicitly.
+  static var testValue: ProjectReconciler { liveValue }
 }
 
 extension DependencyValues {
