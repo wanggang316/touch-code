@@ -393,11 +393,10 @@ struct HierarchySidebarFeature {
           let lastID = targetSpace.lastActiveWorktreeID
     else { return .none }
 
-    for project in targetSpace.projects {
-      if project.worktrees.contains(where: { $0.id == lastID }) {
-        try? hierarchyClient.selectWorktree(lastID, project.id, spaceID)
-        return .none
-      }
+    for project in targetSpace.projects
+    where project.worktrees.contains(where: { $0.id == lastID }) {
+      try? hierarchyClient.selectWorktree(lastID, project.id, spaceID)
+      return .none
     }
     // Stale — clear the pointer and let Project.selectedWorktreeID fallback take over.
     hierarchyClient.setSpaceLastActiveWorktree(spaceID, nil)

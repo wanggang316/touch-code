@@ -70,18 +70,18 @@ struct HierarchySidebarFeatureTests {
   // MARK: - nextUntitledSpaceName
 
   @Test
-  func nextUntitledSpaceNameOnEmptyCatalogIsBare() async {
+  func nextUntitledSpaceNameOnEmptyCatalogIsBare() {
     #expect(nextUntitledSpaceName(in: []) == "Untitled Space")
   }
 
   @Test
-  func nextUntitledSpaceNameWithOnlyBareReturnsTwo() async {
+  func nextUntitledSpaceNameWithOnlyBareReturnsTwo() {
     let spaces = [Self.space(named: "Untitled Space")]
     #expect(nextUntitledSpaceName(in: spaces) == "Untitled Space 2")
   }
 
   @Test
-  func nextUntitledSpaceNameFillsHoleBetweenBareAndThree() async {
+  func nextUntitledSpaceNameFillsHoleBetweenBareAndThree() {
     let spaces = [
       Self.space(named: "Untitled Space"),
       Self.space(named: "Untitled Space 3"),
@@ -91,7 +91,7 @@ struct HierarchySidebarFeatureTests {
   }
 
   @Test
-  func nextUntitledSpaceNameBareWinsWhenOnlyTwoExists() async {
+  func nextUntitledSpaceNameBareWinsWhenOnlyTwoExists() {
     let spaces = [Self.space(named: "Untitled Space 2")]
     #expect(nextUntitledSpaceName(in: spaces) == "Untitled Space")
   }
