@@ -147,6 +147,34 @@ struct CatalogCodableTests {
   }
 
   @Test
+  func encodeOmitsGitViewerVisibleWhenFalse() throws {
+    // Codable-symmetry fix: the default-false `gitViewerVisible` is dropped
+    // from encoded output to match how `Space.lastActiveWorktreeID` uses
+    // `encodeIfPresent`. Keeps on-disk catalogs lean and makes pre-T0 JSON
+    // round-trip-identical on disk once re-encoded.
+    let worktree = Worktree(name: "w", path: "/w") // gitViewerVisible defaults to false
+    let project = Project(name: "p", rootPath: "/p", gitRoot: "/p", worktrees: [worktree])
+    let space = Space(name: "s", projects: [project])
+    let catalog = Catalog(spaces: [space])
+
+    let data = try JSONEncoder().encode(catalog)
+    let root = try #require(
+      try JSONSerialization.jsonObject(with: data) as? [String: Any]
+    )
+    let decodedSpace = try #require((root["spaces"] as? [[String: Any]])?.first)
+    let decodedProject = try #require((decodedSpace["projects"] as? [[String: Any]])?.first)
+    let decodedWorktree = try #require(
+      (decodedProject["worktrees"] as? [[String: Any]])?.first
+    )
+    #expect(decodedWorktree["gitViewerVisible"] == nil)
+
+    // Round-trip still yields the same Swift value — decoder's
+    // `decodeIfPresent ?? false` fills the gap.
+    let decoded = try JSONDecoder().decode(Catalog.self, from: data)
+    #expect(decoded == catalog)
+  }
+
+  @Test
   func tabInvariantsHoldForSeededTab() throws {
     let a = Panel(workingDirectory: "/a")
     let b = Panel(workingDirectory: "/b")
