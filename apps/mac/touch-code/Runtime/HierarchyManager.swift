@@ -295,6 +295,24 @@ final class HierarchyManager {
     return appended
   }
 
+  /// Tears down every terminal surface attached to the Worktree without
+  /// mutating the catalog. Used by force-remove so any held file handles
+  /// are released before `git worktree remove --force` runs; the catalog
+  /// row is dropped afterwards via `removeWorktree`. Silent no-op when
+  /// the id is unknown. Idempotent.
+  func tearDownWorktreeSurfaces(worktreeID: WorktreeID) {
+    for space in catalog.spaces {
+      for project in space.projects {
+        guard let worktree = project.worktrees.first(where: { $0.id == worktreeID })
+        else { continue }
+        for panel in worktree.tabs.flatMap({ $0.panels }) {
+          runtime.closeSurface(for: panel.id)
+        }
+        return
+      }
+    }
+  }
+
   /// Counts the number of Panels in this Worktree whose terminal surface
   /// is live. Used by force-remove to size the confirmation copy
   /// ("This will terminate N running processes"). 0 when the id is unknown.

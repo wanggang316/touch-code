@@ -19,7 +19,7 @@ After this change, a user can manage git worktrees from inside touch-code as fir
 - [x] M5 — `GitWorktreeClient` live implementation (`wt ls`, `wt sw` streaming create, `git worktree remove`, `git worktree prune`, branch / ref queries, fetch remote, `changedFiles`) (2026-04-21, build green, unit tests still pass)
 - [x] M6 — `GitWorktreeClient` unit tests: argument builder matrix, JSON decode, sanitize, error mapping (2026-04-21, landed together with M4 since all 18 helpers are pure. Live-implementation process-orchestration coverage deferred to M13 integration test — a `FakeProcessRunner` unit for the shell orchestration layer adds no signal beyond M13)
 - [x] M7 — `HierarchyManager` additions: `setWorktreeArchived`, `reconcileDiscoveredWorktrees`, `runningPanelCount`, main-checkout guard; unit tests (2026-04-21, 9 tests passing)
-- [ ] M8 — `HierarchyClient`: append six new closures at end of file; update `liveValue`, `testValue`, and consumers
+- [x] M8 — `HierarchyClient`: append 5 new closures at end of struct; factory gains GitWorktreeClient parameter with .makeLive() default; update `liveValue` (fatalError) + `testValue` (unimplemented); `HierarchyManager.tearDownWorktreeSurfaces` helper for force-remove path (2026-04-21, 29 hierarchy tests green)
 - [ ] M9 — `CreateWorktreeFeature` reducer + tests (live validation, base-ref dropdown, streaming progress, error banner)
 - [ ] M10 — `CreateWorktreeSheet` view + wire into `HierarchySidebarView` at the current stub lines 78-83
 - [ ] M11 — `ArchivedWorktreesFeature` reducer + tests; `ArchivedWorktreesSheet` view; first-archive confirmation flag
