@@ -43,25 +43,15 @@ struct ContentView: View {
       )
       .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
     } detail: {
-      HStack(spacing: 0) {
-        WorktreeDetailView(
-          store: store.scope(state: \.detail, action: \.detail),
-          selection: store.selection,
-          editorStore: store.scope(state: \.editor, action: \.editor),
-          headerStore: store.scope(state: \.worktreeHeader, action: \.worktreeHeader)
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // T3: Git Viewer visibility is sourced from the reducer's derived
-        // projection (`RootFeature.State.gitViewerOverlayVisible`), which is
-        // recomputed on every `.selectionChanged` from the persisted
-        // `Worktree.gitViewerVisible`. M3 will replace this third-column
-        // render with a trailing overlay inside `WorktreeDetailView`.
-        if store.gitViewerOverlayVisible {
-          Divider()
-          GitViewerView(store: store.scope(state: \.gitViewer, action: \.gitViewer))
-            .frame(minWidth: 420, idealWidth: 480)
-        }
-      }
+      WorktreeDetailView(
+        store: store.scope(state: \.detail, action: \.detail),
+        selection: store.selection,
+        editorStore: store.scope(state: \.editor, action: \.editor),
+        headerStore: store.scope(state: \.worktreeHeader, action: \.worktreeHeader),
+        gitViewerStore: store.scope(state: \.gitViewer, action: \.gitViewer),
+        overlayVisible: store.gitViewerOverlayVisible
+      )
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
       .overlay(alignment: .bottom) { editorToastOverlay }
       .toolbar {
         ToolbarItem(placement: .primaryAction) {

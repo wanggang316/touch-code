@@ -20,6 +20,12 @@ struct WorktreeDetailView: View {
   /// T2 Header feature — scoped by `ContentView` from the root. Drives the bell
   /// badge, the Open-in split button's delegate routing, and the Git Viewer toggle.
   let headerStore: StoreOf<WorktreeHeaderFeature>
+  /// T3: scoped Git Viewer store, hosted as a right-edge overlay on the terminal region
+  /// when `overlayVisible == true` AND the terminal has enough width to keep the
+  /// overlay + the minimum terminal gutter side-by-side.
+  let gitViewerStore: StoreOf<GitViewerFeature>
+  /// T3: derived from `RootFeature.State.gitViewerOverlayVisible`; never assigned locally.
+  let overlayVisible: Bool
   @Environment(HierarchyManager.self) private var hierarchyManager
 
   var body: some View {
@@ -34,21 +40,68 @@ struct WorktreeDetailView: View {
           worktreeID: address.worktree,
           activeTabID: address.activeTab
         )
-        if let tabID = address.activeTab {
-          SplitViewportView(
-            store: store.scope(state: \.splitViewport, action: \.splitViewport),
-            spaceID: address.space,
-            projectID: address.project,
-            worktreeID: address.worktree,
-            tabID: tabID
-          )
-        } else {
-          emptyTab
-        }
+        terminalRegion(address: address)
+          .overlay(alignment: .trailing) { overlayContent }
+          .animation(.easeInOut(duration: 0.15), value: overlayVisible)
       }
     } else {
       placeholder
     }
+  }
+
+  @ViewBuilder
+  private func terminalRegion(address: Address) -> some View {
+    if let tabID = address.activeTab {
+      SplitViewportView(
+        store: store.scope(state: \.splitViewport, action: \.splitViewport),
+        spaceID: address.space,
+        projectID: address.project,
+        worktreeID: address.worktree,
+        tabID: tabID
+      )
+    } else {
+      emptyTab
+    }
+  }
+
+  /// T3 overlay content: the Git Viewer occupies a fixed-width slot on the trailing edge
+  /// when there's room, otherwise a compact suppressed-hint badge nudges the user to
+  /// widen the window. Width clamp logic lives in `shouldShowOverlay(totalWidth:)` so
+  /// the threshold is unit-testable independently of SwiftUI layout.
+  @ViewBuilder
+  private var overlayContent: some View {
+    if overlayVisible {
+      GeometryReader { proxy in
+        if Self.shouldShowOverlay(totalWidth: proxy.size.width) {
+          GitViewerView(store: gitViewerStore)
+            .frame(width: MainWindowConstants.gvOverlayWidth)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .transition(.move(edge: .trailing).combined(with: .opacity))
+        } else {
+          overlaySuppressedHint
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            .padding(8)
+        }
+      }
+    }
+  }
+
+  private var overlaySuppressedHint: some View {
+    Text("Widen window to show Git Viewer")
+      .font(.caption)
+      .foregroundStyle(.secondary)
+      .padding(.horizontal, 10)
+      .padding(.vertical, 5)
+      .background(.thinMaterial, in: .capsule)
+  }
+
+  /// Pure width-clamp helper. The overlay only renders when the host has room to keep
+  /// the overlay at its fixed width AND leave at least `gvOverlayMinTerminalWidth` for
+  /// the terminal. Equivalence with `>=` keeps the exact threshold inclusive — matches
+  /// the paired unit tests in `WorktreeDetailViewLayoutTests`.
+  static func shouldShowOverlay(totalWidth: CGFloat) -> Bool {
+    totalWidth >= MainWindowConstants.gvOverlayMinTerminalWidth
+      + MainWindowConstants.gvOverlayWidth
   }
 
   /// Worktree Header row (T2): branch label + bell + Open-in split button +
