@@ -50,7 +50,7 @@ struct SettingsWindowView: View {
         settingsStore: settingsStore
       )
     case .notifications:
-      NotificationsSettingsView()
+      NotificationsSettingsView(settingsStore: settingsStore)
     case .developer:
       DeveloperSettingsView()
     case .shortcuts:

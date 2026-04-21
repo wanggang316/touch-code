@@ -134,6 +134,78 @@ struct NotificationCoordinatorTests {
     #expect(harness.inbox.inbox.notifications.isEmpty)
   }
 
+  // MARK: - UI toggle gates (T2: K4/K5 wiring)
+
+  /// `systemEnabled == false` suppresses OS banner posts but leaves the inbox
+  /// unaffected. Outer `mute.enabled` guard explicitly stays `true` so this
+  /// test isolates the new `systemEnabled` branch.
+  @Test
+  func systemEnabledFalseStillInboxesButSkipsOSPost() async throws {
+    let harness = Self.make(authStatus: .authorized, globalEnabled: true, systemEnabled: false)
+    await harness.feed(
+      .init(
+        transition: Self.transition(to: .completed, trigger: .rule(id: "rule")),
+        agent: "claude",
+        title: "done",
+        body: "",
+        kind: .completed
+      ))
+    #expect(harness.mockNotifier.postedNotifications.isEmpty)
+    #expect(harness.inbox.inbox.notifications.count == 1)
+  }
+
+  /// `soundEnabled == false` still posts but with `playSound: false` so the
+  /// adapter maps it to a silent banner. Records index-aligned with the
+  /// posted notification so the mock can prove the parameter flowed.
+  @Test
+  func soundEnabledFalsePostsSilently() async throws {
+    let harness = Self.make(authStatus: .authorized, globalEnabled: true, soundEnabled: false)
+    await harness.feed(
+      .init(
+        transition: Self.transition(to: .completed, trigger: .rule(id: "rule")),
+        agent: "claude",
+        title: "done",
+        body: "",
+        kind: .completed
+      ))
+    #expect(harness.mockNotifier.postedNotifications.count == 1)
+    #expect(harness.mockNotifier.postedPlaySound == [false])
+  }
+
+  /// `inAppEnabled == false` suppresses `inbox.append` (design D2) without
+  /// affecting the OS path — the two surfaces are decoupled. Verifies both
+  /// directions of the decoupling so a future refactor cannot silently
+  /// couple them.
+  @Test
+  func inAppEnabledFalseSkipsInboxAppendButNotOSPost() async throws {
+    let harness = Self.make(authStatus: .authorized, globalEnabled: true, inAppEnabled: false)
+    await harness.feed(
+      .init(
+        transition: Self.transition(to: .completed, trigger: .rule(id: "rule")),
+        agent: "claude",
+        title: "done",
+        body: "",
+        kind: .completed
+      ))
+    #expect(harness.inbox.inbox.notifications.isEmpty)
+    #expect(harness.mockNotifier.postedNotifications.count == 1)
+  }
+
+  /// `dockBadgeEnabled` is the authority for the badge branch in
+  /// `consumeUnreadPublisher` (replacing v1 `mute.badgeEnabled`). The test
+  /// drives `handleUnread(_:)` directly — the production loop's inbox
+  /// subscription never terminates and would deadlock the harness.
+  @Test
+  func dockBadgeEnabledFalseZeroesBadgeOnUnread() {
+    let off = Self.make(dockBadgeEnabled: false)
+    off.coordinator.handleUnread(7)
+    #expect(off.badger.calls.last == 0)
+
+    let on = Self.make(dockBadgeEnabled: true)
+    on.coordinator.handleUnread(5)
+    #expect(on.badger.calls.last == 5)
+  }
+
   // MARK: - Permission prompt
 
   @Test
@@ -311,6 +383,10 @@ struct NotificationCoordinatorTests {
     surfaceIdle: Bool = false,
     redactBodies: Bool = false,
     globalEnabled: Bool = true,
+    systemEnabled: Bool = true,
+    soundEnabled: Bool = true,
+    inAppEnabled: Bool = true,
+    dockBadgeEnabled: Bool = true,
     decision: PermissionDecision = .continue
   ) -> Harness {
     let inbox = InboxStore(
@@ -332,6 +408,10 @@ struct NotificationCoordinatorTests {
       $0.mute.redactBodies = redactBodies
       $0.mute.mutedRuleIDs = mutedRuleIDs
       $0.mute.mutedPanelIDs = mutedPanelIDs
+      $0.systemEnabled = systemEnabled
+      $0.soundEnabled = soundEnabled
+      $0.inAppEnabled = inAppEnabled
+      $0.dockBadgeEnabled = dockBadgeEnabled
     }
 
     let registry = TrackerRegistry(
@@ -384,6 +464,9 @@ final class MockOSNotifier: OSNotifier {
   var currentStatus: AuthorizationStatus
   var nextRequestResult: AuthorizationStatus?
   private(set) var postedNotifications: [AgentNotification] = []
+  /// Index-aligned with `postedNotifications`; records the `playSound` passed
+  /// by the coordinator so `soundEnabled`-off paths are observable.
+  private(set) var postedPlaySound: [Bool] = []
   private(set) var requestAuthorizationCalls = 0
   private var postWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
@@ -401,8 +484,9 @@ final class MockOSNotifier: OSNotifier {
   // swiftlint:enable async_without_await
 
   // swiftlint:disable:next async_without_await
-  func post(_ notification: AgentNotification) async {
+  func post(_ notification: AgentNotification, playSound: Bool) async {
     postedNotifications.append(notification)
+    postedPlaySound.append(playSound)
     let currentCount = postedNotifications.count
     postWaiters = postWaiters.filter { waiter in
       if currentCount >= waiter.count {
