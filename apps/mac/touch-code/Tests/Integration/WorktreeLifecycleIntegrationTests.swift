@@ -8,13 +8,23 @@ import Testing
 /// force-remove after dirtying the tree, plus the uncommittedChanges
 /// error path.
 ///
-/// Skipped when the bundled `wt` resource cannot be resolved (dev
-/// builds that haven't run `embed-git-wt.sh` yet). The app build's
-/// Tuist pre-script (`verify-git-wt.sh`) normally guarantees it is
-/// present; this guard is belt-and-braces for headless test hosts.
+/// Uses Swift Testing's `.enabled(if:)` trait so hosts that haven't
+/// run `embed-git-wt.sh` (unbundled `wt`) see these tests as
+/// *skipped* rather than red failures. The predicate is evaluated at
+/// test discovery time — mirrors the pattern in
+/// `LiveGitServiceIntegrationTests.swift` / `LiveProcessSpawnerIntegrationTests.swift`.
+/// The app build's Tuist pre-script (`verify-git-wt.sh`) keeps the
+/// bundled case the default.
 @MainActor
 struct WorktreeLifecycleIntegrationTests {
   private let fm = FileManager.default
+
+  // `nonisolated` so Swift Testing's `.enabled(if:)` trait (a Sendable
+  // context evaluated at test discovery) can read it even though the
+  // enclosing struct is @MainActor.
+  nonisolated static let wtBundled: Bool = {
+    Bundle.main.url(forResource: "wt", withExtension: nil, subdirectory: "git-wt") != nil
+  }()
 
   private func makeTempRepo() throws -> URL {
     let base = fm.temporaryDirectory
@@ -47,13 +57,8 @@ struct WorktreeLifecycleIntegrationTests {
     }
   }
 
-  private func wtAvailable() -> Bool {
-    Bundle.main.url(forResource: "wt", withExtension: nil, subdirectory: "git-wt") != nil
-  }
-
-  @Test
+  @Test(.enabled(if: WorktreeLifecycleIntegrationTests.wtBundled))
   func fullLifecycle() async throws {
-    try #require(wtAvailable(), "wt script not bundled in test target")
     let repo = try makeTempRepo()
     defer { try? fm.removeItem(at: repo) }
 
@@ -91,9 +96,8 @@ struct WorktreeLifecycleIntegrationTests {
     #expect(afterRemove.count == 1)
   }
 
-  @Test
+  @Test(.enabled(if: WorktreeLifecycleIntegrationTests.wtBundled))
   func uncommittedChangesBlockSafeRemoveAndForceRemoveSucceeds() async throws {
-    try #require(wtAvailable(), "wt script not bundled in test target")
     let repo = try makeTempRepo()
     defer { try? fm.removeItem(at: repo) }
 
