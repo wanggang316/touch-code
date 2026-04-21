@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Ships coverage for the three known-agent rule-template set per design
 /// DEC-1 (claude, codex, aider) plus an `aider.idle_via_shim` rule that
-/// pairs with the `aider-idle-hook.sh` skill shim for multiplexer use.
+/// pairs with an `aider-idle-hook.sh` shim for multiplexer use.
 ///
 /// The JSON literal below is **the wire shape** — it must match whatever
 /// `AgentDetectionRules` emits through Swift's synthesised Codable once

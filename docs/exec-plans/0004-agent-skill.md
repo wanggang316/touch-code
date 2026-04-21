@@ -1,6 +1,8 @@
 # ExecPlan: Published Agent Skill (C5)
 
-**Status:** Complete
+> **Superseded by PR #15 (2026-04-21).** The milestones below delivered `tc skill install / uninstall / status / bundle-path`, the `.app`-bundled skill, `generate-skill-version.sh`, Tier-A/B CI, and the mirror-push workflow — all of which have since been removed. Skill under `skills/touch-code-cli/` is now pure text; engineering code does not touch it. This plan is retained for historical context only; do not use it as a source of current behavior.
+
+**Status:** Superseded
 **Author:** Gump (with Claude)
 **Date:** 2026-04-20
 

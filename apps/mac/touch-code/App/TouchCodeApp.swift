@@ -8,10 +8,6 @@ struct TouchCodeApp: App {
   /// Single long-lived runtime stack. `@State` keeps this alive across the
   /// scene lifecycle without re-creating on re-render.
   @State private var appState = AppState()
-  /// Agent skill version check — lazy banner that alerts if the skill
-  /// installed for Claude Code / Codex / pi lags the bundled version
-  /// (C5 plan 0004). Runs once on launch via `.task`.
-  @State private var skillBanner = SkillVersionBanner.live()
   /// `SwiftUI.App` gives us no `applicationWillTerminate` hook on its own;
   /// the adaptor bridges AppKit's termination callback so we can flush
   /// debounced writes from `SettingsStore`, `InboxStore`, and
@@ -29,7 +25,6 @@ struct TouchCodeApp: App {
         )
         .frame(minWidth: 800, minHeight: 600)
         .navigationTitle("touch-code")
-        .task { skillBanner.check() }
       } else {
         // Initial loading state while appState.bringUp runs.
         VStack(spacing: 12) {
