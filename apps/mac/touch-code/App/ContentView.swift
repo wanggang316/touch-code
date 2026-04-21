@@ -51,11 +51,12 @@ struct ContentView: View {
           headerStore: store.scope(state: \.worktreeHeader, action: \.worktreeHeader)
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // T2: Git Viewer visibility is now persisted per-Worktree via
-        // `Worktree.gitViewerVisible`; the Header toggle flips it. T3 will
-        // replace this third-column `if` with a trailing overlay; the read
-        // path (`resolveGVVisible`) stays — that is T3's locked diff.
-        if resolveGVVisible(store.selection) {
+        // T3: Git Viewer visibility is sourced from the reducer's derived
+        // projection (`RootFeature.State.gitViewerOverlayVisible`), which is
+        // recomputed on every `.selectionChanged` from the persisted
+        // `Worktree.gitViewerVisible`. M3 will replace this third-column
+        // render with a trailing overlay inside `WorktreeDetailView`.
+        if store.gitViewerOverlayVisible {
           Divider()
           GitViewerView(store: store.scope(state: \.gitViewer, action: \.gitViewer))
             .frame(minWidth: 420, idealWidth: 480)
@@ -121,26 +122,7 @@ struct ContentView: View {
     }
   }
 
-  /// Looks up `Worktree.gitViewerVisible` for the current selection. Single
-  /// read site into the catalog; T3 keeps this call site intact and only
-  /// changes the surrounding presentation (3rd column → trailing overlay).
-  private func resolveGVVisible(_ selection: HierarchySelection) -> Bool {
-    guard
-      let spaceID = selection.spaceID,
-      let projectID = selection.projectID,
-      let worktreeID = selection.worktreeID
-    else { return false }
-    return hierarchyManager.catalog
-      .spaces.first(where: { $0.id == spaceID })?
-      .projects.first(where: { $0.id == projectID })?
-      .worktrees.first(where: { $0.id == worktreeID })?
-      .gitViewerVisible ?? false
-  }
 }
-
-// `InspectorPlaceholder` (0007 M4, DEC-9) was replaced in 0005 M4a by
-// `GitViewerView`. Previous comment documented the reservation; the live
-// viewer now occupies the slot.
 
 extension ContentView {
   @ViewBuilder

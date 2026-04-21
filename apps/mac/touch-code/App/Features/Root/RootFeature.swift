@@ -36,6 +36,22 @@ struct RootFeature {
     /// T2: Header feature (bell + Open-in split button + GV toggle).
     var worktreeHeader: WorktreeHeaderFeature.State = .init()
 
+    /// T3 (main-window redesign): derived projection of
+    /// `(state.selection, catalog.worktree.gitViewerVisible)`. Views read
+    /// directly; **no one should assign to this field outside the reducer**.
+    /// The reducer re-computes it on every `.selectionChanged` and writes
+    /// to it optimistically in `.gitViewerToggledForCurrentWorktree` before
+    /// firing the catalog write.
+    var gitViewerOverlayVisible: Bool = false
+
+    /// T3 (main-window redesign): monotonic request token bumped by
+    /// `.openSpaceSwitcherRequested` (⌘K). `HierarchySidebarView` (T1) is
+    /// expected to observe changes via `.onChange(of:)` and open its
+    /// Space-switcher popover. Value is meaningless beyond "changed"; wraps
+    /// on `UInt.max` via `&+=`. Remove if/when T1 exposes a direct
+    /// open-only sidebar action this dispatch can target.
+    var spaceSwitcherOpenToken: UInt = 0
+
     /// C8 M6b (0005): settings sheet presentation. `nil` = hidden; non-nil
     /// presents the sheet with a dedicated sub-feature state that mirrors
     /// a subset of `editor` for isolated in-sheet edits.
@@ -80,6 +96,13 @@ struct RootFeature {
     case onQuit
     case selectionChanged(HierarchySelection)
     case engineEventReceived(LastEventMarker)
+    /// T3: Toggles the Git Viewer overlay for the current Worktree.
+    /// Sources: Header GV button (T2) + ⌘⇧G (T3 Commands). Optimistically
+    /// flips `state.gitViewerOverlayVisible` and fires
+    /// `HierarchyClient.setWorktreeGitViewerVisible` to persist.
+    case gitViewerToggledForCurrentWorktree
+    /// T3: Bumps `spaceSwitcherOpenToken`. Fires from ⌘K.
+    case openSpaceSwitcherRequested
     case settingsSheetShown
     case settingsSheet(PresentationAction<SettingsSheetFeature.Action>)
     case sidebar(HierarchySidebarFeature.Action)
@@ -155,6 +178,8 @@ struct RootFeature {
         // from a reducer. Tab is resolved on-the-fly from the catalog.
         let tabID = resolveActiveTab(selection: selection)
         state.detail.splitViewport.activeTabID = tabID
+        // T3: re-derive the GV overlay projection from the new selection.
+        state.gitViewerOverlayVisible = resolveOverlayVisibility(selection: selection)
         // Forward the (projectID, worktreeID) pair to GitViewerFeature so
         // the inspector always reflects the current selection. The Header
         // feature does not need a dispatched `.catalogChanged` signal —
@@ -273,6 +298,22 @@ struct RootFeature {
 
       case .settingsSheet:
         return .none
+
+      case .gitViewerToggledForCurrentWorktree:
+        guard let worktreeID = state.selection.worktreeID else { return .none }
+        // Optimistic local flip — avoids a one-frame gap between the
+        // Header click / ⌘⇧G press and the overlay appearance. The next
+        // `.selectionChanged` reconciles against the persisted catalog.
+        let target = !state.gitViewerOverlayVisible
+        state.gitViewerOverlayVisible = target
+        let setter = hierarchyClient.setWorktreeGitViewerVisible
+        return .run { _ in
+          await MainActor.run { setter(worktreeID, target) }
+        }
+
+      case .openSpaceSwitcherRequested:
+        state.spaceSwitcherOpenToken &+= 1
+        return .none
       }
     }
     .ifLet(\.$settingsSheet, action: \.settingsSheet) {
@@ -309,5 +350,22 @@ struct RootFeature {
       let worktree = project.worktrees.first(where: { $0.id == worktreeID })
     else { return nil }
     return worktree.selectedTabID
+  }
+
+  /// T3: Resolve the Git Viewer overlay visibility for a selection by
+  /// reading the current catalog snapshot. Returns `false` if any step
+  /// of the resolution fails (no selection, stale IDs) — view treats
+  /// that as "no overlay for this selection".
+  private func resolveOverlayVisibility(selection: HierarchySelection) -> Bool {
+    let catalog = hierarchyClient.snapshot()
+    guard
+      let spaceID = selection.spaceID,
+      let projectID = selection.projectID,
+      let worktreeID = selection.worktreeID,
+      let space = catalog.spaces.first(where: { $0.id == spaceID }),
+      let project = space.projects.first(where: { $0.id == projectID }),
+      let worktree = project.worktrees.first(where: { $0.id == worktreeID })
+    else { return false }
+    return worktree.gitViewerVisible
   }
 }

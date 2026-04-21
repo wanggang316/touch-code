@@ -127,6 +127,10 @@ struct RootFeatureTests {
     }
   }
 
+  // `inspectorVisibilityTogglesBothWays` removed in T3: replaced by the
+  // per-Worktree `gitViewerOverlayVisible` projection and
+  // `.gitViewerToggledForCurrentWorktree` action — covered below.
+
   // MARK: - T2 worktreeHeader delegate routing
 
   @Test
@@ -237,7 +241,6 @@ struct RootFeatureTests {
       state.settingsSheet = SettingsSheetFeature.State()
     }
   }
-
   @Test
   func headerSetProjectOverrideForwardsToEditor() async {
     let store = TestStore(initialState: RootFeature.State()) {
