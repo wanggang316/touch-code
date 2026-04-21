@@ -12,11 +12,14 @@ import TouchCodeCore
 /// Sub-feature Scopes for M3 (`HierarchySidebarFeature`) and M4
 /// (`WorktreeDetailFeature`) are intentionally commented out — their state
 /// types don't exist yet. The wiring is a one-line drop-in when they land.
-/// Which sidebar content the leading column renders. Per DEC-2, C6
-/// (agent-notification inbox) ships as an alternate mode in the leading
-/// column rather than a third NavigationSplitView column. The toggle lives
-/// on `RootFeature` because multiple features may dispatch it (keyboard
-/// shortcut, C6-originated "new notifications" pulse, menu item).
+/// Reserved for T2 bell-popover reuse; no current dispatch site after T0.
+/// T2 must either reuse or remove.
+///
+/// Pre-T0 this enum drove the Hierarchy ↔ Inbox Picker in the sidebar
+/// toolbar (DEC-2). T0 removed the Picker; the sidebar now always renders
+/// the hierarchy, and notifications are reached through the Header bell
+/// (T2). Kept because `InboxSidebarFeature` likely becomes the bell
+/// popover's content source.
 nonisolated enum SidebarMode: String, Equatable, CaseIterable, Sendable {
   case hierarchy
   case inbox
@@ -34,11 +37,22 @@ struct RootFeature {
     /// observe the stream directly via child-feature subscriptions.
     var lastEvent: LastEventMarker?
 
-    /// DEC-2: leading column toggles between `HierarchySidebarView` and
-    /// the C6 inbox placeholder.
+    /// Reserved for T2 bell-popover reuse; no current dispatch site after T0.
+    /// T2 must either reuse or remove. Pre-T0 this drove the Hierarchy ↔
+    /// Inbox Picker; removed in T0 (`ContentView` always renders hierarchy).
     var sidebarMode: SidebarMode = .hierarchy
 
     var sidebar: HierarchySidebarFeature.State = .init()
+    /// Reserved for T2 bell-popover reuse; no current dispatch site after T0.
+    /// T2 must either reuse or remove.
+    ///
+    /// NOTE: state.inbox is NOT hydrated after T0 — the `.onAppear`
+    /// subscription starter previously relied on InboxSidebarView being
+    /// rendered, which is no longer the case. The underlying on-disk inbox
+    /// (InboxStore) continues to receive writes; consumers that need live
+    /// unread state should either dispatch `.inbox(.onAppear)` themselves
+    /// or query `NotificationInbox` aggregation helpers directly from a
+    /// snapshot.
     var inbox: InboxSidebarFeature.State = .init()
     var detail: WorktreeDetailFeature.State = .init()
     /// C7 M3/M4 (0005): read-only git viewer hosted in the trailing
@@ -97,6 +111,8 @@ struct RootFeature {
     case onQuit
     case selectionChanged(HierarchySelection)
     case engineEventReceived(LastEventMarker)
+    /// Reserved for T2 bell-popover reuse; no current dispatch site after T0.
+    /// T2 must either reuse or remove.
     case sidebarModeChanged(SidebarMode)
     case inspectorVisibilityToggled
     case settingsSheetShown
@@ -127,6 +143,9 @@ struct RootFeature {
       EditorFeature()
     }
 
+    // Reserved for T2 bell-popover reuse; no current dispatch site after T0.
+    // T2 must either reuse or remove. Kept so C6 notification state stays
+    // observable inside the tree.
     Scope(state: \.inbox, action: \.inbox) {
       InboxSidebarFeature()
     }

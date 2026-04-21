@@ -44,6 +44,10 @@ public actor RPCClient {
     self.inboundPump = InboundPump(stream: transport.inbound)
   }
 
+  // swiftlint:disable async_without_await
+  // Follow-up: revisit after a tcKit concurrency audit — the `async`
+  // keyword has no `await` body today, but removing it breaks callers.
+  // Out of scope for T0, suppressing the lint to unblock.
   /// Explicit teardown. Call after the last `call(...)` to close the
   /// transport deterministically. Idempotent.
   ///
@@ -55,6 +59,7 @@ public actor RPCClient {
     didShutdown = true
     transport.close()
   }
+  // swiftlint:enable async_without_await
 
   deinit {
     // Fallback. Clients that don't call `shutdown()` still get the

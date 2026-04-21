@@ -251,4 +251,49 @@ struct HierarchyManagerTests {
       try manager.setDefaultEditor("vscode", for: bogusProject, in: spaceID)
     }
   }
+
+  @Test
+  func setSpaceLastActiveWorktreePersists() throws {
+    let spaceID = manager.createSpace(name: "test")
+    let projectID = try manager.addProject(to: spaceID, name: "project", rootPath: "/tmp", gitRoot: "/tmp")
+    let worktreeID = try manager.createWorktree(
+      in: projectID, in: spaceID, name: "main", path: "/repo", branch: "main"
+    )
+
+    manager.setSpaceLastActiveWorktree(spaceID: spaceID, worktreeID: worktreeID)
+    #expect(manager.catalog.spaces[0].lastActiveWorktreeID == worktreeID)
+
+    manager.setSpaceLastActiveWorktree(spaceID: spaceID, worktreeID: nil)
+    #expect(manager.catalog.spaces[0].lastActiveWorktreeID == nil)
+  }
+
+  @Test
+  func setSpaceLastActiveWorktreeMissingSpaceIsSilentNoOp() {
+    let bogus = SpaceID()
+    manager.setSpaceLastActiveWorktree(spaceID: bogus, worktreeID: WorktreeID())
+    #expect(manager.catalog.spaces.isEmpty)
+  }
+
+  @Test
+  func setWorktreeGitViewerVisiblePersists() throws {
+    let spaceID = manager.createSpace(name: "test")
+    let projectID = try manager.addProject(to: spaceID, name: "project", rootPath: "/tmp", gitRoot: "/tmp")
+    let worktreeID = try manager.createWorktree(
+      in: projectID, in: spaceID, name: "main", path: "/repo", branch: "main"
+    )
+    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].gitViewerVisible == false)
+
+    manager.setWorktreeGitViewerVisible(worktreeID: worktreeID, visible: true)
+    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].gitViewerVisible == true)
+
+    manager.setWorktreeGitViewerVisible(worktreeID: worktreeID, visible: false)
+    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].gitViewerVisible == false)
+  }
+
+  @Test
+  func setWorktreeGitViewerVisibleMissingWorktreeIsSilentNoOp() {
+    let bogus = WorktreeID()
+    manager.setWorktreeGitViewerVisible(worktreeID: bogus, visible: true)
+    #expect(manager.catalog.spaces.isEmpty)
+  }
 }

@@ -8,9 +8,10 @@ import TouchCodeCore
 /// through `@Environment` so descendant views can read `@Observable`
 /// state directly — TCA state stays focused on selection + transient UI.
 ///
-/// Per DEC-2, the leading column swaps between `HierarchySidebarView`
-/// (default) and `InboxSidebarView` (C6 M5) based on `store.sidebarMode`
-/// — instead of a third NavigationSplitView column.
+/// T0 removed the Hierarchy ↔ Inbox Picker; the leading column now always
+/// renders `HierarchySidebarView`. Notifications are reached through the
+/// Header bell (T2). `RootFeature.State.sidebarMode` and the `.inbox`
+/// Scope remain for T2's bell popover to reuse — see their doc-comments.
 struct ContentView: View {
   @Bindable var store: StoreOf<RootFeature>
   let hierarchyManager: HierarchyManager
@@ -28,13 +29,11 @@ struct ContentView: View {
 
   var body: some View {
     NavigationSplitView(columnVisibility: $columnVisibility) {
-      sidebarColumn
-        .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
-        .toolbar {
-          ToolbarItem(placement: .primaryAction) {
-            modeTogglePicker
-          }
-        }
+      HierarchySidebarView(
+        store: store.scope(state: \.sidebar, action: \.sidebar),
+        currentSelection: store.selection
+      )
+      .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
     } detail: {
       HStack(spacing: 0) {
         WorktreeDetailView(
@@ -116,36 +115,6 @@ struct ContentView: View {
     }
   }
 
-  @ViewBuilder
-  private var sidebarColumn: some View {
-    switch store.sidebarMode {
-    case .hierarchy:
-      HierarchySidebarView(
-        store: store.scope(state: \.sidebar, action: \.sidebar),
-        currentSelection: store.selection
-      )
-    case .inbox:
-      InboxSidebarView(
-        store: store.scope(state: \.inbox, action: \.inbox)
-      )
-    }
-  }
-
-  private var modeTogglePicker: some View {
-    Picker("Sidebar", selection: Binding(
-      get: { store.sidebarMode },
-      set: { store.send(.sidebarModeChanged($0)) }
-    )) {
-      Image(systemName: "folder")
-        .accessibilityLabel("Hierarchy")
-        .tag(SidebarMode.hierarchy)
-      Image(systemName: "bell.badge")
-        .accessibilityLabel("Inbox")
-        .tag(SidebarMode.inbox)
-    }
-    .pickerStyle(.segmented)
-    .help("Toggle sidebar: Hierarchy ↔ Inbox")
-  }
 }
 
 // `InspectorPlaceholder` (0007 M4, DEC-9) was replaced in 0005 M4a by

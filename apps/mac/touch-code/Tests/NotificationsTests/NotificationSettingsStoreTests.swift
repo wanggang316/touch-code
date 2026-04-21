@@ -5,7 +5,7 @@ import Testing
 import TouchCodeCore
 
 @MainActor
-struct SettingsStoreTests {
+struct NotificationSettingsStoreTests {
   @Test
   func loadOfMissingFileReturnsDefaults() throws {
     let url = Self.temporaryURL()
