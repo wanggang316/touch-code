@@ -163,11 +163,16 @@ final class SettingsStore {
   @discardableResult
   func updateCustomEditor(id: EditorID, _ transform: (inout CustomEditor) -> Void) -> Bool {
     guard let idx = settings.general.customEditors.firstIndex(where: { $0.id == id }) else { return false }
+    let original = settings.general.customEditors[idx]
     transform(&settings.general.customEditors[idx])
     do {
       _ = try CustomEditor.validatedID(settings.general.customEditors[idx].id)
       try settings.general.customEditors[idx].template.validate()
     } catch {
+      // Revert the in-memory mutation — the doc comment used to claim we did this but the
+      // code only logged. PR #22 review N3 flagged the mismatch. Without the revert, the
+      // broken CustomEditor lives in memory and the next scheduled save persists it.
+      settings.general.customEditors[idx] = original
       logger.error("updateCustomEditor rejected invalid transform: \(String(describing: error), privacy: .public)")
       return false
     }

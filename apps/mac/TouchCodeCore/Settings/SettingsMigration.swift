@@ -110,7 +110,8 @@ public nonisolated enum SettingsMigration {
         )
         return .corrupt(backupURL: backup)
       case .failure(let moveError):
-        logger.error("Unparseable settings.json and backup move failed: \(String(describing: moveError), privacy: .public)")
+        logger.error(
+          "Unparseable settings.json and backup move failed: \(String(describing: moveError), privacy: .public)")
         return .migrationBackupFailed(description: "moveAside failed for corrupt JSON: \(moveError)")
       }
     }
@@ -177,7 +178,8 @@ public nonisolated enum SettingsMigration {
       try fileManager.moveItem(at: url, to: backupURL)
     } catch {
       try? fileManager.removeItem(at: tempURL)
-      logger.error("Migration step 2 (rename-original-to-backup) failed: \(String(describing: error), privacy: .public)")
+      logger.error(
+        "Migration step 2 (rename-original-to-backup) failed: \(String(describing: error), privacy: .public)")
       return .migrationBackupFailed(description: "rename to backup failed: \(error)")
     }
 

@@ -192,6 +192,43 @@ struct SettingsStoreTests {
       editor.template = CommandTemplate(binary: "", args: ["{dir}"])
     }
     #expect(!ok)
+    // PR #22 review N3: the rejected transform must not have leaked into in-memory state.
+    // Without the revert, the broken template would persist on the next scheduled save.
+    #expect(store.settings.general.customEditors.first == entry)
+  }
+
+  @Test
+  func saveNowCancelsPendingDebouncedWrite() async throws {
+    // PR #22 review N6: saveNow must cancel the in-flight debounced task so a stale
+    // snapshot can't clobber the file after saveNow returns.
+    //
+    // Strategy: schedule a save of "A" with a short debounce window, call saveNow (which
+    // writes "A" and should cancel the pending task), then overwrite the file externally
+    // with a SENTINEL value and wait past the debounce fire time. If saveNow had left the
+    // pending task alive, it would fire and overwrite the SENTINEL with "A"; if saveNow
+    // cancelled as contracted, the SENTINEL survives.
+    let url = FileManager.default.temporaryDirectory.appending(
+      component: "settings-savenow-cancel-\(UUID().uuidString).json"
+    )
+    defer { try? FileManager.default.removeItem(at: url) }
+
+    let store = SettingsStore(fileURL: url, debounceWindow: .milliseconds(50))
+    store.setDefaultEditorID("A")  // schedules a debounced save of snapshot{defaultEditorID="A"}
+    try store.saveNow()  // writes "A", must also cancel the pending task
+
+    // External write that bypasses the store entirely. After this call the file contains
+    // SENTINEL; if the cancelled task were to fire, it would overwrite back to "A".
+    var sentinel = Settings.default
+    sentinel.general.defaultEditorID = "SENTINEL"
+    try AtomicFileStore.write(sentinel, to: url)
+
+    // Wait comfortably past the debounce window so any surviving task has fired.
+    try await Task.sleep(for: .milliseconds(200))
+
+    let reloaded = SettingsStore(fileURL: url)
+    #expect(
+      reloaded.settings.general.defaultEditorID == "SENTINEL",
+      "saveNow must cancel pendingSaveTask; surviving task would have written 'A' on top of SENTINEL")
   }
 
   @Test

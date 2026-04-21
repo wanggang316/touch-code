@@ -65,6 +65,7 @@ struct SettingsSidebarView: View {
       // expansion toggle still happens — we only add the selection write.
       Label(project.name, systemImage: "folder")
         .contentShape(Rectangle())
+        .accessibilityAddTraits(.isButton)
         .simultaneousGesture(
           TapGesture().onEnded {
             if !(expandedProjects[project.id] ?? false) {
