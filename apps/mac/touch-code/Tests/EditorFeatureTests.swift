@@ -46,7 +46,7 @@ struct EditorFeatureTests {
 
   @Test
   func onAppearObservesSettings() async {
-    let snapshot = Settings(
+    let snapshot = LegacyEditorSettings(
       defaultEditorID: "vscode",
       customEditors: [
         CustomEditor(
@@ -92,7 +92,7 @@ struct EditorFeatureTests {
 
   @Test
   func addCustomEditorSuccessRefreshesObservedSettings() async {
-    let snapshot = Settings(
+    let snapshot = LegacyEditorSettings(
       defaultEditorID: nil,
       customEditors: [
         CustomEditor(

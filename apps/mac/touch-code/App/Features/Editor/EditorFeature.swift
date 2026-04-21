@@ -272,7 +272,7 @@ struct EditorFeature {
 /// and mocks cleanly for TestStore.
 nonisolated struct SettingsWriter: Sendable {
   /// Reads a snapshot of the current settings. `@MainActor`-pumped.
-  var readSnapshot: @Sendable () async -> Settings
+  var readSnapshot: @Sendable () async -> LegacyEditorSettings
   /// Writes the global default ID (nil clears).
   var setDefaultEditorID: @Sendable (EditorID?) async -> Void
   /// Upserts a custom editor. Returns `.success` on accept, `.failure` on validation error.

@@ -9,10 +9,14 @@ import os.log
 ///
 /// Mutations happen through the exposed methods (never direct property assignment) so the
 /// debounced save is always armed. Views subscribe through the `@Observable` surface.
+///
+/// NOTE: during the v1→v2 migration (plan steps 1–3) this store still owns the narrow
+/// v1 `LegacyEditorSettings` shape. Step 4 swaps it for the v2 `Settings` tree and adds the
+/// full mutate API.
 @MainActor
 @Observable
 final class SettingsStore {
-  private(set) var settings: Settings
+  private(set) var settings: LegacyEditorSettings
 
   private let fileURL: URL
   private let logger = Logger(subsystem: "com.touch-code.persistence", category: "settings")
@@ -24,7 +28,7 @@ final class SettingsStore {
   static let debounceWindow: Duration = .milliseconds(500)
 
   init(
-    fileURL: URL = Settings.defaultURL(),
+    fileURL: URL = LegacyEditorSettings.defaultURL(),
     debounceWindow: Duration = SettingsStore.debounceWindow
   ) {
     self.fileURL = fileURL
@@ -98,7 +102,7 @@ final class SettingsStore {
   }
 
   /// Hard-overwrite the entire settings document. Only used by tests and recovery paths.
-  func replaceAll(_ new: Settings) {
+  func replaceAll(_ new: LegacyEditorSettings) {
     settings = new
     scheduleSave()
   }
@@ -149,10 +153,10 @@ final class SettingsStore {
   /// Best-effort load. Returns nil on file-missing or unrecoverable decode failure. Moves a
   /// corrupt file aside to `settings.json.broken-<YYYYMMDD-HHMMSS>` so the next launch
   /// starts from a clean default without blocking on repair.
-  private static func safeLoad(from url: URL, logger: Logger) -> Settings? {
+  private static func safeLoad(from url: URL, logger: Logger) -> LegacyEditorSettings? {
     do {
-      return try AtomicFileStore.read(Settings.self, at: url)
-    } catch let Settings.DecodingIssue.unsupportedVersion(version) {
+      return try AtomicFileStore.read(LegacyEditorSettings.self, at: url)
+    } catch let LegacyEditorSettings.DecodingIssue.unsupportedVersion(version) {
       logger.error("Settings file has unsupported version \(version, privacy: .public); backing up")
       moveAside(url: url, timestamp: filesystemSafeTimestamp())
       return nil
