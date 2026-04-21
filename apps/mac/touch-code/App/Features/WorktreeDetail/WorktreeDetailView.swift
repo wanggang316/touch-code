@@ -110,11 +110,11 @@ struct WorktreeDetailView: View {
   /// surfaces if reintroduced).
   @ViewBuilder
   private func worktreeHeader(address: Address) -> some View {
-    let worktree = hierarchyManager.catalog
+    let project = hierarchyManager.catalog
       .spaces.first(where: { $0.id == address.space })?
-      .projects.first(where: { $0.id == address.project })?
-      .worktrees.first(where: { $0.id == address.worktree })
-    if let worktree {
+      .projects.first(where: { $0.id == address.project })
+    let worktree = project?.worktrees.first(where: { $0.id == address.worktree })
+    if let worktree, let project {
       WorktreeHeaderView(
         store: headerStore,
         editorStore: editorStore,
@@ -122,7 +122,8 @@ struct WorktreeDetailView: View {
         projectID: address.project,
         worktreePath: worktree.path,
         branchLabel: worktree.branch ?? worktree.name,
-        gitViewerVisible: worktree.gitViewerVisible
+        gitViewerVisible: worktree.gitViewerVisible,
+        supportsWorktrees: project.supportsWorktrees
       )
     }
   }
