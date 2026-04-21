@@ -179,6 +179,11 @@ final class AppState {
       $0.editorClient = editor
       $0.settingsWriter = .live(settings)
       $0[InboxClient.self] = .live(inbox: inbox, settings: notifSettings)
+      // Project Management: reconciler captures the live HierarchyClient so
+      // `.reconcileDiscoveredWorktrees` (consumed from T-WORKTREE) flows
+      // through the real manager binding. Default `now` is `Date.init`; tests
+      // override with a scripted closure.
+      $0.projectReconciler = ProjectReconciler(client: hierarchy)
     }
 
     startIPC(hierarchy: manager, editor: editor, hierarchyClient: hierarchy)

@@ -193,6 +193,7 @@ struct HierarchySidebarFeatureTests {
     var removeProject: [(ProjectID, SpaceID)] = []
     var renameProject: [(ProjectID, SpaceID, String)] = []
     var createSpace: [String] = []
+    var reorderProjects: [(SpaceID, IndexSet, Int)] = []
   }
 
   /// Installs recorder overrides for every HierarchyClient entry the reducer
@@ -233,6 +234,9 @@ struct HierarchySidebarFeatureTests {
     deps.hierarchyClient.createSpace = { name in
       calls.withValue { $0.createSpace.append(name) }
       return createSpaceReturn
+    }
+    deps.hierarchyClient.reorderProjects = { space, from, to in
+      calls.withValue { $0.reorderProjects.append((space, from, to)) }
     }
   }
 
@@ -541,10 +545,10 @@ struct HierarchySidebarFeatureTests {
     )
   }
 
-  // MARK: - Project rename (M6)
+  // MARK: - Reorder Projects (P6.1)
 
   @Test
-  func projectRenameFlow() async {
+  func reorderProjectsDispatchesClientCall() async {
     let fix = Self.twoSpaceFixture()
     let calls = LockIsolated(ClientCalls())
     let store = TestStore(initialState: HierarchySidebarFeature.State()) {
@@ -556,32 +560,22 @@ struct HierarchySidebarFeatureTests {
         snapshotProvider: { fix.catalog }
       )
     }
+    store.exhaustivity = .off(showSkippedAssertions: false)
 
     await store.send(
-      .projectRenameTapped(projectID: fix.projectP, inSpace: fix.spaceA, currentName: "P")
-    ) {
-      $0.renameProjectSheet = RenameProjectSheet(
-        projectID: fix.projectP,
-        spaceID: fix.spaceA,
-        draft: "P"
-      )
-    }
-    await store.send(.projectRenameDraftChanged("P2")) {
-      $0.renameProjectSheet?.draft = "P2"
-    }
-    await store.send(.projectRenameConfirmed) {
-      $0.renameProjectSheet = nil
-    }
-
-    let recorded = calls.value
-    #expect(recorded.renameProject.count == 1)
-    #expect(recorded.renameProject[0].0 == fix.projectP)
-    #expect(recorded.renameProject[0].1 == fix.spaceA)
-    #expect(recorded.renameProject[0].2 == "P2")
+      .reorderProjects(from: IndexSet(integer: 1), to: 0, inSpace: fix.spaceA)
+    )
+    let recorded = calls.value.reorderProjects
+    #expect(recorded.count == 1)
+    #expect(recorded.first?.0 == fix.spaceA)
+    #expect(recorded.first?.1 == IndexSet(integer: 1))
+    #expect(recorded.first?.2 == 0)
   }
 
+  // MARK: - Project Options (P3.2 / P3.3 replaces Rename Project M6 coverage)
+
   @Test
-  func projectRenameCancelledSkipsClient() async {
+  func projectOptionsTappedPopulatesSheetFromSnapshot() async {
     let fix = Self.twoSpaceFixture()
     let calls = LockIsolated(ClientCalls())
     let store = TestStore(initialState: HierarchySidebarFeature.State()) {
@@ -593,20 +587,24 @@ struct HierarchySidebarFeatureTests {
         snapshotProvider: { fix.catalog }
       )
     }
+    store.exhaustivity = .off(showSkippedAssertions: false)
 
     await store.send(
-      .projectRenameTapped(projectID: fix.projectP, inSpace: fix.spaceA, currentName: "P")
+      .projectOptionsTapped(projectID: fix.projectP, inSpace: fix.spaceA)
     ) {
-      $0.renameProjectSheet = RenameProjectSheet(
-        projectID: fix.projectP,
-        spaceID: fix.spaceA,
-        draft: "P"
+      $0.projectOptions = ProjectOptionsFeature.State(
+        targetSpaceID: fix.spaceA,
+        targetProjectID: fix.projectP,
+        originalName: "P",
+        originalDefaultEditor: nil,
+        originalWorktreesDirectory: nil,
+        nameDraft: "P",
+        defaultEditorDraft: nil,
+        worktreesDirectoryDraft: ""
       )
     }
-    await store.send(.projectRenameCancelled) {
-      $0.renameProjectSheet = nil
-    }
 
+    // No client mutation yet — this action just opens the sheet.
     #expect(calls.value.renameProject.isEmpty)
   }
 

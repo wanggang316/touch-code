@@ -37,12 +37,6 @@ func nextUntitledSpaceName(in spaces: [Space]) -> String {
 
 // MARK: - Transient sheet / dialog payloads
 
-/// Stub-sheet payload for "+ Add Project". Spec Won't-Have keeps the body as a
-/// placeholder; the action path is real so the reducer + view wiring are exercised.
-struct AddProjectSheet: Equatable {
-  var spaceID: SpaceID
-}
-
 /// Stub-sheet payload for Project-header "+" (add Worktree). Retained
 /// for the brief window between `.projectAddWorktreeTapped` firing and
 /// the real `CreateWorktreeFeature.State` being seeded in the next
@@ -51,15 +45,6 @@ struct AddProjectSheet: Equatable {
 struct AddWorktreeSheet: Equatable {
   var projectID: ProjectID
   var spaceID: SpaceID
-}
-
-/// Rename-Project sheet payload. `draft` is mutated through
-/// `.projectRenameDraftChanged` as the user types so the text-field binding
-/// flows through the reducer (testable).
-struct RenameProjectSheet: Equatable {
-  var projectID: ProjectID
-  var spaceID: SpaceID
-  var draft: String
 }
 
 /// Worktree-remove confirmation payload. Non-nil → `.confirmationDialog` visible.
@@ -107,11 +92,17 @@ struct HierarchySidebarFeature {
 
     var isSpacePopoverPresented: Bool = false
 
-    var addProjectSheet: AddProjectSheet?
+    /// Add Project sheet state. Presence-driven: non-nil means the sheet is
+    /// visible. `.addProject` actions are scoped into `AddProjectFeature`.
+    /// `@Presents` gives us `.sheet(item:)`-compatible scoping and wires
+    /// dismiss semantics (`PresentationAction.dismiss`) automatically.
+    @Presents var addProject: AddProjectFeature.State?
+    /// Project Options sheet state. Subsumes what used to be the separate
+    /// Rename Project sheet; `⋯` menu launches this with a Project-snapshot.
+    @Presents var projectOptions: ProjectOptionsFeature.State?
     var addWorktreeSheet: AddWorktreeSheet?
     var createWorktreeSheet: CreateWorktreeFeature.State?
     var archivedWorktreesSheet: ArchivedWorktreesFeature.State?
-    var renameProjectSheet: RenameProjectSheet?
     var pendingWorktreeRemoval: PendingWorktreeRemoval?
     var pendingProjectRemoval: PendingProjectRemoval?
     /// Pending force-remove follow-up on the main sidebar row (outside
@@ -173,12 +164,19 @@ struct HierarchySidebarFeature {
     /// Placeholder for future sidebar-toolbar "⋯" menu items. No-op today.
     case toolbarMenuTapped
 
+    // Reorder Projects within a Space (ForEach.onMove forwarder).
+    case reorderProjects(from: IndexSet, to: Int, inSpace: SpaceID)
+
+    /// Fired from `FailedProjectRow.Retry` (or the context menu). Delegates
+    /// to `RootFeature` which calls `ProjectReconciler.reconcile` — same path
+    /// used after Add Project.
+    case retryProjectTapped(projectID: ProjectID, inSpace: SpaceID)
+
     // Project section hover chrome
     case projectAddWorktreeTapped(projectID: ProjectID, inSpace: SpaceID)
-    case projectRenameTapped(projectID: ProjectID, inSpace: SpaceID, currentName: String)
-    case projectRenameDraftChanged(String)
-    case projectRenameConfirmed
-    case projectRenameCancelled
+    /// Open the Project Options sheet for the given row. Replaces the
+    /// standalone Rename Project sheet actions (P-Q2 = a).
+    case projectOptionsTapped(projectID: ProjectID, inSpace: SpaceID)
     case projectRemoveTapped(projectID: ProjectID, inSpace: SpaceID, name: String)
     case projectRemoveConfirmed
     case projectRemoveCancelled
@@ -235,8 +233,11 @@ struct HierarchySidebarFeature {
       path: String
     )
 
+    // Add Project — scoped into AddProjectFeature via @Presents.
+    case addProject(PresentationAction<AddProjectFeature.Action>)
+    // Project Options — scoped into ProjectOptionsFeature via @Presents.
+    case projectOptions(PresentationAction<ProjectOptionsFeature.Action>)
     // Sheet stubs
-    case addProjectSheetDismissed
     case addWorktreeSheetDismissed
     /// Child-feature actions for the Create Worktree sheet. Parent
     /// dismisses on either delegate case (dismiss or submitted).
@@ -258,9 +259,16 @@ struct HierarchySidebarFeature {
 
     // Delegate up to RootFeature for effects that cross feature boundaries.
     case delegate(Delegate)
+    @CasePathable
     enum Delegate: Equatable {
       case openInDefaultEditor(worktreePath: String, projectID: ProjectID?)
       case revealInFinder(path: String)
+      /// Emitted after a Project is added (or via Retry on a `.failed` row).
+      /// `RootFeature` forwards to `ProjectReconciler.reconcile`.
+      case reconcileProjectRequested(ProjectID, SpaceID)
+      /// Emitted from AddProjectFeature's Reveal banner. `RootFeature` selects
+      /// the Space + Project so the user lands on the existing row.
+      case revealExistingProject(SpaceID, ProjectID)
     }
   }
 
@@ -297,6 +305,12 @@ struct HierarchySidebarFeature {
     }
     .ifLet(\.archivedWorktreesSheet, action: \.archivedWorktreesSheet) {
       ArchivedWorktreesFeature()
+    }
+    .ifLet(\.$addProject, action: \.addProject) {
+      AddProjectFeature()
+    }
+    .ifLet(\.$projectOptions, action: \.projectOptions) {
+      ProjectOptionsFeature()
     }
   }
 
@@ -353,7 +367,7 @@ struct HierarchySidebarFeature {
 
       case .toolbarAddProjectTapped:
         if let spaceID = hierarchyClient.snapshot().selectedSpaceID {
-          state.addProjectSheet = AddProjectSheet(spaceID: spaceID)
+          state.addProject = AddProjectFeature.State(targetSpaceID: spaceID)
         }
         return .none
 
@@ -362,6 +376,13 @@ struct HierarchySidebarFeature {
         return .none
 
       // MARK: Project hover chrome
+
+      case .reorderProjects(let source, let destination, let spaceID):
+        try? hierarchyClient.reorderProjects(spaceID, source, destination)
+        return .none
+
+      case .retryProjectTapped(let projectID, let spaceID):
+        return .send(.delegate(.reconcileProjectRequested(projectID, spaceID)))
 
       case .projectAddWorktreeTapped(let projectID, let spaceID):
         // Resolve the Project from the catalog to feed repoRoot +
@@ -384,29 +405,23 @@ struct HierarchySidebarFeature {
         )
         return .none
 
-      case .projectRenameTapped(let projectID, let spaceID, let currentName):
-        state.renameProjectSheet = RenameProjectSheet(
-          projectID: projectID,
-          spaceID: spaceID,
-          draft: currentName
+      case .projectOptionsTapped(let projectID, let spaceID):
+        // Snapshot the Project's current persisted values at open-time so the
+        // Options reducer can skip setters for unchanged drafts.
+        let snapshot = hierarchyClient.snapshot()
+        guard let project = snapshot.spaces.first(where: { $0.id == spaceID })?
+          .projects.first(where: { $0.id == projectID })
+        else { return .none }
+        state.projectOptions = ProjectOptionsFeature.State(
+          targetSpaceID: spaceID,
+          targetProjectID: projectID,
+          originalName: project.name,
+          originalDefaultEditor: project.defaultEditor,
+          originalWorktreesDirectory: project.worktreesDirectory,
+          nameDraft: project.name,
+          defaultEditorDraft: project.defaultEditor,
+          worktreesDirectoryDraft: project.worktreesDirectory ?? ""
         )
-        return .none
-
-      case .projectRenameDraftChanged(let newDraft):
-        state.renameProjectSheet?.draft = newDraft
-        return .none
-
-      case .projectRenameConfirmed:
-        guard let sheet = state.renameProjectSheet else { return .none }
-        let trimmed = sheet.draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty {
-          try? hierarchyClient.renameProject(sheet.projectID, sheet.spaceID, trimmed)
-        }
-        state.renameProjectSheet = nil
-        return .none
-
-      case .projectRenameCancelled:
-        state.renameProjectSheet = nil
         return .none
 
       case .projectRemoveTapped(let projectID, let spaceID, let name):
@@ -608,11 +623,37 @@ struct HierarchySidebarFeature {
       case .worktreeOpenInDefaultEditorTapped(_, let projectID, let path):
         return .send(.delegate(.openInDefaultEditor(worktreePath: path, projectID: projectID)))
 
-      // MARK: Sheet stubs
+      // MARK: Add Project — scoped child
 
-      case .addProjectSheetDismissed:
-        state.addProjectSheet = nil
+      case .addProject(.presented(.delegate(.projectAdded(let projectID, let spaceID)))):
+        state.addProject = nil
+        return .send(.delegate(.reconcileProjectRequested(projectID, spaceID)))
+
+      case .addProject(.presented(.delegate(.revealExisting(let spaceID, let projectID)))):
+        state.addProject = nil
+        return .send(.delegate(.revealExistingProject(spaceID, projectID)))
+
+      case .addProject(.presented(.delegate(.dismiss))), .addProject(.dismiss):
+        state.addProject = nil
         return .none
+
+      case .addProject:
+        return .none
+
+      // MARK: Project Options — scoped child
+
+      case .projectOptions(.presented(.delegate(.dismiss))), .projectOptions(.dismiss):
+        state.projectOptions = nil
+        return .none
+
+      case .projectOptions(.presented(.delegate(.saved))):
+        state.projectOptions = nil
+        return .none
+
+      case .projectOptions:
+        return .none
+
+      // MARK: Sheet stubs
 
       case .addWorktreeSheetDismissed:
         state.addWorktreeSheet = nil

@@ -58,16 +58,9 @@ struct HierarchySidebarView: View {
         }
     }
     .sheet(
-      isPresented: Binding(
-        get: { store.addProjectSheet != nil },
-        set: { if !$0 { store.send(.addProjectSheetDismissed) } }
-      )
-    ) {
-      stubSheet(
-        title: "Add Project",
-        body: "The Add-Project flow is not yet implemented in this iteration.",
-        dismiss: .addProjectSheetDismissed
-      )
+      item: $store.scope(state: \.addProject, action: \.addProject)
+    ) { childStore in
+      AddProjectSheet(store: childStore)
     }
     .sheet(
       isPresented: Binding(
@@ -87,12 +80,9 @@ struct HierarchySidebarView: View {
       }
     }
     .sheet(
-      isPresented: Binding(
-        get: { store.renameProjectSheet != nil },
-        set: { if !$0 { store.send(.projectRenameCancelled) } }
-      )
-    ) {
-      renameProjectSheet
+      item: $store.scope(state: \.projectOptions, action: \.projectOptions)
+    ) { childStore in
+      ProjectOptionsSheet(store: childStore)
     }
     .confirmationDialog(
       worktreeRemovalTitle,
@@ -126,7 +116,7 @@ struct HierarchySidebarView: View {
         store.send(.projectRemoveCancelled)
       }
     } message: {
-      Text("Removes the Project and every Worktree under it. This closes all their panels and cannot be undone.")
+      Text("Removes the Project and closes all its panels. Files on disk are not affected.")
     }
     // Archived Worktrees sheet (opened from Project ⋯ menu).
     .sheet(
@@ -254,6 +244,15 @@ struct HierarchySidebarView: View {
           ForEach(activeSpace.projects) { project in
             projectSection(project, in: activeSpace, panelIndex: panelIndex, inbox: inbox)
           }
+          .onMove { source, destination in
+            store.send(
+              .reorderProjects(
+                from: source,
+                to: destination,
+                inSpace: activeSpace.id
+              )
+            )
+          }
         }
         .listStyle(.sidebar)
       }
@@ -315,24 +314,46 @@ struct HierarchySidebarView: View {
       return project.worktrees.contains(where: { $0.id == worktreeID })
     }
 
-    return DisclosureGroup(
-      isExpanded: Binding(
-        get: { store.expandedProjectIDs.contains(project.id) },
-        set: { _ in store.send(.toggleProjectExpansion(project.id)) }
-      )
-    ) {
-      // Filter archived worktrees out of the main list — they surface
-      // through the Archived Worktrees sheet instead.
-      ForEach(project.worktrees.filter { !$0.archived }) { worktree in
-        worktreeRow(worktree, in: project, space: space, panelIndex: panelIndex, inbox: inbox)
+    return Group {
+      switch project.loadState {
+      case .failed(let reason):
+        FailedProjectRow(
+          name: project.name,
+          rootPath: project.rootPath,
+          reason: reason,
+          retry: {
+            store.send(.retryProjectTapped(projectID: project.id, inSpace: space.id))
+          },
+          remove: {
+            store.send(.projectRemoveTapped(
+              projectID: project.id,
+              inSpace: space.id,
+              name: project.name
+            ))
+          }
+        )
+      case .loading, .ready:
+        DisclosureGroup(
+          isExpanded: Binding(
+            get: { store.expandedProjectIDs.contains(project.id) },
+            set: { _ in store.send(.toggleProjectExpansion(project.id)) }
+          )
+        ) {
+          // Filter archived worktrees out of the main list — they surface
+          // through the Archived Worktrees sheet instead.
+          ForEach(project.worktrees.filter { !$0.archived }) { worktree in
+            worktreeRow(worktree, in: project, space: space, panelIndex: panelIndex, inbox: inbox)
+          }
+        } label: {
+          ProjectHeaderRow(
+            project: project,
+            space: space,
+            hasUnread: projectHasUnread,
+            isLoading: project.loadState == .loading,
+            store: store
+          )
+        }
       }
-    } label: {
-      ProjectHeaderRow(
-        project: project,
-        space: space,
-        hasUnread: projectHasUnread,
-        store: store
-      )
     }
   }
 
@@ -538,37 +559,6 @@ struct HierarchySidebarView: View {
     .frame(width: 360)
   }
 
-  // MARK: - Rename Project sheet
-
-  @ViewBuilder
-  private var renameProjectSheet: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      Text("Rename Project").font(.headline)
-      TextField(
-        "Project name",
-        text: Binding(
-          get: { store.renameProjectSheet?.draft ?? "" },
-          set: { store.send(.projectRenameDraftChanged($0)) }
-        )
-      )
-      .textFieldStyle(.roundedBorder)
-      HStack {
-        Spacer()
-        Button("Cancel") { store.send(.projectRenameCancelled) }
-          .keyboardShortcut(.cancelAction)
-        Button("Rename") { store.send(.projectRenameConfirmed) }
-          .keyboardShortcut(.defaultAction)
-          .disabled(
-            (store.renameProjectSheet?.draft ?? "")
-              .trimmingCharacters(in: .whitespacesAndNewlines)
-              .isEmpty
-          )
-      }
-    }
-    .padding(20)
-    .frame(width: 340)
-  }
-
   // MARK: - Confirmation titles
 
   private var worktreeRemovalTitle: String {
@@ -625,6 +615,10 @@ private struct ProjectHeaderRow: View {
   let project: Project
   let space: Space
   let hasUnread: Bool
+  /// When `true`, a small inline `ProgressView` replaces the unread dot so
+  /// the user can see a reconcile pass is in flight without blocking the
+  /// window (P-Q3: inline spinner, never modal).
+  var isLoading: Bool = false
   @Bindable var store: StoreOf<HierarchySidebarFeature>
   @State private var isHovering = false
 
@@ -635,7 +629,12 @@ private struct ProjectHeaderRow: View {
         .accessibilityHidden(true)
       Text(project.name)
       Spacer()
-      if hasUnread {
+      if isLoading {
+        ProgressView()
+          .scaleEffect(0.5)
+          .frame(width: 12, height: 12)
+          .accessibilityLabel("Loading Project")
+      } else if hasUnread {
         Circle()
           .fill(Color.accentColor)
           .frame(width: 6, height: 6)
@@ -644,21 +643,22 @@ private struct ProjectHeaderRow: View {
       // Keep the hover chrome from collapsing row width when hidden —
       // use opacity, not conditional rendering.
       HStack(spacing: 4) {
-        Button {
-          store.send(.projectAddWorktreeTapped(projectID: project.id, inSpace: space.id))
-        } label: {
-          Image(systemName: "plus")
-            .accessibilityLabel("Add Worktree under this Project")
+        // Non-git Projects (P-Q4 = a): suppress the Add Worktree affordance.
+        // Worktrees are a git-only concept; a scratch folder renders with a
+        // single synthetic Worktree and nothing to add.
+        if project.supportsWorktrees {
+          Button {
+            store.send(.projectAddWorktreeTapped(projectID: project.id, inSpace: space.id))
+          } label: {
+            Image(systemName: "plus")
+              .accessibilityLabel("Add Worktree under this Project")
+          }
+          .buttonStyle(.borderless)
         }
-        .buttonStyle(.borderless)
         Menu {
-          Button("Rename Project") {
+          Button("Project Options…") {
             store.send(
-              .projectRenameTapped(
-                projectID: project.id,
-                inSpace: space.id,
-                currentName: project.name
-              )
+              .projectOptionsTapped(projectID: project.id, inSpace: space.id)
             )
           }
           let archivedCount = project.worktrees.filter { $0.archived }.count
