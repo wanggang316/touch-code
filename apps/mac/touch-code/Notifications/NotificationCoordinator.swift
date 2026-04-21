@@ -92,11 +92,19 @@ final class NotificationCoordinator {
 
   private func consumeUnreadPublisher() async {
     for await count in inbox.unreadPublisher {
-      if settingsReader.mute.badgeEnabled {
-        badger.setUnreadCount(count)
-      } else {
-        badger.setUnreadCount(0)
-      }
+      handleUnread(count)
+    }
+  }
+
+  /// Test entry point. Production prefers `bind(to:)`'s
+  /// `consumeUnreadPublisher` loop; this shim lets tests drive one
+  /// badge-update tick without starting the never-terminating inbox
+  /// stream. Internal on purpose — not a public API.
+  func handleUnread(_ count: Int) {
+    if settingsReader.dockBadgeEnabled {
+      badger.setUnreadCount(count)
+    } else {
+      badger.setUnreadCount(0)
     }
   }
 
@@ -121,8 +129,16 @@ final class NotificationCoordinator {
       title: output.title,
       body: body
     )
-    inbox.append(notification)
+    if settingsReader.inAppEnabled {
+      inbox.append(notification)
+    } else {
+      logger.debug("In-app notifications disabled; skipping inbox append.")
+    }
 
+    guard settingsReader.systemEnabled else {
+      logger.debug("System notifications disabled; skipping OS post.")
+      return
+    }
     guard
       shouldPostToOS(
         kind: output.kind, ruleID: Self.ruleID(from: output.transition.trigger), panelID: output.transition.panelID,
@@ -146,7 +162,7 @@ final class NotificationCoordinator {
         createdAt: notification.createdAt
       )
       : notification
-    await osNotifier.post(posted, playSound: true)
+    await osNotifier.post(posted, playSound: settingsReader.soundEnabled)
   }
 
   private func shouldPostToOS(
