@@ -532,6 +532,21 @@ struct HierarchySidebarView: View {
         .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
+      Button {
+        store.send(.spacePopoverManageSpacesTapped)
+      } label: {
+        HStack(spacing: 8) {
+          Image(systemName: "slider.horizontal.3")
+            .frame(width: 14)
+            .accessibilityHidden(true)
+          Text("Manage Spaces…")
+          Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
     }
     .padding(.vertical, 4)
     .frame(minWidth: 220)

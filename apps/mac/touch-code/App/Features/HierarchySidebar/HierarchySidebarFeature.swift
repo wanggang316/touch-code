@@ -256,6 +256,7 @@ struct HierarchySidebarFeature {
     /// and activates it. The name is computed synchronously from the current
     /// catalog snapshot just before calling `hierarchyClient.createSpace`.
     case spacePopoverNewSpaceTapped
+    case spacePopoverManageSpacesTapped
 
     // Delegate up to RootFeature for effects that cross feature boundaries.
     case delegate(Delegate)
@@ -685,6 +686,10 @@ struct HierarchySidebarFeature {
         hierarchyClient.selectSpace(newID)
         state.isSpacePopoverPresented = false
         return .none
+
+      case .spacePopoverManageSpacesTapped:
+        state.isSpacePopoverPresented = false
+        return .send(.delegate(.openSpaceManager))
 
       // MARK: Delegate
 
