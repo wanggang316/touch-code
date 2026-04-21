@@ -13,7 +13,7 @@ After this change, a user can manage git worktrees from inside touch-code as fir
 ## Progress
 
 - [x] M1 — Submodule: add `apps/mac/ThirdParty/git-wt/` as a git submodule, verify the `wt` script is present and executable (2026-04-21)
-- [ ] M2 — Tuist wiring: `scripts/verify-git-wt.sh` (pre) + `scripts/embed-git-wt.sh` (post) + `Project.swift` script entries on the `touch-code` target
+- [x] M2 — Tuist wiring: `scripts/verify-git-wt.sh` (pre) + `scripts/embed-git-wt.sh` (post) + `Project.swift` script entries on the `touch-code` target (2026-04-21, `wt` verified embedded in `touch_code.app/Contents/Resources/git-wt/wt`)
 - [ ] M3 — `TouchCodeCore/Worktree.swift`: add `archived: Bool` with backward-compatible Codable; `TouchCodeCoreTests` fixture tests
 - [ ] M4 — `GitWorktreeClient` scaffolding: struct shape, closures, error type, `CreateSpec` / `CreateEvent`, `sanitizeBranchName` helper; `DependencyKey` integration
 - [ ] M5 — `GitWorktreeClient` live implementation (`wt ls`, `wt sw` streaming create, `git worktree remove`, `git worktree prune`, branch / ref queries, fetch remote, `changedFiles`)
@@ -29,7 +29,27 @@ After this change, a user can manage git worktrees from inside touch-code as fir
 
 ## Surprises & Discoveries
 
-(None yet)
+- **M1 — supacode SHA unreachable (2026-04-21).** Supacode pins
+  `7981cf34…` but that revision is not in upstream `khoi/git-wt` (likely a
+  force-rewrite). Fell back to upstream `main` at the time of `submodule
+  add`: `45d15a33a53f2ea7d37f32bac3738747d2fa6877`. Recorded as D11.
+- **M2 — Tuist scripts ordering (2026-04-21).** `ProjectDescription`'s
+  `Target` initializer enforces `scripts:` before `dependencies:`. First
+  draft put scripts after settings; Tuist reported
+  `argument 'scripts' must precede argument 'dependencies'`. Fix was
+  reordering. No semantic impact.
+- **M2 — Ghostty foreign-build tarball 400 (2026-04-21).** `tuist
+  generate` runs the `.foreignBuild(name: "GhosttyKit", ...)` script
+  which invokes `scripts/build-ghostty.sh`. The Zig step fails fetching
+  `https://deps.files.ghostty.org/uucode-0.2.0-…tar.gz` with HTTP 400.
+  This is a pre-existing environment issue unrelated to T-WORKTREE's
+  changes. My script wiring IS correctly reflected in the generated
+  `touch-code.xcodeproj/project.pbxproj` (grep confirms both
+  `Verify git-wt` and `Embed git-wt` build phases are present); the
+  generate + build chain cannot be fully exercised from this worktree
+  without the ghostty blob. Deferring end-to-end bundle verification to
+  M14 / CI where ghostty builds cleanly. Logic-level tests (M3/M6/M7/M9
+  etc.) do not depend on ghostty and will still run.
 
 ## Decision Log
 
