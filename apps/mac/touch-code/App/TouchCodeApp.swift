@@ -18,6 +18,7 @@ struct TouchCodeApp: App {
   /// process exits. `NotificationSettingsStore` was retired in Step 4 —
   /// settings.json now has a single writer (`SettingsStore`).
   @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+  @Environment(\.openWindow) private var openWindow
 
   var body: some Scene {
     WindowGroup {
@@ -44,6 +45,9 @@ struct TouchCodeApp: App {
         // load-bearing — SwiftUI re-runs .task on scene reattach.
         .task {
           appDelegate.appState = appState
+          appState.openSettingsWindowAction = {
+            openWindow(id: TouchCodeApp.settingsWindowID)
+          }
           appState.bringUp()
         }
       }
@@ -53,8 +57,31 @@ struct TouchCodeApp: App {
       if let store = appState.store {
         MainWindowCommands(store: store)
       }
+      CommandGroup(replacing: .appSettings) {
+        Button("Settings…") {
+          openWindow(id: TouchCodeApp.settingsWindowID)
+        }
+        .keyboardShortcut(",", modifiers: .command)
+      }
     }
+
+    Window("Settings", id: TouchCodeApp.settingsWindowID) {
+      if let store = appState.settingsWindowStore {
+        SettingsWindowView(store: store, settingsStore: appState.settingsStore)
+          .environment(appState.hierarchyManager)
+      } else {
+        // Settings window can be opened before AppState.bringUp completes (rare but
+        // possible during launch). Render a transient placeholder; SwiftUI will
+        // re-evaluate once the store lands.
+        ProgressView().frame(minWidth: 750, minHeight: 500)
+      }
+    }
+    .windowResizability(.contentMinSize)
   }
+
+  /// Scene id for the Settings `Window`. Referenced from the app-menu Settings… command and
+  /// from `SettingsWindowPresenter` overrides below.
+  static let settingsWindowID = "settings"
 }
 
 /// AppKit delegate that flushes debounced writes on graceful termination.
@@ -85,6 +112,10 @@ final class AppState {
   let settingsStore: SettingsStore
   private(set) var terminalEngine: TerminalEngine?
   private(set) var store: StoreOf<RootFeature>?
+  /// Long-lived store for the Settings window scene. Built during `bringUp()` so the
+  /// store — and its in-memory editor-pane state — survives open/close cycles of the
+  /// window (spec M16).
+  private(set) var settingsWindowStore: StoreOf<SettingsWindowFeature>?
 
   private let catalogStore: CatalogStore
   private let hierarchyRuntime: GhosttyBackedHierarchyRuntime
@@ -164,6 +195,14 @@ final class AppState {
     let hierarchy = HierarchyClient.live(manager: manager)
     self.editorClient = editor
     self.hierarchyClient = hierarchy
+    // `SettingsWindowPresenter.open` forwards to the `OpenWindowAction` captured by the
+    // main-window scene body into `openSettingsWindowAction`. SwiftUI's `OpenWindowAction`
+    // must be read from a `View`'s environment so the reducer cannot hold it directly —
+    // this indirection is what lets `RootFeature` trigger an open without pulling
+    // `@Environment(\.openWindow)` into TCA.
+    let presenter = SettingsWindowPresenter(open: { [weak self] in
+      self?.openSettingsWindowAction?()
+    })
     self.store = Store(initialState: RootFeature.State()) {
       RootFeature()
     } withDependencies: {
@@ -176,11 +215,26 @@ final class AppState {
       $0.editorClient = editor
       $0.settingsWriter = .live(settings)
       $0[InboxClient.self] = .live(inbox: inbox, settings: settings)
+      $0.settingsWindowPresenter = presenter
+    }
+
+    self.settingsWindowStore = Store(initialState: SettingsWindowFeature.State()) {
+      SettingsWindowFeature()
+    } withDependencies: {
+      $0.editorClient = editor
+      $0.settingsWriter = .live(settings)
+      $0.hierarchyClient = hierarchy
     }
 
     startIPC(hierarchy: manager, editor: editor, hierarchyClient: hierarchy)
     startNotifications(hierarchy: manager)
   }
+
+  /// Closure the main-window scene body installs to bridge TCA → `openWindow(id: "settings")`.
+  /// Set from `.task { appState.openSettingsWindowAction = { openWindow(id: settingsWindowID) } }`
+  /// inside `TouchCodeApp.body`. The presenter dependency captures `self` weakly and
+  /// forwards `.open()` through this closure.
+  @ObservationIgnored var openSettingsWindowAction: (@MainActor () -> Void)?
 
   /// Async-launches the C6 notification stack. Skipped under XCTest (mirrors
   /// `startIPC`) and when `startIPC` was skipped or failed to bind (no
