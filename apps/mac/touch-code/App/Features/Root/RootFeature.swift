@@ -161,15 +161,15 @@ struct RootFeature {
           }
           .cancellable(id: CancelID.selectionChanges, cancelInFlight: true)
         )
-        // Worst case for sidebar context-menu "Open in default editor" is an
-        // empty descriptor cache → resolution falls through to
-        // EditorRegistry.finderID, which is always installed. Priming via
-        // `.send(.editor(.onAppear))` here was considered but was dropped
-        // because it runs the live EditorService on a background Task and
-        // the live factory's `MainActor.assumeIsolated { ... }` assertion
-        // fails from a non-MainActor queue during test-host bootstrap. The
-        // WorktreeHeaderOpenButton's own `.task { store.send(.onAppear) }`
-        // is the canonical hydration path.
+      // Worst case for sidebar context-menu "Open in default editor" is an
+      // empty descriptor cache → resolution falls through to
+      // EditorRegistry.finderID, which is always installed. Priming via
+      // `.send(.editor(.onAppear))` here was considered but was dropped
+      // because it runs the live EditorService on a background Task and
+      // the live factory's `MainActor.assumeIsolated { ... }` assertion
+      // fails from a non-MainActor queue during test-host bootstrap. The
+      // WorktreeHeaderOpenButton's own `.task { store.send(.onAppear) }`
+      // is the canonical hydration path.
 
       case .onQuit:
         return .merge(
@@ -190,10 +190,12 @@ struct RootFeature {
         // its unread count is now computed from the live
         // `@Environment(HierarchyManager.self).catalog`, which re-renders
         // on any catalog mutation.
-        return .send(.gitViewer(.worktreeSelected(
-          projectID: selection.projectID,
-          worktreeID: selection.worktreeID
-        )))
+        return .send(
+          .gitViewer(
+            .worktreeSelected(
+              projectID: selection.projectID,
+              worktreeID: selection.worktreeID
+            )))
 
       case .engineEventReceived(let marker):
         state.lastEvent = marker
@@ -218,11 +220,13 @@ struct RootFeature {
         case .editor(let descriptor): resolvedID = descriptor.id
         case .finder: resolvedID = EditorFeature.finderEditorID
         }
-        return .send(.editor(.openRequested(
-          editorID: resolvedID,
-          worktreePath: path,
-          projectID: projectID
-        )))
+        return .send(
+          .editor(
+            .openRequested(
+              editorID: resolvedID,
+              worktreePath: path,
+              projectID: projectID
+            )))
 
       case .sidebar(.delegate(.revealInFinder(let path))):
         let client = finderClient
@@ -258,22 +262,26 @@ struct RootFeature {
             case .finder: resolvedID = EditorFeature.finderEditorID
             }
           }
-          return .send(.editor(.openRequested(
-            editorID: resolvedID,
-            worktreePath: worktreePath,
-            projectID: projectID
-          )))
+          return .send(
+            .editor(
+              .openRequested(
+                editorID: resolvedID,
+                worktreePath: worktreePath,
+                projectID: projectID
+              )))
 
         case .showCustomEditorsSettings:
           let presenter = settingsWindowPresenter
           return .run { _ in await MainActor.run { presenter.open() } }
 
         case .setProjectOverride(let projectID, let spaceID, let editorID):
-          return .send(.editor(.setProjectOverride(
-            projectID: projectID,
-            spaceID: spaceID,
-            editorID: editorID
-          )))
+          return .send(
+            .editor(
+              .setProjectOverride(
+                projectID: projectID,
+                spaceID: spaceID,
+                editorID: editorID
+              )))
 
         case .gitViewerToggleRequested:
           // Route through the same reducer branch ⌘⇧G uses so both entry
@@ -311,12 +319,14 @@ struct RootFeature {
             .projects.first(where: { $0.id == projectID })?
             .worktrees.first(where: { $0.id == worktreeID })?.path
         else { return .none }
-        return .send(.editor(.openDefaultInCurrentWorktreeRequested(
-          spaceID: spaceID,
-          projectID: projectID,
-          worktreeID: worktreeID,
-          worktreePath: path
-        )))
+        return .send(
+          .editor(
+            .openDefaultInCurrentWorktreeRequested(
+              spaceID: spaceID,
+              projectID: projectID,
+              worktreeID: worktreeID,
+              worktreePath: path
+            )))
 
       case .openSpaceSwitcherRequested:
         return .send(.sidebar(.externalSpacePopoverOpenRequested))

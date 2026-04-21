@@ -52,7 +52,8 @@ public nonisolated struct NotificationsSettings: Equatable, Codable, Sendable {
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     self.mute = try container.decodeIfPresent(MuteSettings.self, forKey: .mute) ?? .defaults
-    self.authStatus = try container.decodeIfPresent(AuthorizationStatusCache.self, forKey: .authStatus) ?? .notDetermined
+    self.authStatus =
+      try container.decodeIfPresent(AuthorizationStatusCache.self, forKey: .authStatus) ?? .notDetermined
     self.neverPrompt = try container.decodeIfPresent(Bool.self, forKey: .neverPrompt) ?? false
     self.notNowUntil = try container.decodeIfPresent(Date.self, forKey: .notNowUntil)
     self.inAppEnabled = try container.decodeIfPresent(Bool.self, forKey: .inAppEnabled) ?? true

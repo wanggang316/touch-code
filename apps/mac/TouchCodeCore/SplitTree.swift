@@ -63,21 +63,23 @@ public nonisolated struct SplitTree<Leaf: Hashable & Codable & Sendable>: Equata
     guard let root else { throw SplitError.leafNotFound }
     guard let path = root.path(to: anchor) else { throw SplitError.leafNotFound }
 
-    let (splitDirection, newOnLeft): (Direction, Bool) = switch direction {
-    case .left: (.horizontal, true)
-    case .right: (.horizontal, false)
-    case .up: (.vertical, true)
-    case .down: (.vertical, false)
-    }
+    let (splitDirection, newOnLeft): (Direction, Bool) =
+      switch direction {
+      case .left: (.horizontal, true)
+      case .right: (.horizontal, false)
+      case .up: (.vertical, true)
+      case .down: (.vertical, false)
+      }
 
     let newNode: Node = .leaf(leaf)
     let anchorNode: Node = .leaf(anchor)
-    let newSplit: Node = .split(Split(
-      direction: splitDirection,
-      ratio: 0.5,
-      left: newOnLeft ? newNode : anchorNode,
-      right: newOnLeft ? anchorNode : newNode
-    ))
+    let newSplit: Node = .split(
+      Split(
+        direction: splitDirection,
+        ratio: 0.5,
+        left: newOnLeft ? newNode : anchorNode,
+        right: newOnLeft ? anchorNode : newNode
+      ))
     let newRoot = try root.replacing(at: path, with: newSplit)
     return Self(root: newRoot, zoomed: zoomed)
   }
@@ -105,12 +107,13 @@ public nonisolated struct SplitTree<Leaf: Hashable & Codable & Sendable>: Equata
     guard let root else { throw SplitError.leafNotFound }
     let clamped = max(0.1, min(0.9, ratio))
     guard case .split(let split) = root.node(at: path) else { throw SplitError.leafNotFound }
-    let newSplit: Node = .split(Split(
-      direction: split.direction,
-      ratio: clamped,
-      left: split.left,
-      right: split.right
-    ))
+    let newSplit: Node = .split(
+      Split(
+        direction: split.direction,
+        ratio: clamped,
+        left: split.left,
+        right: split.right
+      ))
     let newRoot = try root.replacing(at: path, with: newSplit)
     return Self(root: newRoot, zoomed: zoomed)
   }
@@ -121,10 +124,11 @@ public nonisolated struct SplitTree<Leaf: Hashable & Codable & Sendable>: Equata
     guard let root, root.contains(leaf) else { return nil }
     let all = root.leaves()
     guard let index = all.firstIndex(of: leaf) else { return nil }
-    let next: Int = switch direction {
-    case .previous: (index - 1 + all.count) % all.count
-    case .next: (index + 1) % all.count
-    }
+    let next: Int =
+      switch direction {
+      case .previous: (index - 1 + all.count) % all.count
+      case .next: (index + 1) % all.count
+      }
     return all[next]
   }
 
@@ -196,14 +200,16 @@ extension SplitTree.Node {
     switch path.components[0] {
     case .left:
       let newLeft = try split.left.replacing(at: rest, with: newNode)
-      return .split(SplitTree<Leaf>.Split(
-        direction: split.direction, ratio: split.ratio, left: newLeft, right: split.right
-      ))
+      return .split(
+        SplitTree<Leaf>.Split(
+          direction: split.direction, ratio: split.ratio, left: newLeft, right: split.right
+        ))
     case .right:
       let newRight = try split.right.replacing(at: rest, with: newNode)
-      return .split(SplitTree<Leaf>.Split(
-        direction: split.direction, ratio: split.ratio, left: split.left, right: newRight
-      ))
+      return .split(
+        SplitTree<Leaf>.Split(
+          direction: split.direction, ratio: split.ratio, left: split.left, right: newRight
+        ))
     }
   }
 

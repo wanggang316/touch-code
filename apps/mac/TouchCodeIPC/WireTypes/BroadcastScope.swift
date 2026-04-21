@@ -1,11 +1,11 @@
 import Foundation
 import TouchCodeCore
 
-public extension IPC {
+extension IPC {
   /// Fan-out scope for `terminal.broadcastInput`. The design doc
   /// (C4 §tc send / tc broadcast) specifies four kinds: tab / worktree /
   /// space / label. Encoded as a tagged union `{ "kind": String, "target": String }`.
-  struct BroadcastScope: Codable, Equatable, Hashable, Sendable {
+  public struct BroadcastScope: Codable, Equatable, Hashable, Sendable {
     public enum Kind: String, Codable, Hashable, Sendable {
       case tab, worktree, space, label
     }

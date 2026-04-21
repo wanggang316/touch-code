@@ -19,9 +19,10 @@ enum StubNamespace {
   }
 
   private static func emitStub(_ command: String) -> Never {
-    FileHandle.standardError.write(Data(
-      "error: \(command) is not yet implemented in this build\n".utf8
-    ))
+    FileHandle.standardError.write(
+      Data(
+        "error: \(command) is not yet implemented in this build\n".utf8
+      ))
     Darwin.exit(CLIExitCode.unsupported.rawValue)
   }
 }

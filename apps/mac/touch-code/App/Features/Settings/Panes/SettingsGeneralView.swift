@@ -247,11 +247,12 @@ private struct AddCustomEditorSheet: View {
         Button("Cancel", role: .cancel) { onCancel() }
           .keyboardShortcut(.escape)
         Button("Add") {
-          onSave(CustomEditor(
-            id: id,
-            displayName: displayName,
-            template: CommandTemplate(binary: binary, args: parsedArgs())
-          ))
+          onSave(
+            CustomEditor(
+              id: id,
+              displayName: displayName,
+              template: CommandTemplate(binary: binary, args: parsedArgs())
+            ))
         }
         .buttonStyle(.borderedProminent)
         .keyboardShortcut(.return, modifiers: [.command])
@@ -300,7 +301,9 @@ private struct AddCustomEditorSheet: View {
     case .emptyBinary: return "Binary must not be empty."
     case .missingDirPlaceholder: return "Arguments must contain exactly one `{dir}` token."
     case .duplicateDirPlaceholder: return "Arguments may contain only one `{dir}` token."
-    case .invalidID(let raw): return "ID ‘\(raw)’ is invalid. Use lowercase a-z, 0-9, - or _, starting with a letter, 2-32 chars. Must not collide with a built-in."
+    case .invalidID(let raw):
+      return
+        "ID ‘\(raw)’ is invalid. Use lowercase a-z, 0-9, - or _, starting with a letter, 2-32 chars. Must not collide with a built-in."
     }
   }
 }

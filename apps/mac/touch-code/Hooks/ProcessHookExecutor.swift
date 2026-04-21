@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
-import os
 import TouchCodeCore
+import os
 
 /// Production `HookExecutor` — spawns a user shell handler per matched
 /// subscription. The handler reads the JSON `HookEnvelope` on stdin and
@@ -195,7 +195,7 @@ public final class ProcessHookExecutor: HookExecutor, @unchecked Sendable {
     // rather than re-arming a second `WaitState` is deliberate: the
     // termination handler has already been consumed by phase 1 and the
     // grace window is a non-hot path (runs only on genuine runaways).
-    process.terminate() // SIGTERM
+    process.terminate()  // SIGTERM
     let graceDeadline = Date(timeIntervalSinceNow: 1.0)
     while process.isRunning, Date() < graceDeadline {
       try? await Task.sleep(for: .milliseconds(50))
@@ -281,7 +281,8 @@ public final class ProcessHookExecutor: HookExecutor, @unchecked Sendable {
     }
 
     var data: Data {
-      lock.lock(); defer { lock.unlock() }
+      lock.lock()
+      defer { lock.unlock() }
       return buffer
     }
 

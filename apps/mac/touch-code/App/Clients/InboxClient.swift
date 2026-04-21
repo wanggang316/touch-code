@@ -22,9 +22,10 @@ nonisolated struct InboxClient: Sendable {
   /// given Worktree as read. Thin bridge over
   /// `InboxStore.markRead(forWorktree:in:)`; consumed by the T2 Header bell
   /// popover row-tap.
-  var markReadForWorktree: @MainActor @Sendable (
-    _ worktreeID: WorktreeID, _ catalog: Catalog
-  ) -> Void
+  var markReadForWorktree:
+    @MainActor @Sendable (
+      _ worktreeID: WorktreeID, _ catalog: Catalog
+    ) -> Void
 
   /// Dismiss every notification in the inbox.
   var clearAll: @MainActor @Sendable () -> Void
@@ -80,7 +81,7 @@ extension InboxClient: DependencyKey {
     dismiss: { _ in },
     markRead: { _ in },
     markReadForWorktree: { _, _ in },
-    clearAll: { },
+    clearAll: {},
     muteRule: { _ in },
     observe: { AsyncStream { $0.finish() } },
     observeUnread: { AsyncStream { $0.finish() } }

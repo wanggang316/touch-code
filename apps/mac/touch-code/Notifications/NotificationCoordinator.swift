@@ -1,6 +1,6 @@
 import Foundation
-import os.log
 import TouchCodeCore
+import os.log
 
 /// Fan-out hub between `DetectionRouter` (producer) and the three notification
 /// sinks (inbox, Dock badge, OS banner). One instance lives for the app's
@@ -123,23 +123,28 @@ final class NotificationCoordinator {
     )
     inbox.append(notification)
 
-    guard shouldPostToOS(kind: output.kind, ruleID: Self.ruleID(from: output.transition.trigger), panelID: output.transition.panelID, muting: muting) else {
+    guard
+      shouldPostToOS(
+        kind: output.kind, ruleID: Self.ruleID(from: output.transition.trigger), panelID: output.transition.panelID,
+        muting: muting)
+    else {
       return
     }
     guard settingsReader.authStatus.isAuthorized else {
       return
     }
     // Apply body redaction at the OS boundary only; inbox keeps the raw body.
-    let posted: AgentNotification = muting.redactBodies
+    let posted: AgentNotification =
+      muting.redactBodies
       ? AgentNotification(
-          id: notification.id,
-          panelID: notification.panelID,
-          agent: notification.agent,
-          kind: notification.kind,
-          title: notification.title,
-          body: "(redacted)",
-          createdAt: notification.createdAt
-        )
+        id: notification.id,
+        panelID: notification.panelID,
+        agent: notification.agent,
+        kind: notification.kind,
+        title: notification.title,
+        body: "(redacted)",
+        createdAt: notification.createdAt
+      )
       : notification
     await osNotifier.post(posted)
   }
@@ -231,7 +236,7 @@ final class NotificationCoordinator {
       // safe no-op with an .error log so a shipped app doesn't crash.
       assertionFailure(
         "NotificationCoordinator.reloadRules called without ruleStore/router dependencies. "
-        + "Bootstrap must inject both via init or attach(ruleStore:router:)."
+          + "Bootstrap must inject both via init or attach(ruleStore:router:)."
       )
       logger.error("reloadRules called without ruleStore/router dependencies; no-op.")
       return

@@ -1,8 +1,9 @@
 import ComposableArchitecture
 import Foundation
 import Testing
-@testable import touch_code
 import TouchCodeCore
+
+@testable import touch_code
 
 @MainActor
 struct TabBarFeatureTests {
@@ -22,9 +23,10 @@ struct TabBarFeatureTests {
       }
     }
 
-    await store.send(.newTabButtonTapped(
-      inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
-    ))
+    await store.send(
+      .newTabButtonTapped(
+        inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+      ))
     let captured = received.value
     #expect(captured?.0 == worktreeID)
     #expect(captured?.1 == projectID)
@@ -48,9 +50,10 @@ struct TabBarFeatureTests {
       }
     }
 
-    await store.send(.tabButtonTapped(
-      tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
-    ))
+    await store.send(
+      .tabButtonTapped(
+        tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+      ))
     #expect(received.value == tabID)
   }
 
@@ -70,9 +73,10 @@ struct TabBarFeatureTests {
       }
     }
 
-    await store.send(.closeButtonTapped(
-      tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
-    ))
+    await store.send(
+      .closeButtonTapped(
+        tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+      ))
     #expect(received.value == tabID)
   }
 }

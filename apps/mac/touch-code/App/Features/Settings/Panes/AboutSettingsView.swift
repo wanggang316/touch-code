@@ -11,6 +11,7 @@ struct AboutSettingsView: View {
       Image(systemName: "terminal")
         .font(.system(size: 48))
         .foregroundStyle(.tint)
+        .accessibilityHidden(true)
       Text(displayName).font(.title2.bold())
       if let versionLine = versionLine {
         Text(versionLine)

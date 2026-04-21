@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import TouchCodeCore
+
 @testable import touch_code
 
 /// Round-trip + validation tests for `SettingsStore` (v2). Uses `flush()` to bypass the
@@ -198,7 +199,10 @@ struct SettingsStoreTests {
     let (store, url) = makeStore()
     defer { try? FileManager.default.removeItem(at: url) }
 
-    store.mutateNotifications { $0.authStatus = .authorized; $0.inAppEnabled = false }
+    store.mutateNotifications {
+      $0.authStatus = .authorized
+      $0.inAppEnabled = false
+    }
     store.flush()
 
     let reloaded = SettingsStore(fileURL: url)
@@ -244,7 +248,10 @@ struct SettingsStoreTests {
     #expect(reader.authStatus == .notDetermined)
     #expect(reader.inAppEnabled == true)
 
-    store.mutateNotifications { $0.inAppEnabled = false; $0.neverPrompt = true }
+    store.mutateNotifications {
+      $0.inAppEnabled = false
+      $0.neverPrompt = true
+    }
     #expect(reader.inAppEnabled == false)
     #expect(reader.neverPrompt == true)
   }
@@ -266,8 +273,9 @@ struct SettingsStoreTests {
 
     #expect(FileManager.default.fileExists(atPath: url.path))
     let reloaded = SettingsStore(fileURL: url)
-    #expect(reloaded.settings.general.defaultEditorID == "zed",
-            "only the last mutation should have been persisted; debounce failed to coalesce")
+    #expect(
+      reloaded.settings.general.defaultEditorID == "zed",
+      "only the last mutation should have been persisted; debounce failed to coalesce")
   }
 
   @Test
@@ -348,8 +356,8 @@ struct SettingsStoreTests {
   }
 }
 
-private extension Result where Success == Void {
-  var isSuccess: Bool {
+extension Result where Success == Void {
+  fileprivate var isSuccess: Bool {
     if case .success = self { return true }
     return false
   }

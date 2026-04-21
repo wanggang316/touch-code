@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import tcKit
+
 @testable import touch_code
 
 @MainActor
@@ -119,7 +120,7 @@ struct SkillVersionBannerTests {
       defaults: defaults
     )
     banner.check()
-    banner.dismiss() // dismisses claude-code for 0.2.0
+    banner.dismiss()  // dismisses claude-code for 0.2.0
 
     banner.check()
     guard case .needsUpgrade(let agent, _, _) = banner.status else {

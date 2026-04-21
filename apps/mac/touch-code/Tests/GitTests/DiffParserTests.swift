@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import TouchCodeCore
+
 @testable import touch_code
 
 struct DiffParserTests {
@@ -49,7 +50,7 @@ struct DiffParserTests {
     let diff = try DiffParser.parse(Data(fixture.utf8), scope: .working)
     #expect(diff.files.count == 1)
     let file = diff.files[0]
-    #expect(file.id == "old.swift") // pre-image path for deletion
+    #expect(file.id == "old.swift")  // pre-image path for deletion
     #expect(file.kind == .deleted)
     #expect(file.linesRemoved == 2)
     #expect(file.linesAdded == 0)

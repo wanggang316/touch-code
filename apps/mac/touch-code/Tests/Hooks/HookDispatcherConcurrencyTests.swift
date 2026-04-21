@@ -1,8 +1,8 @@
 import Foundation
 import Testing
 
-@testable import touch_code
 @testable import TouchCodeCore
+@testable import touch_code
 
 @MainActor
 struct HookDispatcherConcurrencyTests {
@@ -12,7 +12,7 @@ struct HookDispatcherConcurrencyTests {
   func semaphoreSerializesConcurrentDispatches() async throws {
     let maxConcurrency = 3
     let tracker = ConcurrentRunTracker()
-    let executor = SleepingFakeExecutor(tracker: tracker, sleepNanos: 30_000_000) // 30 ms
+    let executor = SleepingFakeExecutor(tracker: tracker, sleepNanos: 30_000_000)  // 30 ms
 
     let dir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
       .appendingPathComponent("hook-concurrency-\(UUID().uuidString)", isDirectory: true)

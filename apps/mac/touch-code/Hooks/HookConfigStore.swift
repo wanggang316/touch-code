@@ -1,6 +1,6 @@
 import Foundation
-import os
 import TouchCodeCore
+import os
 
 /// Errors surfaced during config load / save. Catalogued in the C3 design
 /// doc §Error handling model.
@@ -50,7 +50,9 @@ public final class HookConfigStore {
       raw = decoded ?? .empty
     } catch {
       try backupBrokenFile(reason: String(describing: error))
-      logger.error("hooks.json decode failed; backed up and returning empty config: \(String(describing: error), privacy: .public)")
+      logger.error(
+        "hooks.json decode failed; backed up and returning empty config: \(String(describing: error), privacy: .public)"
+      )
       return .empty
     }
     return try validate(raw, allowInternalNamespace: false)
@@ -143,7 +145,9 @@ public final class HookConfigStore {
         try validate(sub, allowInternalNamespace: allowInternalNamespace)
         kept.append(sub)
       } catch {
-        logger.warning("dropping subscription \(sub.id.uuidString, privacy: .public): \(String(describing: error), privacy: .public)")
+        logger.warning(
+          "dropping subscription \(sub.id.uuidString, privacy: .public): \(String(describing: error), privacy: .public)"
+        )
       }
     }
     var copy = config
@@ -175,7 +179,8 @@ public final class HookConfigStore {
   private func backupBrokenFile(reason: String) throws {
     let stamp = ISO8601DateFormatter().string(from: Date())
       .replacingOccurrences(of: ":", with: "-")
-    let backup = fileURL
+    let backup =
+      fileURL
       .deletingLastPathComponent()
       .appendingPathComponent("\(fileURL.lastPathComponent).broken-\(stamp)")
     do {

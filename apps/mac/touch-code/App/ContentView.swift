@@ -104,10 +104,12 @@ struct ContentView: View {
       let currentProjectIDs = Set(
         hierarchyManager.catalog.spaces.flatMap { $0.projects.map(\.id) }
       )
-      store.send(.sidebar(.pruneExpansionSets(
-        currentSpaceIDs: currentSpaceIDs,
-        currentProjectIDs: currentProjectIDs
-      )))
+      store.send(
+        .sidebar(
+          .pruneExpansionSets(
+            currentSpaceIDs: currentSpaceIDs,
+            currentProjectIDs: currentProjectIDs
+          )))
     }
   }
 

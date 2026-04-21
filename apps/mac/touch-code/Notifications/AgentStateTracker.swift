@@ -25,7 +25,8 @@ final class AgentStateTracker {
 
   private let idleThreshold: TimeInterval
   private let clock: any Clock<Duration>
-  private let (continuation, stream): (AsyncStream<AgentStateTransition>.Continuation, AsyncStream<AgentStateTransition>)
+  private let (continuation, stream):
+    (AsyncStream<AgentStateTransition>.Continuation, AsyncStream<AgentStateTransition>)
   /// `Task` is `Sendable` and `cancel()` is safe from any context. We
   /// store the handle `nonisolated(unsafe)` so `deinit` can cancel
   /// the pending sleep without hopping to `MainActor`. Mutations stay

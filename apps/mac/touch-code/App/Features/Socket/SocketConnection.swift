@@ -1,7 +1,7 @@
 import Foundation
-import os
 import TouchCodeCore
 import TouchCodeIPC
+import os
 
 /// One accepted connection's request/response loop. Shared by the real
 /// `SocketServer` (on accept) and the test `InMemoryIPCServer` harness.
@@ -88,10 +88,12 @@ public actor SocketConnection {
         // a version clash — `.invalidParams` carries the correct
         // semantics and lets clients distinguish this from an actual
         // versionMismatch on a well-formed `system.hello`.
-        await sendError(id: request.id, .invalidParams(
-          message: "first frame on a new connection must be system.hello",
-          path: ["method"]
-        ))
+        await sendError(
+          id: request.id,
+          .invalidParams(
+            message: "first frame on a new connection must be system.hello",
+            path: ["method"]
+          ))
         return
       }
     } else if inflight >= inflightLimit {
@@ -123,10 +125,12 @@ public actor SocketConnection {
       if request.method == .systemHello { helloCompleted = true }
       await sendResponse(IPC.Response(id: request.id, result: result))
     case .streaming:
-      await sendError(id: request.id, .invalidParams(
-        message: "\(request.method.rawValue) requires stream: true on the request",
-        path: nil
-      ))
+      await sendError(
+        id: request.id,
+        .invalidParams(
+          message: "\(request.method.rawValue) requires stream: true on the request",
+          path: nil
+        ))
     case .failed(let error):
       await sendError(id: request.id, error)
     }

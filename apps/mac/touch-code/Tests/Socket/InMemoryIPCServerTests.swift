@@ -1,9 +1,9 @@
 import Foundation
 import Testing
 
-@testable import touch_code
 @testable import TouchCodeCore
 @testable import TouchCodeIPC
+@testable import touch_code
 
 /// Self-test for the harness. Uses `system.hello` + `system.ping` against
 /// a minimal router.
@@ -149,9 +149,10 @@ struct InMemoryIPCServerTests {
   }
 
   static func sendHello(_ server: InMemoryIPCServer, id: String = "hello-1") throws {
-    let hello = try JSONValue.encoded(HelloRequest(
-      clientVersion: "0.3.0", clientBinary: "tc"
-    ))
+    let hello = try JSONValue.encoded(
+      HelloRequest(
+        clientVersion: "0.3.0", clientBinary: "tc"
+      ))
     try server.send(IPC.Request(id: id, method: .systemHello, params: hello))
   }
 }

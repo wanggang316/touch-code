@@ -84,10 +84,11 @@ struct EditorFeature {
           refresh(client: editorClient),
           .run { send in
             let snapshot = await reader()
-            await send(.settingsObserved(
-              globalDefault: snapshot.general.defaultEditorID,
-              customEditors: snapshot.general.customEditors
-            ))
+            await send(
+              .settingsObserved(
+                globalDefault: snapshot.general.defaultEditorID,
+                customEditors: snapshot.general.customEditors
+              ))
           }
         )
 
@@ -118,10 +119,11 @@ struct EditorFeature {
           switch result {
           case .success:
             let snapshot = await reader()
-            await send(.settingsObserved(
-              globalDefault: snapshot.general.defaultEditorID,
-              customEditors: snapshot.general.customEditors
-            ))
+            await send(
+              .settingsObserved(
+                globalDefault: snapshot.general.defaultEditorID,
+                customEditors: snapshot.general.customEditors
+              ))
           case .failure(let err):
             await send(.addCustomEditorFailed(err))
           }
@@ -194,11 +196,12 @@ struct EditorFeature {
         case .editor(let descriptor): resolvedID = descriptor.id
         case .finder: resolvedID = Self.finderEditorID
         }
-        return .send(.openRequested(
-          editorID: resolvedID,
-          worktreePath: worktreePath,
-          projectID: projectID
-        ))
+        return .send(
+          .openRequested(
+            editorID: resolvedID,
+            worktreePath: worktreePath,
+            projectID: projectID
+          ))
       }
     }
   }
@@ -232,11 +235,13 @@ struct EditorFeature {
     descriptors: [EditorDescriptor]
   ) -> ResolvedDefault {
     if let override = projectOverride,
-       let match = descriptors.first(where: { $0.id == override }) {
+      let match = descriptors.first(where: { $0.id == override })
+    {
       return .editor(match)
     }
     if let global = globalDefault,
-       let match = descriptors.first(where: { $0.id == global }) {
+      let match = descriptors.first(where: { $0.id == global })
+    {
       return .editor(match)
     }
     return .finder
@@ -249,7 +254,8 @@ struct EditorFeature {
       return "\(id) CLI (`\(binary)`) not found on PATH"
     case .spawnFailed(let reason): return "Could not launch editor: \(reason)"
     case .nonZeroExit(_, let stderr):
-      return stderr.components(separatedBy: "\n").first?.trimmingCharacters(in: .whitespaces) ?? "Editor exited with error"
+      return stderr.components(separatedBy: "\n").first?.trimmingCharacters(in: .whitespaces)
+        ?? "Editor exited with error"
     case .timedOut: return "Editor did not respond within 5 seconds"
     case .badTemplate(let id, let reason): return "Bad template for ‘\(id)’: \(reason)"
     case .notADirectory(let path): return "Not a directory: \(path)"
@@ -305,7 +311,9 @@ extension SettingsWriter {
 
 extension SettingsWriter: DependencyKey {
   static let liveValue: SettingsWriter = SettingsWriter(
-    readSnapshot: { fatalError("SettingsWriter.liveValue not configured; wire via `.withDependencies` at app startup") },
+    readSnapshot: {
+      fatalError("SettingsWriter.liveValue not configured; wire via `.withDependencies` at app startup")
+    },
     setDefaultEditorID: { _ in fatalError("SettingsWriter.liveValue not configured") },
     addCustomEditor: { _ in fatalError("SettingsWriter.liveValue not configured") },
     removeCustomEditor: { _ in fatalError("SettingsWriter.liveValue not configured") }

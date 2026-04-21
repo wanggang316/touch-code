@@ -1,8 +1,8 @@
 import Foundation
 import Testing
+import TouchCodeCore
 
 @testable import touch_code
-import TouchCodeCore
 
 @MainActor
 struct NotificationCoordinatorTests {
@@ -11,13 +11,14 @@ struct NotificationCoordinatorTests {
   @Test
   func authorizedUnmutedRuleAppendsInboxAndPostsOS() async throws {
     let harness = Self.make(authStatus: .authorized)
-    await harness.feed(.init(
-      transition: Self.transition(to: .blockedOnInput, trigger: .rule(id: "claude.blocked")),
-      agent: "claude",
-      title: "Claude waits",
-      body: "prompt",
-      kind: .blockedOnInput
-    ))
+    await harness.feed(
+      .init(
+        transition: Self.transition(to: .blockedOnInput, trigger: .rule(id: "claude.blocked")),
+        agent: "claude",
+        title: "Claude waits",
+        body: "prompt",
+        kind: .blockedOnInput
+      ))
     #expect(harness.mockNotifier.postedNotifications.count == 1)
     #expect(harness.inbox.inbox.notifications.count == 1)
   }
@@ -25,13 +26,14 @@ struct NotificationCoordinatorTests {
   @Test
   func deniedStatusSkipsOSPostButStillInboxes() async throws {
     let harness = Self.make(authStatus: .denied)
-    await harness.feed(.init(
-      transition: Self.transition(to: .completed, trigger: .rule(id: "rule")),
-      agent: "claude",
-      title: "done",
-      body: "",
-      kind: .completed
-    ))
+    await harness.feed(
+      .init(
+        transition: Self.transition(to: .completed, trigger: .rule(id: "rule")),
+        agent: "claude",
+        title: "done",
+        body: "",
+        kind: .completed
+      ))
     #expect(harness.mockNotifier.postedNotifications.isEmpty)
     #expect(harness.inbox.inbox.notifications.count == 1)
   }
@@ -39,13 +41,14 @@ struct NotificationCoordinatorTests {
   @Test
   func mutedRuleIDSkipsOSPostButStillInboxes() async throws {
     let harness = Self.make(authStatus: .authorized, mutedRuleIDs: ["rule.done"])
-    await harness.feed(.init(
-      transition: Self.transition(to: .completed, trigger: .rule(id: "rule.done")),
-      agent: "claude",
-      title: "done",
-      body: "",
-      kind: .completed
-    ))
+    await harness.feed(
+      .init(
+        transition: Self.transition(to: .completed, trigger: .rule(id: "rule.done")),
+        agent: "claude",
+        title: "done",
+        body: "",
+        kind: .completed
+      ))
     #expect(harness.mockNotifier.postedNotifications.isEmpty)
     #expect(harness.inbox.inbox.notifications.count == 1)
   }
@@ -53,13 +56,14 @@ struct NotificationCoordinatorTests {
   @Test
   func idleKindMutedByDefault() async throws {
     let harness = Self.make(authStatus: .authorized)
-    await harness.feed(.init(
-      transition: Self.transition(to: .idle, trigger: .idleTimer(seconds: 120)),
-      agent: "claude",
-      title: "idle",
-      body: "",
-      kind: .idle
-    ))
+    await harness.feed(
+      .init(
+        transition: Self.transition(to: .idle, trigger: .idleTimer(seconds: 120)),
+        agent: "claude",
+        title: "idle",
+        body: "",
+        kind: .idle
+      ))
     #expect(harness.mockNotifier.postedNotifications.isEmpty)
     #expect(harness.inbox.inbox.notifications.count == 1)
   }
@@ -67,26 +71,28 @@ struct NotificationCoordinatorTests {
   @Test
   func idleSurfacedWhenSurfaceIdleTrue() async throws {
     let harness = Self.make(authStatus: .authorized, surfaceIdle: true)
-    await harness.feed(.init(
-      transition: Self.transition(to: .idle, trigger: .idleTimer(seconds: 120)),
-      agent: "claude",
-      title: "idle",
-      body: "",
-      kind: .idle
-    ))
+    await harness.feed(
+      .init(
+        transition: Self.transition(to: .idle, trigger: .idleTimer(seconds: 120)),
+        agent: "claude",
+        title: "idle",
+        body: "",
+        kind: .idle
+      ))
     #expect(harness.mockNotifier.postedNotifications.count == 1)
   }
 
   @Test
   func redactBodiesReplacesOSBodyButKeepsInboxOriginal() async throws {
     let harness = Self.make(authStatus: .authorized, redactBodies: true)
-    await harness.feed(.init(
-      transition: Self.transition(to: .completed, trigger: .rule(id: "x")),
-      agent: "claude",
-      title: "t",
-      body: "Secret API key: foo",
-      kind: .completed
-    ))
+    await harness.feed(
+      .init(
+        transition: Self.transition(to: .completed, trigger: .rule(id: "x")),
+        agent: "claude",
+        title: "t",
+        body: "Secret API key: foo",
+        kind: .completed
+      ))
     #expect(harness.mockNotifier.postedNotifications.first?.body == "(redacted)")
     #expect(harness.inbox.inbox.notifications.first?.body == "Secret API key: foo")
   }
@@ -95,19 +101,20 @@ struct NotificationCoordinatorTests {
   func mutedPanelIDSkipsOSPost() async throws {
     let panelID = PanelID()
     let harness = Self.make(authStatus: .authorized, mutedPanelIDs: [panelID])
-    await harness.feed(.init(
-      transition: AgentStateTransition(
-        panelID: panelID,
-        from: .running,
-        to: .completed,
-        at: Date(),
-        trigger: .rule(id: "x")
-      ),
-      agent: "claude",
-      title: "t",
-      body: "b",
-      kind: .completed
-    ))
+    await harness.feed(
+      .init(
+        transition: AgentStateTransition(
+          panelID: panelID,
+          from: .running,
+          to: .completed,
+          at: Date(),
+          trigger: .rule(id: "x")
+        ),
+        agent: "claude",
+        title: "t",
+        body: "b",
+        kind: .completed
+      ))
     #expect(harness.mockNotifier.postedNotifications.isEmpty)
     #expect(harness.inbox.inbox.notifications.count == 1)
   }
@@ -115,13 +122,14 @@ struct NotificationCoordinatorTests {
   @Test
   func globalEnabledFalseDropsEverything() async throws {
     let harness = Self.make(authStatus: .authorized, globalEnabled: false)
-    await harness.feed(.init(
-      transition: Self.transition(to: .completed, trigger: .rule(id: "x")),
-      agent: "claude",
-      title: "t",
-      body: "",
-      kind: .completed
-    ))
+    await harness.feed(
+      .init(
+        transition: Self.transition(to: .completed, trigger: .rule(id: "x")),
+        agent: "claude",
+        title: "t",
+        body: "",
+        kind: .completed
+      ))
     #expect(harness.mockNotifier.postedNotifications.isEmpty)
     #expect(harness.inbox.inbox.notifications.isEmpty)
   }
@@ -230,13 +238,14 @@ struct NotificationCoordinatorTests {
     await harness.coordinator.refreshAuthorizationStatus()
     #expect(harness.settings.settings.notifications.authStatus == .authorized)
 
-    await harness.feed(.init(
-      transition: Self.transition(to: .completed, trigger: .rule(id: "rule")),
-      agent: "claude",
-      title: "done",
-      body: "",
-      kind: .completed
-    ))
+    await harness.feed(
+      .init(
+        transition: Self.transition(to: .completed, trigger: .rule(id: "rule")),
+        agent: "claude",
+        title: "done",
+        body: "",
+        kind: .completed
+      ))
     #expect(harness.mockNotifier.postedNotifications.count == 1)
   }
 

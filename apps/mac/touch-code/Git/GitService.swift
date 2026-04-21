@@ -23,16 +23,16 @@ public nonisolated protocol GitService: Sendable {
   func status(at path: URL) async throws -> WorkingTreeStatus
 }
 
-public extension GitService {
+extension GitService {
   /// Convenience overloads: `ignoreWhitespace` defaults to false. Keeps old call sites
   /// (integration tests, future IPC bridge) readable.
-  func workingTreeDiff(at path: URL) async throws -> UnifiedDiff {
+  public func workingTreeDiff(at path: URL) async throws -> UnifiedDiff {
     try await workingTreeDiff(at: path, ignoreWhitespace: false)
   }
-  func stagedDiff(at path: URL) async throws -> UnifiedDiff {
+  public func stagedDiff(at path: URL) async throws -> UnifiedDiff {
     try await stagedDiff(at: path, ignoreWhitespace: false)
   }
-  func commitDiff(at path: URL, sha: String) async throws -> UnifiedDiff {
+  public func commitDiff(at path: URL, sha: String) async throws -> UnifiedDiff {
     try await commitDiff(at: path, sha: sha, ignoreWhitespace: false)
   }
 }

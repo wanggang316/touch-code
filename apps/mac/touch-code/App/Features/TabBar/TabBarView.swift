@@ -23,9 +23,10 @@ struct TabBarView: View {
         }
       }
       Button {
-        store.send(.newTabButtonTapped(
-          inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
-        ))
+        store.send(
+          .newTabButtonTapped(
+            inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+          ))
       } label: {
         Image(systemName: "plus")
           .accessibilityLabel("New Tab")
@@ -51,9 +52,10 @@ struct TabBarView: View {
   private func tabButton(_ tab: TouchCodeCore.Tab) -> some View {
     HStack(spacing: 4) {
       Button {
-        store.send(.tabButtonTapped(
-          tab.id, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
-        ))
+        store.send(
+          .tabButtonTapped(
+            tab.id, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+          ))
       } label: {
         Text(tab.name ?? "Tab")
           .lineLimit(1)
@@ -61,9 +63,10 @@ struct TabBarView: View {
       }
       .buttonStyle(.plain)
       Button {
-        store.send(.closeButtonTapped(
-          tab.id, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
-        ))
+        store.send(
+          .closeButtonTapped(
+            tab.id, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+          ))
       } label: {
         Image(systemName: "xmark")
           .font(.caption2)

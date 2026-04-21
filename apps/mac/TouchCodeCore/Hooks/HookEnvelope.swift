@@ -8,14 +8,14 @@ import Foundation
 /// floating-point number — opaque to shell handlers. `HookEnvelope.encoder`
 /// pins `.iso8601`. Use these factories (instead of bare `JSONEncoder()`)
 /// when (de)serialising envelopes on any wire path.
-public extension HookEnvelope {
-  static func encoder() -> JSONEncoder {
+extension HookEnvelope {
+  public static func encoder() -> JSONEncoder {
     let e = JSONEncoder()
     e.dateEncodingStrategy = .iso8601
     return e
   }
 
-  static func decoder() -> JSONDecoder {
+  public static func decoder() -> JSONDecoder {
     let d = JSONDecoder()
     d.dateDecodingStrategy = .iso8601
     return d
@@ -118,7 +118,10 @@ public nonisolated struct HookEnvelope: Equatable, Codable, Sendable, Identifiab
   public struct SpaceRef: Equatable, Codable, Sendable {
     public var id: SpaceID
     public var name: String
-    public init(id: SpaceID, name: String) { self.id = id; self.name = name }
+    public init(id: SpaceID, name: String) {
+      self.id = id
+      self.name = name
+    }
   }
 
   public struct ProjectRef: Equatable, Codable, Sendable {
@@ -126,7 +129,9 @@ public nonisolated struct HookEnvelope: Equatable, Codable, Sendable, Identifiab
     public var name: String
     public var rootPath: String
     public init(id: ProjectID, name: String, rootPath: String) {
-      self.id = id; self.name = name; self.rootPath = rootPath
+      self.id = id
+      self.name = name
+      self.rootPath = rootPath
     }
   }
 
@@ -136,7 +141,10 @@ public nonisolated struct HookEnvelope: Equatable, Codable, Sendable, Identifiab
     public var path: String
     public var branch: String?
     public init(id: WorktreeID, name: String, path: String, branch: String? = nil) {
-      self.id = id; self.name = name; self.path = path; self.branch = branch
+      self.id = id
+      self.name = name
+      self.path = path
+      self.branch = branch
     }
   }
 
@@ -145,7 +153,9 @@ public nonisolated struct HookEnvelope: Equatable, Codable, Sendable, Identifiab
     public var name: String?
     public var selectedPanelID: PanelID?
     public init(id: TabID, name: String? = nil, selectedPanelID: PanelID? = nil) {
-      self.id = id; self.name = name; self.selectedPanelID = selectedPanelID
+      self.id = id
+      self.name = name
+      self.selectedPanelID = selectedPanelID
     }
   }
 

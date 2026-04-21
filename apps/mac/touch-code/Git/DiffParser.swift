@@ -48,7 +48,10 @@ nonisolated enum DiffParser {
       }
 
       if current.stage == .header {
-        if try current.consumeHeaderLine(line) { builder = current; continue }
+        if try current.consumeHeaderLine(line) {
+          builder = current
+          continue
+        }
       }
       // stage == .hunks
       if line.hasPrefix("@@") {
@@ -56,7 +59,10 @@ nonisolated enum DiffParser {
         builder = current
         continue
       }
-      if line.isEmpty, current.activeHunk == nil { builder = current; continue }
+      if line.isEmpty, current.activeHunk == nil {
+        builder = current
+        continue
+      }
       if current.activeHunk != nil {
         try current.appendBodyLine(line)
         if line.first == " " || line.first == "+" || line.first == "-" {
@@ -190,7 +196,7 @@ extension DiffParser {
     private mutating func consumeBinaryOrDiffHeaderLine(_ line: String) -> Bool {
       if line.hasPrefix("Binary files ") && line.hasSuffix(" differ") {
         isBinary = true
-        stage = .hunks // no hunks will follow; stage transition prevents re-entry
+        stage = .hunks  // no hunks will follow; stage transition prevents re-entry
         return true
       }
       if line.hasPrefix("--- ") { return true }
@@ -252,8 +258,9 @@ extension DiffParser {
       }
       // Mode-only change (old mode / new mode with no hunks and no rename/copy/add/delete).
       if case .modified = finalKind,
-         sawOldMode != nil, sawNewMode != nil,
-         hunks.isEmpty, activeHunk == nil, !isBinary {
+        sawOldMode != nil, sawNewMode != nil,
+        hunks.isEmpty, activeHunk == nil, !isBinary
+      {
         finalKind = .typeChanged
       }
 
@@ -316,8 +323,8 @@ extension DiffParser {
     let spec = rest[..<closingRange.lowerBound]  // e.g. "-1,3 +1,4" or "-0,0 +1"
     let parts = spec.split(separator: " ")
     guard parts.count == 2,
-          parts[0].hasPrefix("-"),
-          parts[1].hasPrefix("+")
+      parts[0].hasPrefix("-"),
+      parts[1].hasPrefix("+")
     else {
       throw GitError.unparsable(context: "hunk header malformed spec: \(line)")
     }

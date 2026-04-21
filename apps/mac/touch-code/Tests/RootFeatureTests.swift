@@ -1,8 +1,9 @@
 import ComposableArchitecture
 import Foundation
 import Testing
-@testable import touch_code
 import TouchCodeCore
+
+@testable import touch_code
 
 @MainActor
 struct RootFeatureTests {
@@ -330,12 +331,17 @@ struct RootFeatureTests {
     store.exhaustivity = .off
 
     let projectID = ProjectID()
-    await store.send(.worktreeHeader(.delegate(.openEditor(
-      editorID: "vscode", worktreePath: "/tmp/w", projectID: projectID
-    ))))
-    await store.receive(.editor(.openRequested(
-      editorID: "vscode", worktreePath: "/tmp/w", projectID: projectID
-    )))
+    await store.send(
+      .worktreeHeader(
+        .delegate(
+          .openEditor(
+            editorID: "vscode", worktreePath: "/tmp/w", projectID: projectID
+          ))))
+    await store.receive(
+      .editor(
+        .openRequested(
+          editorID: "vscode", worktreePath: "/tmp/w", projectID: projectID
+        )))
   }
 
   @Test
@@ -369,12 +375,17 @@ struct RootFeatureTests {
     }
     store.exhaustivity = .off
 
-    await store.send(.worktreeHeader(.delegate(.openEditor(
-      editorID: nil, worktreePath: "/tmp/w", projectID: nil
-    ))))
-    await store.receive(.editor(.openRequested(
-      editorID: "cursor", worktreePath: "/tmp/w", projectID: nil
-    )))
+    await store.send(
+      .worktreeHeader(
+        .delegate(
+          .openEditor(
+            editorID: nil, worktreePath: "/tmp/w", projectID: nil
+          ))))
+    await store.receive(
+      .editor(
+        .openRequested(
+          editorID: "cursor", worktreePath: "/tmp/w", projectID: nil
+        )))
   }
 
   @Test
@@ -395,14 +406,19 @@ struct RootFeatureTests {
     }
     store.exhaustivity = .off
 
-    await store.send(.worktreeHeader(.delegate(.openEditor(
-      editorID: nil, worktreePath: "/tmp/w", projectID: nil
-    ))))
-    await store.receive(.editor(.openRequested(
-      editorID: EditorFeature.finderEditorID,
-      worktreePath: "/tmp/w",
-      projectID: nil
-    )))
+    await store.send(
+      .worktreeHeader(
+        .delegate(
+          .openEditor(
+            editorID: nil, worktreePath: "/tmp/w", projectID: nil
+          ))))
+    await store.receive(
+      .editor(
+        .openRequested(
+          editorID: EditorFeature.finderEditorID,
+          worktreePath: "/tmp/w",
+          projectID: nil
+        )))
   }
 
   @Test
@@ -482,12 +498,17 @@ struct RootFeatureTests {
 
     let spaceID = SpaceID()
     let projectID = ProjectID()
-    await store.send(.worktreeHeader(.delegate(.setProjectOverride(
-      projectID: projectID, spaceID: spaceID, editorID: "zed"
-    ))))
-    await store.receive(.editor(.setProjectOverride(
-      projectID: projectID, spaceID: spaceID, editorID: "zed"
-    )))
+    await store.send(
+      .worktreeHeader(
+        .delegate(
+          .setProjectOverride(
+            projectID: projectID, spaceID: spaceID, editorID: "zed"
+          ))))
+    await store.receive(
+      .editor(
+        .setProjectOverride(
+          projectID: projectID, spaceID: spaceID, editorID: "zed"
+        )))
   }
 
   // Removed in T1: `sidebarModeChangedUpdatesState` covered the

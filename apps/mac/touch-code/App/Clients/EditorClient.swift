@@ -72,7 +72,9 @@ extension EditorClient: DependencyKey {
   /// Matches `HierarchyClient.liveValue` / `TerminalClient.liveValue` conventions.
   static let liveValue: EditorClient = EditorClient(
     describe: {
-      fatalError("EditorClient.liveValue not configured; wire via `.withDependencies` at app startup with `.live(settings:hierarchy:)`")
+      fatalError(
+        "EditorClient.liveValue not configured; wire via `.withDependencies` at app startup with `.live(settings:hierarchy:)`"
+      )
     },
     resolve: { _, _ in
       fatalError("EditorClient.liveValue not configured")

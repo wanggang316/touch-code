@@ -1,8 +1,8 @@
 import Foundation
 import Testing
+import TouchCodeCore
 
 @testable import touch_code
-import TouchCodeCore
 
 /// End-to-end integration tests for the M4c app-shell wiring. Drives a
 /// live `HookDispatcher` through `C6AppBootstrap.start(...)`, fires an
@@ -89,7 +89,7 @@ struct C6AppBootstrapTests {
           transitionTo: .completed,
           title: "Custom finished",
           body: "ok"
-        ),
+        )
       ]
     )
     try AtomicFileStore.write(newRules, to: rulesURL)

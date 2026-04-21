@@ -1,8 +1,8 @@
 import Foundation
 import Testing
 
-@testable import touch_code
 @testable import TouchCodeCore
+@testable import touch_code
 
 /// M7 — end-to-end integration tests covering the full C6 pipeline with
 /// a **live C3 HookDispatcher** (from plan 0003 M2.1), not the narrower

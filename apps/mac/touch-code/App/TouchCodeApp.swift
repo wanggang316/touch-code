@@ -242,12 +242,14 @@ final class AppState {
   /// on `self` so `applicationWillTerminate` can flush its debounced writes.
   private func startNotifications(hierarchy: HierarchyManager) {
     if ProcessInfo.processInfo.environment["XCTestBundlePath"] != nil
-      || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+      || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    {
       return
     }
     guard notificationBootstrap == nil,
-          let dispatcher = hookDispatcher,
-          let hookStore = hookConfigStore else { return }
+      let dispatcher = hookDispatcher,
+      let hookStore = hookConfigStore
+    else { return }
     let inbox = inboxStore
     let settings = settingsStore
     Task { @MainActor [weak self] in
@@ -282,7 +284,8 @@ final class AppState {
     hierarchyClient: HierarchyClient
   ) {
     if ProcessInfo.processInfo.environment["XCTestBundlePath"] != nil
-      || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+      || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    {
       return
     }
     let hookConfigStore = HookConfigStore()

@@ -1,8 +1,8 @@
 import Foundation
 import Testing
+import TouchCodeCore
 
 @testable import touch_code
-import TouchCodeCore
 
 struct InboxFilterTests {
   @Test
@@ -49,8 +49,9 @@ struct InboxFilterTests {
     let inbox = Self.seededInbox(includeDismissed: true)
     for filter in InboxFilter.allCases {
       let result = InboxFilter.apply(filter, to: inbox)
-      #expect(result.allSatisfy { $0.dismissedAt == nil },
-              "Filter \(filter) leaked dismissed entries")
+      #expect(
+        result.allSatisfy { $0.dismissedAt == nil },
+        "Filter \(filter) leaked dismissed entries")
     }
   }
 

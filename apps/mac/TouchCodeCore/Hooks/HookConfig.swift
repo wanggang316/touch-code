@@ -49,7 +49,8 @@ extension HookConfig: Codable {
       throw DecodingIssue.unsupportedVersion(version)
     }
     self.version = version
-    self.recursionWindowMs = try c.decodeIfPresent(Int.self, forKey: .recursionWindowMs)
+    self.recursionWindowMs =
+      try c.decodeIfPresent(Int.self, forKey: .recursionWindowMs)
       ?? HookConfig.defaultRecursionWindowMs
     self.subscriptions = try c.decodeIfPresent([HookSubscription].self, forKey: .subscriptions) ?? []
   }

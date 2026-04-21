@@ -45,7 +45,9 @@ public nonisolated enum SettingsMigration {
       return .v2(settings)
     } catch Settings.DecodingIssue.unsupportedVersion(let version) where version != 1 {
       let backup = moveAside(url: url, prefix: "settings.json.broken-", at: clock(), fileManager: fileManager)
-      logger.error("Unsupported settings.json version \(version, privacy: .public); backed up to \(backup.lastPathComponent, privacy: .public)")
+      logger.error(
+        "Unsupported settings.json version \(version, privacy: .public); backed up to \(backup.lastPathComponent, privacy: .public)"
+      )
       return .unsupported(version, backupURL: backup)
     } catch {
       // Fall through to legacy decode — a version:1 file throws `unsupportedVersion(1)` here.
@@ -62,7 +64,9 @@ public nonisolated enum SettingsMigration {
       return .migratedFromV1(migrated, backupURL: backup)
     } catch {
       let backup = moveAside(url: url, prefix: "settings.json.broken-", at: clock(), fileManager: fileManager)
-      logger.error("Could not parse settings.json at all; backed up to \(backup.lastPathComponent, privacy: .public). Error: \(String(describing: error), privacy: .public)")
+      logger.error(
+        "Could not parse settings.json at all; backed up to \(backup.lastPathComponent, privacy: .public). Error: \(String(describing: error), privacy: .public)"
+      )
       return .corrupt(backupURL: backup)
     }
   }

@@ -174,6 +174,6 @@ final class C6AppBootstrap {
   /// Synchronous flush for app termination (`applicationWillTerminate`).
   func flushPendingWrites() throws {
     try inboxStore.saveNow()
-    try settingsStore.saveNow()   // SettingsStore.saveNow is throwing; matches the old API.
+    try settingsStore.saveNow()  // SettingsStore.saveNow is throwing; matches the old API.
   }
 }

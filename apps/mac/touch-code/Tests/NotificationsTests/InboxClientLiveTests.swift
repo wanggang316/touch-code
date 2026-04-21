@@ -1,8 +1,8 @@
 import Foundation
 import Testing
+import TouchCodeCore
 
 @testable import touch_code
-import TouchCodeCore
 
 /// Narrow coverage of the `InboxClient.live` bridge: confirms the new
 /// `markReadForWorktree` closure forwards into `InboxStore.markRead(forWorktree:in:)`

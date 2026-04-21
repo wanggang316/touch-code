@@ -1,8 +1,9 @@
 import ComposableArchitecture
 import Foundation
 import Testing
-@testable import touch_code
 import TouchCodeCore
+
+@testable import touch_code
 
 /// Reducer-dispatch performance for the moment `.diffSucceeded(_)` lands. This is the hot
 /// path the 200 ms whole-pipeline budget measures: parse (M8 groundwork covered — P95 ≈ 10
@@ -71,7 +72,8 @@ struct GitViewerReducerPerformanceTests {
       let ceiling = try Self.ceiling(
         metric: "reducer_ms", at: baselineURL, designBudget: Self.reducerMsDesignBudget
       )
-      let message: Comment = "reducer_ms P95 \(stats.p95) exceeded ceiling \(ceiling) — baseline P95 × \(Self.driftMargin) vs design budget \(Self.reducerMsDesignBudget) ms, whichever is greater"
+      let message: Comment =
+        "reducer_ms P95 \(stats.p95) exceeded ceiling \(ceiling) — baseline P95 × \(Self.driftMargin) vs design budget \(Self.reducerMsDesignBudget) ms, whichever is greater"
       #expect(stats.p95 <= ceiling, message)
     }
   }
@@ -99,9 +101,9 @@ struct GitViewerReducerPerformanceTests {
   }
 
   nonisolated static func logResult(metric: String, stats: Stats) {
-    print("[perf] \(metric): p50=\(String(format: "%.2f", stats.p50)) ms, " +
-          "p95=\(String(format: "%.2f", stats.p95)) ms, " +
-          "max=\(String(format: "%.2f", stats.max)) ms")
+    print(
+      "[perf] \(metric): p50=\(String(format: "%.2f", stats.p50)) ms, "
+        + "p95=\(String(format: "%.2f", stats.p95)) ms, " + "max=\(String(format: "%.2f", stats.max)) ms")
   }
 
   nonisolated static func loadFixture() throws -> Data {
@@ -163,9 +165,9 @@ struct GitViewerReducerPerformanceTests {
 
   nonisolated static func machineKey() -> String {
     #if arch(arm64)
-    return "arm64-apple-macos"
+      return "arm64-apple-macos"
     #else
-    return "x86_64-apple-macos"
+      return "x86_64-apple-macos"
     #endif
   }
 }

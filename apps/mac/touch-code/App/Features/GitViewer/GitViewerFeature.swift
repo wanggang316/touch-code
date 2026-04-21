@@ -193,7 +193,8 @@ struct GitViewerFeature {
         guard originScope == state.scope else { return .none }
         // Append-on-pagination if we're extending the current window; replace otherwise.
         if case .loaded(let existing) = state.logState,
-           page.cursor.offset == existing.cursor.offset + existing.cursor.limit {
+          page.cursor.offset == existing.cursor.offset + existing.cursor.limit
+        {
           let merged = LogPage(
             cursor: LogPage.Cursor(
               offset: existing.cursor.offset,
@@ -386,7 +387,8 @@ struct GitViewerFeature {
       return "\(id) CLI (`\(binary)`) not found on PATH"
     case .spawnFailed(let reason): return "Could not launch editor: \(reason)"
     case .nonZeroExit(_, let stderr):
-      return stderr.components(separatedBy: "\n").first?.trimmingCharacters(in: .whitespaces) ?? "Editor exited with error"
+      return stderr.components(separatedBy: "\n").first?.trimmingCharacters(in: .whitespaces)
+        ?? "Editor exited with error"
     case .timedOut: return "Editor did not respond within 5 seconds"
     case .badTemplate(let id, let reason): return "Bad template for ‘\(id)’: \(reason)"
     case .notADirectory(let path): return "Not a directory: \(path)"

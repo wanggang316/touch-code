@@ -1,6 +1,6 @@
 import Foundation
-import os.log
 import TouchCodeCore
+import os.log
 
 /// Reads `detection-rules.json`, validates it, and materialises each rule
 /// into a C3 `HookSubscription` in `hooks.json` via the `HookConfigWriting`
@@ -138,7 +138,8 @@ final class RuleStore {
     case .containsAny(let literals):
       // Escape each literal then join as alternation. Fire dispatcher-side
       // regex-compile errors, not silent behaviour drift.
-      let alternatives = literals
+      let alternatives =
+        literals
         .map { NSRegularExpression.escapedPattern(for: $0) }
         .joined(separator: "|")
       return ("(?:\(alternatives))", [])

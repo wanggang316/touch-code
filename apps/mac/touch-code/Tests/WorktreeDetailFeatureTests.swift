@@ -1,8 +1,9 @@
 import ComposableArchitecture
 import Foundation
 import Testing
-@testable import touch_code
 import TouchCodeCore
+
+@testable import touch_code
 
 /// Coverage for `WorktreeDetailFeature`'s composition: actions dispatched
 /// against the child scopes must route via `tabBar` / `splitViewport`
@@ -26,9 +27,11 @@ struct WorktreeDetailFeatureTests {
       }
     }
 
-    await store.send(.tabBar(.newTabButtonTapped(
-      inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
-    )))
+    await store.send(
+      .tabBar(
+        .newTabButtonTapped(
+          inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+        )))
     #expect(received.value == newTabID)
   }
 

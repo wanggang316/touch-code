@@ -52,14 +52,18 @@ final class SettingsStore {
           logger.error("Failed to persist migrated settings: \(String(describing: error), privacy: .public)")
         }
       case .unsupported(let version, let backupURL):
-        logger.error("settings.json had unsupported version \(version, privacy: .public); starting defaults (backup: \(backupURL.lastPathComponent, privacy: .public))")
+        logger.error(
+          "settings.json had unsupported version \(version, privacy: .public); starting defaults (backup: \(backupURL.lastPathComponent, privacy: .public))"
+        )
         self.settings = .default
       case .corrupt(let backupURL):
-        logger.error("settings.json was unparseable; starting defaults (backup: \(backupURL.lastPathComponent, privacy: .public))")
+        logger.error(
+          "settings.json was unparseable; starting defaults (backup: \(backupURL.lastPathComponent, privacy: .public))")
         self.settings = .default
       }
     } catch {
-      logger.error("SettingsMigration.load failed with \(String(describing: error), privacy: .public); starting defaults")
+      logger.error(
+        "SettingsMigration.load failed with \(String(describing: error), privacy: .public); starting defaults")
       self.settings = .default
     }
   }

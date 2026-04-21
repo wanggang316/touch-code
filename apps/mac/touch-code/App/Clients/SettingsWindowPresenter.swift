@@ -15,7 +15,9 @@ extension SettingsWindowPresenter: DependencyKey {
   /// silent no-op. `TouchCodeApp.body` overrides via `.withDependencies` at scene attach.
   static let liveValue: SettingsWindowPresenter = SettingsWindowPresenter(
     open: {
-      fatalError("SettingsWindowPresenter.liveValue not configured; wire via `.withDependencies` with { $0.settingsWindowPresenter = ... } in TouchCodeApp")
+      fatalError(
+        "SettingsWindowPresenter.liveValue not configured; wire via `.withDependencies` with { $0.settingsWindowPresenter = ... } in TouchCodeApp"
+      )
     }
   )
 
