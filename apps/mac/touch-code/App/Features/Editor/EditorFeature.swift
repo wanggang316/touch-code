@@ -53,8 +53,9 @@ struct EditorFeature {
     case removeCustomEditor(id: EditorID)
     case setProjectOverride(projectID: ProjectID, spaceID: SpaceID, editorID: EditorID?)
     case setProjectOverrideFailed(reason: String)
-    /// Requested open from WorktreeHeaderOpenButton. The action flows through the reducer
-    /// so TestStore can observe the effect; the view doesn't hold a direct `@Dependency`.
+    /// Open request routed from the Worktree Header split button (and any other editor
+    /// consumer). The action flows through the reducer so TestStore observes the effect;
+    /// views do not hold a direct `@Dependency(EditorClient.self)`.
     case openRequested(editorID: EditorID, worktreePath: String, projectID: ProjectID?)
     case openSucceeded(editorID: EditorID, displayName: String)
     case openFailed(reason: String)
@@ -165,6 +166,45 @@ struct EditorFeature {
         return .none
       }
     }
+  }
+
+  /// Built-in Finder `EditorID`. Named alias of `EditorRegistry.finderID` so callers
+  /// that need to dispatch the always-available fallback (T2 Header split button) do
+  /// not re-hardcode the string `"finder"`.
+  nonisolated static let finderEditorID: EditorID = EditorRegistry.finderID
+
+  /// Result of resolving the Worktree's default editor for the Header's Open-in
+  /// primary action. Resolution chain:
+  ///   - per-Project override → descriptor, if present in `descriptors`
+  ///   - global default       → descriptor, if present in `descriptors`
+  ///   - otherwise             → `.finder`
+  ///
+  /// **Cascade-on-missing semantics.** If a configured override id is not in
+  /// `descriptors` (e.g. the custom editor was removed), resolution does not
+  /// fall through to `.finder` — it cascades to the global default, and only
+  /// falls to Finder when neither override nor global resolves. This preserves
+  /// the behavior users saw in the pre-T2 dropdown so a stale override id does
+  /// not strand them on Finder when a global default is set. See
+  /// `docs/exec-plans/0009-mw-t2-header.md` Decision Log D5.
+  nonisolated enum ResolvedDefault: Equatable {
+    case editor(EditorDescriptor)
+    case finder
+  }
+
+  nonisolated static func resolveDefault(
+    projectOverride: EditorID?,
+    globalDefault: EditorID?,
+    descriptors: [EditorDescriptor]
+  ) -> ResolvedDefault {
+    if let override = projectOverride,
+       let match = descriptors.first(where: { $0.id == override }) {
+      return .editor(match)
+    }
+    if let global = globalDefault,
+       let match = descriptors.first(where: { $0.id == global }) {
+      return .editor(match)
+    }
+    return .finder
   }
 
   /// Human-readable reason for an `EditorError`, surfaced as a toast subtitle by views.

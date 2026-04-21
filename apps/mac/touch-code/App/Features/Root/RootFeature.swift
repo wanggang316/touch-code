@@ -33,11 +33,8 @@ struct RootFeature {
     var gitViewer: GitViewerFeature.State = .init()
     /// C8 M6b (0005): editor preferences + per-Project override state.
     var editor: EditorFeature.State = .init()
-
-    /// DEC-9 (M4, 2026-04-20): `true` shows the trailing inspector column
-    /// (git diff/history viewer). `ContentView` hosts `GitViewerView` there
-    /// once the 0005 M4a wiring lands.
-    var inspectorVisible: Bool = false
+    /// T2: Header feature (bell + Open-in split button + GV toggle).
+    var worktreeHeader: WorktreeHeaderFeature.State = .init()
 
     /// C8 M6b (0005): settings sheet presentation. `nil` = hidden; non-nil
     /// presents the sheet with a dedicated sub-feature state that mirrors
@@ -83,13 +80,13 @@ struct RootFeature {
     case onQuit
     case selectionChanged(HierarchySelection)
     case engineEventReceived(LastEventMarker)
-    case inspectorVisibilityToggled
     case settingsSheetShown
     case settingsSheet(PresentationAction<SettingsSheetFeature.Action>)
     case sidebar(HierarchySidebarFeature.Action)
     case detail(WorktreeDetailFeature.Action)
     case gitViewer(GitViewerFeature.Action)
     case editor(EditorFeature.Action)
+    case worktreeHeader(WorktreeHeaderFeature.Action)
   }
 
   nonisolated enum CancelID: Sendable { case events, selectionChanges }
@@ -110,6 +107,9 @@ struct RootFeature {
     }
     Scope(state: \.editor, action: \.editor) {
       EditorFeature()
+    }
+    Scope(state: \.worktreeHeader, action: \.worktreeHeader) {
+      WorktreeHeaderFeature()
     }
 
     Reduce { state, action in
@@ -156,7 +156,11 @@ struct RootFeature {
         let tabID = resolveActiveTab(selection: selection)
         state.detail.splitViewport.activeTabID = tabID
         // Forward the (projectID, worktreeID) pair to GitViewerFeature so
-        // the inspector always reflects the current selection.
+        // the inspector always reflects the current selection. The Header
+        // feature does not need a dispatched `.catalogChanged` signal —
+        // its unread count is now computed from the live
+        // `@Environment(HierarchyManager.self).catalog`, which re-renders
+        // on any catalog mutation.
         return .send(.gitViewer(.worktreeSelected(
           projectID: selection.projectID,
           worktreeID: selection.worktreeID
@@ -219,6 +223,42 @@ struct RootFeature {
       case .editor:
         return .none
 
+      case .worktreeHeader(.delegate(let delegate)):
+        switch delegate {
+        case .openEditor(let editorID, let worktreePath, let projectID):
+          let resolvedID: EditorID
+          if let editorID {
+            resolvedID = editorID
+          } else {
+            switch EditorFeature.resolveDefault(
+              projectOverride: projectOverrideEditorID(for: projectID),
+              globalDefault: state.editor.globalDefault,
+              descriptors: state.editor.descriptors
+            ) {
+            case .editor(let descriptor): resolvedID = descriptor.id
+            case .finder: resolvedID = EditorFeature.finderEditorID
+            }
+          }
+          return .send(.editor(.openRequested(
+            editorID: resolvedID,
+            worktreePath: worktreePath,
+            projectID: projectID
+          )))
+
+        case .showCustomEditorsSettings:
+          return .send(.settingsSheetShown)
+
+        case .setProjectOverride(let projectID, let spaceID, let editorID):
+          return .send(.editor(.setProjectOverride(
+            projectID: projectID,
+            spaceID: spaceID,
+            editorID: editorID
+          )))
+        }
+
+      case .worktreeHeader:
+        return .none
+
       case .settingsSheetShown:
         state.settingsSheet = SettingsSheetFeature.State()
         return .none
@@ -233,15 +273,25 @@ struct RootFeature {
 
       case .settingsSheet:
         return .none
-
-      case .inspectorVisibilityToggled:
-        state.inspectorVisible.toggle()
-        return .none
       }
     }
     .ifLet(\.$settingsSheet, action: \.settingsSheet) {
       SettingsSheetFeature()
     }
+  }
+
+  /// Per-Project editor override, if any. Used to resolve the Header's
+  /// default-editor dispatch through `EditorFeature.resolveDefault` without
+  /// the reducer needing to hold a second cache of the catalog.
+  private func projectOverrideEditorID(for projectID: ProjectID?) -> EditorID? {
+    guard let projectID else { return nil }
+    let catalog = hierarchyClient.snapshot()
+    for space in catalog.spaces {
+      if let project = space.projects.first(where: { $0.id == projectID }) {
+        return project.defaultEditor
+      }
+    }
+    return nil
   }
 
   /// Resolve the active tab for a selection using the snapshot from the

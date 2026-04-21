@@ -83,6 +83,14 @@ nonisolated struct HierarchyClient: Sendable {
     _ projectID: ProjectID, _ inSpace: SpaceID, _ editorID: EditorID?
   ) throws -> Void
 
+  /// Flips `Worktree.gitViewerVisible` for the given Worktree. Silent no-op on
+  /// unknown `worktreeID`; persists through the standard debounced
+  /// `store.scheduleSave(catalog)` pipeline (T0 §D5). Consumed by the T2
+  /// Header Git Viewer toggle and by T3's overlay presentation binding.
+  var setWorktreeGitViewerVisible: @MainActor @Sendable (
+    _ worktreeID: WorktreeID, _ visible: Bool
+  ) -> Void
+
   var snapshot: @MainActor @Sendable () -> Catalog
 
   /// Emits whenever the selection chain `(spaceID, projectID, worktreeID)`
@@ -167,6 +175,9 @@ extension HierarchyClient {
       },
       setDefaultEditor: { projectID, spaceID, editorID in
         try manager.setDefaultEditor(editorID, for: projectID, in: spaceID)
+      },
+      setWorktreeGitViewerVisible: { worktreeID, visible in
+        manager.setWorktreeGitViewerVisible(worktreeID: worktreeID, visible: visible)
       },
       snapshot: { manager.catalog },
       selectionChanges: { makeSelectionStream(manager: manager) }
@@ -253,6 +264,7 @@ extension HierarchyClient: DependencyKey {
     focusPanel: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     resizeSplit: { _, _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     setDefaultEditor: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    setWorktreeGitViewerVisible: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     snapshot: { fatalError("HierarchyClient.liveValue not configured") },
     selectionChanges: { AsyncStream { $0.finish() } }
   )
@@ -279,6 +291,7 @@ extension HierarchyClient: DependencyKey {
     focusPanel: unimplemented("HierarchyClient.focusPanel"),
     resizeSplit: unimplemented("HierarchyClient.resizeSplit"),
     setDefaultEditor: unimplemented("HierarchyClient.setDefaultEditor"),
+    setWorktreeGitViewerVisible: unimplemented("HierarchyClient.setWorktreeGitViewerVisible"),
     snapshot: unimplemented(
       "HierarchyClient.snapshot",
       placeholder: Catalog(windows: [], spaces: [], selectedSpaceID: nil)

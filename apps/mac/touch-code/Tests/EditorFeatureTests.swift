@@ -281,4 +281,58 @@ struct EditorFeatureTests {
     #expect(EditorFeature.editorErrorDescription(.unresolvedWorktree) ==
             "No worktree resolved")
   }
+
+  // MARK: - resolveDefault
+
+  @Test
+  func resolveDefaultPrefersProjectOverride() {
+    // Override "cursor" present in descriptors -> .editor(cursor)
+    let resolved = EditorFeature.resolveDefault(
+      projectOverride: "cursor",
+      globalDefault: "vscode",
+      descriptors: Self.sampleDescriptors
+    )
+    #expect(resolved == .editor(Self.sampleDescriptors[1]))
+  }
+
+  @Test
+  func resolveDefaultFallsBackToGlobalWhenNoOverride() {
+    let resolved = EditorFeature.resolveDefault(
+      projectOverride: nil,
+      globalDefault: "vscode",
+      descriptors: Self.sampleDescriptors
+    )
+    #expect(resolved == .editor(Self.sampleDescriptors[0]))
+  }
+
+  @Test
+  func resolveDefaultCascadesThroughMissingOverrideToGlobal() {
+    // Override references an id not in descriptors (e.g., custom editor
+    // was removed). Cascade to the global default — matches the legacy
+    // dropdown's behavior so the user doesn't get stranded on Finder.
+    let resolved = EditorFeature.resolveDefault(
+      projectOverride: "ghost-editor",
+      globalDefault: "vscode",
+      descriptors: Self.sampleDescriptors
+    )
+    #expect(resolved == .editor(Self.sampleDescriptors[0]))
+  }
+
+  @Test
+  func resolveDefaultReturnsFinderWhenNothingResolves() {
+    // Neither override nor global resolves to a descriptor.
+    let noOverride = EditorFeature.resolveDefault(
+      projectOverride: nil,
+      globalDefault: nil,
+      descriptors: Self.sampleDescriptors
+    )
+    #expect(noOverride == .finder)
+
+    let bothMissing = EditorFeature.resolveDefault(
+      projectOverride: "ghost",
+      globalDefault: "also-ghost",
+      descriptors: Self.sampleDescriptors
+    )
+    #expect(bothMissing == .finder)
+  }
 }

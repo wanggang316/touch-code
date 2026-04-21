@@ -18,6 +18,14 @@ nonisolated struct InboxClient: Sendable {
   /// Mark specific notifications as read.
   var markRead: @MainActor @Sendable (_ ids: [UUID]) -> Void
 
+  /// Mark every notification whose panel resolves (through `catalog`) to the
+  /// given Worktree as read. Thin bridge over
+  /// `InboxStore.markRead(forWorktree:in:)`; consumed by the T2 Header bell
+  /// popover row-tap.
+  var markReadForWorktree: @MainActor @Sendable (
+    _ worktreeID: WorktreeID, _ catalog: Catalog
+  ) -> Void
+
   /// Dismiss every notification in the inbox.
   var clearAll: @MainActor @Sendable () -> Void
 
@@ -47,6 +55,9 @@ extension InboxClient {
     InboxClient(
       dismiss: { ids in inbox.dismiss(ids) },
       markRead: { ids in inbox.markRead(ids) },
+      markReadForWorktree: { worktreeID, catalog in
+        inbox.markRead(forWorktree: worktreeID, in: catalog)
+      },
       clearAll: { inbox.clearAll() },
       muteRule: { ruleID in
         settings.mutate { $0.notifications.mute.mutedRuleIDs.insert(ruleID) }
@@ -68,6 +79,7 @@ extension InboxClient: DependencyKey {
   static let liveValue: InboxClient = InboxClient(
     dismiss: { _ in },
     markRead: { _ in },
+    markReadForWorktree: { _, _ in },
     clearAll: { },
     muteRule: { _ in },
     observe: { AsyncStream { $0.finish() } },
@@ -77,6 +89,7 @@ extension InboxClient: DependencyKey {
   static let testValue: InboxClient = InboxClient(
     dismiss: unimplemented("InboxClient.dismiss"),
     markRead: unimplemented("InboxClient.markRead"),
+    markReadForWorktree: unimplemented("InboxClient.markReadForWorktree"),
     clearAll: unimplemented("InboxClient.clearAll"),
     muteRule: unimplemented("InboxClient.muteRule"),
     observe: unimplemented(

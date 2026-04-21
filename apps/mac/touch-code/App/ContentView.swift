@@ -47,10 +47,15 @@ struct ContentView: View {
         WorktreeDetailView(
           store: store.scope(state: \.detail, action: \.detail),
           selection: store.selection,
-          editorStore: store.scope(state: \.editor, action: \.editor)
+          editorStore: store.scope(state: \.editor, action: \.editor),
+          headerStore: store.scope(state: \.worktreeHeader, action: \.worktreeHeader)
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        if store.inspectorVisible {
+        // T2: Git Viewer visibility is now persisted per-Worktree via
+        // `Worktree.gitViewerVisible`; the Header toggle flips it. T3 will
+        // replace this third-column `if` with a trailing overlay; the read
+        // path (`resolveGVVisible`) stays — that is T3's locked diff.
+        if resolveGVVisible(store.selection) {
           Divider()
           GitViewerView(store: store.scope(state: \.gitViewer, action: \.gitViewer))
             .frame(minWidth: 420, idealWidth: 480)
@@ -68,15 +73,6 @@ struct ContentView: View {
           .help("Settings (⌘,)")
           .keyboardShortcut(",", modifiers: [.command])
         }
-        ToolbarItem(placement: .primaryAction) {
-          Button {
-            store.send(.inspectorVisibilityToggled)
-          } label: {
-            Image(systemName: store.inspectorVisible ? "sidebar.right" : "sidebar.right")
-              .accessibilityLabel(store.inspectorVisible ? "Hide Inspector" : "Show Inspector")
-          }
-          .help("Toggle git viewer inspector")
-        }
       }
       .sheet(item: $store.scope(state: \.settingsSheet, action: \.settingsSheet)) { sheetStore in
         SettingsSheetView(store: sheetStore) {
@@ -89,6 +85,7 @@ struct ContentView: View {
     .environment(inboxStore)
     .task {
       store.send(.onLaunch)
+      store.send(.worktreeHeader(.onAppear))
     }
     .onChange(of: store.editor.lastOpenResult) { _, new in
       guard let new else { return }
@@ -124,6 +121,21 @@ struct ContentView: View {
     }
   }
 
+  /// Looks up `Worktree.gitViewerVisible` for the current selection. Single
+  /// read site into the catalog; T3 keeps this call site intact and only
+  /// changes the surrounding presentation (3rd column → trailing overlay).
+  private func resolveGVVisible(_ selection: HierarchySelection) -> Bool {
+    guard
+      let spaceID = selection.spaceID,
+      let projectID = selection.projectID,
+      let worktreeID = selection.worktreeID
+    else { return false }
+    return hierarchyManager.catalog
+      .spaces.first(where: { $0.id == spaceID })?
+      .projects.first(where: { $0.id == projectID })?
+      .worktrees.first(where: { $0.id == worktreeID })?
+      .gitViewerVisible ?? false
+  }
 }
 
 // `InspectorPlaceholder` (0007 M4, DEC-9) was replaced in 0005 M4a by
