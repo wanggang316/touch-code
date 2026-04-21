@@ -2,116 +2,273 @@ import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
 
-/// Renders `HierarchyManager.catalog` as a `List` with two levels of
-/// disclosure groups (Space → Project → Worktree). Row taps fire actions
-/// on `HierarchySidebarFeature`; structural data is read directly from the
-/// environment `HierarchyManager` — TCA state holds only expansion sets
-/// and routes commands.
+/// Renders the sidebar per `docs/product-specs/ui-main-window-redesign.md`:
+/// a sticky toolbar with "+ Add Project" and a "⋯" placeholder menu; the
+/// active Space's Projects as collapsible sections with hover-revealed `+` /
+/// `⋯` chrome; Worktree rows with a leading `●`/`○` selection dot and a
+/// trailing unread-notification dot; a pinned Space footer whose tap opens
+/// a popover for switching / creating Spaces; and empty-state + confirmation
+/// / stub-sheet presentations.
 ///
-/// The `currentSelection` parameter is read from the parent's
-/// `RootFeature.State.selection` so rows can render selected state without
-/// the sidebar feature itself subscribing to the selection stream.
+/// Structural data is NOT held in reducer state — the view reads the active
+/// `Catalog` from `HierarchyManager` and the `NotificationInbox` from
+/// `InboxStore` through SwiftUI's environment, so row lists and unread dots
+/// update whenever the underlying `@Observable` stores mutate. The TCA
+/// reducer owns only local view state (expansion sets, popover / sheet /
+/// confirmation payloads) and dispatches side effects through
+/// `HierarchyClient` (plus delegate actions for Finder / editor open that
+/// `RootFeature` routes).
 struct HierarchySidebarView: View {
   @Bindable var store: StoreOf<HierarchySidebarFeature>
   let currentSelection: HierarchySelection
   @Environment(HierarchyManager.self) private var hierarchyManager
+  @Environment(InboxStore.self) private var inboxStore
 
   var body: some View {
-    let spaces = hierarchyManager.catalog.spaces
-    List {
-      if spaces.isEmpty {
-        emptyState
-      } else {
-        ForEach(spaces) { space in
-          spaceSection(space)
+    let catalog = hierarchyManager.catalog
+    let panelIndex = catalog.panelWorktreeIndex()
+    let inbox = inboxStore.inbox
+    let activeSpace = catalog.spaces.first { $0.id == catalog.selectedSpaceID }
+
+    VStack(spacing: 0) {
+      sidebarToolbar
+      Divider()
+      treeBody(activeSpace: activeSpace, panelIndex: panelIndex, inbox: inbox)
+      Divider()
+      spaceFooter(activeSpace: activeSpace)
+        .popover(
+          isPresented: Binding(
+            get: { store.isSpacePopoverPresented },
+            set: { isPresented in
+              if !isPresented { store.send(.spacePopoverDismissed) }
+            }
+          ),
+          attachmentAnchor: .rect(.bounds),
+          arrowEdge: .top
+        ) {
+          spacePopover(catalog: catalog)
         }
-      }
     }
-    .listStyle(.sidebar)
-  }
-
-  private var emptyState: some View {
-    VStack(alignment: .leading, spacing: 6) {
-      Text("No Spaces yet")
-        .font(.headline)
-      Text("Creation UI ships in M6.")
-        .font(.caption)
-        .foregroundStyle(.secondary)
-    }
-    .padding(.vertical, 6)
-  }
-
-  private func spaceSection(_ space: Space) -> some View {
-    DisclosureGroup(
-      isExpanded: Binding(
-        get: { store.expandedSpaceIDs.contains(space.id) },
-        set: { _ in store.send(.toggleSpaceExpansion(space.id)) }
+    .sheet(
+      isPresented: Binding(
+        get: { store.addProjectSheet != nil },
+        set: { if !$0 { store.send(.addProjectSheetDismissed) } }
       )
     ) {
-      ForEach(space.projects) { project in
-        projectSection(project, in: space)
-      }
-    } label: {
-      Button {
-        store.send(.spaceRowTapped(space.id))
-      } label: {
-        HStack {
-          Image(systemName: "folder")
-            .accessibilityHidden(true)
-            .foregroundStyle(.secondary)
-          Text(space.name).fontWeight(.semibold)
-          Spacer()
-        }
-      }
-      .buttonStyle(.plain)
-      .listRowBackground(
-        currentSelection.spaceID == space.id
-          ? Color.accentColor.opacity(0.15) : Color.clear
+      stubSheet(
+        title: "Add Project",
+        body: "The Add-Project flow is not yet implemented in this iteration.",
+        dismiss: .addProjectSheetDismissed
       )
+    }
+    .sheet(
+      isPresented: Binding(
+        get: { store.addWorktreeSheet != nil },
+        set: { if !$0 { store.send(.addWorktreeSheetDismissed) } }
+      )
+    ) {
+      stubSheet(
+        title: "Add Worktree",
+        body: "The Add-Worktree flow is not yet implemented in this iteration.",
+        dismiss: .addWorktreeSheetDismissed
+      )
+    }
+    .sheet(
+      isPresented: Binding(
+        get: { store.renameProjectSheet != nil },
+        set: { if !$0 { store.send(.projectRenameCancelled) } }
+      )
+    ) {
+      renameProjectSheet
+    }
+    .confirmationDialog(
+      worktreeRemovalTitle,
+      isPresented: Binding(
+        get: { store.pendingWorktreeRemoval != nil },
+        set: { if !$0 { store.send(.worktreeRemoveCancelled) } }
+      ),
+      titleVisibility: .visible
+    ) {
+      Button("Remove Worktree", role: .destructive) {
+        store.send(.worktreeRemoveConfirmed)
+      }
+      Button("Cancel", role: .cancel) {
+        store.send(.worktreeRemoveCancelled)
+      }
+    } message: {
+      Text("Removes the Worktree from the Project and closes all its panels. This cannot be undone.")
+    }
+    .confirmationDialog(
+      projectRemovalTitle,
+      isPresented: Binding(
+        get: { store.pendingProjectRemoval != nil },
+        set: { if !$0 { store.send(.projectRemoveCancelled) } }
+      ),
+      titleVisibility: .visible
+    ) {
+      Button("Remove Project", role: .destructive) {
+        store.send(.projectRemoveConfirmed)
+      }
+      Button("Cancel", role: .cancel) {
+        store.send(.projectRemoveCancelled)
+      }
+    } message: {
+      Text("Removes the Project and every Worktree under it. This closes all their panels and cannot be undone.")
     }
   }
 
-  private func projectSection(_ project: Project, in space: Space) -> some View {
-    DisclosureGroup(
+  // MARK: - Toolbar
+
+  @ViewBuilder
+  private var sidebarToolbar: some View {
+    HStack(spacing: 8) {
+      Button {
+        store.send(.toolbarAddProjectTapped)
+      } label: {
+        Label("Add Project", systemImage: "plus")
+      }
+      .buttonStyle(.borderless)
+      .help("Add Project to the active Space")
+      Spacer()
+      Menu {
+        // Placeholder for future sidebar-level actions. Empty Menu still
+        // renders as a disabled dropdown, which is the spec-approved
+        // "stub entry point".
+        Text("(No actions yet)")
+      } label: {
+        Image(systemName: "ellipsis")
+          .accessibilityLabel("Sidebar options")
+      }
+      .menuStyle(.borderlessButton)
+      .fixedSize()
+      .help("Sidebar options")
+    }
+    .padding(.horizontal, 12)
+    .padding(.vertical, 8)
+  }
+
+  // MARK: - Tree
+
+  @ViewBuilder
+  private func treeBody(
+    activeSpace: Space?,
+    panelIndex: [PanelID: WorktreeID],
+    inbox: NotificationInbox
+  ) -> some View {
+    if let activeSpace {
+      if activeSpace.projects.isEmpty {
+        emptySpaceState
+      } else {
+        List {
+          ForEach(activeSpace.projects) { project in
+            projectSection(project, in: activeSpace, panelIndex: panelIndex, inbox: inbox)
+          }
+        }
+        .listStyle(.sidebar)
+      }
+    } else {
+      noSpacesState
+    }
+  }
+
+  private var noSpacesState: some View {
+    VStack(spacing: 8) {
+      Spacer()
+      Image(systemName: "folder.badge.plus")
+        .font(.title)
+        .foregroundStyle(.secondary)
+        .accessibilityHidden(true)
+      Text("No Spaces yet.")
+        .font(.callout)
+        .foregroundStyle(.secondary)
+      Spacer()
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .padding()
+  }
+
+  private var emptySpaceState: some View {
+    VStack(spacing: 10) {
+      Spacer()
+      Image(systemName: "tray")
+        .font(.title)
+        .foregroundStyle(.secondary)
+        .accessibilityHidden(true)
+      Text("No projects yet.")
+        .font(.callout)
+        .foregroundStyle(.secondary)
+      Button {
+        store.send(.toolbarAddProjectTapped)
+      } label: {
+        Label("Add Project", systemImage: "plus")
+      }
+      .buttonStyle(.borderedProminent)
+      Spacer()
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .padding()
+  }
+
+  // MARK: - Project section
+
+  private func projectSection(
+    _ project: Project,
+    in space: Space,
+    panelIndex: [PanelID: WorktreeID],
+    inbox: NotificationInbox
+  ) -> some View {
+    let projectHasUnread = inbox.notifications.contains { notification in
+      guard notification.isUnread,
+            let worktreeID = panelIndex[notification.panelID]
+      else { return false }
+      return project.worktrees.contains(where: { $0.id == worktreeID })
+    }
+
+    return DisclosureGroup(
       isExpanded: Binding(
         get: { store.expandedProjectIDs.contains(project.id) },
         set: { _ in store.send(.toggleProjectExpansion(project.id)) }
       )
     ) {
       ForEach(project.worktrees) { worktree in
-        worktreeRow(worktree, in: project, space: space)
+        worktreeRow(worktree, in: project, space: space, panelIndex: panelIndex, inbox: inbox)
       }
     } label: {
-      Button {
-        store.send(.projectRowTapped(project.id, inSpace: space.id))
-      } label: {
-        HStack {
-          Image(systemName: "square.stack.3d.up")
-            .accessibilityHidden(true)
-            .foregroundStyle(.secondary)
-          Text(project.name)
-          Spacer()
-        }
-      }
-      .buttonStyle(.plain)
-      .listRowBackground(
-        currentSelection.projectID == project.id
-          ? Color.accentColor.opacity(0.15) : Color.clear
+      ProjectHeaderRow(
+        project: project,
+        space: space,
+        hasUnread: projectHasUnread,
+        store: store
       )
     }
   }
 
-  private func worktreeRow(_ worktree: Worktree, in project: Project, space: Space) -> some View {
-    Button {
-      store.send(
-        .worktreeRowTapped(worktree.id, inProject: project.id, inSpace: space.id)
-      )
+  // MARK: - Worktree row
+
+  private func worktreeRow(
+    _ worktree: Worktree,
+    in project: Project,
+    space: Space,
+    panelIndex: [PanelID: WorktreeID],
+    inbox: NotificationInbox
+  ) -> some View {
+    let isSelected = currentSelection.worktreeID == worktree.id
+    let unreadCount = inbox.notifications.reduce(into: 0) { total, notification in
+      guard notification.isUnread,
+            panelIndex[notification.panelID] == worktree.id
+      else { return }
+      total += 1
+    }
+
+    return Button {
+      store.send(.worktreeRowTapped(worktree.id, inProject: project.id, inSpace: space.id))
     } label: {
-      HStack {
-        Image(systemName: "arrow.triangle.branch")
-          .accessibilityHidden(true)
-          .foregroundStyle(.secondary)
-        VStack(alignment: .leading) {
+      HStack(spacing: 6) {
+        Image(systemName: isSelected ? "circle.fill" : "circle")
+          .font(.caption2)
+          .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+          .accessibilityLabel(isSelected ? "Active worktree" : "Inactive worktree")
+        VStack(alignment: .leading, spacing: 1) {
           Text(worktree.name)
           if let branch = worktree.branch {
             Text(branch)
@@ -120,12 +277,253 @@ struct HierarchySidebarView: View {
           }
         }
         Spacer()
+        if unreadCount > 0 {
+          Circle()
+            .fill(Color.accentColor)
+            .frame(width: 6, height: 6)
+            .accessibilityLabel("Has \(unreadCount) unread notifications")
+        }
       }
     }
     .buttonStyle(.plain)
     .listRowBackground(
-      currentSelection.worktreeID == worktree.id
-        ? Color.accentColor.opacity(0.2) : Color.clear
+      isSelected
+        ? Color.accentColor.opacity(0.2)
+        : Color.clear
     )
+    .contextMenu {
+      Button(role: .destructive) {
+        store.send(
+          .worktreeRemoveTapped(
+            worktreeID: worktree.id,
+            inProject: project.id,
+            inSpace: space.id,
+            name: worktree.name
+          )
+        )
+      } label: {
+        Label("Remove Worktree", systemImage: "trash")
+      }
+      Button {
+        store.send(.worktreeRevealInFinderTapped(path: worktree.path))
+      } label: {
+        Label("Reveal in Finder", systemImage: "folder")
+      }
+      Button {
+        store.send(
+          .worktreeOpenInDefaultEditorTapped(
+            worktreeID: worktree.id,
+            projectID: project.id,
+            path: worktree.path
+          )
+        )
+      } label: {
+        Label("Open in Default Editor", systemImage: "square.and.pencil")
+      }
+    }
+  }
+
+  // MARK: - Space footer + popover
+
+  private func spaceFooter(activeSpace: Space?) -> some View {
+    Button {
+      store.send(.spaceFooterTapped)
+    } label: {
+      HStack(spacing: 8) {
+        Image(systemName: "square.stack.3d.up")
+          .foregroundStyle(.secondary)
+          .accessibilityHidden(true)
+        Text(activeSpace?.name ?? "No Space")
+          .lineLimit(1)
+        Spacer()
+        Image(systemName: "chevron.down")
+          .foregroundStyle(.secondary)
+          .accessibilityHidden(true)
+      }
+      .padding(.horizontal, 12)
+      .padding(.vertical, 10)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .help("Switch Space")
+  }
+
+  @ViewBuilder
+  private func spacePopover(catalog: Catalog) -> some View {
+    let activeID = catalog.selectedSpaceID
+    VStack(alignment: .leading, spacing: 0) {
+      ForEach(catalog.spaces) { space in
+        Button {
+          store.send(.spacePopoverSpaceSelected(space.id))
+        } label: {
+          HStack(spacing: 8) {
+            Image(systemName: space.id == activeID ? "checkmark" : "")
+              .frame(width: 14)
+              .foregroundStyle(.primary)
+              .accessibilityHidden(true)
+            Text(space.name)
+            Spacer()
+          }
+          .padding(.horizontal, 12)
+          .padding(.vertical, 6)
+          .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+      }
+      Divider()
+      Button {
+        store.send(.spacePopoverNewSpaceTapped)
+      } label: {
+        HStack(spacing: 8) {
+          Image(systemName: "plus")
+            .frame(width: 14)
+            .accessibilityHidden(true)
+          Text("New Space")
+          Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+    }
+    .padding(.vertical, 4)
+    .frame(minWidth: 220)
+  }
+
+  // MARK: - Stub sheets
+
+  private func stubSheet(
+    title: String,
+    body: String,
+    dismiss: HierarchySidebarFeature.Action
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text(title).font(.headline)
+      Text(body)
+        .font(.callout)
+        .foregroundStyle(.secondary)
+      HStack {
+        Spacer()
+        Button("Done") { store.send(dismiss) }
+          .keyboardShortcut(.defaultAction)
+      }
+    }
+    .padding(24)
+    .frame(width: 360)
+  }
+
+  // MARK: - Rename Project sheet
+
+  @ViewBuilder
+  private var renameProjectSheet: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text("Rename Project").font(.headline)
+      TextField(
+        "Project name",
+        text: Binding(
+          get: { store.renameProjectSheet?.draft ?? "" },
+          set: { store.send(.projectRenameDraftChanged($0)) }
+        )
+      )
+      .textFieldStyle(.roundedBorder)
+      HStack {
+        Spacer()
+        Button("Cancel") { store.send(.projectRenameCancelled) }
+          .keyboardShortcut(.cancelAction)
+        Button("Rename") { store.send(.projectRenameConfirmed) }
+          .keyboardShortcut(.defaultAction)
+          .disabled(
+            (store.renameProjectSheet?.draft ?? "")
+              .trimmingCharacters(in: .whitespacesAndNewlines)
+              .isEmpty
+          )
+      }
+    }
+    .padding(20)
+    .frame(width: 340)
+  }
+
+  // MARK: - Confirmation titles
+
+  private var worktreeRemovalTitle: String {
+    if let name = store.pendingWorktreeRemoval?.displayName {
+      return "Remove Worktree “\(name)”?"
+    }
+    return "Remove Worktree?"
+  }
+
+  private var projectRemovalTitle: String {
+    if let name = store.pendingProjectRemoval?.displayName {
+      return "Remove Project “\(name)”?"
+    }
+    return "Remove Project?"
+  }
+}
+
+// MARK: - Project header (hover chrome)
+
+/// Dedicated subview so `@State var isHovering` is per-row. Hovering is a
+/// view-local concern — not worth promoting to reducer state.
+private struct ProjectHeaderRow: View {
+  let project: Project
+  let space: Space
+  let hasUnread: Bool
+  @Bindable var store: StoreOf<HierarchySidebarFeature>
+  @State private var isHovering = false
+
+  var body: some View {
+    HStack(spacing: 6) {
+      Image(systemName: "square.stack.3d.up")
+        .foregroundStyle(.secondary)
+        .accessibilityHidden(true)
+      Text(project.name)
+      Spacer()
+      if hasUnread {
+        Circle()
+          .fill(Color.accentColor)
+          .frame(width: 6, height: 6)
+          .accessibilityLabel("Has unread notifications")
+      }
+      // Keep the hover chrome from collapsing row width when hidden —
+      // use opacity, not conditional rendering.
+      HStack(spacing: 4) {
+        Button {
+          store.send(.projectAddWorktreeTapped(projectID: project.id, inSpace: space.id))
+        } label: {
+          Image(systemName: "plus")
+            .accessibilityLabel("Add Worktree under this Project")
+        }
+        .buttonStyle(.borderless)
+        Menu {
+          Button("Rename Project") {
+            store.send(
+              .projectRenameTapped(
+                projectID: project.id,
+                inSpace: space.id,
+                currentName: project.name
+              )
+            )
+          }
+          Button("Remove Project", role: .destructive) {
+            store.send(
+              .projectRemoveTapped(
+                projectID: project.id,
+                inSpace: space.id,
+                name: project.name
+              )
+            )
+          }
+        } label: {
+          Image(systemName: "ellipsis")
+            .accessibilityLabel("Project options")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+      }
+      .opacity(isHovering ? 1 : 0)
+    }
+    .contentShape(Rectangle())
+    .onHover { isHovering = $0 }
   }
 }

@@ -16,6 +16,10 @@ struct ContentView: View {
   @Bindable var store: StoreOf<RootFeature>
   let hierarchyManager: HierarchyManager
   let settingsStore: SettingsStore
+  /// Injected so `HierarchySidebarView` can read `inboxStore.inbox` directly
+  /// for Worktree / Project unread-dot aggregation — matches the
+  /// `HierarchyManager`-through-`@Environment` pattern already in use.
+  let inboxStore: InboxStore
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
   /// Transient toast for editor-open outcomes (success + failure). Non-nil = visible;
@@ -78,6 +82,7 @@ struct ContentView: View {
     }
     .environment(hierarchyManager)
     .environment(settingsStore)
+    .environment(inboxStore)
     .task {
       store.send(.onLaunch)
     }
