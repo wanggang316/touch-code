@@ -11,7 +11,6 @@ struct WorktreeHeaderView: View {
   let editorStore: StoreOf<EditorFeature>
   let spaceID: SpaceID
   let projectID: ProjectID
-  let worktreeID: WorktreeID
   let worktreePath: String
   let branchLabel: String
   let gitViewerVisible: Bool
@@ -38,7 +37,6 @@ struct WorktreeHeaderView: View {
         )
         HeaderGitViewerToggle(
           store: store,
-          worktreeID: worktreeID,
           visible: gitViewerVisible
         )
       }

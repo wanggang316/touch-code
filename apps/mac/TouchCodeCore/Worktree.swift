@@ -56,6 +56,13 @@ extension Worktree: Codable {
     try container.encodeIfPresent(branch, forKey: .branch)
     try container.encode(tabs, forKey: .tabs)
     try container.encodeIfPresent(selectedTabID, forKey: .selectedTabID)
-    try container.encode(gitViewerVisible, forKey: .gitViewerVisible)
+    // Only emit `gitViewerVisible` when it's non-default. Decode path uses
+    // `decodeIfPresent ?? false`, so omitting the key for default-visibility
+    // Worktrees (the common case) shrinks on-disk catalogs and keeps
+    // pre-T0 catalogs round-trip-identical. Symmetric with how
+    // `Space.lastActiveWorktreeID` uses `encodeIfPresent`.
+    if gitViewerVisible {
+      try container.encode(true, forKey: .gitViewerVisible)
+    }
   }
 }

@@ -689,6 +689,25 @@ struct HierarchySidebarFeatureTests {
     #expect(calls.value.createSpace == ["Untitled Space 2"])
   }
 
+  // MARK: - External Space-switcher open (⌘K)
+
+  @Test
+  func externalSpacePopoverOpenRequestedSetsIsSpacePopoverPresented() async {
+    // `RootFeature.openSpaceSwitcherRequested` (⌘K) forwards here. Unlike
+    // `.spaceFooterTapped` this is open-only semantics: calling it twice
+    // leaves the popover open rather than toggling it back closed.
+    let store = TestStore(initialState: HierarchySidebarFeature.State()) {
+      HierarchySidebarFeature()
+    }
+    #expect(store.state.isSpacePopoverPresented == false)
+    await store.send(.externalSpacePopoverOpenRequested) {
+      $0.isSpacePopoverPresented = true
+    }
+    // Second dispatch: no state change (already true) — exhaustivity means
+    // we assert the non-mutation by omitting the mutation closure.
+    await store.send(.externalSpacePopoverOpenRequested)
+  }
+
   @Test
   func pruneExpansionSetsDropsStaleIDs() async {
     let live = SpaceID()

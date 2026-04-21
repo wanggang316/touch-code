@@ -161,6 +161,11 @@ struct HierarchySidebarFeature {
 
     // Space footer + popover
     case spaceFooterTapped
+    /// External (non-footer) request to open the Space switcher popover.
+    /// Open-only semantics — distinct from `.spaceFooterTapped` which is a
+    /// toggle. Fires when `RootFeature` forwards `⌘K`
+    /// (`.openSpaceSwitcherRequested`).
+    case externalSpacePopoverOpenRequested
     case spacePopoverDismissed
     case spacePopoverSpaceSelected(SpaceID)
     /// Creates a Space with an auto-generated name (see `nextUntitledSpaceName`)
@@ -329,6 +334,10 @@ struct HierarchySidebarFeature {
 
       case .spaceFooterTapped:
         state.isSpacePopoverPresented.toggle()
+        return .none
+
+      case .externalSpacePopoverOpenRequested:
+        state.isSpacePopoverPresented = true
         return .none
 
       case .spacePopoverDismissed:

@@ -120,7 +120,6 @@ struct WorktreeDetailView: View {
         editorStore: editorStore,
         spaceID: address.space,
         projectID: address.project,
-        worktreeID: address.worktree,
         worktreePath: worktree.path,
         branchLabel: worktree.branch ?? worktree.name,
         gitViewerVisible: worktree.gitViewerVisible
