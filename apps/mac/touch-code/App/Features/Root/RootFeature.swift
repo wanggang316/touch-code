@@ -199,33 +199,23 @@ struct RootFeature {
       // `case .sidebar:` so the nested pattern matches first.
 
       case .sidebar(.delegate(.openInDefaultEditor(let path, let projectID))):
-        // Inline default-editor resolution: project override → global default
-        // → EditorRegistry.finderID. Each tier is accepted only if the
-        // descriptor is installed. T2 will hoist this into
-        // `EditorFeature.resolveDefault` when it rebases; keeping it inline
-        // now avoids touching `EditorFeature.Action` (T2's boundary).
-        let descriptors = state.editor.descriptors
-        let globalDefault = state.editor.globalDefault
-        let overrideID: EditorID? = projectID.flatMap { pid in
-          let catalog = hierarchyClient.snapshot()
-          for space in catalog.spaces {
-            for project in space.projects where project.id == pid {
-              return project.defaultEditor
-            }
-          }
-          return nil
+        // T3 rebase: route through the shared `EditorFeature.resolveDefault`
+        // helper so the sidebar context menu, the Header Open-in button, and
+        // the ⌘E shortcut use one resolution path. Cascade-on-missing
+        // semantics (documented on `resolveDefault`) are the canonical
+        // behavior; a non-installed descriptor resolves to its id and the
+        // downstream `.openRequested` surfaces `.failed` through the toast.
+        let resolvedID: EditorID
+        switch EditorFeature.resolveDefault(
+          projectOverride: projectOverrideEditorID(for: projectID),
+          globalDefault: state.editor.globalDefault,
+          descriptors: state.editor.descriptors
+        ) {
+        case .editor(let descriptor): resolvedID = descriptor.id
+        case .finder: resolvedID = EditorFeature.finderEditorID
         }
-        func installed(_ id: EditorID?) -> EditorID? {
-          guard let id,
-                descriptors.contains(where: { $0.id == id && $0.isInstalled })
-          else { return nil }
-          return id
-        }
-        let resolved: EditorID = installed(overrideID)
-          ?? installed(globalDefault)
-          ?? EditorRegistry.finderID
         return .send(.editor(.openRequested(
-          editorID: resolved,
+          editorID: resolvedID,
           worktreePath: path,
           projectID: projectID
         )))
