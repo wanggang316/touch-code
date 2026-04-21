@@ -269,7 +269,6 @@ nonisolated final class CreateWorktreeProcessBox: @unchecked Sendable {
   }
 }
 
-
 /// Resolves the bundled `wt` script out of the app bundle's Resources
 /// folder. Debug and Release builds alike embed the script via Tuist's
 /// post-build `embed-git-wt.sh` (see `apps/mac/scripts/`).
