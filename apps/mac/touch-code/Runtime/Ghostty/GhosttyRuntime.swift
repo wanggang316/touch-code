@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import GhosttyKit
+import SwiftUI
 import TouchCodeCore
 
 /// Process-global libghostty façade. Owns one `ghostty_app_t` and the runtime
@@ -60,6 +61,15 @@ final class GhosttyRuntime {
   /// reference is a bug elsewhere.
   weak var terminalEngine: TerminalEngine?
 
+  /// Last resolved color scheme applied via `setColorScheme(_:)`. Newly registered
+  /// surfaces adopt this on registration so a panel opened mid-session starts in the
+  /// correct palette without waiting for the next toggle.
+  private var lastColorScheme: ghostty_color_scheme_e?
+
+  /// Retained observer token for `.ghosttyRuntimeReloadRequested`. Removed in deinit so
+  /// the closure can't race a freed runtime after the app shuts down.
+  private var reloadObserver: NSObjectProtocol?
+
   /// Process-global weak reference used by C callback shims that hop through
   /// DispatchQueue.main.async — the original dispatcher userdata may point
   /// to freed memory by the time the async block runs, so we go through the
@@ -103,9 +113,26 @@ final class GhosttyRuntime {
     }
     self.app = app
     Self.shared = self
+
+    // Subscribe to config-file writes from `GhosttyConfigFile.apply`; we re-parse from
+    // disk and push the new config into libghostty. Using a weak capture avoids a
+    // retain cycle through the default NotificationCenter.
+    self.reloadObserver = NotificationCenter.default.addObserver(
+      forName: .ghosttyRuntimeReloadRequested,
+      object: nil,
+      queue: .main
+    ) { [weak self] _ in
+      MainActor.assumeIsolated {
+        self?.reloadAppConfig()
+      }
+    }
   }
 
   isolated deinit {
+    if let reloadObserver {
+      NotificationCenter.default.removeObserver(reloadObserver)
+    }
+
     for (_, panel) in surfacesByPanelID {
       panel.close()
     }
@@ -127,6 +154,11 @@ final class GhosttyRuntime {
 
   func register(panel: PanelSurface) {
     surfacesByPanelID[panel.panelID] = panel
+    // A surface registered mid-session inherits the most recently applied scheme so
+    // the palette matches the app's current appearance from its first frame.
+    if let lastColorScheme {
+      panel.applyColorScheme(lastColorScheme)
+    }
   }
 
   func unregister(panelID: PanelID) {
@@ -140,6 +172,31 @@ final class GhosttyRuntime {
   func tick() {
     guard let app else { return }
     ghostty_app_tick(app)
+  }
+
+  // MARK: - Appearance
+
+  /// Applies a color scheme signal to libghostty — tells Ghostty which of its two
+  /// configured palettes (light / dark) to render. Cheap, in-memory, synchronous.
+  /// Invoked on every app appearance change (user picker toggle, OS dark-mode flip).
+  /// Distinct from `reloadAppConfig()`: no file I/O, no config re-parse.
+  func setColorScheme(_ scheme: SwiftUI.ColorScheme) {
+    guard let app else { return }
+    let ghosttyScheme: ghostty_color_scheme_e =
+      scheme == .dark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT
+    lastColorScheme = ghosttyScheme
+    ghostty_app_set_color_scheme(app, ghosttyScheme)
+    for panel in surfacesByPanelID.values {
+      panel.applyColorScheme(ghosttyScheme)
+    }
+  }
+
+  /// Triggered by `.ghosttyRuntimeReloadRequested`, which `GhosttyConfigFile.apply`
+  /// posts after writing the managed region of the user's Ghostty config. Delegates
+  /// to `reloadConfig(soft:)`, the shared primitive used by the action-decoder path
+  /// — keeping one implementation of the "rebuild from disk" behaviour.
+  func reloadAppConfig() {
+    reloadConfig(soft: false)
   }
 
   // MARK: - C callback shims
@@ -332,4 +389,11 @@ enum GhosttyError: Error, Equatable, Sendable {
   case configInitFailed
   case appInitFailed
   case surfaceInitFailed
+}
+
+extension Notification.Name {
+  /// Posted by `GhosttyConfigFile.apply` after writing the managed region of
+  /// `~/.config/ghostty/config`. `GhosttyRuntime` listens and re-parses the config so
+  /// running surfaces pick up the new theme / font without an app restart.
+  static let ghosttyRuntimeReloadRequested = Notification.Name("ghosttyRuntimeReloadRequested")
 }
