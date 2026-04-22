@@ -790,6 +790,192 @@ final class HierarchyManager {
     store.scheduleSave(catalog)
   }
 
+  // MARK: - Panel address resolution (0008 M5)
+
+  /// Resolves a `PanelID` to the full hierarchy address that owns it. Used by
+  /// `PanelActionRouterFeature` to service panel-scoped intents (closeTab,
+  /// moveTab, activateTab, equalizeTabSplits). Linear in total panel count —
+  /// acceptable at the cardinalities we support; no secondary index needed
+  /// yet. `nil` when the panel is unknown (closed mid-flight, stale callback).
+  func addressOf(panelID: PanelID) -> (SpaceID, ProjectID, WorktreeID, TabID)? {
+    for space in catalog.spaces {
+      for project in space.projects {
+        for worktree in project.worktrees {
+          for tab in worktree.tabs where tab.panels.contains(where: { $0.id == panelID }) {
+            return (space.id, project.id, worktree.id, tab.id)
+          }
+        }
+      }
+    }
+    return nil
+  }
+
+  // MARK: - Tab reordering (0008 M5)
+
+  /// Moves a Tab inside its Worktree by `offset` positions. Positive shifts
+  /// right, negative shifts left; the final index is clamped to the Worktree's
+  /// tab-array bounds so the caller does not need to know the array length.
+  /// Zero offset or clamped-to-identity is a silent no-op (no save scheduled).
+  /// Persists via the standard debounced `store.scheduleSave` pipeline.
+  func moveTab(
+    _ tabID: TabID,
+    in worktreeID: WorktreeID,
+    in projectID: ProjectID,
+    in spaceID: SpaceID,
+    offset: Int
+  ) throws {
+    guard
+      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+        worktreeID: worktreeID,
+        projectID: projectID,
+        spaceID: spaceID
+      )
+    else {
+      throw HierarchyError.notFound("Worktree \(worktreeID)")
+    }
+    guard
+      let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex]
+        .worktrees[worktreeIndex].tabs.firstIndex(where: { $0.id == tabID })
+    else {
+      throw HierarchyError.notFound("Tab \(tabID)")
+    }
+    let count = catalog.spaces[spaceIndex].projects[projectIndex]
+      .worktrees[worktreeIndex].tabs.count
+    let target = max(0, min(count - 1, tabIndex + offset))
+    guard target != tabIndex else { return }
+    let tab = catalog.spaces[spaceIndex].projects[projectIndex]
+      .worktrees[worktreeIndex].tabs.remove(at: tabIndex)
+    catalog.spaces[spaceIndex].projects[projectIndex]
+      .worktrees[worktreeIndex].tabs.insert(tab, at: target)
+    store.scheduleSave(catalog)
+  }
+
+  // MARK: - Split equalization (0008 M5)
+
+  /// Sets every split node's `ratio` inside the Tab's `SplitTree` to 0.5 so
+  /// sibling panels render at equal sizes. Leaf-only trees are a silent
+  /// no-op. Persists. The concept of a "weight=1 layout" in the design doc
+  /// maps onto this ratio — touch-code's tree only carries per-split ratios,
+  /// not per-leaf weights, so every balanced split is ratio == 0.5.
+  func equalizeTabSplits(
+    _ tabID: TabID,
+    in worktreeID: WorktreeID,
+    in projectID: ProjectID,
+    in spaceID: SpaceID
+  ) throws {
+    guard
+      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+        worktreeID: worktreeID,
+        projectID: projectID,
+        spaceID: spaceID
+      )
+    else {
+      throw HierarchyError.notFound("Worktree \(worktreeID)")
+    }
+    guard
+      let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex]
+        .worktrees[worktreeIndex].tabs.firstIndex(where: { $0.id == tabID })
+    else {
+      throw HierarchyError.notFound("Tab \(tabID)")
+    }
+    var tab = catalog.spaces[spaceIndex].projects[projectIndex]
+      .worktrees[worktreeIndex].tabs[tabIndex]
+    guard let root = tab.splitTree.root else { return }
+    let balanced = Self.balancingRatios(in: root)
+    tab.splitTree = SplitTree(root: balanced, zoomed: tab.splitTree.zoomed)
+    catalog.spaces[spaceIndex].projects[projectIndex]
+      .worktrees[worktreeIndex].tabs[tabIndex] = tab
+    store.scheduleSave(catalog)
+  }
+
+  private static func balancingRatios(
+    in node: SplitTree<PanelID>.Node
+  ) -> SplitTree<PanelID>.Node {
+    switch node {
+    case .leaf:
+      return node
+    case .split(let split):
+      return .split(
+        SplitTree<PanelID>.Split(
+          direction: split.direction,
+          ratio: 0.5,
+          left: balancingRatios(in: split.left),
+          right: balancingRatios(in: split.right)
+        )
+      )
+    }
+  }
+
+  // MARK: - Panel resize (0008 M5)
+
+  /// Adjusts the ratio of the closest ancestor split whose orientation
+  /// matches `direction`. The ghostty RESIZE_SPLIT action carries pixel
+  /// amounts but touch-code's split tree only stores ratios, so `amount` is
+  /// interpreted as a ratio delta; the ratio is clamped to `[0.1, 0.9]` by
+  /// `SplitTree.resizing(at:ratio:)`.
+  ///
+  /// Direction semantics (matches ghostty's FocusDirection analog):
+  /// - `.left`: grow the left child  → decrease ratio of nearest horizontal split
+  /// - `.right`: grow the right child → increase ratio of nearest horizontal split
+  /// - `.up`: grow the top child     → decrease ratio of nearest vertical split
+  /// - `.down`: grow the bottom child → increase ratio of nearest vertical split
+  ///
+  /// Silent no-op when the panel is unknown or no ancestor split matches the
+  /// direction (e.g. resize-left on a purely vertical column).
+  func resizePanel(_ panelID: PanelID, direction: ResizeDirection, amount: Double) throws {
+    for spaceIndex in catalog.spaces.indices {
+      for projectIndex in catalog.spaces[spaceIndex].projects.indices {
+        for worktreeIndex in catalog.spaces[spaceIndex].projects[projectIndex].worktrees.indices {
+          let worktree = catalog.spaces[spaceIndex].projects[projectIndex]
+            .worktrees[worktreeIndex]
+          for tabIndex in worktree.tabs.indices
+          where worktree.tabs[tabIndex].splitTree.contains(panelID) {
+            var tab = worktree.tabs[tabIndex]
+            guard let leafPath = tab.splitTree.path(to: panelID) else { return }
+            let orientation: SplitTree<PanelID>.Direction = (direction == .left || direction == .right)
+              ? .horizontal : .vertical
+            guard
+              let (ancestorPath, currentRatio, grewRight) = Self.findAncestorSplit(
+                root: tab.splitTree.root,
+                leafPath: leafPath,
+                orientation: orientation
+              )
+            else { return }
+            let grow: Bool = (direction == .right || direction == .down)
+            let signedDelta = (grewRight == grow) ? amount : -amount
+            let newRatio = currentRatio + signedDelta
+            tab.splitTree = try tab.splitTree.resizing(at: ancestorPath, ratio: newRatio)
+            catalog.spaces[spaceIndex].projects[projectIndex]
+              .worktrees[worktreeIndex].tabs[tabIndex] = tab
+            store.scheduleSave(catalog)
+            return
+          }
+        }
+      }
+    }
+  }
+
+  /// Walks up from `leafPath` toward the root and returns the nearest split
+  /// whose orientation matches. `grewRight` is `true` when the leaf lives
+  /// under the split's right child (so growing its side is `ratio += delta`).
+  private static func findAncestorSplit(
+    root: SplitTree<PanelID>.Node?,
+    leafPath: SplitTree<PanelID>.Path,
+    orientation: SplitTree<PanelID>.Direction
+  ) -> (SplitTree<PanelID>.Path, Double, Bool)? {
+    guard let root else { return nil }
+    var components = leafPath.components
+    while !components.isEmpty {
+      let childBranch = components.removeLast()
+      let ancestorPath = SplitTree<PanelID>.Path(components)
+      guard case .split(let split) = root.node(at: ancestorPath),
+            split.direction == orientation
+      else { continue }
+      return (ancestorPath, split.ratio, childBranch == .right)
+    }
+    return nil
+  }
+
   // MARK: - Space activation (M6)
 
   /// Select a Space as the catalog's active one. `tc space activate` in M6
