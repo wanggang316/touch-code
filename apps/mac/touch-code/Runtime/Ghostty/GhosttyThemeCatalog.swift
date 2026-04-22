@@ -7,7 +7,7 @@ import os.log
 ///
 /// `Equatable` so TCA state can diff; `Sendable` so the struct can cross
 /// actor boundaries freely.
-struct GhosttyThemeCatalog: Equatable, Sendable {
+nonisolated struct GhosttyThemeCatalog: Equatable, Sendable {
   /// Theme names whose background luminance classifies as light (Y > 0.5),
   /// sorted with `localizedStandardCompare` so `"abc2"` < `"abc10"`.
   let light: [String]

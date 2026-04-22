@@ -10,7 +10,7 @@ import os.log
 /// Surfaced by `GhosttyConfigFile.load` / `apply`. `LocalizedError` so the
 /// Settings pane can render the description directly; every case carries
 /// enough context to diagnose without the underlying error.
-enum GhosttyConfigFileError: LocalizedError {
+nonisolated enum GhosttyConfigFileError: LocalizedError {
   /// The OS could not resolve a HOME / XDG path we need. Message is
   /// operator-oriented (e.g. "HOME is empty").
   case configDirectoryUnavailable(String)
@@ -39,7 +39,7 @@ enum GhosttyConfigFileError: LocalizedError {
 /// observable by the Settings pane. Carries both the user-selected themes
 /// (nil ⇒ no managed directive in file) and the enumerated catalog so the
 /// pane can populate pickers from a single payload.
-struct GhosttyTerminalSettings: Equatable, Sendable {
+nonisolated struct GhosttyTerminalSettings: Equatable, Sendable {
   /// Canonical config-file path we read from / would write to. Stable for
   /// a given `GhosttyConfigFile` instance.
   let configPath: String
@@ -61,7 +61,7 @@ struct GhosttyTerminalSettings: Equatable, Sendable {
 /// both are nil. Mirror behaviour (both nil → no directive; one nil → both
 /// set to the non-nil value) is applied inside `apply` so the pane can
 /// defer the decision.
-struct GhosttyTerminalSettingsDraft: Equatable, Sendable {
+nonisolated struct GhosttyTerminalSettingsDraft: Equatable, Sendable {
   let lightTheme: String?
   let darkTheme: String?
 }

@@ -44,7 +44,7 @@ struct SettingsTerminalFeatureTests {
   func onAppearIsIdempotentOnceLoaded() async {
     let preloaded = makeSnapshot()
     let store = TestStore(
-      initialState: SettingsTerminalFeature.State(snapshot: preloaded)
+      initialState: makeState(snapshot: preloaded)
     ) {
       SettingsTerminalFeature()
     } withDependencies: {
@@ -62,7 +62,7 @@ struct SettingsTerminalFeatureTests {
     let initial = makeSnapshot(light: "Light A", dark: "Dark A")
     let applied = makeSnapshot(light: "Light B", dark: "Dark A")
     let store = TestStore(
-      initialState: SettingsTerminalFeature.State(snapshot: initial)
+      initialState: makeState(snapshot: initial)
     ) {
       SettingsTerminalFeature()
     } withDependencies: {
@@ -87,7 +87,7 @@ struct SettingsTerminalFeatureTests {
     let initial = makeSnapshot()
     struct Boom: LocalizedError { var errorDescription: String? { "Ghostty rejected config" } }
     let store = TestStore(
-      initialState: SettingsTerminalFeature.State(snapshot: initial)
+      initialState: makeState(snapshot: initial)
     ) {
       SettingsTerminalFeature()
     } withDependencies: {
@@ -122,9 +122,9 @@ struct SettingsTerminalFeatureTests {
   }
 }
 
-private extension SettingsTerminalFeature.State {
-  init(snapshot: GhosttyTerminalSettings) {
-    self.init()
-    self.snapshot = snapshot
-  }
+@MainActor
+private func makeState(snapshot: GhosttyTerminalSettings) -> SettingsTerminalFeature.State {
+  var state = SettingsTerminalFeature.State()
+  state.snapshot = snapshot
+  return state
 }
