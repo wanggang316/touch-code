@@ -14,12 +14,12 @@ import TouchCodeCore
 /// on every resolve.
 final actor LiveEditorService: EditorService {
   private let launcher: any AppLauncher
-  private let globalDefault: @Sendable () -> EditorID?
+  private let globalDefault: @Sendable () async -> EditorID?
   private var cachedDescriptors: [EditorDescriptor]?
 
   init(
     launcher: any AppLauncher = LiveAppLauncher(),
-    globalDefault: @escaping @Sendable () -> EditorID? = { nil }
+    globalDefault: @escaping @Sendable () async -> EditorID? = { nil }
   ) {
     self.launcher = launcher
     self.globalDefault = globalDefault
@@ -80,7 +80,7 @@ final actor LiveEditorService: EditorService {
     }
 
     // Tier 2 — stored global default (lenient: silently skip if uninstalled).
-    if let defaultID = globalDefault(),
+    if let defaultID = await globalDefault(),
       let match = installed.first(where: { $0.id == defaultID })
     {
       return match

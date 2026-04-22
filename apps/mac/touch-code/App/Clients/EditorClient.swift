@@ -27,7 +27,9 @@ extension EditorClient {
     let service = LiveEditorService(
       launcher: LiveAppLauncher(),
       globalDefault: { [weak settings] in
-        MainActor.assumeIsolated { settings?.settings.general.defaultEditorID }
+        // SettingsStore is @Observable on MainActor; LiveEditorService is an actor
+        // with its own executor, so we must hop explicitly rather than assume.
+        await MainActor.run { settings?.settings.general.defaultEditorID }
       }
     )
     return EditorClient(
