@@ -5,10 +5,10 @@ import TouchCodeCore
 
 @testable import touch_code
 
-// TODO(C8a Phase 6): the C8 suite exercised the retired custom-editor surface
-// (addCustomEditor / updateCustomEditor / removeCustomEditor, argv assertions, etc.).
-// Phase 6 rebuilds this against the NSWorkspace-backed EditorService. Keeping a minimal
-// smoke test here so the suite still reports to the build.
+/// C8a Phase 6 — `EditorFeature` coverage. The C8 custom-editor surface
+/// (add/update/remove) retired in Phase 3; this suite exercises the narrowed NSWorkspace-
+/// backed shape: descriptor fetch on appear, global-default write-through, error-string
+/// mapping, and the `resolveDefault` cascade (project override → global → Finder).
 @MainActor
 struct EditorFeatureTests {
   private nonisolated static let sampleDescriptor = EditorDescriptor(

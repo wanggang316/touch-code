@@ -4,9 +4,9 @@ import Testing
 @testable import TouchCodeCore
 @testable import TouchCodeIPC
 
-/// C8a Phase 4c wire-type round-trip coverage. Placeholder-level: asserts the new request /
-/// response shapes encode+decode stably. Deeper coverage (descriptor DTO ↔ app-tier descriptor
-/// mapping, error envelope translation) lands in Phase 6 alongside the handler test rebuild.
+/// C8a wire-type round-trip coverage. Asserts the request / response shapes encode and decode
+/// stably. Descriptor-DTO mapping and error-envelope translation are covered at the handler
+/// layer (`touch-code/Tests/Socket/EditorHandlersTests.swift`).
 struct EditorIPCTypesTests {
   @Test
   func openRequestRoundTripPreservesPathAndPreferred() throws {

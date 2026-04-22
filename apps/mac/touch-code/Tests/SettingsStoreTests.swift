@@ -63,8 +63,9 @@ struct SettingsStoreTests {
     #expect(reloaded.settings.general.appearance == .dark)
   }
 
-  // NOTE(C8a Phase 6): the customEditor persistence tests retired along with the feature.
-  // Full re-coverage of the new surface (built-in registry + default ID) is pending Phase 6.
+  // C8a: the customEditor persistence tests retired along with the feature. The
+  // `general.defaultEditorID` round-trip and load-path migration coverage above are the
+  // successors; deeper value-domain migration lives in `TouchCodeCoreTests/EditorMigrationTests`.
 
   @Test
   func saveNowCancelsPendingDebouncedWrite() async throws {
