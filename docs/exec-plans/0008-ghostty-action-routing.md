@@ -77,6 +77,22 @@ Both are small additions. No impact on subsequent milestones.
 
 **DEC-M7b-1 — Six `decode*` enum helpers relaxed from `fileprivate` to `internal static`.** The C→Swift enum mapping tables in `GhosttyActionDecoder` (close tab mode / new split direction / goto split direction / resize split direction / goto tab target / goto window target) are the only slices of the 65-case switch that can be tested without constructing a full `ghostty_action_s` C union. `@testable import touch_code` cannot cross `fileprivate`, so these six helpers are now `static` (module-internal) while `decodeKeyTable`, `keyTriggerFingerprint`, `handleOpenURL`, and the `emit*` dispatch helpers stay `fileprivate`. Visibility-only change; no callers or behavior moved.
 
+## Codex Review Resolution (2026-04-22)
+
+Codex flagged six correctness / safety issues after the initial landing. All are fixed in commit `3945592`.
+
+**DEC-M7d-1 — Decoder split into nonisolated decode + MainActor apply (P1).** Original design stored the raw `ghostty_action_s` struct and deferred all decoding to a main-queue hop. Several union fields carry C pointers whose lifetime ends when `action_cb` returns, so the async apply could read freed memory; the callback also returned `false` even though the action ran asynchronously. The decoder is now two passes: `decodeSurfaceAction` / `decodeAppAction` (`nonisolated`) synchronously copy every pointer-backed field into a Sendable `DecodedSurfaceAction` / `DecodedAppAction` enum (Strings for title/pwd/needle/url/body/key-table name, `ghostty_config_clone` for CONFIG_CHANGE), and `apply(_:)` (`@MainActor`) consumes the owned value. The thunk reports `decoded.consumed` synchronously so the C return value matches reality.
+
+**DEC-M7d-2 — `.newTab` opens a panel using the source panel's cwd (P2).** Earlier dispatch only called `HierarchyClient.createTab`, which initialises an empty Tab; the resulting Tab rendered the "No panels" placeholder. The router now follows `createTab` with `openPanel`, inheriting the source panel's `workingDirectory` (or falling back to `worktree.path`, then `$HOME` if neither resolves).
+
+**DEC-M7d-3 — `.gotoTab(.index)` is 1-based with over-bound clamp (P2).** Ghostty's `goto_tab:n` is 1-based and clamps beyond the tab count to the last tab. The router previously treated `n` as a zero-based array index and rejected out-of-range values. Now: `n < 1` rejects, `n` in range picks `tabs[n-1]`, `n > count` picks `tabs[count-1]`.
+
+**DEC-M7d-4 — `NewSplitDirection` reverts from 2-axis to 4-direction (P2).** DEC-M2-2's collapse onto `.horizontal/.vertical` meant every `new_split:left` or `new_split:up` binding landed on the wrong side. `NewSplitDirection` now mirrors libghostty's `ghostty_action_split_direction_e` (right/left/up/down) 1:1; the router maps each case to the matching `SplitTree.NewDirection`.
+
+**DEC-M7d-5 — `HierarchyManager.moveTab` wraps cyclically (P2).** Ghostty's `move_tab` action wraps at both edges: moving the last tab forward lands at position 0; moving the first tab backward lands at `count-1`. Was a hard clamp that silently no-op'd at edges.
+
+**DEC-M7d-6 — `HierarchyManager.resizePanel` scales pixel amount into a ratio delta (P2).** libghostty's RESIZE_SPLIT carries a pixel count (default keybind `10`), but `SplitTree` stores only ratios clamped to `[0.1, 0.9]`. Adding pixels to a ratio collapsed the split on the first keystroke. Scaled by an empirical `pixelsPerRatioStep = 400` so a default `10 px` keybind nudges the ratio by ~2.5%. When the viewport layer later exposes the real split frame, the constant becomes per-split.
+
 ## Outcomes & Retrospective
 
 **What shipped (2026-04-22).** All 65 libghostty action tags are routed: tab/split intents to `PanelActionRouterFeature` → `HierarchyClient` / `HierarchyManager`, window intents to `WindowActionRouterFeature` → `WindowService` / `AppLifecycleClient` / `UpdatesClient` / `EditorClient`, surface-info deltas to `PanelSurface.info` + the `panelInfoChanged` event stream, effectful actions inline via AppKit, and app-level config changes via `GhosttyRuntime.applyClonedConfig` / `reloadConfig`. The prior hardcoded `action_cb` stub — silently dropping every user keybind — is gone. A launch-arg gate (`TOUCH_CODE_DISABLE_ACTION_ROUTING=1`) provides a hotfix escape hatch.
