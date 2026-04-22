@@ -36,7 +36,7 @@ struct AddProjectFeatureTests {
   func happyPathGitFolderSubmits() async throws {
     let dir = try Self.makeTempDir(gitInit: true)
     defer { Self.removeTemp(dir) }
-    let canonical = HierarchyManager.canonical(dir.path)
+    let canonical = HierarchyManager.canonicalPath(dir.path)
     let spaceID = SpaceID()
     let addedProjectID = ProjectID()
     let addCalls = LockIsolated<[(SpaceID, String, String, String?)]>([])

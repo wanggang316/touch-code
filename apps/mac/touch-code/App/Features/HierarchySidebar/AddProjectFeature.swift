@@ -7,8 +7,8 @@ import TouchCodeCore
 /// `ifLet`; presentation is "state-is-non-nil". Responsibilities:
 ///
 /// 1. Show an `NSOpenPanel` via `FolderPickerClient.pick`.
-/// 2. Canonicalize the picked path (`HierarchyManager.canonical`) and check
-///    for duplicate registration (`HierarchyClient.isPathRegistered`).
+/// 2. Canonicalize the picked path (`HierarchyManager.canonicalPath`) and
+///    check for duplicate registration (`HierarchyClient.isPathRegistered`).
 /// 3. Classify the folder as git-backed or non-git by calling
 ///    `GitWorktreeCLI.discoverGitRoot` (**add-time one-shot**; the reconciler
 ///    does not go through this path).
@@ -97,7 +97,7 @@ struct AddProjectFeature {
         guard let url else {
           return .send(.delegate(.dismiss))
         }
-        let canonical = HierarchyManager.canonical(url.path)
+        let canonical = HierarchyManager.canonicalPath(url.path)
         state.pickedPath = canonical
         state.pickedIsGit = nil
         state.resolvedGitRoot = nil

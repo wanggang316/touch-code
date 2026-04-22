@@ -213,22 +213,16 @@ final class HierarchyManager {
 
   /// Resolves a canonical path to its registered `(SpaceID, ProjectID)` if any
   /// Project's `rootPath` canonicalizes to the same form. Caller canonicalizes
-  /// its input via `HierarchyManager.canonical(_:)` before querying. Linear in
-  /// total Project count — acceptable at the low cardinality we support
-  /// (Projects per user, not per repo).
+  /// its input via `HierarchyManager.canonicalPath(_:)` before querying.
+  /// Linear in total Project count — acceptable at the low cardinality we
+  /// support (Projects per user, not per repo).
   func isPathRegistered(canonical path: String) -> (SpaceID, ProjectID)? {
     for space in catalog.spaces {
-      for project in space.projects where Self.canonical(project.rootPath) == path {
+      for project in space.projects where Self.canonicalPath(project.rootPath) == path {
         return (space.id, project.id)
       }
     }
     return nil
-  }
-
-  /// Canonical path form used for duplicate-check joins and for storage as
-  /// `Project.rootPath`. Resolves symlinks and standardizes trailing slashes.
-  static func canonical(_ raw: String) -> String {
-    URL(fileURLWithPath: raw).resolvingSymlinksInPath().standardizedFileURL.path
   }
 
   // MARK: - Worktree mutations
@@ -244,11 +238,17 @@ final class HierarchyManager {
       throw HierarchyError.notFound("Project \(projectID)")
     }
 
+    // Canonicalize at the single write boundary so every downstream
+    // comparison (main-checkout guard, reconcile dedupe, selection
+    // lookups) sees the same symlink-resolved form that
+    // `Project.rootPath` already stores. Caller-side canonicalization
+    // is easy to forget; doing it here means the API is self-correcting.
+    let canonicalizedPath = Self.canonicalPath(path)
     let worktreeID = WorktreeID()
     let worktree = Worktree(
       id: worktreeID,
       name: name,
-      path: path,
+      path: canonicalizedPath,
       branch: branch,
       tabs: [],
       selectedTabID: nil
@@ -377,15 +377,25 @@ final class HierarchyManager {
     return appended
   }
 
-  /// Canonical form used by reconcile dedupe and by T-PROJECT's
-  /// stored `Project.rootPath`. MUST stay symmetric with the
-  /// T-PROJECT side — both resolve symlinks first, then standardize.
-  /// On macOS, symlink resolution maps `/var/...` to
-  /// `/private/var/...` (and similar for `/tmp`, `/etc`); without
-  /// this step a `wt ls --json` entry reported as `/var/folders/...`
-  /// would fail to match a `Project.rootPath` stored as
-  /// `/private/var/folders/...` and the main checkout would
+  /// **Single** canonical form used across the hierarchy layer:
+  /// - reconcile dedupe (`reconcileDiscoveredWorktrees`),
+  /// - duplicate-path join (`isPathRegistered`),
+  /// - catalog storage for `Project.rootPath` and `Worktree.path`.
+  ///
+  /// Resolves symlinks first, then standardizes (strips trailing
+  /// slashes and `.` / `..` components). On macOS, symlink resolution
+  /// maps `/var/...` to `/private/var/...` (and similar for `/tmp`,
+  /// `/etc`); without this step a `wt ls --json` entry reported as
+  /// `/var/folders/...` would fail to match a `Project.rootPath`
+  /// stored as `/private/var/folders/...` and the main checkout would
   /// duplicate on every reconcile.
+  ///
+  /// **Regression guard**: do NOT add a second equivalent helper on
+  /// this type. Prior to PR #31 review, two static methods
+  /// (`canonical` + `canonicalPath`) coexisted with identical bodies;
+  /// any drift (e.g. one side adding trimming) would silently break
+  /// the symmetry the PR body guarantees. Route all call-sites
+  /// through this function.
   static func canonicalPath(_ path: String) -> String {
     URL(fileURLWithPath: path)
       .resolvingSymlinksInPath()
