@@ -72,6 +72,10 @@ final class TerminalEngine {
     self.hierarchy = hierarchy
     self.ghosttyRuntime = ghosttyRuntime
     self.clock = clock
+    // Back-pointer so the libghostty action decoder can emit events
+    // (panelInfoChanged, panelActionRequested, etc.) onto this engine's
+    // stream. Weak on the runtime side; no cycle.
+    ghosttyRuntime?.terminalEngine = self
   }
 
   // MARK: - Panel surface lifecycle
