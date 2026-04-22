@@ -193,6 +193,47 @@ struct HierarchyManagerWorktreeMgmtTests {
   }
 
   @Test
+  func createWorktreeStoresCanonicalizedPath() throws {
+    // PR #31 review M2: Worktree.path must land in the catalog in the
+    // canonical form that HierarchyManager.canonicalPath produces, so
+    // view-layer direct string comparisons against the also-canonical
+    // Project.rootPath (main-checkout guard etc.) stay correct under
+    // symlink aliases like /var ↔ /private/var.
+    //
+    // The canonical form depends on the OS's symlink table (on some
+    // macOS configs resolvingSymlinksInPath collapses to /var/..., on
+    // others to /private/var/...); the test asserts the invariant
+    // `stored == canonicalPath(input)` for BOTH input aliases rather
+    // than hardcoding which side wins.
+    let alias = try Self.makeAliasedTempDir(tag: "createwt")
+    defer { try? FileManager.default.removeItem(at: alias.url) }
+    let canonicalForm = HierarchyManager.canonicalPath(alias.varForm)
+    #expect(canonicalForm == HierarchyManager.canonicalPath(alias.privateForm))
+
+    let spaceID = manager.createSpace(name: "s")
+    let projectID = try manager.addProject(
+      to: spaceID, name: "p", rootPath: canonicalForm, gitRoot: canonicalForm
+    )
+    // Feeding the `/var/...` alias must still store the canonical form.
+    let wtIDFromVar = try manager.createWorktree(
+      in: projectID, in: spaceID, name: "from-var",
+      path: alias.varForm, branch: "from-var"
+    )
+    let storedFromVar = manager.catalog.spaces[0].projects[0].worktrees
+      .first(where: { $0.id == wtIDFromVar })?.path
+    #expect(storedFromVar == canonicalForm)
+
+    // Feeding the `/private/var/...` alias stores the same canonical.
+    let wtIDFromPrivate = try manager.createWorktree(
+      in: projectID, in: spaceID, name: "from-private",
+      path: alias.privateForm, branch: "from-private"
+    )
+    let storedFromPrivate = manager.catalog.spaces[0].projects[0].worktrees
+      .first(where: { $0.id == wtIDFromPrivate })?.path
+    #expect(storedFromPrivate == canonicalForm)
+  }
+
+  @Test
   func canonicalPathResolvesSymlinksForExistingPaths() throws {
     // resolvingSymlinksInPath() follows symlinks for existing path
     // components. Both aliases of the same on-disk temp dir must

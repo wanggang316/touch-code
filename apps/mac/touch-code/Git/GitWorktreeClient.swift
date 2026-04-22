@@ -193,6 +193,22 @@ nonisolated extension GitWorktreeClient {
     postEntries: [GitWtEntry],
     fallbackStdoutLast: String
   ) -> URL? {
+    // Local canonical helper — deliberately does NOT go through
+    // `HierarchyManager.canonicalPath` / `resolvingSymlinksInPath`.
+    // Both inputs here come from `wt ls --json` on the same repo in
+    // the same process, so they share a string form; plain
+    // `standardizedFileURL` (trailing-slash + `.`/`..` normalization)
+    // gives a stable diff without caring about symlink state.
+    //
+    // Do NOT "fix" this to match HierarchyManager.canonicalPath —
+    // that would make pickNewWorktreePath wrong any time the symlink
+    // table shifts between `wt ls` invocations (e.g. a concurrent
+    // user-space symlink edit) because the pre/post strings would
+    // resolve differently even though `wt` emitted the identical
+    // raw form. The two canonical layers are intentional:
+    // `HierarchyManager.canonicalPath` reconciles T-WORKTREE's wt
+    // output against T-PROJECT's resolved rootPath; this helper
+    // reconciles wt-against-itself. Issue #24 (c) follow-up F1.
     func canonical(_ path: String) -> String {
       URL(fileURLWithPath: path).standardizedFileURL.path
     }

@@ -369,10 +369,10 @@ struct HierarchyManagerTests {
     let projectID = try manager.addProject(
       to: spaceID,
       name: "p",
-      rootPath: HierarchyManager.canonical("/tmp/p")
+      rootPath: HierarchyManager.canonicalPath("/tmp/p")
     )
 
-    let match = manager.isPathRegistered(canonical: HierarchyManager.canonical("/tmp/p"))
+    let match = manager.isPathRegistered(canonical: HierarchyManager.canonicalPath("/tmp/p"))
     #expect(match?.0 == spaceID)
     #expect(match?.1 == projectID)
 
