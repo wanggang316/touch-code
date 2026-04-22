@@ -208,7 +208,7 @@ final class AppState {
     // Build the editor + hierarchy clients once so the reducer stack AND the IPC
     // handlers share the exact same live instances — avoids two parallel
     // `LiveEditorService`s with divergent settings captures.
-    let editor = EditorClient.live(settings: settings, hierarchy: manager)
+    let editor = EditorClient.live(settings: settings)
     let hierarchy = HierarchyClient.live(manager: manager)
     self.editorClient = editor
     self.hierarchyClient = hierarchy

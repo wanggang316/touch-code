@@ -1,65 +1,124 @@
+import AppKit
 import Foundation
 import TouchCodeCore
 
-/// In-memory `EditorService` for tests. Records every `open` call; returns a caller-provided
-/// descriptor list from `describe`; drives resolution through the same algorithm as the live
-/// service so fallback-chain tests stay honest.
-actor TestEditorService: EditorService {
-  private var descriptors: [EditorDescriptor]
+/// In-memory `EditorService` for tests. Holds canned `describe()` / `resolve()` / `open()`
+/// outputs and records every open call for assertion. Designed to drop into TCA `TestStore`s
+/// via `$0.editorClient = .mock(TestEditorService(...))` — see `EditorClient.testValue`.
+///
+/// An `actor` (rather than a struct) is used for the same reason as the live service:
+/// callers are free to mutate stub behaviour between invocations from any context.
+final actor TestEditorService: EditorService {
+  /// Descriptors returned by `describe()`. Default: an empty list (no editors installed).
+  private var describeStub: [EditorDescriptor]
+  /// Closure used by `resolve()`. When nil, returns `TestEditorService.defaultDescriptor`.
+  private var resolveStub: (@Sendable (EditorID?) throws -> EditorDescriptor)?
+  /// Closure used by `open()`. When nil, returns `TestEditorService.defaultChoice`.
+  private var openStub: (@Sendable (URL, EditorID?) throws -> EditorChoice)?
+
+  /// Every `open` invocation in call order.
   private(set) var openCalls: [OpenCall] = []
-  private var openResult: Result<EditorChoice, EditorError>?
 
   struct OpenCall: Equatable, Sendable {
-    var directory: URL
-    var preferred: EditorID?
-    var projectID: ProjectID?
+    let directory: URL
+    let preferred: EditorID?
   }
 
-  init(descriptors: [EditorDescriptor] = []) {
-    self.descriptors = descriptors
+  init(
+    describe: [EditorDescriptor] = [],
+    resolve: (@Sendable (EditorID?) throws -> EditorDescriptor)? = nil,
+    open: (@Sendable (URL, EditorID?) throws -> EditorChoice)? = nil
+  ) {
+    self.describeStub = describe
+    self.resolveStub = resolve
+    self.openStub = open
   }
 
-  func setDescriptors(_ descriptors: [EditorDescriptor]) {
-    self.descriptors = descriptors
-  }
+  // MARK: - Stub mutators
 
-  func setOpenResult(_ result: Result<EditorChoice, EditorError>) {
-    self.openResult = result
-  }
+  func setDescribeStub(_ descriptors: [EditorDescriptor]) { describeStub = descriptors }
+  func setResolveStub(_ stub: (@Sendable (EditorID?) throws -> EditorDescriptor)?) { resolveStub = stub }
+  func setOpenStub(_ stub: (@Sendable (URL, EditorID?) throws -> EditorChoice)?) { openStub = stub }
 
-  func describe() -> [EditorDescriptor] { descriptors }
+  // MARK: - EditorService
 
-  func resolve(preferred: EditorID?, projectID: ProjectID?) -> EditorDescriptor {
-    if let id = preferred, let match = descriptors.first(where: { $0.id == id }) {
+  func describe() -> [EditorDescriptor] { describeStub }
+
+  func resolve(preferred: EditorID?) throws -> EditorDescriptor {
+    if let resolveStub { return try resolveStub(preferred) }
+    if let preferred, let match = describeStub.first(where: { $0.id == preferred }) {
       return match
     }
-    // Test service doesn't model global default / project override — callers drive the
-    // resolution by supplying `preferred` directly or by setting descriptors.
-    return descriptors.first(where: { $0.id == "finder" }) ?? descriptors.first ?? Self.finderFallback
+    return describeStub.first(where: { $0.id == EditorRegistry.finderID })
+      ?? Self.defaultDescriptor
   }
 
-  func open(directory: URL, preferred: EditorID?, projectID: ProjectID?) throws -> EditorChoice {
-    openCalls.append(OpenCall(directory: directory, preferred: preferred, projectID: projectID))
-    if let result = openResult {
-      switch result {
-      case .success(let choice): return choice
-      case .failure(let error): throw error
-      }
-    }
-    let descriptor = resolve(preferred: preferred, projectID: projectID)
-    return EditorChoice(
-      id: descriptor.id,
-      displayName: descriptor.displayName,
-      binaryPath: URL(fileURLWithPath: "/usr/bin/open"),
-      argv: ["/usr/bin/open", directory.path]
-    )
+  @discardableResult
+  func open(directory: URL, preferred: EditorID?) throws -> EditorChoice {
+    openCalls.append(OpenCall(directory: directory, preferred: preferred))
+    if let openStub { return try openStub(directory, preferred) }
+    return Self.defaultChoice
   }
 
-  private static let finderFallback = EditorDescriptor(
-    id: "finder",
+  // MARK: - Fixtures
+
+  static let defaultDescriptor = EditorDescriptor(
+    id: EditorRegistry.finderID,
     displayName: "Finder",
-    origin: .builtin,
-    template: CommandTemplate(binary: "open", args: ["{dir}"]),
-    installation: .installed(resolvedBinary: URL(fileURLWithPath: "/usr/bin/open"))
+    bundleIdentifier: "com.apple.finder",
+    launchMode: .directory,
+    appURL: URL(fileURLWithPath: "/System/Library/CoreServices/Finder.app"),
+    alternateBundleIdentifiers: []
   )
+
+  static let defaultChoice = EditorChoice(
+    id: EditorRegistry.finderID,
+    displayName: "Finder",
+    binaryPath: nil
+  )
+}
+
+/// Recording double for `AppLauncher`. Used by `LiveEditorService` unit tests to verify the
+/// `(appURL, urls, configuration.arguments, configuration.createsNewApplicationInstance)`
+/// tuple produced by each launch-mode branch without ever asking `NSWorkspace` to open
+/// anything.
+final class RecordingAppLauncher: AppLauncher, @unchecked Sendable {
+  /// Bundle IDs that should appear installed. Map keys are bundle IDs; values are the app
+  /// URLs the launcher will return from `urlForApplication(bundleIdentifier:)`.
+  var installedApps: [String: URL] = [:]
+  /// Recorded invocations of `open(urls:withApplicationAt:configuration:)`.
+  private(set) var openCalls: [OpenCall] = []
+  /// When set, the next `open` call throws this error.
+  var openError: Error?
+
+  struct OpenCall: Sendable {
+    let urls: [URL]
+    let appURL: URL
+    let arguments: [String]
+    let createsNewApplicationInstance: Bool
+  }
+
+  init(installedApps: [String: URL] = [:]) {
+    self.installedApps = installedApps
+  }
+
+  func urlForApplication(bundleIdentifier: String) -> URL? {
+    installedApps[bundleIdentifier]
+  }
+
+  func open(
+    urls: [URL],
+    withApplicationAt appURL: URL,
+    configuration: NSWorkspace.OpenConfiguration
+  ) async throws {
+    openCalls.append(
+      OpenCall(
+        urls: urls,
+        appURL: appURL,
+        arguments: configuration.arguments,
+        createsNewApplicationInstance: configuration.createsNewApplicationInstance
+      )
+    )
+    if let openError { throw openError }
+  }
 }

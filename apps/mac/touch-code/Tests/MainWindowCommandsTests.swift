@@ -76,12 +76,11 @@ struct MainWindowCommandsTests {
       // a chain this test does not care about. Stub `open` to a harmless
       // Finder-like result so the unimplemented testValue doesn't record an
       // issue. The assertion below only proves the root-to-editor hop.
-      $0.editorClient.open = { _, id, _ in
+      $0.editorClient.open = { _, id in
         EditorChoice(
           id: id ?? EditorFeature.finderEditorID,
           displayName: "x",
-          binaryPath: URL(fileURLWithPath: "/bin/x"),
-          argv: []
+          binaryPath: nil
         )
       }
     }

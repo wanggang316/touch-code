@@ -94,17 +94,9 @@ struct ContentView: View {
         lastEditorToast = .failed("Override failed: \(reason)")
       }
     }
-    // PR #22 review B9 — when the Settings window mutates `customEditors` /
-    // `defaultEditorID`, refresh the main-window EditorFeature so the Header
-    // split-button dropdown rebuilds its cached descriptors + globalDefault.
-    // Pre-T1 the Settings sheet's dismiss action dispatched `.editor(.onAppear)`;
-    // the standalone window has no matching dismiss bridge, so we observe the
-    // @Observable SettingsStore directly here instead. `.onAppear` triggers both
-    // describe() and the settings-snapshot read, covering both the custom-editors
-    // list and the global-default picker in one action.
-    .onChange(of: settingsStore.settings.general.customEditors) { _, _ in
-      store.send(.editor(.onAppear))
-    }
+    // When the Settings window writes `defaultEditorID`, refresh the main-window
+    // EditorFeature so the Header split-button dropdown rebuilds its cached
+    // descriptors + globalDefault.
     .onChange(of: settingsStore.settings.general.defaultEditorID) { _, _ in
       store.send(.editor(.onAppear))
     }

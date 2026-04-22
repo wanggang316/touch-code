@@ -321,10 +321,9 @@ struct RootFeatureTests {
       $0.terminalClient.events = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
       $0.editorClient = EditorClient.testValue
-      $0.editorClient.open = { _, id, _ in
+      $0.editorClient.open = { _, id in
         EditorChoice(
-          id: id ?? "finder", displayName: "x",
-          binaryPath: URL(fileURLWithPath: "/bin/x"), argv: []
+          id: id ?? "finder", displayName: "x", binaryPath: nil
         )
       }
     }
@@ -352,9 +351,10 @@ struct RootFeatureTests {
     let descriptor = EditorDescriptor(
       id: "cursor",
       displayName: "Cursor",
-      origin: .builtin,
-      template: CommandTemplate(binary: "cursor", args: ["{dir}"]),
-      installation: .installed(resolvedBinary: URL(fileURLWithPath: "/usr/local/bin/cursor"))
+      bundleIdentifier: "com.todesktop.230313mzl4w4u92",
+      launchMode: .directory,
+      appURL: URL(fileURLWithPath: "/Applications/Cursor.app"),
+      alternateBundleIdentifiers: []
     )
     var initial = RootFeature.State()
     initial.editor.descriptors = [descriptor]
@@ -366,10 +366,9 @@ struct RootFeatureTests {
       $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.snapshot = { Catalog() }
       $0.editorClient = EditorClient.testValue
-      $0.editorClient.open = { _, id, _ in
+      $0.editorClient.open = { _, id in
         EditorChoice(
-          id: id ?? "finder", displayName: "x",
-          binaryPath: URL(fileURLWithPath: "/bin/x"), argv: []
+          id: id ?? "finder", displayName: "x", binaryPath: nil
         )
       }
     }
@@ -397,10 +396,9 @@ struct RootFeatureTests {
       $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.snapshot = { Catalog() }
       $0.editorClient = EditorClient.testValue
-      $0.editorClient.open = { _, id, _ in
+      $0.editorClient.open = { _, id in
         EditorChoice(
-          id: id ?? "finder", displayName: "x",
-          binaryPath: URL(fileURLWithPath: "/bin/x"), argv: []
+          id: id ?? "finder", displayName: "x", binaryPath: nil
         )
       }
     }

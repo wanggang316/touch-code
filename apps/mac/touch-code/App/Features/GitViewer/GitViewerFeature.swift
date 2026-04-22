@@ -369,8 +369,14 @@ struct GitViewerFeature {
         await send(.editorOpenFailed(reason: "Worktree path not found in catalog"))
         return
       }
+      // C8a: per-Project override lookup moved into `EditorFeature.resolveDefault`. Git
+      // viewer's Enter shortcut opens in the resolved default (no explicit preferred), so
+      // the service's cascade picks globalDefault → priority walk. Per-Project overrides
+      // flow through `EditorFeature.openDefaultInCurrentWorktreeRequested`; the Git viewer
+      // route is a catch-all for "user pressed Enter and didn't specify anything".
+      _ = projectID  // retained in the action for future use; service no longer takes it.
       do {
-        let choice = try await client.open(URL(fileURLWithPath: path), nil, projectID)
+        let choice = try await client.open(URL(fileURLWithPath: path), nil)
         await send(.editorOpened(editorID: choice.id))
       } catch let error as EditorError {
         await send(.editorOpenFailed(reason: Self.editorErrorDescription(error)))
@@ -382,18 +388,7 @@ struct GitViewerFeature {
 
   /// Human-readable reason for an `EditorError`, surfaced as a toast subtitle by the view.
   nonisolated static func editorErrorDescription(_ error: EditorError) -> String {
-    switch error {
-    case .notInstalled(let id, let binary):
-      return "\(id) CLI (`\(binary)`) not found on PATH"
-    case .spawnFailed(let reason): return "Could not launch editor: \(reason)"
-    case .nonZeroExit(_, let stderr):
-      return stderr.components(separatedBy: "\n").first?.trimmingCharacters(in: .whitespaces)
-        ?? "Editor exited with error"
-    case .timedOut: return "Editor did not respond within 5 seconds"
-    case .badTemplate(let id, let reason): return "Bad template for ‘\(id)’: \(reason)"
-    case .notADirectory(let path): return "Not a directory: \(path)"
-    case .unresolvedWorktree: return "No worktree resolved"
-    }
+    EditorFeature.editorErrorDescription(error)
   }
 
   // MARK: - Snapshot path resolution

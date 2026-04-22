@@ -36,8 +36,7 @@ struct SettingsMigrationTests {
 
     #expect(settings.version == Settings.currentVersion)
     #expect(settings.general.defaultEditorID == "vscode")
-    #expect(settings.general.customEditors.count == 1)
-    #expect(settings.general.customEditors.first?.id == "helix")
+    // C8a dropped `customEditors`; any legacy entries in the v1 file are ignored on migrate.
     #expect(settings.notifications == .default)
     #expect(settings.developer == .default)
     #expect(settings.repositories.isEmpty)

@@ -39,7 +39,10 @@ struct ProjectOptionsSheet: View {
           )
         ) {
           Text("Use global default").tag("")
-          ForEach(EditorRegistry.builtins, id: \.id) { entry in
+          // TODO(C8a Phase 4b): render only installed editors via `EditorService.describe()`.
+          // For Phase 3 we enumerate the full built-in registry (ids match the legacy shape)
+          // so existing per-Project overrides keep round-tripping through the sheet.
+          ForEach(EditorRegistry.registry, id: \.id) { entry in
             Text(entry.displayName).tag(entry.id)
           }
         }
