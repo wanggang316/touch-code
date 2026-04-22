@@ -11,8 +11,9 @@ struct TouchCodeApp: App {
   /// `SwiftUI.App` gives us no `applicationWillTerminate` hook on its own;
   /// the adaptor bridges AppKit's termination callback so we can flush
   /// debounced writes from `SettingsStore` and `InboxStore` before the
-  /// process exits. `NotificationSettingsStore` was retired in Step 4 —
-  /// settings.json now has a single writer (`SettingsStore`).
+  /// process exits. `settings.json` has a single writer (`SettingsStore`);
+  /// consumers of notification preferences read through
+  /// `NotificationSettingsReader`.
   @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
   @Environment(\.openWindow) private var openWindow
 

@@ -206,6 +206,18 @@ struct NotificationCoordinatorTests {
     #expect(on.badger.calls.last == 5)
   }
 
+  /// `inAppEnabled` also gates the Dock badge so the UI matches the
+  /// NotificationsSettingsView caption ("Also gates the bell unread list
+  /// and Dock badge"). Toggling in-app off must zero the badge on the next
+  /// tick even if historical unread items are still in the inbox and the
+  /// dedicated `dockBadgeEnabled` toggle is on.
+  @Test
+  func inAppEnabledFalseZeroesBadgeEvenWhenDockBadgeEnabled() {
+    let off = Self.make(inAppEnabled: false, dockBadgeEnabled: true)
+    off.coordinator.handleUnread(7)
+    #expect(off.badger.calls.last == 0)
+  }
+
   // MARK: - Permission prompt
 
   @Test

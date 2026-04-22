@@ -11,8 +11,9 @@ import os.log
 ///
 /// Permission flow (DEC-4):
 /// - First-run prompt is deferred to the first `onAgentPanelCreated` call
-///   and gated by `alreadyPrompted` + the cached `authStatus` in
-///   `NotificationSettingsStore`.
+///   and gated by `alreadyPrompted` + the `authStatus` surfaced through the
+///   injected `NotificationSettingsReader`; writes flow via the paired
+///   `NotificationsMutator` (see typealias below).
 /// - `NotificationPermissionDelegate` chooses between `.continue` (go to
 ///   UN request), `.notNow` (24h cool-down), `.never` (permanent suppress).
 /// - Restart-time sweep: M4's wiring step 10 iterates `registry.allTrackers`
@@ -100,12 +101,14 @@ final class NotificationCoordinator {
   /// `consumeUnreadPublisher` loop; this shim lets tests drive one
   /// badge-update tick without starting the never-terminating inbox
   /// stream. Internal on purpose — not a public API.
+  ///
+  /// The Dock badge reflects unread only when both the dedicated Dock-badge
+  /// toggle AND in-app notifications are enabled. Disabling either forces the
+  /// badge to zero on the next tick — keeping the UI consistent with the
+  /// NotificationsSettingsView caption that says in-app also gates the badge.
   func handleUnread(_ count: Int) {
-    if settingsReader.dockBadgeEnabled {
-      badger.setUnreadCount(count)
-    } else {
-      badger.setUnreadCount(0)
-    }
+    let shouldShow = settingsReader.dockBadgeEnabled && settingsReader.inAppEnabled
+    badger.setUnreadCount(shouldShow ? count : 0)
   }
 
   // MARK: - Per-transition fan-out

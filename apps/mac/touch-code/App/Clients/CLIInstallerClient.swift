@@ -1,7 +1,6 @@
 import Foundation
 import TouchCodeCore
 import os.log
-import tcKit
 
 /// Idempotent, sudo-free installer for the `tc` CLI. Writes only under `$HOME`
 /// (enforced by `HomeScope`) and never overwrites a file it did not create.
