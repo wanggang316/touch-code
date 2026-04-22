@@ -2,18 +2,8 @@ import Foundation
 import GhosttyKit
 import os.log
 
-// MARK: - Notifications
-
-/// Posted after the on-disk Ghostty config has been successfully rewritten,
-/// signaling the live `GhosttyRuntime` to reload its config handle. Named in
-/// the `ghosttyRuntime…` family so related signals (reloadRequested,
-/// eventual reloadCompleted) stay colocated in autocomplete. Decoupling
-/// the writer from the runtime via NotificationCenter avoids threading a
-/// runtime reference through the TCA dependency layer.
-extension Notification.Name {
-  static let ghosttyRuntimeReloadRequested =
-    Notification.Name("app.touch-code.ghostty.runtime.reloadRequested")
-}
+// `Notification.Name.ghosttyRuntimeReloadRequested` is declared alongside its sole
+// observer in `GhosttyRuntime.swift`; `apply(_:)` posts through that canonical symbol.
 
 // MARK: - Errors
 
@@ -331,7 +321,7 @@ struct GhosttyConfigFile {
   private static func directiveKey(in line: String) -> String? {
     // Match regex ^\s*([a-zA-Z0-9_-]+)\s*= manually to avoid NSRegularExpression
     // overhead on hot reparses.
-    var chars = Array(line.unicodeScalars)
+    let chars = Array(line.unicodeScalars)
     var i = 0
     // Skip leading whitespace.
     while i < chars.count, CharacterSet.whitespaces.contains(chars[i]) { i += 1 }
