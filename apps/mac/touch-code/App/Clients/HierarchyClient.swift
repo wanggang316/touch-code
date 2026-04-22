@@ -204,6 +204,57 @@ nonisolated struct HierarchyClient: Sendable {
   /// Reorder Spaces using the IndexSet (source) and destination offset from
   /// SwiftUI's `.onMove(perform:)`. Silent no-op on empty IndexSet.
   var reorderSpaces: @MainActor @Sendable (_ source: IndexSet, _ destination: Int) -> Void
+
+  // MARK: - Panel Action Routing (0008 M5)
+
+  /// Resolves a `PanelID` to the hierarchy address needed to service
+  /// panel-scoped intents (target resolution for `closeTab`, `moveTab`,
+  /// `selectTab`, `equalizeTabSplits`, etc.). Returns `nil` when the panel
+  /// is not in the catalog — expected during teardown races on the action
+  /// callback thread.
+  var addressOf: @MainActor @Sendable (PanelID) -> PanelAddress?
+
+  /// Moves a Tab by a relative offset within its Worktree. Positive shifts
+  /// right, negative shifts left. Clamped to the Worktree's tab-array
+  /// bounds by `HierarchyManager.moveTab`.
+  var moveTab: @MainActor @Sendable (
+    _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID,
+    _ inSpace: SpaceID, _ offset: Int
+  ) throws -> Void
+
+  /// Sets every split node's ratio in the Tab's SplitTree to 0.5 so sibling
+  /// panels render at equal sizes. Leaf-only trees are a silent no-op.
+  var equalizeTabSplits: @MainActor @Sendable (
+    _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID,
+    _ inSpace: SpaceID
+  ) throws -> Void
+
+  /// Resizes a Panel in the SplitTree along the given direction by `amount`.
+  /// `amount` is interpreted as a ratio delta (clamped by SplitTree) — the
+  /// ghostty RESIZE_SPLIT action carries pixel amounts but touch-code's
+  /// tree only stores ratios.
+  var resizePanel: @MainActor @Sendable (
+    _ panelID: PanelID, _ direction: ResizeDirection, _ amount: Double
+  ) throws -> Void
+
+  /// Clears the Tab's zoomed-panel flag. Paired with `focusPanel` (which
+  /// sets the zoom) to service `PanelActionRequest.toggleSplitZoom`.
+  var unzoomTab: @MainActor @Sendable (
+    _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID,
+    _ inSpace: SpaceID
+  ) throws -> Void
+}
+
+/// Full hierarchy address a `PanelID` resolves to. Carries the IDs of every
+/// ancestor so `HierarchyClient` mutations that require the full chain
+/// (`closeTab`, `selectTab`, `equalizeTabSplits`, …) can be called without a
+/// second catalog walk.
+nonisolated struct PanelAddress: Sendable, Equatable {
+  let spaceID: SpaceID
+  let projectID: ProjectID
+  let worktreeID: WorktreeID
+  let tabID: TabID
+  let panelID: PanelID
 }
 
 /// Coarse selection payload. `nil` for any level means "no selection at that
@@ -343,6 +394,31 @@ extension HierarchyClient {
       },
       reorderSpaces: { source, destination in
         manager.reorderSpaces(fromOffsets: source, toOffset: destination)
+      },
+      addressOf: { panelID in
+        guard let (spaceID, projectID, worktreeID, tabID) = manager.addressOf(panelID: panelID)
+        else { return nil }
+        return PanelAddress(
+          spaceID: spaceID,
+          projectID: projectID,
+          worktreeID: worktreeID,
+          tabID: tabID,
+          panelID: panelID
+        )
+      },
+      moveTab: { tabID, worktreeID, projectID, spaceID, offset in
+        try manager.moveTab(
+          tabID, in: worktreeID, in: projectID, in: spaceID, offset: offset
+        )
+      },
+      equalizeTabSplits: { tabID, worktreeID, projectID, spaceID in
+        try manager.equalizeTabSplits(tabID, in: worktreeID, in: projectID, in: spaceID)
+      },
+      resizePanel: { panelID, direction, amount in
+        try manager.resizePanel(panelID, direction: direction, amount: amount)
+      },
+      unzoomTab: { tabID, worktreeID, projectID, spaceID in
+        try manager.unfocusPanel(in: tabID, in: worktreeID, in: projectID, in: spaceID)
       }
     )
   }
@@ -525,7 +601,12 @@ extension HierarchyClient: DependencyKey {
     setProjectWorktreesDirectory: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     isPathRegistered: { _ in fatalError("HierarchyClient.liveValue not configured") },
     projectContaining: { _ in fatalError("HierarchyClient.liveValue not configured") },
-    reorderSpaces: { _, _ in fatalError("HierarchyClient.liveValue not configured") }
+    reorderSpaces: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    addressOf: { _ in fatalError("HierarchyClient.liveValue not configured") },
+    moveTab: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    equalizeTabSplits: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    resizePanel: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    unzoomTab: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") }
   )
 
   static let testValue: HierarchyClient = HierarchyClient(
@@ -573,7 +654,12 @@ extension HierarchyClient: DependencyKey {
     setProjectWorktreesDirectory: unimplemented("HierarchyClient.setProjectWorktreesDirectory"),
     isPathRegistered: unimplemented("HierarchyClient.isPathRegistered", placeholder: nil),
     projectContaining: unimplemented("HierarchyClient.projectContaining", placeholder: nil),
-    reorderSpaces: unimplemented("HierarchyClient.reorderSpaces")
+    reorderSpaces: unimplemented("HierarchyClient.reorderSpaces"),
+    addressOf: unimplemented("HierarchyClient.addressOf", placeholder: nil),
+    moveTab: unimplemented("HierarchyClient.moveTab"),
+    equalizeTabSplits: unimplemented("HierarchyClient.equalizeTabSplits"),
+    resizePanel: unimplemented("HierarchyClient.resizePanel"),
+    unzoomTab: unimplemented("HierarchyClient.unzoomTab")
   )
 }
 

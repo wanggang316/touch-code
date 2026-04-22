@@ -36,6 +36,10 @@ struct RootFeature {
     var editor: EditorFeature.State = .init()
     /// T2: Header feature (bell + Open-in split button + GV toggle).
     var worktreeHeader: WorktreeHeaderFeature.State = .init()
+    /// 0008: router for tab/split intents decoded from ghostty keybinds.
+    var panelActionRouter: PanelActionRouterFeature.State = .init()
+    /// 0008: router for window/app-level intents decoded from ghostty keybinds.
+    var windowActionRouter: WindowActionRouterFeature.State = .init()
 
     /// T4: space manager sheet presentation. `nil` = hidden; non-nil
     /// presents the sheet for managing (list / rename / reorder / delete) Spaces.
@@ -77,6 +81,10 @@ struct RootFeature {
     case tabAutoClosed
     case worktreeActivated
     case hierarchyMutated
+    case panelInfoChanged
+    case panelActionRequested
+    case windowActionRequested
+    case configChanged
 
     init(_ event: TerminalEvent) {
       switch event {
@@ -91,6 +99,10 @@ struct RootFeature {
       case .tabAutoClosed: self = .tabAutoClosed
       case .worktreeActivated: self = .worktreeActivated
       case .hierarchyMutated: self = .hierarchyMutated
+      case .panelInfoChanged: self = .panelInfoChanged
+      case .panelActionRequested: self = .panelActionRequested
+      case .windowActionRequested: self = .windowActionRequested
+      case .configChanged: self = .configChanged
       }
     }
   }
@@ -123,6 +135,8 @@ struct RootFeature {
     case gitViewer(GitViewerFeature.Action)
     case editor(EditorFeature.Action)
     case worktreeHeader(WorktreeHeaderFeature.Action)
+    case panelActionRouter(PanelActionRouterFeature.Action)
+    case windowActionRouter(WindowActionRouterFeature.Action)
   }
 
   nonisolated enum CancelID: Sendable {
@@ -151,6 +165,12 @@ struct RootFeature {
     Scope(state: \.worktreeHeader, action: \.worktreeHeader) {
       WorktreeHeaderFeature()
     }
+    Scope(state: \.panelActionRouter, action: \.panelActionRouter) {
+      PanelActionRouterFeature()
+    }
+    Scope(state: \.windowActionRouter, action: \.windowActionRouter) {
+      WindowActionRouterFeature()
+    }
 
     Reduce { state, action in
       switch action {
@@ -168,6 +188,18 @@ struct RootFeature {
         return .merge(
           .run { send in
             for await event in eventStream {
+              // 0008: action-router events are routed to their dedicated
+              // reducers; everything else just bumps the diagnostic marker.
+              // Intent events also bump the marker so tests that observe
+              // `lastEvent` still see them pass through.
+              switch event {
+              case .panelActionRequested(let panelID, let request):
+                await send(.panelActionRouter(.requested(panelID, request)))
+              case .windowActionRequested(let request):
+                await send(.windowActionRouter(.requested(request)))
+              default:
+                break
+              }
               await send(.engineEventReceived(LastEventMarker(event)))
             }
           }
@@ -335,6 +367,21 @@ struct RootFeature {
         }
 
       case .worktreeHeader:
+        return .none
+
+      // 0008: panel-action router delegate actions. `presentTerminal` and
+      // `toggleCommandPalette` don't have dedicated handlers in this
+      // reducer yet — touch-code has no command-palette feature, and
+      // the sidebar/detail focus flow already handles active-worktree
+      // swaps. Consumed here as explicit no-ops so future integrations
+      // can attach without re-touching the router.
+      case .panelActionRouter(.delegate):
+        return .none
+
+      case .panelActionRouter:
+        return .none
+
+      case .windowActionRouter:
         return .none
 
       case .spaceManagerSheetShown:

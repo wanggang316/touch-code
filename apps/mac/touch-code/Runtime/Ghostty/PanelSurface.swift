@@ -17,6 +17,11 @@ final class PanelSurface {
   }
 
   let panelID: PanelID
+  /// Observable informational state populated from the `PanelInfoDelta`
+  /// stream via `apply(_:)`. Reference type — `let` is intentional; the
+  /// instance lives for the full PanelSurface lifetime and its fields
+  /// are mutated in place so observers keep the same identity.
+  let info: SurfaceInfo = SurfaceInfo()
   private(set) var state: State = .initialising
   let view: GhosttySurfaceView
   private var surface: ghostty_surface_t?
@@ -132,6 +137,7 @@ final class PanelSurface {
 
   func markExited(code: Int32) {
     state = .exited(code: code)
+    info.lastChildExitCode = code
   }
 
   func markCrashed(reason: String) {
@@ -148,5 +154,105 @@ final class PanelSurface {
   func requestClose(processAlive: Bool) {
     onClose?(processAlive)
     close()
+  }
+
+  // MARK: - Info delta application
+
+  /// Fold a single `PanelInfoDelta` into `info`. Exhaustive over every
+  /// delta case — the compiler enforces coverage when new cases land in
+  /// TouchCodeCore, which is the whole point of keeping the enum Core-side.
+  ///
+  /// This only mutates per-surface observable state; it does NOT emit
+  /// `TerminalEvent.panelInfoChanged`. The decoder is responsible for
+  /// fan-out so listeners that don't need per-field tracking can stay on
+  /// the event stream.
+  func apply(_ delta: PanelInfoDelta) {
+    switch delta {
+    case .title(let t):
+      info.title = t
+    case .tabTitle(let t):
+      info.tabTitle = t
+    case .promptTitle(let tag):
+      info.promptTitle = tag
+    case .pwd(let p):
+      info.pwd = p
+
+    case .mouseShape(let shape):
+      info.mouseShape = shape
+    case .mouseVisible(let visible):
+      info.mouseVisible = visible
+    case .mouseOverLink(let url):
+      info.mouseOverLink = url
+
+    case .colorChange(let kind, let r, let g, let b):
+      info.colorChange = ColorChange(kind: kind, r: r, g: g, b: b)
+    case .rendererHealthy(let healthy):
+      info.rendererHealthy = healthy
+
+    case .cellSize(let width, let height):
+      info.cellWidth = width
+      info.cellHeight = height
+    case .sizeLimit(let minWidth, let minHeight, let maxWidth, let maxHeight):
+      info.sizeLimitMinWidth = minWidth
+      info.sizeLimitMinHeight = minHeight
+      info.sizeLimitMaxWidth = maxWidth
+      info.sizeLimitMaxHeight = maxHeight
+    case .initialSize(let width, let height):
+      info.initialWidth = width
+      info.initialHeight = height
+    case .resetWindowSize:
+      // Transient intent — libghostty asks the host to restore its default
+      // window size. No persistent field to update here; the decoder
+      // forwards this on the event stream for the window layer to service.
+      break
+
+    case .scrollbar(let total, let offset, let length):
+      info.scrollbarTotal = total
+      info.scrollbarOffset = offset
+      info.scrollbarLength = length
+
+    case .secureInput(let mode):
+      info.secureInput = mode
+    case .keySequence(let active, let trigger):
+      info.keySequenceActive = active
+      info.keySequenceTrigger = trigger
+    case .keyTable(let name, let depth):
+      info.keyTableName = name
+      info.keyTableDepth = depth
+    case .readonly(let ro):
+      info.readonly = ro
+    case .quitTimer(let phase):
+      info.quitTimer = phase
+    case .floatWindow(let floating):
+      info.floatWindow = floating
+
+    case .searchStarted(let needle):
+      info.searchNeedle = needle
+      info.searchTotal = nil
+      info.searchSelected = nil
+    case .searchEnded:
+      info.searchNeedle = nil
+      info.searchTotal = nil
+      info.searchSelected = nil
+    case .searchTotal(let total):
+      info.searchTotal = total
+    case .searchSelected(let index):
+      info.searchSelected = index
+
+    case .progress(let state, let value):
+      info.progressState = state
+      info.progressValue = value
+
+    case .bellRang:
+      info.bellCount &+= 1
+    case .desktopNotification(let title, let body):
+      info.lastNotificationTitle = title
+      info.lastNotificationBody = body
+    case .commandFinished(let exitCode, let duration):
+      info.lastCommandExitCode = exitCode
+      info.lastCommandDuration = duration
+    case .childExited(let code):
+      info.lastChildExitCode = code
+    }
   }
 }

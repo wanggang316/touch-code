@@ -31,8 +31,6 @@ struct WorktreeHeaderView: View {
           .accessibilityAddTraits(.isStaticText)
       }
 
-      Spacer(minLength: 8)
-
       HStack(spacing: 6) {
         HeaderBellView(store: store)
         HeaderOpenSplitButton(
@@ -50,8 +48,5 @@ struct WorktreeHeaderView: View {
         }
       }
     }
-    .padding(.horizontal, 10)
-    .padding(.vertical, 6)
-    .frame(maxWidth: .infinity, alignment: .leading)
   }
 }

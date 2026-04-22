@@ -72,6 +72,10 @@ final class TerminalEngine {
     self.hierarchy = hierarchy
     self.ghosttyRuntime = ghosttyRuntime
     self.clock = clock
+    // Back-pointer so the libghostty action decoder can emit events
+    // (panelInfoChanged, panelActionRequested, etc.) onto this engine's
+    // stream. Weak on the runtime side; no cycle.
+    ghosttyRuntime?.terminalEngine = self
   }
 
   // MARK: - Panel surface lifecycle
@@ -386,11 +390,12 @@ extension TerminalEvent {
   /// because scrollback retains history.
   fileprivate var isLifecycle: Bool {
     switch self {
-    case .panelOutput, .panelIdle:
+    case .panelOutput, .panelIdle, .panelInfoChanged:
       return false
     case .panelCreated, .panelReady, .panelExited, .panelCrashed,
       .panelClosedByTab, .tabActivated, .tabAutoClosed,
-      .worktreeActivated, .hierarchyMutated:
+      .worktreeActivated, .hierarchyMutated,
+      .panelActionRequested, .windowActionRequested, .configChanged:
       return true
     }
   }

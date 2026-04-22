@@ -53,6 +53,13 @@ final class GhosttyRuntime {
   private var config: ghostty_config_t?
   let dispatcher = CallbackDispatcher()
 
+  /// Back-reference to the engine whose event stream surfaces action decoder
+  /// emits (`panelInfoChanged`, `panelActionRequested`, etc.). Weak to
+  /// avoid a retain cycle with `TerminalEngine.ghosttyRuntime`; the engine
+  /// outlives the runtime in every supported configuration, so a dangling
+  /// reference is a bug elsewhere.
+  weak var terminalEngine: TerminalEngine?
+
   /// Process-global weak reference used by C callback shims that hop through
   /// DispatchQueue.main.async — the original dispatcher userdata may point
   /// to freed memory by the time the async block runs, so we go through the
@@ -146,11 +153,148 @@ final class GhosttyRuntime {
   }
 
   private static let actionCallback: (@convention(c) (ghostty_app_t?, ghostty_target_s, ghostty_action_s) -> Bool) = {
-    _, _, _ in
-    // Real routing lands with the action-dispatch seam in M5.2+; until then
-    // no app-level action is consumed and ghostty gets to keep default
-    // handling.
-    false
+    _, target, action in
+    // libghostty may invoke action_cb on a non-main thread. We must decode
+    // the payload *here*, synchronously — several action tags
+    // (SET_TITLE / PWD / MOUSE_OVER_LINK / START_SEARCH / OPEN_URL /
+    // DESKTOP_NOTIFICATION / KEY_TABLE / CONFIG_CHANGE) carry C pointers
+    // borrowed from libghostty for the duration of the callback; if we
+    // defer the read to a later main-queue hop those pointers are dangling.
+    //
+    // Decode converts everything to owned Swift values (copied Strings +
+    // a cloned `ghostty_config_t` for CONFIG_CHANGE) and reports the
+    // "consumed" verdict synchronously, so the C return value always
+    // matches what the applier will do — no more false-return-but-
+    // applied races.
+    if ProcessInfo.processInfo.environment["TOUCH_CODE_DISABLE_ACTION_ROUTING"] == "1" {
+      return false
+    }
+
+    let targetTag = target.tag
+    let surface: ghostty_surface_t? = targetTag == GHOSTTY_TARGET_SURFACE ? target.target.surface : nil
+    // PanelID is only meaningful for surface-scoped actions. We need it to
+    // emit panelActionRequested / windowActionRequested from the right
+    // panel, and it must be resolved here while userdata is valid.
+    let panelID: PanelID? = surface.flatMap { GhosttyRuntime.panelIDBytes(fromSurface: $0) }
+
+    switch targetTag {
+    case GHOSTTY_TARGET_APP:
+      let decoded = GhosttyActionDecoder.decodeAppAction(action)
+      let consumed = decoded.consumed
+      if Thread.isMainThread {
+        return MainActor.assumeIsolated {
+          _ = GhosttyRuntime.shared?.applyAppAction(decoded)
+          return consumed
+        }
+      }
+      DispatchQueue.main.async {
+        MainActor.assumeIsolated {
+          _ = GhosttyRuntime.shared?.applyAppAction(decoded)
+        }
+      }
+      return consumed
+
+    case GHOSTTY_TARGET_SURFACE:
+      guard let panelID else { return false }
+      let decoded = GhosttyActionDecoder.decodeSurfaceAction(action, panelID: panelID)
+      let consumed = decoded.consumed
+      if Thread.isMainThread {
+        return MainActor.assumeIsolated {
+          _ = GhosttyRuntime.shared?.applySurfaceAction(decoded, panelID: panelID)
+          return consumed
+        }
+      }
+      DispatchQueue.main.async {
+        MainActor.assumeIsolated {
+          _ = GhosttyRuntime.shared?.applySurfaceAction(decoded, panelID: panelID)
+        }
+      }
+      return consumed
+
+    default:
+      return false
+    }
+  }
+
+  // MARK: - Action apply (MainActor — consumes decoded Swift values)
+
+  @MainActor
+  fileprivate func applyAppAction(_ decoded: DecodedAppAction) -> Bool {
+    GhosttyActionDecoder.apply(decoded, runtime: self)
+  }
+
+  @MainActor
+  fileprivate func applySurfaceAction(_ decoded: DecodedSurfaceAction, panelID: PanelID) -> Bool {
+    guard let panel = surfacesByPanelID[panelID] else { return false }
+    return GhosttyActionDecoder.apply(decoded, panelID: panelID, panel: panel, runtime: self)
+  }
+
+  /// Copy the PanelID uuid bytes out of libghostty-stored userdata. Same
+  /// pattern as `closeSurfaceCallback` — UAF-safe because userdata points
+  /// to a 16-byte allocation owned by `PanelSurface` for the surface's
+  /// lifetime; we only read the bytes, never the owning Swift object.
+  /// `nonisolated` so the C callback thunk can resolve the PanelID on
+  /// whatever thread libghostty invokes us (the read is a pure byte copy).
+  nonisolated static func panelIDBytes(fromSurface surface: ghostty_surface_t) -> PanelID? {
+    guard let raw = ghostty_surface_userdata(surface) else { return nil }
+    var bytes = uuid_t(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    withUnsafeMutableBytes(of: &bytes) { dst in
+      _ = dst.baseAddress.map { base in
+        base.copyMemory(from: raw, byteCount: MemoryLayout<uuid_t>.size)
+      }
+    }
+    return PanelID(raw: UUID(uuid: bytes))
+  }
+
+  // MARK: - Event emission
+
+  /// Lift a decoded event onto the engine's `TerminalEvent` stream.
+  /// No-op if the engine hasn't been wired yet (engine-less headless tests).
+  @MainActor
+  func emit(_ event: TerminalEvent) {
+    terminalEngine?.emit(event)
+  }
+
+  /// Convenience for the info-delta family, which always travels as
+  /// `panelInfoChanged(panelID, delta)`.
+  @MainActor
+  func emitInfoChanged(_ panelID: PanelID, _ delta: PanelInfoDelta) {
+    emit(.panelInfoChanged(panelID, delta))
+  }
+
+  // MARK: - Config mutation
+
+  /// Atomically replace the current `ghostty_config_t` with the cloned
+  /// handle libghostty hands us via `CONFIG_CHANGE`. The old handle is
+  /// freed after replacement; live surfaces keep rendering against their
+  /// existing snapshots until ghostty re-applies.
+  @MainActor
+  func applyClonedConfig(_ cloned: ghostty_config_t) {
+    let old = config
+    config = cloned
+    if let old { ghostty_config_free(old) }
+  }
+
+  /// Rebuild the config handle from disk. `soft` is forwarded for parity
+  /// with libghostty's semantics; our rebuild is the same either way
+  /// (load defaults → load recursive → finalize → swap).
+  @MainActor
+  func reloadConfig(soft: Bool) {
+    _ = soft
+    guard let fresh = ghostty_config_new() else { return }
+    ghostty_config_load_default_files(fresh)
+    ghostty_config_load_recursive_files(fresh)
+    ghostty_config_finalize(fresh)
+    applyClonedConfig(fresh)
+  }
+
+  /// Placeholder for `GHOSTTY_ACTION_TOGGLE_BACKGROUND_OPACITY`. Lands when
+  /// the appearance layer owns an opacity override; logged for now so the
+  /// keybind is observable.
+  @MainActor
+  func toggleBackgroundOpacity() {
+    // Intentionally empty — opacity is a setting surface (DeveloperSettings
+    // or appearance override) that this runtime does not yet own.
   }
 
   /// close_surface_cb receives the SURFACE's userdata, which we set at
