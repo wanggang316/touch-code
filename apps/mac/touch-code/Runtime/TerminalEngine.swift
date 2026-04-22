@@ -379,11 +379,12 @@ extension TerminalEvent {
   /// because scrollback retains history.
   fileprivate var isLifecycle: Bool {
     switch self {
-    case .panelOutput, .panelIdle:
+    case .panelOutput, .panelIdle, .panelInfoChanged:
       return false
     case .panelCreated, .panelReady, .panelExited, .panelCrashed,
       .panelClosedByTab, .tabActivated, .tabAutoClosed,
-      .worktreeActivated, .hierarchyMutated:
+      .worktreeActivated, .hierarchyMutated,
+      .panelActionRequested, .windowActionRequested, .configChanged:
       return true
     }
   }

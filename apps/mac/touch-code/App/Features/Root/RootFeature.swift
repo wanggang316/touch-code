@@ -77,6 +77,10 @@ struct RootFeature {
     case tabAutoClosed
     case worktreeActivated
     case hierarchyMutated
+    case panelInfoChanged
+    case panelActionRequested
+    case windowActionRequested
+    case configChanged
 
     init(_ event: TerminalEvent) {
       switch event {
@@ -91,6 +95,10 @@ struct RootFeature {
       case .tabAutoClosed: self = .tabAutoClosed
       case .worktreeActivated: self = .worktreeActivated
       case .hierarchyMutated: self = .hierarchyMutated
+      case .panelInfoChanged: self = .panelInfoChanged
+      case .panelActionRequested: self = .panelActionRequested
+      case .windowActionRequested: self = .windowActionRequested
+      case .configChanged: self = .configChanged
       }
     }
   }
