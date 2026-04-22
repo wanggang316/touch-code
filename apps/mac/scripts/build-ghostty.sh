@@ -77,6 +77,12 @@ if [ -f "${ghostty_fingerprint_path}" ] &&
   exit 0
 fi
 
+# Zig 0.15.2's std.http.Client TLS handshake is rejected by Cloudflare on
+# deps.files.ghostty.org (400). Prime the global cache via curl first; the
+# prime script is idempotent (skips already-cached entries) so it's cheap
+# on rebuilds and mandatory on cold builds.
+ZIG_GLOBAL_CACHE_DIR="${ghostty_global_cache_dir}" "${script_dir}/prime-zig-cache.sh"
+
 cd "${ghostty_dir}"
 mise exec -- zig build -Doptimize=ReleaseFast -Demit-xcframework=true -Dsentry=false --prefix "${ghostty_build_root}" --cache-dir "${ghostty_local_cache_dir}" --global-cache-dir "${ghostty_global_cache_dir}"
 rsync -a --delete "${ghostty_dir}/macos/GhosttyKit.xcframework/" "${xcframework_path}/"

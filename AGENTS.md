@@ -2,13 +2,24 @@
 
 ## Quick Start
 
-<!-- The 3-4 commands an agent needs to build, test, and lint -->
-
 ```bash
-<build command>
-<lint command>
-<test command>
+# One-time per worktree (fresh clone or `git worktree add`)
+mise trust . apps/mac                           # trust mise config for this + apps/mac cwd
+make bootstrap                                  # init submodules (ghostty, git-wt) + mise install (tuist/zig/swiftlint/xcbeautify/xcsift)
+
+# Build / run
+make mac-generate                               # tuist install + tuist generate (transitively builds Ghostty xcframework)
+make mac-build                                  # build touch-code.app + tc CLI
+make mac-run-app                                # build + open the app
+
+# Code hygiene
+make mac-lint                                   # swiftlint --quiet
+make mac-check                                  # swift-format in-place + lint
 ```
+
+Multi-worktree tip: `ln -s <main>/apps/mac/.build/ghostty apps/mac/.build/ghostty` avoids re-compiling Ghostty (~3.9 GB, ~20 min first time) in every new worktree. `build-ghostty.sh` primes Zig's cache via curl automatically (Zig 0.15.2's TLS handshake is rejected by Cloudflare on `deps.files.ghostty.org`; the prime step is idempotent and a no-op on cache hits).
+
+Requires Xcode **26.0+** (pinned via `apps/mac/Tuist.swift: compatibleXcodeVersions: .upToNextMajor("26.0")`).
 
 ## Architecture Overview
 
@@ -66,13 +77,7 @@ See [Golden Rules](docs/golden-rules.md) for the complete list with rationale an
 
 ## Build & Test Commands
 
-<!-- Full commands with inline comments -->
-
-```bash
-<build command>          # Build project
-<lint command>           # Run linter
-<test command>           # Run tests
-```
+See [Quick Start](#quick-start). Top-level Makefile delegates every `mac-*` target to `apps/mac/Makefile`. Run `make help` for the full list.
 
 ## Code Style & Conventions
 
