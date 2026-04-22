@@ -1,30 +1,30 @@
 import Foundation
 import TouchCodeCore
 
-/// Errors surfaced by `EditorService`. Every case maps directly to the design's error table:
-/// UI toasts from in-app callers; JSON-RPC error codes from the `editor.*` IPC surface (M7a).
-public nonisolated enum EditorError: Error, Equatable, Sendable {
-  /// The editor binary was not found on `$PATH` (for bare-name templates) or is missing /
-  /// not executable (for absolute-path templates). `id` is the editor choice that failed;
-  /// `binary` is the expected binary name / path.
-  case notInstalled(id: EditorID, binary: String)
+/// Errors surfaced by `EditorService`. C8a simplifies the set to three cases — the NSWorkspace
+/// launch path has no exit code, no timeout, and no child-process spawn failure mode. Each
+/// case maps to a UI toast (see design doc §Error handling) and to an `EditorIPCError` at the
+/// IPC boundary.
+public nonisolated enum EditorError: LocalizedError, Equatable, Sendable {
+  /// An explicit preferred editor was not resolvable via Launch Services. Raised only for
+  /// strict (user-explicit) preferred requests; silent defaults fall through instead.
+  case notInstalled(id: EditorID, bundleID: String)
 
-  /// `Process.run()` threw — typically permissions or macOS quarantine.
-  case spawnFailed(reason: String)
+  /// `NSWorkspace.open` reported an error via its completion handler — typically Gatekeeper
+  /// denial, quarantine block, or LS misconfiguration.
+  case launchFailed(reason: String)
 
-  /// Child exited non-zero within the 5 s budget.
-  case nonZeroExit(code: Int32, stderr: String)
-
-  /// Child was still alive at the 5 s deadline. Spawner sent SIGTERM then SIGKILL.
-  case timedOut
-
-  /// Custom template failed validation. `reason` is a short human-readable explanation.
-  case badTemplate(id: EditorID, reason: String)
-
-  /// The directory passed to `open` does not exist or is a file.
+  /// The directory passed to `open` does not exist or is not a directory.
   case notADirectory(path: String)
 
-  /// `tc open` was invoked with no `<worktree>` and no `TOUCH_CODE_PANEL_ID`. Never raised
-  /// from in-app callers (they always resolve a Worktree from the current selection).
-  case unresolvedWorktree
+  public var errorDescription: String? {
+    switch self {
+    case .notInstalled(let id, _):
+      return "\(id) is not installed."
+    case .launchFailed(let reason):
+      return "Could not launch editor: \(reason)"
+    case .notADirectory(let path):
+      return "Directory not found: \(path)"
+    }
+  }
 }
