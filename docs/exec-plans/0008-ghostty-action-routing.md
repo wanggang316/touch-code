@@ -14,19 +14,14 @@ The user-visible outcome: `keybind cmd+e = close_tab` in `~/.config/ghostty/conf
 
 ## Progress
 
-- [x] Milestone 1: Core types and TerminalEvent additions (2026-04-22)
-  - [x] `TouchCodeCore/PanelInfoDelta.swift` created (29 cases)
-  - [x] `TouchCodeCore/PanelActionRequest.swift` created (11 cases + typed sub-enums)
-  - [x] `TouchCodeCore/WindowActionRequest.swift` created (11 cases + GotoWindowTarget)
-  - [x] `TerminalEvent.swift` extended with 4 new cases
-  - [x] Downstream exhaustive switches updated: `RootFeature.LastEventMarker`, `EventMapper.map`, `TerminalEngine.isLifecycle`
-  - [x] Full app build passes (`xcodebuild ... -scheme touch-code`)
-- [ ] Milestone 2: GhosttyActionDecoder module (C enum → typed Swift)
-- [ ] Milestone 3: SurfaceInfo and PanelSurface extensions
-- [ ] Milestone 4: GhosttyRuntime action routing
-- [ ] Milestone 5: PanelActionRouterFeature (tab/split intents)
-- [ ] Milestone 6: WindowActionRouterFeature and supporting clients
-- [ ] Milestone 7: Integration, testing, and launch gates
+- [x] Milestone 1: Core types and TerminalEvent additions (2026-04-22, `bb7b18e`)
+- [x] Milestone 3: SurfaceInfo and PanelSurface extensions (2026-04-22, `b70b755`)
+- [x] Milestone 5: PanelActionRouterFeature + HierarchyClient/Manager extensions (2026-04-22, `f2b482a`)
+- [x] Milestone 6: WindowActionRouterFeature + WindowService/AppLifecycleClient/UpdatesClient (2026-04-22, `1d2260a`)
+- [x] Milestone 2 + 4: GhosttyActionDecoder + GhosttyRuntime routing (2026-04-22, `baa9058`)
+- [x] Milestone 7a: RootFeature integration (2026-04-22, `4476767`)
+- [ ] Milestone 7b: Unit tests (decoder / routers / runtime / panel-surface)
+- [ ] Milestone 7c: Manual smoke test checklist & final plan retro
 
 ## Surprises & Discoveries
 
@@ -43,6 +38,38 @@ Both are small additions. No impact on subsequent milestones.
 **DEC-2 — Inline `sizeLimit` fields instead of defining a `Size` struct.** Plan referenced `Size` in `PanelInfoDelta.sizeLimit(min:max:)`, but no `Size` type exists in Core. Inlined as `sizeLimit(minWidth:minHeight:maxWidth:maxHeight:)` to avoid adding an unused helper type. Four `UInt32` fields are not meaningfully worse than a `Size` struct.
 
 **DEC-3 — `panelInfoChanged` classified as non-lifecycle (droppable).** Per design doc's chatty-TUI risk, `SET_TITLE`/`PWD`/`PROGRESS_REPORT` fire on every prompt and must not block the event stream. Three intent/config events (`panelActionRequested`, `windowActionRequested`, `configChanged`) are lifecycle — user keypresses cannot drop.
+
+**DEC-M2-1 — `COPY_TITLE_TO_CLIPBOARD` is currently a stub.** Design doc reads `panel.info.title` and writes `NSPasteboard`. SurfaceInfo shipped in M3; the two-line fill-in is left to a follow-up commit so M2 doesn't depend on future M3 shape.
+
+**DEC-M2-2 — `NewSplitDirection` collapses 4 C directions → 2 axes.** libghostty's `ghostty_action_split_direction_e` has RIGHT/DOWN/LEFT/UP. Core's `NewSplitDirection` is `.horizontal/.vertical`. Map LEFT/RIGHT→horizontal, UP/DOWN→vertical. Loses orientation hint; acceptable because split creation's UX only cares about axis.
+
+**DEC-M2-3 — `GotoWindowTarget.last`/`.index(Int)` are unreachable from libghostty.** The C enum only emits PREVIOUS/NEXT. Kept as forward-compat cases for IPC callers.
+
+**DEC-M2-5 — Raw C enum tags preserved as `UInt32` through `PanelInfoDelta`.** `PROMPT_TITLE`/`MOUSE_SHAPE`/`SECURE_INPUT`/`QUIT_TIMER`/`PROGRESS_REPORT.state` pass their raw tag through the delta to keep the decoder as the single translation boundary. Consumers that need typed enums remap downstream.
+
+**DEC-M2-7 — `KEY_TABLE` 3 C tags compress to `(name, depth)`.** ACTIVATE → `(name, +1)`, DEACTIVATE → `(nil, -1)`, DEACTIVATE_ALL → `(nil, 0)`. Depth encodes the mutation, not absolute stack height.
+
+**DEC-M2-8 — `KEY_SEQUENCE.trigger` hashes to a UInt32 fingerprint.** Full `ghostty_input_trigger_s` (tag+key+mods) doesn't fit `PanelInfoDelta.keySequence(trigger: UInt32)`. Hash suffices as a change-detector; expand the delta if a feature ever needs the literal keystroke.
+
+**DEC-M5-A — `HierarchyClient.unzoomTab` added** because the spec referenced `zoomPanel`/`unzoomPanel` that don't exist; `HierarchyManager.focusPanel`/`unfocusPanel` already implement the zoom semantics under older names. Rename opportunity for later.
+
+**DEC-M5-C — Router delegates `.presentTerminalRequested`/`.commandPaletteToggleRequested`** back to RootFeature. touch-code has no command palette feature today; RootFeature consumes both as explicit no-ops so the seam exists without the consumer.
+
+**DEC-M5-E — `resizePanel` is a ratio delta, not pixels.** libghostty's RESIZE_SPLIT carries pixels; `SplitTree` stores only ratios (clamped [0.1, 0.9]). `amount` is treated as a ratio delta directly. Good enough; the decoder can scale if keybinds feel under/over-responsive.
+
+**DEC-M6-1 — `WindowService.openNewWindow`/`closeWindow` are stubs.** `TouchCodeApp` is single-`WindowGroup` today; SwiftUI's `OpenWindowAction` isn't reachable from a Client, and no per-Panel→NSWindow registry exists. `closeWindow` falls back to `NSApp.keyWindow.performClose(nil)` which ignores the panelID argument but handles the common case (keybind inside the focused window). Full implementation waits on the multi-window design (design doc §Risks).
+
+**DEC-M6-3 — `openConfig` uses `NSWorkspace.open`, not `EditorClient`.** `EditorClient.open(directory:…)` only accepts directory URLs; no file-level overload. `NSWorkspace.open(URL(fileURLWithPath: "~/.config/ghostty/config"))` respects the user's LaunchServices default for the file type. Switch to `EditorClient` once it gains file opens.
+
+**DEC-M4-1 — `GhosttyRuntime.terminalEngine` is a `weak var`.** Runtime does not own the engine; engine owns runtime. The reverse pointer is assigned in `TerminalEngine.init`. Weak ref breaks the cycle and mirrors the pre-existing `dispatcher.runtime: GhosttyRuntime?` pattern.
+
+**DEC-M4-2 — `reloadConfig(soft:)` ignores `soft`.** libghostty exposes no in-place reload primitive; our rebuild (default → recursive → finalize → swap) is the same either way. The parameter is preserved on the signature so a real `ghostty_app_reload_config(app, soft)` binding can be wired without a call-site change.
+
+**DEC-M4-3 — `toggleBackgroundOpacity` is empty.** Opacity lives in the appearance settings layer (DeveloperSettings / future appearance overrides) that the runtime does not own. The method exists so the decoder compiles and the keybind is observable via its `.debug` log.
+
+**DEC-M7-1 — `TOUCH_CODE_DISABLE_ACTION_ROUTING=1` gate sits in the C callback.** Earlier than the decoder so the escape hatch short-circuits before any main-thread hop. Environmental read on every callback is cheap (`ProcessInfo.environment` is lazily cached by Foundation).
+
+**DEC-M7-2 — Event fan-out routes through the existing `terminalClient.events()` stream, not a new stream.** The engine's single AsyncStream already fans out to every subscriber; adding per-event streams would duplicate the broadcast. The root reducer filters by pattern inline — one switch, two `send` calls — and every other event keeps flowing through the diagnostic `lastEvent` marker.
 
 ## Outcomes & Retrospective
 
