@@ -34,7 +34,8 @@ final class SettingsStore {
 
   init(
     fileURL: URL = Settings.defaultURL(),
-    debounceWindow: Duration = SettingsStore.debounceWindow
+    debounceWindow: Duration = SettingsStore.debounceWindow,
+    knownEditorIDs: Set<EditorID> = Set(EditorRegistry.registry.map(\.id))
   ) {
     self.fileURL = fileURL
     self.debounceWindow = debounceWindow
@@ -93,6 +94,19 @@ final class SettingsStore {
       safeToPersist = false
     }
     self.persistenceEnabled = safeToPersist
+
+    // C8a Phase 5 M1 — reset any stored `general.defaultEditorID` that is not in the
+    // current built-in registry. Stale IDs come from the retired C8 `customEditors`
+    // feature; the resolver would silently fall back, but leaving the dead value on disk
+    // misreports the user's actual preference. Run after the switch so every decode
+    // branch (including `.default`) is covered; idempotent.
+    let didNormalize = settings.garbageCollectEditors(knownIDs: knownEditorIDs)
+    if didNormalize {
+      logger.info("Reset stale general.defaultEditorID not in built-in registry")
+      // Persist the cleaned value so the normalization sticks across launches. Uses the
+      // standard debounced save pipeline; no-op when persistence is disabled.
+      scheduleSave()
+    }
   }
 
   // MARK: - Section mutators

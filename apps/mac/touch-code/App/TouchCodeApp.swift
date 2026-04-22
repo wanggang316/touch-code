@@ -149,6 +149,13 @@ final class AppState {
     let runtime = GhosttyBackedHierarchyRuntime()
     var catalog = (try? catalogStore.load()) ?? .default
 
+    // C8a Phase 5 M2 — normalise any `Project.defaultEditor` that is not in the current
+    // built-in registry. Counterpart to `SettingsStore`'s M1 cleanup; both run at load
+    // before the decoded data reaches the runtime. `knownEditorIDs` is computed app-side
+    // so `TouchCodeCore` stays free of app-layer imports.
+    let knownEditorIDs = Set(EditorRegistry.registry.map(\.id))
+    let catalogDidNormalize = catalog.garbageCollectEditors(knownIDs: knownEditorIDs)
+
     // First-run seed: if catalog is empty, create a "Personal" Space
     let needsSeed = catalog.spaces.isEmpty
     if needsSeed {
@@ -163,8 +170,10 @@ final class AppState {
       runtime: runtime
     )
 
-    // Persist the seed via the standard debounced save pipeline
-    if needsSeed {
+    // Persist the seed or the editor-ID normalisation via the standard debounced save
+    // pipeline. Only fire when something actually changed — no spurious writes on clean
+    // catalogs.
+    if needsSeed || catalogDidNormalize {
       catalogStore.scheduleSave(manager.catalog)
     }
     self.catalogStore = catalogStore
