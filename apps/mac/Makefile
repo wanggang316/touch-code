@@ -36,7 +36,7 @@ build-cli: generate
 	xcodebuild -workspace touch-code.xcworkspace -scheme tc -configuration Debug build
 
 run-app: build
-	@APP=$$(xcodebuild -workspace touch-code.xcworkspace -scheme touch-code -configuration Debug -showBuildSettings 2>/dev/null | awk '/BUILT_PRODUCTS_DIR/{d=$$3} /FULL_PRODUCT_NAME/{p=$$3} END{print d "/" p}') && open "$$APP"
+	@APP=$$(xcodebuild -workspace touch-code.xcworkspace -scheme touch-code -configuration Debug -showBuildSettings 2>/dev/null | awk '$$1=="BUILT_PRODUCTS_DIR"{d=$$3} $$1=="FULL_PRODUCT_NAME"{p=$$3} END{print d "/" p}') && open "$$APP"
 
 format:
 	swift format --in-place --recursive --configuration ./.swift-format.json touch-code tc TouchCodeCore TouchCodeIPC
