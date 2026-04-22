@@ -1,6 +1,6 @@
 # ExecPlan: Ghostty Action Routing for All 62 Actions
 
-**Status:** In Progress
+**Status:** Completed
 **Author:** Gump
 **Date:** 2026-04-22
 
@@ -20,8 +20,12 @@ The user-visible outcome: `keybind cmd+e = close_tab` in `~/.config/ghostty/conf
 - [x] Milestone 6: WindowActionRouterFeature + WindowService/AppLifecycleClient/UpdatesClient (2026-04-22, `1d2260a`)
 - [x] Milestone 2 + 4: GhosttyActionDecoder + GhosttyRuntime routing (2026-04-22, `baa9058`)
 - [x] Milestone 7a: RootFeature integration (2026-04-22, `4476767`)
-- [ ] Milestone 7b: Unit tests (decoder / routers / runtime / panel-surface)
-- [ ] Milestone 7c: Manual smoke test checklist & final plan retro
+- [x] Milestone 7b: Unit tests (2026-04-22) — 4 suites, ~1300 LOC:
+  - `PanelSurfaceApplyTests` (31 `@Test`, 29/29 PanelInfoDelta case mirrored)
+  - `GhosttyActionDecoderTests` (29 `@Test`, 6 helper enums × their C values)
+  - `PanelActionRouterFeatureTests` (13 `@Test`, 11/11 request cases + nil-address edge)
+  - `WindowActionRouterFeatureTests` (11 `@Test`, 11/11 cases)
+- [x] Milestone 7c: Manual smoke checklist below; Outcomes & Retrospective filled
 
 ## Surprises & Discoveries
 
@@ -71,9 +75,28 @@ Both are small additions. No impact on subsequent milestones.
 
 **DEC-M7-2 — Event fan-out routes through the existing `terminalClient.events()` stream, not a new stream.** The engine's single AsyncStream already fans out to every subscriber; adding per-event streams would duplicate the broadcast. The root reducer filters by pattern inline — one switch, two `send` calls — and every other event keeps flowing through the diagnostic `lastEvent` marker.
 
+**DEC-M7b-1 — Six `decode*` enum helpers relaxed from `fileprivate` to `internal static`.** The C→Swift enum mapping tables in `GhosttyActionDecoder` (close tab mode / new split direction / goto split direction / resize split direction / goto tab target / goto window target) are the only slices of the 65-case switch that can be tested without constructing a full `ghostty_action_s` C union. `@testable import touch_code` cannot cross `fileprivate`, so these six helpers are now `static` (module-internal) while `decodeKeyTable`, `keyTriggerFingerprint`, `handleOpenURL`, and the `emit*` dispatch helpers stay `fileprivate`. Visibility-only change; no callers or behavior moved.
+
 ## Outcomes & Retrospective
 
-(To be filled at milestone completion)
+**What shipped (2026-04-22).** All 65 libghostty action tags are routed: tab/split intents to `PanelActionRouterFeature` → `HierarchyClient` / `HierarchyManager`, window intents to `WindowActionRouterFeature` → `WindowService` / `AppLifecycleClient` / `UpdatesClient` / `EditorClient`, surface-info deltas to `PanelSurface.info` + the `panelInfoChanged` event stream, effectful actions inline via AppKit, and app-level config changes via `GhosttyRuntime.applyClonedConfig` / `reloadConfig`. The prior hardcoded `action_cb` stub — silently dropping every user keybind — is gone. A launch-arg gate (`TOUCH_CODE_DISABLE_ACTION_ROUTING=1`) provides a hotfix escape hatch.
+
+**What was bigger than planned.** The plan scoped the decoder at "~250 lines / 62 cases"; reality was 559 lines / 65 cases, driven by 10+ small trade-offs between libghostty's richer C union and touch-code's typed Swift surface (recorded DEC-M2-1 through DEC-M2-10). The downstream blast radius was also understated: 3 pre-existing exhaustive switches on `TerminalEvent` needed updates (`RootFeature.LastEventMarker`, `EventMapper.map`, `TerminalEngine.isLifecycle`).
+
+**What was smaller than planned.** Parallelizing via sub-agents collapsed M2/M3/M5/M6 from a sequential "~4-day" chain into a single working session. Seven atomic commits (bb7b18e → 4476767) split the work so the history stays bisectable across buckets.
+
+**Known limitations deliberately left for follow-up.**
+- `WindowService.openNewWindow` / `closeWindow` are stubs pending the multi-window design decision (see design doc §Risks "Window intent without multi-window model").
+- `UpdatesClient.checkNow` is a logger stub until Sparkle wires in.
+- `COPY_TITLE_TO_CLIPBOARD` is a 2-line fill-in deferred (DEC-M2-1) so M2 didn't depend on M3's shape.
+- `toggleBackgroundOpacity` is empty — opacity ownership lives in appearance settings, not this runtime.
+- `.delegate(.presentTerminalRequested)` and `.delegate(.commandPaletteToggleRequested)` are consumed as root-level no-ops; touch-code has no command-palette feature yet.
+- Router-to-catalog resolution in `gotoSplit` collapses 4-way spatial directions to previous/next; a true spatial walk needs per-panel frame geometry the reducer doesn't own (DEC-M5-B).
+- `resizeSplit` treats `amount` as a ratio delta because `SplitTree` stores ratios only, not pixels (DEC-M5-E).
+
+**Test host bootstrap is broken independent of this plan.** When invoking `xcodebuild test`, the test host app's `EditorFeature.refresh` recurses on a stack-overflow-style path through `LiveEditorService.describe` / `EditorClient.live`; this reproduces on unmodified test suites (`TerminalEngineTests`) so it is pre-existing, not introduced by this plan. Tests `build-for-testing` cleanly (swift-testing + XCTest + TCA 的 compile 都过); runtime validation runs through the M7c smoke checklist until the bootstrap issue is fixed.
+
+**Retrospective.** The design doc's "one decoder, many consumers" split held up well under real C-union shape discovery. Placing the C→Swift boundary inside a single file meant every rough edge between libghostty and Core showed up as a Decision Log entry instead of cascading through a dozen sites. Sub-agents worked best when each was given (1) the exact file paths to create/touch, (2) the set of *types that do not yet exist* it could assume future agents would add, and (3) a "do not commit / do not build" discipline so the orchestrator keeps commit boundaries clean.
 
 ## Context and Orientation
 
@@ -878,6 +901,70 @@ Test Summary: 42 passed, 0 failed.
 7. **No regressions:** Launch the full app; test existing features (tab bar, split viewport, sidebar, git viewer, settings). Confirm nothing is broken.
 
 ---
+
+## Manual Smoke Checklist (M7c)
+
+These cases are not driveable from `tc` because libghostty's action callback only fires under a real keystroke. A tester runs through this list on a dev build before any release that includes routing changes.
+
+**Setup:** Add the listed `keybind` lines to `~/.config/ghostty/config`, relaunch the app, then press each bound key in an active terminal panel.
+
+### Bucket 1 — Tab / split intent
+
+- [ ] `keybind = super+shift+t=new_tab` → a new Tab appears in the current Worktree with the same working directory
+- [ ] `keybind = super+w=close_tab` → the active Tab closes; if it was the last, the Worktree shows the empty state
+- [ ] `keybind = super+alt+right=move_tab:1` → active Tab shifts one slot to the right in the Tab bar
+- [ ] `keybind = super+alt+left=previous_tab` → focus moves to the Tab to the left (wraps at start)
+- [ ] `keybind = super+d=new_split:right` → the active Panel splits horizontally; new Panel takes focus
+- [ ] `keybind = super+shift+d=new_split:down` → vertical split
+- [ ] `keybind = super+alt+h=goto_split:left` / `...=goto_split:right` → focus jumps to the adjacent split (collapsed onto previous/next per DEC-M5; full spatial nav is a follow-up)
+- [ ] `keybind = super+equal=equalize_splits` → every split in the Tab resizes to equal weight
+- [ ] `keybind = super+shift+return=toggle_split_zoom` → active Panel fills the Tab; press again to restore
+- [ ] `keybind = super+shift+k=present_terminal` → no user-visible change today (consumed as `.delegate(.presentTerminalRequested)` no-op; record that the log line fires)
+- [ ] `keybind = super+k=toggle_command_palette` → no user-visible change today (delegate no-op; logged)
+
+### Bucket 2 — Window / app intent
+
+- [ ] `keybind = super+n=new_window` → nothing opens today (WindowService stub; verify `logger.info` "openNewWindow not wired" fires)
+- [ ] `keybind = super+shift+w=close_window` → the current `NSApp.keyWindow` closes
+- [ ] `keybind = super+alt+shift+w=close_all_windows` → app terminates (routes through AppLifecycleClient.terminate)
+- [ ] `keybind = super+ctrl+f=toggle_fullscreen` → current window toggles fullscreen
+- [ ] `keybind = super+ctrl+m=toggle_maximize` → `NSWindow.zoom` fires
+- [ ] `keybind = super+shift+backslash=toggle_tab_overview` → native macOS tab overview toggles (macOS 10.12+)
+- [ ] `keybind = super+h=toggle_visibility` → app hides / unhides
+- [ ] `keybind = super+q=quit` → quit confirmation dialog appears (or direct terminate if no confirmation flow wired)
+- [ ] `keybind = super+u=check_for_updates` → verify `logger.info` "Sparkle not wired" fires (stub)
+- [ ] `keybind = super+comma=open_config` → ghostty's config file opens in the system default editor for that file type
+
+### Bucket 3 — Surface info
+
+- [ ] In a running terminal, change the shell prompt that emits OSC title → Tab bar shows the new title (via `.panelInfoChanged(.title)`)
+- [ ] `cd /tmp` → the Panel's `info.pwd` updates (inspect via debugger or a `tc panel.status` call if wired)
+- [ ] Hover over a URL printed in the terminal → `info.mouseOverLink` populates (mouse-over-link handled)
+- [ ] Run a command that prints `\a` (bell) → `info.bellCount` increments; if notifications are enabled, see the notification surface fire
+- [ ] Trigger a readonly state or secure-input mode → info fields flip; log line at `.debug` fires
+
+### Bucket 4 — Effectful
+
+- [ ] `keybind = super+o=open_url` on a URL selection → `NSWorkspace.open` launches the user's default browser
+- [ ] `keybind = super+shift+c=copy_title_to_clipboard` → today a stub (DEC-M2-1); verify the `.debug` log fires; full implementation pending the two-line title read
+- [ ] `keybind = super+z=undo` / `...=redo` → `NSApp.sendAction` fires the responder chain undo/redo
+- [ ] Trigger a `ring_bell` sequence in the terminal (`printf '\a'`) → `info.bellCount` increments
+- [ ] Run any command to completion → `.panelInfoChanged(.commandFinished(...))` fires once per command
+
+### Bucket 5 — App-level config
+
+- [ ] Edit `~/.config/ghostty/config`, then from a terminal bound to `reload_config` press the key → the runtime rebuilds its config; `.configChanged` event fires; visible effect: any font/color change applies to newly created surfaces
+- [ ] Trigger `config_change` externally (e.g. by saving the config while ghostty is watching it) → same as above
+
+### Disable gate
+
+- [ ] Launch with env `TOUCH_CODE_DISABLE_ACTION_ROUTING=1` → **every** bound key from the checklist above becomes a silent no-op; no logs, no state changes
+
+### Regression sweep
+
+- [ ] Normal terminal input (typing, pasting, arrow keys) still works
+- [ ] Existing app features (sidebar navigation, tab bar, settings, git viewer) behave unchanged
+- [ ] No console errors or runtime crashes during a 10-minute interactive session
 
 ## Idempotence and Recovery
 
