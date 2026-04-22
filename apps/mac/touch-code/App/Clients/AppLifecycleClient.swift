@@ -1,0 +1,49 @@
+import AppKit
+import ComposableArchitecture
+import Foundation
+
+/// TCA bridge over the app-termination path. The `WindowActionRouterFeature`
+/// dispatches `.quit` (user-initiated) through `requestQuit` and
+/// `.closeAll` through `terminate`; keeping the two seams distinct lets a
+/// future quit-confirmation presenter interpose on `requestQuit` without
+/// the hard `terminate` callers (e.g. an IPC `system.shutdown` handler)
+/// accidentally going through the confirmation dialog.
+///
+/// `NSApp.terminate(_:)` routes through `NSApplicationDelegate`'s
+/// `applicationShouldTerminate(_:)`; `AppDelegate` in `TouchCodeApp.swift`
+/// does not override that, so the current behavior of both closures is
+/// the macOS default (immediate terminate after app delegate consent). The
+/// two-closure shape is forward-compatible with a future override that
+/// distinguishes user-initiated from caller-initiated quits.
+nonisolated struct AppLifecycleClient: Sendable {
+  /// User-initiated quit; should route through a confirmation flow if one
+  /// is wired. Today calls `NSApp.terminate(nil)` — `AppDelegate` owns
+  /// the consent surface via `applicationShouldTerminate`.
+  var requestQuit: @MainActor @Sendable () -> Void
+  /// Unconditional terminate. Use only after a confirmation path has
+  /// already run, or when the caller is non-user-facing.
+  var terminate: @MainActor @Sendable () -> Void
+}
+
+extension AppLifecycleClient: DependencyKey {
+  static let liveValue = AppLifecycleClient(
+    requestQuit: {
+      NSApp.terminate(nil)
+    },
+    terminate: {
+      NSApp.terminate(nil)
+    }
+  )
+
+  static let testValue = AppLifecycleClient(
+    requestQuit: unimplemented("AppLifecycleClient.requestQuit"),
+    terminate: unimplemented("AppLifecycleClient.terminate")
+  )
+}
+
+extension DependencyValues {
+  var appLifecycleClient: AppLifecycleClient {
+    get { self[AppLifecycleClient.self] }
+    set { self[AppLifecycleClient.self] = newValue }
+  }
+}

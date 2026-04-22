@@ -124,7 +124,11 @@ public enum EventMapper {
         anchors: worktree(worktreeID)
       )
 
-    case .hierarchyMutated:
+    case .hierarchyMutated,
+         .panelInfoChanged,
+         .panelActionRequested,
+         .windowActionRequested,
+         .configChanged:
       return nil
     }
   }

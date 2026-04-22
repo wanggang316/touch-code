@@ -40,4 +40,20 @@ public nonisolated enum TerminalEvent: Sendable {
   case tabAutoClosed(TabID, cause: TabAutoCloseCause)
   case worktreeActivated(WorktreeID)
   case hierarchyMutated(HierarchyMutationScope)
+
+  /// Runtime decoded a libghostty info-family action (title, pwd, mouse,
+  /// search, progress, bell, child-exited). Applied to `PanelSurface.info`
+  /// before emission so subscribers can choose between reading the
+  /// `@Observable` state or reacting to the delta directly.
+  case panelInfoChanged(PanelID, PanelInfoDelta)
+  /// Runtime decoded a tab / split intent. Consumed exclusively by
+  /// `PanelActionRouterFeature` — other features must not subscribe.
+  case panelActionRequested(PanelID, PanelActionRequest)
+  /// Runtime decoded a window / app-level intent. Consumed exclusively by
+  /// `WindowActionRouterFeature`.
+  case windowActionRequested(WindowActionRequest)
+  /// Runtime applied a `CONFIG_CHANGE` / `RELOAD_CONFIG` action to its
+  /// `ghostty_config_t`. Emitted for features that cache configuration-
+  /// dependent state (e.g. appearance, keybindings).
+  case configChanged
 }
