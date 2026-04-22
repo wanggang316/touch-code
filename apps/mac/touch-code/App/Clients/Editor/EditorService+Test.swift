@@ -79,19 +79,34 @@ final actor TestEditorService: EditorService {
 }
 
 /// Recording double for `AppLauncher`. Used by `LiveEditorService` unit tests to verify the
-/// `(appURL, urls, configuration.arguments, configuration.createsNewApplicationInstance)`
+/// `(mode, appURL, urls, configuration.arguments, configuration.createsNewApplicationInstance)`
 /// tuple produced by each launch-mode branch without ever asking `NSWorkspace` to open
 /// anything.
+///
+/// `OpenCall.mode` distinguishes between the two NSWorkspace entry points so JetBrains-family
+/// launches (which must route through `openApplication(at:configuration:)` to deliver
+/// arguments) can be asserted distinctly from `.directory` launches that go through
+/// `open(urls:withApplicationAt:configuration:)` with an actual URL list.
 final class RecordingAppLauncher: AppLauncher, @unchecked Sendable {
   /// Bundle IDs that should appear installed. Map keys are bundle IDs; values are the app
   /// URLs the launcher will return from `urlForApplication(bundleIdentifier:)`.
   var installedApps: [String: URL] = [:]
-  /// Recorded invocations of `open(urls:withApplicationAt:configuration:)`.
+  /// Recorded invocations of both `open(urls:withApplicationAt:configuration:)` and
+  /// `openApplication(at:configuration:)`, tagged by `mode`.
   private(set) var openCalls: [OpenCall] = []
-  /// When set, the next `open` call throws this error.
+  /// When set, the next `open` / `openApplication` call throws this error.
   var openError: Error?
 
+  enum Mode: Sendable, Equatable {
+    /// `NSWorkspace.open(_:withApplicationAt:configuration:)` — `.directory` launches.
+    case openURLs
+    /// `NSWorkspace.openApplication(at:configuration:)` — `.applicationWithArguments`
+    /// launches. `urls` is always empty for this mode.
+    case openApplication
+  }
+
   struct OpenCall: Sendable {
+    let mode: Mode
     let urls: [URL]
     let appURL: URL
     let arguments: [String]
@@ -113,7 +128,24 @@ final class RecordingAppLauncher: AppLauncher, @unchecked Sendable {
   ) async throws {
     openCalls.append(
       OpenCall(
+        mode: .openURLs,
         urls: urls,
+        appURL: appURL,
+        arguments: configuration.arguments,
+        createsNewApplicationInstance: configuration.createsNewApplicationInstance
+      )
+    )
+    if let openError { throw openError }
+  }
+
+  func openApplication(
+    at appURL: URL,
+    configuration: NSWorkspace.OpenConfiguration
+  ) async throws {
+    openCalls.append(
+      OpenCall(
+        mode: .openApplication,
+        urls: [],
         appURL: appURL,
         arguments: configuration.arguments,
         createsNewApplicationInstance: configuration.createsNewApplicationInstance

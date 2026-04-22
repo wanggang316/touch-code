@@ -61,6 +61,7 @@ struct EditorServiceLaunchTests {
 
     #expect(launcher.openCalls.count == 1)
     let call = try #require(launcher.openCalls.first)
+    #expect(call.mode == .openURLs, ".directory must route through NSWorkspace.open(urls:…)")
     #expect(call.urls == [dir])
     #expect(call.appURL == Self.stubAppURL(for: "vscode"))
     #expect(call.arguments.isEmpty, ".directory launch must not pass arguments")
@@ -73,7 +74,7 @@ struct EditorServiceLaunchTests {
   // MARK: - .applicationWithArguments (JetBrains family)
 
   @Test
-  func applicationWithArgumentsLaunchUsesEmptyURLListAndDirPathArgument() async throws {
+  func applicationWithArgumentsLaunchRoutesThroughOpenApplicationWithDirPathArgument() async throws {
     let dir = try Self.tempDir()
     defer { try? FileManager.default.removeItem(at: dir) }
     let (service, launcher) = Self.makeService(installed: ["intellij", "finder"])
@@ -83,9 +84,10 @@ struct EditorServiceLaunchTests {
     #expect(launcher.openCalls.count == 1)
     let call = try #require(launcher.openCalls.first)
     #expect(
-      call.urls.isEmpty,
-      ".applicationWithArguments must pass an empty URL list (JetBrains ignores URL opens when arguments are set)"
+      call.mode == .openApplication,
+      ".applicationWithArguments must route through NSWorkspace.openApplication(at:configuration:) — `open(urls:…)` with an empty URL list does not deliver configuration.arguments"
     )
+    #expect(call.urls.isEmpty, ".applicationWithArguments carries no URL list")
     #expect(call.appURL == Self.stubAppURL(for: "intellij"))
     #expect(call.arguments == [dir.path])
     #expect(
@@ -95,9 +97,10 @@ struct EditorServiceLaunchTests {
   }
 
   @Test
-  func allJetBrainsIDsUseApplicationWithArgumentsBranch() async throws {
-    // Table-driven: every JetBrains family entry routes through the arguments branch with
-    // the same tuple shape. Catches a regression where only IntelliJ was wired correctly.
+  func allJetBrainsIDsUseOpenApplicationBranch() async throws {
+    // Table-driven: every JetBrains family entry routes through `openApplication(at:…)`
+    // with the same tuple shape. Catches a regression where only IntelliJ was wired
+    // correctly, and pins the NSWorkspace API so the URL-list shape cannot re-creep in.
     let jetBrainsIDs: [EditorID] = ["intellij", "webstorm", "pycharm", "rubymine", "rustrover"]
     for id in jetBrainsIDs {
       let dir = try Self.tempDir()
@@ -107,6 +110,10 @@ struct EditorServiceLaunchTests {
       _ = try await service.open(directory: dir, preferred: id)
 
       let call = try #require(launcher.openCalls.first, "\(id): no open call recorded")
+      #expect(
+        call.mode == .openApplication,
+        "\(id): expected NSWorkspace.openApplication(at:configuration:)"
+      )
       #expect(call.urls.isEmpty, "\(id): expected empty URL list")
       #expect(call.arguments == [dir.path], "\(id): expected [dir.path] arguments")
       #expect(
@@ -116,10 +123,16 @@ struct EditorServiceLaunchTests {
     }
   }
 
-  // MARK: - .shellEditor (deferred)
+  // MARK: - .shellEditor (deferred — filtered from describe())
 
   @Test
-  func shellEditorThrowsLaunchFailedWithDescriptiveMessage() async throws {
+  func shellEditorIsUnreachableFromOpenInV1() async throws {
+    // v1 design limitation: `.shellEditor` cannot launch from the service because the
+    // `(directory: URL, preferred: EditorID?)` signature excludes the Panel/Tab context
+    // the Panel primitive needs. The filter in `describe()` suppresses the registry entry
+    // so a strict `preferred: "editor"` surfaces `.notInstalled` before the launch branch
+    // is ever reached. The `.shellEditor` case in `open()` is retained for a future
+    // Panel-aware caller. See `EditorService+Live.swift` describe() for the filter.
     let dir = try Self.tempDir()
     defer { try? FileManager.default.removeItem(at: dir) }
     let (service, _) = Self.makeService(installed: ["finder"])
@@ -128,16 +141,13 @@ struct EditorServiceLaunchTests {
       _ = try await service.open(directory: dir, preferred: "editor")
       Issue.record(".shellEditor open should have thrown")
     } catch let error as EditorError {
-      guard case .launchFailed(let reason) = error else {
-        Issue.record("Expected .launchFailed, got \(error)")
+      guard case .notInstalled(let id, _) = error else {
+        Issue.record("Expected .notInstalled (shell editor filtered from describe), got \(error)")
         return
       }
-      // The shipped message must mention the deferred Panel / Tab context so operators can
-      // find the explanatory comment in EditorService+Live.swift.
-      #expect(reason.contains("Panel") || reason.contains("Tab"))
-      #expect(reason.contains("$EDITOR"))
+      #expect(id == "editor")
     } catch {
-      Issue.record("Expected EditorError.launchFailed, got \(error)")
+      Issue.record("Expected EditorError.notInstalled, got \(error)")
     }
   }
 

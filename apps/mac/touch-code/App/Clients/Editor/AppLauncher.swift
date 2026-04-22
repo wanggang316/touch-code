@@ -25,6 +25,19 @@ protocol AppLauncher: Sendable {
     withApplicationAt appURL: URL,
     configuration: NSWorkspace.OpenConfiguration
   ) async throws
+
+  /// Launches the application at `appURL` with no URL arguments, forwarding
+  /// `configuration.arguments` to the freshly-launched process. Wraps
+  /// `NSWorkspace.shared.openApplication(at:configuration:completionHandler:)`.
+  ///
+  /// `.applicationWithArguments` (JetBrains IDEs) routes through here: `open(urls:…)` with
+  /// an empty URL list is undefined and does not deliver `configuration.arguments` to the
+  /// target app. Using this API instead guarantees `arguments` reach the launched process's
+  /// `main(argc:argv:)`.
+  func openApplication(
+    at appURL: URL,
+    configuration: NSWorkspace.OpenConfiguration
+  ) async throws
 }
 
 /// Production `AppLauncher`. Thin facade over `NSWorkspace.shared` — no caching (Launch
@@ -43,6 +56,24 @@ struct LiveAppLauncher: AppLauncher {
       NSWorkspace.shared.open(
         urls,
         withApplicationAt: appURL,
+        configuration: configuration
+      ) { _, error in
+        if let error {
+          continuation.resume(throwing: error)
+        } else {
+          continuation.resume()
+        }
+      }
+    }
+  }
+
+  func openApplication(
+    at appURL: URL,
+    configuration: NSWorkspace.OpenConfiguration
+  ) async throws {
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+      NSWorkspace.shared.openApplication(
+        at: appURL,
         configuration: configuration
       ) { _, error in
         if let error {

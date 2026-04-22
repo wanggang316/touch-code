@@ -33,8 +33,13 @@ final actor LiveEditorService: EditorService {
     for template in EditorRegistry.registry {
       switch template.launchMode {
       case .shellEditor:
-        // Always "installed" — the Panel primitive (Phase 4d) owns the actual launch.
-        resolved.append(template)
+        // TODO(C8a): re-expose once a Panel-aware open path lands — see exec-plan progress
+        // section. The registry entry stays so the descriptor shape is defined for the
+        // future caller, but `describe()` cannot advertise an editor whose `open()` throws
+        // `.launchFailed` every time: saving it as a global/project default strands the
+        // user. Filtering here keeps `.shellEditor` out of the Settings + Project Options
+        // pickers until end-to-end wiring exists.
+        continue
       case .directory, .applicationWithArguments:
         if let appURL = await resolveAppURL(for: template) {
           resolved.append(
@@ -116,9 +121,12 @@ final actor LiveEditorService: EditorService {
       let config = NSWorkspace.OpenConfiguration()
       config.arguments = [directory.path]
       config.createsNewApplicationInstance = true
-      // JetBrains IDEs ignore URL-list opens when the arguments path is used; pass an
-      // empty URL list and let `configuration.arguments` carry the directory.
-      try await launcher.open(urls: [], withApplicationAt: appURL, configuration: config)
+      // JetBrains IDEs expect `arguments` to arrive through
+      // `NSWorkspace.openApplication(at:configuration:)`. Calling `open(urls:…)` with an
+      // empty URL list is undefined and does not forward `configuration.arguments` to the
+      // launched app — the IDE would open at its last-active project instead of the
+      // directory the user asked for.
+      try await launcher.openApplication(at: appURL, configuration: config)
 
     case .shellEditor:
       // C8a Phase 4d: `TerminalEngine.ensureSurface` now forwards `panel.initialCommand` to

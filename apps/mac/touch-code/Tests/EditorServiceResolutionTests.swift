@@ -124,14 +124,18 @@ struct EditorServiceResolutionTests {
   // MARK: - Describe behaviour
 
   @Test
-  func describeReturnsInstalledOnlyPlusShellEditor() async {
+  func describeReturnsInstalledOnlyAndExcludesShellEditor() async {
+    // v1 design limitation: `.shellEditor` requires a Panel/Tab context that
+    // `EditorService.open` does not carry. Until a Panel-aware launch path lands the
+    // registry entry is suppressed from `describe()` — otherwise the Settings and
+    // Project Options pickers would let the user set a default that throws `.launchFailed`
+    // on every open. See `EditorService+Live.swift` describe() for the filter.
     let service = Self.makeService(installed: ["vscode", "finder"])
     let descriptors = await service.describe()
     let ids = Set(descriptors.map(\.id))
     #expect(ids.contains("vscode"))
     #expect(ids.contains("finder"))
-    // .shellEditor is always installed — it must appear even though no bundle was probed.
-    #expect(ids.contains("editor"))
+    #expect(!ids.contains("editor"), ".shellEditor must not surface in describe() in v1")
     // cursor is not installed and must not appear.
     #expect(!ids.contains("cursor"))
   }
