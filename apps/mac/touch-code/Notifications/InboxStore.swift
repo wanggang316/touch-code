@@ -1,7 +1,7 @@
 import Foundation
 import Observation
-import os.log
 import TouchCodeCore
+import os.log
 
 /// Persistent store for `AgentNotification`s under `~/.config/touch-code/notifications.json`.
 ///

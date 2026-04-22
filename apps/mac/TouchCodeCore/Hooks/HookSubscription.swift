@@ -67,8 +67,8 @@ public nonisolated struct HookSubscription: Equatable, Sendable, Identifiable {
     public let rawValue: Int
     public init(rawValue: Int) { self.rawValue = rawValue }
     public static let caseInsensitive = RegexFlags(rawValue: 1 << 0)
-    public static let multiline       = RegexFlags(rawValue: 1 << 1)
-    public static let dotAll          = RegexFlags(rawValue: 1 << 2)
+    public static let multiline = RegexFlags(rawValue: 1 << 1)
+    public static let dotAll = RegexFlags(rawValue: 1 << 2)
   }
 
   public enum Scope: Equatable, Sendable {

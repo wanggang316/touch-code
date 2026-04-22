@@ -82,13 +82,14 @@ public final class HookHandlers {
         // (e.g. when C6 extends the taxonomy) forces a conscious choice
         // here rather than falling through a silent `default`.
         switch sub.scope {
-        case .anyPanel:                 return true
-        case .panelID(let id):          return id == panelID
+        case .anyPanel: return true
+        case .panelID(let id): return id == panelID
         case .panelLabel,
-             .tabID,
-             .tabLabel,
-             .worktreeID,
-             .worktreePathGlob:         return false
+          .tabID,
+          .tabLabel,
+          .worktreeID,
+          .worktreePathGlob:
+          return false
         }
       }
     }
@@ -178,10 +179,11 @@ public final class HookHandlers {
   public func reload(_ params: JSONValue) async -> RouterOutcome {
     do {
       try await dispatcher.reloadConfig()
-      return .unary(.object([
-        "loadedCount": .int(Int64(dispatcher.loadedConfig.subscriptions.count)),
-        "errors": .array([]),
-      ]))
+      return .unary(
+        .object([
+          "loadedCount": .int(Int64(dispatcher.loadedConfig.subscriptions.count)),
+          "errors": .array([]),
+        ]))
     } catch {
       return .failed(.internal("hook.reload: \(error)"))
     }

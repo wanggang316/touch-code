@@ -2,7 +2,7 @@ import ComposableArchitecture
 import Foundation
 import TouchCodeCore
 
-/// TCA dependency-injection bridge over `InboxStore` + `NotificationSettingsStore`.
+/// TCA dependency-injection bridge over `InboxStore` + `SettingsStore`.
 /// C6 M5's `InboxFeature` depends on this struct's closures, not on the
 /// stores directly — the `liveValue` binds each closure to concrete
 /// store instances at app startup via `.withDependencies`.
@@ -22,9 +22,10 @@ nonisolated struct InboxClient: Sendable {
   /// given Worktree as read. Thin bridge over
   /// `InboxStore.markRead(forWorktree:in:)`; consumed by the T2 Header bell
   /// popover row-tap.
-  var markReadForWorktree: @MainActor @Sendable (
-    _ worktreeID: WorktreeID, _ catalog: Catalog
-  ) -> Void
+  var markReadForWorktree:
+    @MainActor @Sendable (
+      _ worktreeID: WorktreeID, _ catalog: Catalog
+    ) -> Void
 
   /// Dismiss every notification in the inbox.
   var clearAll: @MainActor @Sendable () -> Void
@@ -51,7 +52,7 @@ nonisolated struct InboxClient: Sendable {
 
 extension InboxClient {
   @MainActor
-  static func live(inbox: InboxStore, settings: NotificationSettingsStore) -> InboxClient {
+  static func live(inbox: InboxStore, settings: SettingsStore) -> InboxClient {
     InboxClient(
       dismiss: { ids in inbox.dismiss(ids) },
       markRead: { ids in inbox.markRead(ids) },
@@ -60,7 +61,7 @@ extension InboxClient {
       },
       clearAll: { inbox.clearAll() },
       muteRule: { ruleID in
-        settings.mutate { $0.notifications.mute.mutedRuleIDs.insert(ruleID) }
+        settings.mutateNotifications { $0.mute.mutedRuleIDs.insert(ruleID) }
       },
       observe: { inbox.observeInbox() },
       observeUnread: { inbox.unreadPublisher }
@@ -80,7 +81,7 @@ extension InboxClient: DependencyKey {
     dismiss: { _ in },
     markRead: { _ in },
     markReadForWorktree: { _, _ in },
-    clearAll: { },
+    clearAll: {},
     muteRule: { _ in },
     observe: { AsyncStream { $0.finish() } },
     observeUnread: { AsyncStream { $0.finish() } }

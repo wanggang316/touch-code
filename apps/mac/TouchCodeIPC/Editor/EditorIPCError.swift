@@ -36,11 +36,11 @@ public nonisolated enum EditorIPCError: Int, Error, Equatable, Sendable {
   case unknownProject = 107
 }
 
-public extension EditorIPCError {
+extension EditorIPCError {
   /// Human-readable short description used in the JSON-RPC error envelope's `message` slot.
   /// Callers in `tc` CLI can log this verbatim; in-app toasts should use
   /// `EditorFeature.editorErrorDescription` which surfaces more context.
-  var shortMessage: String {
+  public var shortMessage: String {
     switch self {
     case .unresolvedWorktree:
       return "No worktree resolved (pass <worktree> or run from inside a touch-code Panel)."

@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+
 @testable import touch_code
 
 /// Argv-ordering tests for `GitCommand`. Added after the 0005 M4a.1 review caught a bug
@@ -9,10 +10,11 @@ struct GitCommandTests {
   @Test
   func workingTreeDiffWithoutWhitespaceFlag() {
     let argv = GitCommand.diff(kind: .workingTree)
-    #expect(argv == [
-      "-c", "core.quotePath=false",
-      "diff", "--no-color", "--no-ext-diff", "-M", "-C", "-U3",
-    ])
+    #expect(
+      argv == [
+        "-c", "core.quotePath=false",
+        "diff", "--no-color", "--no-ext-diff", "-M", "-C", "-U3",
+      ])
   }
 
   @Test
@@ -56,8 +58,9 @@ struct GitCommandTests {
     let argv = GitCommand.diff(kind: .commit(sha: "abc1234"), ignoreWhitespace: true)
     let whitespaceIdx = argv.firstIndex(of: "-w")!
     let dashDashIdx = argv.firstIndex(of: "--")!
-    #expect(whitespaceIdx < dashDashIdx,
-            "-w must precede `--`; otherwise git interprets it as a pathspec named -w")
+    #expect(
+      whitespaceIdx < dashDashIdx,
+      "-w must precede `--`; otherwise git interprets it as a pathspec named -w")
     // And the sha + "--" pair must still sit at the tail.
     #expect(argv.suffix(2) == ["abc1234", "--"])
   }
@@ -84,10 +87,11 @@ struct GitCommandTests {
   @Test
   func statusArgvIsStablePorcelainV1WithUntrackedAll() {
     let argv = GitCommand.status()
-    #expect(argv == [
-      "-c", "core.quotePath=false",
-      "status", "--porcelain=v1", "-z", "--untracked-files=all",
-    ])
+    #expect(
+      argv == [
+        "-c", "core.quotePath=false",
+        "status", "--porcelain=v1", "-z", "--untracked-files=all",
+      ])
   }
 
   @Test

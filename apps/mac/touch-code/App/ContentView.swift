@@ -24,6 +24,7 @@ struct ContentView: View {
   /// for Worktree / Project unread-dot aggregation — matches the
   /// `HierarchyManager`-through-`@Environment` pattern already in use.
   let inboxStore: InboxStore
+  @Environment(\.openWindow) private var openWindow
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
   /// Transient toast for editor-open outcomes (success + failure). Non-nil = visible;
@@ -60,18 +61,12 @@ struct ContentView: View {
       .toolbar {
         ToolbarItem(placement: .primaryAction) {
           Button {
-            store.send(.settingsSheetShown)
+            openWindow(id: TouchCodeApp.settingsWindowID)
           } label: {
             Image(systemName: "gearshape")
               .accessibilityLabel("Settings")
           }
           .help("Settings (⌘,)")
-          .keyboardShortcut(",", modifiers: [.command])
-        }
-      }
-      .sheet(item: $store.scope(state: \.settingsSheet, action: \.settingsSheet)) { sheetStore in
-        SettingsSheetView(store: sheetStore) {
-          store.send(.settingsSheet(.dismiss))
         }
       }
       .sheet(item: $store.scope(state: \.spaceManagerSheet, action: \.spaceManagerSheet)) { sheetStore in
@@ -99,6 +94,20 @@ struct ContentView: View {
         lastEditorToast = .failed("Override failed: \(reason)")
       }
     }
+    // PR #22 review B9 — when the Settings window mutates `customEditors` /
+    // `defaultEditorID`, refresh the main-window EditorFeature so the Header
+    // split-button dropdown rebuilds its cached descriptors + globalDefault.
+    // Pre-T1 the Settings sheet's dismiss action dispatched `.editor(.onAppear)`;
+    // the standalone window has no matching dismiss bridge, so we observe the
+    // @Observable SettingsStore directly here instead. `.onAppear` triggers both
+    // describe() and the settings-snapshot read, covering both the custom-editors
+    // list and the global-default picker in one action.
+    .onChange(of: settingsStore.settings.general.customEditors) { _, _ in
+      store.send(.editor(.onAppear))
+    }
+    .onChange(of: settingsStore.settings.general.defaultEditorID) { _, _ in
+      store.send(.editor(.onAppear))
+    }
     .onDisappear {
       store.send(.onQuit)
     }
@@ -112,10 +121,12 @@ struct ContentView: View {
       let currentProjectIDs = Set(
         hierarchyManager.catalog.spaces.flatMap { $0.projects.map(\.id) }
       )
-      store.send(.sidebar(.pruneExpansionSets(
-        currentSpaceIDs: currentSpaceIDs,
-        currentProjectIDs: currentProjectIDs
-      )))
+      store.send(
+        .sidebar(
+          .pruneExpansionSets(
+            currentSpaceIDs: currentSpaceIDs,
+            currentProjectIDs: currentProjectIDs
+          )))
     }
   }
 

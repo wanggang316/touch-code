@@ -58,10 +58,12 @@ final class EditorHandlers {
   /// contained within the resolved Worktree's root — otherwise `EditorIPCError.notADirectory`.
   /// This prevents `tc open --path /etc` from escaping the Worktree via a handcrafted request.
   func open(_ request: EditorOpenRequest) async throws -> EditorOpenResponse {
-    guard let (project, worktree) = resolveWorktree(
-      worktreeID: request.worktreeID,
-      panelID: request.panelID
-    ) else {
+    guard
+      let (project, worktree) = resolveWorktree(
+        worktreeID: request.worktreeID,
+        panelID: request.panelID
+      )
+    else {
       throw EditorIPCError.unresolvedWorktree
     }
 
@@ -99,9 +101,11 @@ final class EditorHandlers {
   func setDefault(_ request: EditorSetDefaultRequest) throws -> EditorSetDefaultResponse {
     let projectID = ProjectID(raw: request.projectID)
     let snapshot = hierarchy.snapshot()
-    guard let space = snapshot.spaces.first(where: { space in
-      space.projects.contains(where: { $0.id == projectID })
-    }) else {
+    guard
+      let space = snapshot.spaces.first(where: { space in
+        space.projects.contains(where: { $0.id == projectID })
+      })
+    else {
       throw EditorIPCError.unknownProject
     }
     try hierarchy.setDefaultEditor(projectID, space.id, request.editorID)
@@ -132,7 +136,8 @@ final class EditorHandlers {
       let id = PanelID(raw: panelID)
       for space in snapshot.spaces {
         for project in space.projects {
-          for worktree in project.worktrees where worktree.tabs.contains(where: { $0.panels.contains(where: { $0.id == id }) }) {
+          for worktree in project.worktrees
+          where worktree.tabs.contains(where: { $0.panels.contains(where: { $0.id == id }) }) {
             return (project, worktree)
           }
         }
@@ -146,13 +151,13 @@ final class EditorHandlers {
   /// `EditorIPCError`'s rawValues; the CLI compares against them.
   static func mapToIPCError(_ error: EditorError) -> EditorIPCError {
     switch error {
-    case .unresolvedWorktree:    return .unresolvedWorktree
-    case .notInstalled:          return .notInstalled
-    case .spawnFailed:           return .spawnFailed
-    case .nonZeroExit:           return .nonZeroExit
-    case .timedOut:              return .timedOut
-    case .badTemplate:           return .badTemplate
-    case .notADirectory:         return .notADirectory
+    case .unresolvedWorktree: return .unresolvedWorktree
+    case .notInstalled: return .notInstalled
+    case .spawnFailed: return .spawnFailed
+    case .nonZeroExit: return .nonZeroExit
+    case .timedOut: return .timedOut
+    case .badTemplate: return .badTemplate
+    case .notADirectory: return .notADirectory
     }
   }
 }

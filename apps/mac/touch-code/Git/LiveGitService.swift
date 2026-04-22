@@ -13,7 +13,7 @@ import TouchCodeCore
 ///   paths where the pre-check races with the Worktree being removed.
 /// - Invalid commit SHAs are rejected before the subprocess spawns.
 nonisolated final class LiveGitService: GitService {
-  static let maxOutputBytes = 16 * 1024 * 1024      // 16 MiB
+  static let maxOutputBytes = 16 * 1024 * 1024  // 16 MiB
   static let defaultTimeout: Duration = .seconds(10)
 
   let gitExecutable: URL
@@ -134,7 +134,8 @@ nonisolated final class LiveGitService: GitService {
         // command raced with the worktree disappearing. Canonical git stderr phrases only.
         if stderrText.contains("fatal: not a git repository")
           || stderrText.contains("fatal: bad revision")
-          || stderrText.contains("fatal: Not a valid object name") {
+          || stderrText.contains("fatal: Not a valid object name")
+        {
           throw GitError.notARepo
         }
         throw GitError.exec(code: code, stderr: stderrText)

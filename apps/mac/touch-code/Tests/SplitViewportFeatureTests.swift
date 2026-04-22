@@ -1,8 +1,9 @@
 import ComposableArchitecture
 import Foundation
 import Testing
-@testable import touch_code
 import TouchCodeCore
+
+@testable import touch_code
 
 @MainActor
 struct SplitViewportFeatureTests {
@@ -37,11 +38,12 @@ struct SplitViewportFeatureTests {
       }
     }
 
-    await store.send(.newPanelButtonTapped(
-      inTab: tabID, inWorktree: worktreeID,
-      inProject: projectID, inSpace: spaceID,
-      workingDirectory: "/tmp/x"
-    ))
+    await store.send(
+      .newPanelButtonTapped(
+        inTab: tabID, inWorktree: worktreeID,
+        inProject: projectID, inSpace: spaceID,
+        workingDirectory: "/tmp/x"
+      ))
     let captured = received.value
     #expect(captured?.0 == tabID)
     #expect(captured?.1 == worktreeID)
@@ -62,12 +64,13 @@ struct SplitViewportFeatureTests {
       }
     }
 
-    await store.send(.splitButtonTapped(
-      panelID, direction: .right,
-      inTab: TabID(), inWorktree: WorktreeID(),
-      inProject: ProjectID(), inSpace: SpaceID(),
-      workingDirectory: "/"
-    ))
+    await store.send(
+      .splitButtonTapped(
+        panelID, direction: .right,
+        inTab: TabID(), inWorktree: WorktreeID(),
+        inProject: ProjectID(), inSpace: SpaceID(),
+        workingDirectory: "/"
+      ))
     #expect(received.value?.0 == panelID)
     #expect(received.value?.1 == .right)
   }
@@ -85,10 +88,11 @@ struct SplitViewportFeatureTests {
       }
     }
 
-    await store.send(.closePanelButtonTapped(
-      panelID, inTab: TabID(), inWorktree: WorktreeID(),
-      inProject: ProjectID(), inSpace: SpaceID()
-    ))
+    await store.send(
+      .closePanelButtonTapped(
+        panelID, inTab: TabID(), inWorktree: WorktreeID(),
+        inProject: ProjectID(), inSpace: SpaceID()
+      ))
     #expect(received.value == panelID)
   }
 }

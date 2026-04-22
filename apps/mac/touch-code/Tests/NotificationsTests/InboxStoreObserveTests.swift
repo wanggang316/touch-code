@@ -1,8 +1,8 @@
 import Foundation
 import Testing
+import TouchCodeCore
 
 @testable import touch_code
-import TouchCodeCore
 
 /// Covers the multi-subscriber `InboxStore.observeInbox()` primitive
 /// added in M5. Each call returns a fresh `AsyncStream<NotificationInbox>`

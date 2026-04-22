@@ -23,10 +23,10 @@ func nextUntitledSpaceName(in spaces: [Space]) -> String {
     let suffix = space.name.dropFirst(bare.count + 1)
     // Reject leading zeros, signs, whitespace — only a clean positive integer counts.
     guard !suffix.isEmpty,
-          suffix.allSatisfy(\.isNumber),
-          suffix.first != "0",
-          let n = Int(suffix),
-          n > 0
+      suffix.allSatisfy(\.isNumber),
+      suffix.first != "0",
+      let n = Int(suffix),
+      n > 0
     else { continue }
     occupied.insert(n)
   }
@@ -337,7 +337,8 @@ struct HierarchySidebarFeature {
         // solely on T0's manager-side dedup).
         let snapshot = hierarchyClient.snapshot()
         if let space = snapshot.spaces.first(where: { $0.id == spaceID }),
-           space.lastActiveWorktreeID != worktreeID {
+          space.lastActiveWorktreeID != worktreeID
+        {
           hierarchyClient.setSpaceLastActiveWorktree(spaceID, worktreeID)
         }
         return .none
@@ -725,7 +726,8 @@ struct HierarchySidebarFeature {
 
     // Write outgoing lastActive = outgoing selection's worktreeID.
     if let outgoingSpaceID = outgoingSnapshot.selectedSpaceID,
-       let outgoingSpace = outgoingSnapshot.spaces.first(where: { $0.id == outgoingSpaceID }) {
+      let outgoingSpace = outgoingSnapshot.spaces.first(where: { $0.id == outgoingSpaceID })
+    {
       let outgoingWorktreeID = outgoingSpace.projects
         .first(where: { $0.id == outgoingSpace.selectedProjectID })?
         .selectedWorktreeID
@@ -737,7 +739,7 @@ struct HierarchySidebarFeature {
     // Resolve target's lastActiveWorktreeID against the post-switch snapshot.
     let postSnapshot = hierarchyClient.snapshot()
     guard let targetSpace = postSnapshot.spaces.first(where: { $0.id == spaceID }),
-          let lastID = targetSpace.lastActiveWorktreeID
+      let lastID = targetSpace.lastActiveWorktreeID
     else { return .none }
 
     for project in targetSpace.projects

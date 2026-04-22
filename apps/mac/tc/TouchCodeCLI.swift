@@ -1,8 +1,8 @@
 import ArgumentParser
 import Foundation
-import tcKit
 import TouchCodeCore
 import TouchCodeIPC
+import tcKit
 
 @main
 struct TouchCodeCLI: AsyncParsableCommand {
@@ -22,7 +22,6 @@ struct TouchCodeCLI: AsyncParsableCommand {
       SendCommand.self,
       BroadcastCommand.self,
       HookCommand.self,
-      StubNamespace.Skill.self,
       OpenCommand.self,
       RPCCommand.self,
     ]
@@ -35,7 +34,8 @@ struct GlobalOptions: ParsableArguments {
   @Flag(name: .long, help: "Emit JSON on stdout instead of human-readable text.")
   var json: Bool = false
 
-  @Option(name: .long, help: "Override the socket path (default: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).")
+  @Option(
+    name: .long, help: "Override the socket path (default: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).")
   var socket: String?
 
   @Option(name: .long, help: "Client-side timeout in seconds for a single unary call.")

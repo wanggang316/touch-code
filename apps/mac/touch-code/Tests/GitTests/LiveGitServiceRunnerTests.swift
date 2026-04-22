@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import TouchCodeCore
+
 @testable import touch_code
 
 /// Negative-path unit tests for `LiveGitService.run` via the `RecordingCommandRunner` seam.
@@ -48,7 +49,7 @@ struct LiveGitServiceRunnerTests {
   func revParseFailureSurfacesNotARepo() async {
     // The first (only) call is ensureIsRepo; non-zero exit = not a repo.
     let runner = RecordingCommandRunner(outcomes: [
-      .exited(code: 128, stdout: Data(), stderr: Data("fatal: not a git repository\n".utf8), stdoutOverflow: false),
+      .exited(code: 128, stdout: Data(), stderr: Data("fatal: not a git repository\n".utf8), stdoutOverflow: false)
     ])
     let service = LiveGitService(runner: runner)
     await #expect(throws: GitError.notARepo) {
@@ -59,7 +60,7 @@ struct LiveGitServiceRunnerTests {
   @Test
   func binaryNotFoundSurfacesGitMissing() async {
     let runner = RecordingCommandRunner(outcomes: [
-      .spawnFailed(reason: "binary not found: /usr/bin/git"),
+      .spawnFailed(reason: "binary not found: /usr/bin/git")
     ])
     let service = LiveGitService(runner: runner)
     await #expect(throws: GitError.gitMissing) {
@@ -70,7 +71,7 @@ struct LiveGitServiceRunnerTests {
   @Test
   func invalidShaRejectedBeforeRunnerCall() async {
     let runner = RecordingCommandRunner(outcomes: [
-      .exited(code: 0, stdout: Data("true\n".utf8), stderr: Data(), stdoutOverflow: false),
+      .exited(code: 0, stdout: Data("true\n".utf8), stderr: Data(), stdoutOverflow: false)
     ])
     let service = LiveGitService(runner: runner)
     await #expect(throws: GitError.invalidInput("not a git SHA: 'notahex'")) {

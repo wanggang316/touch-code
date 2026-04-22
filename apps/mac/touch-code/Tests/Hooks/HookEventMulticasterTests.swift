@@ -1,8 +1,8 @@
 import Foundation
 import Testing
 
-@testable import touch_code
 @testable import TouchCodeCore
+@testable import touch_code
 
 @MainActor
 struct HookEventMulticasterTests {
@@ -55,7 +55,7 @@ struct HookEventMulticasterTests {
     // "drop newest" scenario and isn't what this test asserts.)
     let m = HookEventMulticaster(bufferPerSubscriber: 4)
     let fast = m.subscribe().stream
-    _ = m.subscribe() // slow — never consumed; must not block publish
+    _ = m.subscribe()  // slow — never consumed; must not block publish
 
     let N = 3
     for _ in 0..<N { m.publish(Self.makeEnvelope()) }

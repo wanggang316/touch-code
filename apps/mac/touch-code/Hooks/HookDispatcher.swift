@@ -1,6 +1,6 @@
 import Foundation
-import os
 import TouchCodeCore
+import os
 
 /// Central orchestrator for hook event delivery. Consumes the Runtime's
 /// `AsyncStream<TerminalEvent>` via `attach(to:)`, matches each event
@@ -105,14 +105,17 @@ public final class HookDispatcher {
           continue
         }
         let cache = self.anchorCache
-        guard let envelope = EventMapper.map(
-          event,
-          catalog: catalog(),
-          cache: cache
-        ) else {
+        guard
+          let envelope = EventMapper.map(
+            event,
+            catalog: catalog(),
+            cache: cache
+          )
+        else {
           continue
         }
-        logger.debug("attach: fire \(envelope.event.rawValue, privacy: .public) id=\(envelope.id.uuidString, privacy: .public)")
+        logger.debug(
+          "attach: fire \(envelope.event.rawValue, privacy: .public) id=\(envelope.id.uuidString, privacy: .public)")
         await self.fire(envelope)
       }
     }
@@ -149,17 +152,20 @@ public final class HookDispatcher {
     // against the bytes, and a hit synthesises a `.panelOutputMatch`
     // envelope that is re-entered through the normal fire path.
     if envelope.event == .panelOutput,
-       case .panelOutput(let output, let bytes) = envelope.data {
+      case .panelOutput(let output, let bytes) = envelope.data
+    {
       for sub in config.subscriptions
-        where !sub.disabled
-          && sub.event == .panelOutputMatch
-          && (sub.matchPattern?.isEmpty == false) {
+      where !sub.disabled
+        && sub.event == .panelOutputMatch
+        && (sub.matchPattern?.isEmpty == false)
+      {
         guard let cached = regexCache[sub.id],
-              let regex = cached,
-              let (matchString, range) = Self.firstRegexHit(
-                regex: regex,
-                in: output
-              ) else {
+          let regex = cached,
+          let (matchString, range) = Self.firstRegexHit(
+            regex: regex,
+            in: output
+          )
+        else {
           continue
         }
         let synthesised = HookEnvelope(
@@ -192,7 +198,8 @@ public final class HookDispatcher {
     guard let text = String(data: data, encoding: .utf8) else { return nil }
     let range = NSRange(text.startIndex..<text.endIndex, in: text)
     guard let match = regex.firstMatch(in: text, options: [], range: range),
-          let matchRange = Range(match.range, in: text) else {
+      let matchRange = Range(match.range, in: text)
+    else {
       return nil
     }
     return (

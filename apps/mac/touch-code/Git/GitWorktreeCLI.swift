@@ -81,7 +81,8 @@ actor GitWorktreeCLI {
     process.waitUntilExit()
 
     guard let stdout = String(data: stdoutData, encoding: .utf8),
-          let stderr = String(data: stderrData, encoding: .utf8) else {
+      let stderr = String(data: stderrData, encoding: .utf8)
+    else {
       throw GitCLIError.invalidUTF8
     }
 

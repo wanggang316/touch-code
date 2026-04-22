@@ -124,27 +124,6 @@ let project = Project(
       )
     ),
 
-    // tc skill subcommand tests (C5 plan 0004). Separate target from
-    // tcKitTests because the skill tests have a different fixture model
-    // (filesystem isolation + JSON round-trip) vs tcKit transport tests.
-    .target(
-      name: "tcTests",
-      destinations: .macOS,
-      product: .unitTests,
-      bundleId: "app.touch-code.cli-tests",
-      deploymentTargets: .macOS("14.0"),
-      infoPlist: .default,
-      buildableFolders: ["tcTests"],
-      dependencies: [.target(name: "tcKit")],
-      settings: .settings(
-        base: [
-          "CODE_SIGNING_ALLOWED": "NO",
-          "SWIFT_DEFAULT_ACTOR_ISOLATION": "nonisolated",
-        ],
-        defaultSettings: .essential
-      )
-    ),
-
     // tcKit unit tests. Headless — uses InMemoryTransport, does not
     // reach into the touch-code app target.
     .target(
@@ -241,6 +220,7 @@ let project = Project(
         .target(name: "TouchCodeCore"),
         .target(name: "TouchCodeIPC"),
         .target(name: "tc"),
+        .target(name: "tcKit"),
         .target(name: "GhosttyKit"),
         .external(name: "ComposableArchitecture"),
       ],

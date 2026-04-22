@@ -1,11 +1,11 @@
 import Foundation
 import TouchCodeCore
 
-public extension IPC {
+extension IPC {
   /// Params for `hierarchy.resolveAlias`. The CLI's `AliasResolver` sends
   /// one of these for every non-UUID identifier (current/index/label/glob);
   /// pure UUIDs are resolved locally and do not round-trip.
-  struct AliasResolveRequest: Codable, Equatable, Sendable {
+  public struct AliasResolveRequest: Codable, Equatable, Sendable {
     public enum Kind: String, Codable, Hashable, Sendable {
       case space, project, worktree, tab, panel
     }
@@ -23,7 +23,7 @@ public extension IPC {
 
   /// Result for `hierarchy.resolveAlias`. `disambiguations` is non-empty
   /// only when the caller's verb is list-shaped and tolerates multiple hits.
-  struct AliasResolveResult: Codable, Equatable, Sendable {
+  public struct AliasResolveResult: Codable, Equatable, Sendable {
     public let kind: AliasResolveRequest.Kind
     public let id: UUID
     public let disambiguations: [UUID]?

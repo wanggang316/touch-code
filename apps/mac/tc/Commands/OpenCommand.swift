@@ -1,8 +1,8 @@
 import ArgumentParser
 import Foundation
-import tcKit
 import TouchCodeCore
 import TouchCodeIPC
+import tcKit
 
 /// `tc open [--in <editor>] [--path <path>] [<worktree>]` — launch an
 /// external editor against a Worktree directory (or arbitrary `--path`)
@@ -35,7 +35,8 @@ struct OpenCommand: AsyncParsableCommand {
   @OptionGroup var globals: GlobalOptions
   @Option(
     name: .long,
-    help: "Editor id (built-in allowlist: vscode, cursor, zed, xcode, sublime, finder). Omit to use Project/Settings defaults."
+    help:
+      "Editor id (built-in allowlist: vscode, cursor, zed, xcode, sublime, finder). Omit to use Project/Settings defaults."
   )
   var `in`: String?
   @Option(name: .long, help: "Open an arbitrary path instead of a worktree.")

@@ -1,8 +1,8 @@
 import Foundation
 import Testing
 
-@testable import touch_code
 @testable import TouchCodeCore
+@testable import touch_code
 
 @MainActor
 struct EventMapperTests {
@@ -18,7 +18,8 @@ struct EventMapperTests {
     #expect(envelope.worktree?.id == worktreeID)
     #expect(envelope.project?.id == projectID)
     #expect(envelope.space?.id == spaceID)
-    if case .panelReady = envelope.data { } else {
+    if case .panelReady = envelope.data {
+    } else {
       Issue.record("expected .panelReady data")
     }
   }
@@ -29,7 +30,8 @@ struct EventMapperTests {
     let payload = Data("hello\nworld".utf8)
     let envelope = EventMapper.map(.panelOutput(panelID, payload), catalog: catalog)
     guard let envelope else {
-      Issue.record("expected envelope"); return
+      Issue.record("expected envelope")
+      return
     }
     #expect(envelope.event == .panelOutput)
     if case .panelOutput(let output, let bytes) = envelope.data {
@@ -44,7 +46,10 @@ struct EventMapperTests {
   func panelExitedCarriesExitCode() {
     let (catalog, panelID, _, _, _, _) = Self.fixture()
     let envelope = EventMapper.map(.panelExited(panelID, code: 42, signal: nil), catalog: catalog)
-    guard let envelope else { Issue.record("expected envelope"); return }
+    guard let envelope else {
+      Issue.record("expected envelope")
+      return
+    }
     #expect(envelope.event == .panelExited)
     if case .panelExited(let code) = envelope.data {
       #expect(code == 42)
@@ -60,7 +65,10 @@ struct EventMapperTests {
       .panelClosedByTab(panelID, cause: .crashLoop(count: 3, window: 30)),
       catalog: catalog
     )
-    guard let envelope else { Issue.record("expected envelope"); return }
+    guard let envelope else {
+      Issue.record("expected envelope")
+      return
+    }
     #expect(envelope.event == .panelCrashed)
     if case .panelCrashed(let reason) = envelope.data {
       #expect(reason.contains("crashLoop"))
@@ -74,7 +82,10 @@ struct EventMapperTests {
   func tabActivatedAnchorsStopAtTab() {
     let (catalog, _, tabID, worktreeID, projectID, spaceID) = Self.fixture()
     let envelope = EventMapper.map(.tabActivated(tabID), catalog: catalog)
-    guard let envelope else { Issue.record("expected envelope"); return }
+    guard let envelope else {
+      Issue.record("expected envelope")
+      return
+    }
     #expect(envelope.event == .tabActivated)
     #expect(envelope.tab?.id == tabID)
     #expect(envelope.worktree?.id == worktreeID)
@@ -90,7 +101,10 @@ struct EventMapperTests {
       .tabAutoClosed(tabID, cause: .crashLoop(count: 4, window: 60)),
       catalog: catalog
     )
-    guard let envelope else { Issue.record("expected envelope"); return }
+    guard let envelope else {
+      Issue.record("expected envelope")
+      return
+    }
     #expect(envelope.event == .tabAutoClosed)
     if case .tabAutoClosed(let reason, let count, let window) = envelope.data {
       #expect(reason == "crashLoop")
@@ -105,7 +119,10 @@ struct EventMapperTests {
   func worktreeActivatedAnchorsStopAtWorktree() {
     let (catalog, _, _, worktreeID, projectID, spaceID) = Self.fixture()
     let envelope = EventMapper.map(.worktreeActivated(worktreeID), catalog: catalog)
-    guard let envelope else { Issue.record("expected envelope"); return }
+    guard let envelope else {
+      Issue.record("expected envelope")
+      return
+    }
     #expect(envelope.event == .worktreeActivated)
     #expect(envelope.worktree?.id == worktreeID)
     #expect(envelope.project?.id == projectID)
@@ -126,7 +143,10 @@ struct EventMapperTests {
     let (catalog, _, _, _, _, _) = Self.fixture()
     let stranger = PanelID()
     let envelope = EventMapper.map(.panelReady(stranger), catalog: catalog)
-    guard let envelope else { Issue.record("expected envelope"); return }
+    guard let envelope else {
+      Issue.record("expected envelope")
+      return
+    }
     #expect(envelope.panel == nil)
     #expect(envelope.tab == nil)
     #expect(envelope.worktree == nil)

@@ -1,7 +1,7 @@
 import ComposableArchitecture
 import Foundation
-import os.log
 import TouchCodeCore
+import os.log
 
 /// T2 reducer backing the Worktree Header row: branch label + notification
 /// bell + Open-in split button + Git Viewer toggle.
@@ -134,11 +134,13 @@ struct WorktreeHeaderFeature {
         return .send(.delegate(.gitViewerToggleRequested))
 
       case .setProjectDefaultEditorTapped(let spaceID, let projectID, let editorID):
-        return .send(.delegate(.setProjectOverride(
-          projectID: projectID,
-          spaceID: spaceID,
-          editorID: editorID
-        )))
+        return .send(
+          .delegate(
+            .setProjectOverride(
+              projectID: projectID,
+              spaceID: spaceID,
+              editorID: editorID
+            )))
 
       case .delegate:
         // Consumed by the parent; reducer has no local state change.

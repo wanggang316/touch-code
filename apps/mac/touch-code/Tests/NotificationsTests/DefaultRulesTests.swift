@@ -56,7 +56,8 @@ struct DefaultRulesTests {
   func installIfMissingCreatesIntermediateDirectories() throws {
     let dir = Self.tempDirectory()
     defer { try? FileManager.default.removeItem(at: dir) }
-    let nested = dir
+    let nested =
+      dir
       .appendingPathComponent(".config", isDirectory: true)
       .appendingPathComponent("touch-code", isDirectory: true)
       .appendingPathComponent("detection-rules.json")

@@ -37,11 +37,6 @@ struct RootFeature {
     /// T2: Header feature (bell + Open-in split button + GV toggle).
     var worktreeHeader: WorktreeHeaderFeature.State = .init()
 
-    /// C8 M6b (0005): settings sheet presentation. `nil` = hidden; non-nil
-    /// presents the sheet with a dedicated sub-feature state that mirrors
-    /// a subset of `editor` for isolated in-sheet edits.
-    @Presents var settingsSheet: SettingsSheetFeature.State?
-
     /// T4: space manager sheet presentation. `nil` = hidden; non-nil
     /// presents the sheet for managing (list / rename / reorder / delete) Spaces.
     @Presents var spaceManagerSheet: SpaceManagerFeature.State?
@@ -120,8 +115,6 @@ struct RootFeature {
     /// popover opens. Handled inline by the root reducer as a `.send` into
     /// `.sidebar(.externalSpacePopoverOpenRequested)`.
     case openSpaceSwitcherRequested
-    case settingsSheetShown
-    case settingsSheet(PresentationAction<SettingsSheetFeature.Action>)
     case spaceManagerSheetShown
     case spaceManagerSheet(PresentationAction<SpaceManagerFeature.Action>)
     case switchToSpaceAtIndex(Int)
@@ -140,6 +133,7 @@ struct RootFeature {
   @Dependency(HierarchyClient.self) private var hierarchyClient
   @Dependency(FinderClient.self) private var finderClient
   @Dependency(ProjectReconciler.self) private var projectReconciler
+  @Dependency(SettingsWindowPresenter.self) private var settingsWindowPresenter
 
   var body: some Reducer<State, Action> {
     Scope(state: \.sidebar, action: \.sidebar) {
@@ -200,15 +194,15 @@ struct RootFeature {
           }
           .cancellable(id: CancelID.projectReconcileFocus, cancelInFlight: true)
         )
-        // Worst case for sidebar context-menu "Open in default editor" is an
-        // empty descriptor cache → resolution falls through to
-        // EditorRegistry.finderID, which is always installed. Priming via
-        // `.send(.editor(.onAppear))` here was considered but was dropped
-        // because it runs the live EditorService on a background Task and
-        // the live factory's `MainActor.assumeIsolated { ... }` assertion
-        // fails from a non-MainActor queue during test-host bootstrap. The
-        // WorktreeHeaderOpenButton's own `.task { store.send(.onAppear) }`
-        // is the canonical hydration path.
+      // Worst case for sidebar context-menu "Open in default editor" is an
+      // empty descriptor cache → resolution falls through to
+      // EditorRegistry.finderID, which is always installed. Priming via
+      // `.send(.editor(.onAppear))` here was considered but was dropped
+      // because it runs the live EditorService on a background Task and
+      // the live factory's `MainActor.assumeIsolated { ... }` assertion
+      // fails from a non-MainActor queue during test-host bootstrap. The
+      // WorktreeHeaderOpenButton's own `.task { store.send(.onAppear) }`
+      // is the canonical hydration path.
 
       case .onQuit:
         return .merge(
@@ -230,10 +224,12 @@ struct RootFeature {
         // its unread count is now computed from the live
         // `@Environment(HierarchyManager.self).catalog`, which re-renders
         // on any catalog mutation.
-        return .send(.gitViewer(.worktreeSelected(
-          projectID: selection.projectID,
-          worktreeID: selection.worktreeID
-        )))
+        return .send(
+          .gitViewer(
+            .worktreeSelected(
+              projectID: selection.projectID,
+              worktreeID: selection.worktreeID
+            )))
 
       case .engineEventReceived(let marker):
         state.lastEvent = marker
@@ -258,11 +254,13 @@ struct RootFeature {
         case .editor(let descriptor): resolvedID = descriptor.id
         case .finder: resolvedID = EditorFeature.finderEditorID
         }
-        return .send(.editor(.openRequested(
-          editorID: resolvedID,
-          worktreePath: path,
-          projectID: projectID
-        )))
+        return .send(
+          .editor(
+            .openRequested(
+              editorID: resolvedID,
+              worktreePath: path,
+              projectID: projectID
+            )))
 
       case .sidebar(.delegate(.revealInFinder(let path))):
         let client = finderClient
@@ -317,21 +315,26 @@ struct RootFeature {
             case .finder: resolvedID = EditorFeature.finderEditorID
             }
           }
-          return .send(.editor(.openRequested(
-            editorID: resolvedID,
-            worktreePath: worktreePath,
-            projectID: projectID
-          )))
+          return .send(
+            .editor(
+              .openRequested(
+                editorID: resolvedID,
+                worktreePath: worktreePath,
+                projectID: projectID
+              )))
 
         case .showCustomEditorsSettings:
-          return .send(.settingsSheetShown)
+          let presenter = settingsWindowPresenter
+          return .run { _ in await MainActor.run { presenter.open() } }
 
         case .setProjectOverride(let projectID, let spaceID, let editorID):
-          return .send(.editor(.setProjectOverride(
-            projectID: projectID,
-            spaceID: spaceID,
-            editorID: editorID
-          )))
+          return .send(
+            .editor(
+              .setProjectOverride(
+                projectID: projectID,
+                spaceID: spaceID,
+                editorID: editorID
+              )))
 
         case .gitViewerToggleRequested:
           // Route through the same reducer branch ⌘⇧G uses so both entry
@@ -341,21 +344,6 @@ struct RootFeature {
         }
 
       case .worktreeHeader:
-        return .none
-
-      case .settingsSheetShown:
-        state.settingsSheet = SettingsSheetFeature.State()
-        return .none
-
-      case .settingsSheet(.dismiss):
-        state.settingsSheet = nil
-        // Sheet edited its own EditorFeature state in isolation. The root's
-        // EditorFeature (drives the Worktree-header dropdown + toast label) reads the same
-        // underlying SettingsStore, but its in-memory cache is stale until we re-fetch.
-        // Re-running onAppear is a cheap round-trip through describe + readSnapshot.
-        return .send(.editor(.onAppear))
-
-      case .settingsSheet:
         return .none
 
       case .spaceManagerSheetShown:
@@ -401,19 +389,18 @@ struct RootFeature {
             .projects.first(where: { $0.id == projectID })?
             .worktrees.first(where: { $0.id == worktreeID })?.path
         else { return .none }
-        return .send(.editor(.openDefaultInCurrentWorktreeRequested(
-          spaceID: spaceID,
-          projectID: projectID,
-          worktreeID: worktreeID,
-          worktreePath: path
-        )))
+        return .send(
+          .editor(
+            .openDefaultInCurrentWorktreeRequested(
+              spaceID: spaceID,
+              projectID: projectID,
+              worktreeID: worktreeID,
+              worktreePath: path
+            )))
 
       case .openSpaceSwitcherRequested:
         return .send(.sidebar(.externalSpacePopoverOpenRequested))
       }
-    }
-    .ifLet(\.$settingsSheet, action: \.settingsSheet) {
-      SettingsSheetFeature()
     }
     .ifLet(\.$spaceManagerSheet, action: \.spaceManagerSheet) {
       SpaceManagerFeature()
