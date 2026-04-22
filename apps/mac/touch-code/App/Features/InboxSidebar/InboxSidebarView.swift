@@ -24,10 +24,13 @@ struct InboxSidebarView: View {
 
   private var filterBar: some View {
     HStack(spacing: 8) {
-      Picker("Filter", selection: Binding(
-        get: { store.filter },
-        set: { store.send(.filterChanged($0)) }
-      )) {
+      Picker(
+        "Filter",
+        selection: Binding(
+          get: { store.filter },
+          set: { store.send(.filterChanged($0)) }
+        )
+      ) {
         ForEach(InboxFilter.allCases) { filter in
           Text(filter.title).tag(filter)
         }

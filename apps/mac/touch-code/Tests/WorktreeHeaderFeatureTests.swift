@@ -2,6 +2,7 @@ import ComposableArchitecture
 import Foundation
 import Testing
 import TouchCodeCore
+
 @testable import touch_code
 
 @MainActor
@@ -139,9 +140,11 @@ struct WorktreeHeaderFeatureTests {
       }
     }
 
-    await store.send(.notificationTapped(
-      spaceID: f.spaceID, projectID: f.projectID, worktreeID: f.worktreeID
-    )) { state in
+    await store.send(
+      .notificationTapped(
+        spaceID: f.spaceID, projectID: f.projectID, worktreeID: f.worktreeID
+      )
+    ) { state in
       state.popoverOpen = false
     }
     #expect(recordedSpace.value == f.spaceID)
@@ -243,12 +246,15 @@ struct WorktreeHeaderFeatureTests {
     }
     let spaceID = SpaceID()
     let projectID = ProjectID()
-    await store.send(.setProjectDefaultEditorTapped(
-      spaceID: spaceID, projectID: projectID, editorID: "cursor"
-    ))
-    await store.receive(.delegate(.setProjectOverride(
-      projectID: projectID, spaceID: spaceID, editorID: "cursor"
-    )))
+    await store.send(
+      .setProjectDefaultEditorTapped(
+        spaceID: spaceID, projectID: projectID, editorID: "cursor"
+      ))
+    await store.receive(
+      .delegate(
+        .setProjectOverride(
+          projectID: projectID, spaceID: spaceID, editorID: "cursor"
+        )))
   }
 
   // MARK: - Popover

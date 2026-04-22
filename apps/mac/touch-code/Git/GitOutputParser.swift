@@ -55,14 +55,15 @@ nonisolated enum GitOutputParser {
       }
       let parents = parentsString.isEmpty ? [] : parentsString.split(separator: " ").map(String.init)
 
-      commits.append(Commit(
-        id: hash,
-        authorName: authorName,
-        authorEmail: authorEmail,
-        date: date,
-        subject: subject,
-        parents: parents
-      ))
+      commits.append(
+        Commit(
+          id: hash,
+          authorName: authorName,
+          authorEmail: authorEmail,
+          date: date,
+          subject: subject,
+          parents: parents
+        ))
     }
     return commits
   }
@@ -105,18 +106,20 @@ nonisolated enum GitOutputParser {
         }
         let renamedFrom = records[idx]
         idx += 1
-        entries.append(WorkingTreeStatus.Entry(
-          indexStatus: indexStatus,
-          worktreeStatus: worktreeStatus,
-          path: path,
-          renamedFrom: renamedFrom
-        ))
+        entries.append(
+          WorkingTreeStatus.Entry(
+            indexStatus: indexStatus,
+            worktreeStatus: worktreeStatus,
+            path: path,
+            renamedFrom: renamedFrom
+          ))
       } else {
-        entries.append(WorkingTreeStatus.Entry(
-          indexStatus: indexStatus,
-          worktreeStatus: worktreeStatus,
-          path: path
-        ))
+        entries.append(
+          WorkingTreeStatus.Entry(
+            indexStatus: indexStatus,
+            worktreeStatus: worktreeStatus,
+            path: path
+          ))
       }
     }
     return WorkingTreeStatus(entries: entries)

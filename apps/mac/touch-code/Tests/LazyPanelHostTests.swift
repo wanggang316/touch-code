@@ -1,8 +1,9 @@
 import ComposableArchitecture
 import Foundation
 import Testing
-@testable import touch_code
 import TouchCodeCore
+
+@testable import touch_code
 
 /// `LazyPanelHost` is a SwiftUI view — exercising its `.task(id:)` modifier
 /// end-to-end requires a real render host. Instead we unit-test the same

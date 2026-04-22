@@ -1,10 +1,13 @@
 import Foundation
 import Testing
 import TouchCodeCore
+
 @testable import touch_code
 
-/// Round-trip + validation tests for `SettingsStore`. Uses `flush()` to bypass the 500 ms
-/// debounce and commit immediately to disk so we can re-read the file in the same test.
+/// Round-trip + validation tests for `SettingsStore` (v2). Uses `flush()` to bypass the
+/// 500 ms debounce and commit immediately to disk so we can re-read the file in the same
+/// test. Migration-path coverage lives in `SettingsMigrationTests`; this suite focuses on
+/// the mutate API, reader conformance, and persistence coalescing.
 @MainActor
 struct SettingsStoreTests {
   private func makeStore() -> (SettingsStore, URL) {
@@ -19,8 +22,9 @@ struct SettingsStoreTests {
     let (store, _) = makeStore()
     #expect(store.settings == .default)
     #expect(store.settings.version == Settings.currentVersion)
-    #expect(store.settings.defaultEditorID == nil)
-    #expect(store.settings.customEditors.isEmpty)
+    #expect(store.settings.general.defaultEditorID == nil)
+    #expect(store.settings.general.customEditors.isEmpty)
+    #expect(store.settings.repositories.isEmpty)
   }
 
   @Test
@@ -32,7 +36,7 @@ struct SettingsStoreTests {
     store.flush()
 
     let reloaded = SettingsStore(fileURL: url)
-    #expect(reloaded.settings.defaultEditorID == "vscode")
+    #expect(reloaded.settings.general.defaultEditorID == "vscode")
   }
 
   @Test
@@ -45,7 +49,19 @@ struct SettingsStoreTests {
     store.flush()
 
     let reloaded = SettingsStore(fileURL: url)
-    #expect(reloaded.settings.defaultEditorID == nil)
+    #expect(reloaded.settings.general.defaultEditorID == nil)
+  }
+
+  @Test
+  func setAppearanceRoundTrips() throws {
+    let (store, url) = makeStore()
+    defer { try? FileManager.default.removeItem(at: url) }
+
+    store.setAppearance(.dark)
+    store.flush()
+
+    let reloaded = SettingsStore(fileURL: url)
+    #expect(reloaded.settings.general.appearance == .dark)
   }
 
   @Test
@@ -66,8 +82,8 @@ struct SettingsStoreTests {
     store.flush()
 
     let reloaded = SettingsStore(fileURL: url)
-    #expect(reloaded.settings.customEditors.count == 1)
-    #expect(reloaded.settings.customEditors.first?.id == "helix")
+    #expect(reloaded.settings.general.customEditors.count == 1)
+    #expect(reloaded.settings.general.customEditors.first?.id == "helix")
   }
 
   @Test
@@ -84,7 +100,7 @@ struct SettingsStoreTests {
       return
     }
     #expect(error == .invalidID("vscode"))
-    #expect(store.settings.customEditors.isEmpty)
+    #expect(store.settings.general.customEditors.isEmpty)
   }
 
   @Test
@@ -118,9 +134,9 @@ struct SettingsStoreTests {
     )
     #expect(store.addCustomEditor(original).isSuccess)
     #expect(store.addCustomEditor(updated).isSuccess)
-    #expect(store.settings.customEditors.count == 1)
-    #expect(store.settings.customEditors.first?.displayName == "Helix Nightly")
-    #expect(store.settings.customEditors.first?.template.binary == "hx-nightly")
+    #expect(store.settings.general.customEditors.count == 1)
+    #expect(store.settings.general.customEditors.first?.displayName == "Helix Nightly")
+    #expect(store.settings.general.customEditors.first?.template.binary == "hx-nightly")
   }
 
   @Test
@@ -144,7 +160,7 @@ struct SettingsStoreTests {
     store.flush()
 
     let reloaded = SettingsStore(fileURL: url)
-    #expect(reloaded.settings.customEditors.isEmpty)
+    #expect(reloaded.settings.general.customEditors.isEmpty)
   }
 
   @Test
@@ -160,7 +176,7 @@ struct SettingsStoreTests {
       editor.displayName = "Helix (renamed)"
     }
     #expect(ok)
-    #expect(store.settings.customEditors.first?.displayName == "Helix (renamed)")
+    #expect(store.settings.general.customEditors.first?.displayName == "Helix (renamed)")
   }
 
   @Test
@@ -176,33 +192,127 @@ struct SettingsStoreTests {
       editor.template = CommandTemplate(binary: "", args: ["{dir}"])
     }
     #expect(!ok)
+    // PR #22 review N3: the rejected transform must not have leaked into in-memory state.
+    // Without the revert, the broken template would persist on the next scheduled save.
+    #expect(store.settings.general.customEditors.first == entry)
+  }
+
+  @Test
+  func saveNowCancelsPendingDebouncedWrite() async throws {
+    // PR #22 review N6: saveNow must cancel the in-flight debounced task so a stale
+    // snapshot can't clobber the file after saveNow returns.
+    //
+    // Strategy: schedule a save of "A" with a short debounce window, call saveNow (which
+    // writes "A" and should cancel the pending task), then overwrite the file externally
+    // with a SENTINEL value and wait past the debounce fire time. If saveNow had left the
+    // pending task alive, it would fire and overwrite the SENTINEL with "A"; if saveNow
+    // cancelled as contracted, the SENTINEL survives.
+    let url = FileManager.default.temporaryDirectory.appending(
+      component: "settings-savenow-cancel-\(UUID().uuidString).json"
+    )
+    defer { try? FileManager.default.removeItem(at: url) }
+
+    let store = SettingsStore(fileURL: url, debounceWindow: .milliseconds(50))
+    store.setDefaultEditorID("A")  // schedules a debounced save of snapshot{defaultEditorID="A"}
+    try store.saveNow()  // writes "A", must also cancel the pending task
+
+    // External write that bypasses the store entirely. After this call the file contains
+    // SENTINEL; if the cancelled task were to fire, it would overwrite back to "A".
+    var sentinel = Settings.default
+    sentinel.general.defaultEditorID = "SENTINEL"
+    try AtomicFileStore.write(sentinel, to: url)
+
+    // Wait comfortably past the debounce window so any surviving task has fired.
+    try await Task.sleep(for: .milliseconds(200))
+
+    let reloaded = SettingsStore(fileURL: url)
+    #expect(
+      reloaded.settings.general.defaultEditorID == "SENTINEL",
+      "saveNow must cancel pendingSaveTask; surviving task would have written 'A' on top of SENTINEL")
+  }
+
+  @Test
+  func mutateNotificationsWritesToDisk() throws {
+    let (store, url) = makeStore()
+    defer { try? FileManager.default.removeItem(at: url) }
+
+    store.mutateNotifications {
+      $0.authStatus = .authorized
+      $0.inAppEnabled = false
+    }
+    store.flush()
+
+    let reloaded = SettingsStore(fileURL: url)
+    #expect(reloaded.settings.notifications.authStatus == .authorized)
+    #expect(reloaded.settings.notifications.inAppEnabled == false)
+  }
+
+  @Test
+  func mutateDeveloperWritesToDisk() throws {
+    let (store, url) = makeStore()
+    defer { try? FileManager.default.removeItem(at: url) }
+
+    let stamp = Date(timeIntervalSince1970: 1_800_000_000)
+    store.mutateDeveloper { $0.cli.lastInstallAttemptAt = stamp }
+    store.flush()
+
+    let reloaded = SettingsStore(fileURL: url)
+    #expect(reloaded.settings.developer.cli.lastInstallAttemptAt == stamp)
+  }
+
+  @Test
+  func mutateRepositoryCreatesThenGCsEmptyEntryOnSave() throws {
+    // RepositorySettings is reserved-empty in T1 (design D1), so any entry the caller touches
+    // is effectively empty and must be dropped on the next save. Verifies the gc path wired
+    // into scheduleSave + saveNow.
+    let (store, url) = makeStore()
+    defer { try? FileManager.default.removeItem(at: url) }
+
+    let projectID = ProjectID()
+    store.mutateRepository(projectID) { _ in }
+    #expect(store.settings.repositories[projectID] != nil, "in-memory state holds the entry pre-save")
+    store.flush()
+
+    let reloaded = SettingsStore(fileURL: url)
+    #expect(reloaded.settings.repositories[projectID] == nil, "empty entry should be GC'd on save")
+  }
+
+  @Test
+  func conformsToNotificationSettingsReader() {
+    let (store, _) = makeStore()
+    // Reader surface reads through to the live `settings.notifications` sub-tree.
+    let reader: any NotificationSettingsReader = store
+    #expect(reader.authStatus == .notDetermined)
+    #expect(reader.inAppEnabled == true)
+
+    store.mutateNotifications {
+      $0.inAppEnabled = false
+      $0.neverPrompt = true
+    }
+    #expect(reader.inAppEnabled == false)
+    #expect(reader.neverPrompt == true)
   }
 
   @Test
   func rapidMutationsCoalesceIntoSingleWrite() async throws {
-    // Short debounce so the test stays quick but still exercises the coalescing path.
     let url = FileManager.default.temporaryDirectory.appending(
       component: "settings-coalesce-\(UUID().uuidString).json"
     )
     defer { try? FileManager.default.removeItem(at: url) }
     let store = SettingsStore(fileURL: url, debounceWindow: .milliseconds(25))
 
-    // Three rapid mutations: each cancels the prior task. Only the last snapshot
-    // should reach disk.
     store.setDefaultEditorID("vscode")
     store.setDefaultEditorID("cursor")
     store.setDefaultEditorID("zed")
 
-    // File must not exist yet — debounce hasn't fired.
     #expect(!FileManager.default.fileExists(atPath: url.path))
-
-    // Wait for the debounced write.
     try await Task.sleep(for: .milliseconds(75))
 
     #expect(FileManager.default.fileExists(atPath: url.path))
     let reloaded = SettingsStore(fileURL: url)
-    #expect(reloaded.settings.defaultEditorID == "zed",
-            "only the last mutation should have been persisted; debounce failed to coalesce")
+    #expect(
+      reloaded.settings.general.defaultEditorID == "zed",
+      "only the last mutation should have been persisted; debounce failed to coalesce")
   }
 
   @Test
@@ -220,10 +330,6 @@ struct SettingsStoreTests {
 
   @Test
   func writeFailureLogsButDoesNotMoveFileAside() throws {
-    // Reproducing the specific write-failure branch: let the store load normally, THEN
-    // swap the target URL for a non-empty directory so the subsequent atomic-rename trips
-    // ENOTEMPTY. The load path already handles corrupt/directory inputs by moving them
-    // aside (that's a separate code path). This test proves the write path does not.
     let parent = FileManager.default.temporaryDirectory.appending(
       component: "settings-writefail-\(UUID().uuidString)", directoryHint: .isDirectory
     )
@@ -231,17 +337,15 @@ struct SettingsStoreTests {
     defer { try? FileManager.default.removeItem(at: parent) }
 
     let url = parent.appending(component: "settings.json")
-    // Seed a valid initial settings file so the store loads cleanly.
     try AtomicFileStore.write(
-      Settings(defaultEditorID: "initial"),
+      Settings(general: GeneralSettings(defaultEditorID: "initial")),
       to: url
     )
 
     let store = SettingsStore(fileURL: url, debounceWindow: .milliseconds(1))
-    #expect(store.settings.defaultEditorID == "initial")
+    #expect(store.settings.general.defaultEditorID == "initial")
 
-    // Swap the target for a non-empty directory. Any future rename(temp, url) will fail
-    // with ENOTEMPTY because the "dest already exists and is non-empty" case.
+    // Swap the target for a non-empty directory so subsequent rename(temp, url) fails.
     try FileManager.default.removeItem(at: url)
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
     try "keep".write(
@@ -250,16 +354,13 @@ struct SettingsStoreTests {
       encoding: .utf8
     )
 
-    // Mutate + flush. The write inside flush() must swallow the error silently (logs only).
     store.setDefaultEditorID("changed")
     store.flush()
 
-    // The directory we placed must still be there — write failure must not rename it away.
     var isDir: ObjCBool = false
     #expect(FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir))
     #expect(isDir.boolValue, "pre-existing directory should be preserved on write failure")
 
-    // No broken-* sibling should have been created by the write path.
     let siblings = try FileManager.default.contentsOfDirectory(atPath: parent.path)
     #expect(
       !siblings.contains(where: { $0.hasPrefix("settings.json.broken-") }),
@@ -268,54 +369,32 @@ struct SettingsStoreTests {
   }
 
   @Test
-  func corruptFileIsMovedAsideAndStoreStartsWithDefaults() throws {
-    let url = FileManager.default.temporaryDirectory.appending(
-      component: "settings-corrupt-\(UUID().uuidString).json"
+  func migratesV1EditorFileOnInit() throws {
+    // End-to-end check of the load path: a pre-v2 file on disk must be migrated to v2 and a
+    // backup must appear next to it. Detailed migration cases live in SettingsMigrationTests;
+    // this test just proves SettingsStore.init actually invokes the migration.
+    let parent = FileManager.default.temporaryDirectory.appending(
+      component: "settings-v1-\(UUID().uuidString)", directoryHint: .isDirectory
     )
-    defer { try? FileManager.default.removeItem(at: url) }
-    // Write a deliberately broken JSON document.
-    try "{ this is not valid JSON".write(to: url, atomically: true, encoding: .utf8)
+    try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: parent) }
+
+    let url = parent.appending(component: "settings.json")
+    let v1 = #"""
+      { "version": 1, "defaultEditorID": "cursor", "customEditors": [] }
+      """#
+    try v1.write(to: url, atomically: true, encoding: .utf8)
 
     let store = SettingsStore(fileURL: url)
-    #expect(store.settings == .default)
+    #expect(store.settings.general.defaultEditorID == "cursor")
 
-    // The broken file should be renamed aside with the .broken- prefix.
-    let parent = url.deletingLastPathComponent()
     let siblings = try FileManager.default.contentsOfDirectory(atPath: parent.path)
-    #expect(siblings.contains(where: { $0.hasPrefix("settings.json.broken-") }))
-
-    // Clean up backup.
-    for name in siblings where name.hasPrefix("settings.json.broken-") {
-      try? FileManager.default.removeItem(at: parent.appendingPathComponent(name))
-    }
-  }
-
-  @Test
-  func unsupportedVersionIsMovedAside() throws {
-    let url = FileManager.default.temporaryDirectory.appending(
-      component: "settings-wrongver-\(UUID().uuidString).json"
-    )
-    defer { try? FileManager.default.removeItem(at: url) }
-    let payload = """
-      { "version": 999, "defaultEditorID": "vscode", "customEditors": [] }
-      """
-    try payload.write(to: url, atomically: true, encoding: .utf8)
-
-    let store = SettingsStore(fileURL: url)
-    // Fresh defaults — unsupported version never loads.
-    #expect(store.settings == .default)
-
-    let parent = url.deletingLastPathComponent()
-    let siblings = try FileManager.default.contentsOfDirectory(atPath: parent.path)
-    #expect(siblings.contains(where: { $0.hasPrefix("settings.json.broken-") }))
-    for name in siblings where name.hasPrefix("settings.json.broken-") {
-      try? FileManager.default.removeItem(at: parent.appendingPathComponent(name))
-    }
+    #expect(siblings.contains(where: { $0.hasPrefix("settings.json.v1-") }))
   }
 }
 
-private extension Result where Success == Void {
-  var isSuccess: Bool {
+extension Result where Success == Void {
+  fileprivate var isSuccess: Bool {
     if case .success = self { return true }
     return false
   }

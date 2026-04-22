@@ -309,7 +309,7 @@ struct HierarchySidebarView: View {
   ) -> some View {
     let projectHasUnread = inbox.notifications.contains { notification in
       guard notification.isUnread,
-            let worktreeID = panelIndex[notification.panelID]
+        let worktreeID = panelIndex[notification.panelID]
       else { return false }
       return project.worktrees.contains(where: { $0.id == worktreeID })
     }
@@ -369,7 +369,7 @@ struct HierarchySidebarView: View {
     let isSelected = currentSelection.worktreeID == worktree.id
     let unreadCount = inbox.notifications.reduce(into: 0) { total, notification in
       guard notification.isUnread,
-            panelIndex[notification.panelID] == worktree.id
+        panelIndex[notification.panelID] == worktree.id
       else { return }
       total += 1
     }

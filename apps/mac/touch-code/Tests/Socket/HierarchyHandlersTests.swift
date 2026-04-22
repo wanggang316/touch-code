@@ -1,9 +1,9 @@
 import Foundation
 import Testing
 
-@testable import touch_code
 @testable import TouchCodeCore
 @testable import TouchCodeIPC
+@testable import touch_code
 
 @MainActor
 struct HierarchyHandlersTests {
@@ -16,7 +16,10 @@ struct HierarchyHandlersTests {
     _ = try await server.awaitResponse()
 
     // Create
-    struct CreateParams: Codable { let name: String; let activate: Bool }
+    struct CreateParams: Codable {
+      let name: String
+      let activate: Bool
+    }
     let createParams = try JSONValue.encoded(CreateParams(name: "work", activate: false))
     try server.send(
       IPC.Request(id: "c1", method: .hierarchyCreateSpace, params: createParams)
@@ -29,7 +32,8 @@ struct HierarchyHandlersTests {
     let listed = try await server.awaitResponse()
     #expect(listed.error == nil)
     if case .object(let obj) = listed.result,
-       case .array(let spaces) = obj["spaces"] {
+      case .array(let spaces) = obj["spaces"]
+    {
       #expect(spaces.count == 1)
     } else {
       Issue.record("expected { spaces: [...] }, got \(String(describing: listed.result))")

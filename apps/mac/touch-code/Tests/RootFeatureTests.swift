@@ -1,8 +1,9 @@
 import ComposableArchitecture
 import Foundation
 import Testing
-@testable import touch_code
 import TouchCodeCore
+
+@testable import touch_code
 
 @MainActor
 struct RootFeatureTests {
@@ -330,12 +331,17 @@ struct RootFeatureTests {
     store.exhaustivity = .off
 
     let projectID = ProjectID()
-    await store.send(.worktreeHeader(.delegate(.openEditor(
-      editorID: "vscode", worktreePath: "/tmp/w", projectID: projectID
-    ))))
-    await store.receive(.editor(.openRequested(
-      editorID: "vscode", worktreePath: "/tmp/w", projectID: projectID
-    )))
+    await store.send(
+      .worktreeHeader(
+        .delegate(
+          .openEditor(
+            editorID: "vscode", worktreePath: "/tmp/w", projectID: projectID
+          ))))
+    await store.receive(
+      .editor(
+        .openRequested(
+          editorID: "vscode", worktreePath: "/tmp/w", projectID: projectID
+        )))
   }
 
   @Test
@@ -369,12 +375,17 @@ struct RootFeatureTests {
     }
     store.exhaustivity = .off
 
-    await store.send(.worktreeHeader(.delegate(.openEditor(
-      editorID: nil, worktreePath: "/tmp/w", projectID: nil
-    ))))
-    await store.receive(.editor(.openRequested(
-      editorID: "cursor", worktreePath: "/tmp/w", projectID: nil
-    )))
+    await store.send(
+      .worktreeHeader(
+        .delegate(
+          .openEditor(
+            editorID: nil, worktreePath: "/tmp/w", projectID: nil
+          ))))
+    await store.receive(
+      .editor(
+        .openRequested(
+          editorID: "cursor", worktreePath: "/tmp/w", projectID: nil
+        )))
   }
 
   @Test
@@ -395,30 +406,41 @@ struct RootFeatureTests {
     }
     store.exhaustivity = .off
 
-    await store.send(.worktreeHeader(.delegate(.openEditor(
-      editorID: nil, worktreePath: "/tmp/w", projectID: nil
-    ))))
-    await store.receive(.editor(.openRequested(
-      editorID: EditorFeature.finderEditorID,
-      worktreePath: "/tmp/w",
-      projectID: nil
-    )))
+    await store.send(
+      .worktreeHeader(
+        .delegate(
+          .openEditor(
+            editorID: nil, worktreePath: "/tmp/w", projectID: nil
+          ))))
+    await store.receive(
+      .editor(
+        .openRequested(
+          editorID: EditorFeature.finderEditorID,
+          worktreePath: "/tmp/w",
+          projectID: nil
+        )))
   }
 
   @Test
-  func headerShowCustomEditorsSettingsOpensSheet() async {
+  func headerShowCustomEditorsSettingsInvokesPresenter() async {
+    // The Header "+ Custom editors…" delegate now opens the standalone Settings window via
+    // `SettingsWindowPresenter` (post Step 6). Test overrides the presenter with a recorder
+    // and asserts the closure fires exactly once when the delegate is dispatched.
+    let openCount = LockIsolated(0)
     let store = TestStore(initialState: RootFeature.State()) {
       RootFeature()
     } withDependencies: {
       $0.terminalClient.events = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
+      $0.settingsWindowPresenter = SettingsWindowPresenter(open: {
+        openCount.withValue { $0 += 1 }
+      })
     }
     store.exhaustivity = .off
 
     await store.send(.worktreeHeader(.delegate(.showCustomEditorsSettings)))
-    await store.receive(\.settingsSheetShown) { state in
-      state.settingsSheet = SettingsSheetFeature.State()
-    }
+    await store.finish()
+    #expect(openCount.value == 1)
   }
   @Test
   func headerGitViewerToggleDelegateRoutesThroughToggleBranch() async {
@@ -476,12 +498,17 @@ struct RootFeatureTests {
 
     let spaceID = SpaceID()
     let projectID = ProjectID()
-    await store.send(.worktreeHeader(.delegate(.setProjectOverride(
-      projectID: projectID, spaceID: spaceID, editorID: "zed"
-    ))))
-    await store.receive(.editor(.setProjectOverride(
-      projectID: projectID, spaceID: spaceID, editorID: "zed"
-    )))
+    await store.send(
+      .worktreeHeader(
+        .delegate(
+          .setProjectOverride(
+            projectID: projectID, spaceID: spaceID, editorID: "zed"
+          ))))
+    await store.receive(
+      .editor(
+        .setProjectOverride(
+          projectID: projectID, spaceID: spaceID, editorID: "zed"
+        )))
   }
 
   // Removed in T1: `sidebarModeChangedUpdatesState` covered the

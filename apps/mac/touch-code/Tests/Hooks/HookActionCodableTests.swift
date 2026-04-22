@@ -1,9 +1,9 @@
 import Foundation
 import Testing
 
-@testable import touch_code
 @testable import TouchCodeCore
 @testable import TouchCodeIPC
+@testable import touch_code
 
 struct HookActionCodableTests {
   @Test

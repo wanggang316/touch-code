@@ -35,10 +35,12 @@ struct LargeDiffPlaceholderView: View {
         Text("Diff too large")
           .font(.headline)
       }
-      Text("This diff exceeds the 50 000-line cap. Copy the command below and run it in a terminal to inspect it with your full git toolchain.")
-        .font(.callout)
-        .foregroundStyle(.secondary)
-        .fixedSize(horizontal: false, vertical: true)
+      Text(
+        "This diff exceeds the 50 000-line cap. Copy the command below and run it in a terminal to inspect it with your full git toolchain."
+      )
+      .font(.callout)
+      .foregroundStyle(.secondary)
+      .fixedSize(horizontal: false, vertical: true)
 
       if let command = resolvedCommand {
         Text(command)

@@ -1,6 +1,6 @@
 import Foundation
-@preconcurrency import UserNotifications
 import TouchCodeCore
+@preconcurrency import UserNotifications
 
 /// Cached + query-fresh macOS notification permission status. The app shell
 /// reads the cache once on launch per DEC-4 permission flow; the coordinator
@@ -20,7 +20,7 @@ enum AuthorizationStatus: String, Sendable, Codable {
 protocol OSNotifier: AnyObject {
   func currentAuthorizationStatus() async -> AuthorizationStatus
   func requestAuthorization() async -> AuthorizationStatus
-  func post(_ notification: AgentNotification) async
+  func post(_ notification: AgentNotification, playSound: Bool) async
 }
 
 /// Production adapter over `UNUserNotificationCenter.current()`.
@@ -53,7 +53,7 @@ final class UserNotificationsOSNotifier: OSNotifier {
     return await currentAuthorizationStatus()
   }
 
-  func post(_ notification: AgentNotification) async {
+  func post(_ notification: AgentNotification, playSound: Bool) async {
     let status = await currentAuthorizationStatus()
     guard status == .authorized || status == .provisional else { return }
 
@@ -63,7 +63,7 @@ final class UserNotificationsOSNotifier: OSNotifier {
     content.threadIdentifier = notification.panelID.raw.uuidString
     content.categoryIdentifier = notification.kind.rawValue
     content.userInfo = ["deeplink": "touch-code://panel/\(notification.panelID.raw.uuidString)/focus"]
-    content.sound = .default
+    content.sound = playSound ? .default : nil
 
     let request = UNNotificationRequest(
       identifier: notification.id.uuidString,

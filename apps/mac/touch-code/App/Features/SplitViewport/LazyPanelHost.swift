@@ -95,7 +95,9 @@ struct LazyPanelHost: View {
     do {
       try terminalClient.ensureSurface(panelID, tabID, worktreeID, projectID, spaceID)
     } catch {
-      lazyLogger.error("ensureSurface failed for \(panelID.description, privacy: .public): \(String(describing: error), privacy: .public)")
+      lazyLogger.error(
+        "ensureSurface failed for \(panelID.description, privacy: .public): \(String(describing: error), privacy: .public)"
+      )
       state = .failed(String(describing: error))
       return
     }
@@ -105,7 +107,8 @@ struct LazyPanelHost: View {
     } else {
       // Shouldn't happen unless ensureSurface silently no-opped (e.g.
       // runtime unavailable was swallowed). Surface a diagnostic.
-      lazyLogger.warning("ensureSurface returned success but surface(for:) resolved nil for \(panelID.description, privacy: .public)")
+      lazyLogger.warning(
+        "ensureSurface returned success but surface(for:) resolved nil for \(panelID.description, privacy: .public)")
       state = .failed("Surface not registered after creation.")
     }
   }

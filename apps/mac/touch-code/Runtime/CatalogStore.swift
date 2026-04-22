@@ -1,6 +1,6 @@
 import Foundation
-import os.log
 import TouchCodeCore
+import os.log
 
 @MainActor
 final class CatalogStore {

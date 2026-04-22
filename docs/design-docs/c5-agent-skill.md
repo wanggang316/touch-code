@@ -1,6 +1,8 @@
 # Design Doc: Published Agent Skill (C5)
 
-**Status:** Approved
+> **Superseded by PR #15 (2026-04-21).** The `tc skill install / uninstall / status / bundle-path` subsystem, the `.app`-bundled skill, the mirror repo, and the Tier-A/B CI workflows described below have been removed. Skill under `skills/touch-code-cli/` is now pure text resource; engineering code does not reference, install, or version-sync with it. Users install the skill manually (`cp -r skills/touch-code-cli ~/.claude/skills/touch-code`) or via the agent's native skill installer. This document is retained for historical context only.
+
+**Status:** Superseded
 **Author:** Gump (with Claude)
 **Date:** 2026-04-20
 **Approved:** 2026-04-20 by Gump (autonomous resolution — see Decisions)

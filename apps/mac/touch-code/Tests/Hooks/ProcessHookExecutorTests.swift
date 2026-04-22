@@ -1,9 +1,9 @@
 import Foundation
 import Testing
 
-@testable import touch_code
 @testable import TouchCodeCore
 @testable import TouchCodeIPC
+@testable import touch_code
 
 @MainActor
 struct ProcessHookExecutorTests {
@@ -178,7 +178,7 @@ struct ProcessHookExecutorTests {
     let executor = ProcessHookExecutor()
     let sub = HookSubscription(
       event: .panelReady,
-      command: "sleep 30", // would block for 30s if awaited
+      command: "sleep 30",  // would block for 30s if awaited
       timeoutSeconds: 60,
       mode: .fireAndForget
     )

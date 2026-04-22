@@ -3,6 +3,7 @@ import Foundation
 import Testing
 import TouchCodeCore
 import TouchCodeIPC
+
 @testable import touch_code
 
 @MainActor
@@ -54,7 +55,9 @@ struct GitViewerFeatureTests {
     return UnifiedDiff(scope: scope, files: [file])
   }
 
-  nonisolated static func sampleLogPage(offset: Int = 0, limit: Int = 100, hasMore: Bool = false, count: Int = 3) -> LogPage {
+  nonisolated static func sampleLogPage(offset: Int = 0, limit: Int = 100, hasMore: Bool = false, count: Int = 3)
+    -> LogPage
+  {
     let commits = (0..<count).map { idx in
       Commit(
         id: String(format: "%040d", idx),
@@ -365,8 +368,9 @@ struct GitViewerFeatureTests {
       state.diffState = .loaded(Self.sampleDiff())
       state.selectedFilePath = "README.md"
     }
-    #expect(observedIgnoreWhitespace.value == true,
-            "whitespace flag must reach the service on re-issue, not be silently dropped")
+    #expect(
+      observedIgnoreWhitespace.value == true,
+      "whitespace flag must reach the service on re-issue, not be silently dropped")
   }
 
   @Test
@@ -385,7 +389,7 @@ struct GitViewerFeatureTests {
       // `cancelInFlight: true` does when a second .diff request is scheduled.
       $0.gitService.workingTreeDiff = { _, _ in
         try await Task.sleep(for: .seconds(30))
-        return Self.sampleDiff(scope: .working) // unreachable
+        return Self.sampleDiff(scope: .working)  // unreachable
       }
       $0.gitService.stagedDiff = { _, _ in stagedDiff }
       $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
@@ -482,7 +486,7 @@ struct GitViewerFeatureTests {
   @Test
   func openInEditorWithUnknownWorktreeSurfacesFailure() async {
     var initial = GitViewerFeature.State()
-    initial.worktreeID = WorktreeID() // not in catalog
+    initial.worktreeID = WorktreeID()  // not in catalog
     initial.projectID = ProjectID()
 
     let store = TestStore(initialState: initial) {
@@ -618,7 +622,7 @@ struct GitViewerFeatureTests {
       $0.hierarchyClient = HierarchyClient.testValue
       $0.editorClient = EditorClient.testValue
     }
-    await store.send(.copyLargeDiffCommandRequested) // no mutation
+    await store.send(.copyLargeDiffCommandRequested)  // no mutation
   }
 
   @Test
@@ -639,7 +643,7 @@ struct GitViewerFeatureTests {
       $0.hierarchyClient = HierarchyClient.testValue
       $0.editorClient = EditorClient.testValue
     }
-    await store.send(.copyLargeDiffCommandRequested) // no mutation
+    await store.send(.copyLargeDiffCommandRequested)  // no mutation
   }
 
   @Test

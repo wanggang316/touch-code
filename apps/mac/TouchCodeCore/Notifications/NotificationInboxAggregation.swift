@@ -79,7 +79,8 @@ extension NotificationInbox {
   /// dismissed entries but keeps read ones for history).
   public func notifications(forWorktree worktreeID: WorktreeID, in catalog: Catalog) -> [AgentNotification] {
     let index = catalog.panelWorktreeIndex()
-    return notifications
+    return
+      notifications
       .filter { index[$0.panelID] == worktreeID }
       .sorted { lhs, rhs in
         if lhs.createdAt != rhs.createdAt { return lhs.createdAt > rhs.createdAt }

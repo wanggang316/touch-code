@@ -1,8 +1,9 @@
 import ComposableArchitecture
 import Foundation
 import Testing
-@testable import touch_code
 import TouchCodeCore
+
+@testable import touch_code
 
 @MainActor
 struct HierarchySidebarFeatureTests {
@@ -380,7 +381,7 @@ struct HierarchySidebarFeatureTests {
     // setSpaceLastActiveWorktree call updates the Catalog so the next
     // snapshot() observes the new value.
     let mutableCatalog = LockIsolated(fix.catalog)
-    #expect(fix.catalog.spaces[0].lastActiveWorktreeID == nil) // baseline
+    #expect(fix.catalog.spaces[0].lastActiveWorktreeID == nil)  // baseline
 
     let store = TestStore(initialState: HierarchySidebarFeature.State()) {
       HierarchySidebarFeature()

@@ -4,7 +4,6 @@ included:
   - touch-code
   - tc
   - tcKit
-  - tcTests
   - TouchCodeCore
   - TouchCodeCoreTests
   - TouchCodeIPC

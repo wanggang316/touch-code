@@ -27,10 +27,11 @@ struct HeaderOpenSplitButton: View {
 
   private var primary: some View {
     Button {
-      store.send(.openDefaultEditorTapped(
-        worktreePath: worktreePath,
-        projectID: projectID
-      ))
+      store.send(
+        .openDefaultEditorTapped(
+          worktreePath: worktreePath,
+          projectID: projectID
+        ))
     } label: {
       HStack(spacing: 4) {
         Image(systemName: "arrow.up.right.square")
@@ -97,11 +98,12 @@ struct HeaderOpenSplitButton: View {
     Section("Open in") {
       ForEach(editorStore.state.descriptors) { descriptor in
         Button {
-          store.send(.openEditorTapped(
-            editorID: descriptor.id,
-            worktreePath: worktreePath,
-            projectID: projectID
-          ))
+          store.send(
+            .openEditorTapped(
+              editorID: descriptor.id,
+              worktreePath: worktreePath,
+              projectID: projectID
+            ))
         } label: {
           HStack {
             Text(descriptor.displayName)
@@ -116,9 +118,10 @@ struct HeaderOpenSplitButton: View {
         // `EditorRegistry.finder` currently returns true for `/usr/bin/open`, but we
         // refuse to rely on that invariant — the UI guards it explicitly.
         .disabled(!descriptor.isInstalled && descriptor.id != EditorFeature.finderEditorID)
-        .help(descriptor.isInstalled || descriptor.id == EditorFeature.finderEditorID
-              ? descriptor.displayName
-              : "\(descriptor.displayName) is not installed")
+        .help(
+          descriptor.isInstalled || descriptor.id == EditorFeature.finderEditorID
+            ? descriptor.displayName
+            : "\(descriptor.displayName) is not installed")
       }
     }
   }
@@ -127,20 +130,22 @@ struct HeaderOpenSplitButton: View {
   private var setDefaultMenu: some View {
     Section("Set default for this Project") {
       Button("Use global default") {
-        store.send(.setProjectDefaultEditorTapped(
-          spaceID: spaceID,
-          projectID: projectID,
-          editorID: nil
-        ))
+        store.send(
+          .setProjectDefaultEditorTapped(
+            spaceID: spaceID,
+            projectID: projectID,
+            editorID: nil
+          ))
       }
       Divider()
       ForEach(editorStore.state.descriptors.filter(\.isInstalled)) { descriptor in
         Button(descriptor.displayName) {
-          store.send(.setProjectDefaultEditorTapped(
-            spaceID: spaceID,
-            projectID: projectID,
-            editorID: descriptor.id
-          ))
+          store.send(
+            .setProjectDefaultEditorTapped(
+              spaceID: spaceID,
+              projectID: projectID,
+              editorID: descriptor.id
+            ))
         }
       }
     }
