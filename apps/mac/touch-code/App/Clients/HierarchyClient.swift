@@ -340,9 +340,11 @@ extension HierarchyClient {
       // never throw, never crash a reconcile (see design doc
       // §Discovery / Reconcile). `projectID` is printed as .public
       // because it's a UUID opaque to users; the error description
-      // likewise carries no PII. Issue #24 (d).
+      // is `.private(mask: .hash)` because `GitWorktreeError
+      // .commandFailed` carries raw git stderr which can embed
+      // local absolute paths. Issue #24 (d) + PR #31 review F2.
       reconcileLogger.error(
-        "reconcileDiscoveredWorktrees failed: project=\(projectID.raw.uuidString, privacy: .public) \(error.localizedDescription, privacy: .public)"
+        "reconcileDiscoveredWorktrees failed: project=\(projectID.raw.uuidString, privacy: .public) error=\(error.localizedDescription, privacy: .private(mask: .hash))"
       )
     }
   }
