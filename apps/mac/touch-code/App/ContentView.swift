@@ -69,6 +69,9 @@ struct ContentView: View {
           .help("Settings (⌘,)")
         }
       }
+      .sheet(item: $store.scope(state: \.spaceManagerSheet, action: \.spaceManagerSheet)) { sheetStore in
+        SpaceManagerView(store: sheetStore)
+      }
     }
     .environment(hierarchyManager)
     .environment(settingsStore)

@@ -1,3 +1,4 @@
+import AppKit
 import ComposableArchitecture
 import Foundation
 import TouchCodeCore
@@ -35,6 +36,10 @@ struct RootFeature {
     var editor: EditorFeature.State = .init()
     /// T2: Header feature (bell + Open-in split button + GV toggle).
     var worktreeHeader: WorktreeHeaderFeature.State = .init()
+
+    /// T4: space manager sheet presentation. `nil` = hidden; non-nil
+    /// presents the sheet for managing (list / rename / reorder / delete) Spaces.
+    @Presents var spaceManagerSheet: SpaceManagerFeature.State?
 
     /// T3: live read of the current Worktree's `gitViewerVisible` against
     /// a catalog snapshot. Not a cached field — views pass in
@@ -110,6 +115,9 @@ struct RootFeature {
     /// popover opens. Handled inline by the root reducer as a `.send` into
     /// `.sidebar(.externalSpacePopoverOpenRequested)`.
     case openSpaceSwitcherRequested
+    case spaceManagerSheetShown
+    case spaceManagerSheet(PresentationAction<SpaceManagerFeature.Action>)
+    case switchToSpaceAtIndex(Int)
     case sidebar(HierarchySidebarFeature.Action)
     case detail(WorktreeDetailFeature.Action)
     case gitViewer(GitViewerFeature.Action)
@@ -117,11 +125,14 @@ struct RootFeature {
     case worktreeHeader(WorktreeHeaderFeature.Action)
   }
 
-  nonisolated enum CancelID: Sendable { case events, selectionChanges }
+  nonisolated enum CancelID: Sendable {
+    case events, selectionChanges, projectReconcileFocus
+  }
 
   @Dependency(TerminalClient.self) private var terminalClient
   @Dependency(HierarchyClient.self) private var hierarchyClient
   @Dependency(FinderClient.self) private var finderClient
+  @Dependency(ProjectReconciler.self) private var projectReconciler
   @Dependency(SettingsWindowPresenter.self) private var settingsWindowPresenter
 
   var body: some Reducer<State, Action> {
@@ -146,6 +157,14 @@ struct RootFeature {
       case .onLaunch:
         let eventStream = terminalClient.events()
         let selectionStream = hierarchyClient.selectionChanges()
+        // `didBecomeActive` fires every time the app window re-gains focus;
+        // per-run debounce lives inside `ProjectReconciler.reconcileAll`, so
+        // click storms collapse into a single scan. The notification stream
+        // via AsyncSequence is fine to hold for the full app lifetime;
+        // `CancelID.projectReconcileFocus` stops it at quit.
+        let focusStream = NotificationCenter.default.notifications(
+          named: NSApplication.didBecomeActiveNotification
+        )
         return .merge(
           .run { send in
             for await event in eventStream {
@@ -159,7 +178,21 @@ struct RootFeature {
               await send(.selectionChanged(selection))
             }
           }
-          .cancellable(id: CancelID.selectionChanges, cancelInFlight: true)
+          .cancellable(id: CancelID.selectionChanges, cancelInFlight: true),
+
+          // Initial sweep: every persisted Project transitions out of .loading
+          // once the reconciler fans out against the current snapshot.
+          .run { [projectReconciler] _ in
+            await projectReconciler.reconcileAll()
+          },
+
+          // Re-sync on window focus. Debounced inside the actor.
+          .run { [projectReconciler] _ in
+            for await _ in focusStream {
+              await projectReconciler.reconcileAll()
+            }
+          }
+          .cancellable(id: CancelID.projectReconcileFocus, cancelInFlight: true)
         )
       // Worst case for sidebar context-menu "Open in default editor" is an
       // empty descriptor cache → resolution falls through to
@@ -174,7 +207,8 @@ struct RootFeature {
       case .onQuit:
         return .merge(
           .cancel(id: CancelID.events),
-          .cancel(id: CancelID.selectionChanges)
+          .cancel(id: CancelID.selectionChanges),
+          .cancel(id: CancelID.projectReconcileFocus)
         )
 
       case .selectionChanged(let selection):
@@ -233,6 +267,25 @@ struct RootFeature {
         return .run { _ in
           await MainActor.run { client.reveal(path) }
         }
+
+      case .sidebar(.delegate(.reconcileProjectRequested(let projectID, let spaceID))):
+        // Kick the ProjectReconciler so the newly-added (or retried)
+        // Project transitions through .loading → .ready (or .failed) and the
+        // worktree list populates via T-WORKTREE's reconcileDiscoveredWorktrees
+        // closure (once that PR lands; currently a no-op stub).
+        return .run { _ in
+          await projectReconciler.reconcile(projectID: projectID, spaceID: spaceID)
+        }
+
+      case .sidebar(.delegate(.revealExistingProject(let spaceID, let projectID))):
+        // AddProjectFeature's "Reveal existing" banner fired — jump the user
+        // to the already-registered row.
+        hierarchyClient.selectSpace(spaceID)
+        try? hierarchyClient.selectProject(projectID, spaceID)
+        return .none
+
+      case .sidebar(.delegate(.openSpaceManager)):
+        return .send(.spaceManagerSheetShown)
 
       case .sidebar:
         return .none
@@ -293,6 +346,23 @@ struct RootFeature {
       case .worktreeHeader:
         return .none
 
+      case .spaceManagerSheetShown:
+        state.spaceManagerSheet = SpaceManagerFeature.State()
+        return .none
+
+      case .spaceManagerSheet(.dismiss):
+        state.spaceManagerSheet = nil
+        return .none
+
+      case .spaceManagerSheet:
+        return .none
+
+      case .switchToSpaceAtIndex(let index):
+        let snapshot = hierarchyClient.snapshot()
+        guard index >= 1 && index <= snapshot.spaces.count else { return .none }
+        let targetID = snapshot.spaces[index - 1].id
+        return .send(.sidebar(.spaceRowTapped(targetID)))
+
       case .gitViewerToggledForCurrentWorktree:
         guard let worktreeID = state.selection.worktreeID else { return .none }
         // Read the current visibility from the live catalog — the view
@@ -331,6 +401,9 @@ struct RootFeature {
       case .openSpaceSwitcherRequested:
         return .send(.sidebar(.externalSpacePopoverOpenRequested))
       }
+    }
+    .ifLet(\.$spaceManagerSheet, action: \.spaceManagerSheet) {
+      SpaceManagerFeature()
     }
   }
 

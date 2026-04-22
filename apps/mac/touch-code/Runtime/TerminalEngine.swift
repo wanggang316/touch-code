@@ -122,6 +122,14 @@ final class TerminalEngine {
     handleSurfaceClose(panelID: panelID, processAlive: true)
   }
 
+  /// Whether a live surface is currently registered for the panel.
+  /// Used by force-remove to size the "terminate N running processes"
+  /// confirmation dialog (spec W-Q3).
+  func hasSurface(for panelID: PanelID) -> Bool {
+    guard let runtime = ghosttyRuntime else { return false }
+    return runtime.surface(for: panelID) != nil
+  }
+
   private func handleSurfaceClose(panelID: PanelID, processAlive: Bool) {
     // Snapshot the surface state BEFORE unregistering so a stale registry
     // entry can't drop the lifecycle event. Unregister after emit so any

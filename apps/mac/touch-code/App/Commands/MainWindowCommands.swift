@@ -47,6 +47,15 @@ struct MainWindowCommands: Commands {
         store.send(.openSpaceSwitcherRequested)
       }
       .keyboardShortcut("k", modifiers: .command)
+
+      Divider()
+
+      ForEach(1...9, id: \.self) { n in
+        Button("Switch to Space \(n)") {
+          store.send(.switchToSpaceAtIndex(n))
+        }
+        .keyboardShortcut(KeyEquivalent(Character("\(n)")), modifiers: .command)
+      }
     }
   }
 

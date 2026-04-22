@@ -1,7 +1,18 @@
 import ComposableArchitecture
 import Foundation
 import Observation
+import OSLog
 import TouchCodeCore
+
+/// Logger for the background reconcile path. Matches the project's
+/// `com.touch-code.<area>` subsystem convention (see SettingsStore,
+/// CatalogStore, the IPC handlers, etc.). Category `reconcile` isolates
+/// these events from the rest of the hierarchy subsystem so operators
+/// can filter with `log stream --predicate 'category == "reconcile"'`.
+private let reconcileLogger = Logger(
+  subsystem: "com.touch-code.hierarchy",
+  category: "reconcile"
+)
 
 /// TCA dependency-injection bridge over `HierarchyManager`. Features depend
 /// on this struct's closures, not on the manager directly; the `liveValue`
@@ -130,6 +141,63 @@ nonisolated struct HierarchyClient: Sendable {
   /// needing a reference to the `@Observable` `HierarchyManager`. The stream
   /// finishes only when the engine shuts down.
   var selectionChanges: @MainActor @Sendable () -> AsyncStream<HierarchySelection>
+
+  // MARK: - Worktree Management additions (feat/worktree-mgmt)
+
+  /// Flips `Worktree.archived` for the given Worktree.
+  var setWorktreeArchived: @MainActor @Sendable (
+    _ worktreeID: WorktreeID, _ archived: Bool
+  ) throws -> Void
+
+  /// Reads the Project's git root, calls `GitWorktreeClient.lsWorktrees`
+  /// off the main actor, and merges on-disk worktrees into the catalog.
+  /// Append-only — never removes catalog rows. Swallows errors. Consumed
+  /// by `ProjectReconciler` on feat/project-mgmt.
+  var reconcileDiscoveredWorktrees: @MainActor @Sendable (
+    _ projectID: ProjectID, _ inSpace: SpaceID
+  ) async -> Void
+
+  /// Catalog-append step for Create Worktree.
+  var createWorktreeWithGit: @MainActor @Sendable (
+    _ projectID: ProjectID, _ inSpace: SpaceID,
+    _ branch: String, _ directoryName: String, _ path: String
+  ) throws -> WorktreeID
+
+  /// End-to-end Remove Worktree. `GitWorktreeError.uncommittedChanges` is
+  /// re-thrown so the sidebar can surface the specific files.
+  var removeWorktreeWithGit: @MainActor @Sendable (
+    _ worktreeID: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID,
+    _ force: Bool
+  ) async throws -> Void
+
+  /// Forwards `HierarchyManager.runningPanelCount`.
+  var runningPanelCount: @MainActor @Sendable (_ worktreeID: WorktreeID) -> Int
+
+  // MARK: - Project Management (pm) — added on feat/project-mgmt.
+
+  /// Transient Project health signal. Written by `ProjectReconciler` only.
+  var setProjectLoadState: @MainActor @Sendable (
+    _ projectID: ProjectID, _ inSpace: SpaceID, _ state: ProjectLoadState
+  ) -> Void
+
+  /// Reorder Projects inside a Space. Mirrors `ForEach.onMove`'s signature.
+  var reorderProjects: @MainActor @Sendable (
+    _ inSpace: SpaceID, _ from: IndexSet, _ to: Int
+  ) throws -> Void
+
+  /// Per-Project worktrees-directory override. Empty/whitespace clears.
+  var setProjectWorktreesDirectory: @MainActor @Sendable (
+    _ projectID: ProjectID, _ inSpace: SpaceID, _ path: String?
+  ) throws -> Void
+
+  /// Duplicate-add guard. Caller canonicalizes before querying.
+  var isPathRegistered: @MainActor @Sendable (_ canonicalPath: String) -> (SpaceID, ProjectID)?
+
+  // MARK: - Space Management additions (feat/space-mgmt)
+
+  /// Reorder Spaces using the IndexSet (source) and destination offset from
+  /// SwiftUI's `.onMove(perform:)`. Silent no-op on empty IndexSet.
+  var reorderSpaces: @MainActor @Sendable (_ source: IndexSet, _ destination: Int) -> Void
 }
 
 /// Coarse selection payload. `nil` for any level means "no selection at that
@@ -146,7 +214,11 @@ nonisolated struct HierarchySelection: Equatable, Sendable {
 
 extension HierarchyClient {
   @MainActor
-  static func live(manager: HierarchyManager) -> HierarchyClient {
+  // swiftlint:disable:next function_body_length
+  static func live(
+    manager: HierarchyManager,
+    gitWorktreeClient: GitWorktreeClient = .makeLive()
+  ) -> HierarchyClient {
     HierarchyClient(
       createSpace: { manager.createSpace(name: $0) },
       renameSpace: { try manager.renameSpace($0, name: $1) },
@@ -217,8 +289,134 @@ extension HierarchyClient {
         manager.setWorktreeGitViewerVisible(worktreeID: worktreeID, visible: visible)
       },
       snapshot: { manager.catalog },
-      selectionChanges: { makeSelectionStream(manager: manager) }
+      selectionChanges: { makeSelectionStream(manager: manager) },
+      setWorktreeArchived: { worktreeID, archived in
+        try manager.setWorktreeArchived(worktreeID: worktreeID, archived: archived)
+      },
+      reconcileDiscoveredWorktrees: { projectID, spaceID in
+        await reconcile(
+          projectID: projectID,
+          spaceID: spaceID,
+          manager: manager,
+          gitWorktreeClient: gitWorktreeClient
+        )
+      },
+      createWorktreeWithGit: { projectID, spaceID, branch, _, path in
+        try manager.createWorktree(
+          in: projectID, in: spaceID,
+          name: branch, path: path, branch: branch
+        )
+      },
+      removeWorktreeWithGit: { worktreeID, projectID, spaceID, force in
+        try await removeWorktreeWithGit(
+          worktreeID: worktreeID,
+          projectID: projectID,
+          spaceID: spaceID,
+          force: force,
+          manager: manager,
+          gitWorktreeClient: gitWorktreeClient
+        )
+      },
+      runningPanelCount: { worktreeID in
+        manager.runningPanelCount(worktreeID: worktreeID)
+      },
+      setProjectLoadState: { projectID, spaceID, state in
+        manager.setProjectLoadState(state, projectID: projectID, spaceID: spaceID)
+      },
+      reorderProjects: { spaceID, from, to in
+        try manager.reorderProjects(in: spaceID, from: from, to: to)
+      },
+      setProjectWorktreesDirectory: { projectID, spaceID, path in
+        try manager.setProjectWorktreesDirectory(path, projectID: projectID, spaceID: spaceID)
+      },
+      isPathRegistered: { canonicalPath in
+        manager.isPathRegistered(canonical: canonicalPath)
+      },
+      reorderSpaces: { source, destination in
+        manager.reorderSpaces(fromOffsets: source, toOffset: destination)
+      }
     )
+  }
+
+  /// Factored out so the closure body stays one-line-callable. Resolves
+  /// the Project's git root, lists on-disk worktrees via `wt ls --json`,
+  /// and hands the result to `manager.reconcileDiscoveredWorktrees`.
+  /// Each entry's `path` is passed through `HierarchyManager.canonicalPath`
+  /// so `wt ls`'s `/var/...` output matches the symlink-resolved form
+  /// T-PROJECT stores for `Project.rootPath` — without this normalization
+  /// the main checkout would duplicate on every reconcile under `/tmp`
+  /// and `/var`. Swallows and logs `GitWorktreeError` — this path is
+  /// idempotent and must never crash a reconcile (see design doc
+  /// §Discovery / Reconcile).
+  @MainActor
+  private static func reconcile(
+    projectID: ProjectID,
+    spaceID: SpaceID,
+    manager: HierarchyManager,
+    gitWorktreeClient: GitWorktreeClient
+  ) async {
+    guard let space = manager.catalog.spaces.first(where: { $0.id == spaceID }),
+          let project = space.projects.first(where: { $0.id == projectID }),
+          let gitRoot = project.gitRoot
+    else { return }
+    do {
+      let entries = try await gitWorktreeClient.lsWorktrees(
+        URL(fileURLWithPath: gitRoot)
+      )
+      let mapped = entries.map { entry -> (path: String, branch: String?) in
+        let branch = entry.branch.isEmpty ? nil : entry.branch
+        return (path: HierarchyManager.canonicalPath(entry.path), branch: branch)
+      }
+      _ = manager.reconcileDiscoveredWorktrees(
+        projectID: projectID,
+        inSpace: spaceID,
+        entries: mapped
+      )
+    } catch {
+      // Log under com.touch-code.hierarchy/reconcile and swallow —
+      // never throw, never crash a reconcile (see design doc
+      // §Discovery / Reconcile). `projectID` is printed as .public
+      // because it's a UUID opaque to users; the error description
+      // is `.private(mask: .hash)` because `GitWorktreeError
+      // .commandFailed` carries raw git stderr which can embed
+      // local absolute paths. Issue #24 (d) + PR #31 review F2.
+      reconcileLogger.error(
+        "reconcileDiscoveredWorktrees failed: project=\(projectID.raw.uuidString, privacy: .public) error=\(error.localizedDescription, privacy: .private(mask: .hash))"
+      )
+    }
+  }
+
+  /// Factored out of the `removeWorktreeWithGit` closure so the
+  /// control flow stays readable. On force, tears down surfaces first
+  /// (releases file handles), then runs git, then drops the catalog
+  /// row. On safe, skips the pre-teardown so uncommitted-changes
+  /// recovery does not kill a live terminal. Re-throws
+  /// `GitWorktreeError` for the caller to surface.
+  @MainActor
+  private static func removeWorktreeWithGit(
+    worktreeID: WorktreeID,
+    projectID: ProjectID,
+    spaceID: SpaceID,
+    force: Bool,
+    manager: HierarchyManager,
+    gitWorktreeClient: GitWorktreeClient
+  ) async throws {
+    guard let space = manager.catalog.spaces.first(where: { $0.id == spaceID }),
+          let project = space.projects.first(where: { $0.id == projectID }),
+          let worktree = project.worktrees.first(where: { $0.id == worktreeID }),
+          let gitRoot = project.gitRoot
+    else {
+      throw HierarchyError.notFound("Worktree \(worktreeID)")
+    }
+    if force {
+      manager.tearDownWorktreeSurfaces(worktreeID: worktreeID)
+    }
+    try await gitWorktreeClient.removeWorktree(
+      URL(fileURLWithPath: gitRoot),
+      URL(fileURLWithPath: worktree.path),
+      force
+    )
+    try manager.removeWorktree(worktreeID, from: projectID, in: spaceID)
   }
 
   /// AsyncStream backed by Swift Observation — samples `manager.catalog`'s
@@ -307,7 +505,17 @@ extension HierarchyClient: DependencyKey {
     setRepositoryWorktreeBaseDirectory: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     setWorktreeGitViewerVisible: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     snapshot: { fatalError("HierarchyClient.liveValue not configured") },
-    selectionChanges: { AsyncStream { $0.finish() } }
+    selectionChanges: { AsyncStream { $0.finish() } },
+    setWorktreeArchived: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    reconcileDiscoveredWorktrees: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    createWorktreeWithGit: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    removeWorktreeWithGit: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    runningPanelCount: { _ in fatalError("HierarchyClient.liveValue not configured") },
+    setProjectLoadState: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    reorderProjects: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    setProjectWorktreesDirectory: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    isPathRegistered: { _ in fatalError("HierarchyClient.liveValue not configured") },
+    reorderSpaces: { _, _ in fatalError("HierarchyClient.liveValue not configured") }
   )
 
   static let testValue: HierarchyClient = HierarchyClient(
@@ -342,7 +550,19 @@ extension HierarchyClient: DependencyKey {
     selectionChanges: unimplemented(
       "HierarchyClient.selectionChanges",
       placeholder: AsyncStream { $0.finish() }
-    )
+    ),
+    setWorktreeArchived: unimplemented("HierarchyClient.setWorktreeArchived"),
+    reconcileDiscoveredWorktrees: unimplemented("HierarchyClient.reconcileDiscoveredWorktrees"),
+    createWorktreeWithGit: unimplemented(
+      "HierarchyClient.createWorktreeWithGit", placeholder: WorktreeID()
+    ),
+    removeWorktreeWithGit: unimplemented("HierarchyClient.removeWorktreeWithGit"),
+    runningPanelCount: unimplemented("HierarchyClient.runningPanelCount", placeholder: 0),
+    setProjectLoadState: unimplemented("HierarchyClient.setProjectLoadState"),
+    reorderProjects: unimplemented("HierarchyClient.reorderProjects"),
+    setProjectWorktreesDirectory: unimplemented("HierarchyClient.setProjectWorktreesDirectory"),
+    isPathRegistered: unimplemented("HierarchyClient.isPathRegistered", placeholder: nil),
+    reorderSpaces: unimplemented("HierarchyClient.reorderSpaces")
   )
 }
 

@@ -14,15 +14,22 @@ struct WorktreeHeaderView: View {
   let worktreePath: String
   let branchLabel: String
   let gitViewerVisible: Bool
+  /// Gates the branch label and the Git Viewer toggle for non-git Projects
+  /// (P-Q4 = a). Defaults to `true` so existing call sites that haven't
+  /// threaded the predicate still render the git chrome — new call sites on
+  /// `feat/project-mgmt` pass the real value from the owning Project.
+  var supportsWorktrees: Bool = true
 
   var body: some View {
     HStack(spacing: 10) {
-      Label(branchLabel, systemImage: "point.3.connected.trianglepath.dotted")
-        .font(.callout)
-        .foregroundStyle(.secondary)
-        .lineLimit(1)
-        .accessibilityLabel("Current branch: \(branchLabel)")
-        .accessibilityAddTraits(.isStaticText)
+      if supportsWorktrees {
+        Label(branchLabel, systemImage: "point.3.connected.trianglepath.dotted")
+          .font(.callout)
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
+          .accessibilityLabel("Current branch: \(branchLabel)")
+          .accessibilityAddTraits(.isStaticText)
+      }
 
       Spacer(minLength: 8)
 
@@ -35,10 +42,12 @@ struct WorktreeHeaderView: View {
           projectID: projectID,
           worktreePath: worktreePath
         )
-        HeaderGitViewerToggle(
-          store: store,
-          visible: gitViewerVisible
-        )
+        if supportsWorktrees {
+          HeaderGitViewerToggle(
+            store: store,
+            visible: gitViewerVisible
+          )
+        }
       }
     }
     .padding(.horizontal, 10)

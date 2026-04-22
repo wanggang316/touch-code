@@ -147,12 +147,26 @@ final class AppState {
   init() {
     let catalogStore = CatalogStore()
     let runtime = GhosttyBackedHierarchyRuntime()
-    let catalog = (try? catalogStore.load()) ?? .default
+    var catalog = (try? catalogStore.load()) ?? .default
+
+    // First-run seed: if catalog is empty, create a "Personal" Space
+    let needsSeed = catalog.spaces.isEmpty
+    if needsSeed {
+      let seed = Space(name: "Personal")
+      catalog.spaces = [seed]
+      catalog.selectedSpaceID = seed.id
+    }
+
     let manager = HierarchyManager(
       catalog: catalog,
       store: catalogStore,
       runtime: runtime
     )
+
+    // Persist the seed via the standard debounced save pipeline
+    if needsSeed {
+      catalogStore.scheduleSave(manager.catalog)
+    }
     self.catalogStore = catalogStore
     self.hierarchyRuntime = runtime
     self.hierarchyManager = manager
@@ -219,6 +233,11 @@ final class AppState {
       $0.settingsWriter = .live(settings)
       $0[InboxClient.self] = .live(inbox: inbox, settings: settings)
       $0.settingsWindowPresenter = presenter
+      // Project Management: reconciler captures the live HierarchyClient so
+      // `.reconcileDiscoveredWorktrees` (consumed from T-WORKTREE) flows
+      // through the real manager binding. Default `now` is `Date.init`; tests
+      // override with a scripted closure.
+      $0.projectReconciler = ProjectReconciler(client: hierarchy)
     }
 
     // T4: HookConfigStore must exist before `settingsWindowStore` so the Repository
@@ -388,5 +407,9 @@ final class GhosttyBackedHierarchyRuntime: HierarchyRuntime {
 
   func closeSurface(for panelID: PanelID) {
     engine?.closeSurface(for: panelID)
+  }
+
+  func hasSurface(for panelID: PanelID) -> Bool {
+    engine?.hasSurface(for: panelID) ?? false
   }
 }

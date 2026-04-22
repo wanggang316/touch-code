@@ -67,6 +67,15 @@ final class HierarchyManager {
     store.scheduleSave(catalog)
   }
 
+  /// Reorder Spaces using the IndexSet (source) and destination offset payload
+  /// from SwiftUI's `.onMove(perform:)`. Silent no-op on empty IndexSet.
+  /// Persists via the standard debounced `store.scheduleSave` pipeline.
+  func reorderSpaces(fromOffsets source: IndexSet, toOffset destination: Int) {
+    guard !source.isEmpty else { return }
+    catalog.spaces.move(fromOffsets: source, toOffset: destination)
+    store.scheduleSave(catalog)
+  }
+
   // MARK: - Project mutations
 
   func addProject(to spaceID: SpaceID, name: String, rootPath: String, gitRoot: String? = nil) throws -> ProjectID {
@@ -153,6 +162,69 @@ final class HierarchyManager {
     store.scheduleSave(catalog)
   }
 
+  /// Transient Project-level health state owned by `ProjectReconciler`. Never
+  /// persisted (`Project.loadState` is a transient field); equal-value writes
+  /// are dropped so repeated reconciliations don't churn the catalog graph.
+  func setProjectLoadState(
+    _ state: ProjectLoadState,
+    projectID: ProjectID,
+    spaceID: SpaceID
+  ) {
+    guard let (spaceIndex, projectIndex) = findProjectIndices(projectID: projectID, spaceID: spaceID) else { return }
+    guard catalog.spaces[spaceIndex].projects[projectIndex].loadState != state else { return }
+    catalog.spaces[spaceIndex].projects[projectIndex].loadState = state
+    // No scheduleSave — transient.
+  }
+
+  /// Reorder Projects inside a Space. Mirrors SwiftUI `ForEach.onMove`'s
+  /// `(IndexSet, Int)` signature so the sidebar can forward directly. Missing
+  /// Space is `.notFound`; Array's `move(fromOffsets:toOffset:)` already
+  /// handles out-of-range destinations by trapping — callers must pass a
+  /// valid index. Persists.
+  func reorderProjects(
+    in spaceID: SpaceID,
+    from source: IndexSet,
+    to destination: Int
+  ) throws {
+    guard let spaceIndex = catalog.spaces.firstIndex(where: { $0.id == spaceID }) else {
+      throw HierarchyError.notFound("Space \(spaceID)")
+    }
+    catalog.spaces[spaceIndex].projects.move(fromOffsets: source, toOffset: destination)
+    store.scheduleSave(catalog)
+  }
+
+  /// Per-Project override for the `worktreesDirectory`. `nil` or whitespace
+  /// clears the override so the default (`~/.touch-code/repos/<name>/`) takes
+  /// effect. Equal-value writes are dropped.
+  func setProjectWorktreesDirectory(
+    _ path: String?,
+    projectID: ProjectID,
+    spaceID: SpaceID
+  ) throws {
+    guard let (spaceIndex, projectIndex) = findProjectIndices(projectID: projectID, spaceID: spaceID) else {
+      throw HierarchyError.notFound("Project \(projectID)")
+    }
+    let normalized = path?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let value: String? = (normalized?.isEmpty ?? true) ? nil : normalized
+    guard catalog.spaces[spaceIndex].projects[projectIndex].worktreesDirectory != value else { return }
+    catalog.spaces[spaceIndex].projects[projectIndex].worktreesDirectory = value
+    store.scheduleSave(catalog)
+  }
+
+  /// Resolves a canonical path to its registered `(SpaceID, ProjectID)` if any
+  /// Project's `rootPath` canonicalizes to the same form. Caller canonicalizes
+  /// its input via `HierarchyManager.canonicalPath(_:)` before querying.
+  /// Linear in total Project count — acceptable at the low cardinality we
+  /// support (Projects per user, not per repo).
+  func isPathRegistered(canonical path: String) -> (SpaceID, ProjectID)? {
+    for space in catalog.spaces {
+      for project in space.projects where Self.canonicalPath(project.rootPath) == path {
+        return (space.id, project.id)
+      }
+    }
+    return nil
+  }
+
   // MARK: - Worktree mutations
 
   func createWorktree(
@@ -166,11 +238,17 @@ final class HierarchyManager {
       throw HierarchyError.notFound("Project \(projectID)")
     }
 
+    // Canonicalize at the single write boundary so every downstream
+    // comparison (main-checkout guard, reconcile dedupe, selection
+    // lookups) sees the same symlink-resolved form that
+    // `Project.rootPath` already stores. Caller-side canonicalization
+    // is easy to forget; doing it here means the API is self-correcting.
+    let canonicalizedPath = Self.canonicalPath(path)
     let worktreeID = WorktreeID()
     let worktree = Worktree(
       id: worktreeID,
       name: name,
-      path: path,
+      path: canonicalizedPath,
       branch: branch,
       tabs: [],
       selectedTabID: nil
@@ -214,6 +292,152 @@ final class HierarchyManager {
     }
     catalog.spaces[spaceIndex].projects[projectIndex].selectedWorktreeID = id
     store.scheduleSave(catalog)
+  }
+
+  /// Sets the archived flag on a Worktree (spec W-Q1, soft-hide). The
+  /// main checkout (path == project.rootPath) cannot be archived and
+  /// throws `.invariantViolation`. Archiving `true` iterates the
+  /// Worktree's Panels and calls `runtime.closeSurface(for:)` each so
+  /// terminal surfaces are torn down; the on-disk directory and git
+  /// refs are NOT touched. Idempotent: unchanged value is a silent
+  /// no-op (no save scheduled). Silent no-op when the id is unknown.
+  func setWorktreeArchived(worktreeID: WorktreeID, archived: Bool) throws {
+    for spaceIndex in catalog.spaces.indices {
+      for projectIndex in catalog.spaces[spaceIndex].projects.indices {
+        let project = catalog.spaces[spaceIndex].projects[projectIndex]
+        guard let worktreeIndex = project.worktrees.firstIndex(where: { $0.id == worktreeID })
+        else { continue }
+        let worktree = project.worktrees[worktreeIndex]
+        if worktree.path == project.rootPath {
+          throw HierarchyError.invariantViolation("Cannot archive main checkout")
+        }
+        guard worktree.archived != archived else { return }
+        if archived {
+          for panel in worktree.tabs.flatMap({ $0.panels }) {
+            runtime.closeSurface(for: panel.id)
+          }
+        }
+        catalog.spaces[spaceIndex].projects[projectIndex]
+          .worktrees[worktreeIndex].archived = archived
+        store.scheduleSave(catalog)
+        return
+      }
+    }
+  }
+
+  /// Merges worktrees discovered on disk (typically from
+  /// `wt ls --json`) into the catalog. Path-canonicalized dedupe
+  /// against existing rows — both sides go through
+  /// `URL(fileURLWithPath:).resolvingSymlinksInPath().standardizedFileURL.path`
+  /// so `/var/...` vs. `/private/var/...` don't cause duplicate rows
+  /// against T-PROJECT's `Project.rootPath` which is stored in the
+  /// symlink-resolved form. Never removes or mutates existing rows —
+  /// stale rows are surfaced in the view layer and only deleted by the
+  /// user-initiated Prune action. Idempotent across repeated calls
+  /// with the same entries. Returns the count of appended rows so the
+  /// caller can surface a toast.
+  ///
+  /// - Parameters:
+  ///   - projectID: target Project.
+  ///   - spaceID: parent Space.
+  ///   - entries: on-disk worktree metadata (path, branch) from
+  ///     `GitWorktreeClient.lsWorktrees`.
+  @discardableResult
+  func reconcileDiscoveredWorktrees(
+    projectID: ProjectID,
+    inSpace spaceID: SpaceID,
+    entries: [(path: String, branch: String?)]
+  ) -> Int {
+    guard let (spaceIndex, projectIndex) = findProjectIndices(
+      projectID: projectID, spaceID: spaceID
+    ) else { return 0 }
+    let project = catalog.spaces[spaceIndex].projects[projectIndex]
+    let existingPaths = Set(
+      project.worktrees.map { Self.canonicalPath($0.path) }
+    )
+    var appended = 0
+    for entry in entries {
+      let canonical = Self.canonicalPath(entry.path)
+      guard !existingPaths.contains(canonical) else { continue }
+      let name = (entry.branch?.isEmpty == false)
+        ? entry.branch!
+        : (canonical as NSString).lastPathComponent
+      let worktree = Worktree(
+        id: WorktreeID(),
+        name: name,
+        path: canonical,
+        branch: entry.branch,
+        tabs: [],
+        selectedTabID: nil
+      )
+      catalog.spaces[spaceIndex].projects[projectIndex].worktrees.append(worktree)
+      appended += 1
+    }
+    if appended > 0 {
+      store.scheduleSave(catalog)
+    }
+    return appended
+  }
+
+  /// **Single** canonical form used across the hierarchy layer:
+  /// - reconcile dedupe (`reconcileDiscoveredWorktrees`),
+  /// - duplicate-path join (`isPathRegistered`),
+  /// - catalog storage for `Project.rootPath` and `Worktree.path`.
+  ///
+  /// Resolves symlinks first, then standardizes (strips trailing
+  /// slashes and `.` / `..` components). On macOS, symlink resolution
+  /// maps `/var/...` to `/private/var/...` (and similar for `/tmp`,
+  /// `/etc`); without this step a `wt ls --json` entry reported as
+  /// `/var/folders/...` would fail to match a `Project.rootPath`
+  /// stored as `/private/var/folders/...` and the main checkout would
+  /// duplicate on every reconcile.
+  ///
+  /// **Regression guard**: do NOT add a second equivalent helper on
+  /// this type. Prior to PR #31 review, two static methods
+  /// (`canonical` + `canonicalPath`) coexisted with identical bodies;
+  /// any drift (e.g. one side adding trimming) would silently break
+  /// the symmetry the PR body guarantees. Route all call-sites
+  /// through this function.
+  static func canonicalPath(_ path: String) -> String {
+    URL(fileURLWithPath: path)
+      .resolvingSymlinksInPath()
+      .standardizedFileURL
+      .path
+  }
+
+  /// Tears down every terminal surface attached to the Worktree without
+  /// mutating the catalog. Used by force-remove so any held file handles
+  /// are released before `git worktree remove --force` runs; the catalog
+  /// row is dropped afterwards via `removeWorktree`. Silent no-op when
+  /// the id is unknown. Idempotent.
+  func tearDownWorktreeSurfaces(worktreeID: WorktreeID) {
+    for space in catalog.spaces {
+      for project in space.projects {
+        guard let worktree = project.worktrees.first(where: { $0.id == worktreeID })
+        else { continue }
+        for panel in worktree.tabs.flatMap({ $0.panels }) {
+          runtime.closeSurface(for: panel.id)
+        }
+        return
+      }
+    }
+  }
+
+  /// Counts the number of Panels in this Worktree whose terminal surface
+  /// is live. Used by force-remove to size the confirmation copy
+  /// ("This will terminate N running processes"). 0 when the id is unknown.
+  func runningPanelCount(worktreeID: WorktreeID) -> Int {
+    for space in catalog.spaces {
+      for project in space.projects {
+        guard let worktree = project.worktrees.first(where: { $0.id == worktreeID })
+        else { continue }
+        return worktree.tabs
+          .flatMap { $0.panels }
+          .filter { runtime.hasSurface(for: $0.id) }
+          .count
+      }
+    }
+    return 0
   }
 
   /// Records whether the right-side Git Viewer overlay is visible for this
