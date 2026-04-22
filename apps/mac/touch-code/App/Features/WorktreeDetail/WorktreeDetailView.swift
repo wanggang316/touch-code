@@ -31,15 +31,8 @@ struct WorktreeDetailView: View {
   var body: some View {
     if let address = resolveAddress() {
       VStack(spacing: 0) {
-        worktreeHeader(address: address)
+        unifiedHeader(address: address)
         Divider()
-        TabBarView(
-          store: store.scope(state: \.tabBar, action: \.tabBar),
-          spaceID: address.space,
-          projectID: address.project,
-          worktreeID: address.worktree,
-          activeTabID: address.activeTab
-        )
         terminalRegion(address: address)
           .overlay(alignment: .trailing) { overlayContent }
           .animation(.easeInOut(duration: 0.15), value: overlayVisible)
@@ -47,6 +40,27 @@ struct WorktreeDetailView: View {
     } else {
       placeholder
     }
+  }
+
+  /// Unified top bar: tabs on the left, branch label + action cluster on the
+  /// right. Replaces the previous two-row layout (separate WorktreeHeader and
+  /// TabBar) so the right pane has a single visual Header.
+  @ViewBuilder
+  private func unifiedHeader(address: Address) -> some View {
+    HStack(spacing: 8) {
+      TabBarView(
+        store: store.scope(state: \.tabBar, action: \.tabBar),
+        spaceID: address.space,
+        projectID: address.project,
+        worktreeID: address.worktree,
+        activeTabID: address.activeTab
+      )
+      Spacer(minLength: 8)
+      worktreeHeader(address: address)
+    }
+    .padding(.horizontal, 8)
+    .padding(.vertical, 4)
+    .background(Color(nsColor: .windowBackgroundColor))
   }
 
   @ViewBuilder

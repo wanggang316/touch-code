@@ -33,13 +33,6 @@ struct TabBarView: View {
       }
       .buttonStyle(.borderless)
       .padding(.horizontal, 6)
-      Spacer()
-    }
-    .padding(.vertical, 4)
-    .padding(.horizontal, 8)
-    .background(Color(nsColor: .windowBackgroundColor))
-    .overlay(alignment: .bottom) {
-      Divider()
     }
   }
 
