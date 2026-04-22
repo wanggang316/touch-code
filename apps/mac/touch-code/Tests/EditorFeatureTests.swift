@@ -2,6 +2,7 @@ import ComposableArchitecture
 import Foundation
 import Testing
 import TouchCodeCore
+
 @testable import touch_code
 
 @MainActor
@@ -47,14 +48,16 @@ struct EditorFeatureTests {
   @Test
   func onAppearObservesSettings() async {
     let snapshot = Settings(
-      defaultEditorID: "vscode",
-      customEditors: [
-        CustomEditor(
-          id: "helix",
-          displayName: "Helix",
-          template: CommandTemplate(binary: "hx", args: ["{dir}"])
-        )
-      ]
+      general: GeneralSettings(
+        defaultEditorID: "vscode",
+        customEditors: [
+          CustomEditor(
+            id: "helix",
+            displayName: "Helix",
+            template: CommandTemplate(binary: "hx", args: ["{dir}"])
+          )
+        ]
+      )
     )
     let store = TestStore(initialState: EditorFeature.State()) {
       EditorFeature()
@@ -68,7 +71,7 @@ struct EditorFeatureTests {
     await store.send(.onAppear)
     await store.receive(\.settingsObserved) { state in
       state.globalDefault = "vscode"
-      state.customEditors = snapshot.customEditors
+      state.customEditors = snapshot.general.customEditors
     }
   }
 
@@ -93,14 +96,16 @@ struct EditorFeatureTests {
   @Test
   func addCustomEditorSuccessRefreshesObservedSettings() async {
     let snapshot = Settings(
-      defaultEditorID: nil,
-      customEditors: [
-        CustomEditor(
-          id: "helix",
-          displayName: "Helix",
-          template: CommandTemplate(binary: "hx", args: ["{dir}"])
-        )
-      ]
+      general: GeneralSettings(
+        defaultEditorID: nil,
+        customEditors: [
+          CustomEditor(
+            id: "helix",
+            displayName: "Helix",
+            template: CommandTemplate(binary: "hx", args: ["{dir}"])
+          )
+        ]
+      )
     )
     let store = TestStore(initialState: EditorFeature.State()) {
       EditorFeature()
@@ -118,7 +123,7 @@ struct EditorFeatureTests {
     )
     await store.send(.addCustomEditor(helix))
     await store.receive(\.settingsObserved) {
-      $0.customEditors = snapshot.customEditors
+      $0.customEditors = snapshot.general.customEditors
     }
   }
 
@@ -184,9 +189,10 @@ struct EditorFeatureTests {
         recorded.setValue((pid, sid, eid))
       }
     }
-    await store.send(.setProjectOverride(
-      projectID: projectID, spaceID: spaceID, editorID: "cursor"
-    ))
+    await store.send(
+      .setProjectOverride(
+        projectID: projectID, spaceID: spaceID, editorID: "cursor"
+      ))
     await store.finish()
     #expect(recorded.value?.0 == projectID)
     #expect(recorded.value?.1 == spaceID)
@@ -205,9 +211,10 @@ struct EditorFeatureTests {
         throw HierarchyError.notFound("Project xyz")
       }
     }
-    await store.send(.setProjectOverride(
-      projectID: ProjectID(), spaceID: SpaceID(), editorID: "cursor"
-    ))
+    await store.send(
+      .setProjectOverride(
+        projectID: ProjectID(), spaceID: SpaceID(), editorID: "cursor"
+      ))
     await store.receive(\.setProjectOverrideFailed) { state in
       state.lastProjectOverrideFailure = #"notFound("Project xyz")"#
     }
@@ -230,11 +237,12 @@ struct EditorFeatureTests {
       $0.settingsWriter = SettingsWriter.testValue
       $0.hierarchyClient = HierarchyClient.testValue
     }
-    await store.send(.openRequested(
-      editorID: "cursor",
-      worktreePath: "/tmp/worktree",
-      projectID: ProjectID()
-    ))
+    await store.send(
+      .openRequested(
+        editorID: "cursor",
+        worktreePath: "/tmp/worktree",
+        projectID: ProjectID()
+      ))
     await store.receive(\.openSucceeded) { state in
       state.lastOpenResult = .opened(editorID: "cursor", displayName: "Cursor")
     }
@@ -252,11 +260,12 @@ struct EditorFeatureTests {
       $0.settingsWriter = SettingsWriter.testValue
       $0.hierarchyClient = HierarchyClient.testValue
     }
-    await store.send(.openRequested(
-      editorID: "zed",
-      worktreePath: "/tmp/worktree",
-      projectID: nil
-    ))
+    await store.send(
+      .openRequested(
+        editorID: "zed",
+        worktreePath: "/tmp/worktree",
+        projectID: nil
+      ))
     await store.receive(\.openFailed) { state in
       state.lastOpenResult = .failed(reason: "zed CLI (`zed`) not found on PATH")
     }
@@ -266,20 +275,15 @@ struct EditorFeatureTests {
   func editorErrorDescriptionMapsEveryCase() {
     // Belt-and-suspenders coverage: make sure a new EditorError case doesn't silently fall
     // into `String(describing:)` via the default branch.
-    #expect(EditorFeature.editorErrorDescription(.notInstalled(id: "vscode", binary: "code")) ==
-            "vscode CLI (`code`) not found on PATH")
-    #expect(EditorFeature.editorErrorDescription(.spawnFailed(reason: "ENOENT")) ==
-            "Could not launch editor: ENOENT")
-    #expect(EditorFeature.editorErrorDescription(.nonZeroExit(code: 1, stderr: "boom\n")) ==
-            "boom")
-    #expect(EditorFeature.editorErrorDescription(.timedOut) ==
-            "Editor did not respond within 5 seconds")
-    #expect(EditorFeature.editorErrorDescription(.badTemplate(id: "x", reason: "y")) ==
-            "Bad template for ‘x’: y")
-    #expect(EditorFeature.editorErrorDescription(.notADirectory(path: "/x")) ==
-            "Not a directory: /x")
-    #expect(EditorFeature.editorErrorDescription(.unresolvedWorktree) ==
-            "No worktree resolved")
+    #expect(
+      EditorFeature.editorErrorDescription(.notInstalled(id: "vscode", binary: "code"))
+        == "vscode CLI (`code`) not found on PATH")
+    #expect(EditorFeature.editorErrorDescription(.spawnFailed(reason: "ENOENT")) == "Could not launch editor: ENOENT")
+    #expect(EditorFeature.editorErrorDescription(.nonZeroExit(code: 1, stderr: "boom\n")) == "boom")
+    #expect(EditorFeature.editorErrorDescription(.timedOut) == "Editor did not respond within 5 seconds")
+    #expect(EditorFeature.editorErrorDescription(.badTemplate(id: "x", reason: "y")) == "Bad template for ‘x’: y")
+    #expect(EditorFeature.editorErrorDescription(.notADirectory(path: "/x")) == "Not a directory: /x")
+    #expect(EditorFeature.editorErrorDescription(.unresolvedWorktree) == "No worktree resolved")
   }
 
   // MARK: - resolveDefault (T2 shared helper)
@@ -359,9 +363,11 @@ struct EditorFeatureTests {
     return Catalog(windows: [], spaces: [space], selectedSpaceID: spaceID)
   }
 
-  private static func makeOpenStub() -> @Sendable (
-    _ url: URL, _ editorID: EditorID?, _ projectID: ProjectID?
-  ) async throws -> EditorChoice {
+  private static func makeOpenStub()
+    -> @Sendable (
+      _ url: URL, _ editorID: EditorID?, _ projectID: ProjectID?
+    ) async throws -> EditorChoice
+  {
     { _, id, _ in
       let resolved = id ?? "finder"
       return EditorChoice(
@@ -399,15 +405,17 @@ struct EditorFeatureTests {
       $0.hierarchyClient.snapshot = { snap }
     }
     store.exhaustivity = .off
-    await store.send(.openDefaultInCurrentWorktreeRequested(
-      spaceID: spaceID, projectID: projectID, worktreeID: worktreeID,
-      worktreePath: "/w"
-    ))
-    await store.receive(.openRequested(
-      editorID: "vscode",
-      worktreePath: "/w",
-      projectID: projectID
-    ))
+    await store.send(
+      .openDefaultInCurrentWorktreeRequested(
+        spaceID: spaceID, projectID: projectID, worktreeID: worktreeID,
+        worktreePath: "/w"
+      ))
+    await store.receive(
+      .openRequested(
+        editorID: "vscode",
+        worktreePath: "/w",
+        projectID: projectID
+      ))
   }
 
   @Test
@@ -440,15 +448,17 @@ struct EditorFeatureTests {
       $0.hierarchyClient.snapshot = { snap }
     }
     store.exhaustivity = .off
-    await store.send(.openDefaultInCurrentWorktreeRequested(
-      spaceID: spaceID, projectID: projectID, worktreeID: worktreeID,
-      worktreePath: "/w"
-    ))
-    await store.receive(.openRequested(
-      editorID: "cursor",
-      worktreePath: "/w",
-      projectID: projectID
-    ))
+    await store.send(
+      .openDefaultInCurrentWorktreeRequested(
+        spaceID: spaceID, projectID: projectID, worktreeID: worktreeID,
+        worktreePath: "/w"
+      ))
+    await store.receive(
+      .openRequested(
+        editorID: "cursor",
+        worktreePath: "/w",
+        projectID: projectID
+      ))
   }
 
   @Test
@@ -476,15 +486,17 @@ struct EditorFeatureTests {
       $0.hierarchyClient.snapshot = { snap }
     }
     store.exhaustivity = .off
-    await store.send(.openDefaultInCurrentWorktreeRequested(
-      spaceID: spaceID, projectID: projectID, worktreeID: worktreeID,
-      worktreePath: "/w"
-    ))
-    await store.receive(.openRequested(
-      editorID: "vscode",
-      worktreePath: "/w",
-      projectID: projectID
-    ))
+    await store.send(
+      .openDefaultInCurrentWorktreeRequested(
+        spaceID: spaceID, projectID: projectID, worktreeID: worktreeID,
+        worktreePath: "/w"
+      ))
+    await store.receive(
+      .openRequested(
+        editorID: "vscode",
+        worktreePath: "/w",
+        projectID: projectID
+      ))
   }
 
   @Test
@@ -510,14 +522,16 @@ struct EditorFeatureTests {
       $0.hierarchyClient.snapshot = { snap }
     }
     store.exhaustivity = .off
-    await store.send(.openDefaultInCurrentWorktreeRequested(
-      spaceID: spaceID, projectID: projectID, worktreeID: worktreeID,
-      worktreePath: "/w"
-    ))
-    await store.receive(.openRequested(
-      editorID: EditorFeature.finderEditorID,
-      worktreePath: "/w",
-      projectID: projectID
-    ))
+    await store.send(
+      .openDefaultInCurrentWorktreeRequested(
+        spaceID: spaceID, projectID: projectID, worktreeID: worktreeID,
+        worktreePath: "/w"
+      ))
+    await store.receive(
+      .openRequested(
+        editorID: EditorFeature.finderEditorID,
+        worktreePath: "/w",
+        projectID: projectID
+      ))
   }
 }

@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import TouchCodeCore
+
 @testable import touch_code
 
 struct EditorServiceSpawnTests {
@@ -27,7 +28,8 @@ struct EditorServiceSpawnTests {
 
   @Test
   func vscodeArgvMatchesTemplate() async throws {
-    let dir = try Self.existingDirectory(); defer { Self.cleanup(dir) }
+    let dir = try Self.existingDirectory()
+    defer { Self.cleanup(dir) }
     let spawner = RecordingProcessSpawner()
     let service = LiveEditorService(spawner: spawner, prober: Self.allInstalledProber())
 
@@ -43,7 +45,8 @@ struct EditorServiceSpawnTests {
 
   @Test
   func xcodeArgvUsesOpenDashA() async throws {
-    let dir = try Self.existingDirectory(); defer { Self.cleanup(dir) }
+    let dir = try Self.existingDirectory()
+    defer { Self.cleanup(dir) }
     let spawner = RecordingProcessSpawner()
     let service = LiveEditorService(spawner: spawner, prober: Self.allInstalledProber())
 
@@ -54,7 +57,8 @@ struct EditorServiceSpawnTests {
 
   @Test
   func finderArgvIsPlainOpen() async throws {
-    let dir = try Self.existingDirectory(); defer { Self.cleanup(dir) }
+    let dir = try Self.existingDirectory()
+    defer { Self.cleanup(dir) }
     let spawner = RecordingProcessSpawner()
     let service = LiveEditorService(spawner: spawner, prober: Self.allInstalledProber())
 
@@ -84,7 +88,8 @@ struct EditorServiceSpawnTests {
 
   @Test
   func spawnReceivesAllowlistEnvOnly() async throws {
-    let dir = try Self.existingDirectory(); defer { Self.cleanup(dir) }
+    let dir = try Self.existingDirectory()
+    defer { Self.cleanup(dir) }
     let spawner = RecordingProcessSpawner()
     let service = LiveEditorService(spawner: spawner, prober: Self.allInstalledProber())
 
@@ -100,7 +105,8 @@ struct EditorServiceSpawnTests {
 
   @Test
   func cwdIsTheWorktreeDirectory() async throws {
-    let dir = try Self.existingDirectory(); defer { Self.cleanup(dir) }
+    let dir = try Self.existingDirectory()
+    defer { Self.cleanup(dir) }
     let spawner = RecordingProcessSpawner()
     let service = LiveEditorService(spawner: spawner, prober: Self.allInstalledProber())
 
@@ -111,7 +117,8 @@ struct EditorServiceSpawnTests {
 
   @Test
   func timeoutReportsEditorErrorTimedOut() async throws {
-    let dir = try Self.existingDirectory(); defer { Self.cleanup(dir) }
+    let dir = try Self.existingDirectory()
+    defer { Self.cleanup(dir) }
     let spawner = RecordingProcessSpawner()
     await spawner.setOutcomes([.timedOut])
     let service = LiveEditorService(spawner: spawner, prober: Self.allInstalledProber())
@@ -123,7 +130,8 @@ struct EditorServiceSpawnTests {
 
   @Test
   func nonZeroExitReportsCodeAndStderr() async throws {
-    let dir = try Self.existingDirectory(); defer { Self.cleanup(dir) }
+    let dir = try Self.existingDirectory()
+    defer { Self.cleanup(dir) }
     let spawner = RecordingProcessSpawner()
     await spawner.setOutcomes([.exited(code: 2, stderr: "boom")])
     let service = LiveEditorService(spawner: spawner, prober: Self.allInstalledProber())
@@ -135,7 +143,8 @@ struct EditorServiceSpawnTests {
 
   @Test
   func spawnFailedPropagatesSpawnerReason() async throws {
-    let dir = try Self.existingDirectory(); defer { Self.cleanup(dir) }
+    let dir = try Self.existingDirectory()
+    defer { Self.cleanup(dir) }
     let spawner = RecordingProcessSpawner()
     await spawner.setOutcomes([.spawnFailed(reason: "ENOENT")])
     let service = LiveEditorService(spawner: spawner, prober: Self.allInstalledProber())

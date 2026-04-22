@@ -1,9 +1,9 @@
 import Foundation
 import Testing
 
-@testable import touch_code
 @testable import TouchCodeCore
 @testable import TouchCodeIPC
+@testable import touch_code
 
 /// M6's terminal.sendInput / broadcastInput are intentionally backed by
 /// an injectable `TerminalHandlers.InputSink` protocol — the M6
@@ -21,7 +21,10 @@ struct TerminalHandlersTests {
     try InMemoryIPCServerTests.sendHello(server)
     _ = try await server.awaitResponse()
 
-    struct Params: Codable { let panelID: PanelID; let text: String }
+    struct Params: Codable {
+      let panelID: PanelID
+      let text: String
+    }
     let params = try JSONValue.encoded(Params(panelID: PanelID(), text: "hello"))
     try server.send(
       IPC.Request(id: "s1", method: .terminalSendInput, params: params)
@@ -42,7 +45,10 @@ struct TerminalHandlersTests {
     try InMemoryIPCServerTests.sendHello(server)
     _ = try await server.awaitResponse()
 
-    struct Params: Codable { let scope: IPC.BroadcastScope; let text: String }
+    struct Params: Codable {
+      let scope: IPC.BroadcastScope
+      let text: String
+    }
     let params = try JSONValue.encoded(Params(scope: .label("agent"), text: "date"))
     try server.send(
       IPC.Request(id: "b1", method: .terminalBroadcastInput, params: params)
@@ -67,7 +73,10 @@ struct TerminalHandlersTests {
 
     let pid = PanelID()
     sink.registered.insert(pid.raw)
-    struct Params: Codable { let panelID: PanelID; let text: String }
+    struct Params: Codable {
+      let panelID: PanelID
+      let text: String
+    }
     let params = try JSONValue.encoded(Params(panelID: pid, text: "ls\n"))
     try server.send(
       IPC.Request(id: "s2", method: .terminalSendInput, params: params)
@@ -85,7 +94,10 @@ struct TerminalHandlersTests {
     try InMemoryIPCServerTests.sendHello(server)
     _ = try await server.awaitResponse()
 
-    struct Params: Codable { let panelID: PanelID; let text: String }
+    struct Params: Codable {
+      let panelID: PanelID
+      let text: String
+    }
     let params = try JSONValue.encoded(Params(panelID: PanelID(), text: "x"))
     try server.send(
       IPC.Request(id: "s3", method: .terminalSendInput, params: params)
@@ -146,14 +158,16 @@ final class FakeSink: TerminalHandlers.InputSink, @unchecked Sendable {
   private let lock = NSLock()
 
   func sendInput(panelID: PanelID, text: String) -> Bool {
-    lock.lock(); defer { lock.unlock() }
+    lock.lock()
+    defer { lock.unlock() }
     guard registered.contains(panelID.raw) else { return false }
     delivered.append(Delivery(panelID: panelID.raw, text: text))
     return true
   }
 
   func fanOut(scope: IPC.BroadcastScope, text: String, catalog: Catalog) -> Int {
-    lock.lock(); defer { lock.unlock() }
+    lock.lock()
+    defer { lock.unlock() }
     broadcasts.append((scope, text))
     return registered.count
   }

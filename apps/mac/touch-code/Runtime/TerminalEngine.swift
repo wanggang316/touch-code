@@ -116,7 +116,8 @@ final class TerminalEngine {
   /// whether the close is user-initiated or callback-driven.
   func closeSurface(for panelID: PanelID) {
     guard let runtime = ghosttyRuntime,
-          let surface = runtime.surface(for: panelID) else { return }
+      let surface = runtime.surface(for: panelID)
+    else { return }
     surface.close()
     handleSurfaceClose(panelID: panelID, processAlive: true)
   }
@@ -364,17 +365,17 @@ final class TerminalEngine {
   }
 }
 
-private extension TerminalEvent {
+extension TerminalEvent {
   /// Lifecycle events must not drop under consumer backpressure — they drive
   /// persistence and TCA state machines. Output events are safe to drop
   /// because scrollback retains history.
-  var isLifecycle: Bool {
+  fileprivate var isLifecycle: Bool {
     switch self {
     case .panelOutput, .panelIdle:
       return false
     case .panelCreated, .panelReady, .panelExited, .panelCrashed,
-         .panelClosedByTab, .tabActivated, .tabAutoClosed,
-         .worktreeActivated, .hierarchyMutated:
+      .panelClosedByTab, .tabActivated, .tabAutoClosed,
+      .worktreeActivated, .hierarchyMutated:
       return true
     }
   }

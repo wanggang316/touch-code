@@ -1,9 +1,9 @@
 import ArgumentParser
 import Darwin
 import Foundation
-import tcKit
 import TouchCodeCore
 import TouchCodeIPC
+import tcKit
 
 struct SystemCommand: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
@@ -40,7 +40,7 @@ struct CompletionsCommand: ParsableCommand {
     let kind: CompletionShell
     switch shell.lowercased() {
     case "bash": kind = .bash
-    case "zsh":  kind = .zsh
+    case "zsh": kind = .zsh
     case "fish": kind = .fish
     default:
       FileHandle.standardError.write(Data("error: unknown shell '\(shell)' (want bash / zsh / fish)\n".utf8))
@@ -146,10 +146,10 @@ struct StatusCommand: AsyncParsableCommand {
         textRender: { obj in
           let uptime = obj["uptimeSeconds"] as? Double ?? 0
           return """
-          server             \(obj["server"] ?? "?")
-          uptime             \(String(format: "%.1f", uptime))s
-          connectedClients   \(obj["connectedClients"] ?? 0)
-          """
+            server             \(obj["server"] ?? "?")
+            uptime             \(String(format: "%.1f", uptime))s
+            connectedClients   \(obj["connectedClients"] ?? 0)
+            """
         }
       )
     } catch {

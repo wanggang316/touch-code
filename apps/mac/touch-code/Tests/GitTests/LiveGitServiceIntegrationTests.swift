@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import TouchCodeCore
+
 @testable import touch_code
 
 /// Exercises `LiveGitService` against a scratch repo on disk. Gated behind
@@ -90,9 +91,12 @@ struct LiveGitServiceIntegrationTests {
     try await run(["git", "config", "user.name", "Test"], cwd: repoURL)
     try await run(["git", "config", "commit.gpgsign", "false"], cwd: repoURL)
 
-    let messages = commits == 1 ? ["initial"] : (0..<commits).map { idx in
-      idx == 0 ? "initial" : (idx == 1 ? "second" : "change-\(idx)")
-    }
+    let messages =
+      commits == 1
+      ? ["initial"]
+      : (0..<commits).map { idx in
+        idx == 0 ? "initial" : (idx == 1 ? "second" : "change-\(idx)")
+      }
 
     var shas: [String] = []
     for (idx, message) in messages.enumerated() {

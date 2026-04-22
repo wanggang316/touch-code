@@ -1,10 +1,10 @@
 import Foundation
 
-public extension IPC {
+extension IPC {
   /// Request envelope. `params` carries the typed parameters for `method`
   /// as a dynamic `JSONValue`; the router re-decodes the subtree into the
   /// method-specific param type.
-  struct Request: Codable, Equatable, Sendable {
+  public struct Request: Codable, Equatable, Sendable {
     public let id: String
     public let method: Method
     public let params: JSONValue
@@ -40,7 +40,7 @@ public extension IPC {
   /// `false` for unary results and for the final terminator of a stream.
   /// Exactly one of `result` / `error` is non-nil; both may be nil on the
   /// final frame of a graceful streaming close.
-  struct Response: Codable, Equatable, Sendable {
+  public struct Response: Codable, Equatable, Sendable {
     public let id: String
     public let stream: Bool
     public let result: JSONValue?

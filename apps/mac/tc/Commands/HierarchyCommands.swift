@@ -1,8 +1,8 @@
 import ArgumentParser
 import Foundation
-import tcKit
 import TouchCodeCore
 import TouchCodeIPC
+import tcKit
 
 // MARK: - tc space
 
@@ -31,7 +31,10 @@ struct SpaceRename: AsyncParsableCommand {
     defer { Task { await client.shutdown() } }
     do {
       let uuid = try await AliasResolver.resolve(id, kind: .space, client: client)
-      struct Params: Codable { let id: SpaceID; let name: String }
+      struct Params: Codable {
+        let id: SpaceID
+        let name: String
+      }
       _ = try await client.callRaw(
         .hierarchyRenameSpace,
         params: Params(id: SpaceID(raw: uuid), name: name)
@@ -122,7 +125,10 @@ struct SpaceCreate: AsyncParsableCommand {
   func run() async throws {
     let client = try CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
-    struct Params: Codable { let name: String; let activate: Bool }
+    struct Params: Codable {
+      let name: String
+      let activate: Bool
+    }
     struct Result: Codable { let id: SpaceID }
     do {
       let result: Result = try await client.call(
@@ -232,7 +238,10 @@ struct ProjectRemove: AsyncParsableCommand {
     do {
       let spaceUUID = try await AliasResolver.resolve(space, kind: .space, client: client)
       let projectUUID = try await AliasResolver.resolve(id, kind: .project, client: client)
-      struct Params: Codable { let id: ProjectID; let spaceID: SpaceID }
+      struct Params: Codable {
+        let id: ProjectID
+        let spaceID: SpaceID
+      }
       _ = try await client.callRaw(
         .hierarchyRemoveProject,
         params: Params(
@@ -319,7 +328,10 @@ struct WorktreeList: AsyncParsableCommand {
     do {
       let spaceUUID = try await AliasResolver.resolve(space, kind: .space, client: client)
       let projectUUID = try await AliasResolver.resolve(project, kind: .project, client: client)
-      struct Params: Codable { let projectID: ProjectID; let spaceID: SpaceID }
+      struct Params: Codable {
+        let projectID: ProjectID
+        let spaceID: SpaceID
+      }
       struct Result: Codable { let worktrees: [Worktree] }
       let result: Result = try await client.call(
         .hierarchyListWorktrees,
@@ -349,7 +361,7 @@ struct WorktreeListRenderable: Encodable, CustomStringConvertible {
     worktrees.isEmpty
       ? "(no worktrees)"
       : worktrees.map { "\($0.id)  \($0.name)  \($0.branch ?? "(no branch)")  \($0.path)" }
-          .joined(separator: "\n")
+        .joined(separator: "\n")
   }
 }
 
@@ -477,7 +489,7 @@ struct TabListRenderable: Encodable, CustomStringConvertible {
     tabs.isEmpty
       ? "(no tabs)"
       : tabs.map { "\($0.id)  \($0.name ?? "(untitled)")  (\($0.panels.count) panels)" }
-          .joined(separator: "\n")
+        .joined(separator: "\n")
   }
 }
 
@@ -611,10 +623,10 @@ struct PanelListRenderable: Encodable, CustomStringConvertible {
     panels.isEmpty
       ? "(no panels)"
       : panels.map { panel in
-          let labels = panel.labels.sorted().joined(separator: ",")
-          let labelCol = labels.isEmpty ? "" : " [\(labels)]"
-          return "\(panel.id)  \(panel.workingDirectory)\(labelCol)"
-        }.joined(separator: "\n")
+        let labels = panel.labels.sorted().joined(separator: ",")
+        let labelCol = labels.isEmpty ? "" : " [\(labels)]"
+        return "\(panel.id)  \(panel.workingDirectory)\(labelCol)"
+      }.joined(separator: "\n")
   }
 }
 
@@ -763,7 +775,10 @@ struct SendCommand: AsyncParsableCommand {
     let text = textPieces.joined(separator: " ")
     do {
       let uuid = try await AliasResolver.resolve(target, kind: .panel, client: client)
-      struct Params: Codable { let panelID: PanelID; let text: String }
+      struct Params: Codable {
+        let panelID: PanelID
+        let text: String
+      }
       _ = try await client.callRaw(
         .terminalSendInput,
         params: Params(panelID: PanelID(raw: uuid), text: text)
@@ -786,10 +801,10 @@ struct BroadcastCommand: AsyncParsableCommand {
     abstract: "Fan-out text to a tab, worktree, space, or label scope."
   )
   @OptionGroup var globals: GlobalOptions
-  @Option(name: .long, help: "Tab id.")           var tab: String?
-  @Option(name: .long, help: "Worktree id.")      var worktree: String?
-  @Option(name: .long, help: "Space id.")         var space: String?
-  @Option(name: .long, help: "Label string.")     var label: String?
+  @Option(name: .long, help: "Tab id.") var tab: String?
+  @Option(name: .long, help: "Worktree id.") var worktree: String?
+  @Option(name: .long, help: "Space id.") var space: String?
+  @Option(name: .long, help: "Label string.") var label: String?
   @Argument(parsing: .remaining) var textPieces: [String]
 
   func run() async throws {
@@ -805,7 +820,10 @@ struct BroadcastCommand: AsyncParsableCommand {
     let text = textPieces.joined(separator: " ")
     do {
       let scope = try await resolveScope(client: client)
-      struct Params: Codable { let scope: IPC.BroadcastScope; let text: String }
+      struct Params: Codable {
+        let scope: IPC.BroadcastScope
+        let text: String
+      }
       struct Result: Codable { let delivered: Int }
       let result: Result = try await client.call(
         .terminalBroadcastInput,

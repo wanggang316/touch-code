@@ -189,7 +189,9 @@ final class HierarchyManager {
     guard let (spaceIndex, projectIndex) = findProjectIndices(projectID: projectID, spaceID: spaceID) else {
       throw HierarchyError.notFound("Project \(projectID)")
     }
-    guard let worktreeIndex = catalog.spaces[spaceIndex].projects[projectIndex].worktrees.firstIndex(where: { $0.id == id }) else {
+    guard
+      let worktreeIndex = catalog.spaces[spaceIndex].projects[projectIndex].worktrees.firstIndex(where: { $0.id == id })
+    else {
       throw HierarchyError.notFound("Worktree \(id)")
     }
 
@@ -225,10 +227,14 @@ final class HierarchyManager {
   func setWorktreeGitViewerVisible(worktreeID: WorktreeID, visible: Bool) {
     for spaceIndex in catalog.spaces.indices {
       for projectIndex in catalog.spaces[spaceIndex].projects.indices {
-        guard let worktreeIndex = catalog.spaces[spaceIndex].projects[projectIndex]
-          .worktrees.firstIndex(where: { $0.id == worktreeID }) else { continue }
-        guard catalog.spaces[spaceIndex].projects[projectIndex]
-          .worktrees[worktreeIndex].gitViewerVisible != visible else { return }
+        guard
+          let worktreeIndex = catalog.spaces[spaceIndex].projects[projectIndex]
+            .worktrees.firstIndex(where: { $0.id == worktreeID })
+        else { continue }
+        guard
+          catalog.spaces[spaceIndex].projects[projectIndex]
+            .worktrees[worktreeIndex].gitViewerVisible != visible
+        else { return }
         catalog.spaces[spaceIndex].projects[projectIndex]
           .worktrees[worktreeIndex].gitViewerVisible = visible
         store.scheduleSave(catalog)
@@ -245,11 +251,13 @@ final class HierarchyManager {
     in spaceID: SpaceID,
     name: String?
   ) throws -> TabID {
-    guard let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
-      worktreeID: worktreeID,
-      projectID: projectID,
-      spaceID: spaceID
-    ) else {
+    guard
+      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+        worktreeID: worktreeID,
+        projectID: projectID,
+        spaceID: spaceID
+      )
+    else {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
     }
 
@@ -267,15 +275,21 @@ final class HierarchyManager {
     in projectID: ProjectID,
     in spaceID: SpaceID
   ) throws {
-    guard let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
-      worktreeID: worktreeID,
-      projectID: projectID,
-      spaceID: spaceID
-    ) else {
+    guard
+      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+        worktreeID: worktreeID,
+        projectID: projectID,
+        spaceID: spaceID
+      )
+    else {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
     }
 
-    guard let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.firstIndex(where: { $0.id == id }) else {
+    guard
+      let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.firstIndex(where: {
+        $0.id == id
+      })
+    else {
       throw HierarchyError.notFound("Tab \(id)")
     }
 
@@ -298,11 +312,13 @@ final class HierarchyManager {
     in projectID: ProjectID,
     in spaceID: SpaceID
   ) throws {
-    guard let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
-      worktreeID: worktreeID,
-      projectID: projectID,
-      spaceID: spaceID
-    ) else {
+    guard
+      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+        worktreeID: worktreeID,
+        projectID: projectID,
+        spaceID: spaceID
+      )
+    else {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
     }
     catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].selectedTabID = id
@@ -319,15 +335,21 @@ final class HierarchyManager {
     workingDirectory: String,
     initialCommand: String?
   ) throws -> PanelID {
-    guard let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
-      worktreeID: worktreeID,
-      projectID: projectID,
-      spaceID: spaceID
-    ) else {
+    guard
+      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+        worktreeID: worktreeID,
+        projectID: projectID,
+        spaceID: spaceID
+      )
+    else {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
     }
 
-    guard let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.firstIndex(where: { $0.id == tabID }) else {
+    guard
+      let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.firstIndex(where: {
+        $0.id == tabID
+      })
+    else {
       throw HierarchyError.notFound("Tab \(tabID)")
     }
 
@@ -367,15 +389,21 @@ final class HierarchyManager {
     workingDirectory: String,
     initialCommand: String?
   ) throws -> PanelID {
-    guard let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
-      worktreeID: worktreeID,
-      projectID: projectID,
-      spaceID: spaceID
-    ) else {
+    guard
+      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+        worktreeID: worktreeID,
+        projectID: projectID,
+        spaceID: spaceID
+      )
+    else {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
     }
 
-    guard let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.firstIndex(where: { $0.id == tabID }) else {
+    guard
+      let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.firstIndex(where: {
+        $0.id == tabID
+      })
+    else {
       throw HierarchyError.notFound("Tab \(tabID)")
     }
 
@@ -403,15 +431,21 @@ final class HierarchyManager {
     in projectID: ProjectID,
     in spaceID: SpaceID
   ) throws {
-    guard let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
-      worktreeID: worktreeID,
-      projectID: projectID,
-      spaceID: spaceID
-    ) else {
+    guard
+      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+        worktreeID: worktreeID,
+        projectID: projectID,
+        spaceID: spaceID
+      )
+    else {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
     }
 
-    guard let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.firstIndex(where: { $0.id == tabID }) else {
+    guard
+      let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.firstIndex(where: {
+        $0.id == tabID
+      })
+    else {
       throw HierarchyError.notFound("Tab \(tabID)")
     }
 
@@ -439,15 +473,21 @@ final class HierarchyManager {
     in projectID: ProjectID,
     in spaceID: SpaceID
   ) throws {
-    guard let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
-      worktreeID: worktreeID,
-      projectID: projectID,
-      spaceID: spaceID
-    ) else {
+    guard
+      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+        worktreeID: worktreeID,
+        projectID: projectID,
+        spaceID: spaceID
+      )
+    else {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
     }
 
-    guard let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.firstIndex(where: { $0.id == tabID }) else {
+    guard
+      let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.firstIndex(where: {
+        $0.id == tabID
+      })
+    else {
       throw HierarchyError.notFound("Tab \(tabID)")
     }
 
@@ -468,15 +508,21 @@ final class HierarchyManager {
     in projectID: ProjectID,
     in spaceID: SpaceID
   ) throws {
-    guard let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
-      worktreeID: worktreeID,
-      projectID: projectID,
-      spaceID: spaceID
-    ) else {
+    guard
+      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+        worktreeID: worktreeID,
+        projectID: projectID,
+        spaceID: spaceID
+      )
+    else {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
     }
 
-    guard let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.firstIndex(where: { $0.id == tabID }) else {
+    guard
+      let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.firstIndex(where: {
+        $0.id == tabID
+      })
+    else {
       throw HierarchyError.notFound("Tab \(tabID)")
     }
 
@@ -495,15 +541,21 @@ final class HierarchyManager {
     in projectID: ProjectID,
     in spaceID: SpaceID
   ) throws {
-    guard let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
-      worktreeID: worktreeID,
-      projectID: projectID,
-      spaceID: spaceID
-    ) else {
+    guard
+      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+        worktreeID: worktreeID,
+        projectID: projectID,
+        spaceID: spaceID
+      )
+    else {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
     }
 
-    guard let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.firstIndex(where: { $0.id == tabID }) else {
+    guard
+      let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.firstIndex(where: {
+        $0.id == tabID
+      })
+    else {
       throw HierarchyError.notFound("Tab \(tabID)")
     }
 
@@ -575,11 +627,13 @@ final class HierarchyManager {
       for projectIndex in catalog.spaces[spaceIndex].projects.indices {
         for worktreeIndex in catalog.spaces[spaceIndex].projects[projectIndex].worktrees.indices {
           for tabIndex in catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.indices {
-            let panels = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex].panels
+            let panels = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex]
+              .panels
             if let panelIndex = panels.firstIndex(where: { $0.id == panelID }) {
               var panel = panels[panelIndex]
               panel.labels = replace ? labels : panel.labels.union(labels)
-              catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex].panels[panelIndex] = panel
+              catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex].panels[
+                panelIndex] = panel
               store.scheduleSave(catalog)
               return
             }
@@ -590,12 +644,56 @@ final class HierarchyManager {
     throw HierarchyError.notFound("Panel \(panelID)")
   }
 
+  // MARK: - Project-only mutators (Settings Repository panes)
+
+  /// Sets or clears the per-Project worktree base directory override. `nil`
+  /// clears so worktree creation falls back to the global default. Unchanged
+  /// value is a silent no-op. `.notFound` when no space owns the Project.
+  func setWorktreesDirectory(_ path: String?, for projectID: ProjectID) throws {
+    guard let (sIdx, pIdx) = findProjectAnySpace(projectID) else {
+      throw HierarchyError.notFound("Project \(projectID)")
+    }
+    guard catalog.spaces[sIdx].projects[pIdx].worktreesDirectory != path else { return }
+    catalog.spaces[sIdx].projects[pIdx].worktreesDirectory = path
+    store.scheduleSave(catalog)
+  }
+
+  /// Sibling of `setDefaultEditor(_:for:in:)` that takes only a `ProjectID`.
+  /// Used by the Settings Repository General pane, which has no `SpaceID` in
+  /// scope. `nil` clears. Unchanged value is a silent no-op. `.notFound` when
+  /// no space owns the Project.
+  func setDefaultEditorAnySpace(_ editorID: EditorID?, for projectID: ProjectID) throws {
+    guard let (sIdx, pIdx) = findProjectAnySpace(projectID) else {
+      throw HierarchyError.notFound("Project \(projectID)")
+    }
+    guard catalog.spaces[sIdx].projects[pIdx].defaultEditor != editorID else { return }
+    catalog.spaces[sIdx].projects[pIdx].defaultEditor = editorID
+    store.scheduleSave(catalog)
+  }
+
   // MARK: - Helpers
 
   private func findProjectIndices(projectID: ProjectID, spaceID: SpaceID) -> (Int, Int)? {
     guard let spaceIndex = catalog.spaces.firstIndex(where: { $0.id == spaceID }) else { return nil }
-    guard let projectIndex = catalog.spaces[spaceIndex].projects.firstIndex(where: { $0.id == projectID }) else { return nil }
+    guard let projectIndex = catalog.spaces[spaceIndex].projects.firstIndex(where: { $0.id == projectID }) else {
+      return nil
+    }
     return (spaceIndex, projectIndex)
+  }
+
+  /// Locates the Project across all Spaces. Returns the first match —
+  /// `ProjectID`s are UUIDs so collisions are effectively zero, but in debug
+  /// builds assert at most one Space owns the id. Used by the Settings
+  /// Repository panes which carry only a `ProjectID`.
+  private func findProjectAnySpace(_ projectID: ProjectID) -> (Int, Int)? {
+    var found: (Int, Int)?
+    for (sIdx, space) in catalog.spaces.enumerated() {
+      if let pIdx = space.projects.firstIndex(where: { $0.id == projectID }) {
+        assert(found == nil, "Project \(projectID) appears in multiple spaces")
+        found = (sIdx, pIdx)
+      }
+    }
+    return found
   }
 
   private func findWorktreeIndices(
@@ -604,8 +702,14 @@ final class HierarchyManager {
     spaceID: SpaceID
   ) -> (Int, Int, Int)? {
     guard let spaceIndex = catalog.spaces.firstIndex(where: { $0.id == spaceID }) else { return nil }
-    guard let projectIndex = catalog.spaces[spaceIndex].projects.firstIndex(where: { $0.id == projectID }) else { return nil }
-    guard let worktreeIndex = catalog.spaces[spaceIndex].projects[projectIndex].worktrees.firstIndex(where: { $0.id == worktreeID }) else { return nil }
+    guard let projectIndex = catalog.spaces[spaceIndex].projects.firstIndex(where: { $0.id == projectID }) else {
+      return nil
+    }
+    guard
+      let worktreeIndex = catalog.spaces[spaceIndex].projects[projectIndex].worktrees.firstIndex(where: {
+        $0.id == worktreeID
+      })
+    else { return nil }
     return (spaceIndex, projectIndex, worktreeIndex)
   }
 }

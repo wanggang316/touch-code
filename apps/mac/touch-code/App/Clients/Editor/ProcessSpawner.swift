@@ -80,7 +80,7 @@ nonisolated struct FoundationProcessSpawner: ProcessSpawner {
 
     // Race exit vs. timeout.
     let exit = await awaitExitOrTimeout(exitStream: exitStream, process: process, timeout: timeout)
-    _ = await stdoutData // drain for cleanliness
+    _ = await stdoutData  // drain for cleanliness
     let stderr = await stderrData
 
     switch exit {
@@ -92,7 +92,10 @@ nonisolated struct FoundationProcessSpawner: ProcessSpawner {
     }
   }
 
-  private enum ExitOrTimeout: Sendable { case exited(Int32); case timedOut }
+  private enum ExitOrTimeout: Sendable {
+    case exited(Int32)
+    case timedOut
+  }
 
   private func awaitExitOrTimeout(
     exitStream: AsyncStream<Int32>,

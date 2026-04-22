@@ -40,9 +40,9 @@ nonisolated enum GitProcessEnv {
     }
     for (key, value) in forced { env[key] = value }
     #if DEBUG
-    for key in forbidden {
-      precondition(env[key] == nil, "GitProcessEnv: forbidden key '\(key)' leaked into child env")
-    }
+      for key in forbidden {
+        precondition(env[key] == nil, "GitProcessEnv: forbidden key '\(key)' leaked into child env")
+      }
     #endif
     return env
   }

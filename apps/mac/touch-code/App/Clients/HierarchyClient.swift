@@ -16,80 +16,111 @@ nonisolated struct HierarchyClient: Sendable {
   var renameSpace: @MainActor @Sendable (_ id: SpaceID, _ name: String) throws -> Void
   var removeSpace: @MainActor @Sendable (_ id: SpaceID) throws -> Void
 
-  var addProject: @MainActor @Sendable (
-    _ spaceID: SpaceID, _ name: String, _ rootPath: String, _ gitRoot: String?
-  ) throws -> ProjectID
+  var addProject:
+    @MainActor @Sendable (
+      _ spaceID: SpaceID, _ name: String, _ rootPath: String, _ gitRoot: String?
+    ) throws -> ProjectID
   var removeProject: @MainActor @Sendable (_ projectID: ProjectID, _ inSpace: SpaceID) throws -> Void
-  var renameProject: @MainActor @Sendable (
-    _ projectID: ProjectID, _ inSpace: SpaceID, _ name: String
-  ) throws -> Void
+  var renameProject:
+    @MainActor @Sendable (
+      _ projectID: ProjectID, _ inSpace: SpaceID, _ name: String
+    ) throws -> Void
 
-  var createWorktree: @MainActor @Sendable (
-    _ projectID: ProjectID, _ inSpace: SpaceID, _ name: String, _ path: String, _ branch: String?
-  ) throws -> WorktreeID
-  var removeWorktree: @MainActor @Sendable (
-    _ worktreeID: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
-  ) throws -> Void
+  var createWorktree:
+    @MainActor @Sendable (
+      _ projectID: ProjectID, _ inSpace: SpaceID, _ name: String, _ path: String, _ branch: String?
+    ) throws -> WorktreeID
+  var removeWorktree:
+    @MainActor @Sendable (
+      _ worktreeID: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
+    ) throws -> Void
 
   /// Records which Worktree to restore when the window re-activates this Space.
   /// `nil` clears. Missing space / unchanged value is a silent no-op — matches
   /// `HierarchyManager.setSpaceLastActiveWorktree` contract.
-  var setSpaceLastActiveWorktree: @MainActor @Sendable (
-    _ spaceID: SpaceID, _ worktreeID: WorktreeID?
-  ) -> Void
+  var setSpaceLastActiveWorktree:
+    @MainActor @Sendable (
+      _ spaceID: SpaceID, _ worktreeID: WorktreeID?
+    ) -> Void
 
   var selectSpace: @MainActor @Sendable (_ id: SpaceID?) -> Void
   var selectProject: @MainActor @Sendable (_ id: ProjectID?, _ inSpace: SpaceID) throws -> Void
-  var selectWorktree: @MainActor @Sendable (
-    _ id: WorktreeID?, _ inProject: ProjectID, _ inSpace: SpaceID
-  ) throws -> Void
+  var selectWorktree:
+    @MainActor @Sendable (
+      _ id: WorktreeID?, _ inProject: ProjectID, _ inSpace: SpaceID
+    ) throws -> Void
 
-  var createTab: @MainActor @Sendable (
-    _ worktreeID: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID, _ name: String?
-  ) throws -> TabID
-  var closeTab: @MainActor @Sendable (
-    _ id: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
-  ) throws -> Void
-  var selectTab: @MainActor @Sendable (
-    _ id: TabID?, _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
-  ) throws -> Void
+  var createTab:
+    @MainActor @Sendable (
+      _ worktreeID: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID, _ name: String?
+    ) throws -> TabID
+  var closeTab:
+    @MainActor @Sendable (
+      _ id: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
+    ) throws -> Void
+  var selectTab:
+    @MainActor @Sendable (
+      _ id: TabID?, _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
+    ) throws -> Void
 
-  var openPanel: @MainActor @Sendable (
-    _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID,
-    _ workingDirectory: String, _ initialCommand: String?
-  ) throws -> PanelID
-  var splitPanel: @MainActor @Sendable (
-    _ panelID: PanelID, _ direction: SplitTree<PanelID>.NewDirection,
-    _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID,
-    _ workingDirectory: String, _ initialCommand: String?
-  ) throws -> PanelID
-  var closePanel: @MainActor @Sendable (
-    _ panelID: PanelID, _ tabID: TabID, _ inWorktree: WorktreeID,
-    _ inProject: ProjectID, _ inSpace: SpaceID
-  ) throws -> Void
-  var focusPanel: @MainActor @Sendable (
-    _ panelID: PanelID, _ tabID: TabID, _ inWorktree: WorktreeID,
-    _ inProject: ProjectID, _ inSpace: SpaceID
-  ) throws -> Void
-  var resizeSplit: @MainActor @Sendable (
-    _ path: SplitTree<PanelID>.Path, _ ratio: Double,
-    _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
-  ) throws -> Void
+  var openPanel:
+    @MainActor @Sendable (
+      _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID,
+      _ workingDirectory: String, _ initialCommand: String?
+    ) throws -> PanelID
+  var splitPanel:
+    @MainActor @Sendable (
+      _ panelID: PanelID, _ direction: SplitTree<PanelID>.NewDirection,
+      _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID,
+      _ workingDirectory: String, _ initialCommand: String?
+    ) throws -> PanelID
+  var closePanel:
+    @MainActor @Sendable (
+      _ panelID: PanelID, _ tabID: TabID, _ inWorktree: WorktreeID,
+      _ inProject: ProjectID, _ inSpace: SpaceID
+    ) throws -> Void
+  var focusPanel:
+    @MainActor @Sendable (
+      _ panelID: PanelID, _ tabID: TabID, _ inWorktree: WorktreeID,
+      _ inProject: ProjectID, _ inSpace: SpaceID
+    ) throws -> Void
+  var resizeSplit:
+    @MainActor @Sendable (
+      _ path: SplitTree<PanelID>.Path, _ ratio: Double,
+      _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
+    ) throws -> Void
 
   /// Sets the per-Project default editor override. `nil` unsets the override so resolution
   /// falls back to the global default (via `SettingsStore`). Added in 0005 M6a for C8's
   /// Worktree-header "Open in ▾" + Settings override UI.
-  var setDefaultEditor: @MainActor @Sendable (
-    _ projectID: ProjectID, _ inSpace: SpaceID, _ editorID: EditorID?
-  ) throws -> Void
+  var setDefaultEditor:
+    @MainActor @Sendable (
+      _ projectID: ProjectID, _ inSpace: SpaceID, _ editorID: EditorID?
+    ) throws -> Void
+
+  /// Sibling of `setDefaultEditor` for Settings Repository pane; projects without a
+  /// known Space are resolved across all Spaces. `nil` clears the override. T4.
+  var setRepositoryDefaultEditor:
+    @MainActor @Sendable (
+      _ projectID: ProjectID, _ editorID: EditorID?
+    ) throws -> Void
+
+  /// Sets the per-Project worktree base directory override for Settings Repository pane.
+  /// `nil` clears so worktree creation falls back to the global default. Unused value is
+  /// a silent no-op. Resolves projectID across all Spaces. T4.
+  var setRepositoryWorktreeBaseDirectory:
+    @MainActor @Sendable (
+      _ projectID: ProjectID, _ path: String?
+    ) throws -> Void
 
   /// Flips `Worktree.gitViewerVisible` for the given Worktree. Silent no-op on
   /// unknown `worktreeID`; persists through the standard debounced
   /// `store.scheduleSave(catalog)` pipeline (T0 §D5). Consumed by the T2
   /// Header Git Viewer toggle and by T3's overlay presentation binding.
-  var setWorktreeGitViewerVisible: @MainActor @Sendable (
-    _ worktreeID: WorktreeID, _ visible: Bool
-  ) -> Void
+  var setWorktreeGitViewerVisible:
+    @MainActor @Sendable (
+      _ worktreeID: WorktreeID, _ visible: Bool
+    ) -> Void
 
   var snapshot: @MainActor @Sendable () -> Catalog
 
@@ -176,6 +207,12 @@ extension HierarchyClient {
       setDefaultEditor: { projectID, spaceID, editorID in
         try manager.setDefaultEditor(editorID, for: projectID, in: spaceID)
       },
+      setRepositoryDefaultEditor: { projectID, editorID in
+        try manager.setDefaultEditorAnySpace(editorID, for: projectID)
+      },
+      setRepositoryWorktreeBaseDirectory: { projectID, path in
+        try manager.setWorktreesDirectory(path, for: projectID)
+      },
       setWorktreeGitViewerVisible: { worktreeID, visible in
         manager.setWorktreeGitViewerVisible(worktreeID: worktreeID, visible: visible)
       },
@@ -243,7 +280,9 @@ extension HierarchyClient {
 
 extension HierarchyClient: DependencyKey {
   static let liveValue: HierarchyClient = HierarchyClient(
-    createSpace: { _ in fatalError("HierarchyClient.liveValue not configured; wire via .withDependencies at app startup") },
+    createSpace: { _ in
+      fatalError("HierarchyClient.liveValue not configured; wire via .withDependencies at app startup")
+    },
     renameSpace: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     removeSpace: { _ in fatalError("HierarchyClient.liveValue not configured") },
     addProject: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
@@ -264,6 +303,8 @@ extension HierarchyClient: DependencyKey {
     focusPanel: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     resizeSplit: { _, _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     setDefaultEditor: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    setRepositoryDefaultEditor: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    setRepositoryWorktreeBaseDirectory: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     setWorktreeGitViewerVisible: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     snapshot: { fatalError("HierarchyClient.liveValue not configured") },
     selectionChanges: { AsyncStream { $0.finish() } }
@@ -291,6 +332,8 @@ extension HierarchyClient: DependencyKey {
     focusPanel: unimplemented("HierarchyClient.focusPanel"),
     resizeSplit: unimplemented("HierarchyClient.resizeSplit"),
     setDefaultEditor: unimplemented("HierarchyClient.setDefaultEditor"),
+    setRepositoryDefaultEditor: unimplemented("HierarchyClient.setRepositoryDefaultEditor"),
+    setRepositoryWorktreeBaseDirectory: unimplemented("HierarchyClient.setRepositoryWorktreeBaseDirectory"),
     setWorktreeGitViewerVisible: unimplemented("HierarchyClient.setWorktreeGitViewerVisible"),
     snapshot: unimplemented(
       "HierarchyClient.snapshot",

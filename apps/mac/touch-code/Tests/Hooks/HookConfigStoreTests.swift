@@ -1,8 +1,8 @@
 import Foundation
 import Testing
 
-@testable import touch_code
 @testable import TouchCodeCore
+@testable import touch_code
 
 @MainActor
 struct HookConfigStoreTests {
@@ -47,7 +47,7 @@ struct HookConfigStoreTests {
     )
     try HookConfigStore(fileURL: url).save(HookConfig(subscriptions: [bad]))
     let loaded = try HookConfigStore(fileURL: url).load()
-    #expect(loaded.subscriptions.isEmpty) // silently dropped, not thrown — sibling user subs continue
+    #expect(loaded.subscriptions.isEmpty)  // silently dropped, not thrown — sibling user subs continue
   }
 
   @Test
