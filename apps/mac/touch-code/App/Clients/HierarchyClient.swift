@@ -193,6 +193,12 @@ nonisolated struct HierarchyClient: Sendable {
   /// Duplicate-add guard. Caller canonicalizes before querying.
   var isPathRegistered: @MainActor @Sendable (_ canonicalPath: String) -> (SpaceID, ProjectID)?
 
+  /// Containing-project lookup (subdirectory-aware). Returns the deepest
+  /// Project whose `rootPath` contains the canonical path (root or descendant).
+  /// Used by the `editor.open` IPC so `tc open` inside a subdirectory still
+  /// resolves the parent Project's default editor. Caller canonicalizes.
+  var projectContaining: @MainActor @Sendable (_ canonicalPath: String) -> (SpaceID, ProjectID)?
+
   // MARK: - Space Management additions (feat/space-mgmt)
 
   /// Reorder Spaces using the IndexSet (source) and destination offset from
@@ -331,6 +337,9 @@ extension HierarchyClient {
       },
       isPathRegistered: { canonicalPath in
         manager.isPathRegistered(canonical: canonicalPath)
+      },
+      projectContaining: { canonicalPath in
+        manager.project(containing: canonicalPath)
       },
       reorderSpaces: { source, destination in
         manager.reorderSpaces(fromOffsets: source, toOffset: destination)
@@ -515,6 +524,7 @@ extension HierarchyClient: DependencyKey {
     reorderProjects: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     setProjectWorktreesDirectory: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     isPathRegistered: { _ in fatalError("HierarchyClient.liveValue not configured") },
+    projectContaining: { _ in fatalError("HierarchyClient.liveValue not configured") },
     reorderSpaces: { _, _ in fatalError("HierarchyClient.liveValue not configured") }
   )
 
@@ -562,6 +572,7 @@ extension HierarchyClient: DependencyKey {
     reorderProjects: unimplemented("HierarchyClient.reorderProjects"),
     setProjectWorktreesDirectory: unimplemented("HierarchyClient.setProjectWorktreesDirectory"),
     isPathRegistered: unimplemented("HierarchyClient.isPathRegistered", placeholder: nil),
+    projectContaining: unimplemented("HierarchyClient.projectContaining", placeholder: nil),
     reorderSpaces: unimplemented("HierarchyClient.reorderSpaces")
   )
 }

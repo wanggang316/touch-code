@@ -72,11 +72,17 @@ struct EditorRegistryTests {
 
   @Test
   func defaultPriorityTerminatesAtFinder() {
-    // Finder is always installed, so the priority walk must include it; otherwise the
-    // resolver's "terminates at Finder" guarantee collapses.
+    // Finder must be the LAST element: it is always installed, so if it appeared earlier
+    // the priority walk would stop at Finder before reaching terminals (Ghostty, WezTerm)
+    // and git clients (GitHub Desktop, Sourcetree) — making those IDs unreachable in
+    // auto-resolution even when the user has them installed.
     #expect(
-      EditorRegistry.defaultPriority.contains("finder"),
-      "defaultPriority must include 'finder' as the always-installed terminator"
+      EditorRegistry.defaultPriority.last == "finder",
+      "defaultPriority must end with 'finder' so the always-installed terminator does not shadow later IDs"
+    )
+    #expect(
+      EditorRegistry.defaultPriority.filter({ $0 == "finder" }).count == 1,
+      "defaultPriority must contain exactly one 'finder' entry"
     )
   }
 

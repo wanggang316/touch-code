@@ -180,8 +180,11 @@ static let terminalPriority: [EditorID] = [
 static let gitClientPriority: [EditorID] = [
   "githubDesktop", "sourcetree", "fork", "gitkraken", "sublimeMerge", "smartgit", "gitup",
 ]
+// Finder sits at the tail — if it appeared mid-list the priority walk would stop
+// there (Finder is always installed) and shadow every terminal / git-client entry
+// after it.
 static let defaultPriority: [EditorID] =
-  editorPriority + ["xcode", "finder"] + terminalPriority + gitClientPriority
+  editorPriority + ["xcode"] + terminalPriority + gitClientPriority + ["finder"]
 static let menuOrder: [EditorID] =
   editorPriority + ["xcode"] + ["finder"] + terminalPriority + gitClientPriority + ["editor"]
 ```

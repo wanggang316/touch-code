@@ -107,10 +107,13 @@ struct EditorHandlersTests {
     }
 
     // Hierarchy client never gets consulted when caller supplies `preferred` — guard by
-    // returning nil from `isPathRegistered` so any accidental consult is a no-op. We also
-    // need `snapshot` not to crash if the override path is taken by mistake.
+    // returning nil from `projectContaining` so any accidental consult is a no-op. We also
+    // need `snapshot` not to crash if the override path is taken by mistake. The handler
+    // uses `projectContaining` (not `isPathRegistered`) so subdirectory `tc open` still
+    // resolves the parent project's override — Codex P2-4.
     var hierarchy = HierarchyClient.testValue
     hierarchy.isPathRegistered = { _ in nil }
+    hierarchy.projectContaining = { _ in nil }
     hierarchy.snapshot = { Catalog() }
 
     let handlers = EditorHandlers(
@@ -138,6 +141,7 @@ struct EditorHandlersTests {
 
     var hierarchy = HierarchyClient.testValue
     hierarchy.isPathRegistered = { _ in nil }
+    hierarchy.projectContaining = { _ in nil }
     hierarchy.snapshot = { Catalog() }
 
     let handlers = EditorHandlers(

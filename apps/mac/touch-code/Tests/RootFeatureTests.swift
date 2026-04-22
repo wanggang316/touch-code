@@ -388,7 +388,12 @@ struct RootFeatureTests {
   }
 
   @Test
-  func headerOpenEditorWithNilFallsBackToFinderID() async {
+  func headerOpenEditorWithNilDeferspreferredToServiceCascade() async {
+    // Codex P2-3: when no project override and no global default resolves, the reducer
+    // forwards `nil` as `preferred` so the service's priority cascade picks the first
+    // installed editor (Cursor / Zed / VSCode / …) before falling through to Finder.
+    // Previously the reducer forced `"finder"` here, which strict-matched Finder and
+    // shadowed every higher-priority installed editor.
     let store = TestStore(initialState: RootFeature.State()) {
       RootFeature()
     } withDependencies: {
@@ -413,7 +418,7 @@ struct RootFeatureTests {
     await store.receive(
       .editor(
         .openRequested(
-          editorID: EditorFeature.finderEditorID,
+          editorID: nil,
           worktreePath: "/tmp/w",
           projectID: nil
         )))

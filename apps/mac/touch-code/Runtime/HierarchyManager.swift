@@ -225,6 +225,33 @@ final class HierarchyManager {
     return nil
   }
 
+  /// Resolves a canonical path to the `(SpaceID, ProjectID)` whose `rootPath`
+  /// **contains** `path` — i.e. the path is the root itself or a descendant.
+  /// Used by the `editor.open` IPC so `tc open` inside a subdirectory of a
+  /// registered Project still honors the Project's `defaultEditor` override;
+  /// `isPathRegistered` only matches the exact root.
+  ///
+  /// Matching is on path-segment boundaries: `/repo` matches `/repo` and
+  /// `/repo/src/` but not `/repository`. When Projects nest (rare but legal —
+  /// a monorepo Project with a sub-repo Project under it), the deepest match
+  /// wins so the closest override is applied.
+  ///
+  /// Caller canonicalizes via `HierarchyManager.canonicalPath(_:)` before
+  /// querying. Linear in total Project count like `isPathRegistered`.
+  func project(containing path: String) -> (SpaceID, ProjectID)? {
+    var best: (SpaceID, ProjectID, Int)?  // (space, project, root length)
+    for space in catalog.spaces {
+      for project in space.projects {
+        let root = Self.canonicalPath(project.rootPath)
+        guard path == root || path.hasPrefix(root + "/") else { continue }
+        if best == nil || root.count > best!.2 {
+          best = (space.id, project.id, root.count)
+        }
+      }
+    }
+    return best.map { ($0.0, $0.1) }
+  }
+
   // MARK: - Worktree mutations
 
   func createWorktree(

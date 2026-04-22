@@ -448,6 +448,7 @@ struct GitViewerFeatureTests {
     } withDependencies: {
       $0.gitService = GitServiceClient.testValue
       $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
+      $0.editorClient.describe = { [] }
       $0.editorClient.open = { _, _ in
         throw EditorError.notInstalled(id: "zed", bundleID: "dev.zed.Zed")
       }
@@ -474,6 +475,7 @@ struct GitViewerFeatureTests {
     } withDependencies: {
       $0.gitService = GitServiceClient.testValue
       $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
+      $0.editorClient.describe = { [] }
       $0.editorClient.open = { _, _ in cursor }
     }
     await store.send(.openInEditorRequested)

@@ -188,9 +188,12 @@ nonisolated enum EditorRegistry {
   ]
 
   /// Walk order used by `EditorService.resolve` when no explicit or stored default applies.
-  /// Always terminates at Finder (`com.apple.finder` is always installed).
+  /// Finder sits at the **tail** because it is always installed — if it appeared earlier in
+  /// the list, every subsequent ID (terminals, git clients) would be unreachable in auto-
+  /// resolution: the priority walk would stop at Finder before reaching Ghostty / GitHub
+  /// Desktop / etc. Always terminates at Finder so the walk is guaranteed to resolve.
   static let defaultPriority: [EditorID] =
-    editorPriority + ["xcode", "finder"] + terminalPriority + gitClientPriority
+    editorPriority + ["xcode"] + terminalPriority + gitClientPriority + ["finder"]
 
   /// Settings-pane dropdown order. Adds `.editor` at the tail since it is installed-by-
   /// definition and therefore never eligible for the priority auto-pick.

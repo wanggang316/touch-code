@@ -39,7 +39,7 @@ struct SettingsGeneralView: View {
         .labelsHidden()
 
         Text(
-          "Used when opening a directory. Falls back to Finder if the chosen editor is uninstalled later."
+          "Used when opening a directory. \"Automatic\" picks the first installed editor from the priority list; a specific choice falls back to Finder if the editor is uninstalled later."
         )
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -53,26 +53,33 @@ struct SettingsGeneralView: View {
     .onAppear { store.send(.onAppear) }
   }
 
-  /// Picker body — split out so `Picker(... ) { pickerContent }` stays readable. Emits an
-  /// empty option when no descriptors are loaded yet so the menu never renders an empty
-  /// ghost selection.
+  /// Picker body — split out so `Picker(... ) { pickerContent }` stays readable. The
+  /// "Automatic" row tagged `EditorID?(nil)` gives the user a way back to priority-walk
+  /// resolution after picking any concrete editor; without it the picker has no path to
+  /// clear the stored default (even though the IPC setter and the reducer both accept nil).
+  /// Mirrors the "Use global default" sentinel in the Project Options picker.
   @ViewBuilder
   private var pickerContent: some View {
+    HStack(spacing: 6) {
+      Image(systemName: "wand.and.sparkles")
+        .resizable()
+        .aspectRatio(contentMode: .fit)
+        .frame(width: 16, height: 16)
+        .foregroundStyle(.secondary)
+        .accessibilityHidden(true)
+      Text("Automatic")
+    }
+    .tag(EditorID?(nil))
+
     let groups = EditorPickerRow.grouped(store.descriptors)
-    if groups.isEmpty {
-      // First frame before `describe()` returns; no sentinel row — the menu just shows
-      // the stored default ID (or nothing) until the refresh effect lands.
-      EmptyView()
-    } else {
-      ForEach(Array(groups.enumerated()), id: \.offset) { index, group in
-        if index > 0 { Divider() }
-        ForEach(group, id: \.id) { descriptor in
-          HStack(spacing: 6) {
-            EditorPickerRow.icon(for: descriptor)
-            Text(descriptor.displayName)
-          }
-          .tag(EditorID?(descriptor.id))
+    ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+      Divider()
+      ForEach(group, id: \.id) { descriptor in
+        HStack(spacing: 6) {
+          EditorPickerRow.icon(for: descriptor)
+          Text(descriptor.displayName)
         }
+        .tag(EditorID?(descriptor.id))
       }
     }
   }

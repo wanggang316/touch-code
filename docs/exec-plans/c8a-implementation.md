@@ -1022,6 +1022,18 @@ Six commits landed on `refactor/open-editor`, one per phase:
 
 **Known limitation — `.shellEditor` deferred.** The `.shellEditor` registry row is probed and appears in `describe()` results, but `EditorService.open` currently throws a descriptive `.launchFailed` because the service signature (`open(directory: URL, preferred: EditorID?)`) intentionally excludes domain types (Panel / Tab context). The Panel primitive itself was completed in Phase 4d — callers that want `$EDITOR` end-to-end should route through `hierarchy.openPanel` with `initialCommand: "$EDITOR"`. A future iteration either widens the service signature or adds a separate `EditorService.openShell(panelContext:)` entry point. Tracked inline in `EditorService+Live.swift` (search `"Panel" + "Tab context"`).
 
+### 2026-04-22 — Codex review follow-up (P1+P2)
+
+Seven post-merge fixes applied after Codex review, landed in two commits:
+
+- **P1-1** (`describe()` filters `.shellEditor`): the registry entry stays but is suppressed from `describe()` so it can no longer be saved as a default that always fails to launch. Filtering is reversible — remove the `continue` when a Panel-aware open path lands. Tests: `EditorServiceResolutionTests.describeReturnsInstalledOnlyAndExcludesShellEditor`, `EditorServiceLaunchTests.shellEditorIsUnreachableFromOpenInV1`.
+- **P1-2** (JetBrains launch API): `AppLauncher` gained `openApplication(at:configuration:)`; `.applicationWithArguments` routes through it so `configuration.arguments` actually reach the IDE. Tests: `EditorServiceLaunchTests.applicationWithArgumentsLaunchRoutesThroughOpenApplicationWithDirPathArgument`, `allJetBrainsIDsUseOpenApplicationBranch`.
+- **P2-3** (priority cascade respected): reducers hand `nil` (not `"finder"`) to the service when neither override nor global default applies, so the service's priority walk picks the first installed editor. New helper: `EditorFeature.resolveInstalledPreference`.
+- **P2-4** (subdirectory project lookup): `HierarchyManager.project(containing:)` + `HierarchyClient.projectContaining` — `tc open` inside a Project subdirectory now honors the Project's default editor. Deepest-match disambiguation when Projects nest.
+- **P2-5** (Git Viewer honors project override): `GitViewerFeature.editorOpenRequest` looks up `projectID.defaultEditor` and filters through installed descriptors before handing `preferred` to the service.
+- **P2-6** ("Automatic" row in Settings): `SettingsGeneralView` gained a sentinel `EditorID?(nil)` row so users can clear the global default after picking something.
+- **P2-7** (Finder priority bug, design doc bug): `defaultPriority` moved Finder to the tail — previously Finder sat mid-list, shadowing every terminal and git client in auto-resolution since Finder is always installed. Design doc `c8a-editor-integration-nsworkspace.md` also corrected.
+
 ---
 
 ## Decision Log

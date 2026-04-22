@@ -136,23 +136,23 @@ struct EditorFeature {
         return .none
 
       case .openDefaultInCurrentWorktreeRequested(let spaceID, let projectID, _, let worktreePath):
-        // Look up per-Project override in the catalog snapshot, then fold it into the
-        // service's `preferred` argument. `resolveDefault` encodes the cascade so an
-        // override that's not present in `state.descriptors` silently falls through.
+        // Look up per-Project override in the catalog snapshot, then hand a nullable
+        // `preferred` to the service. `resolveInstalledPreference` returns nil when
+        // neither the override nor the global default resolves to an installed editor,
+        // deferring to the service's priority cascade (cursor / zed / vscode / …) rather
+        // than short-circuiting on Finder — otherwise a clean install with no stored
+        // default would always land in Finder even if higher-priority editors are
+        // installed.
         let catalog = hierarchyClient.snapshot()
         let projectOverride = catalog
           .spaces.first(where: { $0.id == spaceID })?
           .projects.first(where: { $0.id == projectID })?
           .defaultEditor
-        let preferred: EditorID?
-        switch Self.resolveDefault(
+        let preferred = Self.resolveInstalledPreference(
           projectOverride: projectOverride,
           globalDefault: state.globalDefault,
           descriptors: state.descriptors
-        ) {
-        case .editor(let descriptor): preferred = descriptor.id
-        case .finder: preferred = Self.finderEditorID
-        }
+        )
         return .send(
           .openRequested(
             editorID: preferred,
@@ -191,6 +191,36 @@ struct EditorFeature {
       return .editor(match)
     }
     return .finder
+  }
+
+  /// Reducer-side resolver for the `preferred` argument handed to `EditorService.open`.
+  /// Returns the project override (if installed), else the global default (if installed),
+  /// else **nil** — handing off to the service's priority cascade. Never materializes a
+  /// Finder fallback: that would bypass higher-priority installed editors (e.g. on a clean
+  /// install with Cursor present but no stored default, forcing `"finder"` here would
+  /// short-circuit the priority walk before Cursor is ever considered, because the
+  /// service's "preferred" tier is strict — a Finder `preferred` returns Finder).
+  ///
+  /// Callers: `EditorFeature.openDefaultInCurrentWorktreeRequested`,
+  /// `RootFeature.sidebar(.delegate(.openInDefaultEditor))`,
+  /// `RootFeature.worktreeHeader(.delegate(.openEditor))`,
+  /// `GitViewerFeature.editorOpenRequest`.
+  nonisolated static func resolveInstalledPreference(
+    projectOverride: EditorID?,
+    globalDefault: EditorID?,
+    descriptors: [EditorDescriptor]
+  ) -> EditorID? {
+    if let override = projectOverride,
+      descriptors.contains(where: { $0.id == override })
+    {
+      return override
+    }
+    if let global = globalDefault,
+      descriptors.contains(where: { $0.id == global })
+    {
+      return global
+    }
+    return nil
   }
 
   /// Human-readable reason for an `EditorError`, surfaced as a toast subtitle by views.

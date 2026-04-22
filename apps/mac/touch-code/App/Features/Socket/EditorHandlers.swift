@@ -106,15 +106,20 @@ final class EditorHandlers {
   // MARK: - Helpers
 
   /// Look up the per-Project default editor for the given canonical path. Returns the ID only
-  /// when (a) the path resolves to a registered Project, (b) that Project has a
-  /// `defaultEditor` override, AND (c) the override is currently installed per
-  /// `editor.describe`. Otherwise returns nil so the service cascades to the global default.
+  /// when (a) the path resolves to the root or a subdirectory of a registered Project, (b)
+  /// that Project has a `defaultEditor` override, AND (c) the override is currently installed
+  /// per `editor.describe`. Otherwise returns nil so the service cascades to the global
+  /// default.
+  ///
+  /// Uses `projectContaining` rather than `isPathRegistered` so `tc open` run from a
+  /// subdirectory (e.g. `/repo/Sources/`) still honors the Project's override. Exact-match
+  /// lookup would silently miss every subdirectory call site.
   private static func projectOverride(
     for canonicalPath: String,
     hierarchy: HierarchyClient,
     editor: EditorClient
   ) async -> EditorID? {
-    guard let (_, projectID) = hierarchy.isPathRegistered(canonicalPath) else {
+    guard let (_, projectID) = hierarchy.projectContaining(canonicalPath) else {
       return nil
     }
     let catalog = hierarchy.snapshot()

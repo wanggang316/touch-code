@@ -369,14 +369,19 @@ struct GitViewerFeature {
         await send(.editorOpenFailed(reason: "Worktree path not found in catalog"))
         return
       }
-      // C8a: per-Project override lookup moved into `EditorFeature.resolveDefault`. Git
-      // viewer's Enter shortcut opens in the resolved default (no explicit preferred), so
-      // the service's cascade picks globalDefault → priority walk. Per-Project overrides
-      // flow through `EditorFeature.openDefaultInCurrentWorktreeRequested`; the Git viewer
-      // route is a catch-all for "user pressed Enter and didn't specify anything".
-      _ = projectID  // retained in the action for future use; service no longer takes it.
+      // Honor the per-Project override on the Enter shortcut. `projectID` is in state so
+      // we can look it up directly rather than asking the IPC handler to re-derive it from
+      // the path. Filter through installed descriptors so a stale override silently falls
+      // through to the service's cascade (global default → priority walk).
+      let projectOverride = projectID.flatMap { id in Self.projectOverride(in: snapshot, projectID: id) }
+      let descriptors = await client.describe()
+      let preferred = EditorFeature.resolveInstalledPreference(
+        projectOverride: projectOverride,
+        globalDefault: nil,  // service's internal global-default read picks it up.
+        descriptors: descriptors
+      )
       do {
-        let choice = try await client.open(URL(fileURLWithPath: path), nil)
+        let choice = try await client.open(URL(fileURLWithPath: path), preferred)
         await send(.editorOpened(editorID: choice.id))
       } catch let error as EditorError {
         await send(.editorOpenFailed(reason: Self.editorErrorDescription(error)))
@@ -384,6 +389,15 @@ struct GitViewerFeature {
         await send(.editorOpenFailed(reason: String(describing: error)))
       }
     }
+  }
+
+  fileprivate nonisolated static func projectOverride(in catalog: Catalog, projectID: ProjectID) -> EditorID? {
+    for space in catalog.spaces {
+      if let project = space.projects.first(where: { $0.id == projectID }) {
+        return project.defaultEditor
+      }
+    }
+    return nil
   }
 
   /// Human-readable reason for an `EditorError`, surfaced as a toast subtitle by the view.

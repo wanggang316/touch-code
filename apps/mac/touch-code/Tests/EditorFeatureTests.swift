@@ -87,4 +87,51 @@ struct EditorFeatureTests {
     )
     #expect(resolved == .finder)
   }
+
+  // MARK: - resolveInstalledPreference (Codex P2-3)
+
+  @Test
+  func resolveInstalledPreferencePrefersProjectOverrideWhenInstalled() {
+    let preferred = EditorFeature.resolveInstalledPreference(
+      projectOverride: "vscode",
+      globalDefault: "zed",
+      descriptors: [Self.sampleDescriptor]
+    )
+    #expect(preferred == "vscode")
+  }
+
+  @Test
+  func resolveInstalledPreferenceFallsToGlobalWhenOverrideUninstalled() {
+    let preferred = EditorFeature.resolveInstalledPreference(
+      projectOverride: "zed",  // not in descriptors
+      globalDefault: "vscode",
+      descriptors: [Self.sampleDescriptor]
+    )
+    #expect(preferred == "vscode")
+  }
+
+  @Test
+  func resolveInstalledPreferenceReturnsNilWhenNothingMatches() {
+    // Critical behavior: when no override or global default resolves to an installed
+    // editor, return nil so the service's priority cascade can pick the first installed
+    // editor (not force-land on Finder, which would short-circuit the walk).
+    let preferred = EditorFeature.resolveInstalledPreference(
+      projectOverride: nil,
+      globalDefault: nil,
+      descriptors: [Self.sampleDescriptor]
+    )
+    #expect(preferred == nil)
+  }
+
+  @Test
+  func resolveInstalledPreferenceReturnsNilWhenOnlyStaleIDsMatch() {
+    // Both override and global reference uninstalled editors — should still fall through
+    // to nil rather than eagerly handing a dead ID to the service.
+    let preferred = EditorFeature.resolveInstalledPreference(
+      projectOverride: "cursor",
+      globalDefault: "zed",
+      descriptors: [Self.sampleDescriptor]
+    )
+    #expect(preferred == nil)
+  }
 }
