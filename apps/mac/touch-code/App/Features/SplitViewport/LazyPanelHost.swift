@@ -1,115 +1,79 @@
 import ComposableArchitecture
-import OSLog
 import SwiftUI
 import TouchCodeCore
 
-private let lazyLogger = Logger(subsystem: "com.touch-code.shell", category: "lazy-panel")
-
-/// View wrapper that lazily creates a `PanelSurface` on first appearance
-/// and then hosts it via `PanelHostView`. Implements the M5 lifecycle:
+/// Pure renderer for a single panel slot. Drives `PanelHostFeature` via
+/// `.task { store.send(.task) }` and switches over `store.phase` to show
+/// a loading placeholder, the live `PanelHostView`, or a failure with
+/// retry. All `TerminalClient` calls live in the reducer — this view never
+/// reads `@Dependency` directly, which was the source of the
+/// `TerminalClient.liveValue not configured` fatal-error on launch with
+/// a persisted catalog (reducer-scope overrides don't reach SwiftUI view
+/// bodies).
 ///
-/// - Surface is created when the view appears (one-frame slot after tab
-///   activation), not when the tab or panel is added to the catalog.
-/// - Surfaces are retained across tab switches: the view disappearing when
-///   a tab becomes inactive does NOT destroy the surface. The engine
-///   keeps it in its registry; reappearing looks it up again via
-///   `terminalClient.surface(for:)`.
-/// - Surfaces are destroyed explicitly via `HierarchyClient.closePanel`
-///   → `HierarchyManager.closePanel` → `TerminalEngine.closeSurface`. The
-///   view never disposes directly.
-///
-/// Routed through `TerminalClient` (not `TerminalEngine` directly) so
-/// tests can override behaviour with `@Dependency` instead of requiring a
-/// full engine stack.
-///
-/// If `ensureSurface` throws (e.g. engine has no `GhosttyRuntime` or the
-/// panel address no longer resolves), the view shows an error placeholder
-/// with a "Retry" button that re-runs the lookup.
+/// Surfaces are retained across tab switches by `TerminalEngine`'s
+/// registry. The reducer's registry short-circuit reuses them on
+/// reappearance; explicit teardown still goes through
+/// `HierarchyClient.closePanel` → `TerminalEngine.closeSurface`.
 struct LazyPanelHost: View {
-  let panelID: PanelID
-  let spaceID: SpaceID
-  let projectID: ProjectID
-  let worktreeID: WorktreeID
-  let tabID: TabID
-  @Dependency(TerminalClient.self) private var terminalClient
-  @State private var state: LoadState = .loading
-
-  enum LoadState {
-    case loading
-    case ready(PanelSurface)
-    case failed(String)
-  }
+  @Bindable var store: StoreOf<PanelHostFeature>
 
   var body: some View {
     content
-      .task(id: panelID) {
-        ensureSurface()
+      .task(id: store.panelID) {
+        store.send(.task)
       }
   }
 
   @ViewBuilder
   private var content: some View {
-    switch state {
-    case .ready(let surface):
-      PanelHostView(surface: surface)
-        .background(Color.black)
+    switch store.phase {
+    case .ready:
+      if let surface = store.surface?.surface {
+        PanelHostView(surface: surface)
+          .background(Color.black)
+      } else {
+        // Should not happen — `phase == .ready` is set by the reducer
+        // only together with a non-nil `surface`. Render the loading
+        // placeholder as a defensive no-op so an unexpected state doesn't
+        // show a broken surface.
+        loadingPlaceholder
+      }
     case .loading:
-      VStack(spacing: 6) {
-        ProgressView()
-        Text("Creating surface…")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-      }
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .background(Color(nsColor: .underPageBackgroundColor))
+      loadingPlaceholder
     case .failed(let message):
-      VStack(spacing: 8) {
-        Text("Panel failed to start")
-          .font(.headline)
-          .foregroundStyle(.red)
-        Text(message)
-          .font(.caption.monospaced())
-          .foregroundStyle(.secondary)
-          .textSelection(.enabled)
-          .multilineTextAlignment(.center)
-        Button("Retry") {
-          state = .loading
-          ensureSurface()
-        }
-        .buttonStyle(.bordered)
-      }
-      .padding()
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .background(Color(nsColor: .underPageBackgroundColor))
+      failurePlaceholder(message: message)
     }
   }
 
-  private func ensureSurface() {
-    // Registry short-circuit: if the engine already has the surface, reuse
-    // it without re-invoking ensureSurface (harmlessly idempotent, but
-    // saves the catalog walk + keeps logs quieter).
-    if let existing = terminalClient.surface(panelID) {
-      state = .ready(existing)
-      return
+  private var loadingPlaceholder: some View {
+    VStack(spacing: 6) {
+      ProgressView()
+      Text("Creating surface…")
+        .font(.caption)
+        .foregroundStyle(.secondary)
     }
-    do {
-      try terminalClient.ensureSurface(panelID, tabID, worktreeID, projectID, spaceID)
-    } catch {
-      lazyLogger.error(
-        "ensureSurface failed for \(panelID.description, privacy: .public): \(String(describing: error), privacy: .public)"
-      )
-      state = .failed(String(describing: error))
-      return
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .background(Color(nsColor: .underPageBackgroundColor))
+  }
+
+  private func failurePlaceholder(message: String) -> some View {
+    VStack(spacing: 8) {
+      Text("Panel failed to start")
+        .font(.headline)
+        .foregroundStyle(.red)
+      Text(message)
+        .font(.caption.monospaced())
+        .foregroundStyle(.secondary)
+        .textSelection(.enabled)
+        .multilineTextAlignment(.center)
+      Button("Retry") {
+        store.send(.retryButtonTapped)
+      }
+      .buttonStyle(.bordered)
     }
-    // ensureSurface succeeded; look up the just-registered surface.
-    if let surface = terminalClient.surface(panelID) {
-      state = .ready(surface)
-    } else {
-      // Shouldn't happen unless ensureSurface silently no-opped (e.g.
-      // runtime unavailable was swallowed). Surface a diagnostic.
-      lazyLogger.warning(
-        "ensureSurface returned success but surface(for:) resolved nil for \(panelID.description, privacy: .public)")
-      state = .failed("Surface not registered after creation.")
-    }
+    .padding()
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .background(Color(nsColor: .underPageBackgroundColor))
   }
 }

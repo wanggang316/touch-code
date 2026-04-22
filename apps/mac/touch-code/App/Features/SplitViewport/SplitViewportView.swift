@@ -2,16 +2,17 @@ import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
 
-/// Recursively renders the active Tab's `SplitTree<PanelID>`. Leaves become
-/// `PanelHostView(surface:)`; splits become `HSplitView` / `VSplitView` per
-/// `SplitTree.Direction`. Surface lookup goes through `TerminalEngine` (not
-/// TCA state) — the engine is the authoritative source for live
-/// `PanelSurface` instances.
+/// Recursively renders the active Tab's `SplitTree<PanelID>`. Leaves scope
+/// a child `StoreOf<PanelHostFeature>` off the parent store and hand it
+/// to `LazyPanelHost`; splits become `HSplitView` / `VSplitView` per
+/// `SplitTree.Direction`. Surface lifecycle is owned entirely by
+/// `PanelHostFeature`; this view only bridges catalog changes into the
+/// reducer via `.panelsInActiveTabChanged(_:)`.
 ///
 /// Empty-Tab UX: centered "No panels" placeholder with a "New Panel" button.
 /// The Tab is never auto-closed by this view (M4 contract from exec plan).
 struct SplitViewportView: View {
-  let store: StoreOf<SplitViewportFeature>
+  @Bindable var store: StoreOf<SplitViewportFeature>
   let spaceID: SpaceID
   let projectID: ProjectID
   let worktreeID: WorktreeID
@@ -19,11 +20,16 @@ struct SplitViewportView: View {
   @Environment(HierarchyManager.self) private var hierarchyManager
 
   var body: some View {
-    if let tab = currentTab(), !tab.splitTree.isEmpty, let root = tab.splitTree.root {
-      AnyView(renderNode(root, tab: tab))
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    } else {
-      emptyPlaceholder
+    Group {
+      if let tab = currentTab(), !tab.splitTree.isEmpty, let root = tab.splitTree.root {
+        AnyView(renderNode(root, tab: tab))
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+      } else {
+        emptyPlaceholder
+      }
+    }
+    .task(id: currentPanelSeedsKey()) {
+      syncPanelHosts()
     }
   }
 
@@ -50,6 +56,30 @@ struct SplitViewportView: View {
       .projects.first(where: { $0.id == projectID })?
       .worktrees.first(where: { $0.id == worktreeID })?
       .tabs.first(where: { $0.id == tabID })
+  }
+
+  /// Stable identity for `.task(id:)`: if the panel set (in order) is the
+  /// same, SwiftUI won't re-fire the sync. Using the id collection directly
+  /// is cheap — tabs hold ≤ ~32 panels.
+  private func currentPanelSeedsKey() -> [PanelID] {
+    currentTab()?.panels.map(\.id) ?? []
+  }
+
+  private func syncPanelHosts() {
+    guard let tab = currentTab() else {
+      store.send(.panelsInActiveTabChanged([]))
+      return
+    }
+    let seeds = tab.panels.map { panel in
+      PanelHostFeature.State(
+        panelID: panel.id,
+        tabID: tabID,
+        worktreeID: worktreeID,
+        projectID: projectID,
+        spaceID: spaceID
+      )
+    }
+    store.send(.panelsInActiveTabChanged(seeds))
   }
 
   /// Recursive renderer. Returns `AnyView` at every level to prevent
@@ -88,15 +118,20 @@ struct SplitViewportView: View {
   }
 
   private func panelLeaf(_ panelID: PanelID) -> some View {
-    // LazyPanelHost owns the ensureSurface dance: first-appearance
-    // creation via @Dependency(TerminalClient.self), registry lookup for
-    // returning views, retry on failure.
-    LazyPanelHost(
-      panelID: panelID,
-      spaceID: spaceID,
-      projectID: projectID,
-      worktreeID: worktreeID,
-      tabID: tabID
-    )
+    Group {
+      if let childStore = store.scope(
+        state: \.panelHosts[id: panelID],
+        action: \.panelHosts[id: panelID]
+      ) {
+        LazyPanelHost(store: childStore)
+      } else {
+        // One-frame gap between panel entering the catalog and the sync
+        // action landing `panelHosts[id: panelID]` in state. Render a
+        // neutral placeholder rather than blanking the pane.
+        ProgressView()
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+          .background(Color(nsColor: .underPageBackgroundColor))
+      }
+    }
   }
 }

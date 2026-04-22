@@ -14,10 +14,22 @@ struct SplitViewportFeature {
     /// The Tab currently rendered in the viewport. Set by parent features
     /// (RootFeature selection stream in M4; lazy lifecycle in M5).
     var activeTabID: TabID?
+    /// Lifecycle state for every panel currently rendered in the viewport.
+    /// The view bridges catalog changes into this array via
+    /// `.panelsInActiveTabChanged(_:)`; existing entries are preserved by
+    /// `panelID` so a `.ready` surface does not get knocked back to
+    /// `.loading` on an unrelated catalog mutation.
+    var panelHosts: IdentifiedArrayOf<PanelHostFeature.State> = []
   }
 
   enum Action: Equatable {
     case activeTabChanged(TabID?)
+    /// Emitted by `SplitViewportView` when the active Tab's panel list
+    /// changes (panel opened, closed, split). The seeds carry the panel
+    /// address; existing `panelHosts` entries with the same `panelID` are
+    /// carried over unchanged.
+    case panelsInActiveTabChanged([PanelHostFeature.State])
+    case panelHosts(IdentifiedActionOf<PanelHostFeature>)
     case newPanelButtonTapped(
       inTab: TabID, inWorktree: WorktreeID, inProject: ProjectID, inSpace: SpaceID,
       workingDirectory: String)
@@ -43,6 +55,16 @@ struct SplitViewportFeature {
       switch action {
       case .activeTabChanged(let tabID):
         state.activeTabID = tabID
+        return .none
+
+      case .panelsInActiveTabChanged(let seeds):
+        let existing = state.panelHosts
+        state.panelHosts = IdentifiedArray(
+          uniqueElements: seeds.map { seed in existing[id: seed.panelID] ?? seed }
+        )
+        return .none
+
+      case .panelHosts:
         return .none
 
       case .newPanelButtonTapped(let tabID, let worktreeID, let projectID, let spaceID, let cwd):
@@ -73,6 +95,9 @@ struct SplitViewportFeature {
         try? hierarchyClient.resizeSplit(path, ratio, tabID, worktreeID, projectID, spaceID)
         return .none
       }
+    }
+    .forEach(\.panelHosts, action: \.panelHosts) {
+      PanelHostFeature()
     }
   }
 }
