@@ -1006,6 +1006,22 @@ Present this plan for approval. On approval:
 
 **Decision:** IPC handler (`EditorHandlers.swift`) imports `HierarchyClient`; for `editor.open` without `preferred`, it calls `isPathRegistered(canonical: HierarchyManager.canonicalPath(path))` and reads `.defaultEditor` from the catalog snapshot. Service signature unchanged.
 
+### 2026-04-22 — Implementation complete (Phase 2–7)
+
+Six commits landed on `refactor/open-editor`, one per phase:
+
+| Phase | Commit | Summary |
+|---|---|---|
+| 2 — Core infrastructure | `0d132c8` | 28-entry `EditorRegistry`, `EditorModels` + `LaunchMode`, `AppLauncher` protocol + `LiveAppLauncher`, 3-case `EditorError`. |
+| 3 — Service refactor | `a2d5bf9` | `LiveEditorService` cascade + cache, `TestEditorService` + `RecordingAppLauncher`, retired `ProcessSpawner` / `PathProber` / `EditorEnv` / `SpawnContract` / `CustomEditor`. |
+| 4a/4b — UX layers | `4a3bdff` | Settings default-editor pane + Project Options per-repo override, both bound to installed-only descriptor list. |
+| 4c/4d — IPC + Panel wiring | `07945c4` | `editor.{describe,open,setGlobalDefault,setProjectDefault}` handlers with per-Project override lookup; `TerminalEngine.ensureSurface` forwards `panel.initialCommand` so `$EDITOR` can reach the shell. |
+| 5 — Migration + cache refresh | `2d75abd` | `Settings.garbageCollectEditors` + `Catalog.garbageCollectEditors` run once at load; `EditorService.clearCache()` invoked on Settings-pane appear and on every `editor.describe` IPC call. |
+| 6 — Tests | `6bd2875` | Registry sanity (10 tests), service resolution (8 tests), launch branching (8 tests), migration (10 tests), IPC handlers (7 tests), EditorFeature (5 tests) — 51 total, all green. |
+| 7 — Cleanup + progress log | *this commit* | Pruned stale comment references (`EditorEnv`, `LiveProcessSpawnerIntegrationTests`); appended this entry. |
+
+**Known limitation — `.shellEditor` deferred.** The `.shellEditor` registry row is probed and appears in `describe()` results, but `EditorService.open` currently throws a descriptive `.launchFailed` because the service signature (`open(directory: URL, preferred: EditorID?)`) intentionally excludes domain types (Panel / Tab context). The Panel primitive itself was completed in Phase 4d — callers that want `$EDITOR` end-to-end should route through `hierarchy.openPanel` with `initialCommand: "$EDITOR"`. A future iteration either widens the service signature or adds a separate `EditorService.openShell(panelContext:)` entry point. Tracked inline in `EditorService+Live.swift` (search `"Panel" + "Tab context"`).
+
 ---
 
 ## Decision Log

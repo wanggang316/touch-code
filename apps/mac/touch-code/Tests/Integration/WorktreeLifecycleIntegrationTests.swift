@@ -12,7 +12,7 @@ import Testing
 /// run `embed-git-wt.sh` (unbundled `wt`) see these tests as
 /// *skipped* rather than red failures. The predicate is evaluated at
 /// test discovery time — mirrors the pattern in
-/// `LiveGitServiceIntegrationTests.swift` / `LiveProcessSpawnerIntegrationTests.swift`.
+/// `LiveGitServiceIntegrationTests.swift`.
 /// The app build's Tuist pre-script (`verify-git-wt.sh`) keeps the
 /// bundled case the default.
 @MainActor
