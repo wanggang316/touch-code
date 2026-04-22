@@ -4,7 +4,7 @@ import os.log
 import tcKit
 
 /// Idempotent, sudo-free installer for the `tc` CLI. Writes only under `$HOME`
-/// (enforced by `HomeScopeGuard`) and never overwrites a file it did not create.
+/// (enforced by `HomeScope`) and never overwrites a file it did not create.
 /// `probe()` is safe to call on view-appear; `install()` / `uninstall()` return
 /// typed results that the Developer pane renders directly.
 ///
@@ -69,13 +69,13 @@ final class CLIInstallerClient {
   /// "Reveal in Finder". Mutating setters are not needed — callers pass a
   /// different `Paths` through the initializer.
   let paths: Paths
-  private let fileSystem: SkillFileSystem
+  private let fileSystem: CLIFilesystem
   private let pathLookup: () -> [URL]
   private let logger = Logger(subsystem: "com.touch-code.ui", category: "cli-installer")
 
   init(
     paths: Paths = .default,
-    fileSystem: SkillFileSystem = RealSkillFileSystem(),
+    fileSystem: CLIFilesystem = RealCLIFilesystem(),
     pathLookup: @escaping () -> [URL] = CLIInstallerClient.defaultPathEntries
   ) {
     self.paths = paths
@@ -240,10 +240,10 @@ final class CLIInstallerClient {
 
   /// Returns the first URL in `candidates` that escapes `$HOME`, or nil if
   /// every entry stays inside. Used by probe / install / uninstall so the
-  /// HomeScopeGuard check is visible at every mutating entry point.
+  /// HomeScope check is visible at every mutating entry point.
   private func firstEscape(from candidates: [URL]) -> URL? {
     candidates.first {
-      !HomeScopeGuard.isInsideHome(
+      !HomeScope.isInsideHome(
         $0, fileSystem: fileSystem, homeDirectory: paths.homeDirectory)
     }
   }

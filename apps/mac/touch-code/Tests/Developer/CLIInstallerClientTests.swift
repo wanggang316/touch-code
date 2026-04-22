@@ -4,7 +4,7 @@ import tcKit
 
 @testable import touch_code
 
-/// Covers install / uninstall / probe state transitions plus the HomeScopeGuard
+/// Covers install / uninstall / probe state transitions plus the HomeScope
 /// escape rejection. Uses a real filesystem rooted at a fresh tmp directory so
 /// the symlink-introspection paths exercise the same code that runs in
 /// production.
@@ -50,7 +50,7 @@ struct CLIInstallerClientTests {
 
   private func makeClient(
     paths: CLIInstallerClient.Paths,
-    fileSystem: SkillFileSystem = RealSkillFileSystem()
+    fileSystem: CLIFilesystem = RealCLIFilesystem()
   ) -> CLIInstallerClient {
     CLIInstallerClient(paths: paths, fileSystem: fileSystem, pathLookup: { [] })
   }
@@ -171,12 +171,12 @@ struct CLIInstallerClientTests {
 
   // MARK: - Retry after failure
 
-  /// `SkillFileSystem` fake that fails `createSymbolicLink` on a configurable
+  /// `CLIFilesystem` fake that fails `createSymbolicLink` on a configurable
   /// predicate, then delegates to the real filesystem. Covers both "first
   /// attempt fails, retry succeeds" and "second symlink in a pair fails, first
   /// rolled back" scenarios without relying on OS-level disk faults.
-  private final class FlakySymlinkFileSystem: SkillFileSystem, @unchecked Sendable {
-    private let real = RealSkillFileSystem()
+  private final class FlakySymlinkFileSystem: CLIFilesystem, @unchecked Sendable {
+    private let real = RealCLIFilesystem()
     private var shouldFail: (URL) -> Bool
 
     init(shouldFail: @escaping (URL) -> Bool) {
@@ -329,13 +329,13 @@ struct CLIInstallerClientTests {
     #expect(foreignContents.contains("foreign"))
   }
 
-  // MARK: - HomeScopeGuard escape
+  // MARK: - HomeScope escape
 
   @Test
-  func escape_attempt_is_rejected_by_HomeScopeGuard() throws {
+  func escape_attempt_is_rejected_by_HomeScope() throws {
     let home = try TempHome()
     // Build a fake `.local` directory structure where `.local` itself is a
-    // symlink pointing outside $HOME. HomeScopeGuard walks the ancestor chain
+    // symlink pointing outside $HOME. HomeScope walks the ancestor chain
     // and rejects any link whose real target escapes.
     let outside = FileManager.default.temporaryDirectory.appending(
       component: "tc-installer-outside-\(UUID().uuidString)",
