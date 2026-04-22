@@ -162,12 +162,42 @@ struct GitWorktreeClientTests {
   }
 
   @Test
+  func stderrMapsBranchExistsUppercase() {
+    // Locales or future git releases may emit uppercased stderr. The
+    // pattern is case-insensitive; captured branch-name keeps its
+    // original casing for faithful UI display (issue #24 (b)).
+    let err = GitWorktreeClient.mapGitStderr(
+      command: "git worktree add -b X /tmp/X",
+      stderr: "FATAL: A BRANCH NAMED 'X' ALREADY EXISTS"
+    )
+    #expect(err == .branchExists("X"))
+  }
+
+  @Test
+  func stderrMapsBranchExistsTitleCase() {
+    let err = GitWorktreeClient.mapGitStderr(
+      command: "git worktree add -b Feat /tmp/Feat",
+      stderr: "Fatal: A Branch Named 'Feat' Already Exists"
+    )
+    #expect(err == .branchExists("Feat"))
+  }
+
+  @Test
   func stderrMapsInvalidBranchName() {
     let err = GitWorktreeClient.mapGitStderr(
       command: "git worktree add",
       stderr: "fatal: 'bad name' is not a valid branch name"
     )
     #expect(err == .invalidBranchName("bad name"))
+  }
+
+  @Test
+  func stderrMapsInvalidBranchNameMixedCase() {
+    let err = GitWorktreeClient.mapGitStderr(
+      command: "git worktree add",
+      stderr: "Fatal: 'Bad Name' Is Not A Valid Branch Name"
+    )
+    #expect(err == .invalidBranchName("Bad Name"))
   }
 
   @Test
@@ -224,6 +254,90 @@ struct GitWorktreeClientTests {
   func porcelainParsesModifiedAndUntracked() {
     let output = " M path/to/a.swift\n?? path/to/b.swift\n"
     #expect(GitWorktreeClient.parsePorcelainPaths(output) == ["path/to/a.swift", "path/to/b.swift"])
+  }
+
+  // MARK: - pickNewWorktreePath (issue #24 (c))
+
+  private func entry(path: String, branch: String = "x") -> GitWtEntry {
+    GitWtEntry(branch: branch, path: path, head: "abc123", isBare: false)
+  }
+
+  @Test
+  func pickNewWorktreePathCleanDiffReturnsNewPath() {
+    let pre = [entry(path: "/tmp/repo", branch: "main")]
+    let post = [
+      entry(path: "/tmp/repo", branch: "main"),
+      entry(path: "/tmp/repo/.worktrees/feature", branch: "feature"),
+    ]
+    let picked = GitWorktreeClient.pickNewWorktreePath(
+      preEntries: pre, postEntries: post, fallbackStdoutLast: ""
+    )
+    #expect(picked?.path == "/tmp/repo/.worktrees/feature")
+  }
+
+  @Test
+  func pickNewWorktreePathNoDiffReturnsNil() {
+    let entries = [entry(path: "/tmp/repo", branch: "main")]
+    let picked = GitWorktreeClient.pickNewWorktreePath(
+      preEntries: entries,
+      postEntries: entries,
+      fallbackStdoutLast: "/tmp/something"
+    )
+    #expect(picked == nil)
+  }
+
+  @Test
+  func pickNewWorktreePathMultipleNewDisambiguatesByFallback() {
+    let pre = [entry(path: "/tmp/repo", branch: "main")]
+    let post = [
+      entry(path: "/tmp/repo", branch: "main"),
+      entry(path: "/tmp/repo/.worktrees/a", branch: "a"),
+      entry(path: "/tmp/repo/.worktrees/b", branch: "b"),
+    ]
+    let picked = GitWorktreeClient.pickNewWorktreePath(
+      preEntries: pre,
+      postEntries: post,
+      fallbackStdoutLast: "/tmp/repo/.worktrees/b"
+    )
+    #expect(picked?.path == "/tmp/repo/.worktrees/b")
+  }
+
+  @Test
+  func pickNewWorktreePathMultipleNewNoFallbackMatchReturnsFirst() {
+    let pre = [entry(path: "/tmp/repo", branch: "main")]
+    let post = [
+      entry(path: "/tmp/repo", branch: "main"),
+      entry(path: "/tmp/repo/.worktrees/a", branch: "a"),
+      entry(path: "/tmp/repo/.worktrees/b", branch: "b"),
+    ]
+    // Fallback doesn't match any new entry — pickNewWorktreePath
+    // returns the first new one so the caller isn't blocked.
+    let picked = GitWorktreeClient.pickNewWorktreePath(
+      preEntries: pre,
+      postEntries: post,
+      fallbackStdoutLast: "/unrelated/path"
+    )
+    #expect(picked?.path == "/tmp/repo/.worktrees/a")
+  }
+
+  @Test
+  func pickNewWorktreePathCanonicalizesTrailingSlash() {
+    // wt ls may emit paths with a trailing slash where the stdoutLast
+    // doesn't (or vice versa); standardizedFileURL handles that.
+    let pre = [entry(path: "/tmp/repo", branch: "main")]
+    let post = [
+      entry(path: "/tmp/repo", branch: "main"),
+      entry(path: "/tmp/repo/.worktrees/feat/", branch: "feat"),
+    ]
+    let picked = GitWorktreeClient.pickNewWorktreePath(
+      preEntries: pre,
+      postEntries: post,
+      fallbackStdoutLast: "/tmp/repo/.worktrees/feat"
+    )
+    // standardizedFileURL strips the trailing slash from a directory
+    // path at comparison time; the returned URL should be the
+    // canonical form.
+    #expect(picked?.path == "/tmp/repo/.worktrees/feat")
   }
 
   @Test

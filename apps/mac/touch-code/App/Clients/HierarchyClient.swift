@@ -1,7 +1,18 @@
 import ComposableArchitecture
 import Foundation
 import Observation
+import OSLog
 import TouchCodeCore
+
+/// Logger for the background reconcile path. Matches the project's
+/// `com.touch-code.<area>` subsystem convention (see SettingsStore,
+/// CatalogStore, the IPC handlers, etc.). Category `reconcile` isolates
+/// these events from the rest of the hierarchy subsystem so operators
+/// can filter with `log stream --predicate 'category == "reconcile"'`.
+private let reconcileLogger = Logger(
+  subsystem: "com.touch-code.hierarchy",
+  category: "reconcile"
+)
 
 /// TCA dependency-injection bridge over `HierarchyManager`. Features depend
 /// on this struct's closures, not on the manager directly; the `liveValue`
@@ -325,9 +336,14 @@ extension HierarchyClient {
         entries: mapped
       )
     } catch {
-      // Swallow to preserve the "never throw, never crash a reconcile"
-      // contract. A follow-up PR wires a Logger call here — see PR
-      // review item (d).
+      // Log under com.touch-code.hierarchy/reconcile and swallow —
+      // never throw, never crash a reconcile (see design doc
+      // §Discovery / Reconcile). `projectID` is printed as .public
+      // because it's a UUID opaque to users; the error description
+      // likewise carries no PII. Issue #24 (d).
+      reconcileLogger.error(
+        "reconcileDiscoveredWorktrees failed: project=\(projectID.raw.uuidString, privacy: .public) \(error.localizedDescription, privacy: .public)"
+      )
     }
   }
 

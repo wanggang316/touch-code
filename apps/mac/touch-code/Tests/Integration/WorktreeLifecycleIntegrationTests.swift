@@ -8,13 +8,23 @@ import Testing
 /// force-remove after dirtying the tree, plus the uncommittedChanges
 /// error path.
 ///
-/// Skipped when the bundled `wt` resource cannot be resolved (dev
-/// builds that haven't run `embed-git-wt.sh` yet). The app build's
-/// Tuist pre-script (`verify-git-wt.sh`) normally guarantees it is
-/// present; this guard is belt-and-braces for headless test hosts.
+/// Uses Swift Testing's `.enabled(if:)` trait so hosts that haven't
+/// run `embed-git-wt.sh` (unbundled `wt`) see these tests as
+/// *skipped* rather than red failures. The predicate is evaluated at
+/// test discovery time — mirrors the pattern in
+/// `LiveGitServiceIntegrationTests.swift` / `LiveProcessSpawnerIntegrationTests.swift`.
+/// The app build's Tuist pre-script (`verify-git-wt.sh`) keeps the
+/// bundled case the default.
 @MainActor
 struct WorktreeLifecycleIntegrationTests {
   private let fm = FileManager.default
+
+  // `nonisolated` so Swift Testing's `.enabled(if:)` trait (a Sendable
+  // context evaluated at test discovery) can read it even though the
+  // enclosing struct is @MainActor.
+  nonisolated static let wtBundled: Bool = {
+    Bundle.main.url(forResource: "wt", withExtension: nil, subdirectory: "git-wt") != nil
+  }()
 
   private func makeTempRepo() throws -> URL {
     let base = fm.temporaryDirectory
@@ -47,13 +57,8 @@ struct WorktreeLifecycleIntegrationTests {
     }
   }
 
-  private func wtAvailable() -> Bool {
-    Bundle.main.url(forResource: "wt", withExtension: nil, subdirectory: "git-wt") != nil
-  }
-
-  @Test
+  @Test(.enabled(if: WorktreeLifecycleIntegrationTests.wtBundled))
   func fullLifecycle() async throws {
-    try #require(wtAvailable(), "wt script not bundled in test target")
     let repo = try makeTempRepo()
     defer { try? fm.removeItem(at: repo) }
 
@@ -85,15 +90,22 @@ struct WorktreeLifecycleIntegrationTests {
     #expect(entries.allSatisfy { !$0.isBare })
     #expect(entries.contains(where: { $0.branch == "feature-a" }))
 
+    // Issue #24 (c): the returned path must be a real entry in
+    // `wt ls --json`, not something parsed from stray stdout. The
+    // diff-based picker guarantees this invariant; a regression
+    // would trigger this #expect.
+    #expect(entries.contains(where: {
+      URL(fileURLWithPath: $0.path).standardizedFileURL == worktreePath
+    }))
+
     // Safe-remove the clean worktree.
     try await client.removeWorktree(repo, worktreePath, false)
     let afterRemove = try await client.lsWorktrees(repo)
     #expect(afterRemove.count == 1)
   }
 
-  @Test
+  @Test(.enabled(if: WorktreeLifecycleIntegrationTests.wtBundled))
   func uncommittedChangesBlockSafeRemoveAndForceRemoveSucceeds() async throws {
-    try #require(wtAvailable(), "wt script not bundled in test target")
     let repo = try makeTempRepo()
     defer { try? fm.removeItem(at: repo) }
 
@@ -138,5 +150,84 @@ struct WorktreeLifecycleIntegrationTests {
     // Force remove succeeds.
     try await client.removeWorktree(repo, worktreePath, true)
     #expect(!fm.fileExists(atPath: worktreePath.path(percentEncoded: false)))
+  }
+
+  /// Exercises issue #24 (a) — cancelling a `createWorktreeStream`
+  /// consumer must terminate the spawned `wt` child. The invariant we
+  /// test is the direct one master called out: "cancel 后 Process 不
+  /// 再活着". We capture a weak reference to the `wt` Process via the
+  /// `onCreateWorktreeSpawn` seam on `makeLive`, then cancel the
+  /// consuming Task and assert `!process.isRunning` within a short
+  /// deadline. No dependency on wt's runtime size, no probing the
+  /// filesystem for a partial copy — flake-free.
+  @Test(.enabled(if: WorktreeLifecycleIntegrationTests.wtBundled))
+  func createStreamCancellationTerminatesWtProcess() async throws {
+    let repo = try makeTempRepo()
+    defer { try? fm.removeItem(at: repo) }
+    let baseDir = repo.appending(path: ".worktrees", directoryHint: .isDirectory)
+    try fm.createDirectory(at: baseDir, withIntermediateDirectories: true)
+
+    // Weak box so we don't keep the Process alive beyond natural exit.
+    final class WeakProcess: @unchecked Sendable {
+      private let lock = NSLock()
+      weak var process: Process?
+      func capture(_ p: Process) {
+        lock.lock(); process = p; lock.unlock()
+      }
+      func isAlive() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return process?.isRunning ?? false
+      }
+    }
+    let weakBox = WeakProcess()
+
+    let client = GitWorktreeClient.makeLive(
+      onCreateWorktreeSpawn: { process in weakBox.capture(process) }
+    )
+
+    let spec = CreateWorktreeSpec(
+      repoRoot: repo,
+      baseDirectory: baseDir,
+      name: "cancelled",
+      branch: "cancelled",
+      baseRef: "HEAD",
+      fetchOrigin: false,
+      copyIgnored: false,
+      copyUntracked: false
+    )
+
+    let consumer = Task<Void, Error> {
+      for try await _ in client.createWorktreeStream(spec) {
+        // Don't care about events — we just want the stream to start
+        // so the Process has been spawned, then we cancel from outside.
+      }
+    }
+
+    // Wait for wt to actually start (capture() fires immediately
+    // before process.run()). 500 ms is generous on this machine;
+    // bump if flaky. `weakBox.process` becomes non-nil once onSpawn
+    // fires from within `runStream`.
+    let spawnDeadline = ContinuousClock.now.advanced(by: .milliseconds(1000))
+    while weakBox.process == nil, ContinuousClock.now < spawnDeadline {
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(weakBox.process != nil, "wt should have spawned")
+
+    consumer.cancel()
+
+    // The real assertion: once cancel propagates through
+    // onTermination → processBox.terminateIfRunning(), the wt child
+    // exits within SIGTERM's normal window. 2 s is well over the
+    // measured time (< 100 ms locally).
+    let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+    while weakBox.isAlive(), ContinuousClock.now < deadline {
+      try await Task.sleep(for: .milliseconds(20))
+    }
+    #expect(!weakBox.isAlive(), "wt process must be terminated after cancellation")
+
+    // Drain the consumer's failure (CancellationError or similar)
+    // so the task leaves cleanly without trip-wiring the Swift
+    // Testing harness for unhandled throws.
+    _ = try? await consumer.value
   }
 }
