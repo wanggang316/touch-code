@@ -5,360 +5,554 @@ import TouchCodeCore
 import os.log
 
 /// Single translation boundary between libghostty's C action union
-/// (`ghostty_action_s`) and typed Swift intents. The decoder never mutates
-/// app or reducer state directly — surface-scoped info actions call into
-/// `PanelSurface.apply(_:)` + `GhosttyRuntime.emitInfoChanged(_:_:)`, tab/
-/// split/window intents are lifted onto the `TerminalEvent` stream via
-/// `GhosttyRuntime.emit(_:)`, and effectful actions trigger AppKit calls
-/// in place.
+/// (`ghostty_action_s`) and typed Swift intents. The decoder is split into
+/// two halves:
 ///
-/// Case layout mirrors `ghostty_action_tag_e` in `ghostty.h:887`. The tag
-/// set is large (65 entries) and C enums import as `struct` without
-/// exhaustiveness, so both methods fall through to a `default` branch that
-/// logs the unknown tag's raw value.
-@MainActor
+///   * `decodeSurfaceAction` / `decodeAppAction` — `nonisolated`, safe to
+///     call from the libghostty callback thread. Eagerly copies every
+///     C-pointer-backed field (title, pwd, needle, url, notification body,
+///     key-table name, cloned config handle) into owned Swift values so a
+///     deferred main-thread apply never touches memory libghostty has
+///     reclaimed when `action_cb` returned.
+///   * `apply(_ decoded:…)` — `@MainActor`, operates only on the
+///     Sendable `DecodedSurfaceAction` / `DecodedAppAction` enum and
+///     performs the routing side effects (emit events, write
+///     `PanelSurface.info`, trigger AppKit calls).
+///
+/// Rationale (plan 0008 DEC-M7d-1): the earlier design queued the raw
+/// `ghostty_action_s` struct and decoded it on main after the callback
+/// returned; the C union's borrowed pointers became dangling, and the
+/// callback reported `false` even though we still applied the action
+/// asynchronously. Pre-decoding fixes both: the async apply reads only
+/// Swift-owned data, and the callback can return the correct
+/// consumed-ness because decode decides it synchronously.
 enum GhosttyActionDecoder {
 
-  private static let logger = Logger(
+  nonisolated static let logger = Logger(
     subsystem: "com.touch-code.runtime",
     category: "action"
   )
+}
 
-  // MARK: - Surface-scoped actions
+// MARK: - Decoded action values (Sendable, cross-thread safe)
 
-  static func surfaceAction(
+/// Swift-owned surface action. Every pointer field from `ghostty_action_s`
+/// is materialized into a Sendable Swift value before this enum is handed
+/// to the main-thread applier.
+enum DecodedSurfaceAction: Sendable, Equatable {
+  // Bucket 1 — Tab / split intent
+  case newTab
+  case closeTab(mode: CloseTabMode)
+  case moveTab(offset: Int)
+  case gotoTab(target: GotoTabTarget)
+  case newSplit(direction: NewSplitDirection)
+  case gotoSplit(direction: FocusDirection)
+  case resizeSplit(direction: ResizeDirection, amount: Double)
+  case equalizeSplits
+  case toggleSplitZoom
+  case presentTerminal
+  case toggleCommandPalette
+
+  // Bucket 2 — Window intent
+  case newWindow
+  case closeWindow
+  case closeAllWindows
+  case gotoWindow(target: GotoWindowTarget)
+  case toggleFullscreen
+  case toggleMaximize
+  case toggleTabOverview
+  case toggleVisibility
+  case toggleBackgroundOpacity
+  case quit
+  case checkForUpdates
+  case openConfig
+
+  // Bucket 3 — Surface info
+  case setTitle(String?)
+  case setTabTitle(String?)
+  case promptTitle(UInt32)
+  case pwd(String?)
+  case mouseShape(UInt32)
+  case mouseVisible(Bool)
+  case mouseOverLink(String?)
+  case colorChange(kind: Int32, r: UInt8, g: UInt8, b: UInt8)
+  case rendererHealthy(Bool)
+  case cellSize(width: UInt32, height: UInt32)
+  case sizeLimit(minWidth: UInt32, minHeight: UInt32, maxWidth: UInt32, maxHeight: UInt32)
+  case initialSize(width: UInt32, height: UInt32)
+  case resetWindowSize
+  case scrollbar(total: Int, offset: Int, length: Int)
+  case secureInput(UInt32)
+  case keySequence(active: Bool, trigger: UInt32)
+  case keyTable(name: String?, depth: Int)
+  case readonly(Bool)
+  case quitTimer(UInt32)
+  case floatWindow(Bool)
+  case searchStarted(needle: String)
+  case searchEnded
+  case searchTotal(Int)
+  case searchSelected(Int)
+  case progress(state: UInt32, value: Int?)
+
+  // Bucket 4 — Effectful
+  case openURL(String)
+  case desktopNotification(title: String, body: String)
+  case ringBell
+  case commandFinished(exitCode: Int32, duration: UInt64)
+  case showChildExited(code: Int32)
+  case undo
+  case redo
+  case copyTitleToClipboard
+
+  // Bucket 5 — Decode failure / unsupported / unknown tag. The raw tag
+  // rides along so the applier can log it without the C struct.
+  case unsupported(rawTag: UInt32, reason: String)
+
+  /// Whether the callback should report "consumed" to libghostty. Matches
+  /// the value the applier will return — computed synchronously so the C
+  /// return value isn't a guess.
+  var consumed: Bool {
+    if case .unsupported = self { return false }
+    return true
+  }
+}
+
+/// Swift-owned app-level action. `configChange` carries an already-cloned
+/// `ghostty_config_t` whose lifetime this enum now owns — it will be freed
+/// by `GhosttyRuntime.applyClonedConfig` or the `.unsupported` drop path.
+enum DecodedAppAction: @unchecked Sendable {
+  case configChange(cloned: ghostty_config_t)
+  case reloadConfig(soft: Bool)
+  case quit
+  case unsupported(rawTag: UInt32, reason: String)
+
+  var consumed: Bool {
+    if case .unsupported = self { return false }
+    return true
+  }
+}
+
+// MARK: - Decode (C → Swift, any thread)
+
+extension GhosttyActionDecoder {
+
+  /// Synchronously decode a libghostty surface action into an owned Swift
+  /// value. Safe to call on any thread — all pointer-backed fields are
+  /// copied before return.
+  nonisolated static func decodeSurfaceAction(
     _ action: ghostty_action_s,
-    panelID: PanelID,
-    panel: PanelSurface,
-    runtime: GhosttyRuntime
-  ) -> Bool {
+    panelID: PanelID
+  ) -> DecodedSurfaceAction {
     switch action.tag {
 
-    // MARK: Bucket 1 — Tab / Split intent
+    // Bucket 1 — Tab / split intent
     case GHOSTTY_ACTION_NEW_TAB:
-      return emitPanelIntent(.newTab, panelID: panelID, runtime: runtime, tag: action.tag)
+      return .newTab
 
     case GHOSTTY_ACTION_CLOSE_TAB:
       guard let mode = decodeCloseTabMode(action.action.close_tab_mode) else {
-        return logUnsupported(tag: action.tag, reason: "close_tab: unknown mode")
+        return .unsupported(rawTag: action.tag.rawValue, reason: "close_tab: unknown mode")
       }
-      return emitPanelIntent(.closeTab(mode: mode), panelID: panelID, runtime: runtime, tag: action.tag)
+      return .closeTab(mode: mode)
 
     case GHOSTTY_ACTION_MOVE_TAB:
-      let offset = Int(action.action.move_tab.amount)
-      return emitPanelIntent(.moveTab(offset: offset), panelID: panelID, runtime: runtime, tag: action.tag)
+      return .moveTab(offset: Int(action.action.move_tab.amount))
 
     case GHOSTTY_ACTION_GOTO_TAB:
-      let target = decodeGotoTabTarget(action.action.goto_tab)
-      return emitPanelIntent(.gotoTab(target: target), panelID: panelID, runtime: runtime, tag: action.tag)
+      return .gotoTab(target: decodeGotoTabTarget(action.action.goto_tab))
 
     case GHOSTTY_ACTION_NEW_SPLIT:
       guard let dir = decodeNewSplitDirection(action.action.new_split) else {
-        return logUnsupported(tag: action.tag, reason: "new_split: unknown direction")
+        return .unsupported(rawTag: action.tag.rawValue, reason: "new_split: unknown direction")
       }
-      return emitPanelIntent(.newSplit(direction: dir), panelID: panelID, runtime: runtime, tag: action.tag)
+      return .newSplit(direction: dir)
 
     case GHOSTTY_ACTION_GOTO_SPLIT:
       guard let dir = decodeGotoSplitDirection(action.action.goto_split) else {
-        return logUnsupported(tag: action.tag, reason: "goto_split: unknown direction")
+        return .unsupported(rawTag: action.tag.rawValue, reason: "goto_split: unknown direction")
       }
-      return emitPanelIntent(.gotoSplit(direction: dir), panelID: panelID, runtime: runtime, tag: action.tag)
+      return .gotoSplit(direction: dir)
 
     case GHOSTTY_ACTION_RESIZE_SPLIT:
       let resize = action.action.resize_split
       guard let dir = decodeResizeSplitDirection(resize.direction) else {
-        return logUnsupported(tag: action.tag, reason: "resize_split: unknown direction")
+        return .unsupported(rawTag: action.tag.rawValue, reason: "resize_split: unknown direction")
       }
-      let request = PanelActionRequest.resizeSplit(direction: dir, amount: Double(resize.amount))
-      return emitPanelIntent(request, panelID: panelID, runtime: runtime, tag: action.tag)
+      return .resizeSplit(direction: dir, amount: Double(resize.amount))
 
     case GHOSTTY_ACTION_EQUALIZE_SPLITS:
-      return emitPanelIntent(.equalizeSplits, panelID: panelID, runtime: runtime, tag: action.tag)
+      return .equalizeSplits
 
     case GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM:
-      return emitPanelIntent(.toggleSplitZoom, panelID: panelID, runtime: runtime, tag: action.tag)
+      return .toggleSplitZoom
 
     case GHOSTTY_ACTION_PRESENT_TERMINAL:
-      return emitPanelIntent(.presentTerminal, panelID: panelID, runtime: runtime, tag: action.tag)
+      return .presentTerminal
 
     case GHOSTTY_ACTION_TOGGLE_COMMAND_PALETTE:
-      return emitPanelIntent(.toggleCommandPalette, panelID: panelID, runtime: runtime, tag: action.tag)
+      return .toggleCommandPalette
 
-    // MARK: Bucket 2 — Window intent
-    case GHOSTTY_ACTION_NEW_WINDOW:
-      return emitWindowIntent(.new(from: panelID), runtime: runtime, tag: action.tag)
-
-    case GHOSTTY_ACTION_CLOSE_WINDOW:
-      return emitWindowIntent(.close(from: panelID), runtime: runtime, tag: action.tag)
-
-    case GHOSTTY_ACTION_CLOSE_ALL_WINDOWS:
-      return emitWindowIntent(.closeAll, runtime: runtime, tag: action.tag)
-
+    // Bucket 2 — Window intent
+    case GHOSTTY_ACTION_NEW_WINDOW:             return .newWindow
+    case GHOSTTY_ACTION_CLOSE_WINDOW:           return .closeWindow
+    case GHOSTTY_ACTION_CLOSE_ALL_WINDOWS:      return .closeAllWindows
     case GHOSTTY_ACTION_GOTO_WINDOW:
       guard let target = decodeGotoWindowTarget(action.action.goto_window) else {
-        return logUnsupported(tag: action.tag, reason: "goto_window: unknown target")
+        return .unsupported(rawTag: action.tag.rawValue, reason: "goto_window: unknown target")
       }
-      return emitWindowIntent(.goto(target: target), runtime: runtime, tag: action.tag)
-
-    case GHOSTTY_ACTION_TOGGLE_FULLSCREEN:
-      return emitWindowIntent(.toggleFullscreen(from: panelID), runtime: runtime, tag: action.tag)
-
-    case GHOSTTY_ACTION_TOGGLE_MAXIMIZE:
-      return emitWindowIntent(.toggleMaximize(from: panelID), runtime: runtime, tag: action.tag)
-
-    case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW:
-      return emitWindowIntent(.toggleTabOverview(from: panelID), runtime: runtime, tag: action.tag)
-
+      return .gotoWindow(target: target)
+    case GHOSTTY_ACTION_TOGGLE_FULLSCREEN:      return .toggleFullscreen
+    case GHOSTTY_ACTION_TOGGLE_MAXIMIZE:        return .toggleMaximize
+    case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW:    return .toggleTabOverview
     case GHOSTTY_ACTION_TOGGLE_WINDOW_DECORATIONS:
-      // No per-window decoration toggle on macOS — documented explicit no-op.
-      logger.debug("unsupported surface action: toggle_window_decorations (no macOS analog)")
-      return false
-
+      return .unsupported(rawTag: action.tag.rawValue, reason: "no macOS analog")
     case GHOSTTY_ACTION_TOGGLE_QUICK_TERMINAL:
-      // touch-code does not ship a global-hotkey HUD equivalent.
-      logger.debug("unsupported surface action: toggle_quick_terminal (no touch-code analog)")
-      return false
+      return .unsupported(rawTag: action.tag.rawValue, reason: "no touch-code analog")
+    case GHOSTTY_ACTION_TOGGLE_VISIBILITY:      return .toggleVisibility
+    case GHOSTTY_ACTION_TOGGLE_BACKGROUND_OPACITY: return .toggleBackgroundOpacity
+    case GHOSTTY_ACTION_QUIT:                   return .quit
+    case GHOSTTY_ACTION_CHECK_FOR_UPDATES:      return .checkForUpdates
+    case GHOSTTY_ACTION_OPEN_CONFIG:            return .openConfig
 
-    case GHOSTTY_ACTION_TOGGLE_VISIBILITY:
-      return emitWindowIntent(.toggleAppVisibility, runtime: runtime, tag: action.tag)
-
-    case GHOSTTY_ACTION_TOGGLE_BACKGROUND_OPACITY:
-      runtime.toggleBackgroundOpacity()
-      logger.debug("surface action: toggle_background_opacity")
-      return true
-
-    // MARK: Bucket 2 continued — App-level intent raised from a surface
-    case GHOSTTY_ACTION_QUIT:
-      return emitWindowIntent(.quit, runtime: runtime, tag: action.tag)
-
-    case GHOSTTY_ACTION_CHECK_FOR_UPDATES:
-      return emitWindowIntent(.checkForUpdates, runtime: runtime, tag: action.tag)
-
-    case GHOSTTY_ACTION_OPEN_CONFIG:
-      return emitWindowIntent(.openConfig, runtime: runtime, tag: action.tag)
-
-    // MARK: Bucket 3 — Surface info: title family
+    // Bucket 3 — Surface info: title family (C strings — copy now)
     case GHOSTTY_ACTION_SET_TITLE:
-      let title = String.decode(cstring: action.action.set_title.title)
-      return emitInfo(.title(title), panel: panel, panelID: panelID, runtime: runtime, tag: action.tag)
-
+      return .setTitle(String.decode(cstring: action.action.set_title.title))
     case GHOSTTY_ACTION_SET_TAB_TITLE:
-      let title = String.decode(cstring: action.action.set_tab_title.title)
-      return emitInfo(.tabTitle(title), panel: panel, panelID: panelID, runtime: runtime, tag: action.tag)
-
+      return .setTabTitle(String.decode(cstring: action.action.set_tab_title.title))
     case GHOSTTY_ACTION_PROMPT_TITLE:
-      let raw = UInt32(action.action.prompt_title.rawValue)
-      return emitInfo(.promptTitle(raw), panel: panel, panelID: panelID, runtime: runtime, tag: action.tag)
-
+      return .promptTitle(UInt32(action.action.prompt_title.rawValue))
     case GHOSTTY_ACTION_PWD:
-      let pwd = String.decode(cstring: action.action.pwd.pwd)
-      return emitInfo(.pwd(pwd), panel: panel, panelID: panelID, runtime: runtime, tag: action.tag)
+      return .pwd(String.decode(cstring: action.action.pwd.pwd))
 
-    // MARK: Bucket 3 — Surface info: mouse family
+    // Bucket 3 — Mouse family
     case GHOSTTY_ACTION_MOUSE_SHAPE:
-      let raw = UInt32(action.action.mouse_shape.rawValue)
-      return emitInfo(.mouseShape(raw), panel: panel, panelID: panelID, runtime: runtime, tag: action.tag)
-
+      return .mouseShape(UInt32(action.action.mouse_shape.rawValue))
     case GHOSTTY_ACTION_MOUSE_VISIBILITY:
-      let visible = action.action.mouse_visibility == GHOSTTY_MOUSE_VISIBLE
-      return emitInfo(.mouseVisible(visible), panel: panel, panelID: panelID, runtime: runtime, tag: action.tag)
-
+      return .mouseVisible(action.action.mouse_visibility == GHOSTTY_MOUSE_VISIBLE)
     case GHOSTTY_ACTION_MOUSE_OVER_LINK:
       let link = action.action.mouse_over_link
-      let str = String.decode(cstring: link.url, length: Int(link.len))
-      return emitInfo(.mouseOverLink(str), panel: panel, panelID: panelID, runtime: runtime, tag: action.tag)
+      return .mouseOverLink(String.decode(cstring: link.url, length: Int(link.len)))
 
-    // MARK: Bucket 3 — Surface info: geometry family
+    // Bucket 3 — Geometry
     case GHOSTTY_ACTION_CELL_SIZE:
       let s = action.action.cell_size
-      return emitInfo(.cellSize(width: s.width, height: s.height),
-                      panel: panel, panelID: panelID, runtime: runtime, tag: action.tag)
-
+      return .cellSize(width: s.width, height: s.height)
     case GHOSTTY_ACTION_SIZE_LIMIT:
       let s = action.action.size_limit
-      return emitInfo(.sizeLimit(minWidth: s.min_width, minHeight: s.min_height,
-                                 maxWidth: s.max_width, maxHeight: s.max_height),
-                      panel: panel, panelID: panelID, runtime: runtime, tag: action.tag)
-
+      return .sizeLimit(
+        minWidth: s.min_width, minHeight: s.min_height,
+        maxWidth: s.max_width, maxHeight: s.max_height)
     case GHOSTTY_ACTION_INITIAL_SIZE:
       let s = action.action.initial_size
-      return emitInfo(.initialSize(width: s.width, height: s.height),
-                      panel: panel, panelID: panelID, runtime: runtime, tag: action.tag)
-
+      return .initialSize(width: s.width, height: s.height)
     case GHOSTTY_ACTION_RESET_WINDOW_SIZE:
-      return emitInfo(.resetWindowSize, panel: panel, panelID: panelID, runtime: runtime, tag: action.tag)
+      return .resetWindowSize
 
-    // MARK: Bucket 3 — Surface info: scrollbar / renderer / color
+    // Bucket 3 — Scrollbar / renderer / color
     case GHOSTTY_ACTION_SCROLLBAR:
       let s = action.action.scrollbar
-      return emitInfo(.scrollbar(total: Int(s.total), offset: Int(s.offset), length: Int(s.len)),
-                      panel: panel, panelID: panelID, runtime: runtime, tag: action.tag)
-
+      return .scrollbar(total: Int(s.total), offset: Int(s.offset), length: Int(s.len))
     case GHOSTTY_ACTION_RENDERER_HEALTH:
-      let healthy = action.action.renderer_health == GHOSTTY_RENDERER_HEALTH_HEALTHY
-      return emitInfo(.rendererHealthy(healthy),
-                      panel: panel, panelID: panelID, runtime: runtime, tag: action.tag)
-
+      return .rendererHealthy(action.action.renderer_health == GHOSTTY_RENDERER_HEALTH_HEALTHY)
     case GHOSTTY_ACTION_COLOR_CHANGE:
       let c = action.action.color_change
-      return emitInfo(.colorChange(kind: Int32(c.kind.rawValue), r: c.r, g: c.g, b: c.b),
-                      panel: panel, panelID: panelID, runtime: runtime, tag: action.tag)
+      return .colorChange(kind: Int32(c.kind.rawValue), r: c.r, g: c.g, b: c.b)
 
-    // MARK: Bucket 3 — Surface info: secure input / key / readonly / quit timer / float
+    // Bucket 3 — Secure input / key / readonly / timers
     case GHOSTTY_ACTION_SECURE_INPUT:
-      let raw = UInt32(action.action.secure_input.rawValue)
-      return emitInfo(.secureInput(raw), panel: panel, panelID: panelID, runtime: runtime, tag: action.tag)
-
+      return .secureInput(UInt32(action.action.secure_input.rawValue))
     case GHOSTTY_ACTION_KEY_SEQUENCE:
       let seq = action.action.key_sequence
-      // `trigger` is a composite struct; collapse to a UInt32 hash of its
-      // `key`/`mods` fields until a richer KeySequence type is needed.
-      let triggerRaw = keyTriggerFingerprint(seq.trigger)
-      return emitInfo(.keySequence(active: seq.active, trigger: triggerRaw),
-                      panel: panel, panelID: panelID, runtime: runtime, tag: action.tag)
-
+      return .keySequence(active: seq.active, trigger: keyTriggerFingerprint(seq.trigger))
     case GHOSTTY_ACTION_KEY_TABLE:
       let (name, depth) = decodeKeyTable(action.action.key_table)
-      return emitInfo(.keyTable(name: name, depth: depth),
-                      panel: panel, panelID: panelID, runtime: runtime, tag: action.tag)
-
+      return .keyTable(name: name, depth: depth)
     case GHOSTTY_ACTION_READONLY:
-      let on = action.action.readonly == GHOSTTY_READONLY_ON
-      return emitInfo(.readonly(on), panel: panel, panelID: panelID, runtime: runtime, tag: action.tag)
-
+      return .readonly(action.action.readonly == GHOSTTY_READONLY_ON)
     case GHOSTTY_ACTION_QUIT_TIMER:
-      let raw = UInt32(action.action.quit_timer.rawValue)
-      return emitInfo(.quitTimer(raw), panel: panel, panelID: panelID, runtime: runtime, tag: action.tag)
-
+      return .quitTimer(UInt32(action.action.quit_timer.rawValue))
     case GHOSTTY_ACTION_FLOAT_WINDOW:
-      let floating = action.action.float_window == GHOSTTY_FLOAT_WINDOW_ON
-      return emitInfo(.floatWindow(floating), panel: panel, panelID: panelID, runtime: runtime, tag: action.tag)
+      return .floatWindow(action.action.float_window == GHOSTTY_FLOAT_WINDOW_ON)
 
-    // MARK: Bucket 3 — Surface info: search family
+    // Bucket 3 — Search
     case GHOSTTY_ACTION_START_SEARCH:
       let needle = String.decode(cstring: action.action.start_search.needle) ?? ""
-      return emitInfo(.searchStarted(needle: needle),
-                      panel: panel, panelID: panelID, runtime: runtime, tag: action.tag)
-
+      return .searchStarted(needle: needle)
     case GHOSTTY_ACTION_END_SEARCH:
-      return emitInfo(.searchEnded, panel: panel, panelID: panelID, runtime: runtime, tag: action.tag)
-
+      return .searchEnded
     case GHOSTTY_ACTION_SEARCH_TOTAL:
-      let total = Int(action.action.search_total.total)
-      return emitInfo(.searchTotal(total),
-                      panel: panel, panelID: panelID, runtime: runtime, tag: action.tag)
-
+      return .searchTotal(Int(action.action.search_total.total))
     case GHOSTTY_ACTION_SEARCH_SELECTED:
-      let selected = Int(action.action.search_selected.selected)
-      return emitInfo(.searchSelected(selected),
-                      panel: panel, panelID: panelID, runtime: runtime, tag: action.tag)
+      return .searchSelected(Int(action.action.search_selected.selected))
 
-    // MARK: Bucket 3 — Surface info: progress
+    // Bucket 3 — Progress
     case GHOSTTY_ACTION_PROGRESS_REPORT:
       let r = action.action.progress_report
       let value: Int? = r.progress == -1 ? nil : Int(r.progress)
-      let state = UInt32(r.state.rawValue)
-      return emitInfo(.progress(state: state, value: value),
-                      panel: panel, panelID: panelID, runtime: runtime, tag: action.tag)
+      return .progress(state: UInt32(r.state.rawValue), value: value)
 
-    // MARK: Bucket 4 — Effectful
+    // Bucket 4 — Effectful (C strings — copy now)
     case GHOSTTY_ACTION_OPEN_URL:
-      return handleOpenURL(action.action.open_url)
-
+      let u = action.action.open_url
+      guard let url = String.decode(cstring: u.url, length: Int(u.len)), !url.isEmpty else {
+        return .unsupported(rawTag: action.tag.rawValue, reason: "open_url: empty payload")
+      }
+      return .openURL(url)
     case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
       let n = action.action.desktop_notification
       let title = String.decode(cstring: n.title) ?? ""
       let body = String.decode(cstring: n.body) ?? ""
-      return emitInfo(.desktopNotification(title: title, body: body),
-                      panel: panel, panelID: panelID, runtime: runtime, tag: action.tag)
-
+      return .desktopNotification(title: title, body: body)
     case GHOSTTY_ACTION_RING_BELL:
-      return emitInfo(.bellRang, panel: panel, panelID: panelID, runtime: runtime, tag: action.tag)
-
+      return .ringBell
     case GHOSTTY_ACTION_COMMAND_FINISHED:
       let f = action.action.command_finished
-      return emitInfo(.commandFinished(exitCode: Int32(f.exit_code), duration: f.duration),
-                      panel: panel, panelID: panelID, runtime: runtime, tag: action.tag)
-
+      return .commandFinished(exitCode: Int32(f.exit_code), duration: f.duration)
     case GHOSTTY_ACTION_SHOW_CHILD_EXITED:
       let ex = action.action.child_exited
-      let code = Int32(bitPattern: ex.exit_code)
-      panel.markExited(code: code)
-      runtime.emitInfoChanged(panelID, .childExited(code: code))
-      logger.debug("surface action: show_child_exited (code \(code))")
-      return true
-
-    case GHOSTTY_ACTION_UNDO:
-      NSApp.sendAction(#selector(UndoManager.undo), to: nil, from: nil)
-      logger.debug("surface action: undo")
-      return true
-
-    case GHOSTTY_ACTION_REDO:
-      NSApp.sendAction(#selector(UndoManager.redo), to: nil, from: nil)
-      logger.debug("surface action: redo")
-      return true
-
+      return .showChildExited(code: Int32(bitPattern: ex.exit_code))
+    case GHOSTTY_ACTION_UNDO:   return .undo
+    case GHOSTTY_ACTION_REDO:   return .redo
     case GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD:
-      // SurfaceInfo lands in Milestone 3; for now the decoder has no title
-      // to read back. Pasteboard write is wired here so the M3 landing is a
-      // two-line change (read panel.info.title, feed it in).
-      logger.debug("surface action: copy_title_to_clipboard (awaiting SurfaceInfo in M3)")
-      return true
+      return .copyTitleToClipboard
 
-    // MARK: Bucket 5 — Explicitly unsupported on macOS
+    // Bucket 5 — Explicitly unsupported on macOS / internal to libghostty
     case GHOSTTY_ACTION_RENDER,
          GHOSTTY_ACTION_INSPECTOR,
          GHOSTTY_ACTION_SHOW_GTK_INSPECTOR,
          GHOSTTY_ACTION_RENDER_INSPECTOR,
          GHOSTTY_ACTION_SHOW_ON_SCREEN_KEYBOARD:
-      logger.debug("unsupported surface action (non-macOS / internal): tag \(action.tag.rawValue)")
-      return false
+      return .unsupported(rawTag: action.tag.rawValue, reason: "non-macOS / internal")
 
-    // MARK: Bucket 5 — App-scoped actions arriving on a surface target: fall through
-    // CONFIG_CHANGE / RELOAD_CONFIG fire on GHOSTTY_TARGET_APP so surface
-    // dispatch never hits them; treated as programmer error if they do.
+    // App-scoped actions arriving on a surface target: programmer error
     case GHOSTTY_ACTION_CONFIG_CHANGE, GHOSTTY_ACTION_RELOAD_CONFIG:
-      logger.info("unexpected app-scoped action on surface target: tag \(action.tag.rawValue)")
-      return false
+      return .unsupported(rawTag: action.tag.rawValue, reason: "app-scoped on surface target")
 
     default:
-      logger.info("unknown ghostty surface action tag: \(action.tag.rawValue)")
-      return false
+      _ = panelID  // silence unused warning for exhaustive builds
+      return .unsupported(rawTag: action.tag.rawValue, reason: "unknown tag")
     }
   }
 
-  // MARK: - App-scoped actions
-
-  static func appAction(
-    _ action: ghostty_action_s,
-    runtime: GhosttyRuntime
-  ) -> Bool {
+  /// Synchronously decode an app-target action. `CONFIG_CHANGE` clones
+  /// the `ghostty_config_t` handle here — on whatever thread libghostty
+  /// called us — so we own it when the callback returns; the apply step
+  /// only swaps pointers.
+  nonisolated static func decodeAppAction(_ action: ghostty_action_s) -> DecodedAppAction {
     switch action.tag {
     case GHOSTTY_ACTION_CONFIG_CHANGE:
       guard let source = action.action.config_change.config,
             let cloned = ghostty_config_clone(source)
       else {
-        logger.error("config_change: ghostty_config_clone returned nil")
-        return false
+        return .unsupported(rawTag: action.tag.rawValue, reason: "config_clone returned nil")
       }
+      return .configChange(cloned: cloned)
+    case GHOSTTY_ACTION_RELOAD_CONFIG:
+      return .reloadConfig(soft: action.action.reload_config.soft)
+    case GHOSTTY_ACTION_QUIT:
+      return .quit
+    default:
+      return .unsupported(rawTag: action.tag.rawValue, reason: "unknown app tag")
+    }
+  }
+}
+
+// MARK: - Apply (Swift-owned value → side effects, MainActor)
+
+extension GhosttyActionDecoder {
+
+  @MainActor
+  // swiftlint:disable:next cyclomatic_complexity function_body_length
+  static func apply(
+    _ decoded: DecodedSurfaceAction,
+    panelID: PanelID,
+    panel: PanelSurface,
+    runtime: GhosttyRuntime
+  ) -> Bool {
+    switch decoded {
+
+    // Bucket 1 — Tab / split intent
+    case .newTab:
+      return emitPanelIntent(.newTab, panelID: panelID, runtime: runtime)
+    case .closeTab(let mode):
+      return emitPanelIntent(.closeTab(mode: mode), panelID: panelID, runtime: runtime)
+    case .moveTab(let offset):
+      return emitPanelIntent(.moveTab(offset: offset), panelID: panelID, runtime: runtime)
+    case .gotoTab(let target):
+      return emitPanelIntent(.gotoTab(target: target), panelID: panelID, runtime: runtime)
+    case .newSplit(let dir):
+      return emitPanelIntent(.newSplit(direction: dir), panelID: panelID, runtime: runtime)
+    case .gotoSplit(let dir):
+      return emitPanelIntent(.gotoSplit(direction: dir), panelID: panelID, runtime: runtime)
+    case .resizeSplit(let dir, let amount):
+      return emitPanelIntent(
+        .resizeSplit(direction: dir, amount: amount), panelID: panelID, runtime: runtime)
+    case .equalizeSplits:
+      return emitPanelIntent(.equalizeSplits, panelID: panelID, runtime: runtime)
+    case .toggleSplitZoom:
+      return emitPanelIntent(.toggleSplitZoom, panelID: panelID, runtime: runtime)
+    case .presentTerminal:
+      return emitPanelIntent(.presentTerminal, panelID: panelID, runtime: runtime)
+    case .toggleCommandPalette:
+      return emitPanelIntent(.toggleCommandPalette, panelID: panelID, runtime: runtime)
+
+    // Bucket 2 — Window intent
+    case .newWindow:
+      return emitWindowIntent(.new(from: panelID), runtime: runtime)
+    case .closeWindow:
+      return emitWindowIntent(.close(from: panelID), runtime: runtime)
+    case .closeAllWindows:
+      return emitWindowIntent(.closeAll, runtime: runtime)
+    case .gotoWindow(let target):
+      return emitWindowIntent(.goto(target: target), runtime: runtime)
+    case .toggleFullscreen:
+      return emitWindowIntent(.toggleFullscreen(from: panelID), runtime: runtime)
+    case .toggleMaximize:
+      return emitWindowIntent(.toggleMaximize(from: panelID), runtime: runtime)
+    case .toggleTabOverview:
+      return emitWindowIntent(.toggleTabOverview(from: panelID), runtime: runtime)
+    case .toggleVisibility:
+      return emitWindowIntent(.toggleAppVisibility, runtime: runtime)
+    case .toggleBackgroundOpacity:
+      runtime.toggleBackgroundOpacity()
+      logger.debug("surface action: toggle_background_opacity")
+      return true
+    case .quit:
+      return emitWindowIntent(.quit, runtime: runtime)
+    case .checkForUpdates:
+      return emitWindowIntent(.checkForUpdates, runtime: runtime)
+    case .openConfig:
+      return emitWindowIntent(.openConfig, runtime: runtime)
+
+    // Bucket 3 — Surface info
+    case .setTitle(let title):
+      return emitInfo(.title(title), panel: panel, panelID: panelID, runtime: runtime)
+    case .setTabTitle(let title):
+      return emitInfo(.tabTitle(title), panel: panel, panelID: panelID, runtime: runtime)
+    case .promptTitle(let raw):
+      return emitInfo(.promptTitle(raw), panel: panel, panelID: panelID, runtime: runtime)
+    case .pwd(let pwd):
+      return emitInfo(.pwd(pwd), panel: panel, panelID: panelID, runtime: runtime)
+    case .mouseShape(let raw):
+      return emitInfo(.mouseShape(raw), panel: panel, panelID: panelID, runtime: runtime)
+    case .mouseVisible(let visible):
+      return emitInfo(.mouseVisible(visible), panel: panel, panelID: panelID, runtime: runtime)
+    case .mouseOverLink(let link):
+      return emitInfo(.mouseOverLink(link), panel: panel, panelID: panelID, runtime: runtime)
+    case .colorChange(let kind, let r, let g, let b):
+      return emitInfo(
+        .colorChange(kind: kind, r: r, g: g, b: b),
+        panel: panel, panelID: panelID, runtime: runtime)
+    case .rendererHealthy(let healthy):
+      return emitInfo(.rendererHealthy(healthy), panel: panel, panelID: panelID, runtime: runtime)
+    case .cellSize(let w, let h):
+      return emitInfo(
+        .cellSize(width: w, height: h), panel: panel, panelID: panelID, runtime: runtime)
+    case .sizeLimit(let mnw, let mnh, let mxw, let mxh):
+      return emitInfo(
+        .sizeLimit(minWidth: mnw, minHeight: mnh, maxWidth: mxw, maxHeight: mxh),
+        panel: panel, panelID: panelID, runtime: runtime)
+    case .initialSize(let w, let h):
+      return emitInfo(
+        .initialSize(width: w, height: h), panel: panel, panelID: panelID, runtime: runtime)
+    case .resetWindowSize:
+      return emitInfo(.resetWindowSize, panel: panel, panelID: panelID, runtime: runtime)
+    case .scrollbar(let total, let offset, let length):
+      return emitInfo(
+        .scrollbar(total: total, offset: offset, length: length),
+        panel: panel, panelID: panelID, runtime: runtime)
+    case .secureInput(let raw):
+      return emitInfo(.secureInput(raw), panel: panel, panelID: panelID, runtime: runtime)
+    case .keySequence(let active, let trigger):
+      return emitInfo(
+        .keySequence(active: active, trigger: trigger),
+        panel: panel, panelID: panelID, runtime: runtime)
+    case .keyTable(let name, let depth):
+      return emitInfo(
+        .keyTable(name: name, depth: depth),
+        panel: panel, panelID: panelID, runtime: runtime)
+    case .readonly(let on):
+      return emitInfo(.readonly(on), panel: panel, panelID: panelID, runtime: runtime)
+    case .quitTimer(let raw):
+      return emitInfo(.quitTimer(raw), panel: panel, panelID: panelID, runtime: runtime)
+    case .floatWindow(let floating):
+      return emitInfo(.floatWindow(floating), panel: panel, panelID: panelID, runtime: runtime)
+    case .searchStarted(let needle):
+      return emitInfo(
+        .searchStarted(needle: needle), panel: panel, panelID: panelID, runtime: runtime)
+    case .searchEnded:
+      return emitInfo(.searchEnded, panel: panel, panelID: panelID, runtime: runtime)
+    case .searchTotal(let t):
+      return emitInfo(.searchTotal(t), panel: panel, panelID: panelID, runtime: runtime)
+    case .searchSelected(let s):
+      return emitInfo(.searchSelected(s), panel: panel, panelID: panelID, runtime: runtime)
+    case .progress(let state, let value):
+      return emitInfo(
+        .progress(state: state, value: value),
+        panel: panel, panelID: panelID, runtime: runtime)
+
+    // Bucket 4 — Effectful
+    case .openURL(let url):
+      return handleOpenURL(url)
+    case .desktopNotification(let title, let body):
+      return emitInfo(
+        .desktopNotification(title: title, body: body),
+        panel: panel, panelID: panelID, runtime: runtime)
+    case .ringBell:
+      return emitInfo(.bellRang, panel: panel, panelID: panelID, runtime: runtime)
+    case .commandFinished(let exit, let duration):
+      return emitInfo(
+        .commandFinished(exitCode: exit, duration: duration),
+        panel: panel, panelID: panelID, runtime: runtime)
+    case .showChildExited(let code):
+      panel.markExited(code: code)
+      runtime.emitInfoChanged(panelID, .childExited(code: code))
+      logger.debug("surface action: show_child_exited (code \(code))")
+      return true
+    case .undo:
+      NSApp.sendAction(#selector(UndoManager.undo), to: nil, from: nil)
+      return true
+    case .redo:
+      NSApp.sendAction(#selector(UndoManager.redo), to: nil, from: nil)
+      return true
+    case .copyTitleToClipboard:
+      if let title = panel.info.title, !title.isEmpty {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(title, forType: .string)
+        logger.debug("surface action: copy_title_to_clipboard (\(title.count) chars)")
+      } else {
+        logger.debug("surface action: copy_title_to_clipboard (no title)")
+      }
+      return true
+
+    case .unsupported(let rawTag, let reason):
+      logger.info("unsupported surface action tag=\(rawTag): \(reason)")
+      return false
+    }
+  }
+
+  @MainActor
+  static func apply(
+    _ decoded: DecodedAppAction,
+    runtime: GhosttyRuntime
+  ) -> Bool {
+    switch decoded {
+    case .configChange(let cloned):
       runtime.applyClonedConfig(cloned)
       runtime.emit(.configChanged)
       logger.debug("app action: config_change")
       return true
-
-    case GHOSTTY_ACTION_RELOAD_CONFIG:
-      runtime.reloadConfig(soft: action.action.reload_config.soft)
+    case .reloadConfig(let soft):
+      runtime.reloadConfig(soft: soft)
       runtime.emit(.configChanged)
-      logger.debug("app action: reload_config (soft: \(action.action.reload_config.soft))")
+      logger.debug("app action: reload_config (soft: \(soft))")
       return true
-
-    case GHOSTTY_ACTION_QUIT:
+    case .quit:
       runtime.emit(.windowActionRequested(.quit))
       logger.debug("app action: quit")
       return true
-
-    default:
-      logger.info("unknown ghostty app action tag: \(action.tag.rawValue)")
+    case .unsupported(let rawTag, let reason):
+      logger.info("unsupported app action tag=\(rawTag): \(reason)")
       return false
     }
   }
@@ -368,60 +562,48 @@ enum GhosttyActionDecoder {
 
 extension GhosttyActionDecoder {
 
-  /// Emit a panel intent event and log at `.debug`. Centralized so every
-  /// Bucket-1 case is a single line in the main switch.
+  @MainActor
   fileprivate static func emitPanelIntent(
     _ request: PanelActionRequest,
     panelID: PanelID,
-    runtime: GhosttyRuntime,
-    tag: ghostty_action_tag_e
+    runtime: GhosttyRuntime
   ) -> Bool {
     runtime.emit(.panelActionRequested(panelID, request))
-    logger.debug("surface action: panel intent tag=\(tag.rawValue)")
     return true
   }
 
+  @MainActor
   fileprivate static func emitWindowIntent(
     _ request: WindowActionRequest,
-    runtime: GhosttyRuntime,
-    tag: ghostty_action_tag_e
+    runtime: GhosttyRuntime
   ) -> Bool {
     runtime.emit(.windowActionRequested(request))
-    logger.debug("surface action: window intent tag=\(tag.rawValue)")
     return true
   }
 
-  /// Apply a Bucket-3 info delta to the panel + emit on the event stream.
+  @MainActor
   fileprivate static func emitInfo(
     _ delta: PanelInfoDelta,
     panel: PanelSurface,
     panelID: PanelID,
-    runtime: GhosttyRuntime,
-    tag: ghostty_action_tag_e
+    runtime: GhosttyRuntime
   ) -> Bool {
     panel.apply(delta)
     runtime.emitInfoChanged(panelID, delta)
-    logger.debug("surface action: info tag=\(tag.rawValue)")
     return true
-  }
-
-  fileprivate static func logUnsupported(
-    tag: ghostty_action_tag_e,
-    reason: String
-  ) -> Bool {
-    logger.info("unsupported ghostty action tag=\(tag.rawValue): \(reason)")
-    return false
   }
 }
 
-// MARK: - C enum decoders
+// MARK: - C enum decoders (pure, any thread)
 
 extension GhosttyActionDecoder {
 
-  // Note: the six enum decoders below are `internal static` (not `fileprivate`)
-  // so `@testable import touch_code` can reach them from
+  // Note: these six decoders are `internal static` so
+  // `@testable import touch_code` can reach them from
   // `GhosttyActionDecoderTests`. See plan 0008 DEC-M7b-1.
-  static func decodeCloseTabMode(_ mode: ghostty_action_close_tab_mode_e) -> CloseTabMode? {
+  nonisolated static func decodeCloseTabMode(
+    _ mode: ghostty_action_close_tab_mode_e
+  ) -> CloseTabMode? {
     switch mode {
     case GHOSTTY_ACTION_CLOSE_TAB_MODE_THIS:  return .this
     case GHOSTTY_ACTION_CLOSE_TAB_MODE_OTHER: return .other
@@ -430,7 +612,9 @@ extension GhosttyActionDecoder {
     }
   }
 
-  static func decodeGotoTabTarget(_ tab: ghostty_action_goto_tab_e) -> GotoTabTarget {
+  nonisolated static func decodeGotoTabTarget(
+    _ tab: ghostty_action_goto_tab_e
+  ) -> GotoTabTarget {
     switch tab {
     case GHOSTTY_GOTO_TAB_PREVIOUS: return .previous
     case GHOSTTY_GOTO_TAB_NEXT:     return .next
@@ -439,18 +623,21 @@ extension GhosttyActionDecoder {
     }
   }
 
-  static func decodeNewSplitDirection(_ dir: ghostty_action_split_direction_e) -> NewSplitDirection? {
+  nonisolated static func decodeNewSplitDirection(
+    _ dir: ghostty_action_split_direction_e
+  ) -> NewSplitDirection? {
     switch dir {
-    case GHOSTTY_SPLIT_DIRECTION_RIGHT, GHOSTTY_SPLIT_DIRECTION_LEFT:
-      return .horizontal
-    case GHOSTTY_SPLIT_DIRECTION_UP, GHOSTTY_SPLIT_DIRECTION_DOWN:
-      return .vertical
-    default:
-      return nil
+    case GHOSTTY_SPLIT_DIRECTION_RIGHT: return .right
+    case GHOSTTY_SPLIT_DIRECTION_LEFT:  return .left
+    case GHOSTTY_SPLIT_DIRECTION_UP:    return .up
+    case GHOSTTY_SPLIT_DIRECTION_DOWN:  return .down
+    default: return nil
     }
   }
 
-  static func decodeGotoSplitDirection(_ dir: ghostty_action_goto_split_e) -> FocusDirection? {
+  nonisolated static func decodeGotoSplitDirection(
+    _ dir: ghostty_action_goto_split_e
+  ) -> FocusDirection? {
     switch dir {
     case GHOSTTY_GOTO_SPLIT_PREVIOUS: return .previous
     case GHOSTTY_GOTO_SPLIT_NEXT:     return .next
@@ -462,7 +649,9 @@ extension GhosttyActionDecoder {
     }
   }
 
-  static func decodeResizeSplitDirection(_ dir: ghostty_action_resize_split_direction_e) -> ResizeDirection? {
+  nonisolated static func decodeResizeSplitDirection(
+    _ dir: ghostty_action_resize_split_direction_e
+  ) -> ResizeDirection? {
     switch dir {
     case GHOSTTY_RESIZE_SPLIT_UP:    return .up
     case GHOSTTY_RESIZE_SPLIT_DOWN:  return .down
@@ -472,10 +661,9 @@ extension GhosttyActionDecoder {
     }
   }
 
-  /// libghostty's GotoWindow enum exposes only PREVIOUS/NEXT. The richer
-  /// `GotoWindowTarget` (last / index) is reserved for future IPC-driven
-  /// navigation; current action payloads cannot produce those variants.
-  static func decodeGotoWindowTarget(_ target: ghostty_action_goto_window_e) -> GotoWindowTarget? {
+  nonisolated static func decodeGotoWindowTarget(
+    _ target: ghostty_action_goto_window_e
+  ) -> GotoWindowTarget? {
     switch target {
     case GHOSTTY_GOTO_WINDOW_PREVIOUS: return .previous
     case GHOSTTY_GOTO_WINDOW_NEXT:     return .next
@@ -486,7 +674,9 @@ extension GhosttyActionDecoder {
   /// Collapse the 3-variant key_table tag + optional name into the flat
   /// `(name, depth)` shape of `PanelInfoDelta.keyTable`. Depth mirrors the
   /// tag semantics: ACTIVATE=+1, DEACTIVATE=-1, DEACTIVATE_ALL=0 (reset).
-  fileprivate static func decodeKeyTable(_ table: ghostty_action_key_table_s) -> (name: String?, depth: Int) {
+  fileprivate nonisolated static func decodeKeyTable(
+    _ table: ghostty_action_key_table_s
+  ) -> (name: String?, depth: Int) {
     switch table.tag {
     case GHOSTTY_KEY_TABLE_ACTIVATE:
       let activate = table.value.activate
@@ -501,11 +691,12 @@ extension GhosttyActionDecoder {
     }
   }
 
-  /// Flatten `ghostty_input_trigger_s` into a UInt32 fingerprint. The
-  /// composite struct mixes a key enum, modifier mask, and scalar fields;
-  /// consumers today (tab chrome) only need a change-detector, so we hash
-  /// the raw bytes rather than model every field on `PanelInfoDelta`.
-  fileprivate static func keyTriggerFingerprint(_ trigger: ghostty_input_trigger_s) -> UInt32 {
+  /// Flatten `ghostty_input_trigger_s` into a UInt32 fingerprint. Consumers
+  /// only need a change-detector today, so we hash the struct bytes rather
+  /// than model every field on `PanelInfoDelta`.
+  fileprivate nonisolated static func keyTriggerFingerprint(
+    _ trigger: ghostty_input_trigger_s
+  ) -> UInt32 {
     var hasher = Hasher()
     withUnsafeBytes(of: trigger) { buffer in
       hasher.combine(bytes: buffer)
@@ -518,16 +709,13 @@ extension GhosttyActionDecoder {
 
 extension GhosttyActionDecoder {
 
-  /// OPEN_URL: validate the scheme and hand off to LaunchServices. Rejects
-  /// empty payloads and URLs without a scheme so we don't fling naked paths
-  /// at `NSWorkspace.open`.
-  fileprivate static func handleOpenURL(_ payload: ghostty_action_open_url_s) -> Bool {
-    guard let url = String.decode(cstring: payload.url, length: Int(payload.len)),
-          !url.isEmpty,
-          let parsed = URL(string: url),
-          parsed.scheme?.isEmpty == false
-    else {
-      logger.info("open_url: rejected (missing / invalid URL)")
+  /// OPEN_URL: validate the scheme and hand off to LaunchServices. The
+  /// decoded string has already been copied to Swift-owned memory, so this
+  /// runs entirely on the Swift side.
+  @MainActor
+  fileprivate static func handleOpenURL(_ url: String) -> Bool {
+    guard let parsed = URL(string: url), parsed.scheme?.isEmpty == false else {
+      logger.info("open_url: rejected (missing scheme: \(url))")
       return false
     }
     NSWorkspace.shared.open(parsed)
@@ -543,7 +731,11 @@ extension String {
   /// Copy a null-terminated C string into Swift. Returns nil if the pointer
   /// is null. The decoder uses this for every `const char*` action field so
   /// null-vs-empty is preserved downstream.
-  fileprivate static func decode(cstring: UnsafePointer<CChar>?) -> String? {
+  ///
+  /// `nonisolated` so the libghostty-callback-thread decode path can call
+  /// these helpers — the Swift 6 default isolation in this target is
+  /// `MainActor`, which would otherwise make them MainActor-isolated.
+  fileprivate nonisolated static func decode(cstring: UnsafePointer<CChar>?) -> String? {
     guard let cstring else { return nil }
     return String(cString: cstring)
   }
@@ -551,7 +743,7 @@ extension String {
   /// Copy a length-delimited C byte run into Swift (UTF-8). Used for fields
   /// where libghostty passes an explicit length alongside the pointer so
   /// the string may contain embedded NULs (unusual) or be non-terminated.
-  fileprivate static func decode(cstring: UnsafePointer<CChar>?, length: Int) -> String? {
+  fileprivate nonisolated static func decode(cstring: UnsafePointer<CChar>?, length: Int) -> String? {
     guard let cstring, length >= 0 else { return nil }
     if length == 0 { return "" }
     let buffer = UnsafeBufferPointer(start: cstring, count: length)

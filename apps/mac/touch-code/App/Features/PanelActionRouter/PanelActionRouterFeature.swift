@@ -68,8 +68,26 @@ struct PanelActionRouterFeature {
         Self.logger.info("newTab: no address for panel \(panelID.raw.uuidString, privacy: .public)")
         return .none
       }
-      _ = try? hierarchyClient.createTab(
+      // Inherit the source panel's cwd so the new tab opens in the same
+      // directory. Missing source (already closed?) falls back to the
+      // worktree root via `findWorktreePath`.
+      let catalog = hierarchyClient.snapshot()
+      let cwd = findPanel(
+        panelID: panelID, tabID: address.tabID,
+        worktreeID: address.worktreeID, projectID: address.projectID,
+        spaceID: address.spaceID, in: catalog
+      )?.workingDirectory ?? findWorktree(
+        worktreeID: address.worktreeID, projectID: address.projectID,
+        spaceID: address.spaceID, in: catalog
+      )?.path ?? NSHomeDirectory()
+      guard let newTabID = try? hierarchyClient.createTab(
         address.worktreeID, address.projectID, address.spaceID, nil
+      ) else { return .none }
+      // Without this, HierarchyManager.createTab initialises an empty Tab
+      // and the UI shows "No panels" until the user opens one manually —
+      // a surprise for a keybind that asked for a working tab.
+      _ = try? hierarchyClient.openPanel(
+        newTabID, address.worktreeID, address.projectID, address.spaceID, cwd, nil
       )
       return .none
 
@@ -202,9 +220,12 @@ struct PanelActionRouterFeature {
       targetIndex = (currentIndex + 1) % count
     case .last:
       targetIndex = count - 1
-    case .index(let i):
-      guard i >= 0, i < count else { return }
-      targetIndex = i
+    case .index(let n):
+      // Ghostty's `goto_tab:n` is 1-based; values beyond the tab count
+      // should clamp to the last tab rather than no-op. `n <= 0` is still
+      // rejected — negative numbers have no sensible target.
+      guard n >= 1 else { return }
+      targetIndex = min(n - 1, count - 1)
     }
     guard targetIndex != currentIndex else { return }
     let targetTabID = worktree.tabs[targetIndex].id
@@ -215,17 +236,18 @@ struct PanelActionRouterFeature {
 
   // MARK: - Split helpers
 
-  /// Maps ghostty's `NewSplitDirection` onto the SplitTree's `NewDirection`.
-  /// Ghostty only carries an orientation (horizontal/vertical) so we pick a
-  /// default insertion side: new panel appears to the right of the source
-  /// for horizontal, below for vertical — matches the insertion semantics
-  /// the existing split UI uses elsewhere in the app.
+  /// Maps ghostty's four-way `NewSplitDirection` onto the SplitTree's
+  /// `NewDirection`. Both enums are 1:1 after DEC-M2-2 was reverted in
+  /// the P1 rework — libghostty tells us exactly which side the user
+  /// asked for and we honor it.
   private static func splitDirection(
     for direction: NewSplitDirection
   ) -> SplitTree<PanelID>.NewDirection {
     switch direction {
-    case .horizontal: return .right
-    case .vertical: return .down
+    case .right: return .right
+    case .left:  return .left
+    case .up:    return .up
+    case .down:  return .down
     }
   }
 

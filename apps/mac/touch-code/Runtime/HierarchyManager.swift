@@ -841,7 +841,13 @@ final class HierarchyManager {
     }
     let count = catalog.spaces[spaceIndex].projects[projectIndex]
       .worktrees[worktreeIndex].tabs.count
-    let target = max(0, min(count - 1, tabIndex + offset))
+    // Ghostty's move_tab wraps cyclically: moving the last tab forward
+    // places it first, moving the first backward places it last. Swift's
+    // `%` on negative dividends returns a negative remainder, so pre-add
+    // a multiple of `count` to land in [0, count).
+    guard count > 0 else { return }
+    let normalized = ((tabIndex + offset) % count + count) % count
+    let target = normalized
     guard target != tabIndex else { return }
     let tab = catalog.spaces[spaceIndex].projects[projectIndex]
       .worktrees[worktreeIndex].tabs.remove(at: tabIndex)
@@ -909,10 +915,14 @@ final class HierarchyManager {
   // MARK: - Panel resize (0008 M5)
 
   /// Adjusts the ratio of the closest ancestor split whose orientation
-  /// matches `direction`. The ghostty RESIZE_SPLIT action carries pixel
-  /// amounts but touch-code's split tree only stores ratios, so `amount` is
-  /// interpreted as a ratio delta; the ratio is clamped to `[0.1, 0.9]` by
-  /// `SplitTree.resizing(at:ratio:)`.
+  /// matches `direction`. The ghostty RESIZE_SPLIT action carries a pixel
+  /// amount (default keybinds are e.g. 10–20 px), but touch-code's split
+  /// tree only stores ratios in `[0.1, 0.9]`. Adding the raw pixel value
+  /// to a ratio collapses the split on the first keypress, so we scale
+  /// the delta by `pixelsPerRatioStep` — an empirical divisor that maps
+  /// a default 10 px keybind to a ~2.5% ratio nudge on a typical 400 px
+  /// split. The viewport layer will later expose the real split frame
+  /// via `ResizePanelOptions` so the divisor can become per-split.
   ///
   /// Direction semantics (matches ghostty's FocusDirection analog):
   /// - `.left`: grow the left child  → decrease ratio of nearest horizontal split
@@ -923,6 +933,9 @@ final class HierarchyManager {
   /// Silent no-op when the panel is unknown or no ancestor split matches the
   /// direction (e.g. resize-left on a purely vertical column).
   func resizePanel(_ panelID: PanelID, direction: ResizeDirection, amount: Double) throws {
+    // Empirical px → ratio scale. See doc above.
+    let pixelsPerRatioStep: Double = 400
+    let ratioDelta = amount / pixelsPerRatioStep
     for spaceIndex in catalog.spaces.indices {
       for projectIndex in catalog.spaces[spaceIndex].projects.indices {
         for worktreeIndex in catalog.spaces[spaceIndex].projects[projectIndex].worktrees.indices {
@@ -942,7 +955,7 @@ final class HierarchyManager {
               )
             else { return }
             let grow: Bool = (direction == .right || direction == .down)
-            let signedDelta = (grewRight == grow) ? amount : -amount
+            let signedDelta = (grewRight == grow) ? ratioDelta : -ratioDelta
             let newRatio = currentRatio + signedDelta
             tab.splitTree = try tab.splitTree.resizing(at: ancestorPath, ratio: newRatio)
             catalog.spaces[spaceIndex].projects[projectIndex]

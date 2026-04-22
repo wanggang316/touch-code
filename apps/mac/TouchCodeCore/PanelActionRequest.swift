@@ -34,9 +34,16 @@ public nonisolated enum GotoTabTarget: Sendable, Equatable {
   case index(Int)
 }
 
+/// Four-way split insertion direction, matching libghostty's
+/// `ghostty_action_split_direction_e`. The earlier two-axis collapse
+/// (horizontal/vertical) has been dropped so a user binding
+/// `new_split:left` actually splits to the left instead of always to the
+/// right. Router maps each case onto `SplitTree.NewDirection`.
 public nonisolated enum NewSplitDirection: Sendable, Equatable {
-  case horizontal
-  case vertical
+  case right
+  case left
+  case up
+  case down
 }
 
 public nonisolated enum FocusDirection: Sendable, Equatable {

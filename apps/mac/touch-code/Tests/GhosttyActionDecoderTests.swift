@@ -48,34 +48,34 @@ struct GhosttyActionDecoderTests {
 
   // MARK: - decodeNewSplitDirection
   //
-  // Four C directions collapse onto two Swift axes (DEC-M2-2):
-  // LEFT/RIGHT → .horizontal, UP/DOWN → .vertical.
+  // Four C directions map 1:1 to four Swift cases (DEC-M2-2 reverted in
+  // P1 rework — see plan 0008 DEC-M7d-4).
 
   @Test
-  func newSplitDirectionRightMapsToHorizontal() {
+  func newSplitDirectionRightMapsToRight() {
     #expect(
-      GhosttyActionDecoder.decodeNewSplitDirection(GHOSTTY_SPLIT_DIRECTION_RIGHT) == .horizontal
+      GhosttyActionDecoder.decodeNewSplitDirection(GHOSTTY_SPLIT_DIRECTION_RIGHT) == .right
     )
   }
 
   @Test
-  func newSplitDirectionLeftMapsToHorizontal() {
+  func newSplitDirectionLeftMapsToLeft() {
     #expect(
-      GhosttyActionDecoder.decodeNewSplitDirection(GHOSTTY_SPLIT_DIRECTION_LEFT) == .horizontal
+      GhosttyActionDecoder.decodeNewSplitDirection(GHOSTTY_SPLIT_DIRECTION_LEFT) == .left
     )
   }
 
   @Test
-  func newSplitDirectionUpMapsToVertical() {
+  func newSplitDirectionUpMapsToUp() {
     #expect(
-      GhosttyActionDecoder.decodeNewSplitDirection(GHOSTTY_SPLIT_DIRECTION_UP) == .vertical
+      GhosttyActionDecoder.decodeNewSplitDirection(GHOSTTY_SPLIT_DIRECTION_UP) == .up
     )
   }
 
   @Test
-  func newSplitDirectionDownMapsToVertical() {
+  func newSplitDirectionDownMapsToDown() {
     #expect(
-      GhosttyActionDecoder.decodeNewSplitDirection(GHOSTTY_SPLIT_DIRECTION_DOWN) == .vertical
+      GhosttyActionDecoder.decodeNewSplitDirection(GHOSTTY_SPLIT_DIRECTION_DOWN) == .down
     )
   }
 

@@ -179,7 +179,7 @@ struct PanelActionRouterFeatureTests {
       }
     }
 
-    await store.send(.requested(f.panelID, .newSplit(direction: .horizontal)))
+    await store.send(.requested(f.panelID, .newSplit(direction: .right)))
     #expect(recorded.value?.0 == f.panelID)
     #expect(recorded.value?.1 == .right)
     #expect(recorded.value?.2 == f.tabID)
