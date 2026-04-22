@@ -220,4 +220,60 @@ struct GhosttyThemeCatalogTests {
     #expect(catalog.dark == ["Shared"])
     #expect(catalog.light.isEmpty)
   }
+
+  @Test
+  func ghosttyResourcesDirEnvVarContributesBundledThemes() throws {
+    let home = TemporaryDirectory()
+    // Simulate Ghostty's bundled themes tree: <resources>/themes/<file>.
+    let resources = TemporaryDirectory()
+    let themesDir = resources.url.appendingPathComponent("themes", isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: themesDir, withIntermediateDirectories: true
+    )
+    try "background = #101010\n".write(
+      to: themesDir.appendingPathComponent("Bundled Dark"),
+      atomically: true,
+      encoding: .utf8
+    )
+    try "background = #F0F0F0\n".write(
+      to: themesDir.appendingPathComponent("Bundled Light"),
+      atomically: true,
+      encoding: .utf8
+    )
+    let catalog = GhosttyThemeCatalogReader.load(
+      homeDirectoryURL: home.url,
+      environment: ["GHOSTTY_RESOURCES_DIR": resources.url.path]
+    )
+    #expect(catalog.dark.contains("Bundled Dark"))
+    #expect(catalog.light.contains("Bundled Light"))
+  }
+
+  @Test
+  func userThemeShadowsGhosttyBundledThemeOfSameName() throws {
+    let xdg = TemporaryDirectory()
+    let home = TemporaryDirectory()
+    let resources = TemporaryDirectory()
+    // Bundled version is dark.
+    let bundledThemes = resources.url.appendingPathComponent("themes", isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: bundledThemes, withIntermediateDirectories: true
+    )
+    try "background = #000000\n".write(
+      to: bundledThemes.appendingPathComponent("Conflicting"),
+      atomically: true,
+      encoding: .utf8
+    )
+    // User version at XDG is light — should win per priority order.
+    _ = try xdg.writeThemeFile(named: "Conflicting", contents: "background = #FFFFFF\n")
+
+    let catalog = GhosttyThemeCatalogReader.load(
+      homeDirectoryURL: home.url,
+      environment: [
+        "XDG_CONFIG_HOME": xdg.url.path,
+        "GHOSTTY_RESOURCES_DIR": resources.url.path,
+      ]
+    )
+    #expect(catalog.light == ["Conflicting"])
+    #expect(!catalog.dark.contains("Conflicting"))
+  }
 }

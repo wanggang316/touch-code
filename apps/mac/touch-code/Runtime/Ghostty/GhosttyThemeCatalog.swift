@@ -29,15 +29,24 @@ enum GhosttyThemeCatalogReader {
     category: "appearance"
   )
 
-  /// Enumerate user + app-bundled theme directories and classify each file.
+  /// Enumerate user + Ghostty-bundled theme directories and classify each file.
   ///
   /// Priorities (a theme name appearing in more than one directory is
-  /// deduplicated; first-seen wins for classification):
+  /// deduplicated; first-seen wins for classification, so a user-authored
+  /// theme shadows a bundled one with the same filename):
   /// 1. `$XDG_CONFIG_HOME/ghostty/themes`
   /// 2. `$HOME/.config/ghostty/themes`
-  /// 3. `Bundle.main.resourceURL/ghostty/themes` — app-bundled fallback if
-  ///    we ever ship themes as Tuist resources. Currently no-op for static
-  ///    GhosttyKit, which doesn't expose a Resources bundle.
+  /// 3. `$GHOSTTY_RESOURCES_DIR/themes` — Ghostty's own bundled themes.
+  ///    `GhosttyBootstrap.initialize` sets this env var at process startup,
+  ///    so by the time Settings → Terminal opens the directory is discoverable
+  ///    here without touching the runtime struct directly.
+  /// 4. `$TOUCH_CODE_GHOSTTY_RESOURCES/ghostty/themes` — dev override that
+  ///    `GhosttyBootstrap` honors first.
+  /// 5. `<repo>/.build/ghostty/share/ghostty/themes` — dev fallback used by
+  ///    `GhosttyBootstrap` when Xcode runs the target without a bundled
+  ///    resources copy.
+  /// 6. `Bundle.main.resourceURL/ghostty/themes` — only populated if we ever
+  ///    copy themes into the .app's Resources.
   ///
   /// Parameters default to production sources but are injectable for tests.
   static func load(
@@ -96,11 +105,13 @@ enum GhosttyThemeCatalogReader {
   /// Returns every on-disk directory we should probe, in priority order.
   /// Missing directories are still included — the caller `contentsOfDirectory`
   /// short-circuits on ENOENT without error.
-  private static func candidateThemeDirectories(
+  static func candidateThemeDirectories(
     homeDirectoryURL: URL,
     environment: [String: String]
   ) -> [URL] {
     var roots: [URL] = []
+
+    // User-writable paths first so custom themes shadow bundled ones.
     if let xdg = environment["XDG_CONFIG_HOME"], !xdg.isEmpty {
       roots.append(
         URL(fileURLWithPath: xdg, isDirectory: true)
@@ -114,6 +125,31 @@ enum GhosttyThemeCatalogReader {
         .appendingPathComponent("ghostty", isDirectory: true)
         .appendingPathComponent("themes", isDirectory: true)
     )
+
+    // GhosttyBootstrap exports GHOSTTY_RESOURCES_DIR at startup pointing at
+    // Ghostty's own resources tree — that's where the ~200 bundled themes live.
+    if let resourcesDir = environment["GHOSTTY_RESOURCES_DIR"], !resourcesDir.isEmpty {
+      roots.append(
+        URL(fileURLWithPath: resourcesDir, isDirectory: true)
+          .appendingPathComponent("themes", isDirectory: true)
+      )
+    }
+    // Dev override and the SRCROOT-relative fallback both mirror the layout
+    // `GhosttyBootstrap.resolveResourceDirs` probes so tests and unbundled
+    // `xcodebuild run` flows still see themes even when GHOSTTY_RESOURCES_DIR
+    // was not set for some reason (e.g. Settings opened before bringUp ran).
+    if let override = environment["TOUCH_CODE_GHOSTTY_RESOURCES"], !override.isEmpty {
+      roots.append(
+        URL(fileURLWithPath: override, isDirectory: true)
+          .appendingPathComponent("ghostty", isDirectory: true)
+          .appendingPathComponent("themes", isDirectory: true)
+      )
+    }
+    if let devFallback = srcrootGhosttyThemesDirectory() {
+      roots.append(devFallback)
+    }
+
+    // Last resort: .app-bundled themes if we ever ship them as Tuist resources.
     if let resourceURL = Bundle.main.resourceURL {
       roots.append(
         resourceURL
@@ -122,6 +158,23 @@ enum GhosttyThemeCatalogReader {
       )
     }
     return roots
+  }
+
+  /// Locate `<repo>/apps/mac/.build/ghostty/share/ghostty/themes` via
+  /// `#filePath`. Returns nil when the file is running from an installed
+  /// location (e.g. a signed .app) where the relative ascent wouldn't resolve.
+  private static func srcrootGhosttyThemesDirectory() -> URL? {
+    // #filePath → .../apps/mac/touch-code/Runtime/Ghostty/GhosttyThemeCatalog.swift
+    // Ascend four levels to land at apps/mac, then descend into the build tree.
+    let file = URL(fileURLWithPath: #filePath)
+    let appsMac = file
+      .deletingLastPathComponent()  // Ghostty
+      .deletingLastPathComponent()  // Runtime
+      .deletingLastPathComponent()  // touch-code
+      .deletingLastPathComponent()  // mac
+    let candidate = appsMac
+      .appendingPathComponent(".build/ghostty/share/ghostty/themes", isDirectory: true)
+    return candidate
   }
 
   // MARK: - Classification
