@@ -418,7 +418,10 @@ extension GhosttyActionDecoder {
 
 extension GhosttyActionDecoder {
 
-  fileprivate static func decodeCloseTabMode(_ mode: ghostty_action_close_tab_mode_e) -> CloseTabMode? {
+  // Note: the six enum decoders below are `internal static` (not `fileprivate`)
+  // so `@testable import touch_code` can reach them from
+  // `GhosttyActionDecoderTests`. See plan 0008 DEC-M7b-1.
+  static func decodeCloseTabMode(_ mode: ghostty_action_close_tab_mode_e) -> CloseTabMode? {
     switch mode {
     case GHOSTTY_ACTION_CLOSE_TAB_MODE_THIS:  return .this
     case GHOSTTY_ACTION_CLOSE_TAB_MODE_OTHER: return .other
@@ -427,7 +430,7 @@ extension GhosttyActionDecoder {
     }
   }
 
-  fileprivate static func decodeGotoTabTarget(_ tab: ghostty_action_goto_tab_e) -> GotoTabTarget {
+  static func decodeGotoTabTarget(_ tab: ghostty_action_goto_tab_e) -> GotoTabTarget {
     switch tab {
     case GHOSTTY_GOTO_TAB_PREVIOUS: return .previous
     case GHOSTTY_GOTO_TAB_NEXT:     return .next
@@ -436,7 +439,7 @@ extension GhosttyActionDecoder {
     }
   }
 
-  fileprivate static func decodeNewSplitDirection(_ dir: ghostty_action_split_direction_e) -> NewSplitDirection? {
+  static func decodeNewSplitDirection(_ dir: ghostty_action_split_direction_e) -> NewSplitDirection? {
     switch dir {
     case GHOSTTY_SPLIT_DIRECTION_RIGHT, GHOSTTY_SPLIT_DIRECTION_LEFT:
       return .horizontal
@@ -447,7 +450,7 @@ extension GhosttyActionDecoder {
     }
   }
 
-  fileprivate static func decodeGotoSplitDirection(_ dir: ghostty_action_goto_split_e) -> FocusDirection? {
+  static func decodeGotoSplitDirection(_ dir: ghostty_action_goto_split_e) -> FocusDirection? {
     switch dir {
     case GHOSTTY_GOTO_SPLIT_PREVIOUS: return .previous
     case GHOSTTY_GOTO_SPLIT_NEXT:     return .next
@@ -459,7 +462,7 @@ extension GhosttyActionDecoder {
     }
   }
 
-  fileprivate static func decodeResizeSplitDirection(_ dir: ghostty_action_resize_split_direction_e) -> ResizeDirection? {
+  static func decodeResizeSplitDirection(_ dir: ghostty_action_resize_split_direction_e) -> ResizeDirection? {
     switch dir {
     case GHOSTTY_RESIZE_SPLIT_UP:    return .up
     case GHOSTTY_RESIZE_SPLIT_DOWN:  return .down
@@ -472,7 +475,7 @@ extension GhosttyActionDecoder {
   /// libghostty's GotoWindow enum exposes only PREVIOUS/NEXT. The richer
   /// `GotoWindowTarget` (last / index) is reserved for future IPC-driven
   /// navigation; current action payloads cannot produce those variants.
-  fileprivate static func decodeGotoWindowTarget(_ target: ghostty_action_goto_window_e) -> GotoWindowTarget? {
+  static func decodeGotoWindowTarget(_ target: ghostty_action_goto_window_e) -> GotoWindowTarget? {
     switch target {
     case GHOSTTY_GOTO_WINDOW_PREVIOUS: return .previous
     case GHOSTTY_GOTO_WINDOW_NEXT:     return .next
