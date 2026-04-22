@@ -235,3 +235,129 @@ struct GhosttyConfigFileTests {
     )
   }
 }
+
+// MARK: - Config path resolution
+
+/// Exercises `resolvedConfigURL` against a synthesised HOME so the tests never
+/// touch the developer's real `~/Library/Application Support` tree. The macOS
+/// loader order is the contract Ghostty itself enforces — we have to match it
+/// or Settings writes land in a file the live runtime ignores.
+@MainActor
+struct GhosttyConfigPathResolutionTests {
+  private final class TemporaryHome {
+    let url: URL
+    init() {
+      url = FileManager.default.temporaryDirectory.appendingPathComponent(
+        "ghostty-config-home-\(UUID().uuidString)",
+        isDirectory: true
+      )
+      try? FileManager.default.createDirectory(
+        at: url, withIntermediateDirectories: true
+      )
+    }
+    deinit { try? FileManager.default.removeItem(at: url) }
+
+    func makeFile(atRelative: String) -> URL {
+      let fileURL = url.appendingPathComponent(atRelative, isDirectory: false)
+      let parent = fileURL.deletingLastPathComponent()
+      try? FileManager.default.createDirectory(
+        at: parent, withIntermediateDirectories: true
+      )
+      try? "".write(to: fileURL, atomically: true, encoding: .utf8)
+      return fileURL
+    }
+  }
+
+  private func makeConfigFile(home: TemporaryHome, environment: [String: String] = [:])
+    -> GhosttyConfigFile
+  {
+    GhosttyConfigFile(
+      homeDirectoryURL: home.url,
+      environment: environment,
+      catalogProvider: { .empty }
+    )
+  }
+
+  @Test
+  func fallsBackToAppSupportCurrentWhenNothingExists() {
+    let home = TemporaryHome()
+    let resolved = makeConfigFile(home: home).resolvedConfigURL()
+    #expect(
+      resolved.path
+        == home.url.appendingPathComponent(
+          "Library/Application Support/com.mitchellh.ghostty/config.ghostty"
+        ).path
+    )
+  }
+
+  @Test
+  func prefersAppSupportCurrentOverLegacy() {
+    let home = TemporaryHome()
+    _ = home.makeFile(
+      atRelative: "Library/Application Support/com.mitchellh.ghostty/config"
+    )
+    let current = home.makeFile(
+      atRelative: "Library/Application Support/com.mitchellh.ghostty/config.ghostty"
+    )
+    let resolved = makeConfigFile(home: home).resolvedConfigURL()
+    #expect(resolved.path == current.path)
+  }
+
+  @Test
+  func prefersAppSupportLegacyWhenCurrentAbsent() {
+    let home = TemporaryHome()
+    let legacy = home.makeFile(
+      atRelative: "Library/Application Support/com.mitchellh.ghostty/config"
+    )
+    let resolved = makeConfigFile(home: home).resolvedConfigURL()
+    #expect(resolved.path == legacy.path)
+  }
+
+  @Test
+  func prefersAppSupportOverXdg() {
+    let home = TemporaryHome()
+    // Both layers present — App Support wins per Ghostty's override order.
+    _ = home.makeFile(atRelative: ".config/ghostty/config.ghostty")
+    let appSupport = home.makeFile(
+      atRelative: "Library/Application Support/com.mitchellh.ghostty/config.ghostty"
+    )
+    let resolved = makeConfigFile(home: home).resolvedConfigURL()
+    #expect(resolved.path == appSupport.path)
+  }
+
+  @Test
+  func fallsBackToXdgCurrentWhenAppSupportAbsent() {
+    let home = TemporaryHome()
+    let xdgCurrent = home.makeFile(atRelative: ".config/ghostty/config.ghostty")
+    let resolved = makeConfigFile(home: home).resolvedConfigURL()
+    #expect(resolved.path == xdgCurrent.path)
+  }
+
+  @Test
+  func fallsBackToXdgLegacyWhenOnlyLegacyXdgExists() {
+    let home = TemporaryHome()
+    let xdgLegacy = home.makeFile(atRelative: ".config/ghostty/config")
+    let resolved = makeConfigFile(home: home).resolvedConfigURL()
+    #expect(resolved.path == xdgLegacy.path)
+  }
+
+  @Test
+  func xdgConfigHomeEnvVarOverridesDefault() {
+    let home = TemporaryHome()
+    let xdgRoot = TemporaryHome()
+    // A file under XDG_CONFIG_HOME — note we still prefix with `ghostty/`.
+    let fileURL = xdgRoot.url
+      .appendingPathComponent("ghostty/config.ghostty", isDirectory: false)
+    try? FileManager.default.createDirectory(
+      at: fileURL.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try? "".write(to: fileURL, atomically: true, encoding: .utf8)
+
+    let resolved = makeConfigFile(
+      home: home,
+      environment: ["XDG_CONFIG_HOME": xdgRoot.url.path]
+    ).resolvedConfigURL()
+    #expect(resolved.path == fileURL.path)
+  }
+}
