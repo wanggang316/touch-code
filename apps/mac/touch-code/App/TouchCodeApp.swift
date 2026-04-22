@@ -267,6 +267,7 @@ final class AppState {
       $0.settingsWriter = .live(settings)
       $0.hierarchyClient = hierarchy
       $0[HookConfigClient.self] = .live(store: hookConfigStore)
+      $0[GhosttyTerminalSettingsClient.self] = .appLive()
     }
 
     startIPC(

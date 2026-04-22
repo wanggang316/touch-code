@@ -51,6 +51,8 @@ struct SettingsWindowView: View {
       )
     case .notifications:
       NotificationsSettingsView(settingsStore: settingsStore)
+    case .terminal:
+      SettingsTerminalView(store: store.scope(state: \.terminal, action: \.terminal))
     case .developer:
       DeveloperSettingsView()
     case .shortcuts:
