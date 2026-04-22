@@ -271,25 +271,21 @@ struct RootFeature {
       // `case .sidebar:` so the nested pattern matches first.
 
       case .sidebar(.delegate(.openInDefaultEditor(let path, let projectID))):
-        // T3 rebase: route through the shared `EditorFeature.resolveDefault`
-        // helper so the sidebar context menu, the Header Open-in button, and
-        // the ⌘E shortcut use one resolution path. Cascade-on-missing
-        // semantics (documented on `resolveDefault`) are the canonical
-        // behavior; a non-installed descriptor resolves to its id and the
-        // downstream `.openRequested` surfaces `.failed` through the toast.
-        let resolvedID: EditorID
-        switch EditorFeature.resolveDefault(
+        // Route through the shared `resolveInstalledPreference` helper so the sidebar
+        // context menu, the Header Open-in button, and the ⌘E shortcut use one resolution
+        // path. When neither override nor global default is installed, pass `nil` so the
+        // service's priority cascade picks the first installed editor (Cursor / Zed /
+        // VSCode / …) before falling through to Finder. Passing `"finder"` here short-
+        // circuits the priority walk because the service's `preferred` tier is strict.
+        let preferred = EditorFeature.resolveInstalledPreference(
           projectOverride: projectOverrideEditorID(for: projectID),
           globalDefault: state.editor.globalDefault,
           descriptors: state.editor.descriptors
-        ) {
-        case .editor(let descriptor): resolvedID = descriptor.id
-        case .finder: resolvedID = EditorFeature.finderEditorID
-        }
+        )
         return .send(
           .editor(
             .openRequested(
-              editorID: resolvedID,
+              editorID: preferred,
               worktreePath: path,
               projectID: projectID
             )))
@@ -334,23 +330,18 @@ struct RootFeature {
       case .worktreeHeader(.delegate(let delegate)):
         switch delegate {
         case .openEditor(let editorID, let worktreePath, let projectID):
-          let resolvedID: EditorID
-          if let editorID {
-            resolvedID = editorID
-          } else {
-            switch EditorFeature.resolveDefault(
-              projectOverride: projectOverrideEditorID(for: projectID),
-              globalDefault: state.editor.globalDefault,
-              descriptors: state.editor.descriptors
-            ) {
-            case .editor(let descriptor): resolvedID = descriptor.id
-            case .finder: resolvedID = EditorFeature.finderEditorID
-            }
-          }
+          // An explicit pick from the "Open in ▾" submenu is strict; absent that, fall to
+          // the shared resolver which returns nil when nothing is installed so the service
+          // cascades through the priority list (see `resolveInstalledPreference`).
+          let preferred: EditorID? = editorID ?? EditorFeature.resolveInstalledPreference(
+            projectOverride: projectOverrideEditorID(for: projectID),
+            globalDefault: state.editor.globalDefault,
+            descriptors: state.editor.descriptors
+          )
           return .send(
             .editor(
               .openRequested(
-                editorID: resolvedID,
+                editorID: preferred,
                 worktreePath: worktreePath,
                 projectID: projectID
               )))

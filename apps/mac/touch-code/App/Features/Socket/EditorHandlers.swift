@@ -3,160 +3,183 @@ import Foundation
 import TouchCodeCore
 import TouchCodeIPC
 
-/// Server-side handlers for the `editor.*` IPC surface.
+/// Server-side handler for the `editor.*` IPC surface. Bridges the transport-layer wire types
+/// to the app-tier `EditorClient` + `HierarchyClient` + `SettingsStore`.
 ///
-/// Binds the three `EditorIPCMethod` endpoints to the App-tier `EditorClient` (which owns the
-/// `LiveEditorService` + registry + spawner) and `HierarchyClient` (which resolves Panel →
-/// Worktree via the catalog snapshot). Every throw at the handler boundary is translated into
-/// an `EditorIPCError` before crossing the wire so the App-tier `EditorError` type never
-/// leaves the app.
+/// C8a Phase 4c implements four methods:
 ///
-/// Wiring: `AppBootstrap` (C3+C4's plan 0003) registers a `MethodRouter` that dispatches the
-/// three method names to the matching method on this class. Until 0003 merges into this
-/// branch, `EditorHandlers` is unit-tested in isolation (see `EditorHandlersTests`); the
-/// `MethodRouter` registration is a one-line drop-in at merge time.
+/// - `editor.describe` — returns the installed-only descriptor list (`EditorClient.describe`).
+/// - `editor.open` — canonicalizes the caller's path, applies the per-Project override if the
+///   caller did not supply `preferred`, and delegates to `EditorClient.open`.
+/// - `editor.setGlobalDefault` — writes `settings.general.defaultEditorID` via `SettingsStore`.
+/// - `editor.setProjectDefault` — writes `Project.defaultEditor` via
+///   `HierarchyClient.setRepositoryDefaultEditor`.
 ///
-/// Threading: methods are `@MainActor` because they read `HierarchyClient.snapshot()`
-/// (which is `@MainActor @Sendable`). The underlying `editorClient.open` spawns off the
-/// main actor; that's the actor's decision, not ours.
+/// The handler is the only place the IPC layer touches `HierarchyClient` + `SettingsStore`; the
+/// `EditorService` itself never sees a `ProjectID` (design doc §"Resolution chain — split across
+/// two layers").
 @MainActor
 final class EditorHandlers {
   private let editor: EditorClient
   private let hierarchy: HierarchyClient
+  private let settings: SettingsStore
 
-  init(editor: EditorClient, hierarchy: HierarchyClient) {
+  init(editor: EditorClient, hierarchy: HierarchyClient, settings: SettingsStore) {
     self.editor = editor
     self.hierarchy = hierarchy
+    self.settings = settings
   }
 
-  // MARK: - editor.describe
+  // MARK: - describe
 
-  /// Returns the current editor registry with installation status. Purely read-only —
-  /// no hierarchy lookup needed.
   func describe() async -> EditorDescribeResponse {
+    // Refresh the service cache on every IPC call (R4): a user who installed Cursor while the
+    // app was running sees it in their next `tc open` without restarting.
+    await editor.clearCache()
     let descriptors = await editor.describe()
-    return EditorDescribeResponse(descriptors: descriptors.map { $0.toDTO() })
+    return EditorDescribeResponse(descriptors: descriptors.map(Self.dto(from:)))
   }
 
-  // MARK: - editor.open
+  // MARK: - open
 
-  /// Resolves the target Worktree, then spawns the requested editor against its directory
-  /// (or a `request.path` sub-path contained within that directory).
-  ///
-  /// Worktree resolution order:
-  ///   1. `request.worktreeID` — explicit UUID wins; must point to a live Worktree in the
-  ///      current catalog snapshot.
-  ///   2. `request.panelID` — walks `Space/Project/Worktree/Tab/Panel` in the snapshot until
-  ///      the matching Panel is found; its parent Worktree wins.
-  ///   3. Neither present, or neither resolves → `EditorIPCError.unresolvedWorktree`.
-  ///
-  /// The `preferred` editor id is forwarded verbatim to `EditorClient.open`, which owns the
-  /// 4-tier fallback chain (explicit → per-Project override → global default → Finder). The
-  /// resolved Project is passed through so per-Project overrides apply.
-  ///
-  /// When `request.path` is present, it must resolve to a directory whose canonical path is
-  /// contained within the resolved Worktree's root — otherwise `EditorIPCError.notADirectory`.
-  /// This prevents `tc open --path /etc` from escaping the Worktree via a handcrafted request.
   func open(_ request: EditorOpenRequest) async throws -> EditorOpenResponse {
-    guard
-      let (project, worktree) = resolveWorktree(
-        worktreeID: request.worktreeID,
-        panelID: request.panelID
+    // Normalize the path through `HierarchyManager.canonicalPath` so symlinks (`/tmp` →
+    // `/private/var/folders/...`) resolve to the same form `Project.rootPath` stores. Without
+    // this the `isPathRegistered` lookup silently misses every macOS temp directory.
+    let canonical = HierarchyManager.canonicalPath(request.path)
+
+    // Validate shape up front so the caller gets a clean `.notADirectory` rather than a launch
+    // failure deep inside NSWorkspace. The service re-checks, but surfacing the error here is
+    // cheaper and the error code on the wire is identical either way.
+    var isDir: ObjCBool = false
+    let exists = FileManager.default.fileExists(atPath: canonical, isDirectory: &isDir)
+    guard exists, isDir.boolValue else {
+      throw EditorIPCError.notADirectory
+    }
+
+    // Per-Project override (lenient): only applied when the caller did not supply `preferred`.
+    // If the override is uninstalled, silently fall through to the service's global-default
+    // cascade — design doc §Resolution chain, "lenient" tier.
+    var preferred = request.preferred
+    if preferred == nil {
+      preferred = await Self.projectOverride(
+        for: canonical,
+        hierarchy: hierarchy,
+        editor: editor
       )
-    else {
-      throw EditorIPCError.unresolvedWorktree
     }
 
-    let target = try Self.resolveOpenTarget(worktreePath: worktree.path, requestedPath: request.path)
+    let directory = URL(fileURLWithPath: canonical, isDirectory: true)
     do {
-      let choice = try await editor.open(target, request.preferred, project.id)
-      return EditorOpenResponse(choice: choice.toDTO(), worktreePath: worktree.path)
+      let choice = try await editor.open(directory, preferred)
+      return EditorOpenResponse(choice: Self.dto(from: choice))
     } catch let error as EditorError {
-      throw Self.mapToIPCError(error)
+      throw Self.ipcError(for: error)
     }
   }
 
-  /// Resolves the directory to open. Returns the Worktree root when `requestedPath` is nil or
-  /// empty; otherwise returns the standardised `requestedPath` after confirming it lies
-  /// within the Worktree. Throws `EditorIPCError.notADirectory` for escapes — the same error
-  /// the spawner would raise for a non-existent path, keeping the wire surface narrow.
-  static func resolveOpenTarget(worktreePath: String, requestedPath: String?) throws -> URL {
-    let worktreeRoot = URL(fileURLWithPath: worktreePath, isDirectory: true)
-    guard let raw = requestedPath, !raw.isEmpty else { return worktreeRoot }
-    let requested = URL(fileURLWithPath: raw).standardizedFileURL
-    let root = worktreeRoot.standardizedFileURL
-    let rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"
-    let candidatePath = requested.path
-    if candidatePath == root.path || candidatePath.hasPrefix(rootPath) {
-      return requested
-    }
-    throw EditorIPCError.notADirectory
+  // MARK: - setGlobalDefault
+
+  func setGlobalDefault(_ request: EditorSetGlobalDefaultRequest) -> EditorSetGlobalDefaultResponse {
+    // Atomic write via SettingsStore's convenience setter (matches the appearance / mute
+    // patterns the Settings pane uses; persistence is debounced through scheduleSave).
+    settings.setDefaultEditorID(request.editorID)
+    return EditorSetGlobalDefaultResponse()
   }
 
-  // MARK: - editor.setDefault
+  // MARK: - setProjectDefault
 
-  /// Updates the per-Project `defaultEditor` override. Looks up the Project's parent Space in
-  /// the current snapshot (the wire contract only carries `projectID`; the app-side topology
-  /// requires both IDs to mutate).
-  func setDefault(_ request: EditorSetDefaultRequest) throws -> EditorSetDefaultResponse {
+  func setProjectDefault(
+    _ request: EditorSetProjectDefaultRequest
+  ) throws -> EditorSetProjectDefaultResponse {
     let projectID = ProjectID(raw: request.projectID)
-    let snapshot = hierarchy.snapshot()
-    guard
-      let space = snapshot.spaces.first(where: { space in
-        space.projects.contains(where: { $0.id == projectID })
-      })
-    else {
+    do {
+      try hierarchy.setRepositoryDefaultEditor(projectID, request.editorID)
+    } catch {
+      // `HierarchyError.notFound` for an unknown projectID is the only expected throw here; any
+      // other error still rolls up to `.internal` via the router's default mapping.
       throw EditorIPCError.unknownProject
     }
-    try hierarchy.setDefaultEditor(projectID, space.id, request.editorID)
-    return EditorSetDefaultResponse()
+    return EditorSetProjectDefaultResponse()
   }
 
-  // MARK: - private helpers
+  // MARK: - Helpers
 
-  /// Resolves `(Project, Worktree)` in the current snapshot using either explicit `worktreeID`
-  /// or a `panelID` → parent-Worktree walk. Returns `nil` if neither path resolves.
-  private func resolveWorktree(
-    worktreeID: UUID?,
-    panelID: UUID?
-  ) -> (Project, Worktree)? {
-    let snapshot = hierarchy.snapshot()
-    if let worktreeID {
-      let id = WorktreeID(raw: worktreeID)
-      for space in snapshot.spaces {
-        for project in space.projects {
-          if let worktree = project.worktrees.first(where: { $0.id == id }) {
-            return (project, worktree)
-          }
-        }
-      }
+  /// Look up the per-Project default editor for the given canonical path. Returns the ID only
+  /// when (a) the path resolves to the root or a subdirectory of a registered Project, (b)
+  /// that Project has a `defaultEditor` override, AND (c) the override is currently installed
+  /// per `editor.describe`. Otherwise returns nil so the service cascades to the global
+  /// default.
+  ///
+  /// Uses `projectContaining` rather than `isPathRegistered` so `tc open` run from a
+  /// subdirectory (e.g. `/repo/Sources/`) still honors the Project's override. Exact-match
+  /// lookup would silently miss every subdirectory call site.
+  private static func projectOverride(
+    for canonicalPath: String,
+    hierarchy: HierarchyClient,
+    editor: EditorClient
+  ) async -> EditorID? {
+    guard let (_, projectID) = hierarchy.projectContaining(canonicalPath) else {
       return nil
     }
-    if let panelID {
-      let id = PanelID(raw: panelID)
-      for space in snapshot.spaces {
-        for project in space.projects {
-          for worktree in project.worktrees
-          where worktree.tabs.contains(where: { $0.panels.contains(where: { $0.id == id }) }) {
-            return (project, worktree)
-          }
-        }
-      }
+    let catalog = hierarchy.snapshot()
+    guard let project = Self.findProject(in: catalog, id: projectID) else {
       return nil
+    }
+    guard let projectDefault = project.defaultEditor else {
+      return nil
+    }
+    let installed = await editor.describe()
+    guard installed.contains(where: { $0.id == projectDefault }) else {
+      return nil
+    }
+    return projectDefault
+  }
+
+  private static func findProject(in catalog: Catalog, id projectID: ProjectID) -> Project? {
+    for space in catalog.spaces {
+      if let project = space.projects.first(where: { $0.id == projectID }) {
+        return project
+      }
     }
     return nil
   }
 
-  /// App-tier `EditorError` → wire-tier `EditorIPCError`. Stable mapping — do NOT renumber
-  /// `EditorIPCError`'s rawValues; the CLI compares against them.
-  static func mapToIPCError(_ error: EditorError) -> EditorIPCError {
+  // MARK: - DTO mapping
+
+  private static func dto(from descriptor: EditorDescriptor) -> EditorDescriptorDTO {
+    EditorDescriptorDTO(
+      id: descriptor.id,
+      displayName: descriptor.displayName,
+      bundleIdentifier: descriptor.bundleIdentifier,
+      launchMode: dto(from: descriptor.launchMode),
+      appURL: descriptor.appURL,
+      alternateBundleIdentifiers: descriptor.alternateBundleIdentifiers
+    )
+  }
+
+  private static func dto(from mode: EditorDescriptor.LaunchMode) -> EditorDescriptorDTO.LaunchModeDTO {
+    switch mode {
+    case .directory: return .directory
+    case .applicationWithArguments: return .applicationWithArguments
+    case .shellEditor: return .shellEditor
+    }
+  }
+
+  private static func dto(from choice: EditorChoice) -> EditorChoiceDTO {
+    EditorChoiceDTO(
+      id: choice.id,
+      displayName: choice.displayName,
+      binaryPath: choice.binaryPath
+    )
+  }
+
+  /// Translate app-tier `EditorError` to the wire-safe `EditorIPCError`. Keeps app-tier types
+  /// from crossing the socket.
+  private static func ipcError(for error: EditorError) -> EditorIPCError {
     switch error {
-    case .unresolvedWorktree: return .unresolvedWorktree
     case .notInstalled: return .notInstalled
-    case .spawnFailed: return .spawnFailed
-    case .nonZeroExit: return .nonZeroExit
-    case .timedOut: return .timedOut
-    case .badTemplate: return .badTemplate
+    case .launchFailed: return .launchFailed
     case .notADirectory: return .notADirectory
     }
   }

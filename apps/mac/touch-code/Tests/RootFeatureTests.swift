@@ -321,10 +321,9 @@ struct RootFeatureTests {
       $0.terminalClient.events = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
       $0.editorClient = EditorClient.testValue
-      $0.editorClient.open = { _, id, _ in
+      $0.editorClient.open = { _, id in
         EditorChoice(
-          id: id ?? "finder", displayName: "x",
-          binaryPath: URL(fileURLWithPath: "/bin/x"), argv: []
+          id: id ?? "finder", displayName: "x", binaryPath: nil
         )
       }
     }
@@ -352,9 +351,10 @@ struct RootFeatureTests {
     let descriptor = EditorDescriptor(
       id: "cursor",
       displayName: "Cursor",
-      origin: .builtin,
-      template: CommandTemplate(binary: "cursor", args: ["{dir}"]),
-      installation: .installed(resolvedBinary: URL(fileURLWithPath: "/usr/local/bin/cursor"))
+      bundleIdentifier: "com.todesktop.230313mzl4w4u92",
+      launchMode: .directory,
+      appURL: URL(fileURLWithPath: "/Applications/Cursor.app"),
+      alternateBundleIdentifiers: []
     )
     var initial = RootFeature.State()
     initial.editor.descriptors = [descriptor]
@@ -366,10 +366,9 @@ struct RootFeatureTests {
       $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.snapshot = { Catalog() }
       $0.editorClient = EditorClient.testValue
-      $0.editorClient.open = { _, id, _ in
+      $0.editorClient.open = { _, id in
         EditorChoice(
-          id: id ?? "finder", displayName: "x",
-          binaryPath: URL(fileURLWithPath: "/bin/x"), argv: []
+          id: id ?? "finder", displayName: "x", binaryPath: nil
         )
       }
     }
@@ -389,7 +388,12 @@ struct RootFeatureTests {
   }
 
   @Test
-  func headerOpenEditorWithNilFallsBackToFinderID() async {
+  func headerOpenEditorWithNilDeferspreferredToServiceCascade() async {
+    // Codex P2-3: when no project override and no global default resolves, the reducer
+    // forwards `nil` as `preferred` so the service's priority cascade picks the first
+    // installed editor (Cursor / Zed / VSCode / …) before falling through to Finder.
+    // Previously the reducer forced `"finder"` here, which strict-matched Finder and
+    // shadowed every higher-priority installed editor.
     let store = TestStore(initialState: RootFeature.State()) {
       RootFeature()
     } withDependencies: {
@@ -397,10 +401,9 @@ struct RootFeatureTests {
       $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.snapshot = { Catalog() }
       $0.editorClient = EditorClient.testValue
-      $0.editorClient.open = { _, id, _ in
+      $0.editorClient.open = { _, id in
         EditorChoice(
-          id: id ?? "finder", displayName: "x",
-          binaryPath: URL(fileURLWithPath: "/bin/x"), argv: []
+          id: id ?? "finder", displayName: "x", binaryPath: nil
         )
       }
     }
@@ -415,7 +418,7 @@ struct RootFeatureTests {
     await store.receive(
       .editor(
         .openRequested(
-          editorID: EditorFeature.finderEditorID,
+          editorID: nil,
           worktreePath: "/tmp/w",
           projectID: nil
         )))

@@ -60,6 +60,31 @@ extension Catalog: Codable {
 }
 
 extension Catalog {
+  /// Resets any `Project.defaultEditor` that is not in the caller-provided built-in
+  /// registry to `nil`. Counterpart to `Settings.garbageCollectEditors` — run once at
+  /// catalog load so per-project overrides left over from the retired C8 `customEditors`
+  /// feature don't persist forever. `knownIDs` is a parameter so this helper stays in
+  /// `TouchCodeCore` without pulling in the app-tier `EditorRegistry`.
+  ///
+  /// Idempotent: a second call on an already-cleaned `Catalog` is a no-op and returns
+  /// `false`. Returns `true` if any Project was mutated so the caller can decide whether
+  /// to persist — avoids a spurious catalog write when nothing actually changed.
+  @discardableResult
+  public mutating func garbageCollectEditors(knownIDs: Set<EditorID>) -> Bool {
+    var mutated = false
+    for spaceIndex in spaces.indices {
+      for projectIndex in spaces[spaceIndex].projects.indices {
+        if let id = spaces[spaceIndex].projects[projectIndex].defaultEditor,
+          !knownIDs.contains(id)
+        {
+          spaces[spaceIndex].projects[projectIndex].defaultEditor = nil
+          mutated = true
+        }
+      }
+    }
+    return mutated
+  }
+
   /// Resolve a `PanelID` to the Worktree that currently hosts it, if any.
   /// Walks `spaces → projects → worktrees → tabs → panels` and returns the
   /// first match. Linear in the total panel count. Returns `nil` if the

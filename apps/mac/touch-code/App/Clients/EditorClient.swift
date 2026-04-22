@@ -2,84 +2,62 @@ import ComposableArchitecture
 import Foundation
 import TouchCodeCore
 
-/// TCA dependency-injection bridge over `EditorService`. Replaces the M3 `EditorServiceFacade`
-/// placeholder (which threw `EditorPlaceholderError.notYetImplemented`) with a real surface
-/// wired to `LiveEditorService` from M5. The live factory closes over `SettingsStore` and
-/// `HierarchyManager` for the global default + per-Project override reads.
+/// TCA dependency-injection bridge over `EditorService`. Closes over the live
+/// `LiveEditorService` built from the app's `SettingsStore`; callers dispatch
+/// `describe` / `resolve` / `open` through closures without importing the service
+/// type directly.
 ///
-/// The two tier-changing methods (`setDefaultEditorID`, `setPerProjectDefaultEditor`) live on
-/// `SettingsStore` and `HierarchyClient` respectively — they mutate persistent state and
-/// don't belong on a read/dispatch client.
+/// C8a change: the service no longer sees `ProjectID`. Per-Project editor overrides are
+/// resolved at the caller layer (TCA reducer or IPC handler) and handed to the service as
+/// an `EditorID?` via the `preferred` parameter.
 nonisolated struct EditorClient: Sendable {
   var describe: @Sendable () async -> [EditorDescriptor]
-  var resolve: @Sendable (_ preferred: EditorID?, _ projectID: ProjectID?) async -> EditorDescriptor
-  var open: @Sendable (_ directory: URL, _ preferred: EditorID?, _ projectID: ProjectID?) async throws -> EditorChoice
+  var resolve: @Sendable (_ preferred: EditorID?) async throws -> EditorDescriptor
+  var open: @Sendable (_ directory: URL, _ preferred: EditorID?) async throws -> EditorChoice
+  /// Invalidates the service-level cache backing `describe()`. Settings panes and the IPC
+  /// `editor.describe` handler call this on appear so newly-installed editors surface.
+  var clearCache: @Sendable () async -> Void
 }
 
 extension EditorClient {
-  /// Constructs a client that forwards to a `LiveEditorService`. The closures capture the
-  /// settings + hierarchy reads; pass `nil` for either to use the safe defaults (no global
-  /// default, no project override).
+  /// Constructs a client that forwards to a `LiveEditorService`. Captures the
+  /// `SettingsStore` weakly so the client can outlive a scoped store in tests.
   @MainActor
-  static func live(
-    settings: SettingsStore?,
-    hierarchy: HierarchyManager?
-  ) -> EditorClient {
+  static func live(settings: SettingsStore?) -> EditorClient {
     let service = LiveEditorService(
-      spawner: FoundationProcessSpawner(),
-      prober: LivePathProber(),
+      launcher: LiveAppLauncher(),
       globalDefault: { [weak settings] in
-        // @MainActor-isolated read; SettingsStore is @Observable on MainActor.
         MainActor.assumeIsolated { settings?.settings.general.defaultEditorID }
-      },
-      customEditors: { [weak settings] in
-        MainActor.assumeIsolated { settings?.settings.general.customEditors ?? [] }
-      },
-      projectOverride: { [weak hierarchy] projectID in
-        MainActor.assumeIsolated {
-          guard let hierarchy else { return nil }
-          return EditorClient.findProjectDefault(in: hierarchy.catalog, projectID: projectID)
-        }
       }
     )
     return EditorClient(
       describe: { await service.describe() },
-      resolve: { preferred, projectID in
-        await service.resolve(preferred: preferred, projectID: projectID)
+      resolve: { preferred in try await service.resolve(preferred: preferred) },
+      open: { directory, preferred in
+        try await service.open(directory: directory, preferred: preferred)
       },
-      open: { directory, preferred, projectID in
-        try await service.open(directory: directory, preferred: preferred, projectID: projectID)
-      }
+      clearCache: { await service.clearCache() }
     )
-  }
-
-  /// Walks the catalog for the Project and returns its `defaultEditor`. `nil` if the
-  /// project can't be found or has no override.
-  fileprivate static func findProjectDefault(in catalog: Catalog, projectID: ProjectID) -> EditorID? {
-    for space in catalog.spaces {
-      for project in space.projects where project.id == projectID {
-        return project.defaultEditor
-      }
-    }
-    return nil
   }
 }
 
 extension EditorClient: DependencyKey {
   /// `liveValue` is intentionally unusable — missing wiring is a programmer error, not a
-  /// silent fallback. `TouchCodeApp.bringUp()` overrides via `.withDependencies { $0.editorClient = .live(...) }`.
-  /// If you see one of these fatalErrors, the real factory wasn't applied at app startup.
-  /// Matches `HierarchyClient.liveValue` / `TerminalClient.liveValue` conventions.
+  /// silent fallback. `TouchCodeApp.bringUp()` overrides via
+  /// `.withDependencies { $0.editorClient = .live(settings:) }`.
   static let liveValue: EditorClient = EditorClient(
     describe: {
       fatalError(
-        "EditorClient.liveValue not configured; wire via `.withDependencies` at app startup with `.live(settings:hierarchy:)`"
+        "EditorClient.liveValue not configured; wire via `.withDependencies` at app startup with `.live(settings:)`"
       )
     },
-    resolve: { _, _ in
+    resolve: { _ in
       fatalError("EditorClient.liveValue not configured")
     },
-    open: { _, _, _ in
+    open: { _, _ in
+      fatalError("EditorClient.liveValue not configured")
+    },
+    clearCache: {
       fatalError("EditorClient.liveValue not configured")
     }
   )
@@ -88,23 +66,13 @@ extension EditorClient: DependencyKey {
     describe: unimplemented("EditorClient.describe", placeholder: []),
     resolve: unimplemented(
       "EditorClient.resolve",
-      placeholder: EditorDescriptor(
-        id: "finder",
-        displayName: "Finder",
-        origin: .builtin,
-        template: CommandTemplate(binary: "open", args: ["{dir}"]),
-        installation: .installed(resolvedBinary: URL(fileURLWithPath: "/usr/bin/open"))
-      )
+      placeholder: TestEditorService.defaultDescriptor
     ),
     open: unimplemented(
       "EditorClient.open",
-      placeholder: EditorChoice(
-        id: "finder",
-        displayName: "Finder",
-        binaryPath: URL(fileURLWithPath: "/usr/bin/open"),
-        argv: ["/usr/bin/open"]
-      )
-    )
+      placeholder: TestEditorService.defaultChoice
+    ),
+    clearCache: unimplemented("EditorClient.clearCache")
   )
 }
 

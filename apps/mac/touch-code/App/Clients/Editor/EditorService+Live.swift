@@ -1,139 +1,173 @@
+import AppKit
 import Foundation
 import TouchCodeCore
 
-/// Live `EditorService`. Dependency-injected: pass any `ProcessSpawner` and `PathProber` for
-/// tests; defaults construct a `FoundationProcessSpawner` + `LivePathProber` at call time.
+/// Production `EditorService` backed by Launch Services via the `AppLauncher` seam.
 ///
-/// Read closures are `@Sendable` captures with optional returns so that a collected
-/// `SettingsStore` or `HierarchyManager` (future weak-captured in the live factory) yields
-/// `nil` and the fallback chain progresses to the next tier without crashing.
-nonisolated struct LiveEditorService: EditorService {
-  let spawner: any ProcessSpawner
-  let prober: any PathProber
-  let globalDefault: @Sendable () -> EditorID?
-  let customEditors: @Sendable () -> [CustomEditor]
-  let projectOverride: @Sendable (ProjectID) -> EditorID?
+/// State: the `describe()` result is memoised for the service's lifetime. Settings panes
+/// (and the IPC `editor.describe` handler) call `clearCache()` on appear so newly-installed
+/// editors surface without an app restart (R4 in the design doc).
+///
+/// Threading: an `actor` gives us a cheap mutex around the cache without hand-rolling a
+/// lock. The `Sendable` closures for reading settings let the live factory close over
+/// `@MainActor`-isolated stores without the service itself needing to hop to the main actor
+/// on every resolve.
+final actor LiveEditorService: EditorService {
+  private let launcher: any AppLauncher
+  private let globalDefault: @Sendable () -> EditorID?
+  private var cachedDescriptors: [EditorDescriptor]?
 
   init(
-    spawner: any ProcessSpawner = FoundationProcessSpawner(),
-    prober: any PathProber = LivePathProber(),
-    globalDefault: @escaping @Sendable () -> EditorID? = { nil },
-    customEditors: @escaping @Sendable () -> [CustomEditor] = { [] },
-    projectOverride: @escaping @Sendable (ProjectID) -> EditorID? = { _ in nil }
+    launcher: any AppLauncher = LiveAppLauncher(),
+    globalDefault: @escaping @Sendable () -> EditorID? = { nil }
   ) {
-    self.spawner = spawner
-    self.prober = prober
+    self.launcher = launcher
     self.globalDefault = globalDefault
-    self.customEditors = customEditors
-    self.projectOverride = projectOverride
   }
 
-  // Protocol declares these `async` so future resolvers can do disk I/O; the current live
-  // implementation is synchronous. Swift allows a sync method to satisfy an async
-  // requirement — callers still write `await service.describe()`.
-  func describe() -> [EditorDescriptor] {
-    (try? EditorRegistry.merged(with: customEditors(), prober: prober)) ?? []
+  // MARK: - describe
+
+  func describe() async -> [EditorDescriptor] {
+    if let cached = cachedDescriptors { return cached }
+    var resolved: [EditorDescriptor] = []
+    for template in EditorRegistry.registry {
+      switch template.launchMode {
+      case .shellEditor:
+        // TODO(C8a): re-expose once a Panel-aware open path lands — see exec-plan progress
+        // section. The registry entry stays so the descriptor shape is defined for the
+        // future caller, but `describe()` cannot advertise an editor whose `open()` throws
+        // `.launchFailed` every time: saving it as a global/project default strands the
+        // user. Filtering here keeps `.shellEditor` out of the Settings + Project Options
+        // pickers until end-to-end wiring exists.
+        continue
+      case .directory, .applicationWithArguments:
+        if let appURL = await resolveAppURL(for: template) {
+          resolved.append(
+            EditorDescriptor(
+              id: template.id,
+              displayName: template.displayName,
+              bundleIdentifier: template.bundleIdentifier,
+              launchMode: template.launchMode,
+              appURL: appURL,
+              alternateBundleIdentifiers: template.alternateBundleIdentifiers
+            )
+          )
+        }
+      }
+    }
+    cachedDescriptors = resolved
+    return resolved
   }
 
-  func resolve(
-    preferred: EditorID?,
-    projectID: ProjectID?
-  ) -> EditorDescriptor {
-    let registry = (try? EditorRegistry.merged(with: customEditors(), prober: prober)) ?? []
-    return resolve(registry: registry, preferred: preferred, projectID: projectID)
+  /// Invalidates the `describe()` cache. Call on Settings-pane appear and on IPC
+  /// `editor.describe` so a newly-installed editor becomes visible without restart.
+  func clearCache() {
+    cachedDescriptors = nil
   }
+
+  // MARK: - resolve
+
+  func resolve(preferred: EditorID?) async throws -> EditorDescriptor {
+    let installed = await describe()
+
+    // Tier 1 — explicit preferred (strict).
+    if let preferred {
+      guard let match = installed.first(where: { $0.id == preferred }) else {
+        let bundleID = EditorRegistry.registry.first(where: { $0.id == preferred })?.bundleIdentifier ?? ""
+        throw EditorError.notInstalled(id: preferred, bundleID: bundleID)
+      }
+      return match
+    }
+
+    // Tier 2 — stored global default (lenient: silently skip if uninstalled).
+    if let defaultID = globalDefault(),
+      let match = installed.first(where: { $0.id == defaultID })
+    {
+      return match
+    }
+
+    // Tier 3 — priority walk. Finder is always installed, so this always terminates.
+    for id in EditorRegistry.defaultPriority {
+      if let match = installed.first(where: { $0.id == id }) {
+        return match
+      }
+    }
+
+    // Defensive: Launch Services claims Finder is missing. Surface a launch error rather
+    // than force-unwrapping — the caller can render a toast and the user can at least
+    // retry.
+    throw EditorError.launchFailed(reason: "No installed editor found in the priority chain.")
+  }
+
+  // MARK: - open
 
   @discardableResult
-  func open(
-    directory: URL,
-    preferred: EditorID?,
-    projectID: ProjectID?
-  ) async throws -> EditorChoice {
+  func open(directory: URL, preferred: EditorID?) async throws -> EditorChoice {
     try ensureDirectoryExists(directory)
-    let registry = try EditorRegistry.merged(with: customEditors(), prober: prober)
-    let descriptor = resolve(registry: registry, preferred: preferred, projectID: projectID)
+    let descriptor = try await resolve(preferred: preferred)
 
-    guard case .installed(let binaryURL) = descriptor.installation else {
-      throw EditorError.notInstalled(id: descriptor.id, binary: descriptor.template.binary)
+    switch descriptor.launchMode {
+    case .directory:
+      guard let appURL = descriptor.appURL else {
+        throw EditorError.launchFailed(reason: "Resolved \(descriptor.id) has no app URL.")
+      }
+      let config = NSWorkspace.OpenConfiguration()
+      try await launcher.open(urls: [directory], withApplicationAt: appURL, configuration: config)
+
+    case .applicationWithArguments:
+      guard let appURL = descriptor.appURL else {
+        throw EditorError.launchFailed(reason: "Resolved \(descriptor.id) has no app URL.")
+      }
+      let config = NSWorkspace.OpenConfiguration()
+      config.arguments = [directory.path]
+      config.createsNewApplicationInstance = true
+      // JetBrains IDEs expect `arguments` to arrive through
+      // `NSWorkspace.openApplication(at:configuration:)`. Calling `open(urls:…)` with an
+      // empty URL list is undefined and does not forward `configuration.arguments` to the
+      // launched app — the IDE would open at its last-active project instead of the
+      // directory the user asked for.
+      try await launcher.openApplication(at: appURL, configuration: config)
+
+    case .shellEditor:
+      // C8a Phase 4d: `TerminalEngine.ensureSurface` now forwards `panel.initialCommand` to
+      // the freshly spawned shell, so the primitive IS in place. What's missing is a way for
+      // this service to address a Panel: `.shellEditor` needs a `(spaceID, projectID,
+      // worktreeID, tabID)` tuple to hand `HierarchyManager.openPanel`, and the service's
+      // `(directory: URL, preferred: EditorID?)` signature intentionally excludes domain
+      // types (design doc §"Path-in, nothing else"). Short of widening the service signature
+      // or smuggling a Panel spawner in via closure, `.shellEditor` can't complete from here.
+      //
+      // Ship: fail gracefully with a descriptive error so the registry entry keeps its shape
+      // in `describe()` but attempting to open through it surfaces the unresolved design
+      // question instead of silently no-op'ing. Callers that want `.shellEditor` to work end
+      // to end should route through the Panel/Tab-aware code path (e.g. the worktree header
+      // "Open in ▾" + a future `tc open --in editor` wired to `hierarchy.openPanel`).
+      throw EditorError.launchFailed(
+        reason:
+          "$EDITOR requires a Tab context that EditorService does not have. "
+          + "Open a Panel via the Worktree header or `hierarchy.openPanel` with initialCommand=\"$EDITOR\". "
+          + "See docs/exec-plans/c8a-implementation.md (Phase 4d)."
+      )
     }
 
-    let argv = buildArgv(binaryURL: binaryURL, template: descriptor.template, directory: directory)
-    let choice = EditorChoice(
-      id: descriptor.id,
-      displayName: descriptor.displayName,
-      binaryPath: binaryURL,
-      argv: argv
-    )
-    let env = EditorEnv.build()
-    let outcome = await spawner.spawnForOpen(
-      argv: argv,
-      env: env,
-      cwd: directory,
-      timeout: SpawnContract.timeout
-    )
-    switch outcome {
-    case .exited(let code, _) where code == 0:
-      return choice
-    case .exited(let code, let stderr):
-      throw EditorError.nonZeroExit(code: code, stderr: stderr)
-    case .timedOut:
-      throw EditorError.timedOut
-    case .spawnFailed(let reason):
-      throw EditorError.spawnFailed(reason: reason)
-    }
+    return EditorChoice(id: descriptor.id, displayName: descriptor.displayName, binaryPath: nil)
   }
 
-  // MARK: - Resolution
+  // MARK: - Helpers
 
-  /// Four-tier fallback: explicit preferred → per-project override → global default → finder.
-  /// **No silent fallthrough.** An unresolved preferred/override/global editor returns a
-  /// `.missingBinary` descriptor; `open` surfaces `.notInstalled` from it. Only when all
-  /// three upstream tiers are `nil` does this method consult Finder.
-  func resolve(
-    registry: [EditorDescriptor],
-    preferred: EditorID?,
-    projectID: ProjectID?
-  ) -> EditorDescriptor {
-    if let id = preferred, let match = registry.first(where: { $0.id == id }) {
-      return match
+  /// Probes the launcher for the template's primary bundle ID, falling through to
+  /// `alternateBundleIdentifiers` (R1 in the design doc). Returns nil if no bundle is
+  /// registered for any of them.
+  private func resolveAppURL(for template: EditorDescriptor) async -> URL? {
+    if let url = await launcher.urlForApplication(bundleIdentifier: template.bundleIdentifier) {
+      return url
     }
-    if let projectID, let id = projectOverride(projectID), let match = registry.first(where: { $0.id == id }) {
-      return match
+    for alternate in template.alternateBundleIdentifiers {
+      if let url = await launcher.urlForApplication(bundleIdentifier: alternate) {
+        return url
+      }
     }
-    if let id = globalDefault(), let match = registry.first(where: { $0.id == id }) {
-      return match
-    }
-    // Prefer an *installed* Finder so the dropdown never labels a broken editor as the
-    // resolved default. `/usr/bin/open` is expected to always exist on macOS; the installed-
-    // only fallback is defensive against a file-system anomaly (or a FakePathProber in
-    // tests) where it doesn't. See 0005 plan DEC-16.
-    if let finder = registry.first(where: { $0.id == "finder" && $0.isInstalled }) {
-      return finder
-    }
-    // Finder is in the registry but not installed → fall back to the missingBinary
-    // descriptor. `open()` will throw `.notInstalled(id: "finder", binary: "open")`, which
-    // the UI surfaces as a clear error rather than a silent wrong-editor launch.
-    if let finder = registry.first(where: { $0.id == "finder" }) { return finder }
-    // Registry somehow lacks a Finder entry (never happens with the hard-coded allowlist;
-    // guard covers a future registry-refactor regression). Synthesise the placeholder.
-    return EditorDescriptor(
-      id: "finder",
-      displayName: "Finder",
-      origin: .builtin,
-      template: CommandTemplate(binary: "open", args: ["{dir}"]),
-      installation: .missingBinary(expected: "open")
-    )
-  }
-
-  // MARK: - argv construction
-
-  /// `{dir}` is substituted literally into exactly one argv slot. Everything else passes
-  /// through verbatim — no shell, no quoting, no expansion.
-  func buildArgv(binaryURL: URL, template: CommandTemplate, directory: URL) -> [String] {
-    let substituted = template.args.map { arg -> String in
-      arg == CommandTemplate.dirPlaceholder ? directory.path : arg
-    }
-    return [binaryURL.path] + substituted
+    return nil
   }
 
   private func ensureDirectoryExists(_ url: URL) throws {

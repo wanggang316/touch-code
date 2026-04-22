@@ -34,7 +34,8 @@ final class SettingsStore {
 
   init(
     fileURL: URL = Settings.defaultURL(),
-    debounceWindow: Duration = SettingsStore.debounceWindow
+    debounceWindow: Duration = SettingsStore.debounceWindow,
+    knownEditorIDs: Set<EditorID> = Set(EditorRegistry.registry.map(\.id))
   ) {
     self.fileURL = fileURL
     self.debounceWindow = debounceWindow
@@ -93,6 +94,19 @@ final class SettingsStore {
       safeToPersist = false
     }
     self.persistenceEnabled = safeToPersist
+
+    // C8a Phase 5 M1 — reset any stored `general.defaultEditorID` that is not in the
+    // current built-in registry. Stale IDs come from the retired C8 `customEditors`
+    // feature; the resolver would silently fall back, but leaving the dead value on disk
+    // misreports the user's actual preference. Run after the switch so every decode
+    // branch (including `.default`) is covered; idempotent.
+    let didNormalize = settings.garbageCollectEditors(knownIDs: knownEditorIDs)
+    if didNormalize {
+      logger.info("Reset stale general.defaultEditorID not in built-in registry")
+      // Persist the cleaned value so the normalization sticks across launches. Uses the
+      // standard debounced save pipeline; no-op when persistence is disabled.
+      scheduleSave()
+    }
   }
 
   // MARK: - Section mutators
@@ -137,57 +151,9 @@ final class SettingsStore {
     scheduleSave()
   }
 
-  @discardableResult
-  func addCustomEditor(_ editor: CustomEditor) -> Result<Void, EditorTemplateError> {
-    do {
-      _ = try CustomEditor.validatedID(editor.id)
-      try editor.template.validate()
-    } catch let error as EditorTemplateError {
-      return .failure(error)
-    } catch {
-      return .failure(.invalidID(editor.id))
-    }
-    let builtinIDs = Set(EditorRegistry.builtins.map(\.id))
-    if builtinIDs.contains(editor.id) {
-      return .failure(.invalidID(editor.id))
-    }
-    if let idx = settings.general.customEditors.firstIndex(where: { $0.id == editor.id }) {
-      settings.general.customEditors[idx] = editor
-    } else {
-      settings.general.customEditors.append(editor)
-    }
-    scheduleSave()
-    return .success(())
-  }
-
-  @discardableResult
-  func updateCustomEditor(id: EditorID, _ transform: (inout CustomEditor) -> Void) -> Bool {
-    guard let idx = settings.general.customEditors.firstIndex(where: { $0.id == id }) else { return false }
-    let original = settings.general.customEditors[idx]
-    transform(&settings.general.customEditors[idx])
-    do {
-      _ = try CustomEditor.validatedID(settings.general.customEditors[idx].id)
-      try settings.general.customEditors[idx].template.validate()
-    } catch {
-      // Revert the in-memory mutation — the doc comment used to claim we did this but the
-      // code only logged. PR #22 review N3 flagged the mismatch. Without the revert, the
-      // broken CustomEditor lives in memory and the next scheduled save persists it.
-      settings.general.customEditors[idx] = original
-      logger.error("updateCustomEditor rejected invalid transform: \(String(describing: error), privacy: .public)")
-      return false
-    }
-    scheduleSave()
-    return true
-  }
-
-  @discardableResult
-  func removeCustomEditor(id: EditorID) -> Bool {
-    let before = settings.general.customEditors.count
-    settings.general.customEditors.removeAll { $0.id == id }
-    let changed = settings.general.customEditors.count != before
-    if changed { scheduleSave() }
-    return changed
-  }
+  // C8a Phase 3 retired the custom-editor surface. `addCustomEditor` / `updateCustomEditor`
+  // / `removeCustomEditor` are gone; the `customEditors` field was removed from
+  // `GeneralSettings`. Phase 4a's Settings pane uses the built-in registry exclusively.
 
   /// Hard-overwrite the entire settings document. Only used by tests and recovery paths.
   func replaceAll(_ new: Settings) {

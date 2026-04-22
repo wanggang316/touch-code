@@ -390,6 +390,77 @@ struct HierarchyManagerTests {
     #expect(match == nil)
   }
 
+  // MARK: - project(containing:) — Codex P2-4
+
+  @Test
+  func projectContainingMatchesRootExactly() throws {
+    let spaceID = manager.createSpace(name: "work")
+    let projectID = try manager.addProject(
+      to: spaceID, name: "p",
+      rootPath: HierarchyManager.canonicalPath("/tmp/p")
+    )
+    let match = manager.project(containing: HierarchyManager.canonicalPath("/tmp/p"))
+    #expect(match?.0 == spaceID)
+    #expect(match?.1 == projectID)
+  }
+
+  @Test
+  func projectContainingMatchesSubdirectoryOfRoot() throws {
+    let spaceID = manager.createSpace(name: "work")
+    let projectID = try manager.addProject(
+      to: spaceID, name: "p",
+      rootPath: HierarchyManager.canonicalPath("/tmp/p")
+    )
+    // `tc open` from a subdirectory must still resolve to the parent Project, so the
+    // project's `defaultEditor` override applies to arbitrarily deep paths.
+    let subPath = HierarchyManager.canonicalPath("/tmp/p") + "/src/Features"
+    let match = manager.project(containing: subPath)
+    #expect(match?.1 == projectID)
+  }
+
+  @Test
+  func projectContainingRespectsPathSegmentBoundary() throws {
+    let spaceID = manager.createSpace(name: "work")
+    _ = try manager.addProject(
+      to: spaceID, name: "p",
+      rootPath: HierarchyManager.canonicalPath("/tmp/repo")
+    )
+    // `/tmp/repo` must not match `/tmp/repository`; prefix-match on the raw string alone
+    // would incorrectly match, so the implementation anchors on `/` segment boundaries.
+    let absent = manager.project(containing: "/tmp/repository")
+    #expect(absent == nil)
+  }
+
+  @Test
+  func projectContainingPicksDeepestMatchWhenProjectsNest() throws {
+    // Monorepo with a nested sub-project — deepest root wins so the closest override is
+    // applied, not the outer monorepo's override.
+    let spaceID = manager.createSpace(name: "work")
+    let outerID = try manager.addProject(
+      to: spaceID, name: "outer",
+      rootPath: HierarchyManager.canonicalPath("/tmp/mono")
+    )
+    let innerID = try manager.addProject(
+      to: spaceID, name: "inner",
+      rootPath: HierarchyManager.canonicalPath("/tmp/mono/apps/web")
+    )
+    let innerPath = HierarchyManager.canonicalPath("/tmp/mono/apps/web") + "/src/pages"
+    let match = manager.project(containing: innerPath)
+    #expect(match?.1 == innerID)
+    #expect(match?.1 != outerID)
+
+    // Outside the inner project but inside the outer — falls back to outer.
+    let outerPath = HierarchyManager.canonicalPath("/tmp/mono") + "/packages"
+    let outerMatch = manager.project(containing: outerPath)
+    #expect(outerMatch?.1 == outerID)
+  }
+
+  @Test
+  func projectContainingReturnsNilWhenNoProjectContains() {
+    let match = manager.project(containing: "/var/no/project/here")
+    #expect(match == nil)
+  }
+
   // MARK: - Settings Repository panes (T4) — project-only mutators
 
   @Test

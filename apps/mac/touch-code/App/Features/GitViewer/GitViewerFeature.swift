@@ -369,8 +369,19 @@ struct GitViewerFeature {
         await send(.editorOpenFailed(reason: "Worktree path not found in catalog"))
         return
       }
+      // Honor the per-Project override on the Enter shortcut. `projectID` is in state so
+      // we can look it up directly rather than asking the IPC handler to re-derive it from
+      // the path. Filter through installed descriptors so a stale override silently falls
+      // through to the service's cascade (global default → priority walk).
+      let projectOverride = projectID.flatMap { id in Self.projectOverride(in: snapshot, projectID: id) }
+      let descriptors = await client.describe()
+      let preferred = EditorFeature.resolveInstalledPreference(
+        projectOverride: projectOverride,
+        globalDefault: nil,  // service's internal global-default read picks it up.
+        descriptors: descriptors
+      )
       do {
-        let choice = try await client.open(URL(fileURLWithPath: path), nil, projectID)
+        let choice = try await client.open(URL(fileURLWithPath: path), preferred)
         await send(.editorOpened(editorID: choice.id))
       } catch let error as EditorError {
         await send(.editorOpenFailed(reason: Self.editorErrorDescription(error)))
@@ -380,20 +391,18 @@ struct GitViewerFeature {
     }
   }
 
+  fileprivate nonisolated static func projectOverride(in catalog: Catalog, projectID: ProjectID) -> EditorID? {
+    for space in catalog.spaces {
+      if let project = space.projects.first(where: { $0.id == projectID }) {
+        return project.defaultEditor
+      }
+    }
+    return nil
+  }
+
   /// Human-readable reason for an `EditorError`, surfaced as a toast subtitle by the view.
   nonisolated static func editorErrorDescription(_ error: EditorError) -> String {
-    switch error {
-    case .notInstalled(let id, let binary):
-      return "\(id) CLI (`\(binary)`) not found on PATH"
-    case .spawnFailed(let reason): return "Could not launch editor: \(reason)"
-    case .nonZeroExit(_, let stderr):
-      return stderr.components(separatedBy: "\n").first?.trimmingCharacters(in: .whitespaces)
-        ?? "Editor exited with error"
-    case .timedOut: return "Editor did not respond within 5 seconds"
-    case .badTemplate(let id, let reason): return "Bad template for ‘\(id)’: \(reason)"
-    case .notADirectory(let path): return "Not a directory: \(path)"
-    case .unresolvedWorktree: return "No worktree resolved"
-    }
+    EditorFeature.editorErrorDescription(error)
   }
 
   // MARK: - Snapshot path resolution

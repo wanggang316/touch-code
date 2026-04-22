@@ -27,6 +27,10 @@ struct ProjectOptionsFeature {
     /// reducer clears the override (nil) on save for that case.
     var worktreesDirectoryDraft: String
 
+    /// Installed editor descriptors used to populate the "Editor" picker. Empty until the
+    /// first `.onAppear` effect returns; the view renders a minimal menu in that window.
+    var descriptors: [EditorDescriptor] = []
+
     var isSaving: Bool = false
     var validationError: String?
 
@@ -38,6 +42,8 @@ struct ProjectOptionsFeature {
   }
 
   enum Action: Equatable {
+    case onAppear
+    case descriptorsLoaded([EditorDescriptor])
     case nameChanged(String)
     case editorChanged(EditorID?)
     case worktreesDirectoryChanged(String)
@@ -53,10 +59,23 @@ struct ProjectOptionsFeature {
   }
 
   @Dependency(HierarchyClient.self) private var hierarchyClient
+  @Dependency(EditorClient.self) private var editorClient
 
   var body: some Reducer<State, Action> {
     Reduce { state, action in
       switch action {
+      case .onAppear:
+        let client = editorClient
+        return .run { send in
+          await client.clearCache()
+          let descriptors = await client.describe()
+          await send(.descriptorsLoaded(descriptors))
+        }
+
+      case .descriptorsLoaded(let descriptors):
+        state.descriptors = descriptors
+        return .none
+
       case .nameChanged(let text):
         state.nameDraft = text
         return .none

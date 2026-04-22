@@ -47,6 +47,24 @@ public nonisolated struct Settings: Equatable, Sendable {
   public mutating func garbageCollect() {
     repositories = repositories.filter { _, value in !value.isEffectivelyEmpty }
   }
+
+  /// Resets any stored editor ID that is not in the caller-provided built-in registry to
+  /// `nil`. Run once at load so the in-memory `Settings` tree only references editors that
+  /// the app currently knows about — stale IDs from the retired C8 `customEditors` feature
+  /// would otherwise linger in `settings.json` forever (the resolver is lenient and would
+  /// silently fall back, but the stored value stays dead).
+  ///
+  /// `knownIDs` is passed in rather than imported so this helper stays in `TouchCodeCore`
+  /// without taking a dependency on the app-tier `EditorRegistry`. Idempotent — a second
+  /// call on an already-cleaned `Settings` is a no-op and returns `false`.
+  ///
+  /// Returns `true` if any field was mutated so the caller can decide whether to persist.
+  @discardableResult
+  public mutating func garbageCollectEditors(knownIDs: Set<EditorID>) -> Bool {
+    guard let id = general.defaultEditorID, !knownIDs.contains(id) else { return false }
+    general.defaultEditorID = nil
+    return true
+  }
 }
 
 extension Settings: Codable {

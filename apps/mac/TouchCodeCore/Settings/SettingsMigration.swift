@@ -123,7 +123,7 @@ public nonisolated enum SettingsMigration {
   public static func migrate(_ legacy: LegacyV1Settings) -> Settings {
     var general = GeneralSettings.default
     general.defaultEditorID = legacy.defaultEditorID
-    general.customEditors = legacy.customEditors ?? []
+    // C8a: legacy `customEditors` array is ignored on migration — see GeneralSettings doc.
 
     var notifications = NotificationsSettings.default
     if let legacyNotif = legacy.notifications {

@@ -448,13 +448,14 @@ struct GitViewerFeatureTests {
     } withDependencies: {
       $0.gitService = GitServiceClient.testValue
       $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
-      $0.editorClient.open = { _, _, _ in
-        throw EditorError.notInstalled(id: "zed", binary: "zed")
+      $0.editorClient.describe = { [] }
+      $0.editorClient.open = { _, _ in
+        throw EditorError.notInstalled(id: "zed", bundleID: "dev.zed.Zed")
       }
     }
     await store.send(.openInEditorRequested)
     await store.receive(\.editorOpenFailed) { state in
-      state.lastEditorResult = .failed(reason: "zed CLI (`zed`) not found on PATH")
+      state.lastEditorResult = .failed(reason: "zed is not installed")
     }
   }
 
@@ -467,15 +468,15 @@ struct GitViewerFeatureTests {
     let cursor = EditorChoice(
       id: "cursor",
       displayName: "Cursor",
-      binaryPath: URL(fileURLWithPath: "/usr/local/bin/cursor"),
-      argv: ["/usr/local/bin/cursor", Self.samplePath]
+      binaryPath: nil
     )
     let store = TestStore(initialState: initial) {
       GitViewerFeature()
     } withDependencies: {
       $0.gitService = GitServiceClient.testValue
       $0.hierarchyClient.snapshot = { Self.catalogWithWorktree() }
-      $0.editorClient.open = { _, _, _ in cursor }
+      $0.editorClient.describe = { [] }
+      $0.editorClient.open = { _, _ in cursor }
     }
     await store.send(.openInEditorRequested)
     await store.receive(\.editorOpened) {

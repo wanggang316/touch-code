@@ -7,33 +7,32 @@ import Foundation
 ///
 /// Used by `SettingsMigration.load` to carry user data forward into v2. Not otherwise consumed
 /// and never written back to disk.
+///
+/// C8a retired the custom-editor surface; `customEditors` is no longer decoded here. Legacy
+/// files that still carry the key decode fine — the unknown field is ignored.
 public nonisolated struct LegacyV1Settings: Decodable, Sendable {
   public let version: Int?
   public let defaultEditorID: EditorID?
-  public let customEditors: [CustomEditor]?
   public let notifications: LegacyNotificationsSettings?
 
   public init(
     version: Int? = nil,
     defaultEditorID: EditorID? = nil,
-    customEditors: [CustomEditor]? = nil,
     notifications: LegacyNotificationsSettings? = nil
   ) {
     self.version = version
     self.defaultEditorID = defaultEditorID
-    self.customEditors = customEditors
     self.notifications = notifications
   }
 
   private enum CodingKeys: String, CodingKey {
-    case version, defaultEditorID, customEditors, notifications
+    case version, defaultEditorID, notifications
   }
 
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     self.version = try container.decodeIfPresent(Int.self, forKey: .version)
     self.defaultEditorID = try container.decodeIfPresent(EditorID.self, forKey: .defaultEditorID)
-    self.customEditors = try container.decodeIfPresent([CustomEditor].self, forKey: .customEditors)
     self.notifications = try container.decodeIfPresent(LegacyNotificationsSettings.self, forKey: .notifications)
   }
 

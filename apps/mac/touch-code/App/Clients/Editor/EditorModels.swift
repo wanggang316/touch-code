@@ -1,79 +1,70 @@
 import Foundation
 import TouchCodeCore
-import TouchCodeIPC
 
-/// App-tier descriptor for a single editor entry — built-in or user-defined, decorated with
-/// the current installation status from `PathProber`. Converted to `EditorDescriptorDTO` for
-/// IPC crossing in M7a.
-public nonisolated struct EditorDescriptor: Equatable, Hashable, Sendable, Identifiable {
-  public enum Origin: String, Equatable, Hashable, Sendable, Codable {
-    case builtin
-    case custom
-  }
-
-  public enum InstallationStatus: Equatable, Hashable, Sendable {
-    case installed(resolvedBinary: URL)
-    case missingBinary(expected: String)
+/// App-tier descriptor for a single editor entry. A descriptor is produced by resolving a
+/// registry row against the live `AppLauncher`: `appURL` carries the Launch Services lookup
+/// result (nil for `.shellEditor` and for not-installed entries).
+///
+/// `describe()` returns only installed entries; absence of a descriptor IS the "not installed"
+/// signal — there is no `InstallationStatus` enum in C8a.
+public nonisolated struct EditorDescriptor: Equatable, Hashable, Sendable, Identifiable, Codable {
+  /// How the service launches a directory in this editor. Each branch corresponds to one
+  /// mechanism in `EditorService.open`.
+  public enum LaunchMode: String, Equatable, Hashable, Sendable, Codable {
+    /// `NSWorkspace.open(urls:withApplicationAt:configuration:)` with a single directory URL.
+    case directory
+    /// `NSWorkspace.openApplication(at:configuration:)` with
+    /// `configuration.arguments = [dir]` and `createsNewApplicationInstance = true`.
+    /// JetBrains-family only — other modes cause the IDE to focus its last-opened window and
+    /// ignore the argument.
+    case applicationWithArguments
+    /// Spawn a Panel at the target directory and send `$EDITOR\n` as initial input. The
+    /// user's login shell resolves `$EDITOR` with its own environment. No bundle ID, no LS.
+    case shellEditor
   }
 
   public let id: EditorID
   public let displayName: String
-  public let origin: Origin
-  public let template: CommandTemplate
-  public let installation: InstallationStatus
+  /// Launch Services bundle identifier. Empty string for `.shellEditor` (no bundle).
+  public let bundleIdentifier: String
+  public let launchMode: LaunchMode
+  /// Resolved `.app` URL from Launch Services, or nil for `.shellEditor` / not-installed.
+  /// Registry rows always start with `appURL = nil`; the service populates this at `describe`
+  /// time against the live `AppLauncher`.
+  public let appURL: URL?
+  /// Fallback bundle identifiers probed when the primary misses. Covers R1 (ToDesktop-style
+  /// bundle ID drift, e.g. future Cursor re-publishes). Empty by default.
+  public let alternateBundleIdentifiers: [String]
 
   public init(
     id: EditorID,
     displayName: String,
-    origin: Origin,
-    template: CommandTemplate,
-    installation: InstallationStatus
+    bundleIdentifier: String,
+    launchMode: LaunchMode,
+    appURL: URL?,
+    alternateBundleIdentifiers: [String] = []
   ) {
     self.id = id
     self.displayName = displayName
-    self.origin = origin
-    self.template = template
-    self.installation = installation
-  }
-
-  public var isInstalled: Bool {
-    if case .installed = installation { return true }
-    return false
-  }
-
-  /// Bridge to the IPC DTO used in M7a for `editor.describe`.
-  public func toDTO() -> EditorDescriptorDTO {
-    let installationDTO: EditorInstallationStatusDTO
-    switch installation {
-    case .installed(let url): installationDTO = .installed(resolvedBinary: url)
-    case .missingBinary(let expected): installationDTO = .missingBinary(expected: expected)
-    }
-    return EditorDescriptorDTO(
-      id: id,
-      displayName: displayName,
-      origin: origin == .builtin ? .builtin : .custom,
-      template: template,
-      installation: installationDTO
-    )
+    self.bundleIdentifier = bundleIdentifier
+    self.launchMode = launchMode
+    self.appURL = appURL
+    self.alternateBundleIdentifiers = alternateBundleIdentifiers
   }
 }
 
-/// Resolved editor + its argv at spawn time. Returned from `EditorService.open` on success.
-/// Tests assert on this value to avoid needing a real `Process`.
-public nonisolated struct EditorChoice: Equatable, Hashable, Sendable {
+/// Resolved editor returned from `EditorService.open` on success. `argv` is gone in C8a —
+/// NSWorkspace launches have no argv to expose and no consumer needed it.
+public nonisolated struct EditorChoice: Equatable, Hashable, Sendable, Codable {
   public let id: EditorID
   public let displayName: String
-  public let binaryPath: URL
-  public let argv: [String]
+  /// Optional binary path. Absent for NSWorkspace launches (Launch Services owns the bundle);
+  /// populated only for `.shellEditor` where the Panel's shell resolves `$EDITOR`.
+  public let binaryPath: String?
 
-  public init(id: EditorID, displayName: String, binaryPath: URL, argv: [String]) {
+  public init(id: EditorID, displayName: String, binaryPath: String? = nil) {
     self.id = id
     self.displayName = displayName
     self.binaryPath = binaryPath
-    self.argv = argv
-  }
-
-  public func toDTO() -> EditorChoiceDTO {
-    EditorChoiceDTO(id: id, displayName: displayName, binaryPath: binaryPath, argv: argv)
   }
 }

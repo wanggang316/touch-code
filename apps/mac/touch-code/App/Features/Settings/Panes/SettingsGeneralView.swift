@@ -2,308 +2,98 @@ import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
 
-/// General detail pane. Stack of three sections per spec M4:
-/// 1. Appearance (persisted but inert; caption per D3)
-/// 2. Default editor picker (lifted from the retired SettingsEditorSection)
-/// 3. Built-in editor list + Custom editors list (lifted identically; Add-editor sheet
-///    kept intact)
+/// General pane — global "Default editor" picker (C8a Phase 4a).
 ///
-/// Appearance writes directly through `SettingsStore.setAppearance(_:)` (injected via the
-/// environment-held store) so no TCA round-trip is needed for a value that does not affect
-/// any other reducer state.
+/// Contract: shows only installed editors, grouped by category with thin dividers between
+/// groups. The list order follows `EditorRegistry.menuOrder`; "installed" means the
+/// descriptor is present in the live `describe()` result (which already applies the
+/// Launch Services filter and always keeps `.shellEditor`).
+///
+/// Refresh model: the view dispatches `.refreshRequested` on appear so the service's
+/// `describe()` cache is flushed before re-fetch. Editors installed while touch-code was
+/// running therefore surface the first time Settings is opened (design R4).
 struct SettingsGeneralView: View {
   @Bindable var store: StoreOf<EditorFeature>
   let settingsStore: SettingsStore
-  @State private var showingAddSheet = false
 
-  var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 28) {
-        appearanceSection
-        globalDefaultPicker
-        builtinsList
-        customEditorsList
-      }
-      .padding(24)
-    }
-    .task { store.send(.onAppear) }
-  }
-
-  // MARK: - Appearance
-
-  private var appearanceSection: some View {
-    VStack(alignment: .leading, spacing: 6) {
-      HStack(spacing: 8) {
-        Text("Appearance").font(.headline)
-      }
-      let appearance = Binding<AppearancePreference>(
-        get: { settingsStore.settings.general.appearance },
-        set: { settingsStore.setAppearance($0) }
-      )
-      Picker("Appearance", selection: appearance) {
-        Text("System").tag(AppearancePreference.system)
-        Text("Light").tag(AppearancePreference.light)
-        Text("Dark").tag(AppearancePreference.dark)
-      }
-      .pickerStyle(.segmented)
-      .labelsHidden()
-      .frame(maxWidth: 280, alignment: .leading)
-
-      Text("Preview — themes will ship in a later release.")
-        .font(.caption)
-        .foregroundStyle(.secondary)
-    }
-  }
-
-  // MARK: - Global default editor
-
-  private var globalDefaultPicker: some View {
-    let selection = Binding<EditorID?>(
-      get: { store.state.globalDefault },
-      set: { newValue in store.send(.setGlobalDefault(newValue)) }
+  private var selectionBinding: Binding<EditorID?> {
+    Binding(
+      get: { store.globalDefault },
+      set: { store.send(.setGlobalDefault($0)) }
     )
-    return VStack(alignment: .leading, spacing: 6) {
-      Text("Default editor").font(.headline)
-      Text("Used when no Project-specific override is set.")
-        .font(.caption)
-        .foregroundStyle(.secondary)
-      Picker("Default editor", selection: selection) {
-        Text("Finder").tag(EditorID?.none)
-        ForEach(store.state.descriptors) { descriptor in
-          Text(descriptor.displayName).tag(EditorID?.some(descriptor.id))
-        }
-      }
-      .pickerStyle(.menu)
-      .labelsHidden()
-      .frame(maxWidth: 280, alignment: .leading)
-    }
   }
-
-  // MARK: - Built-in editors list
-
-  private var builtinsList: some View {
-    let builtins = store.state.descriptors.filter { $0.origin == .builtin }
-    return VStack(alignment: .leading, spacing: 6) {
-      Text("Built-in editors").font(.headline)
-      if builtins.isEmpty {
-        Text("Detecting installed editors…")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-      } else {
-        VStack(alignment: .leading, spacing: 0) {
-          ForEach(builtins) { entry in
-            EditorRow(descriptor: entry)
-            if entry.id != builtins.last?.id { Divider() }
-          }
-        }
-        .padding(8)
-        .background(Color(nsColor: .textBackgroundColor), in: .rect(cornerRadius: 6))
-      }
-      Button {
-        store.send(.refreshRequested)
-      } label: {
-        Label("Refresh detection", systemImage: "arrow.clockwise")
-      }
-      .buttonStyle(.borderless)
-    }
-  }
-
-  // MARK: - Custom editors list
-
-  private var customEditorsList: some View {
-    VStack(alignment: .leading, spacing: 6) {
-      HStack {
-        Text("Custom editors").font(.headline)
-        Spacer(minLength: 0)
-        Button {
-          showingAddSheet = true
-        } label: {
-          Label("Add…", systemImage: "plus")
-        }
-      }
-      if store.state.customEditors.isEmpty {
-        Text("No custom editors yet. Add a template to point at anything on your PATH.")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-      } else {
-        VStack(alignment: .leading, spacing: 0) {
-          ForEach(store.state.customEditors) { editor in
-            HStack {
-              VStack(alignment: .leading, spacing: 2) {
-                Text(editor.displayName).font(.body)
-                Text("\(editor.id) — \(editor.template.binary) \(editor.template.args.joined(separator: " "))")
-                  .font(.system(.caption, design: .monospaced))
-                  .foregroundStyle(.secondary)
-              }
-              Spacer(minLength: 0)
-              Button {
-                store.send(.removeCustomEditor(id: editor.id))
-              } label: {
-                Image(systemName: "trash")
-                  .accessibilityLabel("Remove \(editor.displayName)")
-              }
-              .buttonStyle(.borderless)
-            }
-            .padding(.vertical, 4)
-            if editor.id != store.state.customEditors.last?.id { Divider() }
-          }
-        }
-        .padding(8)
-        .background(Color(nsColor: .textBackgroundColor), in: .rect(cornerRadius: 6))
-      }
-    }
-    .sheet(isPresented: $showingAddSheet) {
-      AddCustomEditorSheet(
-        existingError: store.state.lastValidationError,
-        onCancel: { showingAddSheet = false },
-        onSave: { editor in
-          store.send(.addCustomEditor(editor))
-          showingAddSheet = false
-        }
-      )
-    }
-  }
-}
-
-// MARK: - Editor row
-
-private struct EditorRow: View {
-  let descriptor: EditorDescriptor
-
-  var body: some View {
-    HStack {
-      statusIndicator
-      VStack(alignment: .leading, spacing: 2) {
-        Text(descriptor.displayName)
-        Text(subtitle)
-          .font(.system(.caption, design: .monospaced))
-          .foregroundStyle(.secondary)
-      }
-      Spacer(minLength: 0)
-      Text(descriptor.origin == .builtin ? "Built-in" : "Custom")
-        .font(.caption)
-        .foregroundStyle(.tertiary)
-    }
-    .padding(.vertical, 4)
-  }
-
-  @ViewBuilder
-  private var statusIndicator: some View {
-    switch descriptor.installation {
-    case .installed:
-      Image(systemName: "checkmark.circle.fill")
-        .foregroundStyle(.green)
-        .accessibilityLabel("\(descriptor.displayName) is installed")
-    case .missingBinary:
-      Image(systemName: "circle.dashed")
-        .foregroundStyle(.secondary)
-        .accessibilityLabel("\(descriptor.displayName) is not installed")
-    }
-  }
-
-  private var subtitle: String {
-    switch descriptor.installation {
-    case .installed(let url): return url.path
-    case .missingBinary(let expected): return "\(expected) not found on PATH"
-    }
-  }
-}
-
-// MARK: - Add custom editor sheet
-
-private struct AddCustomEditorSheet: View {
-  let existingError: EditorTemplateError?
-  let onCancel: () -> Void
-  let onSave: (CustomEditor) -> Void
-
-  @State private var id: String = ""
-  @State private var displayName: String = ""
-  @State private var binary: String = ""
-  @State private var argsText: String = "{dir}"
 
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
-      Text("Add custom editor").font(.title3.bold())
-      VStack(alignment: .leading, spacing: 8) {
-        field("Identifier", placeholder: "my-editor (lowercase, 2–32 chars, - or _)", text: $id)
-          .font(.system(.body, design: .monospaced))
-        field("Display name", placeholder: "My Editor", text: $displayName)
-        field("Binary", placeholder: "code  (bare name or absolute path)", text: $binary)
-          .font(.system(.body, design: .monospaced))
-        field("Arguments", placeholder: "{dir}", text: $argsText)
-          .font(.system(.body, design: .monospaced))
-        Text("Arguments are whitespace-split. Exactly one argument must be the literal `{dir}`.")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-      }
-      if let message = liveValidationMessage() ?? existingError.map(Self.errorMessage) {
-        Label(message, systemImage: "exclamationmark.triangle.fill")
-          .labelStyle(.titleAndIcon)
-          .foregroundStyle(.orange)
-          .font(.caption)
-      }
-      HStack {
-        Spacer(minLength: 0)
-        Button("Cancel", role: .cancel) { onCancel() }
-          .keyboardShortcut(.escape)
-        Button("Add") {
-          onSave(
-            CustomEditor(
-              id: id,
-              displayName: displayName,
-              template: CommandTemplate(binary: binary, args: parsedArgs())
-            ))
+      Text("General")
+        .font(.title2.bold())
+
+      VStack(alignment: .leading, spacing: 6) {
+        Text("Default editor")
+          .font(.subheadline.weight(.medium))
+
+        Picker("Default editor", selection: selectionBinding) {
+          pickerContent
         }
-        .buttonStyle(.borderedProminent)
-        .keyboardShortcut(.return, modifiers: [.command])
-        .disabled(!canSave)
+        .pickerStyle(.menu)
+        .labelsHidden()
+
+        Text(
+          "Used when opening a directory. \"Automatic\" picks the first installed editor from the priority list; a specific choice falls back to Finder if the editor is uninstalled later."
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
       }
+
+      Spacer()
     }
-    .padding(20)
-    .frame(minWidth: 440, minHeight: 260)
+    .padding(24)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .task { store.send(.refreshRequested) }
+    .onAppear { store.send(.onAppear) }
   }
 
-  private func field(_ title: String, placeholder: String, text: Binding<String>) -> some View {
-    VStack(alignment: .leading, spacing: 2) {
-      Text(title).font(.caption).foregroundStyle(.secondary)
-      TextField(placeholder, text: text)
-        .textFieldStyle(.roundedBorder)
+  /// Picker body — split out so `Picker(... ) { pickerContent }` stays readable. The
+  /// "Automatic" row tagged `EditorID?(nil)` gives the user a way back to priority-walk
+  /// resolution after picking any concrete editor; without it the picker has no path to
+  /// clear the stored default (even though the IPC setter and the reducer both accept nil).
+  /// Mirrors the "Use global default" sentinel in the Project Options picker.
+  @ViewBuilder
+  private var pickerContent: some View {
+    HStack(spacing: 6) {
+      Image(systemName: "wand.and.sparkles")
+        .resizable()
+        .aspectRatio(contentMode: .fit)
+        .frame(width: 16, height: 16)
+        .foregroundStyle(.secondary)
+        .accessibilityHidden(true)
+      Text("Automatic")
     }
-  }
+    .tag(EditorID?(nil))
 
-  private func parsedArgs() -> [String] {
-    argsText.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-  }
-
-  private var canSave: Bool {
-    guard !displayName.isEmpty else { return false }
-    guard (try? CustomEditor.validatedID(id)) != nil else { return false }
-    return (try? CommandTemplate(binary: binary, args: parsedArgs()).validate()) != nil
-  }
-
-  private func liveValidationMessage() -> String? {
-    if displayName.isEmpty { return "Display name required." }
-    do { _ = try CustomEditor.validatedID(id) } catch let err as EditorTemplateError {
-      return Self.errorMessage(err)
-    } catch {
-      return "Identifier invalid."
-    }
-    do { try CommandTemplate(binary: binary, args: parsedArgs()).validate() } catch let err as EditorTemplateError {
-      return Self.errorMessage(err)
-    } catch {
-      return "Template invalid."
-    }
-    return nil
-  }
-
-  fileprivate static func errorMessage(_ error: EditorTemplateError) -> String {
-    switch error {
-    case .emptyBinary: return "Binary must not be empty."
-    case .missingDirPlaceholder: return "Arguments must contain exactly one `{dir}` token."
-    case .duplicateDirPlaceholder: return "Arguments may contain only one `{dir}` token."
-    case .invalidID(let raw):
-      return
-        "ID ‘\(raw)’ is invalid. Use lowercase a-z, 0-9, - or _, starting with a letter, 2-32 chars. Must not collide with a built-in."
+    let groups = EditorPickerRow.grouped(store.descriptors)
+    ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+      Divider()
+      ForEach(group, id: \.id) { descriptor in
+        HStack(spacing: 6) {
+          EditorPickerRow.icon(for: descriptor)
+          Text(descriptor.displayName)
+        }
+        .tag(EditorID?(descriptor.id))
+      }
     }
   }
 }
+
+#if DEBUG
+#Preview("SettingsGeneralView") {
+  SettingsGeneralView(
+    store: Store(initialState: EditorFeature.State()) { EditorFeature() },
+    settingsStore: SettingsStore(
+      fileURL: FileManager.default.temporaryDirectory.appending(component: "\(UUID()).json"),
+      debounceWindow: .seconds(3600)
+    )
+  )
+  .frame(width: 520, height: 320)
+}
+#endif

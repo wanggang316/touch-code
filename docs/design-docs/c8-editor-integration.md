@@ -1,8 +1,10 @@
 # Design Doc: External Editor Integration (C8)
 
-**Status:** Draft
+**Status:** Superseded — see [c8a-editor-integration-nsworkspace.md](c8a-editor-integration-nsworkspace.md)
 **Author:** Gump (with Claude)
 **Date:** 2026-04-20
+
+> **Note:** C8a (2026-04-22) retires Resolved Items #1 (CLI wrappers over Process), #2 (`$PATH` probe), #3 (6-editor allowlist), and #9 (custom-template syntax). Mechanism is now NSWorkspace / Launch Services + Bundle IDs; registry expands to 28 entries; custom templates are dropped. Items #4, #5, #7, #8 still stand; #6 (spawn timeout) is retired along with Process spawning. Read C8a first for current behaviour.
 
 ## Context and Scope
 

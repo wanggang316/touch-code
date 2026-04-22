@@ -23,7 +23,6 @@ struct SettingsStoreTests {
     #expect(store.settings == .default)
     #expect(store.settings.version == Settings.currentVersion)
     #expect(store.settings.general.defaultEditorID == nil)
-    #expect(store.settings.general.customEditors.isEmpty)
     #expect(store.settings.repositories.isEmpty)
   }
 
@@ -64,138 +63,9 @@ struct SettingsStoreTests {
     #expect(reloaded.settings.general.appearance == .dark)
   }
 
-  @Test
-  func addCustomEditorPersistsAndSurvivesReload() throws {
-    let (store, url) = makeStore()
-    defer { try? FileManager.default.removeItem(at: url) }
-
-    let helix = CustomEditor(
-      id: "helix",
-      displayName: "Helix",
-      template: CommandTemplate(binary: "hx", args: ["{dir}"])
-    )
-    let result = store.addCustomEditor(helix)
-    guard case .success = result else {
-      Issue.record("unexpected add failure: \(result)")
-      return
-    }
-    store.flush()
-
-    let reloaded = SettingsStore(fileURL: url)
-    #expect(reloaded.settings.general.customEditors.count == 1)
-    #expect(reloaded.settings.general.customEditors.first?.id == "helix")
-  }
-
-  @Test
-  func addCustomEditorRejectsBuiltinCollision() {
-    let (store, _) = makeStore()
-    let colliding = CustomEditor(
-      id: "vscode",
-      displayName: "Bad",
-      template: CommandTemplate(binary: "code-insiders", args: ["{dir}"])
-    )
-    let result = store.addCustomEditor(colliding)
-    guard case .failure(let error) = result else {
-      Issue.record("expected failure, got success")
-      return
-    }
-    #expect(error == .invalidID("vscode"))
-    #expect(store.settings.general.customEditors.isEmpty)
-  }
-
-  @Test
-  func addCustomEditorRejectsInvalidTemplate() {
-    let (store, _) = makeStore()
-    let invalid = CustomEditor(
-      id: "bad-template",
-      displayName: "Bad",
-      template: CommandTemplate(binary: "", args: ["{dir}"])
-    )
-    let result = store.addCustomEditor(invalid)
-    guard case .failure(let error) = result else {
-      Issue.record("expected failure, got success")
-      return
-    }
-    #expect(error == .emptyBinary)
-  }
-
-  @Test
-  func addCustomEditorUpsertReplacesExisting() {
-    let (store, _) = makeStore()
-    let original = CustomEditor(
-      id: "helix",
-      displayName: "Helix",
-      template: CommandTemplate(binary: "hx", args: ["{dir}"])
-    )
-    let updated = CustomEditor(
-      id: "helix",
-      displayName: "Helix Nightly",
-      template: CommandTemplate(binary: "hx-nightly", args: ["{dir}"])
-    )
-    #expect(store.addCustomEditor(original).isSuccess)
-    #expect(store.addCustomEditor(updated).isSuccess)
-    #expect(store.settings.general.customEditors.count == 1)
-    #expect(store.settings.general.customEditors.first?.displayName == "Helix Nightly")
-    #expect(store.settings.general.customEditors.first?.template.binary == "hx-nightly")
-  }
-
-  @Test
-  func removeCustomEditorReturnsFalseWhenMissing() {
-    let (store, _) = makeStore()
-    #expect(store.removeCustomEditor(id: "nonexistent") == false)
-  }
-
-  @Test
-  func removeCustomEditorReturnsTrueAndPersists() throws {
-    let (store, url) = makeStore()
-    defer { try? FileManager.default.removeItem(at: url) }
-
-    let entry = CustomEditor(
-      id: "helix",
-      displayName: "Helix",
-      template: CommandTemplate(binary: "hx", args: ["{dir}"])
-    )
-    #expect(store.addCustomEditor(entry).isSuccess)
-    #expect(store.removeCustomEditor(id: "helix") == true)
-    store.flush()
-
-    let reloaded = SettingsStore(fileURL: url)
-    #expect(reloaded.settings.general.customEditors.isEmpty)
-  }
-
-  @Test
-  func updateCustomEditorAppliesTransform() {
-    let (store, _) = makeStore()
-    let entry = CustomEditor(
-      id: "helix",
-      displayName: "Helix",
-      template: CommandTemplate(binary: "hx", args: ["{dir}"])
-    )
-    #expect(store.addCustomEditor(entry).isSuccess)
-    let ok = store.updateCustomEditor(id: "helix") { editor in
-      editor.displayName = "Helix (renamed)"
-    }
-    #expect(ok)
-    #expect(store.settings.general.customEditors.first?.displayName == "Helix (renamed)")
-  }
-
-  @Test
-  func updateCustomEditorRejectsInvalidTransform() {
-    let (store, _) = makeStore()
-    let entry = CustomEditor(
-      id: "helix",
-      displayName: "Helix",
-      template: CommandTemplate(binary: "hx", args: ["{dir}"])
-    )
-    #expect(store.addCustomEditor(entry).isSuccess)
-    let ok = store.updateCustomEditor(id: "helix") { editor in
-      editor.template = CommandTemplate(binary: "", args: ["{dir}"])
-    }
-    #expect(!ok)
-    // PR #22 review N3: the rejected transform must not have leaked into in-memory state.
-    // Without the revert, the broken template would persist on the next scheduled save.
-    #expect(store.settings.general.customEditors.first == entry)
-  }
+  // C8a: the customEditor persistence tests retired along with the feature. The
+  // `general.defaultEditorID` round-trip and load-path migration coverage above are the
+  // successors; deeper value-domain migration lives in `TouchCodeCoreTests/EditorMigrationTests`.
 
   @Test
   func saveNowCancelsPendingDebouncedWrite() async throws {

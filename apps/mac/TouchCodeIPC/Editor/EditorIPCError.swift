@@ -7,32 +7,24 @@ import Foundation
 /// `{ code, message }` JSON-RPC error envelope with numeric codes from this table.
 ///
 /// Numeric codes are stable wire contract; do NOT renumber. Gaps left for future additions.
+/// C8a Phase 4c retired `unresolvedWorktree` / `nonZeroExit` / `timedOut` / `spawnFailed` /
+/// `badTemplate` — the NSWorkspace launch path has no exit code, no timeout, no child process,
+/// no custom template, and no Worktree resolution step (callers pass a path directly).
 public nonisolated enum EditorIPCError: Int, Error, Equatable, Sendable {
-  /// Neither `worktreeID` nor a `panelID` that resolves to a Worktree was supplied.
-  case unresolvedWorktree = 100
-
-  /// The editor binary was not found on `$PATH` (bare-name template) or at the absolute
-  /// path (absolute template).
+  /// The explicit preferred editor is not installed per Launch Services. Raised only when a
+  /// user-explicit `preferred` was supplied; silent defaults fall through instead.
   case notInstalled = 101
 
-  /// Child process exited non-zero within the 5 s budget.
-  case nonZeroExit = 102
-
-  /// Child process was still alive at the 5 s deadline.
-  case timedOut = 103
-
-  /// `Process.run()` threw — permissions, quarantine, or kernel-level denial.
-  case spawnFailed = 104
-
-  /// Custom-editor template failed validation.
-  case badTemplate = 105
+  /// `NSWorkspace.open` callback surfaced an error (Gatekeeper, quarantine, LS misconfig), OR
+  /// the `.shellEditor` branch could not acquire a Panel context.
+  case launchFailed = 104
 
   /// The directory passed to `open` does not exist or is a file, not a directory.
   case notADirectory = 106
 
-  /// Request referenced a `projectID` that does not exist in the catalog. Distinct from
-  /// `unresolvedWorktree` because callers of `editor.setDefault` ask about a Project, not
-  /// a Worktree — surfacing the wrong noun sends the CLI's error message off-topic.
+  /// Request referenced a `projectID` that does not exist in the catalog. Used by
+  /// `editor.setProjectDefault` so the CLI's error message says "project" rather than
+  /// something off-topic.
   case unknownProject = 107
 }
 
@@ -42,18 +34,10 @@ extension EditorIPCError {
   /// `EditorFeature.editorErrorDescription` which surfaces more context.
   public var shortMessage: String {
     switch self {
-    case .unresolvedWorktree:
-      return "No worktree resolved (pass <worktree> or run from inside a touch-code Panel)."
     case .notInstalled:
       return "Editor not installed."
-    case .nonZeroExit:
-      return "Editor exited with a non-zero status."
-    case .timedOut:
-      return "Editor did not exit within the 5 s budget."
-    case .spawnFailed:
-      return "Failed to spawn editor process."
-    case .badTemplate:
-      return "Editor template failed validation."
+    case .launchFailed:
+      return "Failed to launch editor."
     case .notADirectory:
       return "Path is not a directory."
     case .unknownProject:

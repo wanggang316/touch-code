@@ -95,6 +95,8 @@ struct HeaderOpenSplitButton: View {
 
   @ViewBuilder
   private var openInMenu: some View {
+    // C8a: `EditorService.describe()` already filters to installed entries, so every
+    // descriptor in `editorStore.state.descriptors` is launch-ready.
     Section("Open in") {
       ForEach(editorStore.state.descriptors) { descriptor in
         Button {
@@ -105,23 +107,9 @@ struct HeaderOpenSplitButton: View {
               projectID: projectID
             ))
         } label: {
-          HStack {
-            Text(descriptor.displayName)
-            if !descriptor.isInstalled {
-              Text("(not installed)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-          }
+          Text(descriptor.displayName)
         }
-        // Finder is a spec-hard "always enabled" entry; the `isInstalled` check on
-        // `EditorRegistry.finder` currently returns true for `/usr/bin/open`, but we
-        // refuse to rely on that invariant — the UI guards it explicitly.
-        .disabled(!descriptor.isInstalled && descriptor.id != EditorFeature.finderEditorID)
-        .help(
-          descriptor.isInstalled || descriptor.id == EditorFeature.finderEditorID
-            ? descriptor.displayName
-            : "\(descriptor.displayName) is not installed")
+        .help(descriptor.displayName)
       }
     }
   }
@@ -138,7 +126,7 @@ struct HeaderOpenSplitButton: View {
           ))
       }
       Divider()
-      ForEach(editorStore.state.descriptors.filter(\.isInstalled)) { descriptor in
+      ForEach(editorStore.state.descriptors) { descriptor in
         Button(descriptor.displayName) {
           store.send(
             .setProjectDefaultEditorTapped(
