@@ -258,6 +258,7 @@ final class AppState {
 
     startIPC(
       hierarchy: manager, editor: editor, hierarchyClient: hierarchy,
+      settingsStore: settings,
       hookConfigStore: hookConfigStore
     )
     startNotifications(hierarchy: manager)
@@ -325,6 +326,7 @@ final class AppState {
     hierarchy: HierarchyManager,
     editor: EditorClient,
     hierarchyClient: HierarchyClient,
+    settingsStore: SettingsStore,
     hookConfigStore: HookConfigStore
   ) {
     if ProcessInfo.processInfo.environment["XCTestBundlePath"] != nil
@@ -356,7 +358,11 @@ final class AppState {
       sink: nil,
       catalog: { hierarchy.catalog }
     )
-    let editorHandlers = EditorHandlers(editor: editor, hierarchy: hierarchyClient)
+    let editorHandlers = EditorHandlers(
+      editor: editor,
+      hierarchy: hierarchyClient,
+      settings: settingsStore
+    )
     let router = MethodRouter(
       hookHandlers: hookHandlers,
       systemHandlers: systemHandlers,

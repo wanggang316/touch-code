@@ -4,19 +4,13 @@ import Testing
 @testable import TouchCodeCore
 @testable import TouchCodeIPC
 
-/// C8a Phase 3 placeholder: the IPC DTO shape is still in flux (Phase 4c rewrites the
-/// wire types). The previous suite exercised `EditorInstallationStatusDTO`, which is
-/// removed, and asserted on `argv` / `CommandTemplate` fields that are retired. Full
-/// coverage returns in Phase 6 against the final shape.
+/// C8a Phase 4c wire-type round-trip coverage. Placeholder-level: asserts the new request /
+/// response shapes encode+decode stably. Deeper coverage (descriptor DTO ↔ app-tier descriptor
+/// mapping, error envelope translation) lands in Phase 6 alongside the handler test rebuild.
 struct EditorIPCTypesTests {
   @Test
-  func openRequestRoundTripPreservesPath() throws {
-    let request = EditorOpenRequest(
-      worktreeID: UUID(uuidString: "11111111-1111-1111-1111-111111111111"),
-      preferred: "zed",
-      panelID: nil,
-      path: "/tmp/repo/sub/dir"
-    )
+  func openRequestRoundTripPreservesPathAndPreferred() throws {
+    let request = EditorOpenRequest(path: "/tmp/repo/sub/dir", preferred: "zed")
     let decoded = try Self.roundTrip(request)
     #expect(decoded == request)
     #expect(decoded.path == "/tmp/repo/sub/dir")
@@ -24,14 +18,58 @@ struct EditorIPCTypesTests {
   }
 
   @Test
-  func openRequestDecodesLegacyPayloadWithoutPathField() throws {
-    let legacy = #"{"worktreeID":"11111111-1111-1111-1111-111111111111","preferred":"vscode"}"#
-    let data = Data(legacy.utf8)
-    let decoded = try JSONDecoder().decode(EditorOpenRequest.self, from: data)
-    #expect(decoded.worktreeID?.uuidString == "11111111-1111-1111-1111-111111111111")
-    #expect(decoded.preferred == "vscode")
-    #expect(decoded.path == nil)
-    #expect(decoded.panelID == nil)
+  func openRequestRoundTripPreservesNilPreferred() throws {
+    let request = EditorOpenRequest(path: "/tmp/repo", preferred: nil)
+    let decoded = try Self.roundTrip(request)
+    #expect(decoded == request)
+    #expect(decoded.preferred == nil)
+  }
+
+  @Test
+  func descriptorDTORoundTripPreservesLaunchMode() throws {
+    let dto = EditorDescriptorDTO(
+      id: "cursor",
+      displayName: "Cursor",
+      bundleIdentifier: "com.todesktop.230313mzl4w4u92",
+      launchMode: .directory,
+      appURL: URL(fileURLWithPath: "/Applications/Cursor.app"),
+      alternateBundleIdentifiers: []
+    )
+    let decoded = try Self.roundTrip(dto)
+    #expect(decoded == dto)
+    #expect(decoded.launchMode == .directory)
+  }
+
+  @Test
+  func shellEditorDescriptorEncodesEmptyBundleAndNilAppURL() throws {
+    let dto = EditorDescriptorDTO(
+      id: "editor",
+      displayName: "$EDITOR",
+      bundleIdentifier: "",
+      launchMode: .shellEditor,
+      appURL: nil
+    )
+    let decoded = try Self.roundTrip(dto)
+    #expect(decoded == dto)
+    #expect(decoded.bundleIdentifier.isEmpty)
+    #expect(decoded.appURL == nil)
+    #expect(decoded.launchMode == .shellEditor)
+  }
+
+  @Test
+  func setGlobalDefaultRequestRoundTrips() throws {
+    let request = EditorSetGlobalDefaultRequest(editorID: "vscode")
+    let decoded = try Self.roundTrip(request)
+    #expect(decoded == request)
+  }
+
+  @Test
+  func setProjectDefaultRequestRoundTrips() throws {
+    let projectID = UUID()
+    let request = EditorSetProjectDefaultRequest(projectID: projectID, editorID: nil)
+    let decoded = try Self.roundTrip(request)
+    #expect(decoded == request)
+    #expect(decoded.editorID == nil)
   }
 
   private static func roundTrip<T: Codable & Equatable>(_ value: T) throws -> T {

@@ -1,31 +1,61 @@
 import Foundation
 import TouchCodeCore
 
-// TODO(C8a Phase 4c): the IPC wire types below still reflect the C8 Process-based shape
-// (argv, CommandTemplate, InstallationStatusDTO). Phase 4c rewrites them to match the
-// NSWorkspace-backed descriptor (bundleIdentifier, launchMode, appURL). Kept here as
-// minimal, compilable placeholders for Phase 3 so the socket module continues to build.
+// C8a Phase 4c wire types. Matches the NSWorkspace-backed descriptor shape from
+// `docs/design-docs/c8a-editor-integration-nsworkspace.md`: bundle identifier, launch mode,
+// resolved app URL. No `argv`, no `CommandTemplate`, no `InstallationStatusDTO` — a missing
+// entry IS the "not installed" signal.
 
-/// Stub wire type for the `editor.describe` response's per-editor entries. Phase 4c
-/// replaces with the real C8a shape (launchMode, appURL, bundleIdentifier).
+/// Wire payload for a single entry in the `editor.describe` response. Mirrors the app-tier
+/// `EditorDescriptor` with `Codable` fields only; kept parallel (rather than re-exported)
+/// so the IPC module never imports the app-tier target.
 public nonisolated struct EditorDescriptorDTO: Equatable, Hashable, Codable, Sendable, Identifiable {
+  /// Matches `EditorDescriptor.LaunchMode` — string-encoded for cross-module wire stability.
+  public enum LaunchModeDTO: String, Equatable, Hashable, Codable, Sendable {
+    case directory
+    case applicationWithArguments
+    case shellEditor
+  }
+
   public var id: EditorID
   public var displayName: String
+  /// Launch Services bundle identifier. Empty for `.shellEditor`.
+  public var bundleIdentifier: String
+  public var launchMode: LaunchModeDTO
+  /// Resolved `.app` URL from Launch Services. `nil` for `.shellEditor`.
+  public var appURL: URL?
+  public var alternateBundleIdentifiers: [String]
 
-  public init(id: EditorID, displayName: String) {
+  public init(
+    id: EditorID,
+    displayName: String,
+    bundleIdentifier: String,
+    launchMode: LaunchModeDTO,
+    appURL: URL?,
+    alternateBundleIdentifiers: [String] = []
+  ) {
     self.id = id
     self.displayName = displayName
+    self.bundleIdentifier = bundleIdentifier
+    self.launchMode = launchMode
+    self.appURL = appURL
+    self.alternateBundleIdentifiers = alternateBundleIdentifiers
   }
 }
 
-/// Stub wire type for the `editor.open` response.
+/// Wire payload for the `editor.open` response choice. `argv` is gone in C8a — NSWorkspace
+/// launches have no argv to expose.
 public nonisolated struct EditorChoiceDTO: Equatable, Hashable, Codable, Sendable {
   public var id: EditorID
   public var displayName: String
+  /// Optional binary path. Absent for NSWorkspace launches; populated only for `.shellEditor`
+  /// where the Panel's shell resolves `$EDITOR`.
+  public var binaryPath: String?
 
-  public init(id: EditorID, displayName: String) {
+  public init(id: EditorID, displayName: String, binaryPath: String? = nil) {
     self.id = id
     self.displayName = displayName
+    self.binaryPath = binaryPath
   }
 }
 
@@ -39,36 +69,45 @@ public nonisolated struct EditorDescribeResponse: Equatable, Codable, Sendable {
   }
 }
 
+/// `editor.open` request. `path` is mandatory — callers (including the CLI) resolve their own
+/// context to an absolute directory path before dispatching. `preferred` is optional and, when
+/// set, is treated strictly (uninstalled → error); when nil, the handler performs the per-Project
+/// override lookup and, failing that, the service cascades through global default → priority walk
+/// → Finder.
 public nonisolated struct EditorOpenRequest: Equatable, Codable, Sendable {
-  public var worktreeID: UUID?
+  public var path: String
   public var preferred: EditorID?
-  public var panelID: UUID?
-  public var path: String?
 
-  public init(
-    worktreeID: UUID? = nil,
-    preferred: EditorID? = nil,
-    panelID: UUID? = nil,
-    path: String? = nil
-  ) {
-    self.worktreeID = worktreeID
-    self.preferred = preferred
-    self.panelID = panelID
+  public init(path: String, preferred: EditorID? = nil) {
     self.path = path
+    self.preferred = preferred
   }
 }
 
 public nonisolated struct EditorOpenResponse: Equatable, Codable, Sendable {
   public var choice: EditorChoiceDTO
-  public var worktreePath: String
 
-  public init(choice: EditorChoiceDTO, worktreePath: String) {
+  public init(choice: EditorChoiceDTO) {
     self.choice = choice
-    self.worktreePath = worktreePath
   }
 }
 
-public nonisolated struct EditorSetDefaultRequest: Equatable, Codable, Sendable {
+/// `editor.setGlobalDefault` — writes `settings.general.defaultEditorID`. `nil` clears.
+public nonisolated struct EditorSetGlobalDefaultRequest: Equatable, Codable, Sendable {
+  public var editorID: EditorID?
+
+  public init(editorID: EditorID?) {
+    self.editorID = editorID
+  }
+}
+
+public nonisolated struct EditorSetGlobalDefaultResponse: Equatable, Codable, Sendable {
+  public init() {}
+}
+
+/// `editor.setProjectDefault` — writes `Project.defaultEditor` via
+/// `HierarchyClient.setRepositoryDefaultEditor`. `nil` clears the override.
+public nonisolated struct EditorSetProjectDefaultRequest: Equatable, Codable, Sendable {
   public var projectID: UUID
   public var editorID: EditorID?
 
@@ -78,6 +117,6 @@ public nonisolated struct EditorSetDefaultRequest: Equatable, Codable, Sendable 
   }
 }
 
-public nonisolated struct EditorSetDefaultResponse: Equatable, Codable, Sendable {
+public nonisolated struct EditorSetProjectDefaultResponse: Equatable, Codable, Sendable {
   public init() {}
 }

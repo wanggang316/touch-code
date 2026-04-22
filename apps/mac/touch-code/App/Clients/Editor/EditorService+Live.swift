@@ -121,10 +121,25 @@ final actor LiveEditorService: EditorService {
       try await launcher.open(urls: [], withApplicationAt: appURL, configuration: config)
 
     case .shellEditor:
-      // TODO(C8a Phase 4d): wire `TerminalEngine.ensureSurface` to forward
-      // `panel.initialCommand` ("$EDITOR\n") so the Panel primitive actually launches
-      // the user's $EDITOR. Until then, fail loudly so the UI can surface a toast.
-      throw EditorError.launchFailed(reason: "$EDITOR launch not yet wired — see C8a Phase 4d.")
+      // C8a Phase 4d: `TerminalEngine.ensureSurface` now forwards `panel.initialCommand` to
+      // the freshly spawned shell, so the primitive IS in place. What's missing is a way for
+      // this service to address a Panel: `.shellEditor` needs a `(spaceID, projectID,
+      // worktreeID, tabID)` tuple to hand `HierarchyManager.openPanel`, and the service's
+      // `(directory: URL, preferred: EditorID?)` signature intentionally excludes domain
+      // types (design doc §"Path-in, nothing else"). Short of widening the service signature
+      // or smuggling a Panel spawner in via closure, `.shellEditor` can't complete from here.
+      //
+      // Ship: fail gracefully with a descriptive error so the registry entry keeps its shape
+      // in `describe()` but attempting to open through it surfaces the unresolved design
+      // question instead of silently no-op'ing. Callers that want `.shellEditor` to work end
+      // to end should route through the Panel/Tab-aware code path (e.g. the worktree header
+      // "Open in ▾" + a future `tc open --in editor` wired to `hierarchy.openPanel`).
+      throw EditorError.launchFailed(
+        reason:
+          "$EDITOR requires a Tab context that EditorService does not have. "
+          + "Open a Panel via the Worktree header or `hierarchy.openPanel` with initialCommand=\"$EDITOR\". "
+          + "See docs/exec-plans/c8a-implementation.md (Phase 4d)."
+      )
     }
 
     return EditorChoice(id: descriptor.id, displayName: descriptor.displayName, binaryPath: nil)

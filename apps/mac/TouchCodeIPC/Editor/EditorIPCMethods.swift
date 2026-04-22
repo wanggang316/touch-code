@@ -2,9 +2,13 @@ import Foundation
 
 /// Namespaced method constants for the `editor.*` IPC surface. Kept as string constants (not an
 /// enum) so the `tc` CLI and the app can compare wire methods without coupling to a Swift enum's
-/// rawValue indirection. Request/response envelopes for each method land in M7a.
+/// rawValue indirection.
+///
+/// C8a Phase 4c renamed `editor.setDefault` → `editor.setGlobalDefault` (per-project override
+/// moves to a separate verb for clarity). `editor.setProjectDefault` is new in C8a.
 public nonisolated enum EditorIPCMethod {
   public static let describe = "editor.describe"
   public static let open = "editor.open"
-  public static let setDefault = "editor.setDefault"
+  public static let setGlobalDefault = "editor.setGlobalDefault"
+  public static let setProjectDefault = "editor.setProjectDefault"
 }

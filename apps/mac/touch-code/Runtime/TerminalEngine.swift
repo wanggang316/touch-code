@@ -106,6 +106,13 @@ final class TerminalEngine {
     surface.onClose = { [weak self] processAlive in
       self?.handleSurfaceClose(panelID: panel.id, processAlive: processAlive)
     }
+    // C8a Phase 4d: forward `panel.initialCommand` to the freshly spawned shell so
+    // `.shellEditor` launches ("$EDITOR\n") actually run. HierarchyManager.openPanel stores
+    // the command on the Panel; this is the one place it gets replayed when the surface
+    // comes up.
+    if let initialCommand = panel.initialCommand, !initialCommand.isEmpty {
+      surface.sendInput(initialCommand + "\n")
+    }
     emit(.panelCreated(panel.id, tabID))
     emit(.panelReady(panel.id))
     return surface

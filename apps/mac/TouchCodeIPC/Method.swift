@@ -16,10 +16,13 @@ extension IPC {
     case systemQuit = "system.quit"
 
     // editor — `editor.*` IPC surface. Handlers live in `EditorHandlers`;
-    // `MethodRouter` dispatches each case post-M6b.
+    // `MethodRouter` dispatches each case post-M6b. C8a Phase 4c renamed
+    // `editor.setDefault` → `editor.setGlobalDefault` and added
+    // `editor.setProjectDefault` as a distinct verb for per-Project overrides.
     case editorDescribe = "editor.describe"
     case editorOpen = "editor.open"
-    case editorSetDefault = "editor.setDefault"
+    case editorSetGlobalDefault = "editor.setGlobalDefault"
+    case editorSetProjectDefault = "editor.setProjectDefault"
 
     // hierarchy — reads
     case hierarchyListSpaces = "hierarchy.listSpaces"

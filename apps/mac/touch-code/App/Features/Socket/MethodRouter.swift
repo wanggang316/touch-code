@@ -120,10 +120,12 @@ public final class MethodRouter {
   /// `editor.*` adapter. `EditorHandlers` exposes typed methods so tests
   /// can invoke them directly with `EditorOpenRequest` etc.; the router
   /// decodes `request.params`, invokes the matching method, and re-encodes
-  /// the typed response. `EditorIPCError` is mapped to a `.conflict(reason:)`
-  /// IPC error — the closest wire-level variant whose body carries the
-  /// numeric code + short message without coupling `IPCError` to an
-  /// editor-specific code.
+  /// the typed response.
+  ///
+  /// C8a Phase 4c: `editor.setDefault` is split into `editor.setGlobalDefault`
+  /// (writes `settings.general.defaultEditorID`) and `editor.setProjectDefault`
+  /// (writes `Project.defaultEditor`); `editor.open` carries a mandatory `path`
+  /// and no longer a `worktreeID`.
   private func routeEditor(_ request: IPC.Request) async -> RouterOutcome? {
     guard let h = editorHandlers else { return nil }
     switch request.method {
@@ -142,10 +144,20 @@ public final class MethodRouter {
       } catch {
         return .failed(.internal(String(describing: error)))
       }
-    case .editorSetDefault:
+    case .editorSetGlobalDefault:
       do {
-        let params = try request.params.decoded(as: EditorSetDefaultRequest.self)
-        let response = try h.setDefault(params)
+        let params = try request.params.decoded(as: EditorSetGlobalDefaultRequest.self)
+        let response = h.setGlobalDefault(params)
+        return Self.encodeUnary(response)
+      } catch let error as DecodingError {
+        return .failed(.invalidParams(message: String(describing: error), path: nil))
+      } catch {
+        return .failed(.internal(String(describing: error)))
+      }
+    case .editorSetProjectDefault:
+      do {
+        let params = try request.params.decoded(as: EditorSetProjectDefaultRequest.self)
+        let response = try h.setProjectDefault(params)
         return Self.encodeUnary(response)
       } catch let error as EditorIPCError {
         return .failed(Self.mapEditorIPCError(error))
@@ -169,18 +181,20 @@ public final class MethodRouter {
     }
   }
 
-  /// Maps an `EditorIPCError` to an `IPCError`. `unresolvedWorktree` and
-  /// `unknownProject` carry caller-facing semantics → `notFound`. The rest
-  /// are spawn- or install-time failures → `.unsupported(reason:)` so the
-  /// CLI's existing `unsupported` exit code (4) surfaces them.
+  /// Maps an `EditorIPCError` to an `IPCError`. `unknownProject` carries caller-facing
+  /// semantics → `notFound`. `notADirectory` is a caller input error → `invalidParams`.
+  /// Launch / not-installed failures → `.unsupported(reason:)` so the CLI's existing
+  /// `unsupported` exit code (4) surfaces them.
   private static func mapEditorIPCError(_ error: EditorIPCError) -> IPCError {
     switch error {
-    case .unresolvedWorktree:
-      return .notFound(kind: "worktree", id: "")
     case .unknownProject:
       return .notFound(kind: "project", id: "")
-    case .notADirectory, .notInstalled, .nonZeroExit, .timedOut,
-      .spawnFailed, .badTemplate:
+    case .notADirectory:
+      return .invalidParams(
+        message: "\(error.rawValue): \(error.shortMessage)",
+        path: ["path"]
+      )
+    case .notInstalled, .launchFailed:
       return .unsupported(reason: "\(error.rawValue): \(error.shortMessage)")
     }
   }
