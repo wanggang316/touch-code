@@ -294,12 +294,12 @@ struct HierarchySidebarView: View {
           }
           return map
         }()
-        // List + .listStyle(.sidebar) matches supacode's approach. Scrollbar visibility
-        // follows the user's system preference (Settings ▸ Appearance ▸ Show scroll
-        // bars). Expand / collapse does not jitter any more because `projectSection`
-        // now emits the header and each worktree as sibling List rows — NSTableView
-        // handles row insert / remove without the row-height animation that
-        // DisclosureGroup-nested rows triggered.
+        // List + .listStyle(.sidebar) + .scrollIndicators(.never) — this is the exact
+        // posture Prowl's sidebar uses. `.never` is load-bearing: `.hidden` hides the
+        // scroller but leaves the reserved gutter, whereas `.never` tells SwiftUI the
+        // indicator is structurally absent so the content view reclaims the full width.
+        // Flat sibling rows (header + worktrees) inside projectSection keep the row-
+        // height animation out of NSTableView's path when expanding.
         List {
           ForEach(activeSpace.projects) { project in
             projectSection(
@@ -312,6 +312,7 @@ struct HierarchySidebarView: View {
           }
         }
         .listStyle(.sidebar)
+        .scrollIndicators(.never)
       }
     } else {
       noSpacesState
