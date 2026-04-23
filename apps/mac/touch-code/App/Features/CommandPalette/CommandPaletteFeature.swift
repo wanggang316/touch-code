@@ -22,10 +22,27 @@ struct CommandPaletteFeature {
     /// UserDefaults on the hot path. Writes land in the parent after
     /// `.delegate(.activate(…))` completes.
     var recency: [String: TimeInterval] = [:]
+    /// Source panel for Panel/Window-scoped activations. Filled from the
+    /// `.appeared` payload so `RootFeature.route` can target the right
+    /// panel without re-reading the catalog.
+    var focusedPanelID: PanelID?
   }
 
   enum Action: Equatable {
-    case appeared(HierarchySelection, Catalog, [EditorDescriptor], [String: TimeInterval])
+    /// Parent hands in every input needed to build the list in one shot:
+    /// the selection, the catalog snapshot, installed editors, the
+    /// persisted recency map, the panel to treat as focused for
+    /// Window/Panel-scoped actions, and a flag indicating whether that
+    /// panel was derived from a real focus event (ghostty keybind) or a
+    /// fallback (menu trigger — the first leaf of the selected tab).
+    case appeared(
+      HierarchySelection,
+      Catalog,
+      [EditorDescriptor],
+      [String: TimeInterval],
+      PanelID?,
+      Bool
+    )
     case queryChanged(String)
     case selectionMoved(Direction)
     case selectionCommitted
@@ -39,10 +56,15 @@ struct CommandPaletteFeature {
   var body: some Reducer<State, Action> {
     Reduce { state, action in
       switch action {
-      case .appeared(let selection, let catalog, let descriptors, let recency):
+      case .appeared(let selection, let catalog, let descriptors, let recency, let panelID, let precise):
         state.items = CommandPaletteItems.build(
-          selection: selection, catalog: catalog, editorDescriptors: descriptors
+          selection: selection,
+          catalog: catalog,
+          editorDescriptors: descriptors,
+          focusedPanelID: panelID,
+          panelFocusPrecise: precise
         )
+        state.focusedPanelID = panelID
         state.recency = CommandPalettePruner.prune(
           recency: recency, against: state.items
         )

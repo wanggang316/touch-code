@@ -45,7 +45,7 @@ struct ContentView: View {
         ) {
           CommandPaletteView(
             store: paletteStore,
-            onDismiss: { store.send(.commandPaletteToggle) }
+            onDismiss: { store.send(.commandPaletteToggle(nil)) }
           )
           .zIndex(100)
           .transition(.opacity.combined(with: .scale(scale: 0.97)))

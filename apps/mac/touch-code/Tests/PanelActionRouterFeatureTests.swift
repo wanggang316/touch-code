@@ -335,7 +335,7 @@ struct PanelActionRouterFeatureTests {
     }
 
     await store.send(.requested(f.panelID, .toggleCommandPalette))
-    await store.receive(.delegate(.commandPaletteToggleRequested))
+    await store.receive(.delegate(.commandPaletteToggleRequested(f.panelID)))
   }
 
   // MARK: - addressOf nil (teardown race)

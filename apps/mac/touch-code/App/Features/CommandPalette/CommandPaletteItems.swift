@@ -20,16 +20,52 @@ enum CommandPaletteItems {
   static func build(
     selection: HierarchySelection,
     catalog: Catalog,
-    editorDescriptors: [EditorDescriptor] = []
+    editorDescriptors: [EditorDescriptor] = [],
+    focusedPanelID: PanelID? = nil,
+    panelFocusPrecise: Bool = false
   ) -> [CommandPaletteItem] {
     var items = appItems() + spaceItems(catalog: catalog)
+    items.append(contentsOf: worktreeSwitchItems(selection: selection, catalog: catalog))
     if let worktree = resolveWorktree(selection: selection, catalog: catalog) {
       items.append(contentsOf: worktreeItems(worktreeName: worktree.name))
       items.append(contentsOf: editorItems(worktreeName: worktree.name, descriptors: editorDescriptors))
     }
-    if let focusedPanelID = resolveFocusedPanelID(selection: selection, catalog: catalog) {
-      items.append(contentsOf: panelItems(focusedPanelID: focusedPanelID))
+    if let focusedPanelID {
+      // Window actions only need any leaf in the current tab to resolve
+      // the source NSWindow, so they're always safe once we have a
+      // PanelID. Panel actions that depend on real focus (split / goto /
+      // resize / zoom) are only emitted when the panel was reported by
+      // the ghostty keybind path — not a fallback from leaves().first.
       items.append(contentsOf: windowItems(focusedPanelID: focusedPanelID))
+      if panelFocusPrecise {
+        items.append(contentsOf: panelFocusDependentItems())
+      }
+      items.append(contentsOf: panelTabScopedItems())
+    }
+    return items
+  }
+
+  private static func worktreeSwitchItems(
+    selection: HierarchySelection,
+    catalog: Catalog
+  ) -> [CommandPaletteItem] {
+    guard
+      let spaceID = selection.spaceID,
+      let space = catalog.spaces.first(where: { $0.id == spaceID })
+    else { return [] }
+    var items: [CommandPaletteItem] = []
+    for project in space.projects {
+      for worktree in project.worktrees where worktree.id != selection.worktreeID {
+        items.append(
+          CommandPaletteItem(
+            id: "worktree.select.\(worktree.id.raw.uuidString)",
+            title: "Switch to Worktree: \(worktree.name)",
+            subtitle: project.name,
+            icon: "arrow.triangle.branch",
+            kind: .selectWorktree(spaceID, project.id, worktree.id)
+          )
+        )
+      }
     }
     return items
   }
@@ -191,7 +227,10 @@ enum CommandPaletteItems {
 
   // MARK: - Private builders
 
-  private static func panelItems(focusedPanelID: PanelID) -> [CommandPaletteItem] {
+  /// Tab-scoped Panel actions: any panel in the current tab resolves to
+  /// the same Tab via `addressOf`, so fallback-resolved panelIDs are
+  /// sufficient. Safe to emit regardless of whether focus was precise.
+  private static func panelTabScopedItems() -> [CommandPaletteItem] {
     [
       CommandPaletteItem(
         id: "panel.new-tab",
@@ -199,6 +238,30 @@ enum CommandPaletteItems {
         icon: "plus.rectangle.on.rectangle",
         kind: .panelAction(.newTab)
       ),
+      CommandPaletteItem(
+        id: "panel.equalize",
+        title: "Equalize Splits",
+        icon: "rectangle.split.3x1",
+        kind: .panelAction(.equalizeSplits)
+      ),
+      CommandPaletteItem(
+        id: "panel.close-tab",
+        title: "Close Tab",
+        icon: "xmark.circle",
+        hiddenWhenQueryEmpty: true,
+        kind: .panelAction(.closeTab(mode: .this))
+      ),
+    ]
+  }
+
+  /// Panel actions whose target depends on which split is focused —
+  /// splits, focus navigation, zoom toggle. Only emitted when the panel
+  /// was carried in via the ghostty keybind pipeline (precise focus).
+  /// A menu-triggered palette open omits these so the user never sees a
+  /// "Focus Left Split" that would silently navigate from the wrong
+  /// panel.
+  private static func panelFocusDependentItems() -> [CommandPaletteItem] {
+    [
       CommandPaletteItem(
         id: "panel.split.right",
         title: "Split Right",
@@ -236,23 +299,10 @@ enum CommandPaletteItems {
         kind: .panelAction(.gotoSplit(direction: .down))
       ),
       CommandPaletteItem(
-        id: "panel.equalize",
-        title: "Equalize Splits",
-        icon: "rectangle.split.3x1",
-        kind: .panelAction(.equalizeSplits)
-      ),
-      CommandPaletteItem(
         id: "panel.toggle-zoom",
         title: "Toggle Split Zoom",
         icon: "plus.magnifyingglass",
         kind: .panelAction(.toggleSplitZoom)
-      ),
-      CommandPaletteItem(
-        id: "panel.close-tab",
-        title: "Close Tab",
-        icon: "xmark.circle",
-        hiddenWhenQueryEmpty: true,
-        kind: .panelAction(.closeTab(mode: .this))
       ),
     ]
   }

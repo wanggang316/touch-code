@@ -40,7 +40,7 @@ struct RootFeatureCommandPaletteRoutingTests {
   func activateToggleGitViewerRoutesToRoot() async {
     let store = Self.stubbedStore()
     // Prime the palette so the delegate has a parent to bubble through.
-    await store.send(.commandPaletteToggle)
+    await store.send(.commandPaletteToggle(nil))
     await store.send(.commandPalette(.presented(.delegate(.activate(.toggleGitViewer)))))
     await store.receive(\.gitViewerToggledForCurrentWorktree)
   }
@@ -48,7 +48,7 @@ struct RootFeatureCommandPaletteRoutingTests {
   @Test
   func activateSwitchToSpaceAtIndexRoutes() async {
     let store = Self.stubbedStore()
-    await store.send(.commandPaletteToggle)
+    await store.send(.commandPaletteToggle(nil))
     await store.send(.commandPalette(.presented(.delegate(.activate(.switchToSpaceAtIndex(1))))))
     await store.receive(\.switchToSpaceAtIndex)
   }
@@ -57,7 +57,7 @@ struct RootFeatureCommandPaletteRoutingTests {
   func activateSelectSpaceRoutesToSidebar() async {
     let spaceID = SpaceID()
     let store = Self.stubbedStore()
-    await store.send(.commandPaletteToggle)
+    await store.send(.commandPaletteToggle(nil))
     await store.send(.commandPalette(.presented(.delegate(.activate(.selectSpace(spaceID))))))
     await store.receive(\.sidebar.spaceRowTapped)
   }
@@ -65,7 +65,7 @@ struct RootFeatureCommandPaletteRoutingTests {
   @Test
   func activateOpenSpaceManagerSetsSheet() async {
     let store = Self.stubbedStore()
-    await store.send(.commandPaletteToggle)
+    await store.send(.commandPaletteToggle(nil))
     await store.send(.commandPalette(.presented(.delegate(.activate(.openSpaceManager)))))
     await store.receive(\.spaceManagerSheetShown)
   }
@@ -73,7 +73,7 @@ struct RootFeatureCommandPaletteRoutingTests {
   @Test
   func activateWindowActionRoutesToWindowRouter() async {
     let store = Self.stubbedStore()
-    await store.send(.commandPaletteToggle)
+    await store.send(.commandPaletteToggle(nil))
     await store.send(
       .commandPalette(.presented(.delegate(.activate(.windowAction(.checkForUpdates)))))
     )
@@ -83,7 +83,7 @@ struct RootFeatureCommandPaletteRoutingTests {
   @Test
   func activateOpenCurrentWorktreeInDefaultEditorRoutes() async {
     let store = Self.stubbedStore()
-    await store.send(.commandPaletteToggle)
+    await store.send(.commandPaletteToggle(nil))
     await store.send(
       .commandPalette(.presented(.delegate(.activate(.openCurrentWorktreeInDefaultEditor))))
     )
@@ -95,7 +95,7 @@ struct RootFeatureCommandPaletteRoutingTests {
     // Empty selection → no focused panel → palette silently discards
     // Panel-scoped activations rather than sending with a bogus ID.
     let store = Self.stubbedStore()
-    await store.send(.commandPaletteToggle)
+    await store.send(.commandPaletteToggle(nil))
     await store.send(
       .commandPalette(.presented(.delegate(.activate(.panelAction(.newTab)))))
     )

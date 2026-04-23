@@ -141,10 +141,13 @@ struct RootFeature {
     case spaceManagerSheetShown
     case spaceManagerSheet(PresentationAction<SpaceManagerFeature.Action>)
     case switchToSpaceAtIndex(Int)
-    /// Toggle the Command Palette overlay. Sources: `⌘P` menu binding, and
-    /// `panelActionRouter(.delegate(.commandPaletteToggleRequested))`
-    /// forwarded from the ghostty keybind pipeline.
-    case commandPaletteToggle
+    /// Toggle the Command Palette overlay. Sources: `⌘P` menu binding
+    /// (source panel unknown — payload is `nil`), and
+    /// `panelActionRouter(.delegate(.commandPaletteToggleRequested(panelID)))`
+    /// forwarded from the ghostty keybind pipeline (payload carries the
+    /// source panel so Panel-scoped palette actions target the right
+    /// split).
+    case commandPaletteToggle(PanelID?)
     case commandPalette(PresentationAction<CommandPaletteFeature.Action>)
     case sidebar(HierarchySidebarFeature.Action)
     case detail(WorktreeDetailFeature.Action)
@@ -428,8 +431,8 @@ struct RootFeature {
       // pipeline into the palette's top-level toggle. `presentTerminal`
       // stays an explicit no-op — the sidebar/detail focus flow already
       // handles active-worktree swaps.
-      case .panelActionRouter(.delegate(.commandPaletteToggleRequested)):
-        return .send(.commandPaletteToggle)
+      case .panelActionRouter(.delegate(.commandPaletteToggleRequested(let panelID))):
+        return .send(.commandPaletteToggle(panelID))
       case .panelActionRouter(.delegate(.presentTerminalRequested)):
         return .none
 
@@ -450,17 +453,41 @@ struct RootFeature {
       case .spaceManagerSheet:
         return .none
 
-      case .commandPaletteToggle:
+      case .commandPaletteToggle(let sourcePanelID):
         if state.commandPalette == nil {
           state.commandPalette = CommandPaletteFeature.State()
           let selection = state.selection
           let catalog = hierarchyClient.snapshot()
           let descriptors = state.editor.descriptors
           let recency = CommandPaletteRecencyPersistence.load()
+          // Menu-triggered palette opens have no source panel; fall back
+          // to the first leaf of the selected tab's split tree so Window-
+          // scoped actions still resolve to the correct NSWindow.
+          // Panel-scoped palette items that depend on real focus are
+          // omitted by the builder when the source is a leaf fallback.
+          let resolvedPanelID = sourcePanelID
+            ?? CommandPaletteItems.resolveFocusedPanelID(
+              selection: selection, catalog: catalog
+            )
+          let panelSourceIsPrecise = sourcePanelID != nil
           return .send(
-            .commandPalette(.presented(.appeared(selection, catalog, descriptors, recency)))
+            .commandPalette(
+              .presented(
+                .appeared(
+                  selection, catalog, descriptors, recency,
+                  resolvedPanelID, panelSourceIsPrecise
+                )
+              )
+            )
           )
         } else {
+          // Closing without activating: persist any pruning the child
+          // did on `.appeared` so stale entries don't re-surface on the
+          // next open. Activation path already persists via the
+          // `.activate` branch above.
+          if let recency = state.commandPalette?.recency {
+            CommandPaletteRecencyPersistence.save(recency)
+          }
           state.commandPalette = nil
           return .none
         }
@@ -469,8 +496,9 @@ struct RootFeature {
         if let recency = state.commandPalette?.recency {
           CommandPaletteRecencyPersistence.save(recency)
         }
+        let sourcePanelID = state.commandPalette?.focusedPanelID
         state.commandPalette = nil
-        return route(kind, state: &state)
+        return route(kind, state: &state, sourcePanelID: sourcePanelID)
 
       case .commandPalette(.dismiss):
         state.commandPalette = nil
@@ -539,7 +567,8 @@ struct RootFeature {
   /// behavior.
   private func route(
     _ kind: CommandPaletteItem.Kind,
-    state: inout State
+    state: inout State,
+    sourcePanelID: PanelID?
   ) -> Effect<Action> {
     switch kind {
     // App
@@ -628,9 +657,11 @@ struct RootFeature {
 
     // Panel / Window — thin wrappers over the routers
     case .panelAction(let req):
-      guard let panelID = CommandPaletteItems.resolveFocusedPanelID(
-        selection: state.selection, catalog: hierarchyClient.snapshot()
-      ) else { return .none }
+      guard let panelID = sourcePanelID
+        ?? CommandPaletteItems.resolveFocusedPanelID(
+          selection: state.selection, catalog: hierarchyClient.snapshot()
+        )
+      else { return .none }
       return .send(.panelActionRouter(.requested(panelID, req)))
     case .windowAction(let req):
       return .send(.windowActionRouter(.requested(req)))

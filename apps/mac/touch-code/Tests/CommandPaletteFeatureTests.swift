@@ -29,7 +29,7 @@ struct CommandPaletteFeatureTests {
       CommandPaletteFeature()
     }
     store.exhaustivity = .off
-    await store.send(.appeared(Self.sampleSelection, Self.sampleCatalog, [], [:]))
+    await store.send(.appeared(Self.sampleSelection, Self.sampleCatalog, [], [:], nil, false))
     #expect(!store.state.items.isEmpty)
     #expect(store.state.filtered.first?.id == store.state.selectionID)
   }
@@ -44,7 +44,7 @@ struct CommandPaletteFeatureTests {
       CommandPaletteFeature()
     }
     store.exhaustivity = .off
-    await store.send(.appeared(Self.sampleSelection, Self.sampleCatalog, [], stale))
+    await store.send(.appeared(Self.sampleSelection, Self.sampleCatalog, [], stale, nil, false))
     // Static ID survives; dynamic ID pointing to a missing worktree is dropped.
     #expect(store.state.recency["app.open-settings"] == 1_700_000_100)
     #expect(store.state.recency["worktree.select.00000000-0000-0000-0000-000000000000"] == nil)

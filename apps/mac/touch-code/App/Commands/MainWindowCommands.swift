@@ -32,7 +32,7 @@ struct MainWindowCommands: Commands {
   var body: some Commands {
     CommandGroup(after: .newItem) {
       Button("Quick Action…") {
-        store.send(.commandPaletteToggle)
+        store.send(.commandPaletteToggle(nil))
       }
       .keyboardShortcut("p", modifiers: .command)
 
