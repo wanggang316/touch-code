@@ -70,6 +70,7 @@ struct GitHubFeatureTests {
       client.pullRequest = { _, _ in expected }
     }
     await store.send(.worktreeBecameVisible(wid, branch: "feature", worktreePath: Self.path)) {
+      $0.worktreePaths[wid] = Self.path
       $0.loading.insert(wid)
     }
     await store.receive(.snapshotLoaded(wid, .success(expected))) {
@@ -93,7 +94,9 @@ struct GitHubFeatureTests {
         return nil
       }
     }
-    await store.send(.worktreeBecameVisible(wid, branch: "b", worktreePath: Self.path))
+    await store.send(.worktreeBecameVisible(wid, branch: "b", worktreePath: Self.path)) {
+      $0.worktreePaths[wid] = Self.path
+    }
   }
 
   @Test
@@ -107,7 +110,9 @@ struct GitHubFeatureTests {
         return nil
       }
     }
-    await store.send(.worktreeBecameVisible(wid, branch: "b", worktreePath: Self.path))
+    await store.send(.worktreeBecameVisible(wid, branch: "b", worktreePath: Self.path)) {
+      $0.worktreePaths[wid] = Self.path
+    }
   }
 
   @Test
@@ -122,6 +127,7 @@ struct GitHubFeatureTests {
       client.pullRequest = { _, _ in refreshed }
     }
     await store.send(.refreshRequested(wid, branch: "b", worktreePath: Self.path)) {
+      $0.worktreePaths[wid] = Self.path
       $0.snapshotLoadedAt[wid] = nil
       $0.loading.insert(wid)
     }
@@ -139,6 +145,7 @@ struct GitHubFeatureTests {
       client.pullRequest = { _, _ in throw GitHubError.notAuthenticated(host: "github.com") }
     }
     await store.send(.worktreeBecameVisible(wid, branch: "b", worktreePath: Self.path)) {
+      $0.worktreePaths[wid] = Self.path
       $0.loading.insert(wid)
     }
     await store.receive {
@@ -189,6 +196,7 @@ struct GitHubFeatureTests {
     }
     await store.send(.presentPopover(wid, worktreePath: Self.path)) {
       $0.popoverTarget = wid
+      $0.worktreePaths[wid] = Self.path
     }
     await store.receive(.checksLoaded(prNumber: 42, .success([check]))) {
       $0.checks[42] = [check]
@@ -214,7 +222,7 @@ struct GitHubFeatureTests {
   @Test
   func mergeSucceededEmitsDelegate() async {
     let wid = WorktreeID()
-    let snap = Self.stubSnapshot(number: 99, state: .open)
+    let snap = Self.stubSnapshot(number: 99, state: .open, headRefName: "feature/test")
     var seed = GitHubFeature.State()
     seed.snapshots[wid] = snap
     let store = Self.makeStore(initialState: seed) { client in
@@ -222,10 +230,24 @@ struct GitHubFeatureTests {
         #expect(prNumber == 99)
         #expect(strategy == .squash)
       }
+      client.pullRequest = { _, _ in snap }  // post-mutation refresh call
     }
-    await store.send(.mergeRequested(wid, prNumber: 99, strategy: .squash, worktreePath: Self.path))
-    await store.receive(.mergeCompleted(wid, prNumber: 99, .success(.init())))
+    await store.send(.mergeRequested(wid, prNumber: 99, strategy: .squash, worktreePath: Self.path)) {
+      $0.mutating.insert(wid)
+      $0.worktreePaths[wid] = Self.path
+    }
+    await store.receive(.mergeCompleted(wid, prNumber: 99, .success(.init()))) {
+      $0.mutating.remove(wid)
+      $0.snapshotLoadedAt[wid] = nil
+      $0.loading.insert(wid)
+    }
     await store.receive(.delegate(.pullRequestMerged(wid, snapshot: snap)))
+    await store.receive(.snapshotLoaded(wid, .success(snap))) {
+      $0.loading.remove(wid)
+      $0.snapshots[wid] = snap
+      $0.snapshotLoadedAt[wid] = Self.fixedDate
+      $0.lastError[wid] = nil
+    }
   }
 
   @Test
@@ -234,13 +256,30 @@ struct GitHubFeatureTests {
     let store = Self.makeStore { client in
       client.merge = { _, _, _ in throw GitHubError.mergeConflict }
     }
-    await store.send(.mergeRequested(wid, prNumber: 1, strategy: .squash, worktreePath: Self.path))
+    await store.send(.mergeRequested(wid, prNumber: 1, strategy: .squash, worktreePath: Self.path)) {
+      $0.mutating.insert(wid)
+      $0.worktreePaths[wid] = Self.path
+    }
     await store.receive {
       if case .mergeCompleted(let w, 1, .failure) = $0, w == wid { return true }
       return false
     } assert: {
+      $0.mutating.remove(wid)
       $0.lastError[wid] = .mergeConflict
     }
+  }
+
+  @Test
+  func mergeWhileMutatingIsNoop() async {
+    let wid = WorktreeID()
+    var seed = GitHubFeature.State()
+    seed.mutating.insert(wid)
+    let store = Self.makeStore(initialState: seed) { client in
+      client.merge = { _, _, _ in
+        Issue.record("merge must not be called when another mutation is in flight")
+      }
+    }
+    await store.send(.mergeRequested(wid, prNumber: 1, strategy: .squash, worktreePath: Self.path))
   }
 
   @Test
@@ -249,8 +288,13 @@ struct GitHubFeatureTests {
     let store = Self.makeStore { client in
       client.close = { prNumber, _ in #expect(prNumber == 7) }
     }
-    await store.send(.closeRequested(wid, prNumber: 7, worktreePath: Self.path))
-    await store.receive(.closeCompleted(wid, .success(.init())))
+    await store.send(.closeRequested(wid, prNumber: 7, worktreePath: Self.path)) {
+      $0.mutating.insert(wid)
+      $0.worktreePaths[wid] = Self.path
+    }
+    await store.receive(.closeCompleted(wid, .success(.init()))) {
+      $0.mutating.remove(wid)
+    }
   }
 
   @Test
@@ -259,8 +303,13 @@ struct GitHubFeatureTests {
     let store = Self.makeStore { client in
       client.markReady = { prNumber, _ in #expect(prNumber == 11) }
     }
-    await store.send(.markReadyRequested(wid, prNumber: 11, worktreePath: Self.path))
-    await store.receive(.markReadyCompleted(wid, .success(.init())))
+    await store.send(.markReadyRequested(wid, prNumber: 11, worktreePath: Self.path)) {
+      $0.mutating.insert(wid)
+      $0.worktreePaths[wid] = Self.path
+    }
+    await store.receive(.markReadyCompleted(wid, .success(.init()))) {
+      $0.mutating.remove(wid)
+    }
   }
 
   @Test
@@ -269,8 +318,13 @@ struct GitHubFeatureTests {
     let store = Self.makeStore { client in
       client.rerunFailedJobs = { runID, _ in #expect(runID == 123) }
     }
-    await store.send(.rerunFailedJobsRequested(wid, runID: 123, worktreePath: Self.path))
-    await store.receive(.rerunFailedJobsCompleted(wid, .success(.init())))
+    await store.send(.rerunFailedJobsRequested(wid, runID: 123, worktreePath: Self.path)) {
+      $0.mutating.insert(wid)
+      $0.worktreePaths[wid] = Self.path
+    }
+    await store.receive(.rerunFailedJobsCompleted(wid, .success(.init()))) {
+      $0.mutating.remove(wid)
+    }
   }
 
   @Test
@@ -279,11 +333,15 @@ struct GitHubFeatureTests {
     let store = Self.makeStore { client in
       client.rerunFailedJobs = { _, _ in throw GitHubError.network("dns fail") }
     }
-    await store.send(.rerunFailedJobsRequested(wid, runID: 1, worktreePath: Self.path))
+    await store.send(.rerunFailedJobsRequested(wid, runID: 1, worktreePath: Self.path)) {
+      $0.mutating.insert(wid)
+      $0.worktreePaths[wid] = Self.path
+    }
     await store.receive {
       if case .rerunFailedJobsCompleted(let w, .failure) = $0, w == wid { return true }
       return false
     } assert: {
+      $0.mutating.remove(wid)
       $0.lastError[wid] = .network("dns fail")
     }
   }

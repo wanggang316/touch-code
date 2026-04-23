@@ -729,13 +729,18 @@ struct HierarchySidebarView: View {
 
     let defaultStrategy = settingsStore.settings.general.defaultMergeStrategy ?? .squash
 
+    let isMutating = store.mutating.contains(worktreeID)
+
     PullRequestPopover(
       content: content,
       defaultMergeStrategy: defaultStrategy,
-      canMerge: (snapshot?.mergeable == .mergeable
+      canMerge: !isMutating
+        && snapshot?.mergeable == .mergeable
         && snapshot?.state == .open
-        && snapshot?.isDraft == false),
-      mergeDisabledReason: Self.mergeDisabledReason(for: snapshot),
+        && snapshot?.isDraft == false,
+      mergeDisabledReason: isMutating
+        ? "Another GitHub operation is in flight"
+        : Self.mergeDisabledReason(for: snapshot),
       onMerge: { strategy in
         if let pr = snapshot {
           store.send(

@@ -32,6 +32,15 @@ struct GitHubFeature {
 
     var loading: Set<WorktreeID> = []
 
+    /// Mutation operations in flight per Worktree. Views observe this to disable the
+    /// matching popover button so repeated clicks can't fire multiple `gh` subprocesses.
+    var mutating: Set<WorktreeID> = []
+
+    /// Worktree paths observed via `worktreeBecameVisible` / `refreshRequested` /
+    /// `presentPopover`. Stashed here so post-mutation refresh effects can re-issue a
+    /// `refreshRequested` without the completed action having to carry the path.
+    var worktreePaths: [WorktreeID: URL] = [:]
+
     /// Which Worktree's popover is visible. `nil` ⇒ no popover.
     var popoverTarget: WorktreeID?
 
@@ -97,6 +106,9 @@ struct GitHubFeature {
     case snapshot(WorktreeID)
     case checks(prNumber: Int)
     case workflowRun(prNumber: Int)
+    /// One-cancellation-slot for all mutations on a Worktree so a second click while an
+    /// operation is in flight cancels the prior run rather than racing it.
+    case mutation(WorktreeID)
   }
 
   /// Availability result is treated as fresh for 30 s; subsequent `onAppear` / visibility
@@ -138,6 +150,7 @@ struct GitHubFeature {
       // MARK: - snapshot loading
 
       case .worktreeBecameVisible(let worktreeID, let branch, let worktreePath):
+        state.worktreePaths[worktreeID] = worktreePath
         if let loadedAt = state.snapshotLoadedAt[worktreeID],
           now.timeIntervalSince(loadedAt) < Self.snapshotFreshness,
           state.snapshots[worktreeID] != nil
@@ -149,6 +162,7 @@ struct GitHubFeature {
         return snapshotFetchEffect(worktreeID: worktreeID, branch: branch, worktreePath: worktreePath)
 
       case .refreshRequested(let worktreeID, let branch, let worktreePath):
+        state.worktreePaths[worktreeID] = worktreePath
         state.snapshotLoadedAt[worktreeID] = nil  // force re-probe
         state.loading.insert(worktreeID)
         return snapshotFetchEffect(worktreeID: worktreeID, branch: branch, worktreePath: worktreePath)
@@ -194,6 +208,7 @@ struct GitHubFeature {
 
       case .presentPopover(let worktreeID, let worktreePath):
         state.popoverTarget = worktreeID
+        state.worktreePaths[worktreeID] = worktreePath
         // Kick off checks + latest workflow run on popover open. Uses the cached snapshot
         // to know the PR number and branch.
         guard let snapshot = state.snapshots[worktreeID] else { return .none }
@@ -211,6 +226,9 @@ struct GitHubFeature {
       // MARK: - merge
 
       case .mergeRequested(let worktreeID, let prNumber, let strategy, let worktreePath):
+        if state.mutating.contains(worktreeID) { return .none }  // already running
+        state.mutating.insert(worktreeID)
+        state.worktreePaths[worktreeID] = worktreePath
         return .run { send in
           let result = await TaskResult<Action.VoidSuccess> {
             try await gitHub.merge(prNumber, strategy, worktreePath)
@@ -218,21 +236,29 @@ struct GitHubFeature {
           }
           await send(.mergeCompleted(worktreeID, prNumber: prNumber, result))
         }
+        .cancellable(id: CancelID.mutation(worktreeID), cancelInFlight: true)
 
       case .mergeCompleted(let worktreeID, _, .success):
-        // Delegate pullRequestMerged so RootFeature can trigger the post-merge action.
+        state.mutating.remove(worktreeID)
+        // Delegate pullRequestMerged so RootFeature can trigger the post-merge action,
+        // then kick off a refresh so the badge flips to merged on its own.
+        let refresh = postMutationRefresh(worktreeID: worktreeID, state: &state)
         if let snapshot = state.snapshots[worktreeID] {
-          return .send(.delegate(.pullRequestMerged(worktreeID, snapshot: snapshot)))
+          return .merge(.send(.delegate(.pullRequestMerged(worktreeID, snapshot: snapshot))), refresh)
         }
-        return .none
+        return refresh
 
       case .mergeCompleted(let worktreeID, _, .failure(let error)):
+        state.mutating.remove(worktreeID)
         state.lastError[worktreeID] = (error as? GitHubError) ?? .other(String(describing: error))
         return .none
 
       // MARK: - close
 
       case .closeRequested(let worktreeID, let prNumber, let worktreePath):
+        if state.mutating.contains(worktreeID) { return .none }
+        state.mutating.insert(worktreeID)
+        state.worktreePaths[worktreeID] = worktreePath
         return .run { send in
           let result = await TaskResult<Action.VoidSuccess> {
             try await gitHub.close(prNumber, worktreePath)
@@ -240,17 +266,23 @@ struct GitHubFeature {
           }
           await send(.closeCompleted(worktreeID, result))
         }
+        .cancellable(id: CancelID.mutation(worktreeID), cancelInFlight: true)
 
       case .closeCompleted(let worktreeID, .failure(let error)):
+        state.mutating.remove(worktreeID)
         state.lastError[worktreeID] = (error as? GitHubError) ?? .other(String(describing: error))
         return .none
 
-      case .closeCompleted:
-        return .none
+      case .closeCompleted(let worktreeID, _):
+        state.mutating.remove(worktreeID)
+        return postMutationRefresh(worktreeID: worktreeID, state: &state)
 
       // MARK: - markReady
 
       case .markReadyRequested(let worktreeID, let prNumber, let worktreePath):
+        if state.mutating.contains(worktreeID) { return .none }
+        state.mutating.insert(worktreeID)
+        state.worktreePaths[worktreeID] = worktreePath
         return .run { send in
           let result = await TaskResult<Action.VoidSuccess> {
             try await gitHub.markReady(prNumber, worktreePath)
@@ -258,17 +290,23 @@ struct GitHubFeature {
           }
           await send(.markReadyCompleted(worktreeID, result))
         }
+        .cancellable(id: CancelID.mutation(worktreeID), cancelInFlight: true)
 
       case .markReadyCompleted(let worktreeID, .failure(let error)):
+        state.mutating.remove(worktreeID)
         state.lastError[worktreeID] = (error as? GitHubError) ?? .other(String(describing: error))
         return .none
 
-      case .markReadyCompleted:
-        return .none
+      case .markReadyCompleted(let worktreeID, _):
+        state.mutating.remove(worktreeID)
+        return postMutationRefresh(worktreeID: worktreeID, state: &state)
 
       // MARK: - rerunFailedJobs
 
       case .rerunFailedJobsRequested(let worktreeID, let runID, let worktreePath):
+        if state.mutating.contains(worktreeID) { return .none }
+        state.mutating.insert(worktreeID)
+        state.worktreePaths[worktreeID] = worktreePath
         return .run { send in
           let result = await TaskResult<Action.VoidSuccess> {
             try await gitHub.rerunFailedJobs(runID, worktreePath)
@@ -276,13 +314,16 @@ struct GitHubFeature {
           }
           await send(.rerunFailedJobsCompleted(worktreeID, result))
         }
+        .cancellable(id: CancelID.mutation(worktreeID), cancelInFlight: true)
 
       case .rerunFailedJobsCompleted(let worktreeID, .failure(let error)):
+        state.mutating.remove(worktreeID)
         state.lastError[worktreeID] = (error as? GitHubError) ?? .other(String(describing: error))
         return .none
 
-      case .rerunFailedJobsCompleted:
-        return .none
+      case .rerunFailedJobsCompleted(let worktreeID, _):
+        state.mutating.remove(worktreeID)
+        return postMutationRefresh(worktreeID: worktreeID, state: &state)
 
       // MARK: - delegate
 
@@ -334,6 +375,21 @@ struct GitHubFeature {
       await send(.workflowRunLoaded(prNumber: prNumber, result))
     }
     .cancellable(id: CancelID.workflowRun(prNumber: prNumber), cancelInFlight: true)
+  }
+
+  /// Re-dispatches a snapshot fetch for a Worktree so a recently-completed mutation
+  /// (merge / close / markReady / rerun) is reflected by the next UI render. Looks up
+  /// the cached branch + path; if either is missing, returns `.none` (the next
+  /// `worktreeBecameVisible` re-dispatch will cover it).
+  private func postMutationRefresh(
+    worktreeID: WorktreeID, state: inout State
+  ) -> Effect<Action> {
+    guard let branch = state.snapshots[worktreeID]?.headRefName,
+      let worktreePath = state.worktreePaths[worktreeID]
+    else { return .none }
+    state.snapshotLoadedAt[worktreeID] = nil
+    state.loading.insert(worktreeID)
+    return snapshotFetchEffect(worktreeID: worktreeID, branch: branch, worktreePath: worktreePath)
   }
 
 }
