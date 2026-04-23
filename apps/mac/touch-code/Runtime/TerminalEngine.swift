@@ -162,6 +162,17 @@ final class TerminalEngine {
       let surface = runtime.surface(for: panelID)
     else { return }
     if let window = surface.view.window {
+      // Reconcile libghostty focus before the AppKit firstResponder switch.
+      // AppKit usually delivers `resignFirstResponder` on the outgoing view,
+      // which in turn calls `set_focus(false)` on its surface — but SwiftUI
+      // re-render during a split can briefly detach the old view, and on
+      // that path AppKit clears firstResponder without firing resignFirst-
+      // Responder. The outgoing surface then keeps its libghostty focus=true
+      // and its cursor keeps blinking after the new pane opens. Force every
+      // non-target surface to set_focus(false); the target gets set_focus(true)
+      // via its own becomeFirstResponder below. `set_focus` is idempotent,
+      // so repeats on the normal path are harmless.
+      runtime.defocusAllSurfaces(except: panelID)
       if window.firstResponder !== surface.view {
         window.makeFirstResponder(surface.view)
       }
