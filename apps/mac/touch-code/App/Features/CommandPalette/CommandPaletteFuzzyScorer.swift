@@ -44,12 +44,13 @@ enum CommandPaletteFuzzyScorer {
     let needle = pattern.lowercased()
     guard !needle.isEmpty else { return nil }
 
-    let title = item.title.lowercased()
-    let titleChars = Array(title)
+    let titleLower = item.title.lowercased()
+    let titleChars = Array(titleLower)
+    let titleOriginalChars = Array(item.title)
     let needleChars = Array(needle)
 
-    if let (position, length) = contiguousMatch(title: titleChars, needle: needleChars) {
-      let lengthRatio = (needle.count * 1_000) / max(title.count, 1)
+    if let (position, _) = contiguousMatch(title: titleChars, needle: needleChars) {
+      let lengthRatio = (needle.count * 1_000) / max(titleLower.count, 1)
       let positionBonus = max(0, 200 - position * 10)
       let priorityBonus = 100 - item.priorityTier
       return contiguousBase + lengthRatio + positionBonus + priorityBonus
@@ -58,15 +59,22 @@ enum CommandPaletteFuzzyScorer {
 
     if forceContiguous { return nil }
 
-    if let score = subsequenceScore(haystack: titleChars, needle: needleChars) {
+    if let score = subsequenceScore(
+      haystack: titleChars, originalHaystack: titleOriginalChars, needle: needleChars
+    ) {
       let priorityBonus = 100 - item.priorityTier
       return subsequenceTitleBase + score + priorityBonus
         + recencyBonus(id: item.id, recency: recency, now: now)
     }
 
-    if let subtitle = item.subtitle?.lowercased() {
-      let subtitleChars = Array(subtitle)
-      if let score = subsequenceScore(haystack: subtitleChars, needle: needleChars) {
+    if let subtitle = item.subtitle {
+      let subtitleLowerChars = Array(subtitle.lowercased())
+      let subtitleOriginalChars = Array(subtitle)
+      if let score = subsequenceScore(
+        haystack: subtitleLowerChars,
+        originalHaystack: subtitleOriginalChars,
+        needle: needleChars
+      ) {
         let priorityBonus = 100 - item.priorityTier
         return subsequenceSubtitleBase + score + priorityBonus
           + recencyBonus(id: item.id, recency: recency, now: now)
@@ -111,6 +119,7 @@ enum CommandPaletteFuzzyScorer {
   /// Returns `nil` when the subsequence cannot be placed in order.
   private static func subsequenceScore(
     haystack: [Character],
+    originalHaystack: [Character],
     needle: [Character]
   ) -> Int? {
     guard !needle.isEmpty, needle.count <= haystack.count else { return nil }
@@ -122,18 +131,16 @@ enum CommandPaletteFuzzyScorer {
     var dp: [[Int]] = Array(repeating: Array(repeating: Int.min, count: n), count: m)
     var start: [[Int]] = Array(repeating: Array(repeating: -1, count: n), count: m)
     for j in 0..<n where haystack[j] == needle[0] {
-      dp[0][j] = charBonus(at: j, in: haystack)
+      dp[0][j] = charBonus(at: j, in: originalHaystack)
       start[0][j] = j
     }
     for k in 1..<m {
       for j in 0..<n where haystack[j] == needle[k] {
         var best = Int.min
         var bestStart = -1
-        // Small optimization: iterate backwards so the first hit is also
-        // the minimum gap, which is the likeliest maximum in practice.
         for jp in 0..<j where dp[k - 1][jp] != Int.min {
           let gap = j - jp - 1
-          let candidate = dp[k - 1][jp] + charBonus(at: j, in: haystack) - gap
+          let candidate = dp[k - 1][jp] + charBonus(at: j, in: originalHaystack) - gap
           if candidate > best {
             best = candidate
             bestStart = start[k - 1][jp]
@@ -145,22 +152,19 @@ enum CommandPaletteFuzzyScorer {
         }
       }
     }
-    // Pick the best endpoint of the final row.
-    var finalScore = Int.min
-    var finalStart = -1
-    var finalEnd = -1
+    // Pick the best endpoint of the final row, applying span penalty
+    // and position bonus *inside* the selection so a slightly higher
+    // raw-bonus path that also spans more of the haystack doesn't win
+    // over a tighter path with a smaller raw bonus.
+    var finalTotal = Int.min
     for j in 0..<n where dp[m - 1][j] != Int.min {
-      if dp[m - 1][j] > finalScore {
-        finalScore = dp[m - 1][j]
-        finalStart = start[m - 1][j]
-        finalEnd = j
-      }
+      let s = start[m - 1][j]
+      let span = j - s + 1
+      let candidate = dp[m - 1][j] + max(0, 150 - s * 5) - span * 2
+      if candidate > finalTotal { finalTotal = candidate }
     }
-    guard finalScore != Int.min else { return nil }
-    let span = finalEnd - finalStart + 1
-    let spanPenalty = span * 2
-    let positionBonus = max(0, 150 - finalStart * 5)
-    return 1_000 + finalScore + positionBonus - spanPenalty
+    guard finalTotal != Int.min else { return nil }
+    return 1_000 + finalTotal
   }
 
   private static func charBonus(at i: Int, in haystack: [Character]) -> Int {
