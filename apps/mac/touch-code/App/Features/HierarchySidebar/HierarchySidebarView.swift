@@ -991,15 +991,22 @@ private struct ProjectHeaderRow: View {
 }
 
 
-/// Transparent background view that hunts down the `NSScrollView` wrapping our List
-/// and disables its scroller. `.scrollIndicators(.hidden)` on SwiftUI `List` is
-/// ignored on macOS, and `ancestor.superview` walks from a `.background(...)` child
-/// can miss the target because SwiftUI sometimes mounts background views as
-/// siblings of the scroll view rather than inside it. Fix: once mounted in a
-/// window, BFS the `contentView` subtree for any `NSScrollView` whose
-/// `documentView` is an `NSTableView` (which is what `List` uses) and hide its
-/// vertical scroller. Retries a few times because the List may not be attached
-/// yet when `viewDidMoveToWindow` first fires.
+/// Transparent background view that finds the `NSScrollView` hosting our `List`
+/// (AppKit backs it with `NSScrollView` + `NSTableView`) and configures it so the
+/// vertical scroller overlays the content without reserving a column of horizontal
+/// space — the effect you'd get from `.scrollIndicators(.hidden)` if that modifier
+/// applied to macOS Lists (it doesn't).
+///
+/// Why not simply clear `hasVerticalScroller`? Setting that to `false` makes the
+/// scroller unreachable but does NOT retroactively fix the `clipView` geometry that
+/// NSScrollView computed under the assumption of a legacy (space-reserving)
+/// scroller. The visible symptom is a blank column of width ~15pt on the right of
+/// the List. The clean fix is to keep the scroller installed but switch to the
+/// overlay style (floats on top, reserves no space), zero out the inset bookkeeping,
+/// call `tile()` to recompute `clipView`'s frame, and fade the scroller to invisible.
+///
+/// Retries a few times because `List` may attach or re-attach its scroll view after
+/// this view first moves to a window (first-run appearance change, etc.).
 private struct ScrollerHider: NSViewRepresentable {
   func makeNSView(context: Context) -> NSView { _ScrollerHiderView() }
   func updateNSView(_ nsView: NSView, context: Context) {}
@@ -1008,41 +1015,54 @@ private struct ScrollerHider: NSViewRepresentable {
 private final class _ScrollerHiderView: NSView {
   override func viewDidMoveToWindow() {
     super.viewDidMoveToWindow()
-    hideScrollers(retriesLeft: 20)
+    applyOverlayScrollers(retriesLeft: 20)
   }
 
-  private func hideScrollers(retriesLeft: Int) {
+  private func applyOverlayScrollers(retriesLeft: Int) {
     guard let root = self.window?.contentView else {
       if retriesLeft > 0 {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-          self?.hideScrollers(retriesLeft: retriesLeft - 1)
+          self?.applyOverlayScrollers(retriesLeft: retriesLeft - 1)
         }
       }
       return
     }
-    let tableHosts = Self.findTableHostingScrollViews(in: root)
-    for scroll in tableHosts {
-      scroll.hasVerticalScroller = false
-      scroll.hasHorizontalScroller = false
-      scroll.autohidesScrollers = true
-      scroll.scrollerStyle = .overlay
-      scroll.verticalScroller?.alphaValue = 0
-      scroll.verticalScroller?.isHidden = true
-      scroll.horizontalScroller?.isHidden = true
+    for scroll in Self.findTableHostingScrollViews(in: root) {
+      configure(scroll)
     }
-    // Retry a couple more times — `List` may reattach its scroll view after
-    // first render (e.g., on appearance change), and the scroller will come back.
     if retriesLeft > 0 {
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-        self?.hideScrollers(retriesLeft: retriesLeft - 1)
+        self?.applyOverlayScrollers(retriesLeft: retriesLeft - 1)
       }
     }
   }
 
+  private func configure(_ scroll: NSScrollView) {
+    // Overlay style: scroller floats on top of content instead of claiming a
+    // horizontal column — this is the one setting that actually eliminates the
+    // reserved-space gap. The user's system preference ("Show scroll bars: Always"
+    // vs "When scrolling") normally dictates scrollerStyle; we override per-view.
+    scroll.scrollerStyle = .overlay
+    scroll.autohidesScrollers = true
+    // Kill any inset bookkeeping that would preserve a column for a legacy scroller.
+    scroll.automaticallyAdjustsContentInsets = false
+    scroll.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+    scroll.scrollerInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+    // Recompute `clipView` geometry under the new scroller style so the documentView
+    // actually reclaims the full width. Without `tile()` the old legacy-style frame
+    // sticks around until the next resize event.
+    scroll.tile()
+    // Belt + suspenders: even when the scroller is overlay-styled and auto-hiding,
+    // the brief flash during scroll shows a translucent knob. Zero alpha hides it
+    // for good without removing the scroller instance (removing it can make
+    // NSScrollView re-reserve space on next resize).
+    scroll.verticalScroller?.alphaValue = 0
+    scroll.horizontalScroller?.alphaValue = 0
+  }
+
   /// BFS through `root`'s view tree, collecting every `NSScrollView` whose
-  /// `documentView` is (or contains) an `NSTableView`. `List` on macOS uses an
-  /// `NSScrollView` + `NSTableView`; text views, menu popovers, etc. use other
-  /// `NSScrollView` configurations that we don't want to touch.
+  /// `documentView` hosts an `NSTableView`. Restricts the override to `List`-backed
+  /// scroll views so text views, popovers, etc. elsewhere in the window are untouched.
   private static func findTableHostingScrollViews(in root: NSView) -> [NSScrollView] {
     var out: [NSScrollView] = []
     var queue: [NSView] = [root]
@@ -1051,7 +1071,7 @@ private final class _ScrollerHiderView: NSView {
       if let scroll = view as? NSScrollView {
         if let doc = scroll.documentView, Self.containsTableView(doc) {
           out.append(scroll)
-          continue  // no need to descend into a List's own subtree
+          continue
         }
       }
       queue.append(contentsOf: view.subviews)
