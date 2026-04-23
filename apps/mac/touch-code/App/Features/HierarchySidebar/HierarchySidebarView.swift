@@ -503,8 +503,7 @@ struct HierarchySidebarView: View {
     } label: {
       HStack(spacing: 6) {
         WorktreeRowIcon(
-          snapshot: snapshot, rollup: rollup, isSelected: isSelected,
-          roleTint: roleTint, isMainCheckout: isMainCheckout
+          snapshot: snapshot, rollup: rollup, isSelected: isSelected, roleTint: roleTint
         )
         VStack(alignment: .leading, spacing: 0) {
           HStack(spacing: 2) {

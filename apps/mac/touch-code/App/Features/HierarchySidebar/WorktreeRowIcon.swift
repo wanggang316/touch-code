@@ -22,37 +22,16 @@ struct WorktreeRowIcon: View {
   /// "role" in the Project — yellow for the main checkout, orange for pinned rows,
   /// secondary for everything else.
   var roleTint: Color = .secondary
-  /// `true` when this row is the Project's main checkout. Flips the glyph to a filled
-  /// star so main reads as the anchor of the project's worktree list even when it
-  /// happens to carry an open PR (rare; the star wins over the PR-state octicon).
-  var isMainCheckout: Bool = false
 
   var body: some View {
-    iconView
+    Image(assetName)
+      .renderingMode(.template)
+      .resizable()
+      .aspectRatio(contentMode: .fit)
+      .frame(width: 16, height: 16)
       .foregroundStyle(tint)
       .overlay(alignment: .bottomTrailing) { rollupBadge }
       .accessibilityLabel(accessibilityLabel)
-  }
-
-  /// The main-checkout row gets an SF Symbol star rather than an octicon — position
-  /// (always first) plus the yellow tint plus the star shape makes it unambiguous.
-  /// Every other row renders the GitHub-style git glyph for its PR state (or the
-  /// neutral `git-branch` when no PR exists).
-  @ViewBuilder
-  private var iconView: some View {
-    if isMainCheckout {
-      Image(systemName: "star.fill")
-        .font(.system(size: 13, weight: .semibold))
-        .frame(width: 16, height: 16)
-        .accessibilityHidden(true)
-    } else {
-      Image(assetName)
-        .renderingMode(.template)
-        .resizable()
-        .aspectRatio(contentMode: .fit)
-        .frame(width: 16, height: 16)
-        .accessibilityHidden(true)
-    }
   }
 
   private var assetName: String {
