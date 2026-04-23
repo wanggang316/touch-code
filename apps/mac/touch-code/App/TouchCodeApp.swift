@@ -432,4 +432,8 @@ final class GhosttyBackedHierarchyRuntime: HierarchyRuntime {
   func hasSurface(for panelID: PanelID) -> Bool {
     engine?.hasSurface(for: panelID) ?? false
   }
+
+  func focusSurfaceView(for panelID: PanelID) {
+    engine?.focusSurfaceView(for: panelID)
+  }
 }

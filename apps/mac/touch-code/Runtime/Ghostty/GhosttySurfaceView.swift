@@ -2,7 +2,12 @@ import AppKit
 import Carbon.HIToolbox
 import Foundation
 import GhosttyKit
+import OSLog
 import TouchCodeCore
+
+private let ghosttyViewLogger = Logger(
+  subsystem: "com.touch-code.runtime", category: "surface-view"
+)
 
 /// Minimal host view for a ghostty_surface_t. Forwards key/mouse events and
 /// frame/content-scale changes; leaves Metal rendering to ghostty's own
@@ -54,6 +59,12 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
   // MARK: - NSResponder
 
   override var acceptsFirstResponder: Bool { true }
+
+  /// Accept clicks even when the owning window is inactive. Without this,
+  /// the first click on an inactive window is swallowed by AppKit to
+  /// activate the window — the terminal would only focus on the second
+  /// click, which is surprising in a multi-panel layout.
+  override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
   override func becomeFirstResponder() -> Bool {
     let accepted = super.becomeFirstResponder()
@@ -120,6 +131,54 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
 
   // MARK: - Keyboard
 
+  /// Intercept key events BEFORE the main menu gets a chance. Ghostty
+  /// binds Cmd+W / Cmd+T / Cmd+D / Cmd+C etc. to surface actions; without
+  /// this override, AppKit dispatches these to `NSApp.mainMenu` first and
+  /// File → Close Window eats Cmd+W, closing the whole app instead of
+  /// the surface. We ask libghostty whether the key is a configured
+  /// binding and route it into `keyDown` if so.
+  override func performKeyEquivalent(with event: NSEvent) -> Bool {
+    guard event.type == .keyDown, let surface else { return false }
+    let chars = event.charactersIgnoringModifiers ?? ""
+    let isFR = window?.firstResponder === self
+    ghosttyViewLogger.debug(
+      "perfKE: chars=\(chars, privacy: .public) mods=\(event.modifierFlags.rawValue, privacy: .public) isFR=\(isFR, privacy: .public)"
+    )
+    // Only intercept when this surface is the focused responder. A
+    // background surface must not eat Cmd+V intended for a text field
+    // elsewhere in the window.
+    guard isFR else { return false }
+
+    var key = ghostty_input_key_s()
+    key.action = GHOSTTY_ACTION_PRESS
+    key.keycode = UInt32(event.keyCode)
+    let eventMods = mods(from: event.modifierFlags)
+    key.mods = eventMods
+    let translationMods = ghostty_surface_key_translation_mods(surface, eventMods)
+    key.consumed_mods = ghostty_input_mods_e(
+      rawValue: translationMods.rawValue
+        & ~(GHOSTTY_MODS_CTRL.rawValue | GHOSTTY_MODS_SUPER.rawValue)
+    )
+    key.composing = !markedText.string.isEmpty
+    key.unshifted_codepoint = 0
+    if let chars = event.characters(byApplyingModifiers: []),
+      let codepoint = chars.unicodeScalars.first {
+      key.unshifted_codepoint = codepoint.value
+    }
+
+    var flags = ghostty_binding_flags_e(0)
+    let isBinding = (event.characters ?? "").withCString { ptr in
+      key.text = ptr
+      return ghostty_surface_key_is_binding(surface, key, &flags)
+    }
+    ghosttyViewLogger.debug(
+      "perfKE is_binding=\(isBinding, privacy: .public) flags=\(flags.rawValue, privacy: .public) unshifted=\(key.unshifted_codepoint, privacy: .public)"
+    )
+    guard isBinding else { return false }
+    keyDown(with: event)
+    return true
+  }
+
   override func keyDown(with event: NSEvent) {
     guard let surface else { return }
 
@@ -175,10 +234,29 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     var keyEvent = ghostty_input_key_s()
     keyEvent.action = action
     keyEvent.keycode = UInt32(event.keyCode)
-    keyEvent.mods = mods(from: event.modifierFlags)
-    keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+    let eventMods = mods(from: event.modifierFlags)
+    keyEvent.mods = eventMods
+    // Ask libghostty which mods it considers "translation" mods (used by
+    // macOS key translation for dead keys / IME — e.g. Option for ʻéʼ).
+    // Those must be reported as consumed_mods so they do NOT participate
+    // in binding matching. Control and command are never translation
+    // carriers on macOS, so we never mark them consumed even if reported.
+    let translationMods = ghostty_surface_key_translation_mods(surface, eventMods)
+    keyEvent.consumed_mods = ghostty_input_mods_e(
+      rawValue: translationMods.rawValue
+        & ~(GHOSTTY_MODS_CTRL.rawValue | GHOSTTY_MODS_SUPER.rawValue)
+    )
     keyEvent.composing = !markedText.string.isEmpty
+    // Unshifted Unicode scalar of the physical key (i.e. ignoring shift and
+    // any other modifier translations). Ghostty matches keybindings like
+    // `super+d` against this codepoint — leaving it 0 makes every letter-
+    // based binding silently fail to match.
     keyEvent.unshifted_codepoint = 0
+    if event.type == .keyDown || event.type == .keyUp,
+      let chars = event.characters(byApplyingModifiers: []),
+      let codepoint = chars.unicodeScalars.first {
+      keyEvent.unshifted_codepoint = codepoint.value
+    }
 
     if text.isEmpty {
       keyEvent.text = nil
@@ -213,6 +291,12 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
   // MARK: - Mouse
 
   override func mouseDown(with event: NSEvent) {
+    // Claim focus on click. NSView does not do this automatically for
+    // subclasses with custom mouseDown, so without this the surface stays
+    // unfocused (no cursor, keyDown not dispatched).
+    if window?.firstResponder !== self {
+      window?.makeFirstResponder(self)
+    }
     sendMouseButton(event: event, button: GHOSTTY_MOUSE_LEFT, action: GHOSTTY_MOUSE_PRESS)
   }
   override func mouseUp(with event: NSEvent) {
@@ -251,9 +335,12 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
   private func sendMouseMoved(_ event: NSEvent) {
     guard let surface else { return }
     // ghostty_surface_mouse_pos expects point coordinates (not device-pixel)
-    // — ghostty applies content_scale internally on render.
+    // — ghostty applies content_scale internally on render. NSView is Y-up
+    // by default; libghostty is Y-down. Flip explicitly so selection and
+    // hover hit the same cell the user is pointing at.
     let pos = convert(event.locationInWindow, from: nil)
-    ghostty_surface_mouse_pos(surface, pos.x, pos.y, mods(from: event.modifierFlags))
+    let y = bounds.height - pos.y
+    ghostty_surface_mouse_pos(surface, pos.x, y, mods(from: event.modifierFlags))
   }
 
   private func sendMouseButton(
@@ -263,7 +350,8 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
   ) {
     guard let surface else { return }
     let pos = convert(event.locationInWindow, from: nil)
-    ghostty_surface_mouse_pos(surface, pos.x, pos.y, mods(from: event.modifierFlags))
+    let y = bounds.height - pos.y
+    ghostty_surface_mouse_pos(surface, pos.x, y, mods(from: event.modifierFlags))
     _ = ghostty_surface_mouse_button(surface, action, button, mods(from: event.modifierFlags))
   }
 

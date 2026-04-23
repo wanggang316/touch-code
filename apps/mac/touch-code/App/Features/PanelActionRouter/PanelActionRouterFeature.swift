@@ -118,7 +118,15 @@ struct PanelActionRouterFeature {
       return .none
 
     case .newSplit(let direction):
-      guard let address = hierarchyClient.addressOf(panelID) else { return .none }
+      Self.logger.info(
+        "newSplit received: panelID=\(panelID.raw.uuidString, privacy: .public) dir=\(String(describing: direction), privacy: .public)"
+      )
+      guard let address = hierarchyClient.addressOf(panelID) else {
+        Self.logger.info(
+          "newSplit aborted: no address for panelID=\(panelID.raw.uuidString, privacy: .public)"
+        )
+        return .none
+      }
       let catalog = hierarchyClient.snapshot()
       guard
         let sourcePanel = findPanel(
@@ -128,11 +136,22 @@ struct PanelActionRouterFeature {
         )
       else { return .none }
       let newDir = Self.splitDirection(for: direction)
-      _ = try? hierarchyClient.splitPanel(
+      let newPanelID = try? hierarchyClient.splitPanel(
         panelID, newDir,
         address.tabID, address.worktreeID, address.projectID, address.spaceID,
         sourcePanel.workingDirectory, nil
       )
+      // Match ghostty macOS controller: focus the new pane. Dispatched
+      // async so the surface view has been attached to the hosting
+      // window by the time `makeFirstResponder` runs — at this moment
+      // the NSViewRepresentable update cycle hasn't finished yet.
+      if let newPanelID {
+        return .run { [client = hierarchyClient] _ in
+          await MainActor.run {
+            client.focusSurfaceView(newPanelID)
+          }
+        }
+      }
       return .none
 
     case .gotoSplit(let direction):

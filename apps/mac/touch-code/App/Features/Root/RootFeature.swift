@@ -112,6 +112,11 @@ struct RootFeature {
     case onQuit
     case selectionChanged(HierarchySelection)
     case engineEventReceived(LastEventMarker)
+    /// Emitted from the event stream when libghostty reports a surface
+    /// has exited (child died, user-initiated close via `close_surface`
+    /// binding, or crash). The root reducer resolves the panel's address
+    /// and calls `hierarchyClient.closePanel` to drop the catalog entry.
+    case panelLifecycleExited(PanelID)
     /// T3: Toggles the Git Viewer overlay for the current Worktree.
     /// Sources: Header GV button (T2) + ⌘⇧G (T3 Commands). Optimistically
     /// flips `state.gitViewerOverlayVisible` and fires
@@ -197,6 +202,12 @@ struct RootFeature {
                 await send(.panelActionRouter(.requested(panelID, request)))
               case .windowActionRequested(let request):
                 await send(.windowActionRouter(.requested(request)))
+              case .panelExited(let panelID, _, _):
+                // ghostty's `close_surface` binding + child-exit both land
+                // here. Surface memory is already freed by the engine; we
+                // still need to remove the Panel from the catalog so the
+                // SplitTree collapses and no stale black rect is rendered.
+                await send(.panelLifecycleExited(panelID))
               default:
                 break
               }
@@ -265,6 +276,38 @@ struct RootFeature {
 
       case .engineEventReceived(let marker):
         state.lastEvent = marker
+        return .none
+
+      case .panelLifecycleExited(let panelID):
+        // Resolve the panel's address from the live catalog (the engine
+        // already unregistered the surface, but the catalog still holds
+        // the Panel entity here). Address can be nil if a racing teardown
+        // dropped the panel first — then there's nothing to do.
+        guard let address = hierarchyClient.addressOf(panelID) else {
+          return .none
+        }
+        // Compute the focus target BEFORE mutating the tree so the
+        // leaf identity is still valid. Matches ghostty's macOS
+        // controller: closing the leftmost leaf → focus next; otherwise
+        // → focus previous. Returns nil for the last leaf in a tab.
+        let catalog = hierarchyClient.snapshot()
+        let focusTarget: PanelID? = catalog
+          .spaces.first(where: { $0.id == address.spaceID })?
+          .projects.first(where: { $0.id == address.projectID })?
+          .worktrees.first(where: { $0.id == address.worktreeID })?
+          .tabs.first(where: { $0.id == address.tabID })?
+          .splitTree.focusTargetAfterClosing(panelID)
+        try? hierarchyClient.closePanel(
+          panelID, address.tabID, address.worktreeID, address.projectID,
+          address.spaceID
+        )
+        if let focusTarget {
+          return .run { [client = hierarchyClient] _ in
+            await MainActor.run {
+              client.focusSurfaceView(focusTarget)
+            }
+          }
+        }
         return .none
 
       // Sidebar delegate routing. Must come before the catch-all

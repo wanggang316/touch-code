@@ -8,9 +8,7 @@ import TouchCodeCore
 /// progress, and the post-create sidecar actions (append catalog,
 /// select, open a Tab + Panel in the new directory).
 ///
-/// Structure mirrors supacode's `WorktreeCreationPromptFeature`,
-/// extended with a streaming progress buffer that's specific to our
-/// `wt sw` driver. See
+/// Streaming progress buffer feeds from the `wt sw` driver. See
 /// `docs/design-docs/worktree-management-design.md` §CreateWorktreeFeature.
 @Reducer
 struct CreateWorktreeFeature {

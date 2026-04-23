@@ -90,6 +90,11 @@ final class PanelSurface {
     }
     self.surface = surface
     self.view.attach(surface: surface)
+    // libghostty defaults new surfaces to focused; in a multi-pane layout
+    // that makes every fresh surface draw the filled blinking cursor until
+    // something explicitly resigns it. Force-false here — the one pane that
+    // wins first-responder will flip it back to true via becomeFirstResponder.
+    ghostty_surface_set_focus(surface, false)
     self.state = .ready
   }
 
@@ -127,6 +132,18 @@ final class PanelSurface {
     guard let surface else { return }
     ghostty_surface_set_color_scheme(surface, scheme)
     ghostty_surface_refresh(surface)
+  }
+
+  /// Fulfils a `read_clipboard_cb` request by forwarding the string back to
+  /// libghostty. Called from `GhosttyRuntime`'s clipboard bridge on
+  /// MainActor after the pasteboard is read.
+  func completeClipboardRequest(
+    text: String, state: UnsafeMutableRawPointer?, confirmed: Bool
+  ) {
+    guard let surface else { return }
+    text.withCString { ptr in
+      ghostty_surface_complete_clipboard_request(surface, ptr, state, confirmed)
+    }
   }
 
   func sendInput(_ text: String) {

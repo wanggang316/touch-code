@@ -1,9 +1,9 @@
 import SwiftUI
 
 /// Replaces the normal Project row in the sidebar when
-/// `project.loadState == .failed(reason:)`. Mirrors supacode's
-/// `FailedRepositoryRow` — two-line name + path, a red warning-triangle
-/// button that opens a popover with the reason and recovery actions.
+/// `project.loadState == .failed(reason:)`. Two-line name + path, a
+/// red warning-triangle button that opens a popover with the reason
+/// and recovery actions.
 struct FailedProjectRow: View {
   let name: String
   let rootPath: String
