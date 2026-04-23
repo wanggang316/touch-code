@@ -28,7 +28,6 @@ struct TouchCodeApp: App {
             inboxStore: appState.inboxStore
           )
           .frame(minWidth: 800, minHeight: 600)
-          .navigationTitle("touch-code")
         } else {
           // Initial loading state while appState.bringUp runs.
           VStack(spacing: 12) {

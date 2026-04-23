@@ -34,7 +34,8 @@ struct HeaderOpenSplitButton: View {
         ))
     } label: {
       HStack(spacing: 4) {
-        Image(systemName: "arrow.up.right.square")
+        primaryIcon
+          .frame(width: 16, height: 16)
           .accessibilityHidden(true)
         Text(primaryLabel)
           .lineLimit(1)
@@ -45,6 +46,22 @@ struct HeaderOpenSplitButton: View {
     .buttonStyle(.borderless)
     .accessibilityLabel(primaryLabel)
     .help(primaryLabel)
+  }
+
+  @ViewBuilder
+  private var primaryIcon: some View {
+    switch resolvedDefault {
+    case .editor(let descriptor):
+      AppIconImage(
+        bundleIdentifier: descriptor.bundleIdentifier,
+        fallbackSystemName: "arrow.up.right.square"
+      )
+    case .finder:
+      AppIconImage(
+        bundleIdentifier: "com.apple.finder",
+        fallbackSystemName: "folder"
+      )
+    }
   }
 
   private var primaryLabel: String {
@@ -107,7 +124,14 @@ struct HeaderOpenSplitButton: View {
               projectID: projectID
             ))
         } label: {
-          Text(descriptor.displayName)
+          Label {
+            Text(descriptor.displayName)
+          } icon: {
+            AppIconImage(
+              bundleIdentifier: descriptor.bundleIdentifier,
+              fallbackSystemName: "arrow.up.right.square"
+            )
+          }
         }
         .help(descriptor.displayName)
       }

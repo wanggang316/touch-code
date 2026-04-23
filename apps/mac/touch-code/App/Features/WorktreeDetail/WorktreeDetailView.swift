@@ -30,36 +30,64 @@ struct WorktreeDetailView: View {
 
   var body: some View {
     if let address = resolveAddress() {
+      let info = worktreeInfo(for: address)
       VStack(spacing: 0) {
-        unifiedHeader(address: address)
+        tabBarRow(address: address)
         Divider()
         terminalRegion(address: address)
           .overlay(alignment: .trailing) { overlayContent }
           .animation(.easeInOut(duration: 0.15), value: overlayVisible)
       }
+      // Window title follows the current branch, replacing the default
+      // bundle name ("touch_code") that macOS falls back to when no
+      // navigationTitle is set. The visible titlebar content is still
+      // rendered by the `.principal` ToolbarItem in worktreeToolbarContent,
+      // which supplies the branch icon + text; `.navigationTitle` is the
+      // string used in menu/dock affordances and by Accessibility.
+      .navigationTitle(info?.branchLabel ?? "")
+      .toolbar { worktreeToolbarContent(address: address, info: info) }
     } else {
       placeholder
     }
   }
 
-  /// Unified top bar: tabs on the left, branch label + action cluster on the
-  /// right. Replaces the previous two-row layout (separate WorktreeHeader and
-  /// TabBar) so the right pane has a single visual Header.
+  private struct WorktreeInfo {
+    let worktree: Worktree
+    let project: Project
+    let branchLabel: String
+  }
+
+  private func worktreeInfo(for address: Address) -> WorktreeInfo? {
+    guard
+      let project = hierarchyManager.catalog
+        .spaces.first(where: { $0.id == address.space })?
+        .projects.first(where: { $0.id == address.project }),
+      let worktree = project.worktrees.first(where: { $0.id == address.worktree })
+    else { return nil }
+    return WorktreeInfo(
+      worktree: worktree,
+      project: project,
+      branchLabel: worktree.branch ?? worktree.name
+    )
+  }
+
+  /// Tab bar row above the terminal region. Branch label + bell / open-in /
+  /// git-viewer toggle used to live to the right of the tabs (old
+  /// `unifiedHeader`); they moved into the window titlebar via
+  /// `worktreeToolbarContent(address:)` so the content region gets its
+  /// vertical space back, matching supacode's `.toolbar {}` layout.
   @ViewBuilder
-  private func unifiedHeader(address: Address) -> some View {
-    HStack(spacing: 8) {
-      TabBarView(
-        store: store.scope(state: \.tabBar, action: \.tabBar),
-        spaceID: address.space,
-        projectID: address.project,
-        worktreeID: address.worktree,
-        activeTabID: address.activeTab
-      )
-      Spacer(minLength: 8)
-      worktreeHeader(address: address)
-    }
+  private func tabBarRow(address: Address) -> some View {
+    TabBarView(
+      store: store.scope(state: \.tabBar, action: \.tabBar),
+      spaceID: address.space,
+      projectID: address.project,
+      worktreeID: address.worktree,
+      activeTabID: address.activeTab
+    )
     .padding(.horizontal, 8)
     .padding(.vertical, 4)
+    .frame(maxWidth: .infinity, alignment: .leading)
     .background(Color(nsColor: .windowBackgroundColor))
   }
 
@@ -118,27 +146,62 @@ struct WorktreeDetailView: View {
       + MainWindowConstants.gvOverlayWidth
   }
 
-  /// Worktree Header row (T2): branch label + bell + Open-in split button +
-  /// GV toggle. Delegates to `WorktreeHeaderView`; path string is no longer
-  /// rendered per the redesign spec (path visibility moves to hover/tooltip
-  /// surfaces if reintroduced).
-  @ViewBuilder
-  private func worktreeHeader(address: Address) -> some View {
-    let project = hierarchyManager.catalog
-      .spaces.first(where: { $0.id == address.space })?
-      .projects.first(where: { $0.id == address.project })
-    let worktree = project?.worktrees.first(where: { $0.id == address.worktree })
-    if let worktree, let project {
-      WorktreeHeaderView(
-        store: headerStore,
-        editorStore: editorStore,
-        spaceID: address.space,
-        projectID: address.project,
-        worktreePath: worktree.path,
-        branchLabel: worktree.branch ?? worktree.name,
-        gitViewerVisible: worktree.gitViewerVisible,
-        supportsWorktrees: project.supportsWorktrees
-      )
+  /// Window-titlebar toolbar content for the active Worktree. Branch label
+  /// on the leading edge (`.navigation` placement), bell / open-in / git
+  /// viewer toggle on the trailing edge (`.primaryAction`). Mirrors the
+  /// layout that used to live as the right cluster of the content-region
+  /// header; moving it into `.toolbar {}` reclaims vertical pixels above
+  /// the tab bar and matches macOS native chrome (Xcode, Finder, supacode).
+  ///
+  /// `ContentView` contributes one additional trailing `ToolbarItem`
+  /// (Settings gear) — SwiftUI merges both sources, with Settings rendered
+  /// after the items declared here.
+  @ToolbarContentBuilder
+  private func worktreeToolbarContent(
+    address: Address,
+    info: WorktreeInfo?
+  ) -> some ToolbarContent {
+    if let info {
+      if info.project.supportsWorktrees {
+        ToolbarItem(placement: .principal) {
+          HStack(spacing: 6) {
+            Image(systemName: "arrow.trianglehead.branch")
+              .foregroundStyle(.secondary)
+              .accessibilityHidden(true)
+            Text(info.branchLabel)
+              .lineLimit(1)
+          }
+          .font(.headline)
+          .accessibilityElement(children: .ignore)
+          .accessibilityLabel("Current branch: \(info.branchLabel)")
+          .accessibilityAddTraits(.isStaticText)
+        }
+      }
+      // Three independent trailing buttons. `ToolbarItemGroup` keeps the
+      // relative order while preventing SwiftUI from collapsing them into a
+      // single overflow menu on narrow widths. `.buttonStyle(.plain)` on each
+      // child disables the toolbar's default rounded-rect container so the
+      // bell / open / git-viewer toggle read as three separate icon buttons
+      // with their own hit areas.
+      ToolbarItemGroup(placement: .primaryAction) {
+        HeaderBellView(store: headerStore)
+          .buttonStyle(.plain)
+        HeaderOpenSplitButton(
+          store: headerStore,
+          editorStore: editorStore,
+          spaceID: address.space,
+          projectID: address.project,
+          worktreePath: info.worktree.path
+        )
+        .buttonStyle(.plain)
+        if info.project.supportsWorktrees {
+          HeaderGitViewerToggle(
+            store: headerStore,
+            visible: info.worktree.gitViewerVisible
+          )
+          .buttonStyle(.plain)
+        }
+      }
     }
   }
 

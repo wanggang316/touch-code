@@ -24,7 +24,6 @@ struct ContentView: View {
   /// for Worktree / Project unread-dot aggregation — matches the
   /// `HierarchyManager`-through-`@Environment` pattern already in use.
   let inboxStore: InboxStore
-  @Environment(\.openWindow) private var openWindow
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
   /// Transient toast for editor-open outcomes (success + failure). Non-nil = visible;
@@ -77,17 +76,6 @@ struct ContentView: View {
       )
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .overlay(alignment: .bottom) { editorToastOverlay }
-      .toolbar {
-        ToolbarItem(placement: .primaryAction) {
-          Button {
-            openWindow(id: TouchCodeApp.settingsWindowID)
-          } label: {
-            Image(systemName: "gearshape")
-              .accessibilityLabel("Settings")
-          }
-          .help("Settings (⌘,)")
-        }
-      }
       .sheet(item: $store.scope(state: \.spaceManagerSheet, action: \.spaceManagerSheet)) { sheetStore in
         SpaceManagerView(store: sheetStore)
       }
