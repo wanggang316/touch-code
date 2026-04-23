@@ -315,6 +315,7 @@ struct HierarchySidebarView: View {
           }
         }
         .listStyle(.sidebar)
+        .scrollIndicators(.hidden)
       }
     } else {
       noSpacesState
@@ -475,14 +476,14 @@ struct HierarchySidebarView: View {
     // `HeaderOnlyDisclosureGroupStyle` wraps worktree rows in a plain VStack, so
     // SwiftUI does not treat them as native List rows. Use `.padding` directly.
     .padding(.vertical, 6)
-    .padding(.horizontal, 12)
+    .padding(.horizontal, 8)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .contentShape(Rectangle())
+    .contentShape(RoundedRectangle(cornerRadius: 6))
     .background(
-      isSelected
-        ? Color.accentColor.opacity(0.2)
-        : Color.clear
+      RoundedRectangle(cornerRadius: 6, style: .continuous)
+        .fill(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
     )
+    .padding(.horizontal, 4)
     .contextMenu { worktreeContextMenu(worktree: worktree, project: project, space: space) }
     .task(id: worktree.path) {
       // Refresh the "dirty" dot on mount / path change. The monitor enforces a 30 s
@@ -993,9 +994,10 @@ private struct HeaderOnlyDisclosureGroupStyle: DisclosureGroupStyle {
   func makeBody(configuration: Configuration) -> some View {
     VStack(spacing: 0) {
       Button {
-        withAnimation(.easeInOut(duration: 0.18)) {
-          configuration.isExpanded.toggle()
-        }
+        // No `withAnimation` — animating expansion here makes the project-header
+        // row visually "bounce" as the adjacent worktree rows animate into place
+        // and the header's own hover-chrome opacity crossfades. Snap is crisper.
+        configuration.isExpanded.toggle()
       } label: {
         configuration.label
           .contentShape(Rectangle())
