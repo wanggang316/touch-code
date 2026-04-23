@@ -45,10 +45,14 @@ final class AppearanceApplyingView: NSView {
     // this layer via `withinWindow`, so the sidebar reads as the terminal's
     // tone rather than a flat system color. `GhosttyRuntime.setColorScheme`
     // covers the scheme-flip path; this one catches preference toggles.
-    let backgroundColor = GhosttyRuntime.shared?.backgroundColor() ?? .windowBackgroundColor
+    let ghosttyBackground = GhosttyRuntime.shared?.backgroundColor() ?? .windowBackgroundColor
     for window in NSApp.windows {
       window.appearance = appearance
-      window.backgroundColor = backgroundColor
+      // Settings window opts out of the Ghostty terminal-background stain so
+      // its sidebar reads as a standard macOS Settings pane. See
+      // `SettingsWindowTagger`.
+      window.backgroundColor =
+        SettingsWindowTagger.matches(window) ? .windowBackgroundColor : ghosttyBackground
       window.contentView?.needsLayout = true
       window.contentView?.needsDisplay = true
       window.invalidateShadow()

@@ -76,6 +76,7 @@ struct TouchCodeApp: App {
           ProgressView().frame(minWidth: 750, minHeight: 500)
         }
       }
+      .background(SettingsWindowTag())
     }
     .windowResizability(.contentMinSize)
   }

@@ -275,6 +275,13 @@ final class GhosttyRuntime {
   private func applyBackgroundColorToWindows() {
     let color = backgroundColor()
     for window in NSApp.windows {
+      // Settings window opts out of the Ghostty terminal-background stain;
+      // restore the stock `.windowBackgroundColor` so the pane keeps the
+      // standard macOS Settings tone across scheme flips.
+      if SettingsWindowTagger.matches(window) {
+        window.backgroundColor = .windowBackgroundColor
+        continue
+      }
       window.backgroundColor = color
     }
   }
