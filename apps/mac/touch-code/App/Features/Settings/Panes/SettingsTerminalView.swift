@@ -15,39 +15,23 @@ struct SettingsTerminalView: View {
   }
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 24) {
-        header
-        if let snapshot = store.snapshot {
-          themePickersSection(snapshot: snapshot)
-          configFileSection(path: snapshot.configPath)
-        } else if store.isLoading {
+    Form {
+      if let snapshot = store.snapshot {
+        themePickersSection(snapshot: snapshot)
+        configFileSection(path: snapshot.configPath)
+      } else if store.isLoading {
+        Section {
           HStack(spacing: 8) {
             ProgressView().controlSize(.small)
             Text("Loading Ghostty config…")
-              .font(.callout)
               .foregroundStyle(.secondary)
           }
         }
-        messagesSection
       }
-      .padding(24)
+      messagesSection
     }
+    .formStyle(.grouped)
     .task { store.send(.onAppear) }
-  }
-
-  // MARK: - Header
-
-  private var header: some View {
-    VStack(alignment: .leading, spacing: 4) {
-      Text("Terminal").font(.headline)
-      Text(
-        "touch-code reads and writes your Ghostty config, so changes here stay in sync "
-          + "with Ghostty itself."
-      )
-      .font(.caption)
-      .foregroundStyle(.secondary)
-    }
   }
 
   // MARK: - Theme pickers
@@ -61,24 +45,28 @@ struct SettingsTerminalView: View {
       list: snapshot.availableDarkThemes,
       selected: snapshot.darkTheme
     )
-    return VStack(alignment: .leading, spacing: 8) {
-      Text("Theme").font(.headline)
-      HStack(alignment: .top, spacing: 24) {
-        themePickerColumn(
-          title: "Light",
-          options: lightOptions,
-          selection: snapshot.lightTheme
-        ) { store.send(.lightThemeSelected($0)) }
-        themePickerColumn(
-          title: "Dark",
-          options: darkOptions,
-          selection: snapshot.darkTheme
-        ) { store.send(.darkThemeSelected($0)) }
-      }
+    return Section {
+      themePickerRow(
+        title: "Light",
+        options: lightOptions,
+        selection: snapshot.lightTheme
+      ) { store.send(.lightThemeSelected($0)) }
+      themePickerRow(
+        title: "Dark",
+        options: darkOptions,
+        selection: snapshot.darkTheme
+      ) { store.send(.darkThemeSelected($0)) }
+    } header: {
+      Text("Theme")
+    } footer: {
+      Text(
+        "touch-code reads and writes your Ghostty config, so changes here stay in sync "
+          + "with Ghostty itself."
+      )
     }
   }
 
-  private func themePickerColumn(
+  private func themePickerRow(
     title: String,
     options: [String],
     selection: String?,
@@ -88,32 +76,27 @@ struct SettingsTerminalView: View {
       get: { selection },
       set: { onPick($0) }
     )
-    return VStack(alignment: .leading, spacing: 4) {
-      Text(title).font(.subheadline).foregroundStyle(.secondary)
-      Picker("", selection: binding) {
-        if selection == nil {
-          Text("Select Theme").tag(String?.none)
-        }
-        ForEach(options, id: \.self) { theme in
-          Text(theme).tag(String?.some(theme))
-        }
+    return Picker(title, selection: binding) {
+      if selection == nil {
+        Text("Select Theme").tag(String?.none)
       }
-      .labelsHidden()
-      .pickerStyle(.menu)
-      .frame(minWidth: 220, alignment: .leading)
-      .disabled(controlsDisabled)
+      ForEach(options, id: \.self) { theme in
+        Text(theme).tag(String?.some(theme))
+      }
     }
+    .pickerStyle(.menu)
+    .disabled(controlsDisabled)
   }
 
   // MARK: - Config file path
 
   private func configFileSection(path: String) -> some View {
-    VStack(alignment: .leading, spacing: 4) {
-      Text("Config File").font(.headline)
+    Section("Config File") {
       Text(path)
         .font(.callout.monospaced())
         .foregroundStyle(.secondary)
         .textSelection(.enabled)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
   }
 
@@ -122,10 +105,14 @@ struct SettingsTerminalView: View {
   @ViewBuilder
   private var messagesSection: some View {
     if let warning = store.warningMessage {
-      banner(text: warning, color: .orange)
+      Section {
+        banner(text: warning, color: .orange)
+      }
     }
     if let error = store.errorMessage {
-      banner(text: error, color: .red)
+      Section {
+        banner(text: error, color: .red)
+      }
     }
   }
 

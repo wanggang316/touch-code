@@ -25,7 +25,7 @@ struct SettingsWindowView: View {
       detailView(for: store.state.effectiveSection)
     }
     .frame(minWidth: 750, minHeight: 500)
-    .navigationTitle("Settings")
+    .navigationTitle(title(for: store.state.effectiveSection))
     .onChange(of: projectIDs, initial: true) { _, current in
       // B8: when the catalog drops a Project the user is viewing, fall back to General.
       store.send(.projectsChanged(current))
@@ -39,6 +39,34 @@ struct SettingsWindowView: View {
   /// this on every mutation; `onChange(of:)` dedupes equal values.
   private var projectIDs: Set<ProjectID> {
     Set(hierarchyManager.catalog.spaces.flatMap { $0.projects.map(\.id) })
+  }
+
+  /// Window-title binding. Global sections use `SettingsSection.globalTitle`; repository
+  /// sections resolve the owning Project's name through the live `HierarchyManager`
+  /// catalog and fall back to a bare section name when the project has been dropped
+  /// mid-flight (B8 handoff — `onChange(of: projectIDs)` will swap the selection back
+  /// to `.general` one frame later).
+  private func title(for section: SettingsSection) -> String {
+    if let globalTitle = section.globalTitle {
+      return globalTitle
+    }
+    switch section {
+    case .repositoryGeneral(let projectID):
+      return repositoryTitle(for: projectID, suffix: "General")
+    case .repositoryHooks(let projectID):
+      return repositoryTitle(for: projectID, suffix: "Hooks")
+    default:
+      return "Settings"
+    }
+  }
+
+  private func repositoryTitle(for projectID: ProjectID, suffix: String) -> String {
+    let project = hierarchyManager.catalog.spaces
+      .lazy
+      .flatMap(\.projects)
+      .first { $0.id == projectID }
+    guard let project else { return suffix }
+    return "\(project.name) — \(suffix)"
   }
 
   @ViewBuilder

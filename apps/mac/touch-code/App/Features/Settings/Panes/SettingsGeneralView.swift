@@ -37,45 +37,33 @@ struct SettingsGeneralView: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 16) {
-      Text("General")
-        .font(.title2.bold())
-
-      VStack(alignment: .leading, spacing: 6) {
-        Text("Appearance")
-          .font(.subheadline.weight(.medium))
-
+    Form {
+      Section("Appearance") {
         Picker("Appearance", selection: appearanceBinding) {
           Text("System").tag(AppearancePreference.system)
           Text("Light").tag(AppearancePreference.light)
           Text("Dark").tag(AppearancePreference.dark)
         }
         .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(maxWidth: 280, alignment: .leading)
+        .frame(maxWidth: 280, alignment: .trailing)
       }
 
-      VStack(alignment: .leading, spacing: 6) {
-        Text("Default editor")
-          .font(.subheadline.weight(.medium))
-
+      Section {
         Picker("Default editor", selection: selectionBinding) {
           pickerContent
         }
         .pickerStyle(.menu)
-        .labelsHidden()
-
+      } header: {
+        Text("Default editor")
+      } footer: {
         Text(
-          "Used when opening a directory. \"Automatic\" picks the first installed editor from the priority list; a specific choice falls back to Finder if the editor is uninstalled later."
+          "Used when opening a directory. \"Automatic\" picks the first installed editor "
+            + "from the priority list; a specific choice falls back to Finder if the editor "
+            + "is uninstalled later."
         )
-        .font(.caption)
-        .foregroundStyle(.secondary)
       }
-
-      Spacer()
     }
-    .padding(24)
-    .frame(maxWidth: .infinity, alignment: .leading)
+    .formStyle(.grouped)
     .task { store.send(.refreshRequested) }
     .onAppear { store.send(.onAppear) }
   }

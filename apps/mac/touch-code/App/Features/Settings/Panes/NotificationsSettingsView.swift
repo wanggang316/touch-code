@@ -12,16 +12,14 @@ struct NotificationsSettingsView: View {
   @State private var showPermissionAlert = false
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 28) {
-        inAppSection
-        systemSection
-        soundSection
-        dockBadgeSection
-        muteRulesSection
-      }
-      .padding(24)
+    Form {
+      inAppSection
+      systemSection
+      soundSection
+      dockBadgeSection
+      muteRulesSection
     }
+    .formStyle(.grouped)
     .alert("Notifications blocked", isPresented: $showPermissionAlert) {
       Button("Open System Settings") { Self.openSystemNotificationsPreferences() }
       Button("Cancel", role: .cancel) {}
@@ -42,13 +40,12 @@ struct NotificationsSettingsView: View {
         settingsStore.mutateNotifications { $0.inAppEnabled = newValue }
       }
     )
-    return VStack(alignment: .leading, spacing: 6) {
-      Text("In-app notifications").font(.headline)
+    return Section {
       Toggle("Show notifications inside touch-code", isOn: binding)
-        .toggleStyle(.switch)
+    } header: {
+      Text("In-app notifications")
+    } footer: {
       Text("Also gates the bell unread list and Dock badge.")
-        .font(.caption)
-        .foregroundStyle(.secondary)
     }
   }
 
@@ -66,13 +63,12 @@ struct NotificationsSettingsView: View {
         }
       }
     )
-    return VStack(alignment: .leading, spacing: 6) {
-      Text("System notifications").font(.headline)
+    return Section {
       Toggle("Show macOS banners", isOn: binding)
-        .toggleStyle(.switch)
+    } header: {
+      Text("System notifications")
+    } footer: {
       Text("Delivered by the macOS Notification Center.")
-        .font(.caption)
-        .foregroundStyle(.secondary)
     }
   }
 
@@ -86,15 +82,14 @@ struct NotificationsSettingsView: View {
       }
     )
     let systemOn = settingsStore.settings.notifications.systemEnabled
-    return VStack(alignment: .leading, spacing: 6) {
-      Text("Sound").font(.headline)
+    return Section {
       Toggle("Play the default notification sound", isOn: binding)
-        .toggleStyle(.switch)
         .disabled(!systemOn)
         .help(systemOn ? "" : "Enable System notifications to play a sound.")
+    } header: {
+      Text("Sound")
+    } footer: {
       Text("Applies to macOS banners only.")
-        .font(.caption)
-        .foregroundStyle(.secondary)
     }
   }
 
@@ -108,15 +103,14 @@ struct NotificationsSettingsView: View {
       }
     )
     let inAppOn = settingsStore.settings.notifications.inAppEnabled
-    return VStack(alignment: .leading, spacing: 6) {
-      Text("Dock badge").font(.headline)
+    return Section {
       Toggle("Show the unread count on the app icon", isOn: binding)
-        .toggleStyle(.switch)
         .disabled(!inAppOn)
         .help(inAppOn ? "" : "No unread count available while in-app notifications are off.")
+    } header: {
+      Text("Dock badge")
+    } footer: {
       Text("Badge value mirrors the bell unread count.")
-        .font(.caption)
-        .foregroundStyle(.secondary)
     }
   }
 
@@ -124,19 +118,19 @@ struct NotificationsSettingsView: View {
 
   private var muteRulesSection: some View {
     let mute = settingsStore.settings.notifications.mute
-    return VStack(alignment: .leading, spacing: 6) {
-      Text("Mute rules").font(.headline)
-      Text(Self.muteSummary(for: mute))
-        .font(.body)
+    return Section {
+      LabeledContent("Summary") {
+        Text(Self.muteSummary(for: mute))
+      }
       Button {
         Self.revealDetectionRules()
       } label: {
         Label("Reveal rules.json in Finder", systemImage: "folder")
       }
-      .buttonStyle(.borderless)
+    } header: {
+      Text("Mute rules")
+    } footer: {
       Text("Rules live in ~/.config/touch-code/detection-rules.json — edit there for now.")
-        .font(.caption)
-        .foregroundStyle(.secondary)
     }
   }
 

@@ -12,8 +12,8 @@ struct RepositoryHooksSettingsView: View {
   let store: StoreOf<RepositorySettingsFeature>
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 16) {
+    Form {
+      Section {
         switch store.state.hooksLoad {
         case .idle:
           Color.clear
@@ -47,13 +47,9 @@ struct RepositoryHooksSettingsView: View {
             Button("Retry") { store.send(.onHooksAppear) }
               .buttonStyle(.bordered)
           }
-          .padding(8)
-          .background(Color(nsColor: .systemRed).opacity(0.1), in: .rect(cornerRadius: 6))
         }
-
-        Spacer()
       }
-      .padding(16)
     }
+    .formStyle(.grouped)
   }
 }

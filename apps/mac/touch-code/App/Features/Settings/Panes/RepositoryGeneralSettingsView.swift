@@ -16,66 +16,51 @@ struct RepositoryGeneralSettingsView: View {
   @Environment(HierarchyManager.self) private var hierarchyManager
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 16) {
-        // Editor override section
-        VStack(alignment: .leading, spacing: 8) {
-          Text("Default Editor")
-            .font(.headline)
-          if let project = projectInCatalog() {
-            Picker(
-              "Editor",
-              selection: Binding<EditorID?>(
-                get: { project.defaultEditor },
-                set: { store.send(.setDefaultEditorOverride($0)) }
-              )
-            ) {
-              Text("Use global default").tag(EditorID?(nil))
-              Divider()
-              ForEach(descriptors, id: \.id) { descriptor in
-                Text(descriptor.displayName).tag(EditorID?(descriptor.id))
-              }
+    Form {
+      if let project = projectInCatalog() {
+        Section("Default Editor") {
+          Picker(
+            "Editor",
+            selection: Binding<EditorID?>(
+              get: { project.defaultEditor },
+              set: { store.send(.setDefaultEditorOverride($0)) }
+            )
+          ) {
+            Text("Use global default").tag(EditorID?(nil))
+            Divider()
+            ForEach(descriptors, id: \.id) { descriptor in
+              Text(descriptor.displayName).tag(EditorID?(descriptor.id))
             }
           }
         }
 
-        // Worktree directory section
-        VStack(alignment: .leading, spacing: 8) {
-          Text("Worktree Base Directory")
-            .font(.headline)
-          if let project = projectInCatalog() {
-            HStack {
-              TextField(
-                "Path",
-                text: .constant(project.worktreesDirectory ?? "")
-              )
-              .disabled(true)
-
-              Button("Choose") { chooseWorktreeDirectory() }
-                .buttonStyle(.bordered)
-
-              if project.worktreesDirectory != nil {
-                Button("Clear") {
-                  store.send(.setWorktreeBaseDirectory(nil))
-                }
-                .buttonStyle(.bordered)
+        Section("Worktree Base Directory") {
+          LabeledContent("Path") {
+            Text(project.worktreesDirectory ?? "—")
+              .foregroundStyle(project.worktreesDirectory == nil ? .secondary : .primary)
+              .textSelection(.enabled)
+              .frame(maxWidth: .infinity, alignment: .leading)
+          }
+          HStack {
+            Button("Choose…") { chooseWorktreeDirectory() }
+            if project.worktreesDirectory != nil {
+              Button("Clear") {
+                store.send(.setWorktreeBaseDirectory(nil))
               }
             }
+            Spacer()
           }
         }
+      }
 
-        // Error banner — sticky until next successful write clears it.
-        if let error = store.state.lastWriteFailure, !error.isEmpty {
+      if let error = store.state.lastWriteFailure, !error.isEmpty {
+        Section {
           Label(error, systemImage: "exclamationmark.circle.fill")
             .foregroundColor(.red)
-            .padding(8)
-            .background(Color(nsColor: .systemRed).opacity(0.1), in: .rect(cornerRadius: 6))
         }
-
-        Spacer()
       }
-      .padding(16)
     }
+    .formStyle(.grouped)
   }
 
   private func projectInCatalog() -> Project? {

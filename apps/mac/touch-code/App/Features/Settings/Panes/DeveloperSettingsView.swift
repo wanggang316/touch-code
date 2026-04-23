@@ -18,38 +18,23 @@ struct DeveloperSettingsView: View {
   @State private var hookLoadError: String?
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 28) {
+    Form {
+      Section("CLI") {
         CLIInstallStatusCard(installer: deps.installer, settingsStore: settingsStore)
-        hooksSection
+      }
+      hooksSection
+      Section("Diagnostics") {
         DiagnosticsSection()
       }
-      .padding(24)
     }
+    .formStyle(.grouped)
     .task { reloadHooks() }
   }
 
   // MARK: - Hooks section
 
   private var hooksSection: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      HStack {
-        Text("Hooks").font(.headline)
-        Spacer(minLength: 0)
-        Button {
-          reloadHooks()
-        } label: {
-          Label("Reload from hooks.json", systemImage: "arrow.clockwise")
-        }
-        .buttonStyle(.borderless)
-      }
-
-      Text(
-        "Read-only view of your `hooks.json`. Edit the file directly to add or change hooks."
-      )
-      .font(.caption)
-      .foregroundStyle(.secondary)
-
+    Section {
       if let error = hookLoadError {
         HStack(alignment: .top, spacing: 6) {
           Image(systemName: "exclamationmark.circle.fill")
@@ -59,8 +44,6 @@ struct DeveloperSettingsView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
         }
-        .padding(8)
-        .background(Color.orange.opacity(0.08), in: .rect(cornerRadius: 6))
       }
 
       HookMergeView(
@@ -71,6 +54,22 @@ struct DeveloperSettingsView: View {
         trailingAction: TrailingAction(title: "Reveal hooks.json", systemImage: "folder") {
           deps.revealInFinder(HookConfig.defaultURL())
         }
+      )
+    } header: {
+      HStack {
+        Text("Hooks")
+        Spacer(minLength: 0)
+        Button {
+          reloadHooks()
+        } label: {
+          Label("Reload from hooks.json", systemImage: "arrow.clockwise")
+            .labelStyle(.iconOnly)
+        }
+        .buttonStyle(.borderless)
+      }
+    } footer: {
+      Text(
+        "Read-only view of your `hooks.json`. Edit the file directly to add or change hooks."
       )
     }
   }

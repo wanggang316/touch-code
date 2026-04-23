@@ -23,7 +23,7 @@ struct SettingsSidebarView: View {
     List(selection: $selection) {
       Section {
         ForEach(SettingsSection.globals, id: \.self) { section in
-          Label(title(for: section), systemImage: icon(for: section))
+          Label(section.globalTitle ?? "", systemImage: icon(for: section))
             .tag(Optional(section))
         }
       }
@@ -84,20 +84,6 @@ struct SettingsSidebarView: View {
       .sorted { lhs, rhs in
         lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
       }
-  }
-
-  private func title(for section: SettingsSection) -> String {
-    switch section {
-    case .general: return "General"
-    case .github: return "GitHub"
-    case .notifications: return "Notifications"
-    case .terminal: return "Terminal"
-    case .developer: return "Developer"
-    case .shortcuts: return "Shortcuts"
-    case .updates: return "Updates"
-    case .about: return "About"
-    case .repositoryGeneral, .repositoryHooks: return ""
-    }
   }
 
   private func icon(for section: SettingsSection) -> String {

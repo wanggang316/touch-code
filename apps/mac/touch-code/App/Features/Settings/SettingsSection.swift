@@ -23,4 +23,21 @@ public enum SettingsSection: Hashable, Sendable {
   public static let globals: [SettingsSection] = [
     .general, .github, .notifications, .terminal, .developer, .shortcuts, .updates, .about,
   ]
+
+  /// Display name for global sidebar rows. Repository cases return `nil` because their
+  /// title needs a `ProjectID`→name resolution that only the window has access to;
+  /// `SettingsWindowView` composes that string locally for the window-title binding.
+  public var globalTitle: String? {
+    switch self {
+    case .general: return "General"
+    case .github: return "GitHub"
+    case .notifications: return "Notifications"
+    case .terminal: return "Terminal"
+    case .developer: return "Developer"
+    case .shortcuts: return "Shortcuts"
+    case .updates: return "Updates"
+    case .about: return "About"
+    case .repositoryGeneral, .repositoryHooks: return nil
+    }
+  }
 }
