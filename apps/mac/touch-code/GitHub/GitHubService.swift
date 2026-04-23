@@ -40,6 +40,27 @@ nonisolated protocol GitHubService: Sendable {
 
   /// Re-runs every failed job in the given workflow run (one `gh run rerun --failed` call).
   func rerunFailedJobs(runID: Int64, worktreePath: URL) async throws
+
+  /// Batched PR lookup via `gh api graphql`. Takes a repository (host + owner + repo) plus
+  /// a list of head-branch names and returns `[branch: PullRequestSnapshot]` for every
+  /// branch that resolves to a PR after fork-PR filtering. Branches with no PR are absent
+  /// from the dictionary (never nil-valued).
+  ///
+  /// Execution: branches are chunked at `BatchedPullRequestQuery.chunkSize` per query,
+  /// with up to `maxConcurrentChunks` GraphQL requests in flight at once. Empty `branches`
+  /// returns `[:]` without spawning any subprocess.
+  ///
+  /// Throws `GitHubError.graphQLError` on an API-level GraphQL error response;
+  /// `.malformedBranchName` if any branch name fails the GraphQL-string validator;
+  /// `.oversizeResponse` if any chunk's stdout exceeds the 8 MiB cap; and the usual
+  /// `.notInstalled` / `.notAuthenticated` / `.network` / `.timeout` / `.other` on the
+  /// subprocess layer.
+  func batchPullRequests(
+    host: String,
+    owner: String,
+    repo: String,
+    branches: [String]
+  ) async throws -> [String: PullRequestSnapshot]
 }
 
 extension GitHub {

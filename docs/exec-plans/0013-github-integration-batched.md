@@ -28,7 +28,7 @@ This plan does not add UI; every visual surface is unchanged. It is an execution
 
 - [x] M1 — `RemoteInfo` + `GitService.remoteInfo(at:)` — 2026-04-23 (14 parser tests + 3 service tests; `RemoteInfo.ParseError` kept local to TouchCodeCore to avoid a cross-module dep — see DEC-2)
 - [x] M2 — Extend `PullRequestSnapshot` (new fields + Codable compat) — 2026-04-23 (4 fields added: `checkRollup`, `mergeStateStatus`, `reviewDecision`, `headRepositoryOwner`; custom `init(from:)`/`encode(to:)` uses `decodeIfPresent` with defaults so pre-v2 snapshots round-trip identically; 4 new Codable tests; v1 `gh pr view` parser intentionally not updated — see DEC-3)
-- [ ] M3 — `GitHubClient.batchPullRequests` + `LiveGitHubService` implementation (GraphQL builder, chunking, decoder, fork filter)
+- [x] M3 — `GitHubClient.batchPullRequests` + `LiveGitHubService` implementation (GraphQL builder, chunking, decoder, fork filter) — 2026-04-23 (GhCommand.apiGraphQL + BatchedPullRequestQuery + JSONOutputParsers.parseBatchedPullRequests + LiveGitHubService.batchPullRequests + 16 unit tests incl. 2 golden-file fixtures)
 - [ ] M4 — Reducer migration: dual-path during transition (per-Worktree + per-Project coexist)
 - [ ] M5 — View migration: read `checkRollup` from snapshot; retire per-row `.task(id:)` fetch dispatch
 - [ ] M6 — Delete v1 fetch path (pure subtraction commit; all callers already migrated)

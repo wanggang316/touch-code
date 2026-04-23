@@ -37,6 +37,30 @@ enum GitHubError: Error, Equatable, Sendable {
   /// error view can still surface something actionable.
   case other(String)
 
+  /// GitHub's GraphQL endpoint returned an `errors` array in the response body. The
+  /// string carries the first error's message so the popover can surface it. Usually a
+  /// query-complexity or permission problem; distinguish from `.other` because it
+  /// indicates a bug in our own query shape, not user-side misconfiguration.
+  case graphQLError(String)
+
+  /// `gh` is installed but is older than the minimum version `gh api graphql --hostname`
+  /// is known to work with (2.20+ for 0013). Remediation: `brew upgrade gh`.
+  case ghCLIOutdated(minVersion: String)
+
+  /// Parsing `git remote get-url origin` failed in an upstream `GitService` call. The
+  /// GitHub reducer treats this as a per-Project error — nothing else in the Project can
+  /// fetch PR data until the remote is fixed.
+  case remoteInfoUnavailable
+
+  /// `gh` stdout exceeded the configured byte cap (8 MiB for batched GraphQL vs. 2 MiB
+  /// for per-PR calls). Payload is the actual byte count so the log line is actionable.
+  case oversizeResponse(bytes: Int)
+
+  /// A branch name submitted to the batched query failed validation (contained newline /
+  /// null / other characters unsafe in a GraphQL string literal). Payload is the branch
+  /// name so tests can assert on it.
+  case malformedBranchName(String)
+
   /// One-line, user-facing string suitable for tooltip + popover banner.
   var userFacingMessage: String {
     switch self {
@@ -59,6 +83,16 @@ enum GitHubError: Error, Equatable, Sendable {
       return "The GitHub CLI took too long to respond. Check your network and try again."
     case .other(let detail):
       return "GitHub integration error: \(detail)"
+    case .graphQLError(let detail):
+      return "GitHub API rejected the query: \(detail)"
+    case .ghCLIOutdated(let minVersion):
+      return "GitHub CLI is out of date. Run `brew upgrade gh` — minimum required: \(minVersion)."
+    case .remoteInfoUnavailable:
+      return "Could not read the project's git remote. Ensure `origin` is set to a GitHub URL."
+    case .oversizeResponse(let bytes):
+      return "GitHub response exceeded the \(bytes)-byte cap. Try fewer branches at once."
+    case .malformedBranchName(let name):
+      return "Branch name \"\(name)\" contains characters that cannot be queried."
     }
   }
 }

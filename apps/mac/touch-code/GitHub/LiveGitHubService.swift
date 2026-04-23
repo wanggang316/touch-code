@@ -130,6 +130,110 @@ nonisolated struct LiveGitHubService: GitHubService {
     _ = try await runExpecting(cmd, cwd: worktreePath)
   }
 
+  // MARK: - v2 batched PR fetch (0013 M3)
+
+  func batchPullRequests(
+    host: String,
+    owner: String,
+    repo: String,
+    branches: [String]
+  ) async throws -> [String: PullRequestSnapshot] {
+    guard !branches.isEmpty else { return [:] }
+    let chunks = BatchedPullRequestQuery.chunk(branches)
+    let maxConcurrent = BatchedPullRequestQuery.maxConcurrentChunks
+
+    // Work-stealing TaskGroup: keep `maxConcurrent` children in flight at once. On each
+    // child completion, enqueue the next waiting chunk until all are scheduled. If any
+    // child throws, the TaskGroup propagates — cancelling siblings — and the error
+    // reaches the outer await.
+    return try await withThrowingTaskGroup(
+      of: [String: PullRequestSnapshot].self
+    ) { group in
+      var nextChunkIndex = 0
+      let primeCount = min(maxConcurrent, chunks.count)
+      while nextChunkIndex < primeCount {
+        let chunk = chunks[nextChunkIndex]
+        group.addTask { [self] in
+          try await fetchChunk(host: host, owner: owner, repo: repo, branches: chunk)
+        }
+        nextChunkIndex += 1
+      }
+
+      var merged: [String: PullRequestSnapshot] = [:]
+      while let chunkResult = try await group.next() {
+        for (branch, snap) in chunkResult {
+          merged[branch] = snap
+        }
+        if nextChunkIndex < chunks.count {
+          let chunk = chunks[nextChunkIndex]
+          group.addTask { [self] in
+            try await fetchChunk(host: host, owner: owner, repo: repo, branches: chunk)
+          }
+          nextChunkIndex += 1
+        }
+      }
+      return merged
+    }
+  }
+
+  /// Runs one GraphQL query for up to `BatchedPullRequestQuery.chunkSize` branches and
+  /// decodes the response. Translates validator / decoder errors into `GitHubError`.
+  /// Uses an 8 MiB stdout cap (vs the 2 MiB per-PR cap) because a full batched response
+  /// with rollup can hit 4–6 MiB on dense-CI PRs.
+  private func fetchChunk(
+    host: String,
+    owner: String,
+    repo: String,
+    branches: [String]
+  ) async throws -> [String: PullRequestSnapshot] {
+    guard let exec = await resolver.resolve() else {
+      throw GitHubError.notInstalled
+    }
+    let built: (query: String, aliasMap: [String: String])
+    do {
+      built = try BatchedPullRequestQuery.buildQuery(branches: branches)
+    } catch BatchedPullRequestQuery.ValidationError.invalidBranchName(let name) {
+      throw GitHubError.malformedBranchName(name)
+    } catch {
+      throw GitHubError.other("batched query build: \(error)")
+    }
+
+    let cmd = GhCommand.apiGraphQL(
+      query: built.query,
+      hostname: host,
+      variables: ["owner": owner, "repo": repo]
+    )
+    let chunkMaxBytes = 8 * 1024 * 1024
+    let outcome = await runner.run(
+      executable: exec,
+      arguments: cmd.arguments,
+      env: Self.makeEnv(),
+      cwd: URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true),
+      timeout: timeout,
+      maxOutputBytes: chunkMaxBytes
+    )
+    switch outcome {
+    case .exited(let code, let stdout, let stderr, let overflow):
+      if overflow {
+        throw GitHubError.oversizeResponse(bytes: chunkMaxBytes)
+      }
+      if code == 0 {
+        return try JSONOutputParsers.parseBatchedPullRequests(
+          stdout, aliasMap: built.aliasMap, remoteOwner: owner
+        )
+      }
+      let stderrString = String(data: stderr, encoding: .utf8) ?? ""
+      // `gh api` propagates a non-zero exit with the error body in stderr. GraphQL
+      // schema errors (unknown fields, type mismatches) look like a shell-level failure
+      // here; translateError catches the common auth / network / outdated patterns.
+      throw Self.translateError(stderr: stderrString)
+    case .timedOut:
+      throw GitHubError.timeout
+    case .spawnFailed:
+      throw GitHubError.notInstalled
+    }
+  }
+
   // MARK: - Private
 
   /// Outcome discriminates "gh exited 0 with payload" from "gh exited 1 with a recognised

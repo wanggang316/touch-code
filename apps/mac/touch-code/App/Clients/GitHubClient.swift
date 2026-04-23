@@ -17,6 +17,11 @@ nonisolated struct GitHubClient: Sendable {
   var close: @Sendable (_ number: Int, _ worktreePath: URL) async throws -> Void
   var markReady: @Sendable (_ number: Int, _ worktreePath: URL) async throws -> Void
   var rerunFailedJobs: @Sendable (_ runID: Int64, _ worktreePath: URL) async throws -> Void
+  /// Batched PR lookup for one repository, keyed by head branch name (0013 M3). One
+  /// `gh api graphql` subprocess per chunk of up to 25 branches, up to 3 chunks concurrent.
+  var batchPullRequests: @Sendable (
+    _ host: String, _ owner: String, _ repo: String, _ branches: [String]
+  ) async throws -> [String: PullRequestSnapshot]
 }
 
 extension GitHubClient {
@@ -34,6 +39,9 @@ extension GitHubClient {
       markReady: { number, path in try await service.markReady(number: number, worktreePath: path) },
       rerunFailedJobs: { runID, path in
         try await service.rerunFailedJobs(runID: runID, worktreePath: path)
+      },
+      batchPullRequests: { host, owner, repo, branches in
+        try await service.batchPullRequests(host: host, owner: owner, repo: repo, branches: branches)
       }
     )
   }
@@ -50,7 +58,8 @@ extension GitHubClient: DependencyKey {
     merge: unimplemented("GitHubClient.merge"),
     close: unimplemented("GitHubClient.close"),
     markReady: unimplemented("GitHubClient.markReady"),
-    rerunFailedJobs: unimplemented("GitHubClient.rerunFailedJobs")
+    rerunFailedJobs: unimplemented("GitHubClient.rerunFailedJobs"),
+    batchPullRequests: unimplemented("GitHubClient.batchPullRequests", placeholder: [:])
   )
 }
 

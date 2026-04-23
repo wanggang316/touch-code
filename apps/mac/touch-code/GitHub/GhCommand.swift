@@ -77,4 +77,26 @@ nonisolated enum GhCommand {
   static func runRerunFailed(runID: Int64) -> (arguments: [String], expectedExitCodes: Set<Int32>) {
     (["run", "rerun", String(runID), "--failed"], [0])
   }
+
+  /// `gh api graphql --hostname <host> -f query=<body> -f <var1>=<val1> ...`. Used by the
+  /// v2 batched PR fetcher (0013 M3) to run one custom GraphQL query for many branches at
+  /// once. The `variables` dictionary is sorted before serialisation so argv diffs stay
+  /// deterministic in tests — a mis-ordered flag list can silently mask field-omission
+  /// bugs the way 0005 DEC-19's `-w` placement did.
+  ///
+  /// Exit 0 → GraphQL response (may still carry `"errors": [...]` inside stdout; the
+  /// caller inspects the payload). Exit 1 → gh-level failure (network, auth, etc.),
+  /// stderr-translated by the caller.
+  static func apiGraphQL(
+    query: String,
+    hostname: String,
+    variables: [String: String]
+  ) -> (arguments: [String], expectedExitCodes: Set<Int32>) {
+    var args = ["api", "graphql", "--hostname", hostname, "-f", "query=\(query)"]
+    for key in variables.keys.sorted() {
+      args.append("-f")
+      args.append("\(key)=\(variables[key] ?? "")")
+    }
+    return (args, [0])
+  }
 }

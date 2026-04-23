@@ -258,6 +258,233 @@ nonisolated enum JSONOutputParsers {
       throw GitHubError.other("run list decode: \(error)")
     }
   }
+
+  // MARK: - gh api graphql (batched PR fetch)
+
+  /// Parses one chunk's GraphQL response body. Input: the raw stdout from
+  /// `gh api graphql ... -f query=<batched>`. Output: `[branch: snapshot]` for every
+  /// branch in `aliasMap` that had a surviving PR after fork-PR filtering. Branches with
+  /// no matching PR are absent.
+  ///
+  /// - `aliasMap`: `[alias: originalBranch]` built by `BatchedPullRequestQuery.buildQuery`.
+  /// - `remoteOwner`: `login` of the repository at the project's `origin`. Used by the
+  ///   fork-PR filter (see design-docs/github-integration-batched.md §Fork PR Filtering).
+  ///
+  /// Throws `.graphQLError` when the response carries a top-level `"errors": [...]`.
+  /// Throws `.other` on decode failure.
+  static func parseBatchedPullRequests(
+    _ data: Data,
+    aliasMap: [String: String],
+    remoteOwner: String
+  ) throws -> [String: PullRequestSnapshot] {
+    do {
+      let decoder = JSONDecoder()
+      decoder.dateDecodingStrategy = .iso8601WithFractionalSeconds
+      let wire = try decoder.decode(GraphQLEnvelope.self, from: data)
+      if let errors = wire.errors, let first = errors.first {
+        throw GitHubError.graphQLError(first.message ?? "unknown GraphQL error")
+      }
+      guard let repo = wire.data?.repository else { return [:] }
+      var result: [String: PullRequestSnapshot] = [:]
+      for (alias, branch) in aliasMap {
+        guard let connection = repo.pullRequestsByAlias[alias] else { continue }
+        let pick = selectPullRequest(
+          from: connection.nodes ?? [],
+          remoteOwner: remoteOwner
+        )
+        if let pick {
+          result[branch] = convertToSnapshot(pick)
+        }
+      }
+      return result
+    } catch let error as GitHubError {
+      throw error
+    } catch {
+      throw GitHubError.other("batched pr decode: \(error)")
+    }
+  }
+
+  /// Fork-PR filter. Per design doc's three-rule algorithm:
+  /// 1. Prefer entries where `headRepository.owner.login == remoteOwner` (upstream PRs).
+  /// 2. If none, keep entries where `baseRefName != headRefName` (local branch is source).
+  /// 3. Pick the first survivor (server-side sort is UPDATED_AT DESC).
+  private static func selectPullRequest(
+    from nodes: [GraphQLPRNode],
+    remoteOwner: String
+  ) -> GraphQLPRNode? {
+    let upstream = nodes.filter { node in
+      guard let ownerLogin = node.headRepository?.owner?.login else { return false }
+      return ownerLogin == remoteOwner
+    }
+    if let first = upstream.first { return first }
+    let forkDistinct = nodes.filter { node in
+      guard let base = node.baseRefName, let head = node.headRefName else { return false }
+      return base != head
+    }
+    return forkDistinct.first
+  }
+
+  /// Projects the GraphQL node into the TouchCodeCore DTO. Missing required fields are
+  /// filled with safe defaults — the batched fetch tolerates sparse data better than the
+  /// v1 single-PR path because one malformed PR should not fail the whole chunk.
+  private static func convertToSnapshot(_ node: GraphQLPRNode) -> PullRequestSnapshot {
+    let checks = (node.statusCheckRollup?.contexts?.nodes ?? []).compactMap(
+      convertCheckNode
+    )
+    return PullRequestSnapshot(
+      number: node.number ?? 0,
+      title: node.title ?? "",
+      state: PullRequestState(rawValue: node.state ?? "") ?? .open,
+      isDraft: node.isDraft ?? false,
+      headRefName: node.headRefName ?? "",
+      author: node.author?.login ?? "",
+      additions: node.additions ?? 0,
+      deletions: node.deletions ?? 0,
+      commitCount: node.commits?.totalCount ?? 0,
+      mergeable: MergeableState(rawValue: node.mergeable ?? "") ?? .unknown,
+      url: URL(string: node.url ?? "about:blank") ?? URL(string: "about:blank")!,
+      updatedAt: node.updatedAt ?? Date(timeIntervalSince1970: 0),
+      checkRollup: checks,
+      mergeStateStatus: MergeStateStatus.decodeOrUnknown(node.mergeStateStatus),
+      reviewDecision: ReviewDecision.decodeOrNil(node.reviewDecision),
+      headRepositoryOwner: node.headRepository?.owner?.login ?? ""
+    )
+  }
+
+  /// Normalizes a `CheckRun | StatusContext` union member into the DTO's `CheckResult`.
+  /// CheckRun carries `name` + `status` + `conclusion` + `detailsUrl`; StatusContext
+  /// carries `context` + `state` + `targetUrl` + `createdAt`. We map the intersection.
+  private static func convertCheckNode(_ node: GraphQLCheckNode) -> CheckResult? {
+    let normalizedName = node.name ?? node.context ?? ""
+    guard !normalizedName.isEmpty else { return nil }
+    let detailsURL: URL? = {
+      if let s = node.detailsUrl, let u = URL(string: s) { return u }
+      if let s = node.targetUrl, let u = URL(string: s) { return u }
+      return nil
+    }()
+    let (status, conclusion): (CheckStatus, CheckConclusion?) = {
+      if let statusRaw = node.status {
+        // CheckRun branch: explicit status + optional conclusion enum.
+        let status = CheckStatus(rawValue: statusRaw) ?? .inProgress
+        let conclusion: CheckConclusion? = {
+          guard let raw = node.conclusion, !raw.isEmpty else { return nil }
+          return CheckConclusion(rawValue: raw)
+        }()
+        return (status, conclusion)
+      }
+      // StatusContext branch: single `state` field. Reuse the v1 splitter for the
+      // SUCCESS / FAILURE / PENDING / ERROR mapping.
+      let state = node.state ?? ""
+      return splitCheckState(state)
+    }()
+    let duration: Int? = {
+      guard let s = node.startedAt, let c = node.completedAt else { return nil }
+      let seconds = Int(c.timeIntervalSince(s))
+      return seconds >= 0 ? seconds : nil
+    }()
+    return CheckResult(
+      name: normalizedName,
+      status: status,
+      conclusion: conclusion,
+      detailsURL: detailsURL,
+      startedAt: node.startedAt,
+      completedAt: node.completedAt,
+      durationSeconds: duration
+    )
+  }
+
+  // MARK: - GraphQL wire types
+
+  /// Top-level `gh api graphql` envelope. `data` or `errors` may be present; tolerate both.
+  private struct GraphQLEnvelope: Decodable {
+    var data: GraphQLData?
+    var errors: [GraphQLErrorEntry]?
+  }
+
+  private struct GraphQLErrorEntry: Decodable {
+    var message: String?
+  }
+
+  private struct GraphQLData: Decodable {
+    var repository: GraphQLRepository?
+  }
+
+  /// Dynamic-key container — the keys are `branch0`, `branch1`, … chosen at query-build time.
+  private struct GraphQLRepository: Decodable {
+    var pullRequestsByAlias: [String: GraphQLPRConnection]
+
+    init(from decoder: Decoder) throws {
+      let container = try decoder.container(keyedBy: DynamicKey.self)
+      var out: [String: GraphQLPRConnection] = [:]
+      for key in container.allKeys {
+        out[key.stringValue] = try container.decode(
+          GraphQLPRConnection.self, forKey: key
+        )
+      }
+      self.pullRequestsByAlias = out
+    }
+  }
+
+  private struct DynamicKey: CodingKey {
+    var stringValue: String
+    var intValue: Int? { nil }
+    init?(stringValue: String) { self.stringValue = stringValue }
+    init?(intValue: Int) { self.stringValue = "\(intValue)" }
+  }
+
+  private struct GraphQLPRConnection: Decodable {
+    var nodes: [GraphQLPRNode]?
+  }
+
+  private struct GraphQLPRNode: Decodable {
+    var number: Int?
+    var title: String?
+    var state: String?
+    var isDraft: Bool?
+    var additions: Int?
+    var deletions: Int?
+    var mergeable: String?
+    var mergeStateStatus: String?
+    var reviewDecision: String?
+    var url: String?
+    var updatedAt: Date?
+    var headRefName: String?
+    var baseRefName: String?
+    var commits: GraphQLTotalCount?
+    var author: GraphQLAuthor?
+    var headRepository: GraphQLRepositoryOwnerShort?
+    var statusCheckRollup: GraphQLStatusCheckRollup?
+  }
+
+  private struct GraphQLTotalCount: Decodable { var totalCount: Int? }
+  private struct GraphQLAuthor: Decodable { var login: String? }
+  private struct GraphQLRepositoryOwnerShort: Decodable {
+    var name: String?
+    var owner: GraphQLOwnerLogin?
+  }
+  private struct GraphQLOwnerLogin: Decodable { var login: String? }
+  private struct GraphQLStatusCheckRollup: Decodable {
+    var contexts: GraphQLCheckContexts?
+  }
+  private struct GraphQLCheckContexts: Decodable {
+    var nodes: [GraphQLCheckNode]?
+  }
+  /// Decodes members of the `CheckRun | StatusContext` union. Fields are optional — each
+  /// concrete type contributes a subset.
+  private struct GraphQLCheckNode: Decodable {
+    // CheckRun fields
+    var name: String?
+    var status: String?
+    var conclusion: String?
+    var startedAt: Date?
+    var completedAt: Date?
+    var detailsUrl: String?
+    // StatusContext fields
+    var context: String?
+    var state: String?
+    var targetUrl: String?
+    var createdAt: Date?
+  }
 }
 
 extension JSONDecoder.DateDecodingStrategy {
