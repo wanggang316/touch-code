@@ -384,20 +384,24 @@ struct HierarchySidebarView: View {
       else { return }
       total += 1
     }
+    let snapshot = gitHubStore?.snapshots[worktree.id]
+    let rollup: PullRequestBadge.CheckRollup = {
+      guard let snapshot, let checks = gitHubStore?.checks[snapshot.number] else {
+        return .noChecks
+      }
+      return PullRequestBadge.CheckRollup.from(checks: checks)
+    }()
 
     // Row and GitHub badge are siblings rather than nested, so the badge's own Button
     // doesn't live inside the row's Button.label. Tapping the badge opens the PR popover
     // without also firing the row-selection action. The leading portion of the row is
     // the Button; the trailing badge sits beside it.
-    return HStack(spacing: 4) {
+    return HStack(spacing: 6) {
       Button {
         store.send(.worktreeRowTapped(worktree.id, inProject: project.id, inSpace: space.id))
       } label: {
-        HStack(spacing: 6) {
-          Image(systemName: isSelected ? "circle.fill" : "circle")
-            .font(.caption2)
-            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-            .accessibilityLabel(isSelected ? "Active worktree" : "Inactive worktree")
+        HStack(spacing: 8) {
+          WorktreeRowIcon(snapshot: snapshot, rollup: rollup, isSelected: isSelected)
           VStack(alignment: .leading, spacing: 0) {
             Text(worktree.name)
             // Suppress the secondary branch line when it restates the worktree name —
@@ -412,7 +416,7 @@ struct HierarchySidebarView: View {
           Spacer()
           if unreadCount > 0 {
             Circle()
-              .fill(Color.accentColor)
+              .fill(Color.orange)
               .frame(width: 6, height: 6)
               .accessibilityLabel("Has \(unreadCount) unread notifications")
           }
@@ -423,73 +427,60 @@ struct HierarchySidebarView: View {
 
       gitHubBadge(for: worktree, in: project, space: space)
     }
-    .listRowInsets(EdgeInsets(top: 2, leading: 12, bottom: 2, trailing: 12))
+    .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
     .listRowBackground(
       isSelected
         ? Color.accentColor.opacity(0.2)
         : Color.clear
     )
-    .contextMenu {
-      // Main-checkout guard: the row whose path is the Project's
-      // rootPath is the main checkout and cannot be archived or
-      // removed from the app (spec W-Q3 guard).
-      let isMainCheckout = worktree.path == project.rootPath
-      if !isMainCheckout {
-        if worktree.archived {
-          Button {
-            store.send(
-              .worktreeUnarchiveTapped(
-                worktreeID: worktree.id,
-                inProject: project.id,
-                inSpace: space.id
-              )
-            )
-          } label: {
-            Label("Unarchive Worktree", systemImage: "tray.and.arrow.up")
-          }
-        } else {
-          Button {
-            store.send(
-              .worktreeArchiveTapped(
-                worktreeID: worktree.id,
-                inProject: project.id,
-                inSpace: space.id,
-                name: worktree.name
-              )
-            )
-          } label: {
-            Label("Archive Worktree", systemImage: "archivebox")
-          }
-        }
-        Button(role: .destructive) {
-          store.send(
-            .worktreeRemoveTapped(
-              worktreeID: worktree.id,
-              inProject: project.id,
-              inSpace: space.id,
-              name: worktree.name
-            )
-          )
+    .contextMenu { worktreeContextMenu(worktree: worktree, project: project, space: space) }
+  }
+
+  // Main-checkout guard: the row whose path is the Project's rootPath is the main checkout
+  // and cannot be archived or removed from the app (spec W-Q3 guard). Extracted so the row
+  // body stays under swiftlint's function_body_length limit.
+  @ViewBuilder
+  private func worktreeContextMenu(
+    worktree: Worktree, project: Project, space: Space
+  ) -> some View {
+    let isMainCheckout = worktree.path == project.rootPath
+    if !isMainCheckout {
+      if worktree.archived {
+        Button {
+          store.send(.worktreeUnarchiveTapped(
+            worktreeID: worktree.id, inProject: project.id, inSpace: space.id
+          ))
         } label: {
-          Label("Remove Worktree", systemImage: "trash")
+          Label("Unarchive Worktree", systemImage: "tray.and.arrow.up")
+        }
+      } else {
+        Button {
+          store.send(.worktreeArchiveTapped(
+            worktreeID: worktree.id, inProject: project.id, inSpace: space.id, name: worktree.name
+          ))
+        } label: {
+          Label("Archive Worktree", systemImage: "archivebox")
         }
       }
-      Button {
-        store.send(.worktreeRevealInFinderTapped(path: worktree.path))
+      Button(role: .destructive) {
+        store.send(.worktreeRemoveTapped(
+          worktreeID: worktree.id, inProject: project.id, inSpace: space.id, name: worktree.name
+        ))
       } label: {
-        Label("Reveal in Finder", systemImage: "folder")
+        Label("Remove Worktree", systemImage: "trash")
       }
-      Button {
-        store.send(
-          .worktreeOpenInDefaultEditorTapped(
-            worktreeID: worktree.id,
-            projectID: project.id,
-            path: worktree.path
-          )
-        )
-      } label: {
-        Label("Open in Default Editor", systemImage: "square.and.pencil")
-      }
+    }
+    Button {
+      store.send(.worktreeRevealInFinderTapped(path: worktree.path))
+    } label: {
+      Label("Reveal in Finder", systemImage: "folder")
+    }
+    Button {
+      store.send(.worktreeOpenInDefaultEditorTapped(
+        worktreeID: worktree.id, projectID: project.id, path: worktree.path
+      ))
+    } label: {
+      Label("Open in Default Editor", systemImage: "square.and.pencil")
     }
   }
 

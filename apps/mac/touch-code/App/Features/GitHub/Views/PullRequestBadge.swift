@@ -52,26 +52,16 @@ struct PullRequestBadge: View {
   }
 
   private func loadedBody(snapshot: PullRequestSnapshot, rollup: CheckRollup) -> some View {
-    HStack(spacing: 4) {
-      Image(systemName: snapshot.state.badgeSymbol(isDraft: snapshot.isDraft))
-        .font(.caption2.weight(.semibold))
-        .imageScale(.small)
-      Text("#\(snapshot.number)")
-        .font(.caption2.weight(.semibold))
-      rollupGlyph(rollup)
-        .imageScale(.small)
-    }
-    .padding(.horizontal, 6)
-    .padding(.vertical, 2)
-    .foregroundStyle(
-      snapshot.state == .closed
-        ? PullRequestStateColor.onFillSecondary
-        : PullRequestStateColor.onFillPrimary
-    )
-    .background(
-      Capsule(style: .continuous)
-        .fill(snapshot.isDraft ? PullRequestStateColor.draftFill : snapshot.state.badgeFill)
-    )
+    let tint = snapshot.state.rowTint(isDraft: snapshot.isDraft)
+    return Text("#\(snapshot.number)")
+      .font(.caption2.weight(.semibold))
+      .padding(.horizontal, 6)
+      .padding(.vertical, 1)
+      .foregroundStyle(tint)
+      .background(
+        Capsule(style: .continuous)
+          .stroke(tint.opacity(0.75), lineWidth: 1)
+      )
   }
 
   private var loadingBody: some View {
@@ -94,20 +84,7 @@ struct PullRequestBadge: View {
     Image(systemName: "exclamationmark.circle")
       .foregroundStyle(.tertiary)
       .imageScale(.small)
-  }
-
-  @ViewBuilder
-  private func rollupGlyph(_ rollup: CheckRollup) -> some View {
-    switch rollup {
-    case .allPassing:
-      Image(systemName: "checkmark.circle.fill").foregroundStyle(CheckRollupColor.passing)
-    case .anyFailing:
-      Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(CheckRollupColor.failing)
-    case .anyPending:
-      Image(systemName: "circle.dotted").foregroundStyle(CheckRollupColor.pending)
-    case .noChecks:
-      EmptyView()
-    }
+      .accessibilityHidden(true)
   }
 
   private var accessibilityLabel: Text {

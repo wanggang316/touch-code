@@ -38,6 +38,28 @@ extension PullRequestState {
     }
   }
 
+  /// Stroke / foreground tint used by the bordered-pill badge and the row-leading git icon.
+  /// Slightly brighter than `badgeFill` so the pill reads against a sidebar material.
+  nonisolated func rowTint(isDraft: Bool) -> Color {
+    if isDraft { return .secondary }
+    switch self {
+    case .open: return .green
+    case .merged: return .purple
+    case .closed: return .red
+    }
+  }
+
+  /// Asset-catalog name for the GitHub-style glyph shown at the row's leading edge.
+  /// Draft PRs use a dedicated dashed variant; merged / closed / open each have their own.
+  nonisolated func rowIconName(isDraft: Bool) -> String {
+    if isDraft { return "git-pull-request-draft" }
+    switch self {
+    case .open: return "git-pull-request"
+    case .merged: return "git-merge"
+    case .closed: return "git-pull-request-closed"
+    }
+  }
+
   /// SF Symbol for the left glyph of the badge. `isDraft` is handled separately because it
   /// modifies the symbol variant without changing the enum case.
   nonisolated func badgeSymbol(isDraft: Bool) -> String {
