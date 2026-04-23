@@ -1,11 +1,13 @@
 import Foundation
 
-/// Testability seam for `LiveGitService`. The live implementation wraps `Foundation.Process`;
-/// tests inject a fake to exercise timeout / output-cap / non-zero-exit paths without a real
-/// child process.
+/// Shared subprocess primitive used by any in-app module that shells out — `touch-code/Git/`
+/// for `git`, `touch-code/GitHub/` for `gh`, and so on. The live implementation wraps
+/// `Foundation.Process`; tests inject `RecordingCommandRunner` to exercise timeout /
+/// output-cap / non-zero-exit paths without a real child process.
 ///
-/// The runner intentionally does not know about `GitError` — it reports a mechanical
-/// `CommandOutcome`, and `LiveGitService` translates that into the richer domain error.
+/// The runner intentionally does not know about any domain error type — it reports a
+/// mechanical `CommandOutcome`, and each caller translates that into its own richer error
+/// (`GitError`, `GitHubError`, …).
 nonisolated protocol CommandRunner: Sendable {
   func run(
     executable: URL,
