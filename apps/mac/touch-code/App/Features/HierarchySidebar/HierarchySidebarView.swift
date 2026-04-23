@@ -642,65 +642,22 @@ struct HierarchySidebarView: View {
   fileprivate func gitHubBadge(for worktree: Worktree, in project: Project, space: Space) -> some View {
     if let gitHubStore, let branch = worktree.branch {
       let path = URL(fileURLWithPath: worktree.path)
-      gitHubBadgeView(
+      WorktreeGitHubBadge(
         store: gitHubStore,
         worktreeID: worktree.id,
         branch: branch,
-        worktreePath: path
+        worktreePath: path,
+        popoverContent: {
+          gitHubPopoverContent(
+            store: gitHubStore,
+            worktreeID: worktree.id,
+            branch: branch,
+            worktreePath: path
+          )
+        }
       )
     } else {
       EmptyView()
-    }
-  }
-
-  @ViewBuilder
-  private func gitHubBadgeView(
-    store: StoreOf<GitHubFeature>,
-    worktreeID: WorktreeID,
-    branch: String,
-    worktreePath: URL
-  ) -> some View {
-    let snapshot = store.snapshots[worktreeID]
-    let isLoading = store.loading.contains(worktreeID)
-    let error = store.lastError[worktreeID]
-
-    Group {
-      if let snapshot {
-        let checks = store.checks[snapshot.number] ?? []
-        let rollup = PullRequestBadge.CheckRollup.from(checks: checks)
-        PullRequestBadge(
-          state: .loaded(snapshot, rollup: rollup),
-          onTap: { store.send(.presentPopover(worktreeID, worktreePath: worktreePath)) },
-          onCommandTap: { store.send(.delegate(.openURL(snapshot.url))) }
-        )
-      } else if isLoading {
-        PullRequestBadge(state: .loading, onTap: {}, onCommandTap: {})
-      } else if let error {
-        PullRequestBadge(
-          state: .error(error),
-          onTap: { store.send(.refreshRequested(worktreeID, branch: branch, worktreePath: worktreePath)) },
-          onCommandTap: {}
-        )
-      } else {
-        EmptyView()
-      }
-    }
-    .task(id: TaskIdentity(worktreeID: worktreeID, branch: branch, path: worktreePath)) {
-      store.send(.worktreeBecameVisible(worktreeID, branch: branch, worktreePath: worktreePath))
-    }
-    .popover(
-      isPresented: Binding(
-        get: { store.popoverTarget == worktreeID },
-        set: { if !$0 { store.send(.dismissPopover) } }
-      ),
-      arrowEdge: .trailing
-    ) {
-      gitHubPopoverContent(
-        store: store,
-        worktreeID: worktreeID,
-        branch: branch,
-        worktreePath: worktreePath
-      )
     }
   }
 
@@ -792,14 +749,6 @@ struct HierarchySidebarView: View {
     return nil
   }
 
-  /// Composite identity used by `.task(id:)` on the badge so a change to branch *or* path
-  /// (e.g. a Worktree whose branch is re-pointed without the WorktreeID changing)
-  /// re-fires the snapshot fetch. A plain WorktreeID would keep serving stale data.
-  private struct TaskIdentity: Hashable {
-    let worktreeID: WorktreeID
-    let branch: String
-    let path: URL
-  }
 }
 
 // MARK: - Project header (hover chrome)

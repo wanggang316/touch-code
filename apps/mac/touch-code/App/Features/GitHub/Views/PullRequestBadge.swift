@@ -10,6 +10,10 @@ import TouchCodeCore
 ///   - `.loading` — skeleton outline + progress indicator, suppressed for the first 200 ms
 ///     so fast responses don't flicker in (consumer-managed)
 ///   - `.error(GitHubError)` — tertiary-label exclamation with tooltip
+///
+/// `onTap` runs the badge's primary action. Hover-triggered behavior (such as opening the
+/// PR popover after a 150 ms dwell) lives at the call site — this view intentionally does
+/// not manage its own timers so a parent can coordinate hover across badge + popover.
 struct PullRequestBadge: View {
   enum BadgeState: Equatable {
     case loaded(PullRequestSnapshot, rollup: CheckRollup)
@@ -26,7 +30,6 @@ struct PullRequestBadge: View {
 
   let state: BadgeState
   let onTap: () -> Void
-  let onCommandTap: () -> Void
 
   var body: some View {
     Button(action: onTap) {
@@ -36,7 +39,6 @@ struct PullRequestBadge: View {
     .buttonStyle(.plain)
     .accessibilityLabel(accessibilityLabel)
     .help(tooltip)
-    .onModifierTap(.command, perform: onCommandTap)
   }
 
   @ViewBuilder
@@ -126,22 +128,6 @@ struct PullRequestBadge: View {
     case .error(let error):
       return error.userFacingMessage
     }
-  }
-}
-
-private extension View {
-  /// Invokes `perform` on tap when the given modifier is held. macOS only — on iOS this
-  /// modifier's keypath differs. Implemented as a no-op if the tap-gesture chain can't
-  /// observe modifiers. Kept small so the badge view stays self-contained.
-  func onModifierTap(
-    _ modifier: EventModifiers,
-    perform: @escaping () -> Void
-  ) -> some View {
-    self.simultaneousGesture(
-      TapGesture()
-        .modifiers(modifier)
-        .onEnded { perform() }
-    )
   }
 }
 
