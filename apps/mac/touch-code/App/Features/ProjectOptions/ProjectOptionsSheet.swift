@@ -90,9 +90,10 @@ struct ProjectOptionsSheet: View {
     .task { store.send(.onAppear) }
   }
 
-  /// Picker items: sentinel "Use global default" row on top, then the same grouped /
-  /// divided list used by the global picker. The sentinel shares a nil-tag with the
-  /// "stale override" visualization so both render as selected in that state.
+  /// Picker items: sentinel "Use global default" row on top, then the flat priority-
+  /// ordered descriptor list shared with every other Open-in dropdown in the app. The
+  /// sentinel shares a nil-tag with the "stale override" visualization so both render
+  /// as selected in that state.
   @ViewBuilder
   private var editorPickerContent: some View {
     HStack(spacing: 6) {
@@ -106,16 +107,9 @@ struct ProjectOptionsSheet: View {
     }
     .tag(EditorID?(nil))
 
-    let groups = EditorPickerRow.grouped(store.descriptors)
-    ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
-      Divider()
-      ForEach(group, id: \.id) { descriptor in
-        HStack(spacing: 6) {
-          EditorPickerRow.icon(for: descriptor)
-          Text(descriptor.displayName)
-        }
+    ForEach(EditorPickerRow.sorted(store.descriptors), id: \.id) { descriptor in
+      EditorPickerRow.row(for: descriptor)
         .tag(EditorID?(descriptor.id))
-      }
     }
   }
 }

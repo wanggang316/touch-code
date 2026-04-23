@@ -10,10 +10,12 @@ import TouchCodeCore
 /// `NSApp.appearance` poke. No TCA round-trip because appearance doesn't participate in
 /// any other reducer state.
 ///
-/// Editor picker contract (C8a Phase 4a): shows only installed editors, grouped by
-/// category with thin dividers between groups. Order follows `EditorRegistry.menuOrder`;
-/// "installed" means the descriptor is present in the live `describe()` result (which
-/// already applies the Launch Services filter and always keeps `.shellEditor`).
+/// Editor picker contract: shared visual style with every other Open-in dropdown across
+/// the app — a flat priority-ordered list of installed editors (no Automatic sentinel,
+/// no grouping/dividers), each row showing `icon + displayName` via `EditorPickerRow`.
+/// Priority walk when `globalDefault` is nil is still honoured downstream in
+/// `EditorFeature.resolveDefault`; the picker simply does not surface the nil state as
+/// a selectable choice.
 ///
 /// Refresh model: the view dispatches `.refreshRequested` on appear so the service's
 /// `describe()` cache is flushed before re-fetch. Editors installed while touch-code was
@@ -58,8 +60,7 @@ struct SettingsGeneralView: View {
         .pickerStyle(.menu)
       } footer: {
         Text(
-          "Used when opening a directory. \"Automatic\" picks the first installed editor "
-            + "from the priority list; a specific choice falls back to Finder if the editor "
+          "Used when opening a directory. Falls back to Finder if the chosen editor "
             + "is uninstalled later."
         )
       }
@@ -69,34 +70,14 @@ struct SettingsGeneralView: View {
     .onAppear { store.send(.onAppear) }
   }
 
-  /// Picker body — split out so `Picker(... ) { pickerContent }` stays readable. The
-  /// "Automatic" row tagged `EditorID?(nil)` gives the user a way back to priority-walk
-  /// resolution after picking any concrete editor; without it the picker has no path to
-  /// clear the stored default (even though the IPC setter and the reducer both accept nil).
-  /// Mirrors the "Use global default" sentinel in the Project Options picker.
+  /// Picker body — split out so `Picker(... ) { pickerContent }` stays readable. Flat
+  /// priority-ordered list via `EditorPickerRow.sorted`, rendered through the shared
+  /// `row(for:)` builder so every Open-in dropdown in the app reads identically.
   @ViewBuilder
   private var pickerContent: some View {
-    HStack(spacing: 6) {
-      Image(systemName: "wand.and.sparkles")
-        .resizable()
-        .aspectRatio(contentMode: .fit)
-        .frame(width: 16, height: 16)
-        .foregroundStyle(.secondary)
-        .accessibilityHidden(true)
-      Text("Automatic")
-    }
-    .tag(EditorID?(nil))
-
-    let groups = EditorPickerRow.grouped(store.descriptors)
-    ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
-      Divider()
-      ForEach(group, id: \.id) { descriptor in
-        HStack(spacing: 6) {
-          EditorPickerRow.icon(for: descriptor)
-          Text(descriptor.displayName)
-        }
+    ForEach(EditorPickerRow.sorted(store.descriptors), id: \.id) { descriptor in
+      EditorPickerRow.row(for: descriptor)
         .tag(EditorID?(descriptor.id))
-      }
     }
   }
 }

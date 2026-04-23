@@ -27,9 +27,9 @@ struct RepositoryGeneralSettingsView: View {
             )
           ) {
             Text("Use global default").tag(EditorID?(nil))
-            Divider()
-            ForEach(descriptors, id: \.id) { descriptor in
-              Text(descriptor.displayName).tag(EditorID?(descriptor.id))
+            ForEach(EditorPickerRow.sorted(descriptors), id: \.id) { descriptor in
+              EditorPickerRow.row(for: descriptor)
+                .tag(EditorID?(descriptor.id))
             }
           }
         }

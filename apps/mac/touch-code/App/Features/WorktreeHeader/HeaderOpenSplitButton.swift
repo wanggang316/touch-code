@@ -106,9 +106,11 @@ struct HeaderOpenSplitButton: View {
 
   @ViewBuilder
   private var openInMenu: some View {
-    // C8a: `EditorService.describe()` already filters to installed entries, so every
-    // descriptor in `editorStore.state.descriptors` is launch-ready.
-    ForEach(editorStore.state.descriptors) { descriptor in
+    // `EditorService.describe()` already filters to installed entries, so every
+    // descriptor is launch-ready. `EditorPickerRow.sorted` gives the same priority
+    // order used by every other Open-in dropdown; `row(for:)` renders the shared
+    // `icon + displayName` row (including the terminal glyph for the shell editor).
+    ForEach(EditorPickerRow.sorted(editorStore.state.descriptors), id: \.id) { descriptor in
       Button {
         store.send(
           .openEditorTapped(
@@ -117,14 +119,7 @@ struct HeaderOpenSplitButton: View {
             projectID: projectID
           ))
       } label: {
-        Label {
-          Text(descriptor.displayName)
-        } icon: {
-          AppIconImage(
-            bundleIdentifier: descriptor.bundleIdentifier,
-            fallbackSystemName: "arrow.up.right.square"
-          )
-        }
+        EditorPickerRow.row(for: descriptor)
       }
       .help(descriptor.displayName)
     }
