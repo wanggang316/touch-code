@@ -415,6 +415,10 @@ struct HierarchySidebarView: View {
             store: store
           )
         }
+        // Hide the leading disclosure chevron — the hover-revealed ellipsis on the
+        // right is the only control that needs to be visible, and tapping anywhere on
+        // the row toggles expansion. Matches supacode's plainer header treatment.
+        .disclosureGroupStyle(HeaderOnlyDisclosureGroupStyle())
       }
     }
   }
@@ -901,9 +905,6 @@ private struct ProjectHeaderRow: View {
 
   var body: some View {
     HStack(spacing: 6) {
-      Image(systemName: "square.stack.3d.up")
-        .foregroundStyle(.secondary)
-        .accessibilityHidden(true)
       Text(project.name)
       Spacer()
       if isLoading {
@@ -972,5 +973,27 @@ private struct ProjectHeaderRow: View {
     }
     .contentShape(Rectangle())
     .onHover { isHovering = $0 }
+  }
+}
+
+/// Drops the leading disclosure chevron from a `DisclosureGroup` and makes the entire
+/// label tappable to toggle expansion. The expansion binding is forwarded to the parent's
+/// reducer via the label's own binding, so tapping the row still animates open/closed.
+private struct HeaderOnlyDisclosureGroupStyle: DisclosureGroupStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    VStack(spacing: 0) {
+      Button {
+        withAnimation(.easeInOut(duration: 0.18)) {
+          configuration.isExpanded.toggle()
+        }
+      } label: {
+        configuration.label
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      if configuration.isExpanded {
+        configuration.content
+      }
+    }
   }
 }
