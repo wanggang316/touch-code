@@ -32,8 +32,10 @@ struct WorktreeGitHubBadge<PopoverContent: View>: View {
 
     Group {
       if let snapshot {
-        let checks = store.checks[snapshot.number] ?? []
-        let rollup = PullRequestBadge.CheckRollup.from(checks: checks)
+        // 0013 M5: `checkRollup` now travels on the snapshot (populated by the v2
+        // batched `gh api graphql` path). No longer read from the retired
+        // `state.checks[prNumber]` dictionary.
+        let rollup = PullRequestBadge.CheckRollup.from(checks: snapshot.checkRollup)
         HStack(spacing: 6) {
           diffStatsLabel(snapshot: snapshot)
           PullRequestBadge(
@@ -63,9 +65,11 @@ struct WorktreeGitHubBadge<PopoverContent: View>: View {
       isBadgeHovered = hovering
       reconcileHover()
     }
-    .task(id: BadgeTaskIdentity(worktreeID: worktreeID, branch: branch, path: worktreePath)) {
-      store.send(.worktreeBecameVisible(worktreeID, branch: branch, worktreePath: worktreePath))
-    }
+    // 0013 M5: per-Worktree `.task` dispatch is retired. `RootFeature.selectionChanged`
+    // now observes projectID deltas and dispatches `GitHubFeature.Action.projectActivated`
+    // once per Project activation, which kicks a single batched `gh api graphql` call
+    // covering every Worktree in that Project. Views are purely passive consumers from
+    // here on.
     .popover(
       isPresented: Binding(
         get: { store.popoverTarget == worktreeID },
@@ -123,13 +127,4 @@ struct WorktreeGitHubBadge<PopoverContent: View>: View {
       }
     }
   }
-}
-
-/// Composite identity used by `.task(id:)` so a change to branch *or* path (a Worktree
-/// whose branch is re-pointed without the WorktreeID changing) re-fires the snapshot
-/// fetch. A plain `WorktreeID` would keep serving stale data.
-private struct BadgeTaskIdentity: Hashable {
-  let worktreeID: WorktreeID
-  let branch: String
-  let path: URL
 }

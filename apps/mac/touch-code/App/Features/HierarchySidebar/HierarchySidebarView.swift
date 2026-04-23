@@ -442,10 +442,13 @@ struct HierarchySidebarView: View {
     }
     let snapshot = gitHubStore?.snapshots[worktree.id]
     let rollup: PullRequestBadge.CheckRollup = {
-      guard let snapshot, let checks = gitHubStore?.checks[snapshot.number] else {
-        return .noChecks
-      }
-      return PullRequestBadge.CheckRollup.from(checks: checks)
+      // 0013 M5: rollup data travels with the snapshot now (filled by the batched
+      // `gh api graphql` path in `parseBatchedPullRequests`). The v1 per-PR
+      // `state.checks[prNumber]` map is no longer populated on the fetch side —
+      // reading `snapshot.checkRollup` keeps the overlay working without the
+      // extra gh subprocess v1 used to spawn.
+      guard let snapshot else { return .noChecks }
+      return PullRequestBadge.CheckRollup.from(checks: snapshot.checkRollup)
     }()
     let hotkeyNumber = hotkeySlot.map { $0 + 1 }
 
@@ -812,9 +815,12 @@ struct HierarchySidebarView: View {
     let content: PullRequestPopover.Content = {
       if let error { return .error(error) }
       if let snapshot {
-        let checks = store.checks[snapshot.number] ?? []
+        // 0013 M5: checks now travel inside the snapshot (see the comment on
+        // `snapshot.checkRollup`). `latestWorkflowRuns` remains a separately-fetched
+        // lazy load on popover-open — the batched query does not include workflow-run
+        // IDs yet (Open Question 4 in the design doc).
         let run = store.latestWorkflowRuns[snapshot.number]
-        return .loaded(snapshot, checks: checks, workflowRun: run)
+        return .loaded(snapshot, checks: snapshot.checkRollup, workflowRun: run)
       }
       if isLoading { return .loading }
       return .noPullRequest(branch: branch)

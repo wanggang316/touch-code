@@ -68,7 +68,6 @@ struct GitHubFeatureTests {
     let wid = WorktreeID()
     let store = Self.makeStore { client in
       client.pullRequest = { _, _ in expected }
-      client.checks = { _, _ in [] }
     }
     await store.send(.worktreeBecameVisible(wid, branch: "feature", worktreePath: Self.path)) {
       $0.worktreePaths[wid] = Self.path
@@ -80,11 +79,10 @@ struct GitHubFeatureTests {
       $0.snapshotLoadedAt[wid] = Self.fixedDate
       $0.lastError[wid] = nil
     }
-    // snapshotLoaded now prefetches checks so the sidebar row's CI overlay paints on
-    // first render rather than only after the popover opens.
-    await store.receive(.checksLoaded(prNumber: 42, .success([]))) {
-      $0.checks[42] = []
-    }
+    // 0013 M5 retired the per-Worktree checks prefetch. `snapshot.checkRollup` is now
+    // populated by the v2 batched path; the single-branch refresh still uses the v1
+    // `gh pr view` parser which leaves checkRollup empty (acceptable — next Project
+    // activation refills it).
   }
 
   @Test
@@ -131,7 +129,6 @@ struct GitHubFeatureTests {
     seed.snapshotLoadedAt[wid] = Self.fixedDate
     let store = Self.makeStore(initialState: seed) { client in
       client.pullRequest = { _, _ in refreshed }
-      client.checks = { _, _ in [] }
     }
     await store.send(.refreshRequested(wid, branch: "b", worktreePath: Self.path)) {
       $0.worktreePaths[wid] = Self.path
@@ -142,9 +139,6 @@ struct GitHubFeatureTests {
       $0.loading.remove(wid)
       $0.snapshots[wid] = refreshed
       $0.snapshotLoadedAt[wid] = Self.fixedDate
-    }
-    await store.receive(.checksLoaded(prNumber: 1, .success([]))) {
-      $0.checks[1] = []
     }
   }
 
@@ -241,7 +235,6 @@ struct GitHubFeatureTests {
         #expect(strategy == .squash)
       }
       client.pullRequest = { _, _ in snap }  // post-mutation refresh call
-      client.checks = { _, _ in [] }         // snapshotLoaded prefetch
     }
     await store.send(.mergeRequested(wid, prNumber: 99, strategy: .squash, worktreePath: Self.path)) {
       $0.mutating.insert(wid)
@@ -258,9 +251,6 @@ struct GitHubFeatureTests {
       $0.snapshots[wid] = snap
       $0.snapshotLoadedAt[wid] = Self.fixedDate
       $0.lastError[wid] = nil
-    }
-    await store.receive(.checksLoaded(prNumber: 99, .success([]))) {
-      $0.checks[99] = []
     }
   }
 
