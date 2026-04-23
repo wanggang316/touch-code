@@ -27,6 +27,7 @@ Every exec plan MUST contain:
 ## Active Plans
 
 <!-- List active plans here -->
+- [Command Palette (Quick Action)](command-palette.md) — ⌘P fuzzy launcher over Space/Worktree/Panel/Window/Editor commands; procedural item generation, custom fuzzy scorer, TCA delegate routing; reuses existing ghostty `toggle_command_palette` intent
 
 ## Completed Plans
 
