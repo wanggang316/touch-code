@@ -22,28 +22,33 @@ enum CommandPaletteItems {
     catalog: Catalog,
     editorDescriptors: [EditorDescriptor] = []
   ) -> [CommandPaletteItem] {
-    var items: [CommandPaletteItem] = []
+    var items = appItems() + spaceItems(catalog: catalog)
+    if let worktree = resolveWorktree(selection: selection, catalog: catalog) {
+      items.append(contentsOf: worktreeItems(worktreeName: worktree.name))
+      items.append(contentsOf: editorItems(worktreeName: worktree.name, descriptors: editorDescriptors))
+    }
+    if let focusedPanelID = resolveFocusedPanelID(selection: selection, catalog: catalog) {
+      items.append(contentsOf: panelItems(focusedPanelID: focusedPanelID))
+      items.append(contentsOf: windowItems(focusedPanelID: focusedPanelID))
+    }
+    return items
+  }
 
-    // MARK: App
-
-    items.append(
+  private static func appItems() -> [CommandPaletteItem] {
+    [
       CommandPaletteItem(
         id: "app.open-settings",
         title: "Open Settings",
         icon: "gearshape",
         shortcut: .command(","),
         kind: .openSettings
-      )
-    )
-    items.append(
+      ),
       CommandPaletteItem(
         id: "app.check-for-updates",
         title: "Check for Updates…",
         icon: "arrow.down.circle",
         kind: .checkForUpdates
-      )
-    )
-    items.append(
+      ),
       CommandPaletteItem(
         id: "app.quit",
         title: "Quit touch-code",
@@ -51,19 +56,19 @@ enum CommandPaletteItems {
         shortcut: .command("Q"),
         hiddenWhenQueryEmpty: true,
         kind: .quit
-      )
-    )
+      ),
+    ]
+  }
 
-    // MARK: Spaces
-
-    items.append(
+  private static func spaceItems(catalog: Catalog) -> [CommandPaletteItem] {
+    var items: [CommandPaletteItem] = [
       CommandPaletteItem(
         id: "space.manage",
         title: "Manage Spaces…",
         icon: "slider.horizontal.3",
         kind: .openSpaceManager
       )
-    )
+    ]
     for (index, space) in catalog.spaces.enumerated() {
       let isActive = catalog.selectedSpaceID == space.id
       let indexChord: KeyEquivalentDescriptor? =
@@ -80,83 +85,83 @@ enum CommandPaletteItems {
         )
       )
     }
+    return items
+  }
 
-    // MARK: Worktree-scoped
+  private static func resolveWorktree(
+    selection: HierarchySelection,
+    catalog: Catalog
+  ) -> Worktree? {
+    guard
+      let spaceID = selection.spaceID,
+      let projectID = selection.projectID,
+      let worktreeID = selection.worktreeID
+    else { return nil }
+    return catalog.spaces.first(where: { $0.id == spaceID })?
+      .projects.first(where: { $0.id == projectID })?
+      .worktrees.first(where: { $0.id == worktreeID })
+  }
 
-    if let spaceID = selection.spaceID,
-       let projectID = selection.projectID,
-       let worktreeID = selection.worktreeID,
-       let space = catalog.spaces.first(where: { $0.id == spaceID }),
-       let project = space.projects.first(where: { $0.id == projectID }),
-       let worktree = project.worktrees.first(where: { $0.id == worktreeID }) {
-      items.append(
-        CommandPaletteItem(
-          id: "git.toggle-viewer",
-          title: "Toggle Git Viewer",
-          subtitle: worktree.name,
-          icon: "doc.text.magnifyingglass",
-          shortcut: .command("G", shift: true),
-          kind: .toggleGitViewer
-        )
+  private static func worktreeItems(worktreeName: String) -> [CommandPaletteItem] {
+    [
+      CommandPaletteItem(
+        id: "git.toggle-viewer",
+        title: "Toggle Git Viewer",
+        subtitle: worktreeName,
+        icon: "doc.text.magnifyingglass",
+        shortcut: .command("G", shift: true),
+        kind: .toggleGitViewer
+      ),
+      CommandPaletteItem(
+        id: "editor.reveal-in-finder",
+        title: "Reveal in Finder",
+        subtitle: worktreeName,
+        icon: "folder",
+        kind: .revealCurrentWorktreeInFinder
+      ),
+      CommandPaletteItem(
+        id: "worktree.refresh",
+        title: "Refresh Worktree",
+        subtitle: worktreeName,
+        icon: "arrow.clockwise",
+        kind: .refreshCurrentWorktree
+      ),
+      CommandPaletteItem(
+        id: "worktree.close",
+        title: "Close Worktree",
+        subtitle: worktreeName,
+        icon: "xmark.square",
+        hiddenWhenQueryEmpty: true,
+        kind: .closeCurrentWorktree
+      ),
+    ]
+  }
+
+  private static func editorItems(
+    worktreeName: String,
+    descriptors: [EditorDescriptor]
+  ) -> [CommandPaletteItem] {
+    var items: [CommandPaletteItem] = [
+      CommandPaletteItem(
+        id: "editor.open-default",
+        title: "Open in Default Editor",
+        subtitle: worktreeName,
+        icon: "arrow.up.forward.app",
+        shortcut: .command("E"),
+        kind: .openCurrentWorktreeInDefaultEditor
       )
+    ]
+    for descriptor in descriptors {
       items.append(
         CommandPaletteItem(
-          id: "editor.open-default",
-          title: "Open in Default Editor",
-          subtitle: worktree.name,
+          id: "editor.open.\(descriptor.id)",
+          title: "Open in \(descriptor.displayName)",
+          subtitle: worktreeName,
           icon: "arrow.up.forward.app",
-          shortcut: .command("E"),
-          kind: .openCurrentWorktreeInDefaultEditor
-        )
-      )
-      for descriptor in editorDescriptors {
-        items.append(
-          CommandPaletteItem(
-            id: "editor.open.\(descriptor.id)",
-            title: "Open in \(descriptor.displayName)",
-            subtitle: worktree.name,
-            icon: "arrow.up.forward.app",
-            kind: .openCurrentWorktreeIn(descriptor.id)
-          )
-        )
-      }
-      items.append(
-        CommandPaletteItem(
-          id: "editor.reveal-in-finder",
-          title: "Reveal in Finder",
-          subtitle: worktree.name,
-          icon: "folder",
-          kind: .revealCurrentWorktreeInFinder
-        )
-      )
-      items.append(
-        CommandPaletteItem(
-          id: "worktree.refresh",
-          title: "Refresh Worktree",
-          subtitle: worktree.name,
-          icon: "arrow.clockwise",
-          kind: .refreshCurrentWorktree
-        )
-      )
-      items.append(
-        CommandPaletteItem(
-          id: "worktree.close",
-          title: "Close Worktree",
-          subtitle: worktree.name,
-          icon: "xmark.square",
-          hiddenWhenQueryEmpty: true,
-          kind: .closeCurrentWorktree
+          kind: .openCurrentWorktreeIn(descriptor.id)
         )
       )
     }
-
-    // MARK: Panel actions
-
-    if let focusedPanelID = resolveFocusedPanelID(selection: selection, catalog: catalog) {
-      items.append(contentsOf: panelItems(focusedPanelID: focusedPanelID))
-      items.append(contentsOf: windowItems(focusedPanelID: focusedPanelID))
-    }
-
     return items
   }
 

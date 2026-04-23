@@ -23,6 +23,8 @@ struct CommandPaletteView: View {
         .ignoresSafeArea()
         .contentShape(Rectangle())
         .onTapGesture { onDismiss() }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("Dismiss Command Palette")
 
       VStack(spacing: 0) {
         queryField
@@ -80,6 +82,9 @@ struct CommandPaletteView: View {
             row(item, selected: item.id == store.selectionID)
               .contentShape(Rectangle())
               .onTapGesture { store.send(.rowTapped(item.id)) }
+              .accessibilityAddTraits(.isButton)
+              .accessibilityLabel(item.title)
+              .accessibilityHint(item.subtitle ?? "")
           }
         }
       }
@@ -92,6 +97,7 @@ struct CommandPaletteView: View {
       Image(systemName: item.icon)
         .frame(width: 20)
         .foregroundStyle(selected ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
+        .accessibilityHidden(true)
       VStack(alignment: .leading, spacing: 2) {
         Text(item.title).font(.system(size: 13))
         if let subtitle = item.subtitle {

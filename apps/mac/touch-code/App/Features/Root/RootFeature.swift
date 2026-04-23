@@ -532,10 +532,11 @@ struct RootFeature {
     }
   }
 
-  /// Dispatches a Command Palette activation into the feature action that
-  /// already implements the command. Every case forwards into a pre-
-  /// existing action or client — the palette invents no new behavior.
-  // swiftlint:disable:next cyclomatic_complexity function_body_length
+  // swiftlint:disable cyclomatic_complexity
+  /// Dispatches a Command Palette activation into the feature action
+  /// that already implements the command. Every case forwards into a
+  /// pre-existing action or client — the palette invents no new
+  /// behavior.
   private func route(
     _ kind: CommandPaletteItem.Kind,
     state: inout State
@@ -635,6 +636,7 @@ struct RootFeature {
       return .send(.windowActionRouter(.requested(req)))
     }
   }
+  // swiftlint:enable cyclomatic_complexity
 
   /// Per-Project editor override, if any. Used to resolve the Header's
   /// default-editor dispatch through `EditorFeature.resolveDefault` without
