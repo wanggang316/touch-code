@@ -490,7 +490,17 @@ struct HierarchySidebarView: View {
           snapshot: snapshot, rollup: rollup, isSelected: isSelected, roleTint: roleTint
         )
         VStack(alignment: .leading, spacing: 0) {
-          Text(worktree.name)
+          HStack(spacing: 4) {
+            Text(worktree.name)
+            // Explicit pinned marker — keeps the "this row is pinned" signal visible
+            // even when the row-icon's role tint is overridden by a PR-state color.
+            if worktree.isPinned && !isMainCheckout {
+              Image(systemName: "pin.fill")
+                .font(.caption2)
+                .foregroundStyle(.orange)
+                .accessibilityLabel("Pinned")
+            }
+          }
           // Suppress the secondary branch line when it restates the worktree name —
           // the common case (main/main, test0003/test0003) otherwise doubles every
           // row height for zero information.
