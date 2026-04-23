@@ -717,6 +717,15 @@ final class HierarchyManager {
     store.scheduleSave(catalog)
   }
 
+  /// Make the surface view for `panelID` the first responder of its
+  /// window. Distinct from `focusPanel` (which flips the Tab's zoom
+  /// flag) — this only touches AppKit responder-chain focus so keyboard
+  /// input routes correctly. Silent no-op when the surface or window
+  /// isn't available.
+  func focusSurfaceView(for panelID: PanelID) {
+    runtime.focusSurfaceView(for: panelID)
+  }
+
   func focusPanel(
     _ panelID: PanelID,
     in tabID: TabID,

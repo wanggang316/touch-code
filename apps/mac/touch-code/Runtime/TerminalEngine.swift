@@ -141,6 +141,39 @@ final class TerminalEngine {
     return runtime.surface(for: panelID) != nil
   }
 
+  /// Make the panel's `GhosttySurfaceView` the first responder of its
+  /// window. Used for `Cmd+D` new-split focus and post-close focus
+  /// transfer.
+  ///
+  /// Races with SwiftUI's render pass — right after `splitPanel` the
+  /// new panel's NSView has been created but may not yet be attached
+  /// to its hosting window. `view.window` is then nil and
+  /// `makeFirstResponder` silently fails. Mirror supacode's
+  /// retry-with-exponential-backoff: 0s, 50ms, 100ms, 200ms, 400ms
+  /// (capped at ~0.75s total). Safe to call when the surface or window
+  /// never materialises — retries stop on their own.
+  func focusSurfaceView(for panelID: PanelID) {
+    focusSurfaceView(for: panelID, attempt: 0)
+  }
+
+  private func focusSurfaceView(for panelID: PanelID, attempt: Int) {
+    guard attempt < 5 else { return }
+    guard let runtime = ghosttyRuntime,
+      let surface = runtime.surface(for: panelID)
+    else { return }
+    if let window = surface.view.window {
+      if window.firstResponder !== surface.view {
+        window.makeFirstResponder(surface.view)
+      }
+      return
+    }
+    let delayMs: Int = attempt == 0 ? 50 : 50 << attempt
+    Task { @MainActor [weak self] in
+      try? await Task.sleep(for: .milliseconds(delayMs))
+      self?.focusSurfaceView(for: panelID, attempt: attempt + 1)
+    }
+  }
+
   private func handleSurfaceClose(panelID: PanelID, processAlive: Bool) {
     // Snapshot the surface state BEFORE unregistering so a stale registry
     // entry can't drop the lifecycle event. Unregister after emit so any

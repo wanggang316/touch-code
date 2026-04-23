@@ -95,6 +95,12 @@ nonisolated struct HierarchyClient: Sendable {
       _ panelID: PanelID, _ tabID: TabID, _ inWorktree: WorktreeID,
       _ inProject: ProjectID, _ inSpace: SpaceID
     ) throws -> Void
+  /// View-level first-responder focus. Unlike `focusPanel` this does
+  /// NOT mutate the catalog (no zoom flag, no persistence) — it only
+  /// asks the runtime to call `makeFirstResponder` on the panel's
+  /// surface view. Used post-split (focus the new pane) and post-close
+  /// (transfer focus to the surviving sibling per ghostty's policy).
+  var focusSurfaceView: @MainActor @Sendable (_ panelID: PanelID) -> Void
   var resizeSplit:
     @MainActor @Sendable (
       _ path: SplitTree<PanelID>.Path, _ ratio: Double,
@@ -326,6 +332,9 @@ extension HierarchyClient {
       },
       focusPanel: { panelID, tabID, worktreeID, projectID, spaceID in
         try manager.focusPanel(panelID, in: tabID, in: worktreeID, in: projectID, in: spaceID)
+      },
+      focusSurfaceView: { panelID in
+        manager.focusSurfaceView(for: panelID)
       },
       resizeSplit: { path, ratio, tabID, worktreeID, projectID, spaceID in
         try manager.resizeSplit(
@@ -584,6 +593,7 @@ extension HierarchyClient: DependencyKey {
     splitPanel: { _, _, _, _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     closePanel: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     focusPanel: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    focusSurfaceView: { _ in fatalError("HierarchyClient.liveValue not configured") },
     resizeSplit: { _, _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     setDefaultEditor: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     setRepositoryDefaultEditor: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
@@ -629,6 +639,7 @@ extension HierarchyClient: DependencyKey {
     splitPanel: unimplemented("HierarchyClient.splitPanel", placeholder: PanelID()),
     closePanel: unimplemented("HierarchyClient.closePanel"),
     focusPanel: unimplemented("HierarchyClient.focusPanel"),
+    focusSurfaceView: unimplemented("HierarchyClient.focusSurfaceView"),
     resizeSplit: unimplemented("HierarchyClient.resizeSplit"),
     setDefaultEditor: unimplemented("HierarchyClient.setDefaultEditor"),
     setRepositoryDefaultEditor: unimplemented("HierarchyClient.setRepositoryDefaultEditor"),

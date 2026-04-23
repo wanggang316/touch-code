@@ -286,10 +286,28 @@ struct RootFeature {
         guard let address = hierarchyClient.addressOf(panelID) else {
           return .none
         }
+        // Compute the focus target BEFORE mutating the tree so the
+        // leaf identity is still valid. Matches ghostty's macOS
+        // controller: closing the leftmost leaf → focus next; otherwise
+        // → focus previous. Returns nil for the last leaf in a tab.
+        let catalog = hierarchyClient.snapshot()
+        let focusTarget: PanelID? = catalog
+          .spaces.first(where: { $0.id == address.spaceID })?
+          .projects.first(where: { $0.id == address.projectID })?
+          .worktrees.first(where: { $0.id == address.worktreeID })?
+          .tabs.first(where: { $0.id == address.tabID })?
+          .splitTree.focusTargetAfterClosing(panelID)
         try? hierarchyClient.closePanel(
           panelID, address.tabID, address.worktreeID, address.projectID,
           address.spaceID
         )
+        if let focusTarget {
+          return .run { [client = hierarchyClient] _ in
+            await MainActor.run {
+              client.focusSurfaceView(focusTarget)
+            }
+          }
+        }
         return .none
 
       // Sidebar delegate routing. Must come before the catch-all
