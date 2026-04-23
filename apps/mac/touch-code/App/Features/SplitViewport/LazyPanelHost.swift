@@ -30,8 +30,14 @@ struct LazyPanelHost: View {
     switch store.phase {
     case .ready:
       if let surface = store.surface?.surface {
+        // No `.background(Color.black)` here. ghostty's Metal layer paints the
+        // entire pane — an extra black SwiftUI background is both redundant
+        // (hidden the moment ghostty renders) and actively harmful: it bleeds
+        // into the sidebar material above via NavigationSplitView's z-stack
+        // (sidebar material blends `withinWindow`, i.e. against detail pixels
+        // underneath), producing a visible black band behind the sidebar's
+        // translucent layer in light mode.
         PanelHostView(surface: surface)
-          .background(Color.black)
       } else {
         // Should not happen — `phase == .ready` is set by the reducer
         // only together with a non-nil `surface`. Render the loading

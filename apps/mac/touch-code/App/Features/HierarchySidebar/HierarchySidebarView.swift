@@ -38,26 +38,36 @@ struct HierarchySidebarView: View {
     let inbox = inboxStore.inbox
     let activeSpace = catalog.spaces.first { $0.id == catalog.selectedSpaceID }
 
-    VStack(spacing: 0) {
-      sidebarToolbar
-      Divider()
-      treeBody(activeSpace: activeSpace, panelIndex: panelIndex, inbox: inbox)
-      Divider()
-      spaceFooter(activeSpace: activeSpace)
-        .popover(
-          isPresented: Binding(
-            get: { store.isSpacePopoverPresented },
-            set: { isPresented in
-              if !isPresented { store.send(.spacePopoverDismissed) }
+    // Sidebar body is the List directly (no VStack wrapper). This matches
+    // supacode's shape and lets SwiftUI's `List(.sidebar)` cover the full
+    // column with the system sidebar material — when toolbar/footer lived
+    // inside a VStack above/below the List, those strips were NOT tagged as
+    // sidebar content and showed the column's base color through as a dark
+    // band in light mode. `.safeAreaInset` attaches the Space footer at the
+    // bottom edge with proper material continuity, and `.toolbar` promotes
+    // the add-project / options actions into the window titlebar over the
+    // sidebar column (same as Finder / Xcode).
+    treeBody(activeSpace: activeSpace, panelIndex: panelIndex, inbox: inbox)
+      .safeAreaInset(edge: .bottom, spacing: 0) {
+        VStack(spacing: 0) {
+          Divider()
+          spaceFooter(activeSpace: activeSpace)
+            .popover(
+              isPresented: Binding(
+                get: { store.isSpacePopoverPresented },
+                set: { isPresented in
+                  if !isPresented { store.send(.spacePopoverDismissed) }
+                }
+              ),
+              attachmentAnchor: .rect(.bounds),
+              arrowEdge: .top
+            ) {
+              spacePopover(catalog: catalog)
             }
-          ),
-          attachmentAnchor: .rect(.bounds),
-          arrowEdge: .top
-        ) {
-          spacePopover(catalog: catalog)
         }
-    }
-    .sheet(
+      }
+      .toolbar { sidebarToolbarContent }
+      .sheet(
       item: $store.scope(state: \.addProject, action: \.addProject)
     ) { childStore in
       AddProjectSheet(store: childStore)
@@ -200,17 +210,17 @@ struct HierarchySidebarView: View {
 
   // MARK: - Toolbar
 
-  @ViewBuilder
-  private var sidebarToolbar: some View {
-    HStack(spacing: 8) {
+  @ToolbarContentBuilder
+  private var sidebarToolbarContent: some ToolbarContent {
+    ToolbarItem(placement: .primaryAction) {
       Button {
         store.send(.toolbarAddProjectTapped)
       } label: {
         Label("Add Project", systemImage: "plus")
       }
-      .buttonStyle(.borderless)
       .help("Add Project to the active Space")
-      Spacer()
+    }
+    ToolbarItem(placement: .primaryAction) {
       Menu {
         // Placeholder for future sidebar-level actions. Empty Menu still
         // renders as a disabled dropdown, which is the spec-approved
@@ -220,12 +230,8 @@ struct HierarchySidebarView: View {
         Image(systemName: "ellipsis")
           .accessibilityLabel("Sidebar options")
       }
-      .menuStyle(.borderlessButton)
-      .fixedSize()
       .help("Sidebar options")
     }
-    .padding(.horizontal, 12)
-    .padding(.vertical, 8)
   }
 
   // MARK: - Tree
