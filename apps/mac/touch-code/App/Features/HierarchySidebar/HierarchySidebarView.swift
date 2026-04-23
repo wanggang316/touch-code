@@ -91,6 +91,12 @@ struct HierarchySidebarView: View {
               spacePopover(catalog: catalog)
             }
         }
+        // `safeAreaInset` places its content outside the `List(.sidebar)`
+        // material, so without an explicit background the Ghostty-stained
+        // window color showed through. `.bar` is macOS's standard bottom-bar
+        // material (Finder / Xcode / Notes sidebar footers), and it still
+        // blends with the window tint for visual continuity with the list.
+        .background(.bar)
       }
       .toolbar { sidebarToolbarContent }
       .sheet(
