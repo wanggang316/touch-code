@@ -23,7 +23,7 @@ This is the first plan that makes touch-code aware of the remote half of the Git
 
 - [x] M0 — Prep: extract `CommandRunner` to `touch-code/Process/`; stub `touch-code/GitHub/` namespace; add `GhExecutableResolver` actor — 2026-04-23
 - [x] M1 — Pure data models in `TouchCodeCore` (DTOs, `MergeStrategy`, `MergedWorktreeAction`, `GitHubAvailability`, `PullRequestSnapshot`, `CheckResult`, `WorkflowRun`); extend `RepositorySettings` with two optional fields — 2026-04-23
-- [ ] M2 — `touch-code/GitHub/` service layer: `GitHubService` protocol, `LiveGitHubService` wrapping `gh` via `CommandRunner`, JSON fixture-driven parsers, `GitHubError` taxonomy
+- [x] M2 — `touch-code/GitHub/` service layer: `GitHubService` protocol, `LiveGitHubService` wrapping `gh` via `CommandRunner`, JSON fixture-driven parsers, `GitHubError` taxonomy — 2026-04-23 (integration tests against a real `gh` env-gated and deferred to a follow-up commit; RecordingCommandRunner unit tests cover every code path)
 - [ ] M3 — `GitHubClient` TCA `DependencyKey` + `GitHubFeature` TCA reducer (no UI yet) + `TestStore`-driven reducer tests
 - [ ] M4 — Surface 1 + Surface 2: sidebar PR Badge inline on `HierarchySidebarWorktreeRow` + `PullRequestPopover` with Header / Checks / Actions / Footer + `MergeSplitButton`
 - [ ] M5 — Surface 3: command palette bindings + merge-strategy picker sheet
