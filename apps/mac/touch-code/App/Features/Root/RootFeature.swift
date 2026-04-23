@@ -45,6 +45,12 @@ struct RootFeature {
     /// presents the sheet for managing (list / rename / reorder / delete) Spaces.
     @Presents var spaceManagerSheet: SpaceManagerFeature.State?
 
+    /// Command Palette overlay presentation. `nil` = hidden; non-nil
+    /// renders the floating search card on top of the main split. Cleared
+    /// on activation (the child emits `.delegate(.activate(…))`, the root
+    /// routes it to a feature action and nils this slot in the same tick).
+    @Presents var commandPalette: CommandPaletteFeature.State?
+
     /// T3: live read of the current Worktree's `gitViewerVisible` against
     /// a catalog snapshot. Not a cached field — views pass in
     /// `hierarchyManager.catalog` so SwiftUI's `@Observable` tracking
@@ -135,6 +141,11 @@ struct RootFeature {
     case spaceManagerSheetShown
     case spaceManagerSheet(PresentationAction<SpaceManagerFeature.Action>)
     case switchToSpaceAtIndex(Int)
+    /// Toggle the Command Palette overlay. Sources: `⌘P` menu binding, and
+    /// `panelActionRouter(.delegate(.commandPaletteToggleRequested))`
+    /// forwarded from the ghostty keybind pipeline.
+    case commandPaletteToggle
+    case commandPalette(PresentationAction<CommandPaletteFeature.Action>)
     case sidebar(HierarchySidebarFeature.Action)
     case detail(WorktreeDetailFeature.Action)
     case gitViewer(GitViewerFeature.Action)
@@ -412,13 +423,14 @@ struct RootFeature {
       case .worktreeHeader:
         return .none
 
-      // 0008: panel-action router delegate actions. `presentTerminal` and
-      // `toggleCommandPalette` don't have dedicated handlers in this
-      // reducer yet — touch-code has no command-palette feature, and
-      // the sidebar/detail focus flow already handles active-worktree
-      // swaps. Consumed here as explicit no-ops so future integrations
-      // can attach without re-touching the router.
-      case .panelActionRouter(.delegate):
+      // 0008: panel-action router delegate actions.
+      // `commandPaletteToggleRequested` forwards the ghostty keybind
+      // pipeline into the palette's top-level toggle. `presentTerminal`
+      // stays an explicit no-op — the sidebar/detail focus flow already
+      // handles active-worktree swaps.
+      case .panelActionRouter(.delegate(.commandPaletteToggleRequested)):
+        return .send(.commandPaletteToggle)
+      case .panelActionRouter(.delegate(.presentTerminalRequested)):
         return .none
 
       case .panelActionRouter:
@@ -436,6 +448,28 @@ struct RootFeature {
         return .none
 
       case .spaceManagerSheet:
+        return .none
+
+      case .commandPaletteToggle:
+        if state.commandPalette == nil {
+          state.commandPalette = CommandPaletteFeature.State()
+          let selection = state.selection
+          let catalog = hierarchyClient.snapshot()
+          return .send(.commandPalette(.presented(.appeared(selection, catalog))))
+        } else {
+          state.commandPalette = nil
+          return .none
+        }
+
+      case .commandPalette(.presented(.delegate(.activate(let kind)))):
+        state.commandPalette = nil
+        return route(kind, state: &state)
+
+      case .commandPalette(.dismiss):
+        state.commandPalette = nil
+        return .none
+
+      case .commandPalette:
         return .none
 
       case .switchToSpaceAtIndex(let index):
@@ -485,6 +519,34 @@ struct RootFeature {
     }
     .ifLet(\.$spaceManagerSheet, action: \.spaceManagerSheet) {
       SpaceManagerFeature()
+    }
+    .ifLet(\.$commandPalette, action: \.commandPalette) {
+      CommandPaletteFeature()
+    }
+  }
+
+  /// Dispatches a Command Palette activation into the feature action that
+  /// already implements the command. **M2 coverage**: openSettings,
+  /// toggleGitViewer, checkForUpdates. M5 expands this switch to every
+  /// `Kind` case.
+  private func route(
+    _ kind: CommandPaletteItem.Kind,
+    state: inout State
+  ) -> Effect<Action> {
+    switch kind {
+    case .openSettings:
+      let presenter = settingsWindowPresenter
+      return .run { _ in await MainActor.run { presenter.open() } }
+    case .toggleGitViewer:
+      return .send(.gitViewerToggledForCurrentWorktree)
+    case .checkForUpdates:
+      // Hooked up to the updates feature in M5.
+      return .none
+    default:
+      // All other Kind cases are emitted starting in M5; keep this
+      // exhaustive catch so the compiler does not force every case
+      // coverage until then.
+      return .none
     }
   }
 

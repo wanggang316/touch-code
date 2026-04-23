@@ -38,7 +38,20 @@ struct ContentView: View {
 
   var body: some View {
     GhosttyColorSchemeSyncView {
-      mainSplit
+      ZStack {
+        mainSplit
+        if let paletteStore = store.scope(
+          state: \.commandPalette, action: \.commandPalette.presented
+        ) {
+          CommandPaletteView(
+            store: paletteStore,
+            onDismiss: { store.send(.commandPaletteToggle) }
+          )
+          .zIndex(100)
+          .transition(.opacity.combined(with: .scale(scale: 0.97)))
+        }
+      }
+      .animation(.easeOut(duration: 0.12), value: store.commandPalette != nil)
     }
   }
 
