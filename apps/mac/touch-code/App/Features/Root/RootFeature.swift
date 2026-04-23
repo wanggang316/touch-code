@@ -36,6 +36,8 @@ struct RootFeature {
     var editor: EditorFeature.State = .init()
     /// T2: Header feature (bell + Open-in split button + GV toggle).
     var worktreeHeader: WorktreeHeaderFeature.State = .init()
+    /// 0012: GitHub integration — per-Worktree PR snapshots + popover state.
+    var gitHub: GitHubFeature.State = .init()
     /// 0008: router for tab/split intents decoded from ghostty keybinds.
     var panelActionRouter: PanelActionRouterFeature.State = .init()
     /// 0008: router for window/app-level intents decoded from ghostty keybinds.
@@ -154,6 +156,7 @@ struct RootFeature {
     case gitViewer(GitViewerFeature.Action)
     case editor(EditorFeature.Action)
     case worktreeHeader(WorktreeHeaderFeature.Action)
+    case gitHub(GitHubFeature.Action)
     case panelActionRouter(PanelActionRouterFeature.Action)
     case windowActionRouter(WindowActionRouterFeature.Action)
   }
@@ -168,29 +171,44 @@ struct RootFeature {
   @Dependency(ProjectReconciler.self) private var projectReconciler
   @Dependency(SettingsWindowPresenter.self) private var settingsWindowPresenter
 
-  var body: some Reducer<State, Action> {
-    Scope(state: \.sidebar, action: \.sidebar) {
-      HierarchySidebarFeature()
-    }
-    Scope(state: \.detail, action: \.detail) {
-      WorktreeDetailFeature()
-    }
-    Scope(state: \.gitViewer, action: \.gitViewer) {
-      GitViewerFeature()
-    }
-    Scope(state: \.editor, action: \.editor) {
-      EditorFeature()
-    }
-    Scope(state: \.worktreeHeader, action: \.worktreeHeader) {
-      WorktreeHeaderFeature()
-    }
-    Scope(state: \.panelActionRouter, action: \.panelActionRouter) {
-      PanelActionRouterFeature()
-    }
-    Scope(state: \.windowActionRouter, action: \.windowActionRouter) {
-      WindowActionRouterFeature()
-    }
+  /// Child-feature scopes. Split from `body` so Swift's type inference budget stays under
+  /// the single-expression limit — each additional top-level `Scope` in `body` adds to the
+  /// inferred return type and past ~7 scopes the compiler fails with "unable to type-check
+  /// in reasonable time".
+  @ReducerBuilder<State, Action>
+  private var sidebarAndDetailScopes: some Reducer<State, Action> {
+    Scope(state: \.sidebar, action: \.sidebar) { HierarchySidebarFeature() }
+    Scope(state: \.detail, action: \.detail) { WorktreeDetailFeature() }
+    Scope(state: \.gitViewer, action: \.gitViewer) { GitViewerFeature() }
+  }
 
+  @ReducerBuilder<State, Action>
+  private var headerAndEditorScopes: some Reducer<State, Action> {
+    Scope(state: \.editor, action: \.editor) { EditorFeature() }
+    Scope(state: \.worktreeHeader, action: \.worktreeHeader) { WorktreeHeaderFeature() }
+    Scope(state: \.gitHub, action: \.gitHub) {
+      GitHubFeature()
+      GitHubRootBindings()
+    }
+  }
+
+  @ReducerBuilder<State, Action>
+  private var routerScopes: some Reducer<State, Action> {
+    Scope(state: \.panelActionRouter, action: \.panelActionRouter) { PanelActionRouterFeature() }
+    Scope(state: \.windowActionRouter, action: \.windowActionRouter) { WindowActionRouterFeature() }
+  }
+
+  var body: some Reducer<State, Action> {
+    sidebarAndDetailScopes
+    headerAndEditorScopes
+    routerScopes
+    coreReducer
+  }
+
+  /// The large `Reduce { state, action in switch action { ... } }` block that wires root
+  /// lifecycle, cross-feature action forwarding, and delegate handling. Split from `body`
+  /// to keep the result-builder expression under the Swift type-inference budget.
+  private var coreReducer: some Reducer<State, Action> {
     Reduce { state, action in
       switch action {
       case .onLaunch:
@@ -424,6 +442,14 @@ struct RootFeature {
         }
 
       case .worktreeHeader:
+        return .none
+
+      // 0012: GitHub integration delegate actions. Detailed handling (openURL →
+      // NSWorkspace.open, showSettingsGitHub → SettingsWindowPresenter, pullRequestMerged
+      // → M7 post-merge Worktree action) moves into `GitHubRootBindings` stacked under the
+      // gitHub scope — leaving the inline case a no-op keeps this reducer's switch-body
+      // small enough for Swift's type-inference budget.
+      case .gitHub:
         return .none
 
       // 0008: panel-action router delegate actions.
