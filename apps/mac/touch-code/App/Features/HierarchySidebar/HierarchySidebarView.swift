@@ -315,7 +315,15 @@ struct HierarchySidebarView: View {
           }
         }
         .listStyle(.sidebar)
-        .scrollIndicators(.hidden)
+        // Disable List's row-diff animation globally. Expanding a Project's
+        // DisclosureGroup inserts several worktree rows which AppKit animates by
+        // default; during that animation the containing Project header briefly
+        // jitters as surrounding rows shift. Snap-toggle is crisper here.
+        .animation(nil, value: store.expandedProjectIDs)
+        // `.scrollIndicators(.hidden)` is a no-op on AppKit-backed Lists — the
+        // NSScrollView wrapping the list keeps its scroller regardless. Reach into
+        // the AppKit hierarchy via a transparent background view and suppress it.
+        .background(ScrollerHider())
       }
     } else {
       noSpacesState
@@ -478,9 +486,9 @@ struct HierarchySidebarView: View {
     .padding(.vertical, 6)
     .padding(.horizontal, 8)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .contentShape(RoundedRectangle(cornerRadius: 6))
+    .contentShape(RoundedRectangle(cornerRadius: 10))
     .background(
-      RoundedRectangle(cornerRadius: 6, style: .continuous)
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
         .fill(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
     )
     .padding(.horizontal, 4)
@@ -1005,6 +1013,29 @@ private struct HeaderOnlyDisclosureGroupStyle: DisclosureGroupStyle {
       .buttonStyle(.plain)
       if configuration.isExpanded {
         configuration.content
+      }
+    }
+  }
+}
+
+/// Transparent background view that walks the AppKit hierarchy up to the
+/// `NSScrollView` that AppKit-backed `List(.sidebar)` uses, and disables its
+/// vertical scroller. `.scrollIndicators(.hidden)` on SwiftUI `List` is ignored on
+/// macOS so we reach into AppKit directly.
+private struct ScrollerHider: NSViewRepresentable {
+  func makeNSView(context: Context) -> NSView { NSView() }
+  func updateNSView(_ nsView: NSView, context: Context) {
+    DispatchQueue.main.async {
+      var ancestor: NSView? = nsView.superview
+      while let view = ancestor {
+        if let scroll = view as? NSScrollView {
+          scroll.hasVerticalScroller = false
+          scroll.hasHorizontalScroller = false
+          scroll.scrollerStyle = .overlay
+          scroll.autohidesScrollers = true
+          return
+        }
+        ancestor = view.superview
       }
     }
   }
