@@ -29,6 +29,10 @@ Unrelated uses of the word "panel" (AppKit's `NSPanel`, `NSOpenPanel`, `NSSavePa
 - **Docs commit was pure prose.** Out of 791 panel mentions in docs, roughly 180 were under `docs/design-docs/` and another 500+ under `skills/touch-code-cli/` — mostly in reference docs and hook documentation. No executable code lived in these files, so the sweep was safe.
 - **CLI verb `tc panel` → `tc pane` required one test-fixture update** in `tcKitTests/ExitCodeTests.swift` which spelled `"panel"` as a magic string.
 - **Command palette IDs** (`panel.new-tab`, `panel.split.right`, …) are currently not persisted anywhere (no keybinding config references them by ID). Safe to rename in lockstep.
+- **BSD `sed` does not support `\b`.** The plan's Concrete Steps showed `sed` commands with `\b` that silently no-op on macOS. Switched to `perl -pi -e` for the actual sweep — works identically and supports `\b` portably.
+- **Guard list for AppKit had to be richer than expected.** The initial per-rule approach (`\bPanel\b`, `\bPanelActionRouter`, …) missed many composite camelCase identifiers (`panelActionRouter`, `panelClosedByTab`, `panelHosts`, `panelLocator`, `panelUUID`, etc.). A blanket `s/Panel/Pane/g; s/panel/pane/g; s/PANEL/PANE/g` with mask-and-restore sentinels for the seven AppKit `NS*Panel` classes converged in a single pass.
+- **Pre-existing test failures are unrelated to the rename.** `SettingsStoreTests.{saveNowCancelsPendingDebouncedWrite, writeFailureLogsButDoesNotMoveFileAside}`, `TabBarFeatureTests.newTabButtonCallsCreateTab`, and `WorktreeDetailFeatureTests.tabBarActionRoutesViaScope` all fail on the baseline commit `881592b` too. None of them touch panel/pane code. Verified by `git stash` + re-running the same tests on HEAD~1.
+- **Codex review produced three hallucinated "must-fix" items.** Each referred to files or identifiers that do not exist in the repo (`apps/mac/touch-code/Resources/Templates/panel-open.json`, `skills/touch-code/SKILL.md`, a `panelState` variable in `SplitViewportFeature.swift`, `PaneGroupPaneCoordinator`). Ground-truth audit: `grep -rn '\bPanel\b\|\bpanel\b\|\bPANEL\b\|TOUCH_CODE_PANEL_ID' apps/mac docs/ skills/` with the standard AppKit/Settings exclusions returns zero hits. The correctly-preserved boundaries (NSPanel, Settings/Panes, Ghostty submodule) were verified cleanly.
 
 ## Decision Log
 
@@ -37,6 +41,8 @@ Unrelated uses of the word "panel" (AppKit's `NSPanel`, `NSOpenPanel`, `NSSavePa
 - **DEC-3 — No deprecation window for `TOUCH_CODE_PANEL_ID`.** Per user directive ("不用考虑兼容性"), the env var is renamed in-place. Shell shims in `skills/touch-code-cli/shims/` change in the same commit as the Swift injection site so a fresh Pane always agrees with its shim.
 - **DEC-4 — Parallelize docs, not code.** The Swift rename is single-threaded because every layer depends on the Core type names. Docs under `docs/**` and `skills/**` are independent `.md` trees and are delegated to two subagents in parallel.
 - **DEC-5 — `tc panel` subcommand renamed without hidden alias.** The original evaluation suggested keeping `panel` as a hidden alias; the user opted out of compatibility, so the alias is removed.
+- **DEC-6 — Use `perl -pi -e` instead of `sed -i ''` for the sweep.** Needed because BSD sed on macOS silently no-ops on `\b` word boundaries. Perl is present on every Mac dev box and supports `\b` and mask-unmask patterns cleanly.
+- **DEC-7 — Accept Codex review as confirmation, not as a punch list.** Codex generated three hallucinated "must-fix" items (files and identifiers that do not exist in the repo). Verified against the working tree; all zero. The rename is considered complete based on the grep-based audit which returns zero residuals across `apps/mac`, `docs/`, `skills/`, and the shim tree.
 
 ## Outcomes & Retrospective
 
