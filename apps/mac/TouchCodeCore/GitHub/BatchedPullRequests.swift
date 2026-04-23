@@ -13,7 +13,7 @@ import Foundation
 /// added") vs. when PR data for the same set has plausibly shifted ("same X branches,
 /// fetch again to refresh CI"). Without this, the invalidator would need a second
 /// source of truth to compare against.
-public nonisolated struct BatchedPullRequests: Equatable, Sendable {
+public nonisolated struct BatchedPullRequests: Equatable, Sendable, Codable {
   public let host: String
   public let owner: String
   public let repo: String

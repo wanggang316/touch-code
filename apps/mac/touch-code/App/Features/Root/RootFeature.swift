@@ -170,6 +170,7 @@ struct RootFeature {
   @Dependency(FinderClient.self) private var finderClient
   @Dependency(ProjectReconciler.self) private var projectReconciler
   @Dependency(SettingsWindowPresenter.self) private var settingsWindowPresenter
+  @Dependency(GitHubSnapshotCacheClient.self) private var gitHubSnapshotCache
 
   /// Child-feature scopes. Split from `body` so Swift's type inference budget stays under
   /// the single-expression limit — each additional top-level `Scope` in `body` adds to the
@@ -267,7 +268,36 @@ struct RootFeature {
               await projectReconciler.reconcileAll()
             }
           }
-          .cancellable(id: CancelID.projectReconcileFocus, cancelInFlight: true)
+          .cancellable(id: CancelID.projectReconcileFocus, cancelInFlight: true),
+
+          // 0013 M4 follow-up: hydrate the GitHub integration's in-memory state from
+          // its on-disk snapshot cache so the sidebar paints PR badges on the first
+          // render pass, without the blank-then-populated flash the user sees when
+          // the first `gh api graphql` round-trip is the only data source. Walks the
+          // live catalog once to build the branch→worktreeID map the reducer needs
+          // to project cached branches into per-Worktree snapshot state.
+          .run { [cache = gitHubSnapshotCache, client = hierarchyClient] send in
+            let cached = cache.load()
+            guard !cached.isEmpty else { return }
+            let catalog = await MainActor.run { client.snapshot() }
+            var pairsByProject: [ProjectID: [GitHubFeature.Action.WorktreeBranchPair]] = [:]
+            for space in catalog.spaces {
+              for project in space.projects {
+                let pairs = project.worktrees.compactMap {
+                  worktree -> GitHubFeature.Action.WorktreeBranchPair? in
+                  guard !worktree.archived, let branch = worktree.branch, !branch.isEmpty
+                  else { return nil }
+                  return GitHubFeature.Action.WorktreeBranchPair(
+                    worktreeID: worktree.id, branch: branch
+                  )
+                }
+                if !pairs.isEmpty { pairsByProject[project.id] = pairs }
+              }
+            }
+            await send(
+              .gitHub(.seedFromCache(cached: cached, branchPairsByProject: pairsByProject))
+            )
+          }
         )
       // Worst case for sidebar context-menu "Open in default editor" is an
       // empty descriptor cache → resolution falls through to

@@ -81,6 +81,17 @@ struct GitHubFeature {
 
   enum Action: Equatable {
     case onAppear
+    /// Hydrates the v2 project-batched state from the on-disk snapshot cache so the
+    /// sidebar paints PR badges immediately on launch instead of flashing empty →
+    /// populated when the first GraphQL fetch returns. Fired once at app bootstrap.
+    /// `branchPairsByProject` is passed so the reducer can project cached
+    /// `byBranch` snapshots into the per-Worktree `state.snapshots` dict that
+    /// views read — caller (RootFeature) walks the catalog once at bootstrap to
+    /// build the mapping.
+    case seedFromCache(
+      cached: [ProjectID: BatchedPullRequests],
+      branchPairsByProject: [ProjectID: [WorktreeBranchPair]]
+    )
     case refreshAvailabilityRequested
     case availabilityProbed(GitHubAvailability, probedAt: Date)
 
@@ -207,6 +218,9 @@ struct GitHubFeature {
   @Dependency(GitHubClient.self) var gitHub
   /// Resolves `(host, owner, repo)` for batched fetches via `git remote get-url origin`.
   @Dependency(GitServiceClient.self) var gitServiceClient
+  /// Persists the project-batched PR cache across launches so the sidebar paints
+  /// immediately instead of flashing empty → populated as GraphQL fetches return.
+  @Dependency(GitHubSnapshotCacheClient.self) var gitHubSnapshotCache
   @Dependency(\.date.now) var now
 
   /// Back-compat alias so existing `gitHubClient` usages compile unchanged. The
@@ -230,6 +244,25 @@ struct GitHubFeature {
           return .none
         }
         return probeAvailabilityEffect()
+
+      case .seedFromCache(let cached, let branchPairsByProject):
+        // Hydrate reducer state from disk. Two writes:
+        //   1. `state.snapshotsByProject` — drives the `projectActivated`
+        //      cache-hit check so we don't immediately over-fetch on bootstrap.
+        //   2. `state.snapshots[worktreeID]` — what views read. Projected from
+        //      each cached `byBranch` entry via the caller-supplied
+        //      `branchPairsByProject` mapping.
+        state.snapshotsByProject.merge(cached) { _, new in new }
+        for (projectID, pairs) in branchPairsByProject {
+          guard let batched = cached[projectID] else { continue }
+          for pair in pairs {
+            if let snap = batched.byBranch[pair.branch] {
+              state.snapshots[pair.worktreeID] = snap
+              state.snapshotLoadedAt[pair.worktreeID] = batched.fetchedAt
+            }
+          }
+        }
+        return .none
 
       case .refreshAvailabilityRequested:
         state.availabilityProbedAt = nil  // bypass cache
@@ -418,9 +451,10 @@ struct GitHubFeature {
         Self.logger.info(
           "projectActivated project=\(projectID.raw.uuidString, privacy: .public) branches=\(pairs.count, privacy: .public) gitRoot=\(gitRoot.path, privacy: .private(mask: .hash))"
         )
-        if state.snapshotsByProject[projectID] != nil,
-          Self.branchSetsMatch(cached: state.snapshotsByProject[projectID], current: pairs) {
-          Self.logger.info("projectActivated cache-hit, skipping fetch")
+        if Self.isCacheFreshAndComplete(
+          cached: state.snapshotsByProject[projectID], current: pairs, now: now
+        ) {
+          Self.logger.info("projectActivated fresh cache hit, skipping fetch")
           return .none
         }
         return enqueueProjectFetch(
@@ -439,6 +473,12 @@ struct GitHubFeature {
         state.inFlightFetchProjects.remove(projectID)
         state.lastErrorByProject[projectID] = nil
         state.snapshotsByProject[projectID] = batched
+        // Best-effort persist to disk so the NEXT app launch hydrates instantly.
+        let snapshotOnDisk = state.snapshotsByProject
+        let cache = gitHubSnapshotCache
+        Task.detached(priority: .utility) {
+          cache.save(snapshotOnDisk)
+        }
         // Project into per-Worktree `snapshots` so v1 view code keeps rendering
         // consistent data while M5 migrates views to read from `snapshotsByProject`.
         // Branches absent from `batched.byBranch` are dropped from `snapshots` so a
@@ -540,21 +580,28 @@ struct GitHubFeature {
     .cancellable(id: CancelID.projectFetch(projectID), cancelInFlight: true)
   }
 
-  /// Returns true iff the cached snapshot's branch set exactly matches the current
-  /// Worktree branch list. Used to skip redundant refreshes on repeat activations of
-  /// the same Project (no new Worktree, no branch change).
-  private static func branchSetsMatch(
+  /// TTL for in-memory freshness. Under this window, repeat `projectActivated`
+  /// dispatches for the same Project skip the fetch. Beyond it (including any
+  /// disk-seeded cache from a prior launch — its `fetchedAt` is hours to days old),
+  /// we always re-fetch so the user's second paint reflects whatever changed on
+  /// GitHub's side since the cache was written. The cached snapshot is still used
+  /// for the first paint — only the fetch decision toggles.
+  static let projectCacheFreshness: TimeInterval = 30
+
+  /// `true` iff the cached snapshot (1) exists, (2) was fetched within the freshness
+  /// window, AND (3) covers exactly the current branch set. A false return means we
+  /// should re-fetch — the cache is either missing, stale, or covers a different
+  /// branch list. In-session repeats hit the cache; on-launch hydration from disk
+  /// always misses on freshness and kicks the silent background refresh.
+  private static func isCacheFreshAndComplete(
     cached: BatchedPullRequests?,
-    current: [Action.WorktreeBranchPair]
+    current: [Action.WorktreeBranchPair],
+    now: Date
   ) -> Bool {
     guard let cached else { return false }
-    // Branches that had a PR are in byBranch; branches that did not are absent. For
-    // cache-validity purposes we consider the full pair list; if ANY Worktree exists
-    // that is not represented by cached.byBranch presence-or-absence, refetch.
-    // Conservative check: compare the current list's branches against
-    // cached.byBranch.keys plus those we've previously decided have no PR.
-    // v2.0 keeps this simple: trigger refresh if the current branch *set* differs from
-    // a cached "seen set" of branches. We store the cached seen set on `BatchedPullRequests`.
+    guard now.timeIntervalSince(cached.fetchedAt) < projectCacheFreshness else {
+      return false
+    }
     let currentBranches = Set(current.map(\.branch))
     return cached.seenBranches == currentBranches
   }
