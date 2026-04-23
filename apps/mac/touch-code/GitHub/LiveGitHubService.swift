@@ -190,12 +190,17 @@ nonisolated struct LiveGitHubService: GitHubService {
   }
 
   /// Minimum env for a gh subprocess. `PATH` + `HOME` come from the parent when available;
-  /// `LC_ALL` is forced so gh's JSON output is stable.
+  /// `LC_ALL` is forced so gh's JSON output is stable. `GH_CONFIG_DIR` + `XDG_CONFIG_HOME`
+  /// are forwarded so `gh` finds its own config store (`hosts.yml` / tokens) — this is the
+  /// config-location family, *not* the credential family (`GH_TOKEN`, `GITHUB_TOKEN`, etc.
+  /// remain stripped so the user's tokens stay in gh's keyring, not the subprocess env).
+  /// See `gh help environment` for the full list.
   nonisolated static func makeEnv() -> [String: String] {
     var env: [String: String] = ["LC_ALL": "en_US.UTF-8"]
     let parent = ProcessInfo.processInfo.environment
-    if let path = parent["PATH"] { env["PATH"] = path }
-    if let home = parent["HOME"] { env["HOME"] = home }
+    for key in ["PATH", "HOME", "GH_CONFIG_DIR", "XDG_CONFIG_HOME"] {
+      if let value = parent[key] { env[key] = value }
+    }
     return env
   }
 
