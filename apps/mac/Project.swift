@@ -193,6 +193,7 @@ let project = Project(
         "touch-code/Hooks",
         "touch-code/Process",
         "touch-code/Git",
+        "touch-code/GitHub",
         "touch-code/Notifications",
       ],
       // git-wt submodule wiring. Pre-script fails the build cleanly when
@@ -249,6 +250,7 @@ let project = Project(
         "touch-code/Tests/Harness",
         "touch-code/Tests/Integration",
         "touch-code/Tests/NotificationsTests",
+        "touch-code/Tests/GitHubTests",
       ],
       dependencies: [
         .target(name: "touch-code"),
