@@ -1,6 +1,6 @@
 # `tc` CLI Reference
 
-`tc` is the command-line interface injected into every touch-code Panel. Entries flagged
+`tc` is the command-line interface injected into every touch-code Pane. Entries flagged
 "planned" document the final surface; their implementations land via the exec plans
 listed in each section.
 
@@ -56,27 +56,27 @@ tc tab next / prev / last [space]
 Trailing args after `--` are treated as a command and its arguments. `--script` sends
 raw shell text exactly as provided.
 
-## `tc panel` — Panel commands _(planned; exec plan 0002)_
+## `tc pane` — Pane commands _(planned; exec plan 0002)_
 
 ```bash
-tc panel new                               # new panel in current tab
-tc panel split <direction>                 # direction: left|right|up|down
-tc panel split --in <tab-or-pane> down -- tail -f /tmp/server.log
-tc panel split --layout keep right         # preserve existing sizing
-tc panel focus [pane]
-tc panel close [pane]
-tc panel resize <direction> <cells> [pane]
-tc panel layout <equalize|tile|main-vertical> [tab]
-tc panel capture [--scope visible|scrollback] [--lines N]
-tc panel notify [pane] --body "…"
+tc pane new                               # new pane in current tab
+tc pane split <direction>                 # direction: left|right|up|down
+tc pane split --in <tab-or-pane> down -- tail -f /tmp/server.log
+tc pane split --layout keep right         # preserve existing sizing
+tc pane focus [pane]
+tc pane close [pane]
+tc pane resize <direction> <cells> [pane]
+tc pane layout <equalize|tile|main-vertical> [tab]
+tc pane capture [--scope visible|scrollback] [--lines N]
+tc pane notify [pane] --body "…"
 ```
 
-## `tc send` / `tc broadcast` — cross-panel messaging _(planned; exec plan 0003)_
+## `tc send` / `tc broadcast` — cross-pane messaging _(planned; exec plan 0003)_
 
 ```bash
-tc panel send <pane> 'echo hello'          # defaults to text + newline
-tc panel send --raw <pane> $'\x03'         # raw bytes, no newline
-tc send <pane> 'pwd'                       # sugar for tc panel send
+tc pane send <pane> 'echo hello'          # defaults to text + newline
+tc pane send --raw <pane> $'\x03'         # raw bytes, no newline
+tc send <pane> 'pwd'                       # sugar for tc pane send
 tc broadcast --tab <tab> 'echo hello'
 tc broadcast --worktree <worktree> 'pwd'
 ```

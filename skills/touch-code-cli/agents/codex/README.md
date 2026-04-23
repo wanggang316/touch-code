@@ -17,7 +17,7 @@ tc skill uninstall --codex
 
 ## Verify
 
-Inside a touch-code Panel, run Codex in non-interactive mode with a `tc`-shaped
+Inside a touch-code Pane, run Codex in non-interactive mode with a `tc`-shaped
 question. The skill's `SKILL.md` should steer Codex toward the `tc` CLI rather than
 shell workarounds.
 

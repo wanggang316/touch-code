@@ -3,14 +3,14 @@
 Same shape as the Claude Code examples, adapted to Codex's conventions. Commands are
 shipped (`tc skill …`) or planned per [references/tc-cli.md](../../references/tc-cli.md).
 
-## 1. List panels and report the count
+## 1. List panes and report the count
 
-> How many panels am I running across all tabs?
+> How many panes am I running across all tabs?
 
 Expected:
 
 ```bash
-tc ls --json | jq '[.spaces[].projects[].worktrees[].tabs[].panels[]] | length'
+tc ls --json | jq '[.spaces[].projects[].worktrees[].tabs[].panes[]] | length'
 ```
 
 ## 2. Start a new tab with the test watcher
@@ -19,11 +19,11 @@ tc ls --json | jq '[.spaces[].projects[].worktrees[].tabs[].panels[]] | length'
 
 Expected: `tc tab new --focus -- npm test -- --watch`.
 
-## 3. Send a command to a specific panel
+## 3. Send a command to a specific pane
 
-> Send `git status` to panel 1/2/1/3/2.
+> Send `git status` to pane 1/2/1/3/2.
 
-Expected: `tc panel send 1/2/1/3/2 'git status'`. Codex should note the default newline.
+Expected: `tc pane send 1/2/1/3/2 'git status'`. Codex should note the default newline.
 
 ## 4. Remove a worktree, keeping the directory
 

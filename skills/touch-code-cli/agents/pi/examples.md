@@ -5,7 +5,7 @@ and Codex examples.
 
 ## 1. Install into a fresh pi cache
 
-From inside a touch-code Panel, with pi already installed and on `$PATH`:
+From inside a touch-code Pane, with pi already installed and on `$PATH`:
 
 ```bash
 tc skill install --pi
@@ -19,11 +19,11 @@ pi list | grep touch-code-skill
 Expected: `tc tab new`, with pi referencing `--focus` and `--in` as options per
 [references/tc-cli.md](../../references/tc-cli.md).
 
-## 3. Send a command to the current Panel via pi
+## 3. Send a command to the current Pane via pi
 
-> Send `clear` to the panel I'm in.
+> Send `clear` to the pane I'm in.
 
-Expected: `tc panel send "$TOUCH_CODE_PANEL_ID" 'clear'` — pi should use the ambient
+Expected: `tc pane send "$TOUCH_CODE_PANE_ID" 'clear'` — pi should use the ambient
 env var rather than hardcoding a UUID.
 
 ## 4. Get the skill bundle path

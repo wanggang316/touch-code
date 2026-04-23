@@ -18,14 +18,14 @@ tc skill uninstall --claude-code
 
 ## Verify
 
-Open Claude Code inside a touch-code Panel. The skill appears in `/skills` and any
+Open Claude Code inside a touch-code Pane. The skill appears in `/skills` and any
 `tc`-shaped question routes through it. Sanity-check:
 
 ```
-> how do I split this panel?
+> how do I split this pane?
 ```
 
-Claude should answer with `tc panel split …` rather than shell scripting from memory.
+Claude should answer with `tc pane split …` rather than shell scripting from memory.
 
 ## Hook installation _(planned; exec plan 0003)_
 

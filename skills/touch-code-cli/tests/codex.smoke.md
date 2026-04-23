@@ -1,6 +1,6 @@
 # Codex CLI — Tier-B Smoke Test
 
-End-to-end sanity check that a fresh Codex session, running inside a touch-code Panel
+End-to-end sanity check that a fresh Codex session, running inside a touch-code Pane
 with the skill installed, produces `tc`-shaped answers.
 
 Run via `apps/mac/scripts/skill-tier-b-codex.sh` (or `make mac-skill-tier-b`).

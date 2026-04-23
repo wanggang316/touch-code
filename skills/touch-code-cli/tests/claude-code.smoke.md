@@ -1,7 +1,7 @@
 # Claude Code — Tier-B Smoke Test
 
 End-to-end sanity check that a fresh Claude Code session, running inside a touch-code
-Panel with the skill installed, produces `tc`-shaped answers to a `tc`-shaped prompt.
+Pane with the skill installed, produces `tc`-shaped answers to a `tc`-shaped prompt.
 
 Run via `apps/mac/scripts/skill-tier-b-claude.sh` (or the `make mac-skill-tier-b`
 target which orchestrates all three agents).
@@ -25,7 +25,7 @@ the touch-code skill installed? Respond with only the command on the last line.
    otherwise).
 
 The prompt deliberately targets the **currently-shipped** `tc skill` surface so this
-test can gate the v0.1.0 release. Once `tc ls` / `tc panel` / `tc worktree` ship via
+test can gate the v0.1.0 release. Once `tc ls` / `tc pane` / `tc worktree` ship via
 exec plans 0002-0003, extend this file with additional prompts that exercise those
 surfaces.
 

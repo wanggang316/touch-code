@@ -28,7 +28,7 @@ tag-pinning flow.
 
 ## Verify
 
-Inside a touch-code Panel, run pi non-interactively with a `tc`-shaped question. pi's
+Inside a touch-code Pane, run pi non-interactively with a `tc`-shaped question. pi's
 `package.json` declares `pi.skills` so it loads `SKILL.md` automatically.
 
 ## Uninstall

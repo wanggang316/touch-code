@@ -1,15 +1,15 @@
 # Claude Code — Example Prompts
 
 These prompts are designed to exercise the skill. Commands Claude returns reference
-shipped (`tc skill …`) and planned (`tc panel …`, `tc worktree …`) surfaces as
+shipped (`tc skill …`) and planned (`tc pane …`, `tc worktree …`) surfaces as
 documented in [references/tc-cli.md](../../references/tc-cli.md).
 
-## 1. Split the current panel and run a command
+## 1. Split the current pane and run a command
 
-> Open htop in a new panel to the right.
+> Open htop in a new pane to the right.
 
-Expected: a `tc panel split right -- htop` invocation. Claude should explain
-`--in <pane>` is not needed because ambient targeting picks up the current Panel.
+Expected: a `tc pane split right -- htop` invocation. Claude should explain
+`--in <pane>` is not needed because ambient targeting picks up the current Pane.
 
 ## 2. Create a worktree for a feature branch and open it
 
@@ -27,7 +27,7 @@ Or, equivalently, `tc open --in cursor --worktree <uuid>` using the UUID emitted
 
 ## 3. Broadcast a command across a Tab
 
-> Send `pwd` to every panel in my current Tab.
+> Send `pwd` to every pane in my current Tab.
 
 Expected: `tc broadcast --tab "$TOUCH_CODE_TAB_ID" 'pwd'` — Claude should use the
 ambient env var rather than hardcoding a selector.

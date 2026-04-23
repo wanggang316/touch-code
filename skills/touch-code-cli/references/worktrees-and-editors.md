@@ -1,7 +1,7 @@
 # Worktrees and External Editors
 
 Worktrees are first-class in touch-code: each is a concrete git-worktree directory with
-its own branch, Tabs, and Panels. The app orchestrates them; `tc` talks to the app.
+its own branch, Tabs, and Panes. The app orchestrates them; `tc` talks to the app.
 
 All commands in this reference are _planned (exec plan 0002 for worktree lifecycle,
 exec plan 0003 for `tc open`)_ unless noted.
@@ -29,12 +29,12 @@ tc worktree ls --json        # includes path, branch, selector, UUID
 ## Focus / switch
 
 ```bash
-tc worktree focus            # ambient (no-op unless used outside a Worktree Panel)
+tc worktree focus            # ambient (no-op unless used outside a Worktree Pane)
 tc worktree focus 1/2/3
 tc worktree focus <worktree-uuid>
 ```
 
-Focusing a Worktree also focuses its selected Tab and Panel. Use this to jump between
+Focusing a Worktree also focuses its selected Tab and Pane. Use this to jump between
 worktrees in a script.
 
 ## Remove

@@ -1,6 +1,6 @@
 # Agent Hooks
 
-touch-code installs event-bridge hooks into each coding agent so Panel-level events
+touch-code installs event-bridge hooks into each coding agent so Pane-level events
 (assistant finished responding, waiting for input, tool call denied, etc.) surface as
 OS notifications and the in-app notification inbox.
 
@@ -48,13 +48,13 @@ automatically.
 
 ## What happens inside touch-code
 
-A received hook event is matched against the Panel that emitted it (the agent CLI sets
-`TOUCH_CODE_PANEL_ID` when spawned inside touch-code). Events then:
+A received hook event is matched against the Pane that emitted it (the agent CLI sets
+`TOUCH_CODE_PANE_ID` when spawned inside touch-code). Events then:
 
-1. Trigger any user-configured hook subscriptions (per-Panel or global) — see the app's
+1. Trigger any user-configured hook subscriptions (per-Pane or global) — see the app's
    settings.
 2. Surface as an OS notification (if the event type is `notification`-classed).
-3. Get recorded in the in-app inbox with per-Panel provenance.
+3. Get recorded in the in-app inbox with per-Pane provenance.
 
 ## Debugging
 

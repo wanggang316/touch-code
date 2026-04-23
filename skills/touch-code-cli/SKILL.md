@@ -1,11 +1,11 @@
 ---
 name: touch-code
-description: Control touch-code spaces, projects, worktrees, tabs, and panels with `tc`.
+description: Control touch-code spaces, projects, worktrees, tabs, and panes with `tc`.
 ---
 
 Use this skill when you need to control touch-code from a terminal that is already
-running inside a touch-code Panel. The `tc` CLI is injected into every Panel's `PATH`;
-commands act on the ambient Panel unless you pass an explicit target.
+running inside a touch-code Pane. The `tc` CLI is injected into every Pane's `PATH`;
+commands act on the ambient Pane unless you pass an explicit target.
 
 ## Terminology
 
@@ -14,12 +14,12 @@ commands act on the ambient Panel unless you pass an explicit target.
   confused with macOS "Spaces" (virtual desktops).
 - **Project** — a single git repository tracked by touch-code; lives inside one Space.
 - **Worktree** — a `git worktree` of a Project with its own directory, branch checkout,
-  and Tab/Panel layout. Switching Worktrees switches directories, not just `HEAD`.
-- **Tab** — a named grouping of Panels inside a Worktree; one Tab is visible at a time
+  and Tab/Pane layout. Switching Worktrees switches directories, not just `HEAD`.
+- **Tab** — a named grouping of Panes inside a Worktree; one Tab is visible at a time
   per Worktree. Roughly "one Tab per concurrent task" (dev server, agent, test watcher).
-- **Panel** — a single terminal session rendered by libghostty; lives inside a Tab.
-  Multiple Panels per Tab form split layouts.
-- **Hook** — a programmable callback fired at Panel / Tab / Worktree lifecycle events.
+- **Pane** — a single terminal session rendered by libghostty; lives inside a Tab.
+  Multiple Panes per Tab form split layouts.
+- **Hook** — a programmable callback fired at Pane / Tab / Worktree lifecycle events.
 
 ## Fast Start
 
@@ -29,13 +29,13 @@ Discover the current hierarchy:
 tc ls --json
 ```
 
-Create a new worktree, drop into a tab running a command, and send text to a panel
-(`tc send` is sugar for `tc panel send` — both accept a selector or UUID):
+Create a new worktree, drop into a tab running a command, and send text to a pane
+(`tc send` is sugar for `tc pane send` — both accept a selector or UUID):
 
 ```bash
 tc worktree new exp/feature-x
 tc tab new --focus -- npm run dev
-tc panel split right -- claude
+tc pane split right -- claude
 tc send 1/2/2 'echo hello'
 ```
 
@@ -60,7 +60,7 @@ suppress human-facing text.
 ## Deep-Dive References
 
 - [Hierarchy model](references/hierarchy-model.md) — Space / Project / Worktree / Tab /
-  Panel with selector syntax and ambient env vars.
+  Pane with selector syntax and ambient env vars.
 - [Targeting and selectors](references/targeting-and-selectors.md) — selector forms,
   UUIDs, `--in`, creation JSON.
 - [`tc` CLI reference](references/tc-cli.md) — every shipped and planned subcommand
