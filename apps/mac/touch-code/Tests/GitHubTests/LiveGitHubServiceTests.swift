@@ -148,21 +148,6 @@ struct LiveGitHubServiceTests {
     }
   }
 
-  // MARK: - checks
-
-  @Test
-  func checksHappyPath() async throws {
-    let data = try Self.loadFixture("gh-pr-checks-mixed")
-    let runner = RecordingCommandRunner(outcomes: [
-      .exited(code: 0, stdout: data, stderr: Data(), stdoutOverflow: false)
-    ])
-    let service = Self.makeService(runner: runner)
-    let checks = try await service.checks(number: 1234, worktreePath: Self.worktreePath)
-    #expect(checks.count == 5)
-    let calls = await runner.calls
-    #expect(calls.first?.arguments.prefix(3) == ["pr", "checks", "1234"])
-  }
-
   // MARK: - latestWorkflowRun
 
   @Test
@@ -239,12 +224,14 @@ struct LiveGitHubServiceTests {
 
   @Test
   func envIsAllowlistedToPathHomeAndForcedLC() async throws {
+    // Exercises the env-filter via any `runExpecting` call — pullRequest is convenient
+    // because gh-pr-view-open is already a first-class fixture.
     let runner = RecordingCommandRunner(outcomes: [
-      .exited(code: 0, stdout: try Self.loadFixture("gh-pr-checks-none"),
+      .exited(code: 0, stdout: try Self.loadFixture("gh-pr-view-open"),
               stderr: Data(), stdoutOverflow: false)
     ])
     let service = Self.makeService(runner: runner)
-    _ = try await service.checks(number: 1, worktreePath: Self.worktreePath)
+    _ = try await service.pullRequest(branch: "feature/github01", worktreePath: Self.worktreePath)
     let calls = await runner.calls
     let env = try #require(calls.first?.env)
     #expect(env["LC_ALL"] == "en_US.UTF-8")

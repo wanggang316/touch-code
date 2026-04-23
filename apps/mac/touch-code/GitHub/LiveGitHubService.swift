@@ -86,17 +86,6 @@ nonisolated struct LiveGitHubService: GitHubService {
     }
   }
 
-  func checks(number: Int, worktreePath: URL) async throws -> [CheckResult] {
-    let cmd = GhCommand.pullRequestChecks(number: number)
-    let outcome = try await runExpecting(cmd, cwd: worktreePath)
-    switch outcome {
-    case .success(let data):
-      return try JSONOutputParsers.parseChecks(data)
-    case .noResult:
-      return []
-    }
-  }
-
   func latestWorkflowRun(branch: String, worktreePath: URL) async throws -> WorkflowRun? {
     let cmd = GhCommand.runListLatest(branch: branch)
     let outcome = try await runExpecting(cmd, cwd: worktreePath)

@@ -35,17 +35,6 @@ struct GhCommandTests {
     #expect(result.expectedExitCodes == [0, 1])
   }
 
-  @Test
-  func pullRequestChecksArgv() {
-    let result = GhCommand.pullRequestChecks(number: 42)
-    #expect(result.arguments[0..<3] == ["pr", "checks", "42"])
-    #expect(result.arguments[3] == "--json")
-    let fields = result.arguments[4]
-    for required in ["name", "state", "bucket", "startedAt", "completedAt", "link", "workflow"] {
-      #expect(fields.contains(required))
-    }
-    #expect(result.expectedExitCodes == [0])
-  }
 
   @Test
   func runListLatestArgv() {

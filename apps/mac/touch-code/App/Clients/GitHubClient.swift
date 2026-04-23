@@ -11,7 +11,6 @@ import TouchCodeCore
 nonisolated struct GitHubClient: Sendable {
   var availability: @Sendable () async -> GitHubAvailability
   var pullRequest: @Sendable (_ branch: String, _ worktreePath: URL) async throws -> PullRequestSnapshot?
-  var checks: @Sendable (_ number: Int, _ worktreePath: URL) async throws -> [CheckResult]
   var latestWorkflowRun: @Sendable (_ branch: String, _ worktreePath: URL) async throws -> WorkflowRun?
   var merge: @Sendable (_ number: Int, _ strategy: MergeStrategy, _ worktreePath: URL) async throws -> Void
   var close: @Sendable (_ number: Int, _ worktreePath: URL) async throws -> Void
@@ -30,7 +29,6 @@ extension GitHubClient {
     GitHubClient(
       availability: { await service.availability() },
       pullRequest: { branch, path in try await service.pullRequest(branch: branch, worktreePath: path) },
-      checks: { number, path in try await service.checks(number: number, worktreePath: path) },
       latestWorkflowRun: { branch, path in try await service.latestWorkflowRun(branch: branch, worktreePath: path) },
       merge: { number, strategy, path in
         try await service.merge(number: number, strategy: strategy, worktreePath: path)
@@ -53,7 +51,6 @@ extension GitHubClient: DependencyKey {
   static let testValue: GitHubClient = GitHubClient(
     availability: unimplemented("GitHubClient.availability", placeholder: .unknown),
     pullRequest: unimplemented("GitHubClient.pullRequest", placeholder: nil),
-    checks: unimplemented("GitHubClient.checks", placeholder: []),
     latestWorkflowRun: unimplemented("GitHubClient.latestWorkflowRun", placeholder: nil),
     merge: unimplemented("GitHubClient.merge"),
     close: unimplemented("GitHubClient.close"),

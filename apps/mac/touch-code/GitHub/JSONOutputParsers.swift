@@ -147,46 +147,6 @@ nonisolated enum JSONOutputParsers {
     }
   }
 
-  // MARK: - gh pr checks
-
-  /// Parses `gh pr checks --json ...`. Each element's single `state` field is split into
-  /// the DTO's (`CheckStatus`, `CheckConclusion?`) pair. `durationSeconds` is computed
-  /// from `startedAt` + `completedAt` when both are present.
-  static func parseChecks(_ data: Data) throws -> [CheckResult] {
-    struct WireCheck: Decodable {
-      var name: String?
-      var state: String?
-      var startedAt: Date?
-      var completedAt: Date?
-      var link: URL?
-    }
-    do {
-      let decoder = JSONDecoder()
-      decoder.dateDecodingStrategy = .iso8601WithFractionalSeconds
-      let wires = try decoder.decode([WireCheck].self, from: data)
-      return wires.compactMap { wire -> CheckResult? in
-        guard let name = wire.name, let stateString = wire.state else { return nil }
-        let (status, conclusion) = splitCheckState(stateString)
-        let duration: Int? = {
-          guard let s = wire.startedAt, let c = wire.completedAt else { return nil }
-          let seconds = Int(c.timeIntervalSince(s))
-          return seconds >= 0 ? seconds : nil
-        }()
-        return CheckResult(
-          name: name,
-          status: status,
-          conclusion: conclusion,
-          detailsURL: wire.link,
-          startedAt: wire.startedAt,
-          completedAt: wire.completedAt,
-          durationSeconds: duration
-        )
-      }
-    } catch {
-      throw GitHubError.other("pr checks decode: \(error)")
-    }
-  }
-
   /// Maps `gh pr checks`' collapsed `state` to the split status + conclusion pair. Unknown
   /// tokens fall through to `.inProgress` with no conclusion so the UI shows "pending" —
   /// better than failing the whole check list on a single unrecognised value.

@@ -78,42 +78,7 @@ struct JSONOutputParsersTests {
     #expect(snapshot == nil)
   }
 
-  // MARK: - gh pr checks
-
-  @Test
-  func parseChecksMixedSplitsStateCorrectly() throws {
-    let data = try Self.loadFixture("gh-pr-checks-mixed")
-    let checks = try JSONOutputParsers.parseChecks(data)
-    #expect(checks.count == 5)
-
-    let byName = Dictionary(uniqueKeysWithValues: checks.map { ($0.name, $0) })
-    let build = try #require(byName["build (macOS)"])
-    #expect(build.status == .completed)
-    #expect(build.conclusion == .success)
-    #expect(build.durationSeconds == 102)  // 05:01:42 - 05:00:00
-
-    let ui = try #require(byName["ui-snapshots (macOS)"])
-    #expect(ui.status == .completed)
-    #expect(ui.conclusion == .failure)
-
-    let lint = try #require(byName["lint"])
-    #expect(lint.status == .queued)
-    #expect(lint.conclusion == nil)
-    #expect(lint.completedAt == nil)
-    #expect(lint.durationSeconds == nil)
-
-    let lockfile = try #require(byName["lockfile"])
-    #expect(lockfile.status == .completed)
-    #expect(lockfile.conclusion == .skipped)
-    #expect(lockfile.startedAt == nil)
-  }
-
-  @Test
-  func parseChecksEmpty() throws {
-    let data = try Self.loadFixture("gh-pr-checks-none")
-    let checks = try JSONOutputParsers.parseChecks(data)
-    #expect(checks.isEmpty)
-  }
+  // MARK: - splitCheckState (shared between retired parseChecks and statusCheckRollup)
 
   @Test
   func splitCheckStateUnknownFallsBackToPending() {

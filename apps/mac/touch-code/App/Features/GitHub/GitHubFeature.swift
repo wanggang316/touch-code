@@ -23,11 +23,10 @@ struct GitHubFeature {
     var snapshots: [WorktreeID: PullRequestSnapshot] = [:]
     var snapshotLoadedAt: [WorktreeID: Date] = [:]
 
-    /// Check list keyed by PR number — a Worktree's checks are fetched alongside its
-    /// snapshot when the popover opens.
-    var checks: [Int: [CheckResult]] = [:]
-
     /// Latest workflow run keyed by PR number. Seeds the "Rerun failed jobs" action.
+    /// Open Question 4 in the design doc tracks whether this separate fetch can be
+    /// collapsed into the batched query (extract runID from `detailsUrl`); for now it
+    /// remains a popover-time single-call lookup.
     var latestWorkflowRuns: [Int: WorkflowRun] = [:]
 
     var loading: Set<WorktreeID> = []
@@ -88,7 +87,6 @@ struct GitHubFeature {
     case worktreeBecameVisible(WorktreeID, branch: String, worktreePath: URL)
     case refreshRequested(WorktreeID, branch: String, worktreePath: URL)
     case snapshotLoaded(WorktreeID, TaskResult<PullRequestSnapshot?>)
-    case checksLoaded(prNumber: Int, TaskResult<[CheckResult]>)
     case workflowRunLoaded(prNumber: Int, TaskResult<WorkflowRun?>)
 
     case presentPopover(WorktreeID, worktreePath: URL)
@@ -185,7 +183,6 @@ struct GitHubFeature {
   nonisolated enum CancelID: Hashable, Sendable {
     case availabilityRefresh
     case snapshot(WorktreeID)
-    case checks(prNumber: Int)
     case workflowRun(prNumber: Int)
     /// One-cancellation-slot for all mutations on a Worktree so a second click while an
     /// operation is in flight cancels the prior run rather than racing it.
@@ -286,16 +283,6 @@ struct GitHubFeature {
         state.lastError[worktreeID] = ghError
         return .none
 
-      case .checksLoaded(let prNumber, .success(let checks)):
-        state.checks[prNumber] = checks
-        return .none
-
-      case .checksLoaded(let prNumber, .failure):
-        // Keep any previously-loaded checks on error; the popover surfaces the error via
-        // lastError at the Worktree level instead.
-        state.checks[prNumber] = state.checks[prNumber] ?? []
-        return .none
-
       case .workflowRunLoaded(let prNumber, .success(let run)):
         if let run {
           state.latestWorkflowRuns[prNumber] = run
@@ -310,14 +297,13 @@ struct GitHubFeature {
       case .presentPopover(let worktreeID, let worktreePath):
         state.popoverTarget = worktreeID
         state.worktreePaths[worktreeID] = worktreePath
-        // Kick off checks + latest workflow run on popover open. Uses the cached snapshot
-        // to know the PR number and branch.
+        // Checks travel on the snapshot now (0013 M5) — the only thing popover-open
+        // still needs to fetch is the latest workflow run, which seeds the "Rerun
+        // failed jobs" button with a runID. Dropping it is tracked as Open Question
+        // 4 in the design doc (parse runID from `checkRollup[].detailsURL`).
         guard let snapshot = state.snapshots[worktreeID] else { return .none }
-        return .merge(
-          checksFetchEffect(prNumber: snapshot.number, worktreePath: worktreePath),
-          workflowRunFetchEffect(
-            prNumber: snapshot.number, branch: snapshot.headRefName, worktreePath: worktreePath
-          )
+        return workflowRunFetchEffect(
+          prNumber: snapshot.number, branch: snapshot.headRefName, worktreePath: worktreePath
         )
 
       case .dismissPopover:
@@ -574,16 +560,6 @@ struct GitHubFeature {
       await send(.snapshotLoaded(worktreeID, result))
     }
     .cancellable(id: CancelID.snapshot(worktreeID), cancelInFlight: true)
-  }
-
-  private func checksFetchEffect(prNumber: Int, worktreePath: URL) -> Effect<Action> {
-    .run { send in
-      let result = await TaskResult<[CheckResult]> {
-        try await gitHub.checks(prNumber, worktreePath)
-      }
-      await send(.checksLoaded(prNumber: prNumber, result))
-    }
-    .cancellable(id: CancelID.checks(prNumber: prNumber), cancelInFlight: true)
   }
 
   private func workflowRunFetchEffect(

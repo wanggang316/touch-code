@@ -32,15 +32,6 @@ nonisolated enum GhCommand {
     return (["pr", "view", branch, "--json", fields], [0, 1])
   }
 
-  /// `gh pr checks <number> --json <fields>`. Exit 0 → checks exist; other codes are
-  /// treated as fatal by the caller. `gh` collapses status + conclusion into a single
-  /// `state` field — the parser splits them back out when building `CheckResult`.
-  static func pullRequestChecks(number: Int) -> (arguments: [String], expectedExitCodes: Set<Int32>) {
-    let fields = ["name", "state", "bucket", "startedAt", "completedAt", "link", "workflow"]
-      .joined(separator: ",")
-    return (["pr", "checks", String(number), "--json", fields], [0])
-  }
-
   /// `gh run list --branch <branch> --limit 1 --json <fields>`. Returns the latest
   /// workflow run for the branch. Empty array → no runs yet (caller returns nil).
   static func runListLatest(branch: String) -> (arguments: [String], expectedExitCodes: Set<Int32>) {

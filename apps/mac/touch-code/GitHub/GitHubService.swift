@@ -22,9 +22,6 @@ nonisolated protocol GitHubService: Sendable {
   /// decode error, auth error).
   func pullRequest(branch: String, worktreePath: URL) async throws -> PullRequestSnapshot?
 
-  /// Returns the list of checks for the PR number. Empty list when no CI exists.
-  func checks(number: Int, worktreePath: URL) async throws -> [CheckResult]
-
   /// Returns the most-recent workflow run for the branch, or `nil` when no run exists.
   func latestWorkflowRun(branch: String, worktreePath: URL) async throws -> WorkflowRun?
 

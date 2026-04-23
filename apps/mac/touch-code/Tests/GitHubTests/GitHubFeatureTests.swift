@@ -181,18 +181,16 @@ struct GitHubFeatureTests {
   // MARK: - popover
 
   @Test
-  func presentPopoverWithCachedSnapshotFetchesChecksAndRun() async {
+  func presentPopoverWithCachedSnapshotFetchesWorkflowRun() async {
+    // 0013 M6 retired the per-popover `gh pr checks` fetch; check data now travels
+    // with the snapshot. The popover still fetches the latest workflow run to seed
+    // the "Rerun failed jobs" button — that's all `presentPopover` triggers now.
     let wid = WorktreeID()
     let snap = Self.stubSnapshot(number: 42, headRefName: "feature/github01")
-    let check = CheckResult(name: "build", status: .completed, conclusion: .success)
     let run = Self.stubRun(runID: 99)
     var seed = GitHubFeature.State()
     seed.snapshots[wid] = snap
     let store = Self.makeStore(initialState: seed) { client in
-      client.checks = { prNumber, _ in
-        #expect(prNumber == 42)
-        return [check]
-      }
       client.latestWorkflowRun = { branch, _ in
         #expect(branch == "feature/github01")
         return run
@@ -201,9 +199,6 @@ struct GitHubFeatureTests {
     await store.send(.presentPopover(wid, worktreePath: Self.path)) {
       $0.popoverTarget = wid
       $0.worktreePaths[wid] = Self.path
-    }
-    await store.receive(.checksLoaded(prNumber: 42, .success([check]))) {
-      $0.checks[42] = [check]
     }
     await store.receive(.workflowRunLoaded(prNumber: 42, .success(run))) {
       $0.latestWorkflowRuns[42] = run
