@@ -289,6 +289,13 @@ struct RootFeature {
       case .selectionChanged(let selection):
         let priorProjectID = state.selection.projectID
         state.selection = selection
+        // Auto-seed a Tab + Panel when the selected Worktree has none so
+        // switching to a brand-new Worktree immediately shows a live
+        // terminal rooted at `worktree.path` instead of a placeholder that
+        // forces the user to click twice. Safe to run unconditionally on
+        // every selection change: createTab/openPanel are no-ops when the
+        // Worktree already has tabs/panels (we gate on .isEmpty below).
+        autoSeedTabAndPanelIfNeeded(for: selection)
         // Mirror the selection's active tab into the split viewport so M5
         // lazy-surface lifecycle can react without reading HierarchyManager
         // from a reducer. Tab is resolved on-the-fly from the catalog.
@@ -733,6 +740,41 @@ struct RootFeature {
       }
     }
     return nil
+  }
+
+  /// Ensures the selected Worktree has at least one Tab, and the active
+  /// Tab has at least one Panel. Both spawn with `cwd = worktree.path` so
+  /// the terminal lands in the correct directory. Idempotent: skips when
+  /// the Worktree already has tabs / the tab already has panels.
+  ///
+  /// Runs on every `.selectionChanged`. Mutations do not change the
+  /// selection tuple `(space, project, worktree)`, so the downstream
+  /// stream does not re-fire and there is no loop.
+  private func autoSeedTabAndPanelIfNeeded(for selection: HierarchySelection) {
+    guard
+      let spaceID = selection.spaceID,
+      let projectID = selection.projectID,
+      let worktreeID = selection.worktreeID
+    else { return }
+    let catalog = hierarchyClient.snapshot()
+    guard
+      let space = catalog.spaces.first(where: { $0.id == spaceID }),
+      let project = space.projects.first(where: { $0.id == projectID }),
+      let worktree = project.worktrees.first(where: { $0.id == worktreeID })
+    else { return }
+    let cwd = worktree.path
+    if worktree.tabs.isEmpty {
+      guard let tabID = try? hierarchyClient.createTab(worktreeID, projectID, spaceID, nil)
+      else { return }
+      _ = try? hierarchyClient.openPanel(tabID, worktreeID, projectID, spaceID, cwd, nil)
+      return
+    }
+    let activeTabID = worktree.selectedTabID ?? worktree.tabs.first?.id
+    guard let activeTabID,
+      let tab = worktree.tabs.first(where: { $0.id == activeTabID }),
+      tab.panels.isEmpty
+    else { return }
+    _ = try? hierarchyClient.openPanel(activeTabID, worktreeID, projectID, spaceID, cwd, nil)
   }
 
   /// Resolve the active tab for a selection using the snapshot from the

@@ -333,6 +333,11 @@ struct HierarchySidebarFeature {
         return .none
 
       case .worktreeRowTapped(let worktreeID, let projectID, let spaceID):
+        // Switching worktrees across Projects must also flip
+        // `space.selectedProjectID` — otherwise `currentSelection()` keeps
+        // reading the previous Project's `selectedWorktreeID` and the
+        // detail column never refreshes.
+        try? hierarchyClient.selectProject(projectID, spaceID)
         try? hierarchyClient.selectWorktree(worktreeID, projectID, spaceID)
         // Update Space.lastActiveWorktreeID so returning to this Space later
         // restores this specific Worktree. Skip the write if the current

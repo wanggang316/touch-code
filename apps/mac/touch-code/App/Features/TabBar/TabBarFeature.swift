@@ -26,7 +26,20 @@ struct TabBarFeature {
     Reduce { _, action in
       switch action {
       case .newTabButtonTapped(let worktreeID, let projectID, let spaceID):
-        _ = try? hierarchyClient.createTab(worktreeID, projectID, spaceID, nil)
+        guard let tabID = try? hierarchyClient.createTab(worktreeID, projectID, spaceID, nil)
+        else { return .none }
+        // Resolve worktree.path from the catalog so the auto-spawned panel
+        // starts in the Worktree's directory instead of `$HOME`. Silent no-op
+        // if the Worktree vanished between createTab and this lookup.
+        let catalog = hierarchyClient.snapshot()
+        guard
+          let worktree = catalog.spaces.first(where: { $0.id == spaceID })?
+            .projects.first(where: { $0.id == projectID })?
+            .worktrees.first(where: { $0.id == worktreeID })
+        else { return .none }
+        _ = try? hierarchyClient.openPanel(
+          tabID, worktreeID, projectID, spaceID, worktree.path, nil
+        )
         return .none
 
       case .tabButtonTapped(let tabID, let worktreeID, let projectID, let spaceID):

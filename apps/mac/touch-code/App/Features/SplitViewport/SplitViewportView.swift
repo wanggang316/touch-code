@@ -51,12 +51,24 @@ struct SplitViewportView: View {
           .newPanelButtonTapped(
             inTab: tabID, inWorktree: worktreeID,
             inProject: projectID, inSpace: spaceID,
-            workingDirectory: NSHomeDirectory()
+            workingDirectory: currentWorktreePath() ?? NSHomeDirectory()
           ))
       }
       .buttonStyle(.borderedProminent)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+
+  /// Looks up the current Worktree's absolute path from the catalog so the
+  /// fallback "New Panel" button spawns a terminal rooted at the Worktree
+  /// directory. Returns nil if the Worktree has been pruned between render
+  /// and tap — the caller falls back to `$HOME`.
+  private func currentWorktreePath() -> String? {
+    hierarchyManager.catalog
+      .spaces.first(where: { $0.id == spaceID })?
+      .projects.first(where: { $0.id == projectID })?
+      .worktrees.first(where: { $0.id == worktreeID })?
+      .path
   }
 
   private func currentTab() -> TouchCodeCore.Tab? {
