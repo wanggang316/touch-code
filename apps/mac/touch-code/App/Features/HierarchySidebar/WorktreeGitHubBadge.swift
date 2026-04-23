@@ -51,7 +51,12 @@ struct WorktreeGitHubBadge<PopoverContent: View>: View {
           }
         )
       } else {
-        EmptyView()
+        // 0-pt anchor so `.task`/`.popover`/`.onHover` modifiers below have a concrete
+        // view to attach to even before any PR data has loaded. `EmptyView()` is a
+        // structural placeholder — SwiftUI never mounts it, which silently suppresses
+        // every modifier chained after it, including the `.task` that kicks off the
+        // first `worktreeBecameVisible` fetch. That's why the row stayed grey forever.
+        Color.clear.frame(width: 0, height: 0)
       }
     }
     .onHover { hovering in
