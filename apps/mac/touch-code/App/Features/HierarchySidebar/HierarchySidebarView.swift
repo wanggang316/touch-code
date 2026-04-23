@@ -315,14 +315,6 @@ struct HierarchySidebarView: View {
           }
         }
         .listStyle(.sidebar)
-        // Disable List's row-diff animation globally. Expanding a Project's
-        // DisclosureGroup inserts several worktree rows which AppKit animates by
-        // default; during that animation the containing Project header briefly
-        // jitters as surrounding rows shift. Snap-toggle is crisper here.
-        .animation(nil, value: store.expandedProjectIDs)
-        // `.scrollIndicators(.hidden)` is a no-op on AppKit-backed Lists — the
-        // NSScrollView wrapping the list keeps its scroller regardless. Reach into
-        // the AppKit hierarchy via a transparent background view and suppress it.
         .background(ScrollerHider())
       }
     } else {
@@ -384,6 +376,7 @@ struct HierarchySidebarView: View {
       return project.worktrees.contains(where: { $0.id == worktreeID })
     }
 
+    let isExpanded = store.expandedProjectIDs.contains(project.id)
     return Group {
       switch project.loadState {
       case .failed(let reason):
@@ -403,23 +396,16 @@ struct HierarchySidebarView: View {
           }
         )
       case .loading, .ready:
-        DisclosureGroup(
-          isExpanded: Binding(
-            get: { store.expandedProjectIDs.contains(project.id) },
-            set: { _ in store.send(.toggleProjectExpansion(project.id)) }
-          )
-        ) {
-          // Filter archived worktrees out of the main list — they surface
-          // through the Archived Worktrees sheet instead.
-          ForEach(Self.orderedVisibleWorktrees(in: project)) { worktree in
-            worktreeRow(
-              worktree,
-              in: project,
-              space: space,
-              panelIndex: panelIndex,
-              inbox: inbox,
-              hotkeySlot: hotkeyIndex[worktree.id]
-            )
+        // Header is its own List row. DisclosureGroup used to nest the worktree rows
+        // inside the header row — that made AppKit animate the single wrapping row's
+        // height on every expand / collapse, visibly jittering the Project name.
+        // Emitting header + each worktree as SIBLING rows lets NSTableView handle
+        // expansion as plain row insert / remove instead.
+        Button {
+          var txn = Transaction()
+          txn.disablesAnimations = true
+          withTransaction(txn) {
+            store.send(.toggleProjectExpansion(project.id))
           }
         } label: {
           ProjectHeaderRow(
@@ -430,10 +416,19 @@ struct HierarchySidebarView: View {
             store: store
           )
         }
-        // Hide the leading disclosure chevron — the hover-revealed ellipsis on the
-        // right is the only control that needs to be visible, and tapping anywhere on
-        // the row toggles expansion. Matches supacode's plainer header treatment.
-        .disclosureGroupStyle(HeaderOnlyDisclosureGroupStyle())
+        .buttonStyle(.plain)
+        if isExpanded {
+          ForEach(Self.orderedVisibleWorktrees(in: project)) { worktree in
+            worktreeRow(
+              worktree,
+              in: project,
+              space: space,
+              panelIndex: panelIndex,
+              inbox: inbox,
+              hotkeySlot: hotkeyIndex[worktree.id]
+            )
+          }
+        }
       }
     }
   }
@@ -995,41 +990,16 @@ private struct ProjectHeaderRow: View {
   }
 }
 
-/// Drops the leading disclosure chevron from a `DisclosureGroup` and makes the entire
-/// label tappable to toggle expansion. The expansion binding is forwarded to the parent's
-/// reducer via the label's own binding, so tapping the row still animates open/closed.
-private struct HeaderOnlyDisclosureGroupStyle: DisclosureGroupStyle {
-  func makeBody(configuration: Configuration) -> some View {
-    VStack(spacing: 0) {
-      Button {
-        // Explicit `withTransaction(disablesAnimations: true)` — AppKit-backed
-        // `List(.sidebar)` will otherwise animate the row's height change, which
-        // causes the Project header to visually jitter as adjacent content shifts.
-        var txn = Transaction()
-        txn.disablesAnimations = true
-        withTransaction(txn) {
-          configuration.isExpanded.toggle()
-        }
-      } label: {
-        configuration.label
-          .contentShape(Rectangle())
-      }
-      .buttonStyle(.plain)
-      if configuration.isExpanded {
-        configuration.content
-          // No transition — disclosure content appears / disappears in one frame.
-          .transition(.identity)
-      }
-    }
-    .transaction { $0.animation = nil }
-  }
-}
 
-/// Transparent background view that walks the AppKit hierarchy to find the
-/// `NSScrollView` that AppKit-backed `List(.sidebar)` uses and disables its
-/// vertical scroller. `.scrollIndicators(.hidden)` on SwiftUI `List` is ignored
-/// on macOS so we reach into AppKit directly. Retries a handful of times because
-/// the view may be mounted before the scroll-view ancestor is installed.
+/// Transparent background view that hunts down the `NSScrollView` wrapping our List
+/// and disables its scroller. `.scrollIndicators(.hidden)` on SwiftUI `List` is
+/// ignored on macOS, and `ancestor.superview` walks from a `.background(...)` child
+/// can miss the target because SwiftUI sometimes mounts background views as
+/// siblings of the scroll view rather than inside it. Fix: once mounted in a
+/// window, BFS the `contentView` subtree for any `NSScrollView` whose
+/// `documentView` is an `NSTableView` (which is what `List` uses) and hide its
+/// vertical scroller. Retries a few times because the List may not be attached
+/// yet when `viewDidMoveToWindow` first fires.
 private struct ScrollerHider: NSViewRepresentable {
   func makeNSView(context: Context) -> NSView { _ScrollerHiderView() }
   func updateNSView(_ nsView: NSView, context: Context) {}
@@ -1038,29 +1008,62 @@ private struct ScrollerHider: NSViewRepresentable {
 private final class _ScrollerHiderView: NSView {
   override func viewDidMoveToWindow() {
     super.viewDidMoveToWindow()
-    hideScrollers(retriesLeft: 10)
+    hideScrollers(retriesLeft: 20)
   }
 
   private func hideScrollers(retriesLeft: Int) {
-    var found = false
-    var ancestor: NSView? = self
-    while let v = ancestor {
-      if let scroll = v as? NSScrollView {
-        scroll.hasVerticalScroller = false
-        scroll.hasHorizontalScroller = false
-        scroll.autohidesScrollers = true
-        scroll.scrollerStyle = .overlay
-        scroll.verticalScroller?.alphaValue = 0
-        scroll.verticalScroller?.isHidden = true
-        scroll.horizontalScroller?.isHidden = true
-        found = true
+    guard let root = self.window?.contentView else {
+      if retriesLeft > 0 {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+          self?.hideScrollers(retriesLeft: retriesLeft - 1)
+        }
       }
-      ancestor = v.superview
+      return
     }
-    if !found, retriesLeft > 0 {
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+    let tableHosts = Self.findTableHostingScrollViews(in: root)
+    for scroll in tableHosts {
+      scroll.hasVerticalScroller = false
+      scroll.hasHorizontalScroller = false
+      scroll.autohidesScrollers = true
+      scroll.scrollerStyle = .overlay
+      scroll.verticalScroller?.alphaValue = 0
+      scroll.verticalScroller?.isHidden = true
+      scroll.horizontalScroller?.isHidden = true
+    }
+    // Retry a couple more times — `List` may reattach its scroll view after
+    // first render (e.g., on appearance change), and the scroller will come back.
+    if retriesLeft > 0 {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
         self?.hideScrollers(retriesLeft: retriesLeft - 1)
       }
     }
+  }
+
+  /// BFS through `root`'s view tree, collecting every `NSScrollView` whose
+  /// `documentView` is (or contains) an `NSTableView`. `List` on macOS uses an
+  /// `NSScrollView` + `NSTableView`; text views, menu popovers, etc. use other
+  /// `NSScrollView` configurations that we don't want to touch.
+  private static func findTableHostingScrollViews(in root: NSView) -> [NSScrollView] {
+    var out: [NSScrollView] = []
+    var queue: [NSView] = [root]
+    while let view = queue.first {
+      queue.removeFirst()
+      if let scroll = view as? NSScrollView {
+        if let doc = scroll.documentView, Self.containsTableView(doc) {
+          out.append(scroll)
+          continue  // no need to descend into a List's own subtree
+        }
+      }
+      queue.append(contentsOf: view.subviews)
+    }
+    return out
+  }
+
+  private static func containsTableView(_ view: NSView) -> Bool {
+    if view is NSTableView { return true }
+    for sub in view.subviews where Self.containsTableView(sub) {
+      return true
+    }
+    return false
   }
 }
