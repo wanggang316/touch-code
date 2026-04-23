@@ -104,7 +104,14 @@ enum DecodedSurfaceAction: Sendable, Equatable {
   case redo
   case copyTitleToClipboard
 
-  // Bucket 5 — Decode failure / unsupported / unknown tag. The raw tag
+  // Bucket 5 — Config lifecycle (surface-scoped).
+  // Surface-scoped `reload_config` fires per surface after
+  // `ghostty_surface_set_color_scheme`; the applier pushes the current app
+  // config through `ghostty_surface_update_config` so libghostty can re-resolve
+  // the surface's palette against the updated conditional state.
+  case reloadConfig(soft: Bool)
+
+  // Bucket 6 — Decode failure / unsupported / unknown tag. The raw tag
   // rides along so the applier can log it without the C struct.
   case unsupported(rawTag: UInt32, reason: String)
 
@@ -324,8 +331,14 @@ extension GhosttyActionDecoder {
          GHOSTTY_ACTION_SHOW_ON_SCREEN_KEYBOARD:
       return .unsupported(rawTag: action.tag.rawValue, reason: "non-macOS / internal")
 
-    // App-scoped actions arriving on a surface target: programmer error
-    case GHOSTTY_ACTION_CONFIG_CHANGE, GHOSTTY_ACTION_RELOAD_CONFIG:
+    // Config lifecycle: surface-target reload_config fires per surface after
+    // `ghostty_surface_set_color_scheme` — needed for the light/dark palette
+    // flip. App-target `config_change` should never arrive on a surface target
+    // (programmer error).
+    case GHOSTTY_ACTION_RELOAD_CONFIG:
+      return .reloadConfig(soft: action.action.reload_config.soft)
+
+    case GHOSTTY_ACTION_CONFIG_CHANGE:
       return .unsupported(rawTag: action.tag.rawValue, reason: "app-scoped on surface target")
 
     default:
@@ -523,6 +536,12 @@ extension GhosttyActionDecoder {
       } else {
         logger.debug("surface action: copy_title_to_clipboard (no title)")
       }
+      return true
+
+    // Bucket 5 — Config lifecycle
+    case .reloadConfig(let soft):
+      runtime.reloadSurfaceConfig(panelID: panelID, soft: soft)
+      logger.debug("surface action: reload_config (soft: \(soft))")
       return true
 
     case .unsupported(let rawTag, let reason):

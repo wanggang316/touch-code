@@ -134,6 +134,31 @@ final class PanelSurface {
     ghostty_surface_refresh(surface)
   }
 
+  /// Push a config to this specific surface. Called from the action decoder
+  /// when libghostty fires a surface-target `reload_config` action (per-surface
+  /// light/dark flip raised by `ghostty_surface_set_color_scheme`). libghostty
+  /// copies what it needs synchronously from `ghostty_surface_update_config`
+  /// — caller owns and frees the handle it passes in. The surface's own
+  /// `config_conditional_state` has already been mutated before this call, so
+  /// `Surface.updateConfig` will pick up the new scheme while applying the
+  /// config we push here.
+  func reloadConfig(soft: Bool, appConfig: ghostty_config_t?) {
+    guard let surface else { return }
+    let pushed: ghostty_config_t?
+    if soft, let current = appConfig {
+      pushed = ghostty_config_clone(current)
+    } else {
+      guard let fresh = ghostty_config_new() else { return }
+      ghostty_config_load_default_files(fresh)
+      ghostty_config_load_recursive_files(fresh)
+      ghostty_config_finalize(fresh)
+      pushed = fresh
+    }
+    guard let handle = pushed else { return }
+    ghostty_surface_update_config(surface, handle)
+    ghostty_config_free(handle)
+  }
+
   /// Fulfils a `read_clipboard_cb` request by forwarding the string back to
   /// libghostty. Called from `GhosttyRuntime`'s clipboard bridge on
   /// MainActor after the pasteboard is read.

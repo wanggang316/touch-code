@@ -547,17 +547,53 @@ final class GhosttyRuntime {
     if let old { ghostty_config_free(old) }
   }
 
-  /// Rebuild the config handle from disk. `soft` is forwarded for parity
-  /// with libghostty's semantics; our rebuild is the same either way
-  /// (load defaults → load recursive → finalize → swap).
+  /// Respond to libghostty's app-scoped `reload_config` action. Triggered by:
+  ///   * `ghostty_app_set_color_scheme` — light/dark flip; libghostty has
+  ///     already updated its app-level conditional state and needs us to push
+  ///     a fresh config back so surfaces can re-resolve their palette.
+  ///   * `.ghosttyRuntimeReloadRequested` — the Settings → Terminal pane wrote
+  ///     a new `~/.config/ghostty/config` and wants the live runtime to adopt it.
+  ///
+  /// `soft=true` means the on-disk config hasn't changed (only the conditional
+  /// state); we clone our in-memory handle and push it back so libghostty can
+  /// re-run `changeConditionalState`. `soft=false` means reload from disk.
+  ///
+  /// Either way we call `ghostty_app_update_config`, which is the piece
+  /// touch-code used to omit: without it libghostty never receives the new
+  /// config and surfaces stay on the old palette even though our local
+  /// `self.config` was swapped. libghostty copies what it needs synchronously,
+  /// so the clone can be freed immediately after the call. A subsequent
+  /// `config_change` action fires back with the "applied" config (post
+  /// conditional-state resolution) and `applyClonedConfig` catches it to swap
+  /// `self.config` on our side.
   @MainActor
   func reloadConfig(soft: Bool) {
-    _ = soft
-    guard let fresh = ghostty_config_new() else { return }
-    ghostty_config_load_default_files(fresh)
-    ghostty_config_load_recursive_files(fresh)
-    ghostty_config_finalize(fresh)
-    applyClonedConfig(fresh)
+    guard let app else { return }
+    let pushed: ghostty_config_t?
+    if soft, let current = config {
+      pushed = ghostty_config_clone(current)
+    } else {
+      guard let fresh = ghostty_config_new() else { return }
+      ghostty_config_load_default_files(fresh)
+      ghostty_config_load_recursive_files(fresh)
+      ghostty_config_finalize(fresh)
+      pushed = fresh
+    }
+    guard let handle = pushed else { return }
+    ghostty_app_update_config(app, handle)
+    ghostty_config_free(handle)
+  }
+
+  /// Respond to libghostty's surface-scoped `reload_config` action. Fires
+  /// per-surface after `ghostty_surface_set_color_scheme` — the surface's own
+  /// conditional state is now stale-from-libghostty's-view and needs the
+  /// current app config re-applied so `Surface.updateConfig` can run
+  /// `changeConditionalState` with the NEW per-surface state. No-op if the
+  /// PanelID no longer maps to a live surface (racey unregister).
+  @MainActor
+  func reloadSurfaceConfig(panelID: PanelID, soft: Bool) {
+    guard let panel = surfacesByPanelID[panelID] else { return }
+    panel.reloadConfig(soft: soft, appConfig: config)
   }
 
   /// Placeholder for `GHOSTTY_ACTION_TOGGLE_BACKGROUND_OPACITY`. Lands when
