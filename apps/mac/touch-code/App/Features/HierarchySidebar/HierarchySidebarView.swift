@@ -21,8 +21,13 @@ import TouchCodeCore
 struct HierarchySidebarView: View {
   @Bindable var store: StoreOf<HierarchySidebarFeature>
   let currentSelection: HierarchySelection
+  /// Optional GitHub integration store. When non-nil, each Worktree row renders a PR
+  /// badge (silent when no PR is matched) and the row hosts the PR popover. Nil in
+  /// previews / tests that don't exercise the integration.
+  var gitHubStore: StoreOf<GitHubFeature>?
   @Environment(HierarchyManager.self) private var hierarchyManager
   @Environment(InboxStore.self) private var inboxStore
+  @Environment(SettingsStore.self) private var settingsStore
 
   var body: some View {
     let catalog = hierarchyManager.catalog
@@ -380,35 +385,44 @@ struct HierarchySidebarView: View {
       total += 1
     }
 
-    return Button {
-      store.send(.worktreeRowTapped(worktree.id, inProject: project.id, inSpace: space.id))
-    } label: {
-      HStack(spacing: 6) {
-        Image(systemName: isSelected ? "circle.fill" : "circle")
-          .font(.caption2)
-          .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-          .accessibilityLabel(isSelected ? "Active worktree" : "Inactive worktree")
-        VStack(alignment: .leading, spacing: 0) {
-          Text(worktree.name)
-          // Suppress the secondary branch line when it restates the
-          // worktree name — the common case (main/main, test0003/test0003)
-          // otherwise doubles every row height for zero information.
-          if let branch = worktree.branch, branch != worktree.name {
-            Text(branch)
-              .font(.caption.monospaced())
-              .foregroundStyle(.secondary)
+    // Row and GitHub badge are siblings rather than nested, so the badge's own Button
+    // doesn't live inside the row's Button.label. Tapping the badge opens the PR popover
+    // without also firing the row-selection action. The leading portion of the row is
+    // the Button; the trailing badge sits beside it.
+    return HStack(spacing: 4) {
+      Button {
+        store.send(.worktreeRowTapped(worktree.id, inProject: project.id, inSpace: space.id))
+      } label: {
+        HStack(spacing: 6) {
+          Image(systemName: isSelected ? "circle.fill" : "circle")
+            .font(.caption2)
+            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+            .accessibilityLabel(isSelected ? "Active worktree" : "Inactive worktree")
+          VStack(alignment: .leading, spacing: 0) {
+            Text(worktree.name)
+            // Suppress the secondary branch line when it restates the worktree name —
+            // the common case (main/main, test0003/test0003) otherwise doubles every
+            // row height for zero information.
+            if let branch = worktree.branch, branch != worktree.name {
+              Text(branch)
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+            }
+          }
+          Spacer()
+          if unreadCount > 0 {
+            Circle()
+              .fill(Color.accentColor)
+              .frame(width: 6, height: 6)
+              .accessibilityLabel("Has \(unreadCount) unread notifications")
           }
         }
-        Spacer()
-        if unreadCount > 0 {
-          Circle()
-            .fill(Color.accentColor)
-            .frame(width: 6, height: 6)
-            .accessibilityLabel("Has \(unreadCount) unread notifications")
-        }
+        .contentShape(Rectangle())
       }
+      .buttonStyle(.plain)
+
+      gitHubBadge(for: worktree, in: project, space: space)
     }
-    .buttonStyle(.plain)
     .listRowInsets(EdgeInsets(top: 2, leading: 12, bottom: 2, trailing: 12))
     .listRowBackground(
       isSelected
@@ -629,6 +643,171 @@ struct HierarchySidebarView: View {
   private var runningTerminalMessage: String {
     guard let pending = store.pendingRunningTerminalWarning else { return "" }
     return "Force-removing “\(pending.displayName)” will terminate \(pending.count) running terminal process\(pending.count == 1 ? "" : "es") in that Worktree."
+  }
+
+  // MARK: - GitHub badge + popover
+
+  @ViewBuilder
+  fileprivate func gitHubBadge(for worktree: Worktree, in project: Project, space: Space) -> some View {
+    if let gitHubStore, let branch = worktree.branch {
+      let path = URL(fileURLWithPath: worktree.path)
+      gitHubBadgeView(
+        store: gitHubStore,
+        worktreeID: worktree.id,
+        branch: branch,
+        worktreePath: path
+      )
+    } else {
+      EmptyView()
+    }
+  }
+
+  @ViewBuilder
+  private func gitHubBadgeView(
+    store: StoreOf<GitHubFeature>,
+    worktreeID: WorktreeID,
+    branch: String,
+    worktreePath: URL
+  ) -> some View {
+    let snapshot = store.snapshots[worktreeID]
+    let isLoading = store.loading.contains(worktreeID)
+    let error = store.lastError[worktreeID]
+
+    Group {
+      if let snapshot {
+        let checks = store.checks[snapshot.number] ?? []
+        let rollup = PullRequestBadge.CheckRollup.from(checks: checks)
+        PullRequestBadge(
+          state: .loaded(snapshot, rollup: rollup),
+          onTap: { store.send(.presentPopover(worktreeID, worktreePath: worktreePath)) },
+          onCommandTap: { store.send(.delegate(.openURL(snapshot.url))) }
+        )
+      } else if isLoading {
+        PullRequestBadge(state: .loading, onTap: {}, onCommandTap: {})
+      } else if let error {
+        PullRequestBadge(
+          state: .error(error),
+          onTap: { store.send(.refreshRequested(worktreeID, branch: branch, worktreePath: worktreePath)) },
+          onCommandTap: {}
+        )
+      } else {
+        EmptyView()
+      }
+    }
+    .task(id: TaskIdentity(worktreeID: worktreeID, branch: branch, path: worktreePath)) {
+      store.send(.worktreeBecameVisible(worktreeID, branch: branch, worktreePath: worktreePath))
+    }
+    .popover(
+      isPresented: Binding(
+        get: { store.popoverTarget == worktreeID },
+        set: { if !$0 { store.send(.dismissPopover) } }
+      ),
+      arrowEdge: .trailing
+    ) {
+      gitHubPopoverContent(
+        store: store,
+        worktreeID: worktreeID,
+        branch: branch,
+        worktreePath: worktreePath
+      )
+    }
+  }
+
+  @ViewBuilder
+  private func gitHubPopoverContent(
+    store: StoreOf<GitHubFeature>,
+    worktreeID: WorktreeID,
+    branch: String,
+    worktreePath: URL
+  ) -> some View {
+    let snapshot = store.snapshots[worktreeID]
+    let error = store.lastError[worktreeID]
+    let isLoading = store.loading.contains(worktreeID)
+
+    let content: PullRequestPopover.Content = {
+      if let error { return .error(error) }
+      if let snapshot {
+        let checks = store.checks[snapshot.number] ?? []
+        let run = store.latestWorkflowRuns[snapshot.number]
+        return .loaded(snapshot, checks: checks, workflowRun: run)
+      }
+      if isLoading { return .loading }
+      return .noPullRequest(branch: branch)
+    }()
+
+    let defaultStrategy = settingsStore.settings.general.defaultMergeStrategy ?? .squash
+
+    let isMutating = store.mutating.contains(worktreeID)
+
+    PullRequestPopover(
+      content: content,
+      defaultMergeStrategy: defaultStrategy,
+      canMerge: !isMutating
+        && snapshot?.mergeable == .mergeable
+        && snapshot?.state == .open
+        && snapshot?.isDraft == false,
+      mergeDisabledReason: isMutating
+        ? "Another GitHub operation is in flight"
+        : Self.mergeDisabledReason(for: snapshot),
+      onMerge: { strategy in
+        if let pr = snapshot {
+          store.send(
+            .mergeRequested(worktreeID, prNumber: pr.number, strategy: strategy, worktreePath: worktreePath)
+          )
+        }
+      },
+      onClose: {
+        if let pr = snapshot {
+          store.send(.closeRequested(worktreeID, prNumber: pr.number, worktreePath: worktreePath))
+        }
+      },
+      onMarkReady: {
+        if let pr = snapshot {
+          store.send(.markReadyRequested(worktreeID, prNumber: pr.number, worktreePath: worktreePath))
+        }
+      },
+      onRerunFailedJobs: {
+        if let pr = snapshot, let run = store.latestWorkflowRuns[pr.number] {
+          store.send(
+            .rerunFailedJobsRequested(worktreeID, runID: run.databaseID, worktreePath: worktreePath)
+          )
+        }
+      },
+      onOpenOnWeb: {
+        if let url = snapshot?.url {
+          store.send(.delegate(.openURL(url)))
+        }
+      },
+      onOpenCheckLog: { url in store.send(.delegate(.openURL(url))) },
+      onSetProjectDefaultStrategy: { [settingsStore] strategy in
+        // Per-Project override UI is deferred to a follow-up; writing to the *global*
+        // default is a useful intermediate behavior — "Set as default" means "use this
+        // strategy everywhere". When per-Project lands, this callback splits into two.
+        settingsStore.mutateGeneral { $0.defaultMergeStrategy = strategy }
+      },
+      onRetry: {
+        store.send(.refreshRequested(worktreeID, branch: branch, worktreePath: worktreePath))
+      }
+    )
+  }
+
+  private static func mergeDisabledReason(for snapshot: PullRequestSnapshot?) -> String? {
+    guard let snapshot else { return "No pull request for this Worktree" }
+    if snapshot.state == .merged { return "Pull request already merged" }
+    if snapshot.state == .closed { return "Pull request closed" }
+    if snapshot.isDraft { return "Pull request is a draft" }
+    if snapshot.mergeable == .conflicting { return "Pull request has merge conflicts" }
+    if snapshot.mergeable == .unknown { return "Merge status unknown — try refresh" }
+    return nil
+  }
+
+  /// Composite identity used by `.task(id:)` on the badge so a change to branch *or* path
+  /// (e.g. a Worktree whose branch is re-pointed without the WorktreeID changing)
+  /// re-fires the snapshot fetch. A plain WorktreeID would keep serving stale data.
+  private struct TaskIdentity: Hashable {
+    let worktreeID: WorktreeID
+    let branch: String
+    let path: URL
   }
 }
 

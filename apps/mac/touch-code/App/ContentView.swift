@@ -58,7 +58,8 @@ struct ContentView: View {
     NavigationSplitView(columnVisibility: $columnVisibility) {
       HierarchySidebarView(
         store: store.scope(state: \.sidebar, action: \.sidebar),
-        currentSelection: store.selection
+        currentSelection: store.selection,
+        gitHubStore: store.scope(state: \.gitHub, action: \.gitHub)
       )
       .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
     } detail: {
@@ -86,6 +87,7 @@ struct ContentView: View {
     .task {
       store.send(.onLaunch)
       store.send(.worktreeHeader(.onAppear))
+      store.send(.gitHub(.onAppear))
     }
     .onChange(of: store.editor.lastOpenResult) { _, new in
       guard let new else { return }

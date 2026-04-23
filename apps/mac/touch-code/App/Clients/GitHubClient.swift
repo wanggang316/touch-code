@@ -1,0 +1,62 @@
+import ComposableArchitecture
+import Foundation
+import TouchCodeCore
+
+/// TCA dependency-injection bridge over the `GitHubService` protocol from
+/// `touch-code/GitHub/`. Mirrors `GitServiceClient` in shape so features use a consistent
+/// client pattern across the codebase.
+///
+/// Not `@MainActor`: `GitHubService` is nonisolated and Sendable. Every closure is
+/// `@Sendable async` — safe to call from any reducer effect.
+nonisolated struct GitHubClient: Sendable {
+  var availability: @Sendable () async -> GitHubAvailability
+  var pullRequest: @Sendable (_ branch: String, _ worktreePath: URL) async throws -> PullRequestSnapshot?
+  var checks: @Sendable (_ number: Int, _ worktreePath: URL) async throws -> [CheckResult]
+  var latestWorkflowRun: @Sendable (_ branch: String, _ worktreePath: URL) async throws -> WorkflowRun?
+  var merge: @Sendable (_ number: Int, _ strategy: MergeStrategy, _ worktreePath: URL) async throws -> Void
+  var close: @Sendable (_ number: Int, _ worktreePath: URL) async throws -> Void
+  var markReady: @Sendable (_ number: Int, _ worktreePath: URL) async throws -> Void
+  var rerunFailedJobs: @Sendable (_ runID: Int64, _ worktreePath: URL) async throws -> Void
+}
+
+extension GitHubClient {
+  /// Constructs a client that forwards every closure to the given concrete service.
+  static func live(service: any GitHubService = GitHub.makeService()) -> GitHubClient {
+    GitHubClient(
+      availability: { await service.availability() },
+      pullRequest: { branch, path in try await service.pullRequest(branch: branch, worktreePath: path) },
+      checks: { number, path in try await service.checks(number: number, worktreePath: path) },
+      latestWorkflowRun: { branch, path in try await service.latestWorkflowRun(branch: branch, worktreePath: path) },
+      merge: { number, strategy, path in
+        try await service.merge(number: number, strategy: strategy, worktreePath: path)
+      },
+      close: { number, path in try await service.close(number: number, worktreePath: path) },
+      markReady: { number, path in try await service.markReady(number: number, worktreePath: path) },
+      rerunFailedJobs: { runID, path in
+        try await service.rerunFailedJobs(runID: runID, worktreePath: path)
+      }
+    )
+  }
+}
+
+extension GitHubClient: DependencyKey {
+  static let liveValue: GitHubClient = .live()
+
+  static let testValue: GitHubClient = GitHubClient(
+    availability: unimplemented("GitHubClient.availability", placeholder: .unknown),
+    pullRequest: unimplemented("GitHubClient.pullRequest", placeholder: nil),
+    checks: unimplemented("GitHubClient.checks", placeholder: []),
+    latestWorkflowRun: unimplemented("GitHubClient.latestWorkflowRun", placeholder: nil),
+    merge: unimplemented("GitHubClient.merge"),
+    close: unimplemented("GitHubClient.close"),
+    markReady: unimplemented("GitHubClient.markReady"),
+    rerunFailedJobs: unimplemented("GitHubClient.rerunFailedJobs")
+  )
+}
+
+extension DependencyValues {
+  var gitHub: GitHubClient {
+    get { self[GitHubClient.self] }
+    set { self[GitHubClient.self] = newValue }
+  }
+}

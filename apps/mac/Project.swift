@@ -31,7 +31,7 @@ let project = Project(
       bundleId: "app.touch-code.core",
       deploymentTargets: .macOS("14.0"),
       infoPlist: .default,
-      buildableFolders: ["TouchCodeCore", "TouchCodeCore/Hooks"],
+      buildableFolders: ["TouchCodeCore", "TouchCodeCore/Hooks", "TouchCodeCore/GitHub"],
       settings: .settings(
         base: ["SWIFT_DEFAULT_ACTOR_ISOLATION": "nonisolated"],
         defaultSettings: .essential
@@ -52,6 +52,7 @@ let project = Project(
         "TouchCodeCoreTests",
         "TouchCodeCoreTests/Hooks",
         "TouchCodeCoreTests/IPC",
+        "TouchCodeCoreTests/GitHubTests",
       ],
       dependencies: [
         .target(name: "TouchCodeCore"),
@@ -189,9 +190,14 @@ let project = Project(
         "touch-code/App",
         "touch-code/App/Features/Socket",
         "touch-code/App/Features/Socket/handlers",
+        "touch-code/App/Features/GitHub",
+        "touch-code/App/Features/GitHub/Theme",
+        "touch-code/App/Features/GitHub/Views",
         "touch-code/Runtime",
         "touch-code/Hooks",
+        "touch-code/Process",
         "touch-code/Git",
+        "touch-code/GitHub",
         "touch-code/Notifications",
       ],
       // git-wt submodule wiring. Pre-script fails the build cleanly when
@@ -248,6 +254,7 @@ let project = Project(
         "touch-code/Tests/Harness",
         "touch-code/Tests/Integration",
         "touch-code/Tests/NotificationsTests",
+        "touch-code/Tests/GitHubTests",
       ],
       dependencies: [
         .target(name: "touch-code"),
