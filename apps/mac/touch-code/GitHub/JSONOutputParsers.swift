@@ -26,10 +26,52 @@ nonisolated enum JSONOutputParsers {
     var user: String
   }
 
-  /// Parses `gh auth status --json hosts`. Returns nil when no host is logged in. The
-  /// first host with a non-empty user field wins; multi-host configurations fall back to
-  /// the first entry (matches exec-plan 0012 single-host-in-UI scope cut).
+  /// Parses `gh auth status --json hosts`. Returns nil when no host is logged in.
+  ///
+  /// Handles both wire shapes gh has used:
+  ///   - **New (≥ gh 2.40)**: `hosts.<host>` is an array of account entries (multi-account).
+  ///     Each entry has `login`, `active` (bool), plus metadata. We prefer the `active`
+  ///     entry, falling back to the first entry with a non-empty `login`.
+  ///   - **Old (< gh 2.40)**: `hosts.<host>` is a flat object with `user` / `active_user`
+  ///     fields for a single account.
+  /// Tries the new shape first, falls back to the old shape if that fails — lets the app
+  /// keep working across a gh upgrade without a code change.
   static func parseAuthStatus(_ data: Data) throws -> AuthStatusResult? {
+    if let result = try? decodeAuthStatusArrayForm(data) {
+      return result
+    }
+    do {
+      return try decodeAuthStatusDictForm(data)
+    } catch {
+      throw GitHubError.other("auth status decode: \(error)")
+    }
+  }
+
+  /// Multi-account shape (gh 2.40+).
+  private static func decodeAuthStatusArrayForm(_ data: Data) throws -> AuthStatusResult? {
+    struct Wire: Decodable {
+      var hosts: [String: [Account]]?
+    }
+    struct Account: Decodable {
+      var login: String?
+      var user: String?
+      var active: Bool?
+    }
+    let wire = try JSONDecoder().decode(Wire.self, from: data)
+    guard let hosts = wire.hosts else { return nil }
+    for (host, accounts) in hosts {
+      let active = accounts.first(where: { $0.active == true })
+      let any = accounts.first(where: { !(($0.login ?? $0.user) ?? "").isEmpty })
+      let pick = active ?? any
+      if let user = (pick?.login ?? pick?.user), !user.isEmpty {
+        return AuthStatusResult(host: host, user: user)
+      }
+    }
+    return nil
+  }
+
+  /// Single-account shape (pre-gh 2.40). Retained for backward compatibility.
+  private static func decodeAuthStatusDictForm(_ data: Data) throws -> AuthStatusResult? {
     struct Wire: Decodable {
       var hosts: [String: HostEntry]?
     }
@@ -37,19 +79,14 @@ nonisolated enum JSONOutputParsers {
       var user: String?
       var active_user: String?
     }
-    do {
-      let wire = try JSONDecoder().decode(Wire.self, from: data)
-      guard let hosts = wire.hosts else { return nil }
-      for (host, entry) in hosts {
-        let user = entry.user ?? entry.active_user
-        if let user, !user.isEmpty {
-          return AuthStatusResult(host: host, user: user)
-        }
+    let wire = try JSONDecoder().decode(Wire.self, from: data)
+    guard let hosts = wire.hosts else { return nil }
+    for (host, entry) in hosts {
+      if let user = (entry.user ?? entry.active_user), !user.isEmpty {
+        return AuthStatusResult(host: host, user: user)
       }
-      return nil
-    } catch {
-      throw GitHubError.other("auth status decode: \(error)")
     }
+    return nil
   }
 
   // MARK: - gh pr view
