@@ -4,27 +4,27 @@ import TouchCodeCore
 
 @testable import touch_code
 
-/// Tests the contract between `PanelInfoDelta` and `SurfaceInfo`.
+/// Tests the contract between `PaneInfoDelta` and `SurfaceInfo`.
 ///
-/// Why not drive `PanelSurface.apply(_:)` directly? `PanelSurface.init`
+/// Why not drive `PaneSurface.apply(_:)` directly? `PaneSurface.init`
 /// requires a live `GhosttyRuntime.app` (a libghostty `ghostty_app_t`) and
 /// calls `ghostty_surface_new`, neither of which is available to unit tests.
 /// Since `apply(_:)` only reads/writes `info` (no surface-handle traffic),
 /// this suite mirrors the same exhaustive switch in `applyForTest` so the
-/// Swift compiler still enforces case coverage — if a new `PanelInfoDelta`
-/// case lands, both `PanelSurface.apply` and this helper must be updated
+/// Swift compiler still enforces case coverage — if a new `PaneInfoDelta`
+/// case lands, both `PaneSurface.apply` and this helper must be updated
 /// (the switch here will fail to compile otherwise). That keeps the test
 /// meaningful as the decoder/delta contract evolves.
 ///
-/// When `PanelSurface.apply` changes semantics, update `applyForTest` in
+/// When `PaneSurface.apply` changes semantics, update `applyForTest` in
 /// lockstep — this file documents the mapping from delta → field.
 @MainActor
-struct PanelSurfaceApplyTests {
+struct PaneSurfaceApplyTests {
 
-  /// Mirrors `PanelSurface.apply(_:)` byte-for-byte. Exhaustive switch —
-  /// adding a new `PanelInfoDelta` case without updating this helper will
+  /// Mirrors `PaneSurface.apply(_:)` byte-for-byte. Exhaustive switch —
+  /// adding a new `PaneInfoDelta` case without updating this helper will
   /// fail to compile, forcing the test suite to stay in sync.
-  private func applyForTest(_ delta: PanelInfoDelta, to info: SurfaceInfo) {
+  private func applyForTest(_ delta: PaneInfoDelta, to info: SurfaceInfo) {
     switch delta {
     case .title(let t):
       info.title = t
@@ -449,9 +449,9 @@ struct PanelSurfaceApplyTests {
 
   // MARK: - Cross-check: markExited equivalence
   //
-  // `PanelSurface.markExited(code:)` sets `info.lastChildExitCode = code`
+  // `PaneSurface.markExited(code:)` sets `info.lastChildExitCode = code`
   // — identical to `apply(.childExited(code:))`. We can't invoke it here
-  // (would require a constructed PanelSurface), but the equivalence is
+  // (would require a constructed PaneSurface), but the equivalence is
   // part of the documented contract and verified by the childExited test
   // above. If `markExited` drifts, the mirrored logic here will drift too
   // and Milestone 7b review should catch it.

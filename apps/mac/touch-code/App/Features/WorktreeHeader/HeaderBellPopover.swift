@@ -7,7 +7,7 @@ import TouchCodeCore
 /// `.notificationTapped(...)`. Empty state shows "No notifications".
 ///
 /// The projection derives from the feature's cached inbox + the live
-/// `@Environment(HierarchyManager.self).catalog`; orphaned panels (no
+/// `@Environment(HierarchyManager.self).catalog`; orphaned panes (no
 /// longer present in the catalog) drop out — same policy as the badge
 /// count so the rendered row count equals `store.unreadCount`.
 struct HeaderBellPopover: View {
@@ -133,27 +133,27 @@ extension HeaderBellPopover {
 
   /// Builds the Project -> Worktree -> [unread notifications] grouping
   /// from a flat inbox + the current catalog. One walk of the catalog to
-  /// build the `PanelID -> (Space, Project, Worktree, branch)` map;
+  /// build the `PaneID -> (Space, Project, Worktree, branch)` map;
   /// one walk of the notifications to bucket them. Orphans drop out.
   static func groupProjectByWorktree(
     inbox: NotificationInbox,
     catalog: Catalog
   ) -> [ProjectGroup] {
-    struct PanelLocation {
+    struct PaneLocation {
       let spaceID: SpaceID
       let projectID: ProjectID
       let projectName: String
       let worktreeID: WorktreeID
       let branchLabel: String
     }
-    var panelMap: [PanelID: PanelLocation] = [:]
+    var paneMap: [PaneID: PaneLocation] = [:]
     for space in catalog.spaces {
       for project in space.projects {
         for worktree in project.worktrees {
           let branch = worktree.branch ?? worktree.name
           for tab in worktree.tabs {
-            for panel in tab.panels {
-              panelMap[panel.id] = PanelLocation(
+            for pane in tab.panes {
+              paneMap[pane.id] = PaneLocation(
                 spaceID: space.id,
                 projectID: project.id,
                 projectName: project.name,
@@ -173,7 +173,7 @@ extension HeaderBellPopover {
     var bucket: [WorktreeID: [AgentNotification]] = [:]
 
     for notification in inbox.notifications where notification.isUnread {
-      guard let location = panelMap[notification.panelID] else { continue }
+      guard let location = paneMap[notification.paneID] else { continue }
       if projectMeta[location.projectID] == nil {
         projectMeta[location.projectID] = (location.spaceID, location.projectName, [])
         projectOrder.append(location.projectID)

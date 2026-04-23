@@ -146,7 +146,7 @@ struct RepositorySettingsFeatureTests {
     let catalog = Catalog(windows: [], spaces: [space], selectedSpaceID: space.id)
     let sub = HookSubscription(
       id: subID,
-      event: .panelCreated,
+      event: .paneCreated,
       command: "echo test",
       scope: .worktreeID(wtID)
     )
@@ -191,7 +191,7 @@ struct RepositorySettingsFeatureTests {
     // Glob matches project.rootPath exactly but does NOT match /Users/me/wts/feat-a.
     let sub = HookSubscription(
       id: subID,
-      event: .panelCreated,
+      event: .paneCreated,
       command: "echo test",
       scope: .worktreePathGlob("/Users/me/proj")
     )
@@ -224,9 +224,9 @@ struct RepositorySettingsFeatureTests {
     let catalog = Catalog(windows: [], spaces: [space], selectedSpaceID: space.id)
     let sub = HookSubscription(
       id: subID,
-      event: .panelCreated,
+      event: .paneCreated,
       command: "echo test",
-      scope: .anyPanel
+      scope: .anyPane
     )
 
     let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: projectID)) {

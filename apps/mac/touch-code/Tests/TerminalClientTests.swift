@@ -22,17 +22,17 @@ struct TerminalClientTests {
   func liveEventsStreamBroadcastsEmittedEvents() async {
     let (client, engine) = makeLiveEngine()
     let stream = client.events()
-    let panelID = PanelID()
+    let paneID = PaneID()
     let tabID = TabID()
 
-    engine.emit(.panelReady(panelID))
+    engine.emit(.paneReady(paneID))
     engine.emit(.tabActivated(tabID))
 
     var iterator = stream.makeAsyncIterator()
-    if case .panelReady(let pid) = await iterator.next() {
-      #expect(pid == panelID)
+    if case .paneReady(let pid) = await iterator.next() {
+      #expect(pid == paneID)
     } else {
-      Issue.record("expected panelReady first")
+      Issue.record("expected paneReady first")
     }
     if case .tabActivated(let tid) = await iterator.next() {
       #expect(tid == tabID)
@@ -46,7 +46,7 @@ struct TerminalClientTests {
     let (client, _) = makeLiveEngine()
     do {
       try client.ensureSurface(
-        PanelID(), TabID(), WorktreeID(), ProjectID(), SpaceID()
+        PaneID(), TabID(), WorktreeID(), ProjectID(), SpaceID()
       )
       Issue.record("ensureSurface should throw for unknown address")
     } catch TerminalClient.Error.worktreeNotFound {

@@ -128,11 +128,11 @@ struct EditorServiceLaunchTests {
   @Test
   func shellEditorIsUnreachableFromOpenInV1() async throws {
     // v1 design limitation: `.shellEditor` cannot launch from the service because the
-    // `(directory: URL, preferred: EditorID?)` signature excludes the Panel/Tab context
-    // the Panel primitive needs. The filter in `describe()` suppresses the registry entry
+    // `(directory: URL, preferred: EditorID?)` signature excludes the Pane/Tab context
+    // the Pane primitive needs. The filter in `describe()` suppresses the registry entry
     // so a strict `preferred: "editor"` surfaces `.notInstalled` before the launch branch
     // is ever reached. The `.shellEditor` case in `open()` is retained for a future
-    // Panel-aware caller. See `EditorService+Live.swift` describe() for the filter.
+    // Pane-aware caller. See `EditorService+Live.swift` describe() for the filter.
     let dir = try Self.tempDir()
     defer { try? FileManager.default.removeItem(at: dir) }
     let (service, _) = Self.makeService(installed: ["finder"])

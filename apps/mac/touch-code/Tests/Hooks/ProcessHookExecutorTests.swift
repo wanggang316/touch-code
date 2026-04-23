@@ -11,7 +11,7 @@ struct ProcessHookExecutorTests {
   func envAllowlistStripsHostSecrets() {
     setenv("TOUCH_CODE_SECRET_TEST", "leaked", 1)
     defer { unsetenv("TOUCH_CODE_SECRET_TEST") }
-    let sub = HookSubscription(event: .panelReady, command: "echo")
+    let sub = HookSubscription(event: .paneReady, command: "echo")
     let env = ProcessHookExecutor.buildEnvironment(subscription: sub)
     #expect(env["TOUCH_CODE_SECRET_TEST"] == nil)
     // PATH / HOME are allowlisted and usually present on macOS.
@@ -31,7 +31,7 @@ struct ProcessHookExecutorTests {
       unsetenv("TOUCH_CODE_RESERVED_TEST")
     }
 
-    let sub = HookSubscription(event: .panelReady, command: "echo")
+    let sub = HookSubscription(event: .paneReady, command: "echo")
     let env = ProcessHookExecutor.buildEnvironment(subscription: sub)
 
     #expect(env["TC_TEST_ARBITRARY_1"] == nil)
@@ -51,7 +51,7 @@ struct ProcessHookExecutorTests {
   @Test
   func subscriptionEnvOverridesAllowlist() {
     let sub = HookSubscription(
-      event: .panelReady,
+      event: .paneReady,
       command: "echo",
       env: ["PATH": "/my/custom/path", "MY_FLAG": "1"]
     )
@@ -62,7 +62,7 @@ struct ProcessHookExecutorTests {
 
   @Test
   func parseActionsDecodesJSONArray() throws {
-    let action = HookAction.notify(title: "hi", body: nil, panelID: nil)
+    let action = HookAction.notify(title: "hi", body: nil, paneID: nil)
     let encoded = try JSONEncoder().encode([action])
     let parsed = ProcessHookExecutor.parseActions(encoded)
     #expect(parsed.count == 1)
@@ -96,12 +96,12 @@ struct ProcessHookExecutorTests {
   func awaitActionsModeRunsShellAndReturnsExitCode() async throws {
     let executor = ProcessHookExecutor()
     let sub = HookSubscription(
-      event: .panelReady,
+      event: .paneReady,
       command: "exit 7",
       timeoutSeconds: 5,
       mode: .awaitActions
     )
-    let envelope = Self.makePanelReadyEnvelope()
+    let envelope = Self.makePaneReadyEnvelope()
     let result = await executor.run(subscription: sub, envelope: envelope)
     #expect(result.exitCode == 7)
     #expect(result.timedOut == false)
@@ -112,12 +112,12 @@ struct ProcessHookExecutorTests {
   func awaitActionsModeCapturesStdoutJSON() async throws {
     let executor = ProcessHookExecutor()
     let sub = HookSubscription(
-      event: .panelReady,
+      event: .paneReady,
       command: #"echo '[{"kind":"log","level":"info","message":"from-handler"}]'"#,
       timeoutSeconds: 5,
       mode: .awaitActions
     )
-    let envelope = Self.makePanelReadyEnvelope()
+    let envelope = Self.makePaneReadyEnvelope()
     let result = await executor.run(subscription: sub, envelope: envelope)
     #expect(result.exitCode == 0)
     #expect(result.actions.count == 1)
@@ -133,12 +133,12 @@ struct ProcessHookExecutorTests {
   func awaitActionsModeHonorsTimeout() async throws {
     let executor = ProcessHookExecutor()
     let sub = HookSubscription(
-      event: .panelReady,
+      event: .paneReady,
       command: "sleep 30",
       timeoutSeconds: 0.3,
       mode: .awaitActions
     )
-    let envelope = Self.makePanelReadyEnvelope()
+    let envelope = Self.makePaneReadyEnvelope()
     let start = Date()
     let result = await executor.run(subscription: sub, envelope: envelope)
     let elapsed = Date().timeIntervalSince(start)
@@ -159,12 +159,12 @@ struct ProcessHookExecutorTests {
     // SIGTERM the executor would leak the fd until the process exits
     // naturally (30 s). The ladder must SIGKILL it within ~1 s grace.
     let sub = HookSubscription(
-      event: .panelReady,
+      event: .paneReady,
       command: "trap '' TERM; sleep 30",
       timeoutSeconds: 0.3,
       mode: .awaitActions
     )
-    let envelope = Self.makePanelReadyEnvelope()
+    let envelope = Self.makePaneReadyEnvelope()
     let start = Date()
     let result = await executor.run(subscription: sub, envelope: envelope)
     let elapsed = Date().timeIntervalSince(start)
@@ -177,12 +177,12 @@ struct ProcessHookExecutorTests {
   func fireAndForgetReturnsZeroImmediately() async throws {
     let executor = ProcessHookExecutor()
     let sub = HookSubscription(
-      event: .panelReady,
+      event: .paneReady,
       command: "sleep 30",  // would block for 30s if awaited
       timeoutSeconds: 60,
       mode: .fireAndForget
     )
-    let envelope = Self.makePanelReadyEnvelope()
+    let envelope = Self.makePaneReadyEnvelope()
     let start = Date()
     let result = await executor.run(subscription: sub, envelope: envelope)
     let elapsed = Date().timeIntervalSince(start)
@@ -192,10 +192,10 @@ struct ProcessHookExecutorTests {
 
   // MARK: - Helpers
 
-  static func makePanelReadyEnvelope() -> HookEnvelope {
+  static func makePaneReadyEnvelope() -> HookEnvelope {
     HookEnvelope(
-      event: .panelReady,
-      data: .panelReady(pid: nil, shell: "bash")
+      event: .paneReady,
+      data: .paneReady(pid: nil, shell: "bash")
     )
   }
 }

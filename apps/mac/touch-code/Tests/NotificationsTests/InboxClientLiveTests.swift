@@ -24,17 +24,17 @@ struct InboxClientLiveTests {
     )
     let client = InboxClient.live(inbox: inbox, settings: settings)
 
-    let panel = Panel(workingDirectory: "/a")
+    let pane = Pane(workingDirectory: "/a")
     let worktree = Worktree(
       name: "a", path: "/a",
-      tabs: [Tab(splitTree: SplitTree(leaf: panel.id), panels: [panel])]
+      tabs: [Tab(splitTree: SplitTree(leaf: pane.id), panes: [pane])]
     )
     let project = Project(name: "p", rootPath: "/p", gitRoot: "/p", worktrees: [worktree])
     let catalog = Catalog(spaces: [Space(name: "s", projects: [project])])
 
     inbox.append(
       AgentNotification(
-        panelID: panel.id, agent: "claude", kind: .completed,
+        paneID: pane.id, agent: "claude", kind: .completed,
         title: "done", body: "", createdAt: Date()
       )
     )

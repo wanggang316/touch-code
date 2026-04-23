@@ -1,7 +1,7 @@
 import Foundation
 import TouchCodeCore
 
-/// Lazy panel / tab / worktree → anchor lookup built from a `Catalog`
+/// Lazy pane / tab / worktree → anchor lookup built from a `Catalog`
 /// snapshot. Replaces the per-event O(S·P·W·T·P) walk inside
 /// `EventMapper` — the dispatcher invalidates this on
 /// `.hierarchyMutated` so subsequent events hit the index instead of
@@ -12,7 +12,7 @@ import TouchCodeCore
 /// another isolation domain must hop back.
 @MainActor
 public final class EventMapperCache {
-  private var panelIndex: [PanelID: EventMapper.Anchors] = [:]
+  private var paneIndex: [PaneID: EventMapper.Anchors] = [:]
   private var tabIndex: [TabID: EventMapper.Anchors] = [:]
   private var worktreeIndex: [WorktreeID: EventMapper.Anchors] = [:]
   private var built = false
@@ -22,14 +22,14 @@ public final class EventMapperCache {
   /// Mark the index stale. Next lookup triggers a fresh catalog walk.
   public func invalidate() {
     built = false
-    panelIndex.removeAll(keepingCapacity: true)
+    paneIndex.removeAll(keepingCapacity: true)
     tabIndex.removeAll(keepingCapacity: true)
     worktreeIndex.removeAll(keepingCapacity: true)
   }
 
-  public func panelAnchors(_ id: PanelID, catalog: Catalog) -> EventMapper.Anchors {
+  public func paneAnchors(_ id: PaneID, catalog: Catalog) -> EventMapper.Anchors {
     rebuildIfNeeded(catalog)
-    return panelIndex[id] ?? EventMapper.Anchors()
+    return paneIndex[id] ?? EventMapper.Anchors()
   }
 
   public func tabAnchors(_ id: TabID, catalog: Catalog) -> EventMapper.Anchors {
@@ -61,23 +61,23 @@ public final class EventMapperCache {
             space: spaceRef, project: projectRef, worktree: worktreeRef
           )
           for tab in worktree.tabs {
-            let tabRef = HookEnvelope.TabRef(id: tab.id, name: tab.name, selectedPanelID: nil)
+            let tabRef = HookEnvelope.TabRef(id: tab.id, name: tab.name, selectedPaneID: nil)
             tabIndex[tab.id] = EventMapper.Anchors(
               space: spaceRef, project: projectRef, worktree: worktreeRef, tab: tabRef
             )
-            for panel in tab.panels {
-              let panelRef = HookEnvelope.PanelRef(
-                id: panel.id,
-                workingDirectory: panel.workingDirectory,
-                initialCommand: panel.initialCommand,
-                labels: Array(panel.labels).sorted()
+            for pane in tab.panes {
+              let paneRef = HookEnvelope.PaneRef(
+                id: pane.id,
+                workingDirectory: pane.workingDirectory,
+                initialCommand: pane.initialCommand,
+                labels: Array(pane.labels).sorted()
               )
-              panelIndex[panel.id] = EventMapper.Anchors(
+              paneIndex[pane.id] = EventMapper.Anchors(
                 space: spaceRef,
                 project: projectRef,
                 worktree: worktreeRef,
                 tab: tabRef,
-                panel: panelRef
+                pane: paneRef
               )
             }
           }

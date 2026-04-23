@@ -67,7 +67,7 @@ public final class MethodRouter {
     case .hierarchyListProjects: return await h.listProjects(request.params)
     case .hierarchyListWorktrees: return await h.listWorktrees(request.params)
     case .hierarchyListTabs: return await h.listTabs(request.params)
-    case .hierarchyListPanels: return await h.listPanels(request.params)
+    case .hierarchyListPanes: return await h.listPanes(request.params)
     case .hierarchyDescribeSpace: return await h.describeSpace(request.params)
     case .hierarchyResolveAlias: return await h.resolveAlias(request.params)
     default: return nil
@@ -109,10 +109,10 @@ public final class MethodRouter {
     case .hierarchyRemoveWorktree: return await h.removeWorktree(request.params)
     case .hierarchyCreateTab: return await h.createTab(request.params)
     case .hierarchyCloseTab: return await h.closeTab(request.params)
-    case .hierarchyOpenPanel: return await h.openPanel(request.params)
-    case .hierarchyClosePanel: return await h.closePanel(request.params)
-    case .hierarchyFocusPanel: return await h.focusPanel(request.params)
-    case .hierarchySetPanelLabels: return await h.setPanelLabels(request.params)
+    case .hierarchyOpenPane: return await h.openPane(request.params)
+    case .hierarchyClosePane: return await h.closePane(request.params)
+    case .hierarchyFocusPane: return await h.focusPane(request.params)
+    case .hierarchySetPaneLabels: return await h.setPaneLabels(request.params)
     default: return nil
     }
   }

@@ -26,7 +26,7 @@ struct HookConfigClientTests {
   func loadReturnsSubscriptionsWhenFileExists() async throws {
     let (client, store) = makeLiveClient()
     let sub = HookSubscription(
-      event: .panelCreated,
+      event: .paneCreated,
       command: "echo 'test'"
     )
     let config = HookConfig(subscriptions: [sub])
@@ -41,12 +41,12 @@ struct HookConfigClientTests {
   func loadFiltersOutSubscriptionsWithInvalidRegex() async throws {
     let (client, store) = makeLiveClient()
     let validSub = HookSubscription(
-      event: .panelCreated,
+      event: .paneCreated,
       command: "echo 'valid'"
     )
     let invalidRegexSub = HookSubscription(
       id: UUID(),
-      event: .panelCreated,
+      event: .paneCreated,
       command: "echo 'invalid'",
       matchPattern: "(?P<invalid>unclosed"  // Invalid regex
     )
@@ -63,12 +63,12 @@ struct HookConfigClientTests {
   func loadFiltersOutSubscriptionsWithReservedEnv() async throws {
     let (client, store) = makeLiveClient()
     let validSub = HookSubscription(
-      event: .panelCreated,
+      event: .paneCreated,
       command: "echo 'valid'"
     )
     let reservedEnvSub = HookSubscription(
       id: UUID(),
-      event: .panelCreated,
+      event: .paneCreated,
       command: "echo 'reserved'",
       env: ["TOUCH_CODE_SECRET": "value"]
     )
@@ -85,12 +85,12 @@ struct HookConfigClientTests {
   func loadFiltersOutInternalNamespaceSubscriptions() async throws {
     let (client, store) = makeLiveClient()
     let userSub = HookSubscription(
-      event: .panelCreated,
+      event: .paneCreated,
       command: "echo 'user'"
     )
     let internalSub = HookSubscription(
       id: UUID(),
-      event: .panelCreated,
+      event: .paneCreated,
       command: "__touch-code/internal:some-command"
     )
     let config = HookConfig(subscriptions: [userSub, internalSub])
@@ -123,7 +123,7 @@ struct HookConfigClientTests {
   func ensureExistsIsNoOpWhenFileAlreadyExists() async throws {
     let (client, store) = makeLiveClient()
     let sub = HookSubscription(
-      event: .panelCreated,
+      event: .paneCreated,
       command: "echo 'original'"
     )
     let config = HookConfig(subscriptions: [sub])

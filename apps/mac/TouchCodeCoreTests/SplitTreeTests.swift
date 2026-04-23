@@ -6,7 +6,7 @@ import Testing
 struct SplitTreeTests {
   @Test
   func emptyTreeHasNoLeaves() {
-    let tree = SplitTree<PanelID>()
+    let tree = SplitTree<PaneID>()
     #expect(tree.isEmpty)
     #expect(!tree.isSplit)
     #expect(tree.leaves().isEmpty)
@@ -14,7 +14,7 @@ struct SplitTreeTests {
 
   @Test
   func singleLeafTree() {
-    let a = PanelID()
+    let a = PaneID()
     let tree = SplitTree(leaf: a)
     #expect(!tree.isEmpty)
     #expect(!tree.isSplit)
@@ -24,7 +24,7 @@ struct SplitTreeTests {
 
   @Test
   func insertingGrowsTree() throws {
-    let a = PanelID(), b = PanelID(), c = PanelID()
+    let a = PaneID(), b = PaneID(), c = PaneID()
     let tree = try SplitTree(leaf: a)
       .inserting(b, at: a, direction: .right)
       .inserting(c, at: b, direction: .down)
@@ -35,16 +35,16 @@ struct SplitTreeTests {
 
   @Test
   func insertingAtUnknownAnchorThrows() {
-    let a = PanelID(), ghost = PanelID(), b = PanelID()
+    let a = PaneID(), ghost = PaneID(), b = PaneID()
     let tree = SplitTree(leaf: a)
-    #expect(throws: SplitTree<PanelID>.SplitError.leafNotFound) {
+    #expect(throws: SplitTree<PaneID>.SplitError.leafNotFound) {
       _ = try tree.inserting(b, at: ghost, direction: .right)
     }
   }
 
   @Test
   func removingCollapsesSingletonSplit() throws {
-    let a = PanelID(), b = PanelID()
+    let a = PaneID(), b = PaneID()
     let tree = try SplitTree(leaf: a).inserting(b, at: a, direction: .right)
     let afterRemoveB = tree.removing(b)
     #expect(afterRemoveB.leaves() == [a])
@@ -53,21 +53,21 @@ struct SplitTreeTests {
 
   @Test
   func removingNonExistentLeafIsNoop() {
-    let a = PanelID(), ghost = PanelID()
+    let a = PaneID(), ghost = PaneID()
     let tree = SplitTree(leaf: a)
     #expect(tree.removing(ghost) == tree)
   }
 
   @Test
   func removingOnlyLeafYieldsEmptyTree() {
-    let a = PanelID()
+    let a = PaneID()
     let tree = SplitTree(leaf: a).removing(a)
     #expect(tree.isEmpty)
   }
 
   @Test
   func replacingSwapsLeafAndPreservesShape() throws {
-    let a = PanelID(), b = PanelID(), c = PanelID()
+    let a = PaneID(), b = PaneID(), c = PaneID()
     let original = try SplitTree(leaf: a).inserting(b, at: a, direction: .right)
     let replaced = try original.replacing(b, with: c)
     #expect(replaced.leaves() == [a, c])
@@ -76,7 +76,7 @@ struct SplitTreeTests {
 
   @Test
   func pathToLeafNavigatesLeftFirst() throws {
-    let a = PanelID(), b = PanelID()
+    let a = PaneID(), b = PaneID()
     let tree = try SplitTree(leaf: a).inserting(b, at: a, direction: .right)
     // `inserting(..., at: a, direction: .right)` places the new leaf to the right, so `a` is on left.
     let pathA = try #require(tree.path(to: a))
@@ -87,14 +87,14 @@ struct SplitTreeTests {
 
   @Test
   func pathToUnknownLeafReturnsNil() {
-    let a = PanelID(), ghost = PanelID()
+    let a = PaneID(), ghost = PaneID()
     let tree = SplitTree(leaf: a)
     #expect(tree.path(to: ghost) == nil)
   }
 
   @Test
   func focusTargetNextWrapsAround() throws {
-    let a = PanelID(), b = PanelID(), c = PanelID()
+    let a = PaneID(), b = PaneID(), c = PaneID()
     let tree = try SplitTree(leaf: a)
       .inserting(b, at: a, direction: .right)
       .inserting(c, at: b, direction: .right)
@@ -106,7 +106,7 @@ struct SplitTreeTests {
 
   @Test
   func focusAfterClosingUsesNextForLeftmost() throws {
-    let a = PanelID(), b = PanelID(), c = PanelID()
+    let a = PaneID(), b = PaneID(), c = PaneID()
     let tree = try SplitTree(leaf: a)
       .inserting(b, at: a, direction: .right)
       .inserting(c, at: b, direction: .right)
@@ -116,14 +116,14 @@ struct SplitTreeTests {
 
   @Test
   func focusAfterClosingSingletonReturnsNil() {
-    let a = PanelID()
+    let a = PaneID()
     let tree = SplitTree(leaf: a)
     #expect(tree.focusTargetAfterClosing(a) == nil)
   }
 
   @Test
   func zoomedLeafTracksReplacementAndRemoval() throws {
-    let a = PanelID(), b = PanelID(), c = PanelID()
+    let a = PaneID(), b = PaneID(), c = PaneID()
     let tree = try SplitTree(leaf: a)
       .inserting(b, at: a, direction: .right)
       .settingZoomed(b)
@@ -138,9 +138,9 @@ struct SplitTreeTests {
 
   @Test
   func resizingClampsRatio() throws {
-    let a = PanelID(), b = PanelID()
+    let a = PaneID(), b = PaneID()
     let tree = try SplitTree(leaf: a).inserting(b, at: a, direction: .right)
-    let rootPath = SplitTree<PanelID>.Path()
+    let rootPath = SplitTree<PaneID>.Path()
     let clampedHigh = try tree.resizing(at: rootPath, ratio: 1.5)
     let clampedLow = try tree.resizing(at: rootPath, ratio: -0.2)
     guard case .split(let high) = clampedHigh.root else { Issue.record("Expected split"); return }
@@ -151,14 +151,14 @@ struct SplitTreeTests {
 
   @Test
   func codableRoundTripPreservesStructure() throws {
-    let a = PanelID(), b = PanelID(), c = PanelID()
+    let a = PaneID(), b = PaneID(), c = PaneID()
     let tree = try SplitTree(leaf: a)
       .inserting(b, at: a, direction: .right)
       .inserting(c, at: b, direction: .down)
       .settingZoomed(b)
 
     let data = try JSONEncoder().encode(tree)
-    let decoded = try JSONDecoder().decode(SplitTree<PanelID>.self, from: data)
+    let decoded = try JSONDecoder().decode(SplitTree<PaneID>.self, from: data)
     #expect(decoded == tree)
   }
 }

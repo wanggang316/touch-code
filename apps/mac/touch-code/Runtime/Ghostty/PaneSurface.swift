@@ -4,11 +4,11 @@ import GhosttyKit
 import TouchCodeCore
 
 /// Owns one `ghostty_surface_t` and its hosting `GhosttySurfaceView`. One
-/// PanelSurface corresponds to one `Panel` while alive; when the surface
+/// PaneSurface corresponds to one `Pane` while alive; when the surface
 /// closes (child exited, crash, explicit close) the engine disposes this
 /// object and drops it from its registry.
 @MainActor
-final class PanelSurface {
+final class PaneSurface {
   enum State: Equatable, Sendable {
     case initialising
     case ready
@@ -16,10 +16,10 @@ final class PanelSurface {
     case crashed(reason: String)
   }
 
-  let panelID: PanelID
-  /// Observable informational state populated from the `PanelInfoDelta`
+  let paneID: PaneID
+  /// Observable informational state populated from the `PaneInfoDelta`
   /// stream via `apply(_:)`. Reference type — `let` is intentional; the
-  /// instance lives for the full PanelSurface lifetime and its fields
+  /// instance lives for the full PaneSurface lifetime and its fields
   /// are mutated in place so observers keep the same identity.
   let info: SurfaceInfo = SurfaceInfo()
   private(set) var state: State = .initialising
@@ -30,9 +30,9 @@ final class PanelSurface {
   private let workingDirectoryCString: UnsafeMutablePointer<CChar>?
   /// Heap-allocated uuid_t bytes passed to libghostty as the surface
   /// userdata. close_surface_cb reads these bytes to recover the owning
-  /// PanelID without casting to a Swift object pointer (UAF-safe across
+  /// PaneID without casting to a Swift object pointer (UAF-safe across
   /// the C→main-queue hop).
-  private let panelIDUserdata: UnsafeMutablePointer<UInt8>
+  private let paneIDUserdata: UnsafeMutablePointer<UInt8>
 
   /// Engine-provided close callback. Runs when the libghostty surface
   /// reports close (child exited or crashed). `processAlive` is true for
@@ -47,7 +47,7 @@ final class PanelSurface {
 
   init(
     runtime: GhosttyRuntime,
-    panelID: PanelID,
+    paneID: PaneID,
     workingDirectory: String,
     fontSize: Float32 = 13.0
   ) throws {
@@ -55,14 +55,14 @@ final class PanelSurface {
       throw GhosttyError.appInitFailed
     }
     self.runtime = runtime
-    self.panelID = panelID
+    self.paneID = paneID
     self.workingDirectoryCString = strdup(workingDirectory)
-    self.view = GhosttySurfaceView(panelID: panelID)
+    self.view = GhosttySurfaceView(paneID: paneID)
 
-    // Allocate 16 bytes to hold the PanelID's uuid bytes as surface userdata.
-    self.panelIDUserdata = UnsafeMutablePointer<UInt8>.allocate(capacity: 16)
-    withUnsafeBytes(of: panelID.raw.uuid) { src in
-      panelIDUserdata.update(
+    // Allocate 16 bytes to hold the PaneID's uuid bytes as surface userdata.
+    self.paneIDUserdata = UnsafeMutablePointer<UInt8>.allocate(capacity: 16)
+    withUnsafeBytes(of: paneID.raw.uuid) { src in
+      paneIDUserdata.update(
         from: src.bindMemory(to: UInt8.self).baseAddress!,
         count: 16
       )
@@ -80,10 +80,10 @@ final class PanelSurface {
     config.working_directory = workingDirectoryCString.map { UnsafePointer($0) }
     config.context = GHOSTTY_SURFACE_CONTEXT_SPLIT
     // Per-surface userdata: opaque pointer to the 16 uuid-bytes of the
-    // owning PanelID. The close_surface_cb copies these bytes into a local
+    // owning PaneID. The close_surface_cb copies these bytes into a local
     // UUID so the callback survives the C→main-queue hop even if the
-    // PanelSurface object is freed in-between.
-    config.userdata = UnsafeMutableRawPointer(panelIDUserdata)
+    // PaneSurface object is freed in-between.
+    config.userdata = UnsafeMutableRawPointer(paneIDUserdata)
 
     guard let surface = ghostty_surface_new(app, &config) else {
       throw GhosttyError.surfaceInitFailed
@@ -100,7 +100,7 @@ final class PanelSurface {
 
   isolated deinit {
     // Safety net: callers should invoke close() explicitly, but if the
-    // engine drops a PanelSurface without doing so, release the surface
+    // engine drops a PaneSurface without doing so, release the surface
     // here to avoid leaking a ghostty_surface_t + the child PTY.
     if let surface {
       ghostty_surface_free(surface)
@@ -108,7 +108,7 @@ final class PanelSurface {
     if let ptr = workingDirectoryCString {
       free(UnsafeMutableRawPointer(ptr))
     }
-    panelIDUserdata.deallocate()
+    paneIDUserdata.deallocate()
   }
 
   /// Explicit teardown. Idempotent. After `close()`, the surface handle is
@@ -209,15 +209,15 @@ final class PanelSurface {
 
   // MARK: - Info delta application
 
-  /// Fold a single `PanelInfoDelta` into `info`. Exhaustive over every
+  /// Fold a single `PaneInfoDelta` into `info`. Exhaustive over every
   /// delta case — the compiler enforces coverage when new cases land in
   /// TouchCodeCore, which is the whole point of keeping the enum Core-side.
   ///
   /// This only mutates per-surface observable state; it does NOT emit
-  /// `TerminalEvent.panelInfoChanged`. The decoder is responsible for
+  /// `TerminalEvent.paneInfoChanged`. The decoder is responsible for
   /// fan-out so listeners that don't need per-field tracking can stay on
   /// the event stream.
-  func apply(_ delta: PanelInfoDelta) {
+  func apply(_ delta: PaneInfoDelta) {
     switch delta {
     case .title(let t):
       info.title = t

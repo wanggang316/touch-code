@@ -6,7 +6,7 @@ import TouchCodeCore
 /// input, three-way option loading (branch refs / local branches /
 /// default remote branch), live branch-name validation, streaming
 /// progress, and the post-create sidecar actions (append catalog,
-/// select, open a Tab + Panel in the new directory).
+/// select, open a Tab + Pane in the new directory).
 ///
 /// Streaming progress buffer feeds from the `wt sw` driver. See
 /// `docs/design-docs/worktree-management-design.md` §CreateWorktreeFeature.
@@ -232,7 +232,7 @@ struct CreateWorktreeFeature {
           )
           try hierarchyClient.selectWorktree(worktreeID, projectID, spaceID)
           let tabID = try hierarchyClient.createTab(worktreeID, projectID, spaceID, nil)
-          _ = try hierarchyClient.openPanel(
+          _ = try hierarchyClient.openPane(
             tabID, worktreeID, projectID, spaceID, pathString, nil
           )
         } catch {

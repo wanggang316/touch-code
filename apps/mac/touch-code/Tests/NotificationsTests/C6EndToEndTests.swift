@@ -11,15 +11,15 @@ import Testing
 /// sinks (MockOSNotifier, MockDockBadger, live InboxStore).
 ///
 /// Two routing paths are covered:
-/// - **Lifecycle via `dispatcher.fire()`.** For `.panelExited` and
-///   `.panelCrashed`, a sentinel-prefixed subscription for the same
+/// - **Lifecycle via `dispatcher.fire()`.** For `.paneExited` and
+///   `.paneCrashed`, a sentinel-prefixed subscription for the same
 ///   event type is installed on the dispatcher so `fire()`'s matching
 ///   filter routes to C6's `DetectionRouter` via the sentinel prefix.
 ///   This is the path `dispatcher.attach(to:catalog:)` takes for every
 ///   live event, exercising EventMapper → fire → dispatch → internal
 ///   subscriber → router → tracker → coordinator → sinks.
 /// - **Rule-driven via `router.handle(envelope:ruleID:)`.** For
-///   `.panelOutputMatch` envelopes, the dispatcher's `handle(envelope:)`
+///   `.paneOutputMatch` envelopes, the dispatcher's `handle(envelope:)`
 ///   protocol method cannot recover the rule id from the envelope alone
 ///   (C3 M2.1.1 will add a command sidechannel). Tests use the explicit
 ///   seam to cover the rule path full-stack.
@@ -28,19 +28,19 @@ struct C6EndToEndTests {
   // MARK: - Lifecycle via dispatcher.fire()
 
   @Test
-  func panelCrashedFiresThroughDispatcherAndPostsCrashedNotification() async throws {
-    let harness = try await Self.startHarness(authStatus: .authorized, agentPanelCount: 1)
+  func paneCrashedFiresThroughDispatcherAndPostsCrashedNotification() async throws {
+    let harness = try await Self.startHarness(authStatus: .authorized, agentPaneCount: 1)
     defer { harness.bootstrap.shutdown() }
-    let panelID = try #require(harness.seedPanelIDs.first)
+    let paneID = try #require(harness.seedPaneIDs.first)
 
-    // Sentinel sub for panel.crashed — routes dispatcher.fire → dispatch
+    // Sentinel sub for pane.crashed — routes dispatcher.fire → dispatch
     // → internalSubscribers[sentinel] → DetectionRouter.handle(envelope:).
-    Self.installSentinelSub(for: .panelCrashed, on: harness.bootstrap.hookDispatcher)
+    Self.installSentinelSub(for: .paneCrashed, on: harness.bootstrap.hookDispatcher)
 
     let envelope = Self.envelope(
-      event: .panelCrashed,
-      panelID: panelID,
-      data: .panelCrashed(reason: "pty fault")
+      event: .paneCrashed,
+      paneID: paneID,
+      data: .paneCrashed(reason: "pty fault")
     )
     await harness.bootstrap.hookDispatcher.fire(envelope)
 
@@ -51,17 +51,17 @@ struct C6EndToEndTests {
   }
 
   @Test
-  func panelExitedZeroFiresCompletedNotification() async throws {
-    let harness = try await Self.startHarness(authStatus: .authorized, agentPanelCount: 1)
+  func paneExitedZeroFiresCompletedNotification() async throws {
+    let harness = try await Self.startHarness(authStatus: .authorized, agentPaneCount: 1)
     defer { harness.bootstrap.shutdown() }
-    let panelID = try #require(harness.seedPanelIDs.first)
+    let paneID = try #require(harness.seedPaneIDs.first)
 
-    Self.installSentinelSub(for: .panelExited, on: harness.bootstrap.hookDispatcher)
+    Self.installSentinelSub(for: .paneExited, on: harness.bootstrap.hookDispatcher)
 
     let envelope = Self.envelope(
-      event: .panelExited,
-      panelID: panelID,
-      data: .panelExited(exitCode: 0)
+      event: .paneExited,
+      paneID: paneID,
+      data: .paneExited(exitCode: 0)
     )
     await harness.bootstrap.hookDispatcher.fire(envelope)
 
@@ -71,17 +71,17 @@ struct C6EndToEndTests {
   }
 
   @Test
-  func panelExitedNonZeroFiresCrashedNotification() async throws {
-    let harness = try await Self.startHarness(authStatus: .authorized, agentPanelCount: 1)
+  func paneExitedNonZeroFiresCrashedNotification() async throws {
+    let harness = try await Self.startHarness(authStatus: .authorized, agentPaneCount: 1)
     defer { harness.bootstrap.shutdown() }
-    let panelID = try #require(harness.seedPanelIDs.first)
+    let paneID = try #require(harness.seedPaneIDs.first)
 
-    Self.installSentinelSub(for: .panelExited, on: harness.bootstrap.hookDispatcher)
+    Self.installSentinelSub(for: .paneExited, on: harness.bootstrap.hookDispatcher)
 
     let envelope = Self.envelope(
-      event: .panelExited,
-      panelID: panelID,
-      data: .panelExited(exitCode: 127)
+      event: .paneExited,
+      paneID: paneID,
+      data: .paneExited(exitCode: 127)
     )
     await harness.bootstrap.hookDispatcher.fire(envelope)
 
@@ -93,12 +93,12 @@ struct C6EndToEndTests {
 
   @Test
   func blockedOnInputRuleDrivesFullStack() async throws {
-    let harness = try await Self.startHarness(authStatus: .authorized, agentPanelCount: 1)
+    let harness = try await Self.startHarness(authStatus: .authorized, agentPaneCount: 1)
     defer { harness.bootstrap.shutdown() }
-    let panelID = try #require(harness.seedPanelIDs.first)
+    let paneID = try #require(harness.seedPaneIDs.first)
 
     let envelope = Self.outputMatchEnvelope(
-      panelID: panelID,
+      paneID: paneID,
       match: "Do you want to proceed?"
     )
     harness.bootstrap.router.handle(envelope: envelope, ruleID: "claude.blocked_on_input")
@@ -113,15 +113,15 @@ struct C6EndToEndTests {
 
   @Test
   func mutedRuleStillInboxesButDoesNotPost() async throws {
-    let harness = try await Self.startHarness(authStatus: .authorized, agentPanelCount: 1)
+    let harness = try await Self.startHarness(authStatus: .authorized, agentPaneCount: 1)
     defer { harness.bootstrap.shutdown() }
-    let panelID = try #require(harness.seedPanelIDs.first)
+    let paneID = try #require(harness.seedPaneIDs.first)
 
     harness.bootstrap.settingsStore.mutateNotifications {
       $0.mute.mutedRuleIDs.insert("claude.blocked_on_input")
     }
 
-    let envelope = Self.outputMatchEnvelope(panelID: panelID, match: "Do you want to proceed?")
+    let envelope = Self.outputMatchEnvelope(paneID: paneID, match: "Do you want to proceed?")
     harness.bootstrap.router.handle(envelope: envelope, ruleID: "claude.blocked_on_input")
 
     // Inbox accrual is synchronous; wait briefly for the coordinator's
@@ -135,11 +135,11 @@ struct C6EndToEndTests {
 
   @Test
   func deniedPermissionInboxesButSkipsOSPost() async throws {
-    let harness = try await Self.startHarness(authStatus: .denied, agentPanelCount: 1)
+    let harness = try await Self.startHarness(authStatus: .denied, agentPaneCount: 1)
     defer { harness.bootstrap.shutdown() }
-    let panelID = try #require(harness.seedPanelIDs.first)
+    let paneID = try #require(harness.seedPaneIDs.first)
 
-    let envelope = Self.outputMatchEnvelope(panelID: panelID, match: "Do you want to proceed?")
+    let envelope = Self.outputMatchEnvelope(paneID: paneID, match: "Do you want to proceed?")
     harness.bootstrap.router.handle(envelope: envelope, ruleID: "claude.blocked_on_input")
 
     try await harness.waitForInboxCount(1)
@@ -150,12 +150,12 @@ struct C6EndToEndTests {
   // MARK: - attach(to:) event-stream smoke test
 
   @Test
-  func attachedEventStreamRoutesPanelCrashedEndToEnd() async throws {
-    let harness = try await Self.startHarness(authStatus: .authorized, agentPanelCount: 1)
+  func attachedEventStreamRoutesPaneCrashedEndToEnd() async throws {
+    let harness = try await Self.startHarness(authStatus: .authorized, agentPaneCount: 1)
     defer { harness.bootstrap.shutdown() }
-    let panelID = try #require(harness.seedPanelIDs.first)
+    let paneID = try #require(harness.seedPaneIDs.first)
 
-    Self.installSentinelSub(for: .panelCrashed, on: harness.bootstrap.hookDispatcher)
+    Self.installSentinelSub(for: .paneCrashed, on: harness.bootstrap.hookDispatcher)
 
     var continuation: AsyncStream<TerminalEvent>.Continuation!
     let stream = AsyncStream<TerminalEvent> { c in continuation = c }
@@ -166,7 +166,7 @@ struct C6EndToEndTests {
     // envelope, fire() matches the sentinel sub, dispatch() hands the
     // envelope to DetectionRouter, which routes to the tracker +
     // coordinator + sinks.
-    continuation.yield(.panelCrashed(panelID, reason: "segfault"))
+    continuation.yield(.paneCrashed(paneID, reason: "segfault"))
 
     await harness.mockNotifier.waitForPostCount(1)
     #expect(harness.mockNotifier.postedNotifications.first?.kind == .crashed)
@@ -182,7 +182,7 @@ struct C6EndToEndTests {
     let mockBadger: MockDockBadger
     let mockDelegate: MockPermissionDelegate
     let tempDirectory: URL
-    let seedPanelIDs: [PanelID]
+    let seedPaneIDs: [PaneID]
 
     /// Inbox-mutation await. The coordinator's bind loop is async; for
     /// paths where OS posting is suppressed (muting, denial) we can't
@@ -200,7 +200,7 @@ struct C6EndToEndTests {
 
   static func startHarness(
     authStatus: AuthorizationStatusCache,
-    agentPanelCount: Int
+    agentPaneCount: Int
   ) async throws -> Harness {
     let temp = FileManager.default.temporaryDirectory
       .appending(component: "c6-e2e-\(UUID().uuidString)")
@@ -215,12 +215,12 @@ struct C6EndToEndTests {
       actionDispatcher: RecordingHookActionDispatcher()
     )
 
-    // Seed catalog with N agent-labelled Panels so TrackerRegistry.bootstrap
+    // Seed catalog with N agent-labelled Panes so TrackerRegistry.bootstrap
     // creates trackers and step-10 sweep wires them into the coordinator.
-    var seedPanelIDs: [PanelID] = []
+    var seedPaneIDs: [PaneID] = []
     let catalogURL = temp.appendingPathComponent("catalog.json")
     let catalogStore = CatalogStore(fileURL: catalogURL)
-    let catalog = Self.makeCatalog(agentPanelCount: agentPanelCount, panelIDs: &seedPanelIDs)
+    let catalog = Self.makeCatalog(agentPaneCount: agentPaneCount, paneIDs: &seedPaneIDs)
     let hierarchy = HierarchyManager(
       catalog: catalog,
       store: catalogStore,
@@ -256,17 +256,17 @@ struct C6EndToEndTests {
       mockBadger: badger,
       mockDelegate: delegate,
       tempDirectory: temp,
-      seedPanelIDs: seedPanelIDs
+      seedPaneIDs: seedPaneIDs
     )
   }
 
-  static func makeCatalog(agentPanelCount: Int, panelIDs: inout [PanelID]) -> Catalog {
-    guard agentPanelCount > 0 else { return .default }
-    let panels: [Panel] = (0..<agentPanelCount).map { _ in
-      Panel(workingDirectory: "/tmp/agent", initialCommand: nil, labels: ["agent:claude"])
+  static func makeCatalog(agentPaneCount: Int, paneIDs: inout [PaneID]) -> Catalog {
+    guard agentPaneCount > 0 else { return .default }
+    let panes: [Pane] = (0..<agentPaneCount).map { _ in
+      Pane(workingDirectory: "/tmp/agent", initialCommand: nil, labels: ["agent:claude"])
     }
-    panelIDs = panels.map(\.id)
-    let tab = Tab(splitTree: SplitTree(leaf: panels[0].id), panels: panels)
+    paneIDs = panes.map(\.id)
+    let tab = Tab(splitTree: SplitTree(leaf: panes[0].id), panes: panes)
     let worktree = Worktree(name: "main", path: "/repo", branch: "main", tabs: [tab], selectedTabID: tab.id)
     let project = Project(
       name: "p", rootPath: "/p", gitRoot: "/p",
@@ -293,7 +293,7 @@ struct C6EndToEndTests {
 
   static func envelope(
     event: HookEvent,
-    panelID: PanelID,
+    paneID: PaneID,
     data: HookEventData
   ) -> HookEnvelope {
     HookEnvelope(
@@ -304,8 +304,8 @@ struct C6EndToEndTests {
       project: nil,
       worktree: nil,
       tab: nil,
-      panel: HookEnvelope.PanelRef(
-        id: panelID,
+      pane: HookEnvelope.PaneRef(
+        id: paneID,
         workingDirectory: "/tmp/agent",
         initialCommand: nil,
         labels: ["agent:claude"]
@@ -314,11 +314,11 @@ struct C6EndToEndTests {
     )
   }
 
-  static func outputMatchEnvelope(panelID: PanelID, match: String) -> HookEnvelope {
+  static func outputMatchEnvelope(paneID: PaneID, match: String) -> HookEnvelope {
     envelope(
-      event: .panelOutputMatch,
-      panelID: panelID,
-      data: .panelOutputMatch(
+      event: .paneOutputMatch,
+      paneID: paneID,
+      data: .paneOutputMatch(
         match: match,
         matchedRange: HookMatchRange(start: 0, length: match.count),
         output: Data(match.utf8),

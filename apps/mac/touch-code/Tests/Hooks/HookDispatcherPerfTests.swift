@@ -6,7 +6,7 @@ import Testing
 
 @MainActor
 struct HookDispatcherPerfTests {
-  /// Fire 1000 panel-output events against 50 panel-output-match
+  /// Fire 1000 pane-output events against 50 pane-output-match
   /// subscriptions. With per-fire `NSRegularExpression(pattern:)`
   /// compilation this is a 50 000-compile hot path; with the cache it
   /// drops to 50 one-time compiles. The ceiling below passes comfortably
@@ -20,7 +20,7 @@ struct HookDispatcherPerfTests {
     for i in 0..<50 {
       subs.append(
         HookSubscription(
-          event: .panelOutputMatch,
+          event: .paneOutputMatch,
           command: "echo \(i)",
           matchPattern: "error[-_]code[-_]\(i)",
           matchFlags: .caseInsensitive
@@ -38,7 +38,7 @@ struct HookDispatcherPerfTests {
     #expect(elapsed < 2.0, "output-match hot path regressed: \(elapsed)s > 2s")
   }
 
-  /// 5000 panel events after a `.hierarchyMutated` stay under a
+  /// 5000 pane events after a `.hierarchyMutated` stay under a
   /// 2-second ceiling when the anchor index caches the catalog walk.
   /// The mission's ceiling fails with the old O(S·P·W·T·P) walk.
   /// Follow-up: drop `async` or add an `await` when this grows a suspension point.
@@ -47,12 +47,12 @@ struct HookDispatcherPerfTests {
   // swiftlint:disable:next async_without_await
   func anchorCacheHotPathStaysUnderCeiling() async throws {
     let cache = EventMapperCache()
-    let catalog = Self.largeCatalog(panelsPerTab: 4, tabsPerWorktree: 4, worktreesPerProject: 4)
-    let panelID = Self.firstPanelID(catalog)
+    let catalog = Self.largeCatalog(panesPerTab: 4, tabsPerWorktree: 4, worktreesPerProject: 4)
+    let paneID = Self.firstPaneID(catalog)
 
     let start = Date()
     for _ in 0..<5000 {
-      _ = EventMapper.map(.panelReady(panelID), catalog: catalog, cache: cache)
+      _ = EventMapper.map(.paneReady(paneID), catalog: catalog, cache: cache)
     }
     let elapsed = Date().timeIntervalSince(start)
     #expect(elapsed < 1.0, "anchor cache hot path regressed: \(elapsed)s > 1s")
@@ -62,18 +62,18 @@ struct HookDispatcherPerfTests {
 
   private func makeOutputEnvelope() -> HookEnvelope {
     HookEnvelope(
-      event: .panelOutput,
+      event: .paneOutput,
       space: .init(id: SpaceID(), name: "s"),
       project: .init(id: ProjectID(), name: "p", rootPath: "/"),
       worktree: .init(id: WorktreeID(), name: "w", path: "/"),
       tab: .init(id: TabID()),
-      panel: .init(id: PanelID(), workingDirectory: "/"),
-      data: .panelOutput(output: Data("hello world nothing matches here".utf8), outputBytes: 32)
+      pane: .init(id: PaneID(), workingDirectory: "/"),
+      data: .paneOutput(output: Data("hello world nothing matches here".utf8), outputBytes: 32)
     )
   }
 
   static func largeCatalog(
-    panelsPerTab: Int,
+    panesPerTab: Int,
     tabsPerWorktree: Int,
     worktreesPerProject: Int
   ) -> Catalog {
@@ -85,11 +85,11 @@ struct HookDispatcherPerfTests {
         for _ in 0..<worktreesPerProject {
           var tabs: [Tab] = []
           for _ in 0..<tabsPerWorktree {
-            var panels: [Panel] = []
-            for _ in 0..<panelsPerTab {
-              panels.append(Panel(id: PanelID(), workingDirectory: "/tmp"))
+            var panes: [Pane] = []
+            for _ in 0..<panesPerTab {
+              panes.append(Pane(id: PaneID(), workingDirectory: "/tmp"))
             }
-            tabs.append(Tab(id: TabID(), name: "t", panels: panels))
+            tabs.append(Tab(id: TabID(), name: "t", panes: panes))
           }
           worktrees.append(Worktree(id: WorktreeID(), name: "w", path: "/", branch: nil, tabs: tabs))
         }
@@ -100,7 +100,7 @@ struct HookDispatcherPerfTests {
     return Catalog(spaces: spaces)
   }
 
-  static func firstPanelID(_ catalog: Catalog) -> PanelID {
-    catalog.spaces[0].projects[0].worktrees[0].tabs[0].panels[0].id
+  static func firstPaneID(_ catalog: Catalog) -> PaneID {
+    catalog.spaces[0].projects[0].worktrees[0].tabs[0].panes[0].id
   }
 }

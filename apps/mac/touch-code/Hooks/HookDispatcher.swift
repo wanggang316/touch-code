@@ -36,12 +36,12 @@ public final class HookDispatcher {
   /// Per-subscription compiled regex cache. Rebuilt on every config swap
   /// (`setConfig` / `reloadConfig`). Bypasses the per-fire
   /// `NSRegularExpression(pattern:)` compile that dominated the
-  /// `.panelOutput` hot path. Entries are keyed by subscription id; a
+  /// `.paneOutput` hot path. Entries are keyed by subscription id; a
   /// `nil` value means the pattern failed to compile (still cached so we
   /// don't retry on every event).
   private var regexCache: [UUID: NSRegularExpression?] = [:]
 
-  /// Panel/Tab/Worktree anchor index. Rebuilt lazily on first use after
+  /// Pane/Tab/Worktree anchor index. Rebuilt lazily on first use after
   /// `invalidate()`; the dispatcher's `attach` path invalidates whenever
   /// a `.hierarchyMutated` event arrives.
   private let anchorCache = EventMapperCache()
@@ -83,7 +83,7 @@ public final class HookDispatcher {
   /// task via `stop()`.
   ///
   /// The `catalog` closure is re-invoked per event so hierarchy mutations
-  /// are reflected immediately — a panel that moves tabs between event A
+  /// are reflected immediately — a pane that moves tabs between event A
   /// and event B picks up the new tab anchor on event B.
   public func attach(
     to events: AsyncStream<TerminalEvent>,
@@ -98,7 +98,7 @@ public final class HookDispatcher {
         guard let self else { return }
         // `.hierarchyMutated` carries no hook surface but tells us the
         // catalog shape changed — drop the cached anchor index so the
-        // next panel/tab/worktree event rebuilds from the fresh
+        // next pane/tab/worktree event rebuilds from the fresh
         // catalog snapshot.
         if case .hierarchyMutated = event {
           self.anchorCache.invalidate()
@@ -132,9 +132,9 @@ public final class HookDispatcher {
   /// to the multicaster so `hook.events` / `internalEventStream()` see the
   /// firing.
   ///
-  /// For `.panelOutput` envelopes the dispatcher also scans every
-  /// `.panelOutputMatch` subscription whose `matchPattern` hits the
-  /// output bytes, and fires a synthesized `.panelOutputMatch` envelope
+  /// For `.paneOutput` envelopes the dispatcher also scans every
+  /// `.paneOutputMatch` subscription whose `matchPattern` hits the
+  /// output bytes, and fires a synthesized `.paneOutputMatch` envelope
   /// per match. This keeps `EventMapper` pure (one inbound event →
   /// exactly one envelope) while giving user regexes a fire path that
   /// consumers like `hook.events` can observe.
@@ -147,16 +147,16 @@ public final class HookDispatcher {
       await dispatch(sub, envelope: envelope)
     }
 
-    // Output-match fan-out. Only runs for panel.output events that
+    // Output-match fan-out. Only runs for pane.output events that
     // carry raw bytes; subscriptions with a matchPattern are evaluated
-    // against the bytes, and a hit synthesises a `.panelOutputMatch`
+    // against the bytes, and a hit synthesises a `.paneOutputMatch`
     // envelope that is re-entered through the normal fire path.
-    if envelope.event == .panelOutput,
-      case .panelOutput(let output, let bytes) = envelope.data
+    if envelope.event == .paneOutput,
+      case .paneOutput(let output, let bytes) = envelope.data
     {
       for sub in config.subscriptions
       where !sub.disabled
-        && sub.event == .panelOutputMatch
+        && sub.event == .paneOutputMatch
         && (sub.matchPattern?.isEmpty == false)
       {
         guard let cached = regexCache[sub.id],
@@ -169,13 +169,13 @@ public final class HookDispatcher {
           continue
         }
         let synthesised = HookEnvelope(
-          event: .panelOutputMatch,
+          event: .paneOutputMatch,
           space: envelope.space,
           project: envelope.project,
           worktree: envelope.worktree,
           tab: envelope.tab,
-          panel: envelope.panel,
-          data: .panelOutputMatch(
+          pane: envelope.pane,
+          data: .paneOutputMatch(
             match: matchString,
             matchedRange: range,
             output: output,

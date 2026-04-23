@@ -8,10 +8,10 @@ import TouchCodeCore
 struct PendingOutputBufferTests {
   @Test
   func coalescesSuccessiveAppendsIntoOneEmission() async throws {
-    var emissions: [(PanelID, Data)] = []
-    let panelID = PanelID()
+    var emissions: [(PaneID, Data)] = []
+    let paneID = PaneID()
     let buffer = PendingOutputBuffer(
-      panelID: panelID,
+      paneID: paneID,
       flushInterval: .milliseconds(20),
       maxBufferSize: 1024
     ) { id, data in
@@ -30,16 +30,16 @@ struct PendingOutputBufferTests {
     }
 
     #expect(emissions.count == 1)
-    #expect(emissions[0].0 == panelID)
+    #expect(emissions[0].0 == paneID)
     #expect(emissions[0].1 == Data([0x41, 0x42, 0x43, 0x44, 0x45]))
   }
 
   @Test
   func immediateFlushWhenBufferExceedsMax() {
-    var emissions: [(PanelID, Data)] = []
-    let panelID = PanelID()
+    var emissions: [(PaneID, Data)] = []
+    let paneID = PaneID()
     let buffer = PendingOutputBuffer(
-      panelID: panelID,
+      paneID: paneID,
       flushInterval: .seconds(10),
       maxBufferSize: 4
     ) { id, data in
@@ -54,13 +54,13 @@ struct PendingOutputBufferTests {
 
   @Test
   func immediateFlushWhenBufferReachesMaxExactly() {
-    var emissions: [(PanelID, Data)] = []
+    var emissions: [(PaneID, Data)] = []
     let buffer = PendingOutputBuffer(
-      panelID: PanelID(),
+      paneID: PaneID(),
       flushInterval: .seconds(10),
       maxBufferSize: 4
     ) { _, data in
-      emissions.append((PanelID(), data))
+      emissions.append((PaneID(), data))
     }
 
     buffer.append(Data([1, 2, 3, 4]))
@@ -71,10 +71,10 @@ struct PendingOutputBufferTests {
 
   @Test
   func flushDrainsSynchronously() {
-    var emissions: [(PanelID, Data)] = []
-    let panelID = PanelID()
+    var emissions: [(PaneID, Data)] = []
+    let paneID = PaneID()
     let buffer = PendingOutputBuffer(
-      panelID: panelID,
+      paneID: paneID,
       flushInterval: .seconds(10)
     ) { id, data in
       emissions.append((id, data))
@@ -89,8 +89,8 @@ struct PendingOutputBufferTests {
 
   @Test
   func flushOnEmptyBufferEmitsNothing() {
-    var emissions: [(PanelID, Data)] = []
-    let buffer = PendingOutputBuffer(panelID: PanelID()) { id, data in
+    var emissions: [(PaneID, Data)] = []
+    let buffer = PendingOutputBuffer(paneID: PaneID()) { id, data in
       emissions.append((id, data))
     }
 

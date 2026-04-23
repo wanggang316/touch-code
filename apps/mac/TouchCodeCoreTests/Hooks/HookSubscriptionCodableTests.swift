@@ -6,7 +6,7 @@ import Testing
 struct HookSubscriptionCodableTests {
   @Test
   func minimalSubscriptionRoundTrip() throws {
-    let sub = HookSubscription(event: .panelReady, command: "echo ready")
+    let sub = HookSubscription(event: .paneReady, command: "echo ready")
     let data = try JSONEncoder().encode(sub)
     let decoded = try JSONDecoder().decode(HookSubscription.self, from: data)
     #expect(decoded == sub)
@@ -15,11 +15,11 @@ struct HookSubscriptionCodableTests {
   @Test
   func fullSubscriptionRoundTrip() throws {
     let sub = HookSubscription(
-      event: .panelOutputMatch,
+      event: .paneOutputMatch,
       command: "~/bin/notify-agent-done",
       matchPattern: "(?i)\\bready\\b",
       matchFlags: [.caseInsensitive, .multiline],
-      scope: .panelLabel("agent"),
+      scope: .paneLabel("agent"),
       timeoutSeconds: 2.5,
       mode: .awaitActions,
       cwd: "$WORKTREE",
@@ -37,16 +37,16 @@ struct HookSubscriptionCodableTests {
   @Test
   func everyScopeVariantRoundTrips() throws {
     let variants: [HookSubscription.Scope] = [
-      .anyPanel,
-      .panelID(PanelID()),
-      .panelLabel("agent"),
+      .anyPane,
+      .paneID(PaneID()),
+      .paneLabel("agent"),
       .tabID(TabID()),
       .tabLabel("tests"),
       .worktreeID(WorktreeID()),
       .worktreePathGlob("**/exp/*"),
     ]
     for scope in variants {
-      let sub = HookSubscription(event: .panelReady, command: "noop", scope: scope)
+      let sub = HookSubscription(event: .paneReady, command: "noop", scope: scope)
       let data = try JSONEncoder().encode(sub)
       let decoded = try JSONDecoder().decode(HookSubscription.self, from: data)
       #expect(decoded.scope == scope, "scope mismatch for \(scope)")
@@ -65,7 +65,7 @@ struct HookSubscriptionCodableTests {
   func idRoundTripsPreservedVerbatim() throws {
     // M1.x follow-up: explicit guard against future CodingKeys regression.
     let fixedID = UUID(uuidString: "DEADBEEF-DEAD-4BED-8EED-DEADBEEFDEAD")!
-    let sub = HookSubscription(id: fixedID, event: .panelReady, command: "echo")
+    let sub = HookSubscription(id: fixedID, event: .paneReady, command: "echo")
     let data = try JSONEncoder().encode(sub)
     let decoded = try JSONDecoder().decode(HookSubscription.self, from: data)
     #expect(decoded.id == fixedID)

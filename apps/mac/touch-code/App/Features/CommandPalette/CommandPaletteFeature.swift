@@ -22,25 +22,25 @@ struct CommandPaletteFeature {
     /// UserDefaults on the hot path. Writes land in the parent after
     /// `.delegate(.activate(…))` completes.
     var recency: [String: TimeInterval] = [:]
-    /// Source panel for Panel/Window-scoped activations. Filled from the
+    /// Source pane for Pane/Window-scoped activations. Filled from the
     /// `.appeared` payload so `RootFeature.route` can target the right
-    /// panel without re-reading the catalog.
-    var focusedPanelID: PanelID?
+    /// pane without re-reading the catalog.
+    var focusedPaneID: PaneID?
   }
 
   enum Action: Equatable {
     /// Parent hands in every input needed to build the list in one shot:
     /// the selection, the catalog snapshot, installed editors, the
-    /// persisted recency map, the panel to treat as focused for
-    /// Window/Panel-scoped actions, and a flag indicating whether that
-    /// panel was derived from a real focus event (ghostty keybind) or a
+    /// persisted recency map, the pane to treat as focused for
+    /// Window/Pane-scoped actions, and a flag indicating whether that
+    /// pane was derived from a real focus event (ghostty keybind) or a
     /// fallback (menu trigger — the first leaf of the selected tab).
     case appeared(
       HierarchySelection,
       Catalog,
       [EditorDescriptor],
       [String: TimeInterval],
-      PanelID?,
+      PaneID?,
       Bool
     )
     case queryChanged(String)
@@ -56,15 +56,15 @@ struct CommandPaletteFeature {
   var body: some Reducer<State, Action> {
     Reduce { state, action in
       switch action {
-      case .appeared(let selection, let catalog, let descriptors, let recency, let panelID, let precise):
+      case .appeared(let selection, let catalog, let descriptors, let recency, let paneID, let precise):
         state.items = CommandPaletteItems.build(
           selection: selection,
           catalog: catalog,
           editorDescriptors: descriptors,
-          focusedPanelID: panelID,
-          panelFocusPrecise: precise
+          focusedPaneID: paneID,
+          paneFocusPrecise: precise
         )
-        state.focusedPanelID = panelID
+        state.focusedPaneID = paneID
         state.recency = CommandPalettePruner.prune(
           recency: recency, against: state.items
         )

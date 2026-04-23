@@ -4,14 +4,14 @@ import Foundation
 /// mirrors the outer envelope's `event` field; decoding validates the two
 /// agree.
 public nonisolated enum HookEventData: Equatable, Sendable {
-  case panelCreated(createdVia: String)
-  case panelReady(pid: Int32?, shell: String)
-  case panelInput(text: String, inputBytes: Int)
-  case panelOutput(output: Data, outputBytes: Int)
-  case panelOutputMatch(match: String, matchedRange: HookMatchRange, output: Data, outputBytes: Int)
-  case panelIdle(idleSeconds: Double, sinceLastOutput: Double, sinceLastInput: Double)
-  case panelExited(exitCode: Int32)
-  case panelCrashed(reason: String)
+  case paneCreated(createdVia: String)
+  case paneReady(pid: Int32?, shell: String)
+  case paneInput(text: String, inputBytes: Int)
+  case paneOutput(output: Data, outputBytes: Int)
+  case paneOutputMatch(match: String, matchedRange: HookMatchRange, output: Data, outputBytes: Int)
+  case paneIdle(idleSeconds: Double, sinceLastOutput: Double, sinceLastInput: Double)
+  case paneExited(exitCode: Int32)
+  case paneCrashed(reason: String)
   case tabActivated(previousTabID: TabID?)
   case tabDeactivated(nextTabID: TabID?)
   case tabAutoClosed(reason: String, crashCount: Int, windowSeconds: Int)
@@ -22,14 +22,14 @@ public nonisolated enum HookEventData: Equatable, Sendable {
 
   public var kind: HookEvent {
     switch self {
-    case .panelCreated: return .panelCreated
-    case .panelReady: return .panelReady
-    case .panelInput: return .panelInput
-    case .panelOutput: return .panelOutput
-    case .panelOutputMatch: return .panelOutputMatch
-    case .panelIdle: return .panelIdle
-    case .panelExited: return .panelExited
-    case .panelCrashed: return .panelCrashed
+    case .paneCreated: return .paneCreated
+    case .paneReady: return .paneReady
+    case .paneInput: return .paneInput
+    case .paneOutput: return .paneOutput
+    case .paneOutputMatch: return .paneOutputMatch
+    case .paneIdle: return .paneIdle
+    case .paneExited: return .paneExited
+    case .paneCrashed: return .paneCrashed
     case .tabActivated: return .tabActivated
     case .tabDeactivated: return .tabDeactivated
     case .tabAutoClosed: return .tabAutoClosed
@@ -77,38 +77,38 @@ extension HookEventData: Codable {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     let kind = try container.decode(HookEvent.self, forKey: .kind)
     switch kind {
-    case .panelCreated:
+    case .paneCreated:
       let createdVia = try container.decode(String.self, forKey: .createdVia)
-      self = .panelCreated(createdVia: createdVia)
-    case .panelReady:
+      self = .paneCreated(createdVia: createdVia)
+    case .paneReady:
       let pid = try container.decodeIfPresent(Int32.self, forKey: .pid)
       let shell = try container.decode(String.self, forKey: .shell)
-      self = .panelReady(pid: pid, shell: shell)
-    case .panelInput:
+      self = .paneReady(pid: pid, shell: shell)
+    case .paneInput:
       let text = try container.decode(String.self, forKey: .text)
       let inputBytes = try container.decode(Int.self, forKey: .inputBytes)
-      self = .panelInput(text: text, inputBytes: inputBytes)
-    case .panelOutput:
+      self = .paneInput(text: text, inputBytes: inputBytes)
+    case .paneOutput:
       let output = try container.decode(Data.self, forKey: .output)
       let outputBytes = try container.decode(Int.self, forKey: .outputBytes)
-      self = .panelOutput(output: output, outputBytes: outputBytes)
-    case .panelOutputMatch:
+      self = .paneOutput(output: output, outputBytes: outputBytes)
+    case .paneOutputMatch:
       let match = try container.decode(String.self, forKey: .match)
       let range = try container.decode(HookMatchRange.self, forKey: .matchedRange)
       let output = try container.decode(Data.self, forKey: .output)
       let outputBytes = try container.decode(Int.self, forKey: .outputBytes)
-      self = .panelOutputMatch(match: match, matchedRange: range, output: output, outputBytes: outputBytes)
-    case .panelIdle:
+      self = .paneOutputMatch(match: match, matchedRange: range, output: output, outputBytes: outputBytes)
+    case .paneIdle:
       let idleSeconds = try container.decode(Double.self, forKey: .idleSeconds)
       let sinceOut = try container.decode(Double.self, forKey: .sinceLastOutput)
       let sinceIn = try container.decode(Double.self, forKey: .sinceLastInput)
-      self = .panelIdle(idleSeconds: idleSeconds, sinceLastOutput: sinceOut, sinceLastInput: sinceIn)
-    case .panelExited:
+      self = .paneIdle(idleSeconds: idleSeconds, sinceLastOutput: sinceOut, sinceLastInput: sinceIn)
+    case .paneExited:
       let exitCode = try container.decode(Int32.self, forKey: .exitCode)
-      self = .panelExited(exitCode: exitCode)
-    case .panelCrashed:
+      self = .paneExited(exitCode: exitCode)
+    case .paneCrashed:
       let reason = try container.decode(String.self, forKey: .reason)
-      self = .panelCrashed(reason: reason)
+      self = .paneCrashed(reason: reason)
     case .tabActivated:
       let prev = try container.decodeIfPresent(TabID.self, forKey: .previousTabID)
       self = .tabActivated(previousTabID: prev)
@@ -140,29 +140,29 @@ extension HookEventData: Codable {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(kind, forKey: .kind)
     switch self {
-    case .panelCreated(let via):
+    case .paneCreated(let via):
       try container.encode(via, forKey: .createdVia)
-    case .panelReady(let pid, let shell):
+    case .paneReady(let pid, let shell):
       try container.encodeIfPresent(pid, forKey: .pid)
       try container.encode(shell, forKey: .shell)
-    case .panelInput(let text, let inputBytes):
+    case .paneInput(let text, let inputBytes):
       try container.encode(text, forKey: .text)
       try container.encode(inputBytes, forKey: .inputBytes)
-    case .panelOutput(let output, let outputBytes):
+    case .paneOutput(let output, let outputBytes):
       try container.encode(output, forKey: .output)
       try container.encode(outputBytes, forKey: .outputBytes)
-    case .panelOutputMatch(let match, let range, let output, let outputBytes):
+    case .paneOutputMatch(let match, let range, let output, let outputBytes):
       try container.encode(match, forKey: .match)
       try container.encode(range, forKey: .matchedRange)
       try container.encode(output, forKey: .output)
       try container.encode(outputBytes, forKey: .outputBytes)
-    case .panelIdle(let idle, let sinceOut, let sinceIn):
+    case .paneIdle(let idle, let sinceOut, let sinceIn):
       try container.encode(idle, forKey: .idleSeconds)
       try container.encode(sinceOut, forKey: .sinceLastOutput)
       try container.encode(sinceIn, forKey: .sinceLastInput)
-    case .panelExited(let code):
+    case .paneExited(let code):
       try container.encode(code, forKey: .exitCode)
-    case .panelCrashed(let reason):
+    case .paneCrashed(let reason):
       try container.encode(reason, forKey: .reason)
     case .tabActivated(let prev):
       try container.encodeIfPresent(prev, forKey: .previousTabID)

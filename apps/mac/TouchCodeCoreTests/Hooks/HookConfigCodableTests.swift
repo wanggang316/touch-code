@@ -16,7 +16,7 @@ struct HookConfigCodableTests {
 
   @Test
   func populatedConfigRoundTrips() throws {
-    let sub = HookSubscription(event: .panelReady, command: "echo ready")
+    let sub = HookSubscription(event: .paneReady, command: "echo ready")
     let config = HookConfig(recursionWindowMs: 500, subscriptions: [sub])
     let data = try JSONEncoder().encode(config)
     let decoded = try JSONDecoder().decode(HookConfig.self, from: data)

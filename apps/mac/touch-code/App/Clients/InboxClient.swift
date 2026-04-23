@@ -18,7 +18,7 @@ nonisolated struct InboxClient: Sendable {
   /// Mark specific notifications as read.
   var markRead: @MainActor @Sendable (_ ids: [UUID]) -> Void
 
-  /// Mark every notification whose panel resolves (through `catalog`) to the
+  /// Mark every notification whose pane resolves (through `catalog`) to the
   /// given Worktree as read. Thin bridge over
   /// `InboxStore.markRead(forWorktree:in:)`; consumed by the T2 Header bell
   /// popover row-tap.

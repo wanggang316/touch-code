@@ -510,7 +510,7 @@ struct HierarchySidebarFeature {
       case .worktreeForceRemoveConfirmed:
         guard let pending = state.pendingForceRemove else { return .none }
         // W-Q3 ladder step 2: if live terminals, warn before hard-kill.
-        let runningCount = hierarchyClient.runningPanelCount(pending.worktreeID)
+        let runningCount = hierarchyClient.runningPaneCount(pending.worktreeID)
         if runningCount > 0 {
           state.pendingRunningTerminalWarning = PendingRunningTerminalWarning(
             worktreeID: pending.worktreeID,

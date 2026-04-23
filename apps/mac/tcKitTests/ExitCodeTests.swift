@@ -10,7 +10,7 @@ struct CLIExitCodeTests {
     // Pin the mapping so future IPCError cases force a decision here.
     #expect(CLIExitCode.from(.unknownMethod("foo")) == .userError)
     #expect(CLIExitCode.from(.invalidParams(message: "x", path: nil)) == .userError)
-    #expect(CLIExitCode.from(.notFound(kind: "panel", id: "x")) == .notFound)
+    #expect(CLIExitCode.from(.notFound(kind: "pane", id: "x")) == .notFound)
     #expect(CLIExitCode.from(.conflict(reason: "x")) == .conflict)
     #expect(CLIExitCode.from(.unsupported(reason: "x")) == .unsupported)
     #expect(CLIExitCode.from(.overloaded) == .overloaded)

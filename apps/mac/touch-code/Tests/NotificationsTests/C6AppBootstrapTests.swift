@@ -19,9 +19,9 @@ struct C6AppBootstrapTests {
     let harness = try await Self.startHarness(authStatus: .authorized)
     defer { harness.bootstrap.shutdown() }
 
-    let panelID = PanelID()
-    harness.bootstrap.registry.create(for: panelID)
-    let envelope = Self.outputMatchEnvelope(panelID: panelID, agent: "claude")
+    let paneID = PaneID()
+    harness.bootstrap.registry.create(for: paneID)
+    let envelope = Self.outputMatchEnvelope(paneID: paneID, agent: "claude")
     harness.bootstrap.router.handle(envelope: envelope, ruleID: "claude.completed")
 
     // Deterministic wait — MockOSNotifier.post resumes the waiter as
@@ -54,14 +54,14 @@ struct C6AppBootstrapTests {
   }
 
   @Test
-  func startRunsRestartTimePermissionSweepPerPanel() async throws {
-    // Seed the catalog with two agent-labelled Panels BEFORE start() runs.
+  func startRunsRestartTimePermissionSweepPerPane() async throws {
+    // Seed the catalog with two agent-labelled Panes BEFORE start() runs.
     // Step 5 (registry.bootstrap) will create two trackers; step 10 (sweep)
-    // iterates them and calls onAgentPanelCreated exactly once each. With
+    // iterates them and calls onAgentPaneCreated exactly once each. With
     // `.notDetermined` auth status, each call presents the prompt.
     let harness = try await Self.startHarness(
       authStatus: .notDetermined,
-      agentPanelCount: 2
+      agentPaneCount: 2
     )
     defer { harness.bootstrap.shutdown() }
 
@@ -84,7 +84,7 @@ struct C6AppBootstrapTests {
         AgentDetectionRules.Rule(
           id: "custom.done",
           agent: "custom",
-          appliesWhen: .init(panelLabelledAgent: "custom", hookEvent: .panelOutputMatch),
+          appliesWhen: .init(paneLabelledAgent: "custom", hookEvent: .paneOutputMatch),
           match: .containsAny(["done"]),
           transitionTo: .completed,
           title: "Custom finished",
@@ -100,10 +100,10 @@ struct C6AppBootstrapTests {
     // The router's in-memory rule table no longer has this id, so the
     // envelope is counted as dropped synchronously — no sleep fence
     // needed to "prove absence" via a non-event.
-    let panelID = PanelID()
-    harness.bootstrap.registry.create(for: panelID)
+    let paneID = PaneID()
+    harness.bootstrap.registry.create(for: paneID)
     let droppedBefore = harness.bootstrap.router.droppedEnvelopesCount
-    let stalePrevious = Self.outputMatchEnvelope(panelID: panelID, agent: "claude")
+    let stalePrevious = Self.outputMatchEnvelope(paneID: paneID, agent: "claude")
     harness.bootstrap.router.handle(envelope: stalePrevious, ruleID: "claude.completed")
     #expect(harness.bootstrap.router.droppedEnvelopesCount == droppedBefore + 1)
     #expect(harness.mockNotifier.postedNotifications.isEmpty)
@@ -112,7 +112,7 @@ struct C6AppBootstrapTests {
     // the wall-clock sleep fence — MockOSNotifier.post resumes the
     // waiter the instant the count is satisfied, so there's no flake
     // window under CI load.
-    let newEnvelope = Self.outputMatchEnvelope(panelID: panelID, agent: "custom")
+    let newEnvelope = Self.outputMatchEnvelope(paneID: paneID, agent: "custom")
     harness.bootstrap.router.handle(envelope: newEnvelope, ruleID: "custom.done")
     await harness.mockNotifier.waitForPostCount(1)
     #expect(harness.mockNotifier.postedNotifications.count == 1)
@@ -148,7 +148,7 @@ struct C6AppBootstrapTests {
 
   static func startHarness(
     authStatus: AuthorizationStatusCache,
-    agentPanelCount: Int = 0
+    agentPaneCount: Int = 0
   ) async throws -> Harness {
     let temp = FileManager.default.temporaryDirectory
       .appending(component: "c6-bootstrap-\(UUID().uuidString)")
@@ -167,10 +167,10 @@ struct C6AppBootstrapTests {
     )
 
     // HierarchyManager — pre-seeded catalog when the test wants
-    // agent-labelled Panels for the step-10 permission sweep to observe.
+    // agent-labelled Panes for the step-10 permission sweep to observe.
     let catalogURL = temp.appendingPathComponent("catalog.json")
     let catalogStore = CatalogStore(fileURL: catalogURL)
-    let initialCatalog = Self.makeCatalog(agentPanelCount: agentPanelCount)
+    let initialCatalog = Self.makeCatalog(agentPaneCount: agentPaneCount)
     let hierarchy = HierarchyManager(
       catalog: initialCatalog,
       store: catalogStore,
@@ -212,16 +212,16 @@ struct C6AppBootstrapTests {
     )
   }
 
-  static func makeCatalog(agentPanelCount: Int) -> Catalog {
-    guard agentPanelCount > 0 else { return .default }
-    let panels: [Panel] = (0..<agentPanelCount).map { i in
-      Panel(
+  static func makeCatalog(agentPaneCount: Int) -> Catalog {
+    guard agentPaneCount > 0 else { return .default }
+    let panes: [Pane] = (0..<agentPaneCount).map { i in
+      Pane(
         workingDirectory: "/tmp/agent-\(i)",
         initialCommand: nil,
         labels: ["agent:claude"]
       )
     }
-    let tab = Tab(splitTree: SplitTree(leaf: panels[0].id), panels: panels)
+    let tab = Tab(splitTree: SplitTree(leaf: panes[0].id), panes: panes)
     let worktree = Worktree(name: "main", path: "/repo", branch: "main", tabs: [tab], selectedTabID: tab.id)
     let project = Project(
       name: "p",
@@ -239,22 +239,22 @@ struct C6AppBootstrapTests {
     )
   }
 
-  static func outputMatchEnvelope(panelID: PanelID, agent: String) -> HookEnvelope {
+  static func outputMatchEnvelope(paneID: PaneID, agent: String) -> HookEnvelope {
     HookEnvelope(
       version: HookEnvelope.currentVersion,
-      event: .panelOutputMatch,
+      event: .paneOutputMatch,
       timestamp: Date(),
       space: nil,
       project: nil,
       worktree: nil,
       tab: nil,
-      panel: HookEnvelope.PanelRef(
-        id: panelID,
+      pane: HookEnvelope.PaneRef(
+        id: paneID,
         workingDirectory: "/tmp",
         initialCommand: nil,
         labels: ["agent:\(agent)"]
       ),
-      data: .panelOutputMatch(
+      data: .paneOutputMatch(
         match: "::touchcode:agent-complete",
         matchedRange: HookMatchRange(start: 0, length: 24),
         output: Data("::touchcode:agent-complete".utf8),

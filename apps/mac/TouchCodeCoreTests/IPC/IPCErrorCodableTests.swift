@@ -9,7 +9,7 @@ struct IPCErrorCodableTests {
     let variants: [IPCError] = [
       .unknownMethod("foo.bar"),
       .invalidParams(message: "missing id", path: ["params", "id"]),
-      .notFound(kind: "panel", id: "uuid"),
+      .notFound(kind: "pane", id: "uuid"),
       .conflict(reason: "directory exists"),
       .unsupported(reason: "not a git project"),
       .internal("bug: unreachable"),

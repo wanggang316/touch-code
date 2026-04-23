@@ -426,19 +426,19 @@ final class GhosttyBackedHierarchyRuntime: HierarchyRuntime {
     self.engine = engine
   }
 
-  func ensureSurface(for panel: Panel, in worktree: Worktree) throws {
-    _ = try engine?.ensureSurface(for: panel, in: worktree)
+  func ensureSurface(for pane: Pane, in worktree: Worktree) throws {
+    _ = try engine?.ensureSurface(for: pane, in: worktree)
   }
 
-  func closeSurface(for panelID: PanelID) {
-    engine?.closeSurface(for: panelID)
+  func closeSurface(for paneID: PaneID) {
+    engine?.closeSurface(for: paneID)
   }
 
-  func hasSurface(for panelID: PanelID) -> Bool {
-    engine?.hasSurface(for: panelID) ?? false
+  func hasSurface(for paneID: PaneID) -> Bool {
+    engine?.hasSurface(for: paneID) ?? false
   }
 
-  func focusSurfaceView(for panelID: PanelID) {
-    engine?.focusSurfaceView(for: panelID)
+  func focusSurfaceView(for paneID: PaneID) {
+    engine?.focusSurfaceView(for: paneID)
   }
 }

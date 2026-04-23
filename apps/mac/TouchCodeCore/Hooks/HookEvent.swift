@@ -7,14 +7,14 @@ import Foundation
 /// string. Adding a case is additive for forward-compat; removing a case
 /// requires a schema bump on `HookConfig.version`.
 public nonisolated enum HookEvent: String, Codable, Hashable, Sendable, CaseIterable {
-  case panelCreated = "panel.created"
-  case panelReady = "panel.ready"
-  case panelInput = "panel.input"
-  case panelOutput = "panel.output"
-  case panelOutputMatch = "panel.outputMatch"
-  case panelIdle = "panel.idle"
-  case panelExited = "panel.exited"
-  case panelCrashed = "panel.crashed"
+  case paneCreated = "pane.created"
+  case paneReady = "pane.ready"
+  case paneInput = "pane.input"
+  case paneOutput = "pane.output"
+  case paneOutputMatch = "pane.outputMatch"
+  case paneIdle = "pane.idle"
+  case paneExited = "pane.exited"
+  case paneCrashed = "pane.crashed"
   case tabActivated = "tab.activated"
   case tabDeactivated = "tab.deactivated"
   case tabAutoClosed = "tab.autoClosed"
@@ -23,13 +23,13 @@ public nonisolated enum HookEvent: String, Codable, Hashable, Sendable, CaseIter
   case worktreeCreated = "worktree.created"
   case worktreeRemoved = "worktree.removed"
 
-  /// The scope anchor required for this event. `panel.*` events always carry
-  /// a `panel` ref (plus its ancestors); `tab.*` always carry `tab`; etc.
+  /// The scope anchor required for this event. `pane.*` events always carry
+  /// a `pane` ref (plus its ancestors); `tab.*` always carry `tab`; etc.
   public var scope: HookScope {
     switch self {
-    case .panelCreated, .panelReady, .panelInput, .panelOutput, .panelOutputMatch,
-      .panelIdle, .panelExited, .panelCrashed:
-      return .panel
+    case .paneCreated, .paneReady, .paneInput, .paneOutput, .paneOutputMatch,
+      .paneIdle, .paneExited, .paneCrashed:
+      return .pane
     case .tabActivated, .tabDeactivated, .tabAutoClosed:
       return .tab
     case .worktreeActivated, .worktreeDeactivated, .worktreeCreated, .worktreeRemoved:
@@ -39,5 +39,5 @@ public nonisolated enum HookEvent: String, Codable, Hashable, Sendable, CaseIter
 }
 
 public nonisolated enum HookScope: String, Codable, Hashable, Sendable {
-  case panel, tab, worktree, space
+  case pane, tab, worktree, space
 }

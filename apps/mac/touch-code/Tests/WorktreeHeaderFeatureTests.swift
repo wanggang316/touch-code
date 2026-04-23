@@ -9,7 +9,7 @@ import TouchCodeCore
 struct WorktreeHeaderFeatureTests {
   // MARK: - Fixtures
 
-  /// A catalog with one Space / one Project / one Worktree / one Panel and
+  /// A catalog with one Space / one Project / one Worktree / one Pane and
   /// matching IDs, plus a helper inbox builder so tests can mix unreads,
   /// reads, and orphans succinctly.
   private struct Fixture {
@@ -17,13 +17,13 @@ struct WorktreeHeaderFeatureTests {
     let spaceID: SpaceID
     let projectID: ProjectID
     let worktreeID: WorktreeID
-    let panelID: PanelID
+    let paneID: PaneID
 
     init() {
-      let panel = Panel(workingDirectory: "/a")
+      let pane = Pane(workingDirectory: "/a")
       let worktree = Worktree(
         name: "w", path: "/a",
-        tabs: [Tab(splitTree: SplitTree(leaf: panel.id), panels: [panel])]
+        tabs: [Tab(splitTree: SplitTree(leaf: pane.id), panes: [pane])]
       )
       let project = Project(name: "p", rootPath: "/p", gitRoot: "/p", worktrees: [worktree])
       let space = Space(name: "s", projects: [project])
@@ -31,12 +31,12 @@ struct WorktreeHeaderFeatureTests {
       self.spaceID = space.id
       self.projectID = project.id
       self.worktreeID = worktree.id
-      self.panelID = panel.id
+      self.paneID = pane.id
     }
 
-    func unread(_ title: String = "n", panelID: PanelID? = nil) -> AgentNotification {
+    func unread(_ title: String = "n", paneID: PaneID? = nil) -> AgentNotification {
       AgentNotification(
-        panelID: panelID ?? self.panelID,
+        paneID: paneID ?? self.paneID,
         agent: "claude",
         kind: .completed,
         title: title, body: "", createdAt: Date()
@@ -63,14 +63,14 @@ struct WorktreeHeaderFeatureTests {
   }
 
   /// Parity contract (design doc §Badge/popover parity): the bell badge count
-  /// and the popover's rendered row count share one `PanelID -> WorktreeID`
-  /// resolution. One valid unread + one orphan unread (panelID not in the
+  /// and the popover's rendered row count share one `PaneID -> WorktreeID`
+  /// resolution. One valid unread + one orphan unread (paneID not in the
   /// catalog) must yield `unreadCount == 1` *and* a popover grouping with
   /// exactly one rendered notification row.
   @Test
   func unreadBadgeAndPopoverRowsAgreeOnOrphans() async {
     let f = Fixture()
-    let orphan = f.unread("ghost", panelID: PanelID())
+    let orphan = f.unread("ghost", paneID: PaneID())
     let inbox = NotificationInbox(notifications: [f.unread("valid"), orphan])
 
     let store = TestStore(initialState: WorktreeHeaderFeature.State()) {
@@ -83,7 +83,7 @@ struct WorktreeHeaderFeatureTests {
       state.inbox = inbox
     }
 
-    // Badge counts unreads whose panel resolves in the catalog.
+    // Badge counts unreads whose pane resolves in the catalog.
     #expect(store.state.unreadCount(in: f.catalog) == 1)
 
     // Popover grouping walks the same index; flattened row count agrees.
@@ -93,20 +93,20 @@ struct WorktreeHeaderFeatureTests {
     #expect(renderedRows.first?.title == "valid")
   }
 
-  /// A catalog-only mutation (e.g. the worktree that owned a panel is
+  /// A catalog-only mutation (e.g. the worktree that owned a pane is
   /// removed) must be enough to collapse the badge count — no inbox or
   /// selection event required. Tested at the `State.unreadCount(in:)`
   /// level because that's the function views call on every render pass;
   /// SwiftUI observation of `hierarchyManager.catalog` drives the redraw.
   @Test
-  func unreadCountDropsWhenPanelOrphansViaCatalogMutation() {
+  func unreadCountDropsWhenPaneOrphansViaCatalogMutation() {
     let f = Fixture()
     let state = WorktreeHeaderFeature.State(
       inbox: NotificationInbox(notifications: [f.unread("x")])
     )
     #expect(state.unreadCount(in: f.catalog) == 1)
 
-    // Same inbox, different catalog: the panel is no longer resolvable
+    // Same inbox, different catalog: the pane is no longer resolvable
     // (empty catalog) — the count drops without any action dispatch.
     let emptyCatalog = Catalog()
     #expect(state.unreadCount(in: emptyCatalog) == 0)

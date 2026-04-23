@@ -11,15 +11,15 @@ struct HookDispatcherAttachTests {
     let executor = FakeHookExecutor()
     let dispatcher = Self.makeDispatcher(executor: executor)
 
-    let (catalog, panelID, _, _, _, _) = EventMapperTests.fixture()
-    let sub = HookSubscription(event: .panelReady, command: "echo")
+    let (catalog, paneID, _, _, _, _) = EventMapperTests.fixture()
+    let sub = HookSubscription(event: .paneReady, command: "echo")
     dispatcher.setConfig(HookConfig(subscriptions: [sub]))
 
     var continuation: AsyncStream<TerminalEvent>.Continuation!
     let stream = AsyncStream<TerminalEvent> { c in continuation = c }
     dispatcher.attach(to: stream, catalog: { catalog })
 
-    continuation.yield(.panelReady(panelID))
+    continuation.yield(.paneReady(paneID))
     // Observe the fire deterministically rather than racing a sleep:
     // poll-until-condition with a 2 s hard deadline. A scheduler blip
     // on CI pushes this above a fixed 50 ms naked sleep; 2 s is
@@ -29,8 +29,8 @@ struct HookDispatcherAttachTests {
       timeout: .seconds(2)
     )
 
-    #expect(executor.invocations.first?.envelope.event == .panelReady)
-    #expect(executor.invocations.first?.envelope.panel?.id == panelID)
+    #expect(executor.invocations.first?.envelope.event == .paneReady)
+    #expect(executor.invocations.first?.envelope.pane?.id == paneID)
 
     continuation.finish()
     dispatcher.stop()
@@ -41,9 +41,9 @@ struct HookDispatcherAttachTests {
     let executor = FakeHookExecutor()
     let dispatcher = Self.makeDispatcher(executor: executor)
 
-    let (catalog, panelID, _, _, _, _) = EventMapperTests.fixture()
+    let (catalog, paneID, _, _, _, _) = EventMapperTests.fixture()
     dispatcher.setConfig(
-      HookConfig(subscriptions: [HookSubscription(event: .panelReady, command: "echo")])
+      HookConfig(subscriptions: [HookSubscription(event: .paneReady, command: "echo")])
     )
 
     var continuation: AsyncStream<TerminalEvent>.Continuation!
@@ -51,17 +51,17 @@ struct HookDispatcherAttachTests {
     dispatcher.attach(to: stream, catalog: { catalog })
 
     // Sandwich: yield hierarchyMutated (should NOT fire), then a
-    // panelReady we can positively observe. Once the later event has
+    // paneReady we can positively observe. Once the later event has
     // round-tripped through the attach Task, we know the earlier one
     // was processed and skipped — no dead-reckoning sleeps.
     continuation.yield(.hierarchyMutated(.catalog))
-    continuation.yield(.panelReady(panelID))
+    continuation.yield(.paneReady(paneID))
     try await Self.waitUntil(
       { executor.invocations.count >= 1 },
       timeout: .seconds(2)
     )
     #expect(executor.invocations.count == 1, "hierarchyMutated must not fire")
-    #expect(executor.invocations.first?.envelope.event == .panelReady)
+    #expect(executor.invocations.first?.envelope.event == .paneReady)
 
     continuation.finish()
     dispatcher.stop()
@@ -72,9 +72,9 @@ struct HookDispatcherAttachTests {
     let executor = FakeHookExecutor()
     let dispatcher = Self.makeDispatcher(executor: executor)
 
-    let (catalog, panelID, _, _, _, _) = EventMapperTests.fixture()
+    let (catalog, paneID, _, _, _, _) = EventMapperTests.fixture()
     dispatcher.setConfig(
-      HookConfig(subscriptions: [HookSubscription(event: .panelReady, command: "echo")])
+      HookConfig(subscriptions: [HookSubscription(event: .paneReady, command: "echo")])
     )
 
     var continuation: AsyncStream<TerminalEvent>.Continuation!
@@ -87,7 +87,7 @@ struct HookDispatcherAttachTests {
     // 250 ms window is long enough that the cancellation has
     // propagated (ms-level in practice) without making the test slow.
     try await Task.sleep(for: .milliseconds(100))
-    continuation.yield(.panelReady(panelID))
+    continuation.yield(.paneReady(paneID))
     try await Task.sleep(for: .milliseconds(250))
 
     // After stop() the attach Task is cancelled; no new events dispatch.
@@ -96,27 +96,27 @@ struct HookDispatcherAttachTests {
   }
 
   @Test
-  func panelOutputMatchFiresWhenPatternHits() async throws {
+  func paneOutputMatchFiresWhenPatternHits() async throws {
     let executor = FakeHookExecutor()
     let dispatcher = Self.makeDispatcher(executor: executor)
 
-    let (catalog, panelID, _, _, _, _) = EventMapperTests.fixture()
+    let (catalog, paneID, _, _, _, _) = EventMapperTests.fixture()
     let sub = HookSubscription(
-      event: .panelOutputMatch,
+      event: .paneOutputMatch,
       command: "echo match",
       matchPattern: #"ERROR: \w+"#
     )
     dispatcher.setConfig(HookConfig(subscriptions: [sub]))
 
     let outputEnvelope = HookEnvelope(
-      event: .panelOutput,
-      panel: HookEnvelope.PanelRef(
-        id: panelID,
+      event: .paneOutput,
+      pane: HookEnvelope.PaneRef(
+        id: paneID,
         workingDirectory: "/tmp/wt",
         initialCommand: nil,
         labels: []
       ),
-      data: .panelOutput(output: Data("noise\nERROR: boom\ntrailing".utf8), outputBytes: 30)
+      data: .paneOutput(output: Data("noise\nERROR: boom\ntrailing".utf8), outputBytes: 30)
     )
     _ = catalog
     await dispatcher.fire(outputEnvelope)
@@ -124,35 +124,35 @@ struct HookDispatcherAttachTests {
     #expect(executor.invocations.count == 1)
     let invocation = executor.invocations[0]
     #expect(invocation.subscription.id == sub.id)
-    #expect(invocation.envelope.event == .panelOutputMatch)
-    if case .panelOutputMatch(let matched, _, _, _) = invocation.envelope.data {
+    #expect(invocation.envelope.event == .paneOutputMatch)
+    if case .paneOutputMatch(let matched, _, _, _) = invocation.envelope.data {
       #expect(matched == "ERROR: boom")
     } else {
-      Issue.record("expected .panelOutputMatch data")
+      Issue.record("expected .paneOutputMatch data")
     }
   }
 
   @Test
-  func panelOutputMatchSkipsWhenPatternMisses() async throws {
+  func paneOutputMatchSkipsWhenPatternMisses() async throws {
     let executor = FakeHookExecutor()
     let dispatcher = Self.makeDispatcher(executor: executor)
 
     let sub = HookSubscription(
-      event: .panelOutputMatch,
+      event: .paneOutputMatch,
       command: "echo match",
       matchPattern: #"ERROR: \w+"#
     )
     dispatcher.setConfig(HookConfig(subscriptions: [sub]))
 
     let outputEnvelope = HookEnvelope(
-      event: .panelOutput,
-      panel: HookEnvelope.PanelRef(
-        id: PanelID(),
+      event: .paneOutput,
+      pane: HookEnvelope.PaneRef(
+        id: PaneID(),
         workingDirectory: "/tmp/wt",
         initialCommand: nil,
         labels: []
       ),
-      data: .panelOutput(output: Data("all clear".utf8), outputBytes: 9)
+      data: .paneOutput(output: Data("all clear".utf8), outputBytes: 9)
     )
     await dispatcher.fire(outputEnvelope)
     #expect(executor.invocations.isEmpty)

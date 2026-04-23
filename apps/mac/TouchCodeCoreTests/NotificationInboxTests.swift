@@ -17,7 +17,7 @@ struct NotificationInboxTests {
   func populatedInboxRoundTrip() throws {
     let created = Date(timeIntervalSince1970: 1_700_000_000)
     let first = AgentNotification(
-      panelID: PanelID(),
+      paneID: PaneID(),
       agent: "claude",
       kind: .completed,
       title: "Claude finished",
@@ -25,7 +25,7 @@ struct NotificationInboxTests {
       createdAt: created
     )
     let second = AgentNotification(
-      panelID: PanelID(),
+      paneID: PaneID(),
       agent: "codex",
       kind: .blockedOnInput,
       title: "Codex is waiting",
@@ -58,10 +58,10 @@ struct NotificationInboxTests {
 
   @Test
   func decodedNotificationsPreserveOrder() throws {
-    let ids = (0..<5).map { _ in PanelID() }
-    let notifications = ids.map { panelID in
+    let ids = (0..<5).map { _ in PaneID() }
+    let notifications = ids.map { paneID in
       AgentNotification(
-        panelID: panelID,
+        paneID: paneID,
         agent: "aider",
         kind: .idle,
         title: "t",
@@ -72,6 +72,6 @@ struct NotificationInboxTests {
     let inbox = NotificationInbox(notifications: notifications)
     let data = try JSONEncoder().encode(inbox)
     let decoded = try JSONDecoder().decode(NotificationInbox.self, from: data)
-    #expect(decoded.notifications.map(\.panelID) == ids)
+    #expect(decoded.notifications.map(\.paneID) == ids)
   }
 }

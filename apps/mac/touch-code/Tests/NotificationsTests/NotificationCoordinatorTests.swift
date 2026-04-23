@@ -98,13 +98,13 @@ struct NotificationCoordinatorTests {
   }
 
   @Test
-  func mutedPanelIDSkipsOSPost() async throws {
-    let panelID = PanelID()
-    let harness = Self.make(authStatus: .authorized, mutedPanelIDs: [panelID])
+  func mutedPaneIDSkipsOSPost() async throws {
+    let paneID = PaneID()
+    let harness = Self.make(authStatus: .authorized, mutedPaneIDs: [paneID])
     await harness.feed(
       .init(
         transition: AgentStateTransition(
-          panelID: panelID,
+          paneID: paneID,
           from: .running,
           to: .completed,
           at: Date(),
@@ -221,27 +221,27 @@ struct NotificationCoordinatorTests {
   // MARK: - Permission prompt
 
   @Test
-  func firstAgentPanelCreatedPromptsWhenNotDetermined() async throws {
+  func firstAgentPaneCreatedPromptsWhenNotDetermined() async throws {
     let harness = Self.make(authStatus: .notDetermined)
-    let panelID = PanelID()
-    await harness.coordinator.onAgentPanelCreated(panelID)
+    let paneID = PaneID()
+    await harness.coordinator.onAgentPaneCreated(paneID)
     #expect(harness.mockDelegate.presentPromptCalls == 1)
   }
 
   @Test
-  func secondCallForSamePanelIsIdempotent() async throws {
+  func secondCallForSamePaneIsIdempotent() async throws {
     let harness = Self.make(authStatus: .notDetermined)
-    let panelID = PanelID()
-    await harness.coordinator.onAgentPanelCreated(panelID)
-    await harness.coordinator.onAgentPanelCreated(panelID)
+    let paneID = PaneID()
+    await harness.coordinator.onAgentPaneCreated(paneID)
+    await harness.coordinator.onAgentPaneCreated(paneID)
     #expect(harness.mockDelegate.presentPromptCalls == 1)
   }
 
   @Test
   func alreadyDeniedStatusDoesNotReprompt() async throws {
     let harness = Self.make(authStatus: .denied)
-    let panelID = PanelID()
-    await harness.coordinator.onAgentPanelCreated(panelID)
+    let paneID = PaneID()
+    await harness.coordinator.onAgentPaneCreated(paneID)
     #expect(harness.mockDelegate.presentPromptCalls == 0)
   }
 
@@ -249,7 +249,7 @@ struct NotificationCoordinatorTests {
   func neverPromptFlagSuppressesDelegate() async throws {
     let harness = Self.make(authStatus: .notDetermined)
     harness.settings.mutateNotifications { $0.neverPrompt = true }
-    await harness.coordinator.onAgentPanelCreated(PanelID())
+    await harness.coordinator.onAgentPaneCreated(PaneID())
     #expect(harness.mockDelegate.presentPromptCalls == 0)
   }
 
@@ -257,7 +257,7 @@ struct NotificationCoordinatorTests {
   func continueDecisionTriggersOSRequest() async throws {
     let harness = Self.make(authStatus: .notDetermined, decision: .continue)
     harness.mockNotifier.nextRequestResult = .authorized
-    await harness.coordinator.onAgentPanelCreated(PanelID())
+    await harness.coordinator.onAgentPaneCreated(PaneID())
     #expect(harness.mockNotifier.requestAuthorizationCalls == 1)
     #expect(harness.settings.settings.notifications.authStatus == .authorized)
   }
@@ -266,7 +266,7 @@ struct NotificationCoordinatorTests {
   func notNowDecisionSetsCoolDownTimestamp() async throws {
     let harness = Self.make(authStatus: .notDetermined, decision: .notNow)
     let before = Date()
-    await harness.coordinator.onAgentPanelCreated(PanelID())
+    await harness.coordinator.onAgentPaneCreated(PaneID())
     let notNowUntil = harness.settings.settings.notifications.notNowUntil
     #expect(notNowUntil != nil)
     if let notNowUntil {
@@ -280,7 +280,7 @@ struct NotificationCoordinatorTests {
   @Test
   func neverDecisionSetsNeverPrompt() async throws {
     let harness = Self.make(authStatus: .notDetermined, decision: .never)
-    await harness.coordinator.onAgentPanelCreated(PanelID())
+    await harness.coordinator.onAgentPaneCreated(PaneID())
     #expect(harness.settings.settings.notifications.neverPrompt == true)
   }
 
@@ -293,13 +293,13 @@ struct NotificationCoordinatorTests {
   }
 
   /// Cool-down expiry: `.notNow` sets `notNowUntil` 24h in the future; once
-  /// that timestamp has passed, the *next* agent-panel creation must
+  /// that timestamp has passed, the *next* agent-pane creation must
   /// re-prompt. We simulate time passing by stamping `notNowUntil` into the
-  /// past and firing the creation again on a fresh PanelID.
+  /// past and firing the creation again on a fresh PaneID.
   @Test
-  func coolDownExpiryAllowsRepromptOnNextPanelCreation() async throws {
+  func coolDownExpiryAllowsRepromptOnNextPaneCreation() async throws {
     let harness = Self.make(authStatus: .notDetermined, decision: .notNow)
-    await harness.coordinator.onAgentPanelCreated(PanelID())
+    await harness.coordinator.onAgentPaneCreated(PaneID())
     #expect(harness.mockDelegate.presentPromptCalls == 1)
     #expect(harness.settings.settings.notifications.notNowUntil != nil)
 
@@ -308,7 +308,7 @@ struct NotificationCoordinatorTests {
       $0.notNowUntil = Date().addingTimeInterval(-1)
     }
 
-    await harness.coordinator.onAgentPanelCreated(PanelID())
+    await harness.coordinator.onAgentPaneCreated(PaneID())
     #expect(harness.mockDelegate.presentPromptCalls == 2)
   }
 
@@ -371,8 +371,8 @@ struct NotificationCoordinatorTests {
       permissionDelegate: delegate
     )
 
-    let panelID = PanelID()
-    let promptTask = Task { await coordinator.onAgentPanelCreated(panelID) }
+    let paneID = PaneID()
+    let promptTask = Task { await coordinator.onAgentPaneCreated(paneID) }
     await delegate.waitForEntry()
 
     // External flip — user granted in System Settings while we awaited.
@@ -391,7 +391,7 @@ struct NotificationCoordinatorTests {
   private static func make(
     authStatus: AuthorizationStatusCache = .authorized,
     mutedRuleIDs: Set<String> = [],
-    mutedPanelIDs: Set<PanelID> = [],
+    mutedPaneIDs: Set<PaneID> = [],
     surfaceIdle: Bool = false,
     redactBodies: Bool = false,
     globalEnabled: Bool = true,
@@ -419,7 +419,7 @@ struct NotificationCoordinatorTests {
       $0.mute.surfaceIdle = surfaceIdle
       $0.mute.redactBodies = redactBodies
       $0.mute.mutedRuleIDs = mutedRuleIDs
-      $0.mute.mutedPanelIDs = mutedPanelIDs
+      $0.mute.mutedPaneIDs = mutedPaneIDs
       $0.systemEnabled = systemEnabled
       $0.soundEnabled = soundEnabled
       $0.inAppEnabled = inAppEnabled
@@ -460,7 +460,7 @@ struct NotificationCoordinatorTests {
     trigger: AgentStateTransition.Trigger
   ) -> AgentStateTransition {
     AgentStateTransition(
-      panelID: PanelID(),
+      paneID: PaneID(),
       from: .running,
       to: to,
       at: Date(),

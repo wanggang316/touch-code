@@ -19,7 +19,7 @@ struct HookConfigStoreTests {
     let url = Self.temporaryURL()
     defer { try? FileManager.default.removeItem(at: url) }
     let store = HookConfigStore(fileURL: url)
-    let sub = HookSubscription(event: .panelReady, command: "echo ready")
+    let sub = HookSubscription(event: .paneReady, command: "echo ready")
     try store.save(HookConfig(subscriptions: [sub]))
     let loaded = try store.load()
     #expect(loaded.subscriptions.map(\.id) == [sub.id])
@@ -42,7 +42,7 @@ struct HookConfigStoreTests {
     let url = Self.temporaryURL()
     defer { try? FileManager.default.removeItem(at: url) }
     let bad = HookSubscription(
-      event: .panelReady, command: "echo",
+      event: .paneReady, command: "echo",
       env: ["TOUCH_CODE_FOO": "bar"]
     )
     try HookConfigStore(fileURL: url).save(HookConfig(subscriptions: [bad]))
@@ -55,7 +55,7 @@ struct HookConfigStoreTests {
     let url = Self.temporaryURL()
     defer { try? FileManager.default.removeItem(at: url) }
     let bad = HookSubscription(
-      event: .panelReady, command: "__touch-code/internal:notifications:x"
+      event: .paneReady, command: "__touch-code/internal:notifications:x"
     )
     try HookConfigStore(fileURL: url).save(HookConfig(subscriptions: [bad]))
     let loaded = try HookConfigStore(fileURL: url).load()
@@ -68,7 +68,7 @@ struct HookConfigStoreTests {
     defer { try? FileManager.default.removeItem(at: url) }
     let store = HookConfigStore(fileURL: url)
     let internalSub = HookSubscription(
-      event: .panelOutputMatch,
+      event: .paneOutputMatch,
       command: "__touch-code/internal:notifications:abc"
     )
     try store.upsertInternal([internalSub])
@@ -82,7 +82,7 @@ struct HookConfigStoreTests {
     let url = Self.temporaryURL()
     defer { try? FileManager.default.removeItem(at: url) }
     let store = HookConfigStore(fileURL: url)
-    let ordinary = HookSubscription(event: .panelReady, command: "/usr/bin/echo")
+    let ordinary = HookSubscription(event: .paneReady, command: "/usr/bin/echo")
     #expect(throws: HookConfigError.self) {
       try store.upsertInternal([ordinary])
     }
@@ -94,11 +94,11 @@ struct HookConfigStoreTests {
     defer { try? FileManager.default.removeItem(at: url) }
     let store = HookConfigStore(fileURL: url)
     let keep = HookSubscription(
-      event: .panelReady,
+      event: .paneReady,
       command: "__touch-code/internal:other:x"
     )
     let drop = HookSubscription(
-      event: .panelReady,
+      event: .paneReady,
       command: "__touch-code/internal:notifications:x"
     )
     try store.upsertInternal([keep, drop])
@@ -120,11 +120,11 @@ struct HookConfigStoreTests {
   func upsertInternalIsAdditiveToUserSubscriptions() throws {
     let url = Self.temporaryURL()
     defer { try? FileManager.default.removeItem(at: url) }
-    let userSub = HookSubscription(event: .panelReady, command: "echo ready")
+    let userSub = HookSubscription(event: .paneReady, command: "echo ready")
     try HookConfigStore(fileURL: url).save(HookConfig(subscriptions: [userSub]))
     let store = HookConfigStore(fileURL: url)
     let internalSub = HookSubscription(
-      event: .panelOutputMatch,
+      event: .paneOutputMatch,
       command: "__touch-code/internal:notifications:z"
     )
     try store.upsertInternal([internalSub])
@@ -139,7 +139,7 @@ struct HookConfigStoreTests {
     // Long enough debounce that the async write absolutely has not fired
     // by the time flush() runs.
     let store = HookConfigStore(fileURL: url, debounceSeconds: 60)
-    let sub = HookSubscription(event: .panelReady, command: "echo flushed")
+    let sub = HookSubscription(event: .paneReady, command: "echo flushed")
     store.scheduleSave(HookConfig(subscriptions: [sub]))
 
     // Nothing on disk yet — the debounce timer has not fired.

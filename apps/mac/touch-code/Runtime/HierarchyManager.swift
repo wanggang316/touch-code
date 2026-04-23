@@ -301,8 +301,8 @@ final class HierarchyManager {
     }
 
     let worktree = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex]
-    for panel in worktree.tabs.flatMap({ $0.panels }) {
-      runtime.closeSurface(for: panel.id)
+    for pane in worktree.tabs.flatMap({ $0.panes }) {
+      runtime.closeSurface(for: pane.id)
     }
 
     catalog.spaces[spaceIndex].projects[projectIndex].worktrees.remove(at: worktreeIndex)
@@ -324,7 +324,7 @@ final class HierarchyManager {
   /// Sets the archived flag on a Worktree (spec W-Q1, soft-hide). The
   /// main checkout (path == project.rootPath) cannot be archived and
   /// throws `.invariantViolation`. Archiving `true` iterates the
-  /// Worktree's Panels and calls `runtime.closeSurface(for:)` each so
+  /// Worktree's Panes and calls `runtime.closeSurface(for:)` each so
   /// terminal surfaces are torn down; the on-disk directory and git
   /// refs are NOT touched. Idempotent: unchanged value is a silent
   /// no-op (no save scheduled). Silent no-op when the id is unknown.
@@ -340,8 +340,8 @@ final class HierarchyManager {
         }
         guard worktree.archived != archived else { return }
         if archived {
-          for panel in worktree.tabs.flatMap({ $0.panels }) {
-            runtime.closeSurface(for: panel.id)
+          for pane in worktree.tabs.flatMap({ $0.panes }) {
+            runtime.closeSurface(for: pane.id)
           }
         }
         catalog.spaces[spaceIndex].projects[projectIndex]
@@ -461,24 +461,24 @@ final class HierarchyManager {
       for project in space.projects {
         guard let worktree = project.worktrees.first(where: { $0.id == worktreeID })
         else { continue }
-        for panel in worktree.tabs.flatMap({ $0.panels }) {
-          runtime.closeSurface(for: panel.id)
+        for pane in worktree.tabs.flatMap({ $0.panes }) {
+          runtime.closeSurface(for: pane.id)
         }
         return
       }
     }
   }
 
-  /// Counts the number of Panels in this Worktree whose terminal surface
+  /// Counts the number of Panes in this Worktree whose terminal surface
   /// is live. Used by force-remove to size the confirmation copy
   /// ("This will terminate N running processes"). 0 when the id is unknown.
-  func runningPanelCount(worktreeID: WorktreeID) -> Int {
+  func runningPaneCount(worktreeID: WorktreeID) -> Int {
     for space in catalog.spaces {
       for project in space.projects {
         guard let worktree = project.worktrees.first(where: { $0.id == worktreeID })
         else { continue }
         return worktree.tabs
-          .flatMap { $0.panels }
+          .flatMap { $0.panes }
           .filter { runtime.hasSurface(for: $0.id) }
           .count
       }
@@ -532,7 +532,7 @@ final class HierarchyManager {
     }
 
     let tabID = TabID()
-    let tab = Tab(id: tabID, name: name, splitTree: SplitTree(), panels: [])
+    let tab = Tab(id: tabID, name: name, splitTree: SplitTree(), panes: [])
     catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.append(tab)
     catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].selectedTabID = tabID
     store.scheduleSave(catalog)
@@ -564,8 +564,8 @@ final class HierarchyManager {
     }
 
     let tab = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex]
-    for panel in tab.panels {
-      runtime.closeSurface(for: panel.id)
+    for pane in tab.panes {
+      runtime.closeSurface(for: pane.id)
     }
 
     catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.remove(at: tabIndex)
@@ -595,16 +595,16 @@ final class HierarchyManager {
     store.scheduleSave(catalog)
   }
 
-  // MARK: - Panel mutations
+  // MARK: - Pane mutations
 
-  func openPanel(
+  func openPane(
     in tabID: TabID,
     in worktreeID: WorktreeID,
     in projectID: ProjectID,
     in spaceID: SpaceID,
     workingDirectory: String,
     initialCommand: String?
-  ) throws -> PanelID {
+  ) throws -> PaneID {
     guard
       let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
         worktreeID: worktreeID,
@@ -623,42 +623,42 @@ final class HierarchyManager {
       throw HierarchyError.notFound("Tab \(tabID)")
     }
 
-    let panelID = PanelID()
-    let panel = Panel(id: panelID, workingDirectory: workingDirectory, initialCommand: initialCommand)
+    let paneID = PaneID()
+    let pane = Pane(id: paneID, workingDirectory: workingDirectory, initialCommand: initialCommand)
     var tab = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex]
 
     if tab.splitTree.isEmpty {
-      tab.splitTree = SplitTree(leaf: panelID)
+      tab.splitTree = SplitTree(leaf: paneID)
     } else {
       let leaves = tab.splitTree.leaves()
       guard let anchor = leaves.first else {
         throw HierarchyError.invariantViolation("Tab has split tree but no leaves")
       }
-      tab.splitTree = try tab.splitTree.inserting(panelID, at: anchor, direction: .right)
+      tab.splitTree = try tab.splitTree.inserting(paneID, at: anchor, direction: .right)
     }
 
-    tab.panels.append(panel)
+    tab.panes.append(pane)
     catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex] = tab
 
     try tab.validateInvariants()
 
     let worktree = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex]
-    try runtime.ensureSurface(for: panel, in: worktree)
+    try runtime.ensureSurface(for: pane, in: worktree)
 
     store.scheduleSave(catalog)
-    return panelID
+    return paneID
   }
 
-  func splitPanel(
-    _ panelID: PanelID,
-    direction: SplitTree<PanelID>.NewDirection,
+  func splitPane(
+    _ paneID: PaneID,
+    direction: SplitTree<PaneID>.NewDirection,
     in tabID: TabID,
     in worktreeID: WorktreeID,
     in projectID: ProjectID,
     in spaceID: SpaceID,
     workingDirectory: String,
     initialCommand: String?
-  ) throws -> PanelID {
+  ) throws -> PaneID {
     guard
       let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
         worktreeID: worktreeID,
@@ -677,25 +677,25 @@ final class HierarchyManager {
       throw HierarchyError.notFound("Tab \(tabID)")
     }
 
-    let newPanelID = PanelID()
-    let newPanel = Panel(id: newPanelID, workingDirectory: workingDirectory, initialCommand: initialCommand)
+    let newPaneID = PaneID()
+    let newPane = Pane(id: newPaneID, workingDirectory: workingDirectory, initialCommand: initialCommand)
     var tab = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex]
 
-    tab.splitTree = try tab.splitTree.inserting(newPanelID, at: panelID, direction: direction)
-    tab.panels.append(newPanel)
+    tab.splitTree = try tab.splitTree.inserting(newPaneID, at: paneID, direction: direction)
+    tab.panes.append(newPane)
     catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex] = tab
 
     try tab.validateInvariants()
 
     let worktree = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex]
-    try runtime.ensureSurface(for: newPanel, in: worktree)
+    try runtime.ensureSurface(for: newPane, in: worktree)
 
     store.scheduleSave(catalog)
-    return newPanelID
+    return newPaneID
   }
 
-  func closePanel(
-    _ panelID: PanelID,
+  func closePane(
+    _ paneID: PaneID,
     in tabID: TabID,
     in worktreeID: WorktreeID,
     in projectID: ProjectID,
@@ -720,14 +720,14 @@ final class HierarchyManager {
     }
 
     var tab = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex]
-    guard let panelIndex = tab.panels.firstIndex(where: { $0.id == panelID }) else {
-      throw HierarchyError.notFound("Panel \(panelID)")
+    guard let paneIndex = tab.panes.firstIndex(where: { $0.id == paneID }) else {
+      throw HierarchyError.notFound("Pane \(paneID)")
     }
 
-    runtime.closeSurface(for: panelID)
+    runtime.closeSurface(for: paneID)
 
-    tab.panels.remove(at: panelIndex)
-    tab.splitTree = tab.splitTree.removing(panelID)
+    tab.panes.remove(at: paneIndex)
+    tab.splitTree = tab.splitTree.removing(paneID)
 
     catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex] = tab
 
@@ -736,17 +736,17 @@ final class HierarchyManager {
     store.scheduleSave(catalog)
   }
 
-  /// Make the surface view for `panelID` the first responder of its
-  /// window. Distinct from `focusPanel` (which flips the Tab's zoom
+  /// Make the surface view for `paneID` the first responder of its
+  /// window. Distinct from `focusPane` (which flips the Tab's zoom
   /// flag) — this only touches AppKit responder-chain focus so keyboard
   /// input routes correctly. Silent no-op when the surface or window
   /// isn't available.
-  func focusSurfaceView(for panelID: PanelID) {
-    runtime.focusSurfaceView(for: panelID)
+  func focusSurfaceView(for paneID: PaneID) {
+    runtime.focusSurfaceView(for: paneID)
   }
 
-  func focusPanel(
-    _ panelID: PanelID,
+  func focusPane(
+    _ paneID: PaneID,
     in tabID: TabID,
     in worktreeID: WorktreeID,
     in projectID: ProjectID,
@@ -771,17 +771,17 @@ final class HierarchyManager {
     }
 
     var tab = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex]
-    guard tab.panels.contains(where: { $0.id == panelID }) else {
-      throw HierarchyError.notFound("Panel \(panelID)")
+    guard tab.panes.contains(where: { $0.id == paneID }) else {
+      throw HierarchyError.notFound("Pane \(paneID)")
     }
 
-    tab.splitTree = tab.splitTree.settingZoomed(panelID)
+    tab.splitTree = tab.splitTree.settingZoomed(paneID)
     catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex] = tab
 
     store.scheduleSave(catalog)
   }
 
-  func unfocusPanel(
+  func unfocusPane(
     in tabID: TabID,
     in worktreeID: WorktreeID,
     in projectID: ProjectID,
@@ -813,7 +813,7 @@ final class HierarchyManager {
   }
 
   func resizeSplit(
-    at path: SplitTree<PanelID>.Path,
+    at path: SplitTree<PaneID>.Path,
     ratio: Double,
     in tabID: TabID,
     in worktreeID: WorktreeID,
@@ -845,18 +845,18 @@ final class HierarchyManager {
     store.scheduleSave(catalog)
   }
 
-  // MARK: - Panel address resolution (0008 M5)
+  // MARK: - Pane address resolution (0008 M5)
 
-  /// Resolves a `PanelID` to the full hierarchy address that owns it. Used by
-  /// `PanelActionRouterFeature` to service panel-scoped intents (closeTab,
-  /// moveTab, activateTab, equalizeTabSplits). Linear in total panel count —
+  /// Resolves a `PaneID` to the full hierarchy address that owns it. Used by
+  /// `PaneActionRouterFeature` to service pane-scoped intents (closeTab,
+  /// moveTab, activateTab, equalizeTabSplits). Linear in total pane count —
   /// acceptable at the cardinalities we support; no secondary index needed
-  /// yet. `nil` when the panel is unknown (closed mid-flight, stale callback).
-  func addressOf(panelID: PanelID) -> (SpaceID, ProjectID, WorktreeID, TabID)? {
+  /// yet. `nil` when the pane is unknown (closed mid-flight, stale callback).
+  func addressOf(paneID: PaneID) -> (SpaceID, ProjectID, WorktreeID, TabID)? {
     for space in catalog.spaces {
       for project in space.projects {
         for worktree in project.worktrees {
-          for tab in worktree.tabs where tab.panels.contains(where: { $0.id == panelID }) {
+          for tab in worktree.tabs where tab.panes.contains(where: { $0.id == paneID }) {
             return (space.id, project.id, worktree.id, tab.id)
           }
         }
@@ -914,7 +914,7 @@ final class HierarchyManager {
   // MARK: - Split equalization (0008 M5)
 
   /// Sets every split node's `ratio` inside the Tab's `SplitTree` to 0.5 so
-  /// sibling panels render at equal sizes. Leaf-only trees are a silent
+  /// sibling panes render at equal sizes. Leaf-only trees are a silent
   /// no-op. Persists. The concept of a "weight=1 layout" in the design doc
   /// maps onto this ratio — touch-code's tree only carries per-split ratios,
   /// not per-leaf weights, so every balanced split is ratio == 0.5.
@@ -950,14 +950,14 @@ final class HierarchyManager {
   }
 
   private static func balancingRatios(
-    in node: SplitTree<PanelID>.Node
-  ) -> SplitTree<PanelID>.Node {
+    in node: SplitTree<PaneID>.Node
+  ) -> SplitTree<PaneID>.Node {
     switch node {
     case .leaf:
       return node
     case .split(let split):
       return .split(
-        SplitTree<PanelID>.Split(
+        SplitTree<PaneID>.Split(
           direction: split.direction,
           ratio: 0.5,
           left: balancingRatios(in: split.left),
@@ -967,7 +967,7 @@ final class HierarchyManager {
     }
   }
 
-  // MARK: - Panel resize (0008 M5)
+  // MARK: - Pane resize (0008 M5)
 
   /// Adjusts the ratio of the closest ancestor split whose orientation
   /// matches `direction`. The ghostty RESIZE_SPLIT action carries a pixel
@@ -977,7 +977,7 @@ final class HierarchyManager {
   /// the delta by `pixelsPerRatioStep` — an empirical divisor that maps
   /// a default 10 px keybind to a ~2.5% ratio nudge on a typical 400 px
   /// split. The viewport layer will later expose the real split frame
-  /// via `ResizePanelOptions` so the divisor can become per-split.
+  /// via `ResizePaneOptions` so the divisor can become per-split.
   ///
   /// Direction semantics (matches ghostty's FocusDirection analog):
   /// - `.left`: grow the left child  → decrease ratio of nearest horizontal split
@@ -985,9 +985,9 @@ final class HierarchyManager {
   /// - `.up`: grow the top child     → decrease ratio of nearest vertical split
   /// - `.down`: grow the bottom child → increase ratio of nearest vertical split
   ///
-  /// Silent no-op when the panel is unknown or no ancestor split matches the
+  /// Silent no-op when the pane is unknown or no ancestor split matches the
   /// direction (e.g. resize-left on a purely vertical column).
-  func resizePanel(_ panelID: PanelID, direction: ResizeDirection, amount: Double) throws {
+  func resizePane(_ paneID: PaneID, direction: ResizeDirection, amount: Double) throws {
     // Empirical px → ratio scale. See doc above.
     let pixelsPerRatioStep: Double = 400
     let ratioDelta = amount / pixelsPerRatioStep
@@ -997,10 +997,10 @@ final class HierarchyManager {
           let worktree = catalog.spaces[spaceIndex].projects[projectIndex]
             .worktrees[worktreeIndex]
           for tabIndex in worktree.tabs.indices
-          where worktree.tabs[tabIndex].splitTree.contains(panelID) {
+          where worktree.tabs[tabIndex].splitTree.contains(paneID) {
             var tab = worktree.tabs[tabIndex]
-            guard let leafPath = tab.splitTree.path(to: panelID) else { return }
-            let orientation: SplitTree<PanelID>.Direction = (direction == .left || direction == .right)
+            guard let leafPath = tab.splitTree.path(to: paneID) else { return }
+            let orientation: SplitTree<PaneID>.Direction = (direction == .left || direction == .right)
               ? .horizontal : .vertical
             guard
               let (ancestorPath, currentRatio, grewRight) = Self.findAncestorSplit(
@@ -1027,15 +1027,15 @@ final class HierarchyManager {
   /// whose orientation matches. `grewRight` is `true` when the leaf lives
   /// under the split's right child (so growing its side is `ratio += delta`).
   private static func findAncestorSplit(
-    root: SplitTree<PanelID>.Node?,
-    leafPath: SplitTree<PanelID>.Path,
-    orientation: SplitTree<PanelID>.Direction
-  ) -> (SplitTree<PanelID>.Path, Double, Bool)? {
+    root: SplitTree<PaneID>.Node?,
+    leafPath: SplitTree<PaneID>.Path,
+    orientation: SplitTree<PaneID>.Direction
+  ) -> (SplitTree<PaneID>.Path, Double, Bool)? {
     guard let root else { return nil }
     var components = leafPath.components
     while !components.isEmpty {
       let childBranch = components.removeLast()
-      let ancestorPath = SplitTree<PanelID>.Path(components)
+      let ancestorPath = SplitTree<PaneID>.Path(components)
       guard case .split(let split) = root.node(at: ancestorPath),
             split.direction == orientation
       else { continue }
@@ -1082,22 +1082,22 @@ final class HierarchyManager {
     throw HierarchyError.notFound("Tab \(id)")
   }
 
-  // MARK: - Panel labels (canonical writer for C3 / C4)
+  // MARK: - Pane labels (canonical writer for C3 / C4)
 
-  /// Update a Panel's `labels` set. **Single canonical writer** — every
-  /// user-facing write path (the CLI's `tc panel label`, the hook action
-  /// DSL's `HookAction.setPanelLabels`, any future UI) routes through this
+  /// Update a Pane's `labels` set. **Single canonical writer** — every
+  /// user-facing write path (the CLI's `tc pane label`, the hook action
+  /// DSL's `HookAction.setPaneLabels`, any future UI) routes through this
   /// method. Keeps label mutations auditable and persists through the same
   /// `CatalogStore.scheduleSave` every other mutation uses.
   ///
   /// - Parameters:
-  ///   - panelID: target Panel.
+  ///   - paneID: target Pane.
   ///   - labels: labels to apply.
   ///   - replace: when `true`, replaces the set entirely; when `false`,
   ///     union-merges with the existing set.
-  /// - Throws: `HierarchyError.notFound` if the Panel id is unknown.
-  func setPanelLabels(
-    _ panelID: PanelID,
+  /// - Throws: `HierarchyError.notFound` if the Pane id is unknown.
+  func setPaneLabels(
+    _ paneID: PaneID,
     labels: Set<String>,
     replace: Bool = false
   ) throws {
@@ -1105,13 +1105,13 @@ final class HierarchyManager {
       for projectIndex in catalog.spaces[spaceIndex].projects.indices {
         for worktreeIndex in catalog.spaces[spaceIndex].projects[projectIndex].worktrees.indices {
           for tabIndex in catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.indices {
-            let panels = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex]
-              .panels
-            if let panelIndex = panels.firstIndex(where: { $0.id == panelID }) {
-              var panel = panels[panelIndex]
-              panel.labels = replace ? labels : panel.labels.union(labels)
-              catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex].panels[
-                panelIndex] = panel
+            let panes = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex]
+              .panes
+            if let paneIndex = panes.firstIndex(where: { $0.id == paneID }) {
+              var pane = panes[paneIndex]
+              pane.labels = replace ? labels : pane.labels.union(labels)
+              catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex].panes[
+                paneIndex] = pane
               store.scheduleSave(catalog)
               return
             }
@@ -1119,7 +1119,7 @@ final class HierarchyManager {
         }
       }
     }
-    throw HierarchyError.notFound("Panel \(panelID)")
+    throw HierarchyError.notFound("Pane \(paneID)")
   }
 
   // MARK: - Project-only mutators (Settings Repository panes)

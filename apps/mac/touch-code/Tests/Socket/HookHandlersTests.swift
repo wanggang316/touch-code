@@ -15,7 +15,7 @@ struct HookHandlersTests {
     try InMemoryIPCServerTests.sendHello(server)
     _ = try await server.awaitResponse()
 
-    let sub = HookSubscription(event: .panelReady, command: "echo ready")
+    let sub = HookSubscription(event: .paneReady, command: "echo ready")
     let params = try JSONValue.encoded(HookHandlers.InstallParams(subscription: sub))
     try server.send(IPC.Request(id: "install-1", method: .hookInstall, params: params))
     let installed = try await server.awaitResponse()
@@ -42,7 +42,7 @@ struct HookHandlersTests {
     _ = try await server.awaitResponse()
 
     let bad = HookSubscription(
-      event: .panelReady,
+      event: .paneReady,
       command: "\(touchCodeInternalPrefix)notifications:x"
     )
     let params = try JSONValue.encoded(HookHandlers.InstallParams(subscription: bad))
@@ -82,7 +82,7 @@ struct HookHandlersTests {
     _ = try await server.awaitResponse()
 
     // Install
-    let sub = HookSubscription(event: .panelReady, command: "echo")
+    let sub = HookSubscription(event: .paneReady, command: "echo")
     let installParams = try JSONValue.encoded(HookHandlers.InstallParams(subscription: sub))
     try server.send(IPC.Request(id: "i", method: .hookInstall, params: installParams))
     _ = try await server.awaitResponse()

@@ -8,9 +8,9 @@ import os.log
 /// API (DEC-P1) — no new upsert API required from C3.
 ///
 /// Rule → subscription translation (see design §Detection Rule DSL):
-/// - `event` = `.panelOutputMatch` (the only C3 event we ride for detection)
+/// - `event` = `.paneOutputMatch` (the only C3 event we ride for detection)
 /// - `matchPattern` = rule's regex or pipe-joined containsAny alternation
-/// - `scope` = `.panelLabel("agent:<rule.agent>")` or `.panelID(rule.panelID)`
+/// - `scope` = `.paneLabel("agent:<rule.agent>")` or `.paneID(rule.paneID)`
 /// - `command` = `"__touch-code/internal:notifications:<rule.id>"`
 /// - `mode` = `.fireAndForget`
 /// - `timeoutSeconds` = 1 (unused; sentinel-prefix route short-circuits spawn)
@@ -65,7 +65,7 @@ final class RuleStore {
     for rule in rules.rules {
       // The AgentDetectionRules decoder already throws .missingMatch for
       // malformed rules; this pass catches anything constructed in memory.
-      if rule.appliesWhen.hookEvent == .panelOutputMatch, rule.match == nil {
+      if rule.appliesWhen.hookEvent == .paneOutputMatch, rule.match == nil {
         throw RuleStoreError.missingMatch(ruleID: rule.id)
       }
       if let match = rule.match, case .regex(let pattern, _) = match {
@@ -106,15 +106,15 @@ final class RuleStore {
 
   static func makeSubscription(from rule: AgentDetectionRules.Rule) -> HookSubscription {
     let scope: HookSubscription.Scope = {
-      if let panelID = rule.appliesWhen.panelID {
-        return .panelID(panelID)
+      if let paneID = rule.appliesWhen.paneID {
+        return .paneID(paneID)
       }
-      return .panelLabel("agent:\(rule.agent)")
+      return .paneLabel("agent:\(rule.agent)")
     }()
     let (pattern, flags) = Self.patternAndFlags(for: rule.match)
     return HookSubscription(
       id: UUID(),
-      event: .panelOutputMatch,
+      event: .paneOutputMatch,
       command: "\(sentinelPrefix)\(rule.id)",
       matchPattern: pattern,
       matchFlags: flags,

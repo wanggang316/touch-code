@@ -148,12 +148,12 @@ nonisolated struct TemplateRenderer {
     case .agent: return agent
     case .stateFrom: return transition.from.rawValue
     case .stateTo: return transition.to.rawValue
-    case .panelID: return envelope.panel?.id.raw.uuidString
-    case .panelWorkingDirectory: return envelope.panel?.workingDirectory
-    case .panelInitialCommand: return envelope.panel?.initialCommand
+    case .paneID: return envelope.pane?.id.raw.uuidString
+    case .paneWorkingDirectory: return envelope.pane?.workingDirectory
+    case .paneInitialCommand: return envelope.pane?.initialCommand
     case .tabID: return envelope.tab?.id.raw.uuidString
     case .tabName: return envelope.tab?.name
-    case .tabSelectedPanelID: return envelope.tab?.selectedPanelID?.raw.uuidString
+    case .tabSelectedPaneID: return envelope.tab?.selectedPaneID?.raw.uuidString
     case .worktreeID: return envelope.worktree?.id.raw.uuidString
     case .worktreeName: return envelope.worktree?.name
     case .worktreePath: return envelope.worktree?.path
@@ -172,30 +172,30 @@ nonisolated struct TemplateRenderer {
   // swiftlint:disable:next cyclomatic_complexity
   private static func resolveData(field: TemplateField, envelope: HookEnvelope) -> String? {
     switch envelope.data {
-    case .panelCreated(let via):
+    case .paneCreated(let via):
       if field == .dataCreatedVia { return via }
-    case .panelReady(let pid, let shell):
+    case .paneReady(let pid, let shell):
       if field == .dataPID { return pid.map(String.init) ?? "" }
       if field == .dataShell { return shell }
-    case .panelInput(let text, let bytes):
+    case .paneInput(let text, let bytes):
       if field == .dataText { return text }
       if field == .dataInputBytes { return String(bytes) }
-    case .panelOutput(let output, let bytes):
+    case .paneOutput(let output, let bytes):
       if field == .dataOutput { return String(data: output, encoding: .utf8) ?? "" }
       if field == .dataOutputBytes { return String(bytes) }
-    case .panelOutputMatch(let match, let range, let output, let bytes):
+    case .paneOutputMatch(let match, let range, let output, let bytes):
       if field == .dataMatch { return match }
       if field == .dataOutput { return String(data: output, encoding: .utf8) ?? "" }
       if field == .dataOutputBytes { return String(bytes) }
       if field == .dataMatchedRangeStart { return String(range.start) }
       if field == .dataMatchedRangeLength { return String(range.length) }
-    case .panelIdle(let idle, let sinceOut, let sinceIn):
+    case .paneIdle(let idle, let sinceOut, let sinceIn):
       if field == .dataIdleSeconds { return String(idle) }
       if field == .dataSinceLastOutput { return String(sinceOut) }
       if field == .dataSinceLastInput { return String(sinceIn) }
-    case .panelExited(let code):
+    case .paneExited(let code):
       if field == .dataExitCode { return String(code) }
-    case .panelCrashed(let reason):
+    case .paneCrashed(let reason):
       if field == .dataReason { return reason }
     case .tabActivated(let prev):
       if field == .dataPreviousTabID { return prev?.raw.uuidString ?? "" }

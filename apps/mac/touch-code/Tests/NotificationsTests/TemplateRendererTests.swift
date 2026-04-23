@@ -25,9 +25,9 @@ struct TemplateRendererTests {
 
   @Test
   func fieldFromDifferentEventTypeThrowsAtInit() {
-    // data.idleSeconds isn't valid for panelOutputMatch rules.
+    // data.idleSeconds isn't valid for paneOutputMatch rules.
     let rules = Self.rules(
-      hookEvent: .panelOutputMatch,
+      hookEvent: .paneOutputMatch,
       title: "Idle for {data.idleSeconds}"
     )
     #expect(throws: RuleStoreError.self) {
@@ -66,7 +66,7 @@ struct TemplateRendererTests {
     let renderer = try TemplateRenderer(rules: Self.rules(title: "{data.output | firstLine}"))
     let multiline = Data("first\nsecond\nthird".utf8)
     let envelope = Self.envelope(
-      data: .panelOutputMatch(
+      data: .paneOutputMatch(
         match: "first", matchedRange: HookMatchRange(start: 0, length: 5), output: multiline,
         outputBytes: multiline.count)
     )
@@ -85,7 +85,7 @@ struct TemplateRendererTests {
     let renderer = try TemplateRenderer(rules: rules)
     let data = Data("Hello, world!".utf8)
     let envelope = Self.envelope(
-      data: .panelOutputMatch(
+      data: .paneOutputMatch(
         match: "Hello", matchedRange: HookMatchRange(start: 0, length: 5), output: data, outputBytes: data.count)
     )
     let output = renderer.render(
@@ -130,7 +130,7 @@ struct TemplateRendererTests {
     let renderer = try TemplateRenderer(rules: rules)
     let data = Data("Hello\nworld".utf8)
     let envelope = Self.envelope(
-      data: .panelOutputMatch(
+      data: .paneOutputMatch(
         match: "x", matchedRange: HookMatchRange(start: 0, length: 1), output: data, outputBytes: data.count)
     )
     let output = renderer.render(
@@ -145,7 +145,7 @@ struct TemplateRendererTests {
   // MARK: - Helpers
 
   private static func rules(
-    hookEvent: HookEvent = .panelOutputMatch,
+    hookEvent: HookEvent = .paneOutputMatch,
     title: String = "{agent}",
     body: String = "b"
   ) -> AgentDetectionRules {
@@ -156,7 +156,7 @@ struct TemplateRendererTests {
           id: "test.rule",
           agent: "claude",
           appliesWhen: .init(hookEvent: hookEvent),
-          match: hookEvent == .panelOutputMatch ? .containsAny(["x"]) : nil,
+          match: hookEvent == .paneOutputMatch ? .containsAny(["x"]) : nil,
           transitionTo: .completed,
           title: title,
           body: body
@@ -166,19 +166,19 @@ struct TemplateRendererTests {
   }
 
   private static func envelope(
-    data: HookEventData = .panelOutputMatch(
+    data: HookEventData = .paneOutputMatch(
       match: "x", matchedRange: HookMatchRange(start: 0, length: 1), output: Data(), outputBytes: 0)
   ) -> HookEnvelope {
     HookEnvelope(
       version: HookEnvelope.currentVersion,
-      event: .panelOutputMatch,
+      event: .paneOutputMatch,
       timestamp: Date(),
       space: nil,
       project: nil,
       worktree: nil,
       tab: nil,
-      panel: HookEnvelope.PanelRef(
-        id: PanelID(),
+      pane: HookEnvelope.PaneRef(
+        id: PaneID(),
         workingDirectory: "/tmp",
         initialCommand: nil,
         labels: []
@@ -189,7 +189,7 @@ struct TemplateRendererTests {
 
   private static func transition() -> AgentStateTransition {
     AgentStateTransition(
-      panelID: PanelID(),
+      paneID: PaneID(),
       from: .running,
       to: .completed,
       at: Date(),

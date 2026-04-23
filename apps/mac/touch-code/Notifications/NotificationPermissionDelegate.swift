@@ -3,7 +3,7 @@ import Foundation
 /// Result of the first-run permission sheet per DEC-4.
 ///
 /// - `continue`: invoke `UNUserNotificationCenter.requestAuthorization`.
-/// - `notNow`: set a 24h cool-down; re-prompt next agent-Panel creation after expiry.
+/// - `notNow`: set a 24h cool-down; re-prompt next agent-Pane creation after expiry.
 /// - `never`: permanently suppress the pre-prompt; inbox + Dock badge continue working.
 enum PermissionDecision: String, Sendable, Codable {
   case `continue`

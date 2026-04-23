@@ -73,13 +73,13 @@ struct RepositoryGeneralSettingsView: View {
   }
 
   private func chooseWorktreeDirectory() {
-    let panel = NSOpenPanel()
-    panel.canChooseDirectories = true
-    panel.canChooseFiles = false
-    panel.allowsMultipleSelection = false
-    panel.message = "Choose a directory for worktree storage"
-    panel.begin { response in
-      if response == .OK, let url = panel.urls.first {
+    let pane = NSOpenPanel()
+    pane.canChooseDirectories = true
+    pane.canChooseFiles = false
+    pane.allowsMultipleSelection = false
+    pane.message = "Choose a directory for worktree storage"
+    pane.begin { response in
+      if response == .OK, let url = pane.urls.first {
         store.send(.setWorktreeBaseDirectory(url.path))
       }
     }

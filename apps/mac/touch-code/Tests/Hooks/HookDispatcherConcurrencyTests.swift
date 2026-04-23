@@ -27,10 +27,10 @@ struct HookDispatcherConcurrencyTests {
       maxConcurrency: maxConcurrency
     )
 
-    let sub = HookSubscription(event: .panelReady, command: "echo")
+    let sub = HookSubscription(event: .paneReady, command: "echo")
     dispatcher.setConfig(HookConfig(subscriptions: [sub]))
 
-    let envelope = HookDispatcherTests.makePanelReadyEnvelope()
+    let envelope = HookDispatcherTests.makePaneReadyEnvelope()
     var tasks: [Task<Void, Never>] = []
     for _ in 0..<20 {
       let task = Task { await dispatcher.fire(envelope) }

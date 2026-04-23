@@ -11,7 +11,7 @@ import Foundation
 /// the picker needs an async `URL?` return and a different dialog shape, so
 /// keeping them separate avoids mixing two unrelated affordances.
 nonisolated struct FolderPickerClient: Sendable {
-  /// Shows a directory-only open panel with the given prompt. Returns the
+  /// Shows a directory-only open pane with the given prompt. Returns the
   /// user's selection, or `nil` if they cancelled.
   var pick: @MainActor @Sendable (_ prompt: String) async -> URL?
 }
@@ -20,14 +20,14 @@ extension FolderPickerClient: DependencyKey {
   static let liveValue = FolderPickerClient(
     pick: { prompt in
       await MainActor.run {
-        let panel = NSOpenPanel()
-        panel.prompt = prompt
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.canCreateDirectories = false
-        guard panel.runModal() == .OK else { return Optional<URL>.none }
-        return panel.url
+        let pane = NSOpenPanel()
+        pane.prompt = prompt
+        pane.canChooseFiles = false
+        pane.canChooseDirectories = true
+        pane.allowsMultipleSelection = false
+        pane.canCreateDirectories = false
+        guard pane.runModal() == .OK else { return Optional<URL>.none }
+        return pane.url
       }
     }
   )

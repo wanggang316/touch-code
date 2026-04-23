@@ -16,7 +16,7 @@ public nonisolated enum EditorIPCError: Int, Error, Equatable, Sendable {
   case notInstalled = 101
 
   /// `NSWorkspace.open` callback surfaced an error (Gatekeeper, quarantine, LS misconfig), OR
-  /// the `.shellEditor` branch could not acquire a Panel context.
+  /// the `.shellEditor` branch could not acquire a Pane context.
   case launchFailed = 104
 
   /// The directory passed to `open` does not exist or is a file, not a directory.

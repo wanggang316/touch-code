@@ -11,10 +11,10 @@ struct HookDispatcherTests {
     let executor = FakeHookExecutor()
     let dispatcher = Self.makeDispatcher(executor: executor)
 
-    let sub = HookSubscription(event: .panelReady, command: "echo ready")
+    let sub = HookSubscription(event: .paneReady, command: "echo ready")
     dispatcher.setConfig(HookConfig(subscriptions: [sub]))
 
-    await dispatcher.fire(Self.makePanelReadyEnvelope())
+    await dispatcher.fire(Self.makePaneReadyEnvelope())
 
     #expect(executor.invocations.count == 1)
     #expect(executor.invocations.first?.subscription.id == sub.id)
@@ -25,11 +25,11 @@ struct HookDispatcherTests {
     let executor = FakeHookExecutor()
     let dispatcher = Self.makeDispatcher(executor: executor)
 
-    var sub = HookSubscription(event: .panelReady, command: "echo")
+    var sub = HookSubscription(event: .paneReady, command: "echo")
     sub.disabled = true
     dispatcher.setConfig(HookConfig(subscriptions: [sub]))
 
-    await dispatcher.fire(Self.makePanelReadyEnvelope())
+    await dispatcher.fire(Self.makePaneReadyEnvelope())
     #expect(executor.invocations.isEmpty)
   }
 
@@ -38,10 +38,10 @@ struct HookDispatcherTests {
     let executor = FakeHookExecutor()
     let dispatcher = Self.makeDispatcher(executor: executor)
 
-    let sub = HookSubscription(event: .panelCrashed, command: "echo")
+    let sub = HookSubscription(event: .paneCrashed, command: "echo")
     dispatcher.setConfig(HookConfig(subscriptions: [sub]))
 
-    await dispatcher.fire(Self.makePanelReadyEnvelope())  // event = panelReady
+    await dispatcher.fire(Self.makePaneReadyEnvelope())  // event = paneReady
     #expect(executor.invocations.isEmpty)
   }
 
@@ -57,12 +57,12 @@ struct HookDispatcherTests {
     )
 
     let sub = HookSubscription(
-      event: .panelReady,
+      event: .paneReady,
       command: "\(touchCodeInternalPrefix)notifications:abc"
     )
     dispatcher.setConfig(HookConfig(subscriptions: [sub]))
 
-    await dispatcher.fire(Self.makePanelReadyEnvelope())
+    await dispatcher.fire(Self.makePaneReadyEnvelope())
 
     // Executor must not have been called — sentinel short-circuit wins.
     #expect(executor.invocations.isEmpty)
@@ -84,7 +84,7 @@ struct HookDispatcherTests {
     let stream = dispatcher.internalEventStream()
 
     dispatcher.setConfig(HookConfig(subscriptions: []))
-    await dispatcher.fire(Self.makePanelReadyEnvelope())
+    await dispatcher.fire(Self.makePaneReadyEnvelope())
 
     // Consume one envelope from the stream with a short timeout.
     let envelopes = await withTaskGroup(of: [HookEnvelope].self) { group in
@@ -112,10 +112,10 @@ struct HookDispatcherTests {
     let executor = FakeHookExecutor(result: HookExecutionResult(exitCode: 0))
     let dispatcher = Self.makeDispatcher(executor: executor)
 
-    let sub = HookSubscription(event: .panelReady, command: "echo")
+    let sub = HookSubscription(event: .paneReady, command: "echo")
     dispatcher.setConfig(HookConfig(subscriptions: [sub]))
 
-    await dispatcher.fire(Self.makePanelReadyEnvelope())
+    await dispatcher.fire(Self.makePaneReadyEnvelope())
 
     let recent = dispatcher.recentFires.recent()
     #expect(recent.count == 1)
@@ -141,15 +141,15 @@ struct HookDispatcherTests {
     )
   }
 
-  static func makePanelReadyEnvelope() -> HookEnvelope {
+  static func makePaneReadyEnvelope() -> HookEnvelope {
     HookEnvelope(
-      event: .panelReady,
+      event: .paneReady,
       space: .init(id: SpaceID(), name: "s"),
       project: .init(id: ProjectID(), name: "p", rootPath: "/"),
       worktree: .init(id: WorktreeID(), name: "w", path: "/"),
       tab: .init(id: TabID()),
-      panel: .init(id: PanelID(), workingDirectory: "/"),
-      data: .panelReady(pid: nil, shell: "/bin/sh")
+      pane: .init(id: PaneID(), workingDirectory: "/"),
+      data: .paneReady(pid: nil, shell: "/bin/sh")
     )
   }
 }

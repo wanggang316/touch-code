@@ -9,8 +9,8 @@ struct TemplateFieldTests {
     let expected: Set<String> = [
       "agent",
       "state.from", "state.to",
-      "panel.id", "panel.workingDirectory", "panel.initialCommand",
-      "tab.id", "tab.name", "tab.selectedPanelID",
+      "pane.id", "pane.workingDirectory", "pane.initialCommand",
+      "tab.id", "tab.name", "tab.selectedPaneID",
       "worktree.id", "worktree.name", "worktree.path", "worktree.branch",
       "project.id", "project.name", "project.rootPath",
       "space.id", "space.name",
@@ -19,8 +19,8 @@ struct TemplateFieldTests {
   }
 
   @Test
-  func panelOutputMatchAddsMatchAndRangeFields() {
-    let paths = TemplateField.validPaths(for: .panelOutputMatch)
+  func paneOutputMatchAddsMatchAndRangeFields() {
+    let paths = TemplateField.validPaths(for: .paneOutputMatch)
     #expect(paths.isSuperset(of: TemplateField.alwaysAvailable))
     let added = paths.subtracting(TemplateField.alwaysAvailable)
     #expect(added == [
@@ -30,36 +30,36 @@ struct TemplateFieldTests {
   }
 
   @Test
-  func panelIdleAddsIdleFields() {
-    let added = TemplateField.validPaths(for: .panelIdle)
+  func paneIdleAddsIdleFields() {
+    let added = TemplateField.validPaths(for: .paneIdle)
       .subtracting(TemplateField.alwaysAvailable)
     #expect(added == [.dataIdleSeconds, .dataSinceLastOutput, .dataSinceLastInput])
   }
 
   @Test
-  func panelReadyAddsPidAndShell() {
-    let added = TemplateField.validPaths(for: .panelReady)
+  func paneReadyAddsPidAndShell() {
+    let added = TemplateField.validPaths(for: .paneReady)
       .subtracting(TemplateField.alwaysAvailable)
     #expect(added == [.dataPID, .dataShell])
   }
 
   @Test
-  func panelExitedAddsExitCode() {
-    let added = TemplateField.validPaths(for: .panelExited)
+  func paneExitedAddsExitCode() {
+    let added = TemplateField.validPaths(for: .paneExited)
       .subtracting(TemplateField.alwaysAvailable)
     #expect(added == [.dataExitCode])
   }
 
   @Test
-  func panelCrashedAddsReason() {
-    let added = TemplateField.validPaths(for: .panelCrashed)
+  func paneCrashedAddsReason() {
+    let added = TemplateField.validPaths(for: .paneCrashed)
       .subtracting(TemplateField.alwaysAvailable)
     #expect(added == [.dataReason])
   }
 
   @Test
-  func panelInputAddsTextAndInputBytes() {
-    let added = TemplateField.validPaths(for: .panelInput)
+  func paneInputAddsTextAndInputBytes() {
+    let added = TemplateField.validPaths(for: .paneInput)
       .subtracting(TemplateField.alwaysAvailable)
     #expect(added == [.dataText, .dataInputBytes])
   }
@@ -78,9 +78,9 @@ struct TemplateFieldTests {
 
   @Test
   func dataMatchIsNotValidForNonOutputMatchEvents() {
-    // The "shape-bound" guarantee: a rule scoped to .panelIdle can't use
+    // The "shape-bound" guarantee: a rule scoped to .paneIdle can't use
     // {data.match} because the HookEventData case doesn't carry it.
-    let idlePaths = TemplateField.validPaths(for: .panelIdle)
+    let idlePaths = TemplateField.validPaths(for: .paneIdle)
     #expect(idlePaths.contains(.dataMatch) == false)
     #expect(idlePaths.contains(.dataOutput) == false)
   }

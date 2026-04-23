@@ -7,74 +7,74 @@ import Testing
 @MainActor
 struct EventMapperTests {
   @Test
-  func panelReadyBuildsFullAnchorChain() {
-    let (catalog, panelID, tabID, worktreeID, projectID, spaceID) = Self.fixture()
-    let envelope = EventMapper.map(.panelReady(panelID), catalog: catalog)
+  func paneReadyBuildsFullAnchorChain() {
+    let (catalog, paneID, tabID, worktreeID, projectID, spaceID) = Self.fixture()
+    let envelope = EventMapper.map(.paneReady(paneID), catalog: catalog)
     #expect(envelope != nil)
     guard let envelope else { return }
-    #expect(envelope.event == .panelReady)
-    #expect(envelope.panel?.id == panelID)
+    #expect(envelope.event == .paneReady)
+    #expect(envelope.pane?.id == paneID)
     #expect(envelope.tab?.id == tabID)
     #expect(envelope.worktree?.id == worktreeID)
     #expect(envelope.project?.id == projectID)
     #expect(envelope.space?.id == spaceID)
-    if case .panelReady = envelope.data {
+    if case .paneReady = envelope.data {
     } else {
-      Issue.record("expected .panelReady data")
+      Issue.record("expected .paneReady data")
     }
   }
 
   @Test
-  func panelOutputCarriesRawBytes() {
-    let (catalog, panelID, _, _, _, _) = Self.fixture()
+  func paneOutputCarriesRawBytes() {
+    let (catalog, paneID, _, _, _, _) = Self.fixture()
     let payload = Data("hello\nworld".utf8)
-    let envelope = EventMapper.map(.panelOutput(panelID, payload), catalog: catalog)
+    let envelope = EventMapper.map(.paneOutput(paneID, payload), catalog: catalog)
     guard let envelope else {
       Issue.record("expected envelope")
       return
     }
-    #expect(envelope.event == .panelOutput)
-    if case .panelOutput(let output, let bytes) = envelope.data {
+    #expect(envelope.event == .paneOutput)
+    if case .paneOutput(let output, let bytes) = envelope.data {
       #expect(output == payload)
       #expect(bytes == payload.count)
     } else {
-      Issue.record("expected .panelOutput data")
+      Issue.record("expected .paneOutput data")
     }
   }
 
   @Test
-  func panelExitedCarriesExitCode() {
-    let (catalog, panelID, _, _, _, _) = Self.fixture()
-    let envelope = EventMapper.map(.panelExited(panelID, code: 42, signal: nil), catalog: catalog)
+  func paneExitedCarriesExitCode() {
+    let (catalog, paneID, _, _, _, _) = Self.fixture()
+    let envelope = EventMapper.map(.paneExited(paneID, code: 42, signal: nil), catalog: catalog)
     guard let envelope else {
       Issue.record("expected envelope")
       return
     }
-    #expect(envelope.event == .panelExited)
-    if case .panelExited(let code) = envelope.data {
+    #expect(envelope.event == .paneExited)
+    if case .paneExited(let code) = envelope.data {
       #expect(code == 42)
     } else {
-      Issue.record("expected .panelExited data")
+      Issue.record("expected .paneExited data")
     }
   }
 
   @Test
-  func panelClosedByTabSurfacesAsCrashed() {
-    let (catalog, panelID, _, _, _, _) = Self.fixture()
+  func paneClosedByTabSurfacesAsCrashed() {
+    let (catalog, paneID, _, _, _, _) = Self.fixture()
     let envelope = EventMapper.map(
-      .panelClosedByTab(panelID, cause: .crashLoop(count: 3, window: 30)),
+      .paneClosedByTab(paneID, cause: .crashLoop(count: 3, window: 30)),
       catalog: catalog
     )
     guard let envelope else {
       Issue.record("expected envelope")
       return
     }
-    #expect(envelope.event == .panelCrashed)
-    if case .panelCrashed(let reason) = envelope.data {
+    #expect(envelope.event == .paneCrashed)
+    if case .paneCrashed(let reason) = envelope.data {
       #expect(reason.contains("crashLoop"))
       #expect(reason.contains("3"))
     } else {
-      Issue.record("expected .panelCrashed data")
+      Issue.record("expected .paneCrashed data")
     }
   }
 
@@ -91,7 +91,7 @@ struct EventMapperTests {
     #expect(envelope.worktree?.id == worktreeID)
     #expect(envelope.project?.id == projectID)
     #expect(envelope.space?.id == spaceID)
-    #expect(envelope.panel == nil)
+    #expect(envelope.pane == nil)
   }
 
   @Test
@@ -128,7 +128,7 @@ struct EventMapperTests {
     #expect(envelope.project?.id == projectID)
     #expect(envelope.space?.id == spaceID)
     #expect(envelope.tab == nil)
-    #expect(envelope.panel == nil)
+    #expect(envelope.pane == nil)
   }
 
   @Test
@@ -139,15 +139,15 @@ struct EventMapperTests {
   }
 
   @Test
-  func unknownPanelProducesNilAnchors() {
+  func unknownPaneProducesNilAnchors() {
     let (catalog, _, _, _, _, _) = Self.fixture()
-    let stranger = PanelID()
-    let envelope = EventMapper.map(.panelReady(stranger), catalog: catalog)
+    let stranger = PaneID()
+    let envelope = EventMapper.map(.paneReady(stranger), catalog: catalog)
     guard let envelope else {
       Issue.record("expected envelope")
       return
     }
-    #expect(envelope.panel == nil)
+    #expect(envelope.pane == nil)
     #expect(envelope.tab == nil)
     #expect(envelope.worktree == nil)
     #expect(envelope.project == nil)
@@ -156,19 +156,19 @@ struct EventMapperTests {
 
   // MARK: - Fixture
 
-  static func fixture() -> (Catalog, PanelID, TabID, WorktreeID, ProjectID, SpaceID) {
-    let panelID = PanelID()
+  static func fixture() -> (Catalog, PaneID, TabID, WorktreeID, ProjectID, SpaceID) {
+    let paneID = PaneID()
     let tabID = TabID()
     let worktreeID = WorktreeID()
     let projectID = ProjectID()
     let spaceID = SpaceID()
-    let panel = Panel(
-      id: panelID,
+    let pane = Pane(
+      id: paneID,
       workingDirectory: "/tmp/wt",
       initialCommand: "bash",
       labels: ["agent", "experiment"]
     )
-    let tab = Tab(id: tabID, name: "main", panels: [panel])
+    let tab = Tab(id: tabID, name: "main", panes: [pane])
     let worktree = Worktree(
       id: worktreeID,
       name: "wt",
@@ -185,6 +185,6 @@ struct EventMapperTests {
     )
     let space = Space(id: spaceID, name: "s", projects: [project])
     let catalog = Catalog(spaces: [space], selectedSpaceID: spaceID)
-    return (catalog, panelID, tabID, worktreeID, projectID, spaceID)
+    return (catalog, paneID, tabID, worktreeID, projectID, spaceID)
   }
 }

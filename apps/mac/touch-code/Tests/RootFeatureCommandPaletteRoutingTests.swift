@@ -91,13 +91,13 @@ struct RootFeatureCommandPaletteRoutingTests {
   }
 
   @Test
-  func panelActionIsDroppedWhenNoFocusedPanel() async {
-    // Empty selection → no focused panel → palette silently discards
-    // Panel-scoped activations rather than sending with a bogus ID.
+  func paneActionIsDroppedWhenNoFocusedPane() async {
+    // Empty selection → no focused pane → palette silently discards
+    // Pane-scoped activations rather than sending with a bogus ID.
     let store = Self.stubbedStore()
     await store.send(.commandPaletteToggle(nil))
     await store.send(
-      .commandPalette(.presented(.delegate(.activate(.panelAction(.newTab)))))
+      .commandPalette(.presented(.delegate(.activate(.paneAction(.newTab)))))
     )
     // No downstream action expected — the reducer returns .none.
     // The assertion here is simply that the test does not hang waiting

@@ -3,7 +3,7 @@ import TouchCodeCore
 import TouchCodeIPC
 import os
 
-/// Handlers for `terminal.*` — send input into a panel, broadcast across
+/// Handlers for `terminal.*` — send input into a pane, broadcast across
 /// a scope. Backed by an injected `TerminalInputSink` so the router can
 /// bind to either the real `TerminalEngine` + `GhosttyRuntime` or a
 /// headless test double (or `nil`, in which case these RPCs return
@@ -14,7 +14,7 @@ public final class TerminalHandlers {
   /// by a small adapter around `GhosttyRuntime.surface(for:).sendInput`;
   /// tests stub it.
   public protocol InputSink: AnyObject, Sendable {
-    func sendInput(panelID: PanelID, text: String) -> Bool
+    func sendInput(paneID: PaneID, text: String) -> Bool
     func fanOut(scope: IPC.BroadcastScope, text: String, catalog: Catalog) -> Int
   }
 
@@ -31,24 +31,24 @@ public final class TerminalHandlers {
   }
 
   public struct SendInputParams: Codable, Sendable {
-    public let panelID: PanelID
+    public let paneID: PaneID
     public let text: String
   }
   public func sendInput(_ params: JSONValue) async -> RouterOutcome {
     await Task.yield()
     guard let sink else {
       return .failed(
-        .unsupported(reason: "no GhosttyRuntime bound — terminal.sendInput requires the app with panels live"))
+        .unsupported(reason: "no GhosttyRuntime bound — terminal.sendInput requires the app with panes live"))
     }
     let req: SendInputParams
     do {
       req = try params.decoded(as: SendInputParams.self)
     } catch {
-      return .failed(.invalidParams(message: "sendInput requires {panelID, text}", path: nil))
+      return .failed(.invalidParams(message: "sendInput requires {paneID, text}", path: nil))
     }
-    let ok = sink.sendInput(panelID: req.panelID, text: req.text)
+    let ok = sink.sendInput(paneID: req.paneID, text: req.text)
     if !ok {
-      return .failed(.notFound(kind: "panel", id: req.panelID.description))
+      return .failed(.notFound(kind: "pane", id: req.paneID.description))
     }
     return .unary(.object(["delivered": .bool(true)]))
   }
@@ -61,7 +61,7 @@ public final class TerminalHandlers {
     await Task.yield()
     guard let sink else {
       return .failed(
-        .unsupported(reason: "no GhosttyRuntime bound — terminal.broadcastInput requires the app with panels live"))
+        .unsupported(reason: "no GhosttyRuntime bound — terminal.broadcastInput requires the app with panes live"))
     }
     let req: BroadcastParams
     do {

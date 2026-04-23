@@ -62,8 +62,8 @@ struct CommandPaletteItem: Equatable, Identifiable {
     case openCurrentWorktreeIn(EditorID)
     case revealCurrentWorktreeInFinder
 
-    // Panel / Window (thin wrappers over the existing request enums)
-    case panelAction(PanelActionRequest)
+    // Pane / Window (thin wrappers over the existing request enums)
+    case paneAction(PaneActionRequest)
     case windowAction(WindowActionRequest)
   }
 }

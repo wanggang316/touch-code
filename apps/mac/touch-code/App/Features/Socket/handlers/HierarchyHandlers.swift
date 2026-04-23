@@ -71,7 +71,7 @@ final class HierarchyHandlers {
   /// label / glob) into the canonical UUID for `kind`. M6 supports the
   /// minimum set the CLI drives: `current` / `.` (handled client-side by
   /// `AliasResolver`, but the server still accepts it as a defensive
-  /// fallback), and panel labels. Extended forms (path glob, index) land
+  /// fallback), and pane labels. Extended forms (path glob, index) land
   /// in M6.1.
   public func resolveAlias(_ params: JSONValue) async -> RouterOutcome {
     await Task.yield()
@@ -86,30 +86,30 @@ final class HierarchyHandlers {
       return (try? JSONValue.encoded(result)).map(RouterOutcome.unary)
         ?? .failed(.internal("encode resolveAlias result"))
     }
-    if request.kind == .panel, request.value.hasPrefix("@") {
+    if request.kind == .pane, request.value.hasPrefix("@") {
       let label = String(request.value.dropFirst())
-      let matches = Self.panelsMatchingLabel(label: label, catalog: manager.catalog)
+      let matches = Self.panesMatchingLabel(label: label, catalog: manager.catalog)
       if matches.count == 1 {
-        let result = IPC.AliasResolveResult(kind: .panel, id: matches[0])
+        let result = IPC.AliasResolveResult(kind: .pane, id: matches[0])
         return (try? JSONValue.encoded(result)).map(RouterOutcome.unary)
           ?? .failed(.internal("encode resolveAlias result"))
       }
       if matches.count > 1 {
-        return .failed(.conflict(reason: "label @\(label) matches \(matches.count) panels"))
+        return .failed(.conflict(reason: "label @\(label) matches \(matches.count) panes"))
       }
-      return .failed(.notFound(kind: "panel", id: "@\(label)"))
+      return .failed(.notFound(kind: "pane", id: "@\(label)"))
     }
     return .failed(.unsupported(reason: "alias form not yet supported: \(request.value)"))
   }
 
-  private static func panelsMatchingLabel(label: String, catalog: Catalog) -> [UUID] {
+  private static func panesMatchingLabel(label: String, catalog: Catalog) -> [UUID] {
     var matches: [UUID] = []
     for space in catalog.spaces {
       for project in space.projects {
         for worktree in project.worktrees {
           for tab in worktree.tabs {
-            for panel in tab.panels where panel.labels.contains(label) {
-              matches.append(panel.id.raw)
+            for pane in tab.panes where pane.labels.contains(label) {
+              matches.append(pane.id.raw)
             }
           }
         }
@@ -262,7 +262,7 @@ final class HierarchyHandlers {
     }
   }
 
-  public struct OpenPanelParams: Codable, Sendable {
+  public struct OpenPaneParams: Codable, Sendable {
     public let spaceID: SpaceID
     public let projectID: ProjectID
     public let worktreeID: WorktreeID
@@ -271,18 +271,18 @@ final class HierarchyHandlers {
     public let initialCommand: String?
     public let labels: [String]
   }
-  public func openPanel(_ params: JSONValue) async -> RouterOutcome {
+  public func openPane(_ params: JSONValue) async -> RouterOutcome {
     await Task.yield()
-    let req: OpenPanelParams
+    let req: OpenPaneParams
     do {
-      req = try params.decoded(as: OpenPanelParams.self)
+      req = try params.decoded(as: OpenPaneParams.self)
     } catch {
       return .failed(
         .invalidParams(
-          message: "openPanel requires {spaceID, projectID, worktreeID, tabID, workingDirectory}", path: nil))
+          message: "openPane requires {spaceID, projectID, worktreeID, tabID, workingDirectory}", path: nil))
     }
     do {
-      let id = try manager.openPanel(
+      let id = try manager.openPane(
         in: req.tabID,
         in: req.worktreeID,
         in: req.projectID,
@@ -296,35 +296,35 @@ final class HierarchyHandlers {
         // .unsupported / .conflict gives the CLI an actionable error
         // through CLIExitCode.from(_:).
         do {
-          try manager.setPanelLabels(id, labels: Set(req.labels), replace: true)
+          try manager.setPaneLabels(id, labels: Set(req.labels), replace: true)
         } catch {
-          return .failed(.internal("panel created (id=\(id)) but setPanelLabels failed: \(error)"))
+          return .failed(.internal("pane created (id=\(id)) but setPaneLabels failed: \(error)"))
         }
       }
-      return .unary(try JSONValue.encoded(PanelIDPayload(id: id)))
+      return .unary(try JSONValue.encoded(PaneIDPayload(id: id)))
     } catch {
       return failure(for: error, fallbackKind: "tab", fallbackID: req.tabID.description)
     }
   }
 
-  public struct SetPanelLabelsParams: Codable, Sendable {
-    public let id: PanelID
+  public struct SetPaneLabelsParams: Codable, Sendable {
+    public let id: PaneID
     public let labels: [String]
     public let replace: Bool
   }
-  public func setPanelLabels(_ params: JSONValue) async -> RouterOutcome {
+  public func setPaneLabels(_ params: JSONValue) async -> RouterOutcome {
     await Task.yield()
-    let req: SetPanelLabelsParams
+    let req: SetPaneLabelsParams
     do {
-      req = try params.decoded(as: SetPanelLabelsParams.self)
+      req = try params.decoded(as: SetPaneLabelsParams.self)
     } catch {
-      return .failed(.invalidParams(message: "setPanelLabels requires {id, labels}", path: nil))
+      return .failed(.invalidParams(message: "setPaneLabels requires {id, labels}", path: nil))
     }
     do {
-      try manager.setPanelLabels(req.id, labels: Set(req.labels), replace: req.replace)
+      try manager.setPaneLabels(req.id, labels: Set(req.labels), replace: req.replace)
       return .unary(.object([:]))
     } catch {
-      return failure(for: error, fallbackKind: "panel", fallbackID: req.id.description)
+      return failure(for: error, fallbackKind: "pane", fallbackID: req.id.description)
     }
   }
 
@@ -424,25 +424,25 @@ final class HierarchyHandlers {
     }
   }
 
-  public struct PanelLocatorParams: Codable, Sendable {
-    public let id: PanelID
+  public struct PaneLocatorParams: Codable, Sendable {
+    public let id: PaneID
     public let tabID: TabID
     public let worktreeID: WorktreeID
     public let projectID: ProjectID
     public let spaceID: SpaceID
   }
-  public func closePanel(_ params: JSONValue) async -> RouterOutcome {
+  public func closePane(_ params: JSONValue) async -> RouterOutcome {
     await Task.yield()
-    let req: PanelLocatorParams
-    do { req = try params.decoded(as: PanelLocatorParams.self) } catch {
+    let req: PaneLocatorParams
+    do { req = try params.decoded(as: PaneLocatorParams.self) } catch {
       return .failed(
         .invalidParams(
-          message: "closePanel requires {id, tabID, worktreeID, projectID, spaceID}",
+          message: "closePane requires {id, tabID, worktreeID, projectID, spaceID}",
           path: nil
         ))
     }
     do {
-      try manager.closePanel(
+      try manager.closePane(
         req.id,
         in: req.tabID,
         in: req.worktreeID,
@@ -451,22 +451,22 @@ final class HierarchyHandlers {
       )
       return .unary(.object([:]))
     } catch {
-      return failure(for: error, fallbackKind: "panel", fallbackID: req.id.description)
+      return failure(for: error, fallbackKind: "pane", fallbackID: req.id.description)
     }
   }
 
-  public func focusPanel(_ params: JSONValue) async -> RouterOutcome {
+  public func focusPane(_ params: JSONValue) async -> RouterOutcome {
     await Task.yield()
-    let req: PanelLocatorParams
-    do { req = try params.decoded(as: PanelLocatorParams.self) } catch {
+    let req: PaneLocatorParams
+    do { req = try params.decoded(as: PaneLocatorParams.self) } catch {
       return .failed(
         .invalidParams(
-          message: "focusPanel requires {id, tabID, worktreeID, projectID, spaceID}",
+          message: "focusPane requires {id, tabID, worktreeID, projectID, spaceID}",
           path: nil
         ))
     }
     do {
-      try manager.focusPanel(
+      try manager.focusPane(
         req.id,
         in: req.tabID,
         in: req.worktreeID,
@@ -475,7 +475,7 @@ final class HierarchyHandlers {
       )
       return .unary(.object([:]))
     } catch {
-      return failure(for: error, fallbackKind: "panel", fallbackID: req.id.description)
+      return failure(for: error, fallbackKind: "pane", fallbackID: req.id.description)
     }
   }
 
@@ -548,19 +548,19 @@ final class HierarchyHandlers {
     }
   }
 
-  public struct ListPanelsParams: Codable, Sendable {
+  public struct ListPanesParams: Codable, Sendable {
     public let tabID: TabID
     public let worktreeID: WorktreeID
     public let projectID: ProjectID
     public let spaceID: SpaceID
   }
-  public func listPanels(_ params: JSONValue) async -> RouterOutcome {
+  public func listPanes(_ params: JSONValue) async -> RouterOutcome {
     await Task.yield()
-    let req: ListPanelsParams
-    do { req = try params.decoded(as: ListPanelsParams.self) } catch {
+    let req: ListPanesParams
+    do { req = try params.decoded(as: ListPanesParams.self) } catch {
       return .failed(
         .invalidParams(
-          message: "listPanels requires {tabID, worktreeID, projectID, spaceID}",
+          message: "listPanes requires {tabID, worktreeID, projectID, spaceID}",
           path: nil
         ))
     }
@@ -572,9 +572,9 @@ final class HierarchyHandlers {
       return .failed(.notFound(kind: "tab", id: req.tabID.description))
     }
     do {
-      return .unary(try JSONValue.encoded(ListPanelsPayload(panels: tab.panels)))
+      return .unary(try JSONValue.encoded(ListPanesPayload(panes: tab.panes)))
     } catch {
-      return .failed(.internal("encode listPanels: \(error)"))
+      return .failed(.internal("encode listPanes: \(error)"))
     }
   }
 }
@@ -587,9 +587,9 @@ struct ListSpacesPayload: Codable, Sendable {
 struct ListProjectsPayload: Codable, Sendable { let projects: [Project] }
 struct ListWorktreesPayload: Codable, Sendable { let worktrees: [Worktree] }
 struct ListTabsPayload: Codable, Sendable { let tabs: [Tab] }
-struct ListPanelsPayload: Codable, Sendable { let panels: [Panel] }
+struct ListPanesPayload: Codable, Sendable { let panes: [Pane] }
 struct SpaceIDPayload: Codable, Sendable { let id: SpaceID }
 struct ProjectIDPayload: Codable, Sendable { let id: ProjectID }
 struct WorktreeIDPayload: Codable, Sendable { let id: WorktreeID }
 struct TabIDPayload: Codable, Sendable { let id: TabID }
-struct PanelIDPayload: Codable, Sendable { let id: PanelID }
+struct PaneIDPayload: Codable, Sendable { let id: PaneID }

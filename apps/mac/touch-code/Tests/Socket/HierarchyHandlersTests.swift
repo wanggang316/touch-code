@@ -49,7 +49,7 @@ struct HierarchyHandlersTests {
     _ = try await server.awaitResponse()
 
     let uuid = UUID()
-    let params = try JSONValue.encoded(IPC.AliasResolveRequest(kind: .panel, value: uuid.uuidString))
+    let params = try JSONValue.encoded(IPC.AliasResolveRequest(kind: .pane, value: uuid.uuidString))
     try server.send(
       IPC.Request(id: "r1", method: .hierarchyResolveAlias, params: params)
     )

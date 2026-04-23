@@ -5,26 +5,26 @@ import Foundation
 /// transition is surfaced as an OS banner in addition to landing in the inbox.
 ///
 /// `trigger` captures *what* drove the transition — a matched detection rule,
-/// a C3 envelope delivered directly (lifecycle signals `.panelExited`,
-/// `.panelCrashed`), the tracker-local idle timer, or a user override via
+/// a C3 envelope delivered directly (lifecycle signals `.paneExited`,
+/// `.paneCrashed`), the tracker-local idle timer, or a user override via
 /// CLI/UI. Coordinators consult this to decide notification template selection
 /// (`.rule` uses the rule's `title`/`body`; `.envelope` uses built-in copy
 /// keyed to the event; `.userOverride` never notifies per design invariant).
 public nonisolated struct AgentStateTransition: Equatable, Codable, Sendable {
-  public let panelID: PanelID
+  public let paneID: PaneID
   public let from: AgentState
   public let to: AgentState
   public let at: Date
   public let trigger: Trigger
 
   public init(
-    panelID: PanelID,
+    paneID: PaneID,
     from: AgentState,
     to: AgentState,
     at: Date,
     trigger: Trigger
   ) {
-    self.panelID = panelID
+    self.paneID = paneID
     self.from = from
     self.to = to
     self.at = at
@@ -32,10 +32,10 @@ public nonisolated struct AgentStateTransition: Equatable, Codable, Sendable {
   }
 
   public enum Trigger: Equatable, Sendable {
-    /// A user-configured detection rule matched a `.panelOutputMatch` envelope.
+    /// A user-configured detection rule matched a `.paneOutputMatch` envelope.
     case rule(id: String)
     /// A lifecycle envelope drove the transition directly — typically
-    /// `.panelExited` (→ `.completed`) or `.panelCrashed` (→ teardown path).
+    /// `.paneExited` (→ `.completed`) or `.paneCrashed` (→ teardown path).
     case envelope(event: HookEvent)
     /// The tracker-local idle timer fired after `idleThresholdSeconds`.
     case idleTimer(seconds: TimeInterval)

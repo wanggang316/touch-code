@@ -10,7 +10,7 @@ import TouchCodeCore
 @Suite("HookReloader")
 struct HookReloaderTests {
   private func sampleSubscription(command: String = "run") -> HookSubscription {
-    HookSubscription(event: .panelOutput, command: command)
+    HookSubscription(event: .paneOutput, command: command)
   }
 
   @Test

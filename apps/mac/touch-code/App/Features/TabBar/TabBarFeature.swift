@@ -28,7 +28,7 @@ struct TabBarFeature {
       case .newTabButtonTapped(let worktreeID, let projectID, let spaceID):
         guard let tabID = try? hierarchyClient.createTab(worktreeID, projectID, spaceID, nil)
         else { return .none }
-        // Resolve worktree.path from the catalog so the auto-spawned panel
+        // Resolve worktree.path from the catalog so the auto-spawned pane
         // starts in the Worktree's directory instead of `$HOME`. Silent no-op
         // if the Worktree vanished between createTab and this lookup.
         let catalog = hierarchyClient.snapshot()
@@ -37,7 +37,7 @@ struct TabBarFeature {
             .projects.first(where: { $0.id == projectID })?
             .worktrees.first(where: { $0.id == worktreeID })
         else { return .none }
-        _ = try? hierarchyClient.openPanel(
+        _ = try? hierarchyClient.openPane(
           tabID, worktreeID, projectID, spaceID, worktree.path, nil
         )
         return .none

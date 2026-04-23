@@ -52,15 +52,15 @@ struct HierarchySidebarView: View {
 
   var body: some View {
     let catalog = hierarchyManager.catalog
-    // Build the PanelID→WorktreeID index once per render pass. Worktree rows
+    // Build the PaneID→WorktreeID index once per render pass. Worktree rows
     // and Project headers both fold over `inbox.notifications` using this
     // shared index instead of calling `NotificationInbox.unreadCount(
     // forWorktree:in:)` / `.hasUnread(forProject:in:)` per row — those
     // helpers each rebuild the index internally (see the doc-comment in
-    // `NotificationInboxAggregation.swift`), which is O(rows × panels) per
+    // `NotificationInboxAggregation.swift`), which is O(rows × panes) per
     // render. The inline fold is the deliberate amortization the T1 design
     // calls out in §View Composition / §Unread-dot index caching.
-    let panelIndex = catalog.panelWorktreeIndex()
+    let paneIndex = catalog.paneWorktreeIndex()
     let inbox = inboxStore.inbox
     let activeSpace = catalog.spaces.first { $0.id == catalog.selectedSpaceID }
 
@@ -73,7 +73,7 @@ struct HierarchySidebarView: View {
     // bottom edge with proper material continuity, and `.toolbar` promotes
     // the add-project / options actions into the window titlebar over the
     // sidebar column (same as Finder / Xcode).
-    treeBody(activeSpace: activeSpace, panelIndex: panelIndex, inbox: inbox)
+    treeBody(activeSpace: activeSpace, paneIndex: paneIndex, inbox: inbox)
       .safeAreaInset(edge: .bottom, spacing: 0) {
         VStack(spacing: 0) {
           Divider()
@@ -147,7 +147,7 @@ struct HierarchySidebarView: View {
         store.send(.worktreeRemoveCancelled)
       }
     } message: {
-      Text("Removes the Worktree from the Project and closes all its panels. This cannot be undone.")
+      Text("Removes the Worktree from the Project and closes all its panes. This cannot be undone.")
     }
     .confirmationDialog(
       projectRemovalTitle,
@@ -164,7 +164,7 @@ struct HierarchySidebarView: View {
         store.send(.projectRemoveCancelled)
       }
     } message: {
-      Text("Removes the Project and closes all its panels. Files on disk are not affected.")
+      Text("Removes the Project and closes all its panes. Files on disk are not affected.")
     }
     // Archived Worktrees sheet (opened from Project ⋯ menu).
     .sheet(
@@ -277,7 +277,7 @@ struct HierarchySidebarView: View {
   @ViewBuilder
   private func treeBody(
     activeSpace: Space?,
-    panelIndex: [PanelID: WorktreeID],
+    paneIndex: [PaneID: WorktreeID],
     inbox: NotificationInbox
   ) -> some View {
     if let activeSpace {
@@ -311,7 +311,7 @@ struct HierarchySidebarView: View {
             projectSection(
               project,
               in: activeSpace,
-              panelIndex: panelIndex,
+              paneIndex: paneIndex,
               inbox: inbox,
               hotkeyIndex: hotkeyIndex
             )
@@ -368,13 +368,13 @@ struct HierarchySidebarView: View {
   private func projectSection(
     _ project: Project,
     in space: Space,
-    panelIndex: [PanelID: WorktreeID],
+    paneIndex: [PaneID: WorktreeID],
     inbox: NotificationInbox,
     hotkeyIndex: [WorktreeID: Int]
   ) -> some View {
     let projectHasUnread = inbox.notifications.contains { notification in
       guard notification.isUnread,
-        let worktreeID = panelIndex[notification.panelID]
+        let worktreeID = paneIndex[notification.paneID]
       else { return false }
       return project.worktrees.contains(where: { $0.id == worktreeID })
     }
@@ -429,7 +429,7 @@ struct HierarchySidebarView: View {
               worktree,
               in: project,
               space: space,
-              panelIndex: panelIndex,
+              paneIndex: paneIndex,
               inbox: inbox,
               hotkeySlot: hotkeyIndex[worktree.id]
             )
@@ -445,14 +445,14 @@ struct HierarchySidebarView: View {
     _ worktree: Worktree,
     in project: Project,
     space: Space,
-    panelIndex: [PanelID: WorktreeID],
+    paneIndex: [PaneID: WorktreeID],
     inbox: NotificationInbox,
     hotkeySlot: Int?
   ) -> some View {
     let isSelected = currentSelection.worktreeID == worktree.id
     let unreadCount = inbox.notifications.reduce(into: 0) { total, notification in
       guard notification.isUnread,
-        panelIndex[notification.panelID] == worktree.id
+        paneIndex[notification.paneID] == worktree.id
       else { return }
       total += 1
     }

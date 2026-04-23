@@ -7,7 +7,7 @@ import Foundation
 /// the popover shows a loading skeleton; Settings shows a neutral "Checking…" banner.
 ///
 /// `.available` carries the host + user string extracted from `gh auth status`. The
-/// Settings panel surfaces both so a user with multi-host `gh` configuration can see
+/// Settings pane surfaces both so a user with multi-host `gh` configuration can see
 /// which host the integration is talking to.
 ///
 /// `.unavailable(reason)` carries a user-facing string. Rich error detail (install /

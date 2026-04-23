@@ -17,7 +17,7 @@ import os.log
 ///   * `apply(_ decoded:…)` — `@MainActor`, operates only on the
 ///     Sendable `DecodedSurfaceAction` / `DecodedAppAction` enum and
 ///     performs the routing side effects (emit events, write
-///     `PanelSurface.info`, trigger AppKit calls).
+///     `PaneSurface.info`, trigger AppKit calls).
 ///
 /// Rationale (plan 0008 DEC-M7d-1): the earlier design queued the raw
 /// `ghostty_action_s` struct and decoded it on main after the callback
@@ -148,7 +148,7 @@ extension GhosttyActionDecoder {
   /// copied before return.
   nonisolated static func decodeSurfaceAction(
     _ action: ghostty_action_s,
-    panelID: PanelID
+    paneID: PaneID
   ) -> DecodedSurfaceAction {
     switch action.tag {
 
@@ -342,7 +342,7 @@ extension GhosttyActionDecoder {
       return .unsupported(rawTag: action.tag.rawValue, reason: "app-scoped on surface target")
 
     default:
-      _ = panelID  // silence unused warning for exhaustive builds
+      _ = paneID  // silence unused warning for exhaustive builds
       return .unsupported(rawTag: action.tag.rawValue, reason: "unknown tag")
     }
   }
@@ -378,52 +378,52 @@ extension GhosttyActionDecoder {
   // swiftlint:disable:next cyclomatic_complexity function_body_length
   static func apply(
     _ decoded: DecodedSurfaceAction,
-    panelID: PanelID,
-    panel: PanelSurface,
+    paneID: PaneID,
+    pane: PaneSurface,
     runtime: GhosttyRuntime
   ) -> Bool {
     switch decoded {
 
     // Bucket 1 — Tab / split intent
     case .newTab:
-      return emitPanelIntent(.newTab, panelID: panelID, runtime: runtime)
+      return emitPaneIntent(.newTab, paneID: paneID, runtime: runtime)
     case .closeTab(let mode):
-      return emitPanelIntent(.closeTab(mode: mode), panelID: panelID, runtime: runtime)
+      return emitPaneIntent(.closeTab(mode: mode), paneID: paneID, runtime: runtime)
     case .moveTab(let offset):
-      return emitPanelIntent(.moveTab(offset: offset), panelID: panelID, runtime: runtime)
+      return emitPaneIntent(.moveTab(offset: offset), paneID: paneID, runtime: runtime)
     case .gotoTab(let target):
-      return emitPanelIntent(.gotoTab(target: target), panelID: panelID, runtime: runtime)
+      return emitPaneIntent(.gotoTab(target: target), paneID: paneID, runtime: runtime)
     case .newSplit(let dir):
-      return emitPanelIntent(.newSplit(direction: dir), panelID: panelID, runtime: runtime)
+      return emitPaneIntent(.newSplit(direction: dir), paneID: paneID, runtime: runtime)
     case .gotoSplit(let dir):
-      return emitPanelIntent(.gotoSplit(direction: dir), panelID: panelID, runtime: runtime)
+      return emitPaneIntent(.gotoSplit(direction: dir), paneID: paneID, runtime: runtime)
     case .resizeSplit(let dir, let amount):
-      return emitPanelIntent(
-        .resizeSplit(direction: dir, amount: amount), panelID: panelID, runtime: runtime)
+      return emitPaneIntent(
+        .resizeSplit(direction: dir, amount: amount), paneID: paneID, runtime: runtime)
     case .equalizeSplits:
-      return emitPanelIntent(.equalizeSplits, panelID: panelID, runtime: runtime)
+      return emitPaneIntent(.equalizeSplits, paneID: paneID, runtime: runtime)
     case .toggleSplitZoom:
-      return emitPanelIntent(.toggleSplitZoom, panelID: panelID, runtime: runtime)
+      return emitPaneIntent(.toggleSplitZoom, paneID: paneID, runtime: runtime)
     case .presentTerminal:
-      return emitPanelIntent(.presentTerminal, panelID: panelID, runtime: runtime)
+      return emitPaneIntent(.presentTerminal, paneID: paneID, runtime: runtime)
     case .toggleCommandPalette:
-      return emitPanelIntent(.toggleCommandPalette, panelID: panelID, runtime: runtime)
+      return emitPaneIntent(.toggleCommandPalette, paneID: paneID, runtime: runtime)
 
     // Bucket 2 — Window intent
     case .newWindow:
-      return emitWindowIntent(.new(from: panelID), runtime: runtime)
+      return emitWindowIntent(.new(from: paneID), runtime: runtime)
     case .closeWindow:
-      return emitWindowIntent(.close(from: panelID), runtime: runtime)
+      return emitWindowIntent(.close(from: paneID), runtime: runtime)
     case .closeAllWindows:
       return emitWindowIntent(.closeAll, runtime: runtime)
     case .gotoWindow(let target):
       return emitWindowIntent(.goto(target: target), runtime: runtime)
     case .toggleFullscreen:
-      return emitWindowIntent(.toggleFullscreen(from: panelID), runtime: runtime)
+      return emitWindowIntent(.toggleFullscreen(from: paneID), runtime: runtime)
     case .toggleMaximize:
-      return emitWindowIntent(.toggleMaximize(from: panelID), runtime: runtime)
+      return emitWindowIntent(.toggleMaximize(from: paneID), runtime: runtime)
     case .toggleTabOverview:
-      return emitWindowIntent(.toggleTabOverview(from: panelID), runtime: runtime)
+      return emitWindowIntent(.toggleTabOverview(from: paneID), runtime: runtime)
     case .toggleVisibility:
       return emitWindowIntent(.toggleAppVisibility, runtime: runtime)
     case .toggleBackgroundOpacity:
@@ -439,70 +439,70 @@ extension GhosttyActionDecoder {
 
     // Bucket 3 — Surface info
     case .setTitle(let title):
-      return emitInfo(.title(title), panel: panel, panelID: panelID, runtime: runtime)
+      return emitInfo(.title(title), pane: pane, paneID: paneID, runtime: runtime)
     case .setTabTitle(let title):
-      return emitInfo(.tabTitle(title), panel: panel, panelID: panelID, runtime: runtime)
+      return emitInfo(.tabTitle(title), pane: pane, paneID: paneID, runtime: runtime)
     case .promptTitle(let raw):
-      return emitInfo(.promptTitle(raw), panel: panel, panelID: panelID, runtime: runtime)
+      return emitInfo(.promptTitle(raw), pane: pane, paneID: paneID, runtime: runtime)
     case .pwd(let pwd):
-      return emitInfo(.pwd(pwd), panel: panel, panelID: panelID, runtime: runtime)
+      return emitInfo(.pwd(pwd), pane: pane, paneID: paneID, runtime: runtime)
     case .mouseShape(let raw):
-      return emitInfo(.mouseShape(raw), panel: panel, panelID: panelID, runtime: runtime)
+      return emitInfo(.mouseShape(raw), pane: pane, paneID: paneID, runtime: runtime)
     case .mouseVisible(let visible):
-      return emitInfo(.mouseVisible(visible), panel: panel, panelID: panelID, runtime: runtime)
+      return emitInfo(.mouseVisible(visible), pane: pane, paneID: paneID, runtime: runtime)
     case .mouseOverLink(let link):
-      return emitInfo(.mouseOverLink(link), panel: panel, panelID: panelID, runtime: runtime)
+      return emitInfo(.mouseOverLink(link), pane: pane, paneID: paneID, runtime: runtime)
     case .colorChange(let kind, let r, let g, let b):
       return emitInfo(
         .colorChange(kind: kind, r: r, g: g, b: b),
-        panel: panel, panelID: panelID, runtime: runtime)
+        pane: pane, paneID: paneID, runtime: runtime)
     case .rendererHealthy(let healthy):
-      return emitInfo(.rendererHealthy(healthy), panel: panel, panelID: panelID, runtime: runtime)
+      return emitInfo(.rendererHealthy(healthy), pane: pane, paneID: paneID, runtime: runtime)
     case .cellSize(let w, let h):
       return emitInfo(
-        .cellSize(width: w, height: h), panel: panel, panelID: panelID, runtime: runtime)
+        .cellSize(width: w, height: h), pane: pane, paneID: paneID, runtime: runtime)
     case .sizeLimit(let mnw, let mnh, let mxw, let mxh):
       return emitInfo(
         .sizeLimit(minWidth: mnw, minHeight: mnh, maxWidth: mxw, maxHeight: mxh),
-        panel: panel, panelID: panelID, runtime: runtime)
+        pane: pane, paneID: paneID, runtime: runtime)
     case .initialSize(let w, let h):
       return emitInfo(
-        .initialSize(width: w, height: h), panel: panel, panelID: panelID, runtime: runtime)
+        .initialSize(width: w, height: h), pane: pane, paneID: paneID, runtime: runtime)
     case .resetWindowSize:
-      return emitInfo(.resetWindowSize, panel: panel, panelID: panelID, runtime: runtime)
+      return emitInfo(.resetWindowSize, pane: pane, paneID: paneID, runtime: runtime)
     case .scrollbar(let total, let offset, let length):
       return emitInfo(
         .scrollbar(total: total, offset: offset, length: length),
-        panel: panel, panelID: panelID, runtime: runtime)
+        pane: pane, paneID: paneID, runtime: runtime)
     case .secureInput(let raw):
-      return emitInfo(.secureInput(raw), panel: panel, panelID: panelID, runtime: runtime)
+      return emitInfo(.secureInput(raw), pane: pane, paneID: paneID, runtime: runtime)
     case .keySequence(let active, let trigger):
       return emitInfo(
         .keySequence(active: active, trigger: trigger),
-        panel: panel, panelID: panelID, runtime: runtime)
+        pane: pane, paneID: paneID, runtime: runtime)
     case .keyTable(let name, let depth):
       return emitInfo(
         .keyTable(name: name, depth: depth),
-        panel: panel, panelID: panelID, runtime: runtime)
+        pane: pane, paneID: paneID, runtime: runtime)
     case .readonly(let on):
-      return emitInfo(.readonly(on), panel: panel, panelID: panelID, runtime: runtime)
+      return emitInfo(.readonly(on), pane: pane, paneID: paneID, runtime: runtime)
     case .quitTimer(let raw):
-      return emitInfo(.quitTimer(raw), panel: panel, panelID: panelID, runtime: runtime)
+      return emitInfo(.quitTimer(raw), pane: pane, paneID: paneID, runtime: runtime)
     case .floatWindow(let floating):
-      return emitInfo(.floatWindow(floating), panel: panel, panelID: panelID, runtime: runtime)
+      return emitInfo(.floatWindow(floating), pane: pane, paneID: paneID, runtime: runtime)
     case .searchStarted(let needle):
       return emitInfo(
-        .searchStarted(needle: needle), panel: panel, panelID: panelID, runtime: runtime)
+        .searchStarted(needle: needle), pane: pane, paneID: paneID, runtime: runtime)
     case .searchEnded:
-      return emitInfo(.searchEnded, panel: panel, panelID: panelID, runtime: runtime)
+      return emitInfo(.searchEnded, pane: pane, paneID: paneID, runtime: runtime)
     case .searchTotal(let t):
-      return emitInfo(.searchTotal(t), panel: panel, panelID: panelID, runtime: runtime)
+      return emitInfo(.searchTotal(t), pane: pane, paneID: paneID, runtime: runtime)
     case .searchSelected(let s):
-      return emitInfo(.searchSelected(s), panel: panel, panelID: panelID, runtime: runtime)
+      return emitInfo(.searchSelected(s), pane: pane, paneID: paneID, runtime: runtime)
     case .progress(let state, let value):
       return emitInfo(
         .progress(state: state, value: value),
-        panel: panel, panelID: panelID, runtime: runtime)
+        pane: pane, paneID: paneID, runtime: runtime)
 
     // Bucket 4 — Effectful
     case .openURL(let url):
@@ -510,16 +510,16 @@ extension GhosttyActionDecoder {
     case .desktopNotification(let title, let body):
       return emitInfo(
         .desktopNotification(title: title, body: body),
-        panel: panel, panelID: panelID, runtime: runtime)
+        pane: pane, paneID: paneID, runtime: runtime)
     case .ringBell:
-      return emitInfo(.bellRang, panel: panel, panelID: panelID, runtime: runtime)
+      return emitInfo(.bellRang, pane: pane, paneID: paneID, runtime: runtime)
     case .commandFinished(let exit, let duration):
       return emitInfo(
         .commandFinished(exitCode: exit, duration: duration),
-        panel: panel, panelID: panelID, runtime: runtime)
+        pane: pane, paneID: paneID, runtime: runtime)
     case .showChildExited(let code):
-      panel.markExited(code: code)
-      runtime.emitInfoChanged(panelID, .childExited(code: code))
+      pane.markExited(code: code)
+      runtime.emitInfoChanged(paneID, .childExited(code: code))
       logger.debug("surface action: show_child_exited (code \(code))")
       return true
     case .undo:
@@ -529,7 +529,7 @@ extension GhosttyActionDecoder {
       NSApp.sendAction(#selector(UndoManager.redo), to: nil, from: nil)
       return true
     case .copyTitleToClipboard:
-      if let title = panel.info.title, !title.isEmpty {
+      if let title = pane.info.title, !title.isEmpty {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(title, forType: .string)
         logger.debug("surface action: copy_title_to_clipboard (\(title.count) chars)")
@@ -540,7 +540,7 @@ extension GhosttyActionDecoder {
 
     // Bucket 5 — Config lifecycle
     case .reloadConfig(let soft):
-      runtime.reloadSurfaceConfig(panelID: panelID, soft: soft)
+      runtime.reloadSurfaceConfig(paneID: paneID, soft: soft)
       logger.debug("surface action: reload_config (soft: \(soft))")
       return true
 
@@ -582,12 +582,12 @@ extension GhosttyActionDecoder {
 extension GhosttyActionDecoder {
 
   @MainActor
-  fileprivate static func emitPanelIntent(
-    _ request: PanelActionRequest,
-    panelID: PanelID,
+  fileprivate static func emitPaneIntent(
+    _ request: PaneActionRequest,
+    paneID: PaneID,
     runtime: GhosttyRuntime
   ) -> Bool {
-    runtime.emit(.panelActionRequested(panelID, request))
+    runtime.emit(.paneActionRequested(paneID, request))
     return true
   }
 
@@ -602,13 +602,13 @@ extension GhosttyActionDecoder {
 
   @MainActor
   fileprivate static func emitInfo(
-    _ delta: PanelInfoDelta,
-    panel: PanelSurface,
-    panelID: PanelID,
+    _ delta: PaneInfoDelta,
+    pane: PaneSurface,
+    paneID: PaneID,
     runtime: GhosttyRuntime
   ) -> Bool {
-    panel.apply(delta)
-    runtime.emitInfoChanged(panelID, delta)
+    pane.apply(delta)
+    runtime.emitInfoChanged(paneID, delta)
     return true
   }
 }
@@ -691,7 +691,7 @@ extension GhosttyActionDecoder {
   }
 
   /// Collapse the 3-variant key_table tag + optional name into the flat
-  /// `(name, depth)` shape of `PanelInfoDelta.keyTable`. Depth mirrors the
+  /// `(name, depth)` shape of `PaneInfoDelta.keyTable`. Depth mirrors the
   /// tag semantics: ACTIVATE=+1, DEACTIVATE=-1, DEACTIVATE_ALL=0 (reset).
   fileprivate nonisolated static func decodeKeyTable(
     _ table: ghostty_action_key_table_s
@@ -712,7 +712,7 @@ extension GhosttyActionDecoder {
 
   /// Flatten `ghostty_input_trigger_s` into a UInt32 fingerprint. Consumers
   /// only need a change-detector today, so we hash the struct bytes rather
-  /// than model every field on `PanelInfoDelta`.
+  /// than model every field on `PaneInfoDelta`.
   fileprivate nonisolated static func keyTriggerFingerprint(
     _ trigger: ghostty_input_trigger_s
   ) -> UInt32 {

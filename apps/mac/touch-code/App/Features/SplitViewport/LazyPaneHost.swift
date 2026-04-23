@@ -2,9 +2,9 @@ import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
 
-/// Pure renderer for a single panel slot. Drives `PanelHostFeature` via
+/// Pure renderer for a single pane slot. Drives `PaneHostFeature` via
 /// `.task { store.send(.task) }` and switches over `store.phase` to show
-/// a loading placeholder, the live `PanelHostView`, or a failure with
+/// a loading placeholder, the live `PaneHostView`, or a failure with
 /// retry. All `TerminalClient` calls live in the reducer — this view never
 /// reads `@Dependency` directly, which was the source of the
 /// `TerminalClient.liveValue not configured` fatal-error on launch with
@@ -14,13 +14,13 @@ import TouchCodeCore
 /// Surfaces are retained across tab switches by `TerminalEngine`'s
 /// registry. The reducer's registry short-circuit reuses them on
 /// reappearance; explicit teardown still goes through
-/// `HierarchyClient.closePanel` → `TerminalEngine.closeSurface`.
-struct LazyPanelHost: View {
-  @Bindable var store: StoreOf<PanelHostFeature>
+/// `HierarchyClient.closePane` → `TerminalEngine.closeSurface`.
+struct LazyPaneHost: View {
+  @Bindable var store: StoreOf<PaneHostFeature>
 
   var body: some View {
     content
-      .task(id: store.panelID) {
+      .task(id: store.paneID) {
         store.send(.task)
       }
   }
@@ -37,7 +37,7 @@ struct LazyPanelHost: View {
         // (sidebar material blends `withinWindow`, i.e. against detail pixels
         // underneath), producing a visible black band behind the sidebar's
         // translucent layer in light mode.
-        PanelHostView(surface: surface)
+        PaneHostView(surface: surface)
       } else {
         // Should not happen — `phase == .ready` is set by the reducer
         // only together with a non-nil `surface`. Render the loading
@@ -65,7 +65,7 @@ struct LazyPanelHost: View {
 
   private func failurePlaceholder(message: String) -> some View {
     VStack(spacing: 8) {
-      Text("Panel failed to start")
+      Text("Pane failed to start")
         .font(.headline)
         .foregroundStyle(.red)
       Text(message)

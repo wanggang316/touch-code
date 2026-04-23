@@ -102,7 +102,7 @@ struct SettingsMigrationTests {
             "surfaceIdle": false,
             "redactBodies": false,
             "mutedRuleIDs": ["noisy-rule"],
-            "mutedPanelIDs": []
+            "mutedPaneIDs": []
           },
           "authStatus": "denied",
           "neverPrompt": true,
@@ -142,7 +142,7 @@ struct SettingsMigrationTests {
             "surfaceIdle": false,
             "redactBodies": false,
             "mutedRuleIDs": [],
-            "mutedPanelIDs": []
+            "mutedPaneIDs": []
           },
           "authStatus": "authorized",
           "neverPrompt": false

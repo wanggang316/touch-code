@@ -30,7 +30,7 @@ public nonisolated struct TabID: HierarchyID {
   public init(raw: UUID) { self.raw = raw }
 }
 
-public nonisolated struct PanelID: HierarchyID {
+public nonisolated struct PaneID: HierarchyID {
   public let raw: UUID
   public init(raw: UUID) { self.raw = raw }
 }

@@ -1,6 +1,6 @@
 import Foundation
 
-/// The four states an agent-hosted Panel can be in.
+/// The four states an agent-hosted Pane can be in.
 ///
 /// See `docs/design-docs/c6-agent-notifications.md` §API Design for the full
 /// transition table. The FSM itself lives in `apps/mac/touch-code/Notifications/`

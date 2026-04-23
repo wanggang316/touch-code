@@ -87,7 +87,7 @@ struct InboxFilterTests {
     dismissed: Bool = false
   ) -> AgentNotification {
     AgentNotification(
-      panelID: PanelID(),
+      paneID: PaneID(),
       agent: agent,
       kind: kind,
       title: "t",

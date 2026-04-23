@@ -23,7 +23,7 @@ struct InboxSidebarFeatureTests {
       InboxSidebarFeature()
     }
     let entry = AgentNotification(
-      panelID: PanelID(),
+      paneID: PaneID(),
       agent: "claude",
       kind: .completed,
       title: "t",
@@ -49,7 +49,7 @@ struct InboxSidebarFeatureTests {
   @Test
   func rowTappedMarksReadAndEmitsDeeplink() async throws {
     let entry = AgentNotification(
-      panelID: PanelID(),
+      paneID: PaneID(),
       agent: "claude",
       kind: .completed,
       title: "t",
@@ -68,7 +68,7 @@ struct InboxSidebarFeatureTests {
     }
 
     await store.send(.rowTapped(entry.id))
-    await store.receive(.deeplinkRequested(entry.panelID))
+    await store.receive(.deeplinkRequested(entry.paneID))
     #expect(markReadCalls.value == [[entry.id]])
   }
 

@@ -5,28 +5,28 @@ import Testing
 
 struct CatalogResolutionTests {
   @Test
-  func worktreeIDForPanelFindsAcrossTabs() throws {
-    let panelA = Panel(workingDirectory: "/a")
-    let panelB = Panel(workingDirectory: "/b")
-    let panelC = Panel(workingDirectory: "/c")
+  func worktreeIDForPaneFindsAcrossTabs() throws {
+    let paneA = Pane(workingDirectory: "/a")
+    let paneB = Pane(workingDirectory: "/b")
+    let paneC = Pane(workingDirectory: "/c")
 
-    let tab1 = Tab(splitTree: SplitTree(leaf: panelA.id), panels: [panelA])
+    let tab1 = Tab(splitTree: SplitTree(leaf: paneA.id), panes: [paneA])
     let tab2 = Tab(
-      splitTree: try SplitTree(leaf: panelB.id).inserting(panelC.id, at: panelB.id, direction: .right),
-      panels: [panelB, panelC]
+      splitTree: try SplitTree(leaf: paneB.id).inserting(paneC.id, at: paneB.id, direction: .right),
+      panes: [paneB, paneC]
     )
     let worktree = Worktree(name: "main", path: "/repo", tabs: [tab1, tab2])
     let project = Project(name: "repo", rootPath: "/repo", gitRoot: "/repo", worktrees: [worktree])
     let space = Space(name: "s", projects: [project])
     let catalog = Catalog(spaces: [space])
 
-    #expect(catalog.worktreeID(forPanel: panelA.id) == worktree.id)
-    #expect(catalog.worktreeID(forPanel: panelB.id) == worktree.id)
-    #expect(catalog.worktreeID(forPanel: panelC.id) == worktree.id)
+    #expect(catalog.worktreeID(forPane: paneA.id) == worktree.id)
+    #expect(catalog.worktreeID(forPane: paneB.id) == worktree.id)
+    #expect(catalog.worktreeID(forPane: paneC.id) == worktree.id)
   }
 
   @Test
-  func worktreeIDForPanelMissingReturnsNil() {
+  func worktreeIDForPaneMissingReturnsNil() {
     let catalog = Catalog(spaces: [
       Space(name: "s", projects: [
         Project(name: "p", rootPath: "/p", worktrees: [
@@ -34,34 +34,34 @@ struct CatalogResolutionTests {
         ]),
       ]),
     ])
-    #expect(catalog.worktreeID(forPanel: PanelID()) == nil)
+    #expect(catalog.worktreeID(forPane: PaneID()) == nil)
   }
 
   @Test
-  func panelIDsInWorktreeReturnsAllLeaves() throws {
-    let panelA = Panel(workingDirectory: "/a")
-    let panelB = Panel(workingDirectory: "/b")
-    let panelC = Panel(workingDirectory: "/c")
-    let panelD = Panel(workingDirectory: "/d")
+  func paneIDsInWorktreeReturnsAllLeaves() throws {
+    let paneA = Pane(workingDirectory: "/a")
+    let paneB = Pane(workingDirectory: "/b")
+    let paneC = Pane(workingDirectory: "/c")
+    let paneD = Pane(workingDirectory: "/d")
 
     let tab1 = Tab(
-      splitTree: try SplitTree(leaf: panelA.id).inserting(panelB.id, at: panelA.id, direction: .right),
-      panels: [panelA, panelB]
+      splitTree: try SplitTree(leaf: paneA.id).inserting(paneB.id, at: paneA.id, direction: .right),
+      panes: [paneA, paneB]
     )
     let tab2 = Tab(
-      splitTree: try SplitTree(leaf: panelC.id).inserting(panelD.id, at: panelC.id, direction: .down),
-      panels: [panelC, panelD]
+      splitTree: try SplitTree(leaf: paneC.id).inserting(paneD.id, at: paneC.id, direction: .down),
+      panes: [paneC, paneD]
     )
     let worktree = Worktree(name: "main", path: "/repo", tabs: [tab1, tab2])
     let project = Project(name: "repo", rootPath: "/repo", gitRoot: "/repo", worktrees: [worktree])
     let catalog = Catalog(spaces: [Space(name: "s", projects: [project])])
 
-    #expect(catalog.panelIDs(inWorktree: worktree.id) == Set([panelA.id, panelB.id, panelC.id, panelD.id]))
+    #expect(catalog.paneIDs(inWorktree: worktree.id) == Set([paneA.id, paneB.id, paneC.id, paneD.id]))
   }
 
   @Test
-  func panelIDsInWorktreeUnknownReturnsEmpty() {
+  func paneIDsInWorktreeUnknownReturnsEmpty() {
     let catalog = Catalog()
-    #expect(catalog.panelIDs(inWorktree: WorktreeID()).isEmpty)
+    #expect(catalog.paneIDs(inWorktree: WorktreeID()).isEmpty)
   }
 }

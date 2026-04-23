@@ -15,7 +15,7 @@ private let ghosttyViewLogger = Logger(
 /// `ghostty_platform_macos_s` and attaches a CAMetalLayer).
 @MainActor
 final class GhosttySurfaceView: NSView, NSTextInputClient {
-  let panelID: PanelID
+  let paneID: PaneID
   private var surface: ghostty_surface_t?
   private var markedText = NSMutableAttributedString()
   private var trackingArea: NSTrackingArea?
@@ -29,8 +29,8 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
   /// the raw NSEvent always reads .press for the event kind.
   private var lastModifierFlags: NSEvent.ModifierFlags = []
 
-  init(panelID: PanelID) {
-    self.panelID = panelID
+  init(paneID: PaneID) {
+    self.paneID = paneID
     super.init(frame: .zero)
     self.wantsLayer = true
     self.autoresizingMask = [.width, .height]
@@ -63,7 +63,7 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
   /// Accept clicks even when the owning window is inactive. Without this,
   /// the first click on an inactive window is swallowed by AppKit to
   /// activate the window — the terminal would only focus on the second
-  /// click, which is surprising in a multi-panel layout.
+  /// click, which is surprising in a multi-pane layout.
   override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
   override func becomeFirstResponder() -> Bool {

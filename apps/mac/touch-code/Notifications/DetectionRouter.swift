@@ -9,19 +9,19 @@ import os.log
 /// Per envelope, the router:
 /// 1. Extracts the rule id from the `command` suffix.
 /// 2. Looks up the rule in the in-memory table.
-/// 3. Applies `AppliesWhen.panelLabelledAgent` / `panelID` filters that
+/// 3. Applies `AppliesWhen.paneLabelledAgent` / `paneID` filters that
 ///    C3's `scope` cannot express (plus a `Match.Target`-narrow check
 ///    for `lastLine` / `lastNonEmptyLine` targets).
 /// 4. Fetches the `AgentStateTracker` via `TrackerRegistry.tracker(for:)`.
-///    Envelopes for un-tracked Panels are dropped with a `.info` log —
+///    Envelopes for un-tracked Panes are dropped with a `.info` log —
 ///    no silent tracker creation, the registry is the single owner.
 /// 5. Drives `tracker.applyRuleTransition(to:ruleID:)`, captures the
 ///    emitted `AgentStateTransition`, stamps it with the rendered
 ///    template (title/body), and yields to the `transitions` stream for
 ///    the coordinator.
 ///
-/// Non-rule envelopes (`.panelExited`, `.panelCrashed`, `.panelOutput`,
-/// `.panelInput`) that arrive via the registered prefix route are fed
+/// Non-rule envelopes (`.paneExited`, `.paneCrashed`, `.paneOutput`,
+/// `.paneInput`) that arrive via the registered prefix route are fed
 /// through `tracker.ingest(envelope:ruleID:)` so the tracker can drive
 /// its own lifecycle transitions. In practice C3 only routes matched
 /// subscriptions here; the direct lifecycle envelopes reach the router
@@ -77,8 +77,8 @@ final class DetectionRouter: InternalHookSubscriber {
   /// **C6 requires the subscription's rule id to route a match** — and
   /// C3's current protocol does not pass the `HookSubscription` alongside
   /// the envelope. This overload therefore ONLY handles lifecycle events
-  /// (`panelExited`, `panelCrashed`, `panelOutput`, `panelInput`); it
-  /// logs and drops `.panelOutputMatch` envelopes. C3 M2 (or a test
+  /// (`paneExited`, `paneCrashed`, `paneOutput`, `paneInput`); it
+  /// logs and drops `.paneOutputMatch` envelopes. C3 M2 (or a test
   /// adapter) is expected to call `handle(envelope:ruleID:)` directly
   /// when it has the rule id in hand. This removes the v1-era
   /// match-text sniffing that could misroute on user output containing
@@ -102,24 +102,24 @@ final class DetectionRouter: InternalHookSubscriber {
   private(set) var droppedEnvelopesCount = 0
 
   private func handleOnMain(envelope: HookEnvelope, ruleID passedRuleID: String?) {
-    guard let panelID = envelope.panel?.id else {
+    guard let paneID = envelope.pane?.id else {
       droppedEnvelopesCount += 1
-      logger.debug("Envelope without panel anchor; ignored.")
+      logger.debug("Envelope without pane anchor; ignored.")
       return
     }
-    guard let tracker = registry.tracker(for: panelID) else {
+    guard let tracker = registry.tracker(for: paneID) else {
       droppedEnvelopesCount += 1
-      logger.info("Envelope for un-tracked Panel \(panelID); ignored.")
+      logger.info("Envelope for un-tracked Pane \(paneID); ignored.")
       return
     }
     // Direct lifecycle events — drive the tracker's FSM.
     switch envelope.event {
-    case .panelExited, .panelCrashed, .panelOutput, .panelInput:
+    case .paneExited, .paneCrashed, .paneOutput, .paneInput:
       if let transition = tracker.ingest(envelope: envelope, ruleID: nil) {
         emitLifecycleTransition(transition, envelope: envelope, tracker: tracker)
       }
       return
-    case .panelOutputMatch:
+    case .paneOutputMatch:
       break
     default:
       return
@@ -128,7 +128,7 @@ final class DetectionRouter: InternalHookSubscriber {
     // Matched rule path — requires the rule id from the dispatcher.
     guard let ruleID = passedRuleID else {
       droppedEnvelopesCount += 1
-      logger.info("panel.outputMatch envelope missing ruleID sidechannel; dropping (awaiting C3 M2 dispatcher).")
+      logger.info("pane.outputMatch envelope missing ruleID sidechannel; dropping (awaiting C3 M2 dispatcher).")
       return
     }
     guard let rule = rules[ruleID] else {
@@ -136,7 +136,7 @@ final class DetectionRouter: InternalHookSubscriber {
       logger.info("Rule id '\(ruleID)' not found (likely stale after reload); dropping.")
       return
     }
-    guard Self.matchesAppliesWhen(rule: rule, envelope: envelope, panelID: panelID) else {
+    guard Self.matchesAppliesWhen(rule: rule, envelope: envelope, paneID: paneID) else {
       droppedEnvelopesCount += 1
       logger.debug("Rule '\(ruleID)' appliesWhen failed; dropping.")
       return
@@ -169,7 +169,7 @@ final class DetectionRouter: InternalHookSubscriber {
     // title/body the coordinator can fall back on. Agent name is best-
     // effort: first `agent:*` label wins. Empty string if no label (the
     // tracker should not exist in that case, but defensive).
-    let agent = envelope.panel.flatMap { _ in Self.resolveAgent(for: tracker.panelID) } ?? ""
+    let agent = envelope.pane.flatMap { _ in Self.resolveAgent(for: tracker.paneID) } ?? ""
     let kindCopy = Self.lifecycleCopy(for: transition.trigger)
     transitionContinuation.yield(
       RouterOutput(
@@ -206,24 +206,24 @@ final class DetectionRouter: InternalHookSubscriber {
   static func matchesAppliesWhen(
     rule: AgentDetectionRules.Rule,
     envelope: HookEnvelope,
-    panelID: PanelID
+    paneID: PaneID
   ) -> Bool {
-    if let panelLabel = rule.appliesWhen.panelLabelledAgent {
-      let needle = "agent:\(panelLabel)"
+    if let paneLabel = rule.appliesWhen.paneLabelledAgent {
+      let needle = "agent:\(paneLabel)"
       guard Self.envelopeHasLabel(envelope, label: needle) else { return false }
     }
-    if let required = rule.appliesWhen.panelID, required != panelID {
+    if let required = rule.appliesWhen.paneID, required != paneID {
       return false
     }
     return true
   }
 
-  /// Canonical label presence check. `HookEnvelope.PanelRef.labels` is an
+  /// Canonical label presence check. `HookEnvelope.PaneRef.labels` is an
   /// ordered `[String]` but semantically set-like — this helper hides the
   /// storage shape and gives us one place to add normalisation later
   /// (case-folding, prefix matching) without scattering the logic.
   static func envelopeHasLabel(_ envelope: HookEnvelope, label: String) -> Bool {
-    guard let labels = envelope.panel?.labels else { return false }
+    guard let labels = envelope.pane?.labels else { return false }
     return labels.contains(label)
   }
 
@@ -232,7 +232,7 @@ final class DetectionRouter: InternalHookSubscriber {
     envelope: HookEnvelope
   ) -> Bool {
     guard case .regex(_, let target) = rule.match else { return true }
-    guard case .panelOutputMatch(_, _, let outputData, _) = envelope.data else { return true }
+    guard case .paneOutputMatch(_, _, let outputData, _) = envelope.data else { return true }
     guard let output = String(data: outputData, encoding: .utf8) else { return false }
     switch target {
     case .tail:
@@ -245,7 +245,7 @@ final class DetectionRouter: InternalHookSubscriber {
     }
   }
 
-  static func resolveAgent(for _: PanelID) -> String? {
+  static func resolveAgent(for _: PaneID) -> String? {
     // Best-effort hook; coordinator enriches on its side via HierarchyManager.
     nil
   }
@@ -254,8 +254,8 @@ final class DetectionRouter: InternalHookSubscriber {
     switch trigger {
     case .envelope(let event):
       switch event {
-      case .panelExited: return ("Agent finished", "")
-      case .panelCrashed: return ("Agent crashed", "")
+      case .paneExited: return ("Agent finished", "")
+      case .paneCrashed: return ("Agent crashed", "")
       default: return ("Agent update", "")
       }
     case .idleTimer:
@@ -285,10 +285,10 @@ final class DetectionRouter: InternalHookSubscriber {
     envelope: HookEnvelope
   ) -> AgentNotification.Kind {
     switch envelope.event {
-    case .panelCrashed:
+    case .paneCrashed:
       return .crashed
-    case .panelExited:
-      if case .panelExited(let code) = envelope.data, code != 0 {
+    case .paneExited:
+      if case .paneExited(let code) = envelope.data, code != 0 {
         return .crashed
       }
       return .completed

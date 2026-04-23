@@ -151,7 +151,7 @@ nonisolated func classifyHooks(
 }
 
 /// Determine if a hook subscription's scope binds it to the given project.
-/// - `.anyPanel`, `.panelID`, `.panelLabel`, `.tabID`, `.tabLabel` are never
+/// - `.anyPane`, `.paneID`, `.paneLabel`, `.tabID`, `.tabLabel` are never
 ///   project-specific; treat as Global.
 /// - `.worktreeID` matches when the id appears in `project.worktrees`.
 /// - `.worktreePathGlob` matches when the glob fires against the project's
@@ -161,7 +161,7 @@ nonisolated func classifyHooks(
 ///   no worktrees or only descendant worktrees.
 nonisolated private func isRepositoryScope(_ scope: HookSubscription.Scope, project: Project) -> Bool {
   switch scope {
-  case .anyPanel, .panelID, .panelLabel, .tabID, .tabLabel:
+  case .anyPane, .paneID, .paneLabel, .tabID, .tabLabel:
     return false
 
   case .worktreeID(let wtID):

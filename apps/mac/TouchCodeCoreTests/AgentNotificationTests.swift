@@ -11,7 +11,7 @@ struct AgentNotificationTests {
     let dismissed = Date(timeIntervalSince1970: 1_700_000_200)
     let original = AgentNotification(
       id: UUID(),
-      panelID: PanelID(),
+      paneID: PaneID(),
       agent: "claude",
       kind: .blockedOnInput,
       title: "Claude is waiting for your approval",
@@ -69,7 +69,7 @@ struct AgentNotificationTests {
     dismissedAt: Date? = nil
   ) -> AgentNotification {
     AgentNotification(
-      panelID: PanelID(),
+      paneID: PaneID(),
       agent: "claude",
       kind: kind,
       title: "t",

@@ -49,7 +49,7 @@ public nonisolated struct EditorChoiceDTO: Equatable, Hashable, Codable, Sendabl
   public var id: EditorID
   public var displayName: String
   /// Optional binary path. Absent for NSWorkspace launches; populated only for `.shellEditor`
-  /// where the Panel's shell resolves `$EDITOR`.
+  /// where the Pane's shell resolves `$EDITOR`.
   public var binaryPath: String?
 
   public init(id: EditorID, displayName: String, binaryPath: String? = nil) {

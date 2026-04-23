@@ -18,7 +18,7 @@ struct AgentDetectionRulesTests {
     let rule = AgentDetectionRules.Rule(
       id: "claude.blocked_on_input",
       agent: "claude",
-      appliesWhen: .init(panelLabelledAgent: "claude", hookEvent: .panelOutputMatch),
+      appliesWhen: .init(paneLabelledAgent: "claude", hookEvent: .paneOutputMatch),
       match: .containsAny(["Do you want to proceed?", "Approve tool call?"]),
       transitionTo: .blockedOnInput,
       title: "Claude is waiting",
@@ -81,8 +81,8 @@ struct AgentDetectionRulesTests {
   }
 
   @Test
-  func panelOutputMatchRuleWithoutMatchThrowsMissingMatch() throws {
-    // A rule scoped to .panelOutputMatch MUST carry a `match`.
+  func paneOutputMatchRuleWithoutMatchThrowsMissingMatch() throws {
+    // A rule scoped to .paneOutputMatch MUST carry a `match`.
     let payload = Data(#"""
     {
       "version": 1,
@@ -91,7 +91,7 @@ struct AgentDetectionRulesTests {
         {
           "id": "bad.rule",
           "agent": "x",
-          "appliesWhen": { "panelLabelledAgent": "x", "hookEvent": "panel.outputMatch" },
+          "appliesWhen": { "paneLabelledAgent": "x", "hookEvent": "pane.outputMatch" },
           "transitionTo": "completed",
           "title": "t",
           "body": "b"
@@ -106,7 +106,7 @@ struct AgentDetectionRulesTests {
 
   @Test
   func nonOutputMatchRuleWithoutMatchIsFine() throws {
-    // A .panelIdle-scoped rule does not require a match.
+    // A .paneIdle-scoped rule does not require a match.
     let payload = Data(#"""
     {
       "version": 1,
@@ -114,7 +114,7 @@ struct AgentDetectionRulesTests {
         {
           "id": "claude.idle",
           "agent": "claude",
-          "appliesWhen": { "panelLabelledAgent": "claude", "hookEvent": "panel.idle" },
+          "appliesWhen": { "paneLabelledAgent": "claude", "hookEvent": "pane.idle" },
           "transitionTo": "idle",
           "title": "Idle",
           "body": "Nothing for a while"
@@ -124,7 +124,7 @@ struct AgentDetectionRulesTests {
     """#.utf8)
     let decoded = try JSONDecoder().decode(AgentDetectionRules.self, from: payload)
     #expect(decoded.rules.count == 1)
-    #expect(decoded.rules[0].appliesWhen.hookEvent == .panelIdle)
+    #expect(decoded.rules[0].appliesWhen.hookEvent == .paneIdle)
   }
 
   @Test

@@ -3,37 +3,37 @@ import Foundation
 public nonisolated struct Tab: Equatable, Codable, Sendable, Identifiable {
   public var id: TabID
   public var name: String?
-  public var splitTree: SplitTree<PanelID>
-  public var panels: [Panel]
+  public var splitTree: SplitTree<PaneID>
+  public var panes: [Pane]
 
   public init(
     id: TabID = TabID(),
     name: String? = nil,
-    splitTree: SplitTree<PanelID> = SplitTree(),
-    panels: [Panel] = []
+    splitTree: SplitTree<PaneID> = SplitTree(),
+    panes: [Pane] = []
   ) {
     self.id = id
     self.name = name
     self.splitTree = splitTree
-    self.panels = panels
+    self.panes = panes
   }
 
-  /// The set of PanelIDs that appear as leaves in the split tree.
-  public var splitTreeLeafIDs: Set<PanelID> { Set(splitTree.leaves()) }
+  /// The set of PaneIDs that appear as leaves in the split tree.
+  public var splitTreeLeafIDs: Set<PaneID> { Set(splitTree.leaves()) }
 
-  /// The set of PanelIDs stored in the flat panels array.
-  public var flatPanelIDs: Set<PanelID> { Set(panels.map(\.id)) }
+  /// The set of PaneIDs stored in the flat panes array.
+  public var flatPaneIDs: Set<PaneID> { Set(panes.map(\.id)) }
 
-  /// Invariant: leaves of `splitTree` equal IDs of `panels`. Debug-only callers.
+  /// Invariant: leaves of `splitTree` equal IDs of `panes`. Debug-only callers.
   public enum InvariantError: Error, Equatable {
-    case leavesDoNotMatchPanels(leaves: Set<PanelID>, panels: Set<PanelID>)
-    case duplicatePanelIDs
+    case leavesDoNotMatchPanes(leaves: Set<PaneID>, panes: Set<PaneID>)
+    case duplicatePaneIDs
   }
 
   public func validateInvariants() throws {
-    guard flatPanelIDs.count == panels.count else { throw InvariantError.duplicatePanelIDs }
+    guard flatPaneIDs.count == panes.count else { throw InvariantError.duplicatePaneIDs }
     let leaves = splitTreeLeafIDs
-    let flat = flatPanelIDs
-    if leaves != flat { throw InvariantError.leavesDoNotMatchPanels(leaves: leaves, panels: flat) }
+    let flat = flatPaneIDs
+    if leaves != flat { throw InvariantError.leavesDoNotMatchPanes(leaves: leaves, panes: flat) }
   }
 }

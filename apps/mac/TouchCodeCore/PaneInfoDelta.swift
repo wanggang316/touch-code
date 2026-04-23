@@ -1,16 +1,16 @@
 import Foundation
 
-/// Single-field mutation to a panel's informational state (title, pwd,
+/// Single-field mutation to a pane's informational state (title, pwd,
 /// mouse shape, search status, etc.). Emitted by the Runtime decoder as
 /// the typed Swift translation of a libghostty info-family action; applied
-/// to `PanelSurface.info` and also fanned out on `TerminalEvent.panelInfoChanged`
+/// to `PaneSurface.info` and also fanned out on `TerminalEvent.paneInfoChanged`
 /// so UI features (tab chrome, notifications, progress overlays) can react.
 ///
 /// Raw C enum values (`mouseShape`, `promptTitle`, `secureInput`, `progress.state`)
 /// are kept as `UInt32` rather than remapped to Swift enums: the decoder
 /// is the single translation seam, and forwarding the raw tag keeps this
 /// enum stable when libghostty adds new variants.
-public nonisolated enum PanelInfoDelta: Sendable, Equatable {
+public nonisolated enum PaneInfoDelta: Sendable, Equatable {
   case title(String?)
   case tabTitle(String?)
   case promptTitle(UInt32)

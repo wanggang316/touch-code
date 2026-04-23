@@ -25,10 +25,10 @@ protocol OSNotifier: AnyObject {
 
 /// Production adapter over `UNUserNotificationCenter.current()`.
 ///
-/// Per design §Surfaces: `threadIdentifier = panelID` groups per-Panel,
+/// Per design §Surfaces: `threadIdentifier = paneID` groups per-Pane,
 /// `categoryIdentifier = kind` drives the per-kind action buttons
-/// (Focus Panel / Dismiss), and `userInfo["deeplink"]` routes a click back to
-/// `DeeplinkRouter` as `touch-code://panel/<id>/focus`.
+/// (Focus Pane / Dismiss), and `userInfo["deeplink"]` routes a click back to
+/// `DeeplinkRouter` as `touch-code://pane/<id>/focus`.
 @MainActor
 final class UserNotificationsOSNotifier: OSNotifier {
   private let center: UNUserNotificationCenter
@@ -60,9 +60,9 @@ final class UserNotificationsOSNotifier: OSNotifier {
     let content = UNMutableNotificationContent()
     content.title = notification.title
     content.body = notification.body
-    content.threadIdentifier = notification.panelID.raw.uuidString
+    content.threadIdentifier = notification.paneID.raw.uuidString
     content.categoryIdentifier = notification.kind.rawValue
-    content.userInfo = ["deeplink": "touch-code://panel/\(notification.panelID.raw.uuidString)/focus"]
+    content.userInfo = ["deeplink": "touch-code://pane/\(notification.paneID.raw.uuidString)/focus"]
     content.sound = playSound ? .default : nil
 
     let request = UNNotificationRequest(
@@ -78,7 +78,7 @@ final class UserNotificationsOSNotifier: OSNotifier {
   private func registerCategories() {
     let focus = UNNotificationAction(
       identifier: "focus",
-      title: "Focus Panel",
+      title: "Focus Pane",
       options: [.foreground]
     )
     let dismiss = UNNotificationAction(

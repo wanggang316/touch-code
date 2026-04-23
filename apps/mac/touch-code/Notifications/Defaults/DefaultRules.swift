@@ -31,8 +31,8 @@ nonisolated enum DefaultRules {
           "id": "claude.blocked_on_input",
           "agent": "claude",
           "appliesWhen": {
-            "panelLabelledAgent": "claude",
-            "hookEvent": "panel.outputMatch"
+            "paneLabelledAgent": "claude",
+            "hookEvent": "pane.outputMatch"
           },
           "match": {
             "containsAny": ["Do you want to proceed?", "Approve tool call?"]
@@ -45,8 +45,8 @@ nonisolated enum DefaultRules {
           "id": "claude.completed",
           "agent": "claude",
           "appliesWhen": {
-            "panelLabelledAgent": "claude",
-            "hookEvent": "panel.outputMatch"
+            "paneLabelledAgent": "claude",
+            "hookEvent": "pane.outputMatch"
           },
           "match": {
             "regex": "::touchcode:agent-complete(?:\\s|$)",
@@ -60,8 +60,8 @@ nonisolated enum DefaultRules {
           "id": "codex.completed",
           "agent": "codex",
           "appliesWhen": {
-            "panelLabelledAgent": "codex",
-            "hookEvent": "panel.outputMatch"
+            "paneLabelledAgent": "codex",
+            "hookEvent": "pane.outputMatch"
           },
           "match": {
             "regex": "::touchcode:agent-complete(?:\\s|$)",
@@ -75,8 +75,8 @@ nonisolated enum DefaultRules {
           "id": "aider.blocked_on_input",
           "agent": "aider",
           "appliesWhen": {
-            "panelLabelledAgent": "aider",
-            "hookEvent": "panel.outputMatch"
+            "paneLabelledAgent": "aider",
+            "hookEvent": "pane.outputMatch"
           },
           "match": {
             "regex": "^>\\s*$",
@@ -90,8 +90,8 @@ nonisolated enum DefaultRules {
           "id": "aider.idle_via_shim",
           "agent": "aider",
           "appliesWhen": {
-            "panelLabelledAgent": "aider",
-            "hookEvent": "panel.outputMatch"
+            "paneLabelledAgent": "aider",
+            "hookEvent": "pane.outputMatch"
           },
           "match": {
             "regex": "::touchcode:agent-idle(?:\\s|$)",

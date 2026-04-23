@@ -23,10 +23,10 @@ struct RootFeatureTests {
     await store.send(.onLaunch)
 
     // Yield a single lifecycle event.
-    let panelID = PanelID()
-    eventContinuation.yield(.panelReady(panelID))
+    let paneID = PaneID()
+    eventContinuation.yield(.paneReady(paneID))
     await store.receive(\.engineEventReceived) { state in
-      state.lastEvent = .panelReady
+      state.lastEvent = .paneReady
     }
 
     // Cancellation: onQuit closes the in-flight effects.
@@ -87,7 +87,7 @@ struct RootFeatureTests {
     let worktreeID = WorktreeID()
     let tabID = TabID()
 
-    let tab = Tab(id: tabID, name: "t", splitTree: SplitTree(), panels: [])
+    let tab = Tab(id: tabID, name: "t", splitTree: SplitTree(), panes: [])
     let worktree = Worktree(
       id: worktreeID, name: "w", path: "/w", branch: "main",
       tabs: [tab], selectedTabID: tabID
@@ -579,18 +579,18 @@ struct RootFeatureTests {
     // variant lands. Exhaustive switch at the enum level would be safer but
     // requires Equatable which TerminalEvent can't have (Data payload). This
     // test provides at least surface coverage that every variant maps.
-    let panel = PanelID()
+    let pane = PaneID()
     let tab = TabID()
     let worktree = WorktreeID()
 
     let cases: [(TerminalEvent, RootFeature.LastEventMarker)] = [
-      (.panelCreated(panel, tab), .panelCreated),
-      (.panelReady(panel), .panelReady),
-      (.panelOutput(panel, Data([0x01])), .panelOutput),
-      (.panelIdle(panel, duration: 1), .panelIdle),
-      (.panelExited(panel, code: 0, signal: nil), .panelExited),
-      (.panelCrashed(panel, reason: "x"), .panelCrashed),
-      (.panelClosedByTab(panel, cause: .other(reason: "x")), .panelClosedByTab),
+      (.paneCreated(pane, tab), .paneCreated),
+      (.paneReady(pane), .paneReady),
+      (.paneOutput(pane, Data([0x01])), .paneOutput),
+      (.paneIdle(pane, duration: 1), .paneIdle),
+      (.paneExited(pane, code: 0, signal: nil), .paneExited),
+      (.paneCrashed(pane, reason: "x"), .paneCrashed),
+      (.paneClosedByTab(pane, cause: .other(reason: "x")), .paneClosedByTab),
       (.tabActivated(tab), .tabActivated),
       (.tabAutoClosed(tab, cause: .other(reason: "x")), .tabAutoClosed),
       (.worktreeActivated(worktree), .worktreeActivated),

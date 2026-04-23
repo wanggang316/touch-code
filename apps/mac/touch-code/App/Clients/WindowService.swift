@@ -13,19 +13,19 @@ import os.log
 /// `openNewWindow` / `closeWindow` currently lack a clean API in the single-
 /// `WindowGroup` scene used by `TouchCodeApp`: SwiftUI's `OpenWindowAction`
 /// is only reachable from a `View`'s environment, and the app has no
-/// per-panel window registry yet. The live closures log at `.info` and
+/// per-pane window registry yet. The live closures log at `.info` and
 /// no-op; the routing surface is ready to upgrade once a multi-window
 /// model lands (tracked by the design doc's §"multi-window intent"
 /// risk row). Hardening is deliberately deferred — wiring the type
 /// contract first lets the decoder + router land without blocking on the
 /// multi-window architectural decision.
 nonisolated struct WindowService: Sendable {
-  var openNewWindow: @MainActor @Sendable (_ inheriting: PanelID) -> Void
-  var closeWindow: @MainActor @Sendable (_ from: PanelID) -> Void
+  var openNewWindow: @MainActor @Sendable (_ inheriting: PaneID) -> Void
+  var closeWindow: @MainActor @Sendable (_ from: PaneID) -> Void
   var activateWindow: @MainActor @Sendable (_ target: GotoWindowTarget) -> Void
-  var toggleFullscreen: @MainActor @Sendable (_ from: PanelID) -> Void
-  var toggleMaximize: @MainActor @Sendable (_ from: PanelID) -> Void
-  var toggleTabOverview: @MainActor @Sendable (_ from: PanelID) -> Void
+  var toggleFullscreen: @MainActor @Sendable (_ from: PaneID) -> Void
+  var toggleMaximize: @MainActor @Sendable (_ from: PaneID) -> Void
+  var toggleTabOverview: @MainActor @Sendable (_ from: PaneID) -> Void
   var toggleAppVisibility: @MainActor @Sendable () -> Void
   var keyWindow: @MainActor @Sendable () -> NSWindow?
 }
@@ -36,7 +36,7 @@ extension WindowService: DependencyKey {
   /// Returns only `NSApp.windows` with a non-nil `windowController` and a
   /// non-zero `windowNumber` — filters out the hidden Settings scene stub
   /// that SwiftUI keeps around once the Settings window has been shown,
-  /// plus the transient panels AppKit creates for menus. Sorting by
+  /// plus the transient panes AppKit creates for menus. Sorting by
   /// `orderedIndex` makes `previous/next/last` stable across runs.
   @MainActor
   private static func visibleAppWindows() -> [NSWindow] {
@@ -46,23 +46,23 @@ extension WindowService: DependencyKey {
   }
 
   static let liveValue = WindowService(
-    openNewWindow: { panelID in
-      // TouchCodeApp today uses a single `WindowGroup` without a per-panel
+    openNewWindow: { paneID in
+      // TouchCodeApp today uses a single `WindowGroup` without a per-pane
       // window registry. `NSDocumentController.newDocument(_:)` would route
       // through `File → New`, but there's no document type registered.
       // Until a multi-window model lands, log and no-op.
       logger.info(
-        "openNewWindow(from: \(String(describing: panelID), privacy: .public)) requested — multi-window not yet implemented"
+        "openNewWindow(from: \(String(describing: paneID), privacy: .public)) requested — multi-window not yet implemented"
       )
     },
-    closeWindow: { panelID in
-      // Without a PanelID → NSWindow registry we fall back to the key
+    closeWindow: { paneID in
+      // Without a PaneID → NSWindow registry we fall back to the key
       // window. This is the right behavior for the common case (user
       // pressed a bound key inside the focused window) even though it
-      // ignores `panelID`; once the registry exists we resolve precisely.
+      // ignores `paneID`; once the registry exists we resolve precisely.
       guard let window = NSApp.keyWindow ?? NSApp.mainWindow else {
         logger.info(
-          "closeWindow(from: \(String(describing: panelID), privacy: .public)) — no key/main window"
+          "closeWindow(from: \(String(describing: paneID), privacy: .public)) — no key/main window"
         )
         return
       }

@@ -25,7 +25,7 @@ struct CommandPaletteItemsTests {
     #expect(ids.contains("space.manage"))
     #expect(!ids.contains("git.toggle-viewer"))
     #expect(!ids.contains("editor.open-default"))
-    #expect(!ids.contains { $0.hasPrefix("panel.") })
+    #expect(!ids.contains { $0.hasPrefix("pane.") })
     #expect(!ids.contains { $0.hasPrefix("window.") })
   }
 
@@ -114,11 +114,11 @@ struct CommandPaletteItemsTests {
     #expect(ids.contains("editor.open.zed"))
   }
 
-  // MARK: - Focused panel resolution
+  // MARK: - Focused pane resolution
 
   @Test
-  func resolveFocusedPanelIDReturnsNilWhenNoSelection() {
-    let id = CommandPaletteItems.resolveFocusedPanelID(
+  func resolveFocusedPaneIDReturnsNilWhenNoSelection() {
+    let id = CommandPaletteItems.resolveFocusedPaneID(
       selection: Self.emptySelection, catalog: Self.emptyCatalog
     )
     #expect(id == nil)

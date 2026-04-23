@@ -1,6 +1,6 @@
 import Foundation
 
-/// Byte offset + length into matched panel output. Replaces `NSRange` on the
+/// Byte offset + length into matched pane output. Replaces `NSRange` on the
 /// wire — `NSRange`'s bridged Codable encodes as a single integer pair that
 /// is platform-sensitive, while `HookMatchRange` is a transparent JSON object.
 public nonisolated struct HookMatchRange: Codable, Equatable, Hashable, Sendable {

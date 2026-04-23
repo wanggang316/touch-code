@@ -20,7 +20,7 @@ nonisolated struct LiveEnvironment: EnvironmentVariableProvider {
 /// calls after resolution return the cached `URL?` without any filesystem activity.
 ///
 /// `invalidate()` clears the cache so the next `resolve()` re-probes — used by the Settings
-/// panel's "Re-check" button.
+/// pane's "Re-check" button.
 ///
 /// The prober is injected at init time so tests can assert single-flight behaviour by
 /// counting invocations. The production path uses `Self.livePathProbe()` which iterates

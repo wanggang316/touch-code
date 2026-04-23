@@ -5,8 +5,8 @@ import Testing
 
 struct HookEnvelopeCodableTests {
   @Test
-  func panelScopedEnvelopeRoundTrips() throws {
-    let env = Self.fullPanelEnvelope()
+  func paneScopedEnvelopeRoundTrips() throws {
+    let env = Self.fullPaneEnvelope()
     let data = try JSONEncoder().encode(env)
     let decoded = try JSONDecoder().decode(HookEnvelope.self, from: data)
     #expect(decoded == env)
@@ -28,20 +28,20 @@ struct HookEnvelopeCodableTests {
   }
 
   @Test
-  func validateAnchorsAcceptsFullPanelEnvelope() throws {
-    try Self.fullPanelEnvelope().validateAnchors()
+  func validateAnchorsAcceptsFullPaneEnvelope() throws {
+    try Self.fullPaneEnvelope().validateAnchors()
   }
 
   @Test
-  func validateAnchorsRejectsPanelEventMissingTab() throws {
+  func validateAnchorsRejectsPaneEventMissingTab() throws {
     let env = HookEnvelope(
-      event: .panelReady,
+      event: .paneReady,
       space: .init(id: SpaceID(), name: "s"),
       project: .init(id: ProjectID(), name: "p", rootPath: "/"),
       worktree: .init(id: WorktreeID(), name: "w", path: "/"),
       tab: nil,
-      panel: .init(id: PanelID(), workingDirectory: "/"),
-      data: .panelReady(pid: nil, shell: "/bin/sh")
+      pane: .init(id: PaneID(), workingDirectory: "/"),
+      data: .paneReady(pid: nil, shell: "/bin/sh")
     )
     #expect(throws: HookEnvelope.ValidationError.self) {
       try env.validateAnchors()
@@ -51,15 +51,15 @@ struct HookEnvelopeCodableTests {
   @Test
   func validateAnchorsRejectsKindMismatch() throws {
     let env = HookEnvelope(
-      event: .panelReady,
+      event: .paneReady,
       space: .init(id: SpaceID(), name: "s"),
       project: .init(id: ProjectID(), name: "p", rootPath: "/"),
       worktree: .init(id: WorktreeID(), name: "w", path: "/"),
       tab: .init(id: TabID()),
-      panel: .init(id: PanelID(), workingDirectory: "/"),
-      data: .panelCrashed(reason: "mismatch")
+      pane: .init(id: PaneID(), workingDirectory: "/"),
+      data: .paneCrashed(reason: "mismatch")
     )
-    #expect(throws: HookEnvelope.ValidationError.kindMismatch(envelope: .panelReady, data: .panelCrashed)) {
+    #expect(throws: HookEnvelope.ValidationError.kindMismatch(envelope: .paneReady, data: .paneCrashed)) {
       try env.validateAnchors()
     }
   }
@@ -75,20 +75,20 @@ struct HookEnvelopeCodableTests {
     )
     let data = try JSONEncoder().encode(env)
     let json = String(bytes: data, encoding: .utf8) ?? ""
-    #expect(!json.contains("\"panel\""))
+    #expect(!json.contains("\"pane\""))
     #expect(!json.contains("\"tab\""))
   }
 
-  static func fullPanelEnvelope() -> HookEnvelope {
+  static func fullPaneEnvelope() -> HookEnvelope {
     HookEnvelope(
-      event: .panelOutputMatch,
+      event: .paneOutputMatch,
       timestamp: Date(timeIntervalSince1970: 1700000000),
       space: .init(id: SpaceID(), name: "work"),
       project: .init(id: ProjectID(), name: "touch-code", rootPath: "/repo"),
       worktree: .init(id: WorktreeID(), name: "exp/test", path: "/wt", branch: "exp/test"),
-      tab: .init(id: TabID(), name: "agent", selectedPanelID: PanelID()),
-      panel: .init(id: PanelID(), workingDirectory: "/wt", initialCommand: nil, labels: ["agent"]),
-      data: .panelOutputMatch(
+      tab: .init(id: TabID(), name: "agent", selectedPaneID: PaneID()),
+      pane: .init(id: PaneID(), workingDirectory: "/wt", initialCommand: nil, labels: ["agent"]),
+      data: .paneOutputMatch(
         match: "READY",
         matchedRange: HookMatchRange(start: 0, length: 5),
         output: Data("READY FOR REVIEW".utf8),

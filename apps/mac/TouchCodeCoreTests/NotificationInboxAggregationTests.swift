@@ -5,7 +5,7 @@ import Testing
 
 struct NotificationInboxAggregationTests {
   // Fixture: 1 Space, 2 Projects; Project P1 has 2 Worktrees (W1a, W1b),
-  // Project P2 has 1 Worktree (W2). Each Worktree has one Panel.
+  // Project P2 has 1 Worktree (W2). Each Worktree has one Pane.
   // Inbox: unread on W1a, read on W1a, unread on W1b, none on W2.
   struct Fixture {
     let catalog: Catalog
@@ -15,27 +15,27 @@ struct NotificationInboxAggregationTests {
     let worktreeW1a: WorktreeID
     let worktreeW1b: WorktreeID
     let worktreeW2: WorktreeID
-    let panelP1a: PanelID
-    let panelP1b: PanelID
-    let panelP2: PanelID
+    let paneP1a: PaneID
+    let paneP1b: PaneID
+    let paneP2: PaneID
     let inbox: NotificationInbox
 
     init() {
-      let pA = Panel(workingDirectory: "/a")
-      let pB = Panel(workingDirectory: "/b")
-      let pC = Panel(workingDirectory: "/c")
+      let pA = Pane(workingDirectory: "/a")
+      let pB = Pane(workingDirectory: "/b")
+      let pC = Pane(workingDirectory: "/c")
 
       let w1a = Worktree(
         name: "main", path: "/repo1",
-        tabs: [Tab(splitTree: SplitTree(leaf: pA.id), panels: [pA])]
+        tabs: [Tab(splitTree: SplitTree(leaf: pA.id), panes: [pA])]
       )
       let w1b = Worktree(
         name: "feature", path: "/repo1-feat",
-        tabs: [Tab(splitTree: SplitTree(leaf: pB.id), panels: [pB])]
+        tabs: [Tab(splitTree: SplitTree(leaf: pB.id), panes: [pB])]
       )
       let w2 = Worktree(
         name: "main", path: "/repo2",
-        tabs: [Tab(splitTree: SplitTree(leaf: pC.id), panels: [pC])]
+        tabs: [Tab(splitTree: SplitTree(leaf: pC.id), panes: [pC])]
       )
 
       let p1 = Project(name: "repo1", rootPath: "/repo1", gitRoot: "/repo1", worktrees: [w1a, w1b])
@@ -49,9 +49,9 @@ struct NotificationInboxAggregationTests {
       self.worktreeW1a = w1a.id
       self.worktreeW1b = w1b.id
       self.worktreeW2 = w2.id
-      self.panelP1a = pA.id
-      self.panelP1b = pB.id
-      self.panelP2 = pC.id
+      self.paneP1a = pA.id
+      self.paneP1b = pB.id
+      self.paneP2 = pC.id
 
       let older = Date(timeIntervalSince1970: 1_000)
       let newer = Date(timeIntervalSince1970: 2_000)
@@ -59,16 +59,16 @@ struct NotificationInboxAggregationTests {
         // Two on W1a: one read, one unread. Read one is OLDER so time-
         // descending order puts the unread one first.
         AgentNotification(
-          panelID: pA.id, agent: "claude", kind: .completed,
+          paneID: pA.id, agent: "claude", kind: .completed,
           title: "done", body: "", createdAt: older, readAt: older
         ),
         AgentNotification(
-          panelID: pA.id, agent: "claude", kind: .blockedOnInput,
+          paneID: pA.id, agent: "claude", kind: .blockedOnInput,
           title: "input?", body: "", createdAt: newer
         ),
         // One on W1b: unread.
         AgentNotification(
-          panelID: pB.id, agent: "codex", kind: .completed,
+          paneID: pB.id, agent: "codex", kind: .completed,
           title: "ok", body: "", createdAt: newer
         ),
       ]
@@ -120,7 +120,7 @@ struct NotificationInboxAggregationTests {
     let f = Fixture()
     var inbox = f.inbox
     // Dismiss the unread W1a entry; aggregate unread should drop to zero.
-    for index in inbox.notifications.indices where inbox.notifications[index].panelID == f.panelP1a
+    for index in inbox.notifications.indices where inbox.notifications[index].paneID == f.paneP1a
       && inbox.notifications[index].readAt == nil {
       inbox.notifications[index].dismissedAt = Date()
     }
@@ -139,15 +139,15 @@ struct NotificationInboxAggregationTests {
     let idC = UUID(uuidString: "00000000-0000-0000-0000-000000000003")!
 
     let tieA = AgentNotification(
-      id: idB, panelID: f.panelP1a, agent: "x", kind: .completed,
+      id: idB, paneID: f.paneP1a, agent: "x", kind: .completed,
       title: "b", body: "", createdAt: sameTime
     )
     let tieB = AgentNotification(
-      id: idA, panelID: f.panelP1a, agent: "x", kind: .completed,
+      id: idA, paneID: f.paneP1a, agent: "x", kind: .completed,
       title: "a", body: "", createdAt: sameTime
     )
     let tieC = AgentNotification(
-      id: idC, panelID: f.panelP1a, agent: "x", kind: .completed,
+      id: idC, paneID: f.paneP1a, agent: "x", kind: .completed,
       title: "c", body: "", createdAt: sameTime
     )
     // Insert in one order...
@@ -164,19 +164,19 @@ struct NotificationInboxAggregationTests {
   }
 
   /// Canary for the T1 `public` visibility bump on
-  /// `Catalog.panelWorktreeIndex()`. Also matches the sidebar's render-pass
+  /// `Catalog.paneWorktreeIndex()`. Also matches the sidebar's render-pass
   /// call pattern: build the index once, then use it alongside the
   /// aggregation helpers. Each call here must stay independently correct
   /// even though the index is rebuilt every time (helpers are self-contained).
   @Test
   func aggregationMatchesSidebarRenderCallPattern() {
     let f = Fixture()
-    // Externally rebuild the index — proves `panelWorktreeIndex()` is
+    // Externally rebuild the index — proves `paneWorktreeIndex()` is
     // cross-module reachable, which is the T1 sidebar-view requirement.
-    let index = f.catalog.panelWorktreeIndex()
-    #expect(index[f.panelP1a] == f.worktreeW1a)
-    #expect(index[f.panelP1b] == f.worktreeW1b)
-    #expect(index[f.panelP2] == f.worktreeW2)
+    let index = f.catalog.paneWorktreeIndex()
+    #expect(index[f.paneP1a] == f.worktreeW1a)
+    #expect(index[f.paneP1b] == f.worktreeW1b)
+    #expect(index[f.paneP2] == f.worktreeW2)
 
     // Mirror the sidebar's per-row calls: one unreadCount per Worktree and
     // one hasUnread per Project.
@@ -198,11 +198,11 @@ struct NotificationInboxAggregationTests {
   @Test
   func totalUnreadExcludesOrphans() {
     let f = Fixture()
-    // Add an unread notification keyed to a panel NOT in the catalog —
+    // Add an unread notification keyed to a pane NOT in the catalog —
     // should not affect the count. Guarantees badge/popover parity.
     var inbox = f.inbox
     let orphan = AgentNotification(
-      panelID: PanelID(), agent: "ghost", kind: .blockedOnInput,
+      paneID: PaneID(), agent: "ghost", kind: .blockedOnInput,
       title: "stray", body: "", createdAt: Date()
     )
     inbox.notifications.insert(orphan, at: 0)
@@ -235,10 +235,10 @@ struct NotificationInboxAggregationTests {
   }
 
   @Test
-  func aggregationIgnoresPanelsNotInCatalog() {
+  func aggregationIgnoresPanesNotInCatalog() {
     let f = Fixture()
     let stray = AgentNotification(
-      panelID: PanelID(), agent: "ghost", kind: .idle,
+      paneID: PaneID(), agent: "ghost", kind: .idle,
       title: "", body: "", createdAt: Date()
     )
     var inbox = f.inbox

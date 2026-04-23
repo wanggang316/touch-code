@@ -19,7 +19,7 @@ nonisolated enum EditorRegistry {
   static let finderID: EditorID = "finder"
 
   /// Canonical ID for the `$EDITOR` shell pseudo-editor — always available as long as the
-  /// Panel primitive (Panel at path + `$EDITOR\n` stdin) is wired.
+  /// Pane primitive (Pane at path + `$EDITOR\n` stdin) is wired.
   static let shellEditorID: EditorID = "editor"
 
   static let registry: [EditorDescriptor] = [
@@ -164,7 +164,7 @@ nonisolated enum EditorRegistry {
       bundleIdentifier: "co.gitup.mac",
       launchMode: .directory, appURL: nil,
       alternateBundleIdentifiers: []),
-    // Shell $EDITOR — always installed (no bundle); Panel primitive handles the launch.
+    // Shell $EDITOR — always installed (no bundle); Pane primitive handles the launch.
     EditorDescriptor(
       id: "editor", displayName: "$EDITOR",
       bundleIdentifier: "",

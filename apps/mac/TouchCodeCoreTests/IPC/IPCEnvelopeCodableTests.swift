@@ -45,7 +45,7 @@ struct IPCEnvelopeCodableTests {
   func responseWithErrorRoundTrip() throws {
     let res = IPC.Response(
       id: "abc123",
-      error: .notFound(kind: "panel", id: "xxx")
+      error: .notFound(kind: "pane", id: "xxx")
     )
     let data = try JSONEncoder().encode(res)
     let decoded = try JSONDecoder().decode(IPC.Response.self, from: data)

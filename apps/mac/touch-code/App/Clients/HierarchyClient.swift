@@ -74,36 +74,36 @@ nonisolated struct HierarchyClient: Sendable {
       _ id: TabID?, _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
     ) throws -> Void
 
-  var openPanel:
+  var openPane:
     @MainActor @Sendable (
       _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID,
       _ workingDirectory: String, _ initialCommand: String?
-    ) throws -> PanelID
-  var splitPanel:
+    ) throws -> PaneID
+  var splitPane:
     @MainActor @Sendable (
-      _ panelID: PanelID, _ direction: SplitTree<PanelID>.NewDirection,
+      _ paneID: PaneID, _ direction: SplitTree<PaneID>.NewDirection,
       _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID,
       _ workingDirectory: String, _ initialCommand: String?
-    ) throws -> PanelID
-  var closePanel:
+    ) throws -> PaneID
+  var closePane:
     @MainActor @Sendable (
-      _ panelID: PanelID, _ tabID: TabID, _ inWorktree: WorktreeID,
+      _ paneID: PaneID, _ tabID: TabID, _ inWorktree: WorktreeID,
       _ inProject: ProjectID, _ inSpace: SpaceID
     ) throws -> Void
-  var focusPanel:
+  var focusPane:
     @MainActor @Sendable (
-      _ panelID: PanelID, _ tabID: TabID, _ inWorktree: WorktreeID,
+      _ paneID: PaneID, _ tabID: TabID, _ inWorktree: WorktreeID,
       _ inProject: ProjectID, _ inSpace: SpaceID
     ) throws -> Void
-  /// View-level first-responder focus. Unlike `focusPanel` this does
+  /// View-level first-responder focus. Unlike `focusPane` this does
   /// NOT mutate the catalog (no zoom flag, no persistence) — it only
-  /// asks the runtime to call `makeFirstResponder` on the panel's
+  /// asks the runtime to call `makeFirstResponder` on the pane's
   /// surface view. Used post-split (focus the new pane) and post-close
   /// (transfer focus to the surviving sibling per ghostty's policy).
-  var focusSurfaceView: @MainActor @Sendable (_ panelID: PanelID) -> Void
+  var focusSurfaceView: @MainActor @Sendable (_ paneID: PaneID) -> Void
   var resizeSplit:
     @MainActor @Sendable (
-      _ path: SplitTree<PanelID>.Path, _ ratio: Double,
+      _ path: SplitTree<PaneID>.Path, _ ratio: Double,
       _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
     ) throws -> Void
 
@@ -182,8 +182,8 @@ nonisolated struct HierarchyClient: Sendable {
     _ force: Bool
   ) async throws -> Void
 
-  /// Forwards `HierarchyManager.runningPanelCount`.
-  var runningPanelCount: @MainActor @Sendable (_ worktreeID: WorktreeID) -> Int
+  /// Forwards `HierarchyManager.runningPaneCount`.
+  var runningPaneCount: @MainActor @Sendable (_ worktreeID: WorktreeID) -> Int
 
   // MARK: - Project Management (pm) — added on feat/project-mgmt.
 
@@ -217,14 +217,14 @@ nonisolated struct HierarchyClient: Sendable {
   /// SwiftUI's `.onMove(perform:)`. Silent no-op on empty IndexSet.
   var reorderSpaces: @MainActor @Sendable (_ source: IndexSet, _ destination: Int) -> Void
 
-  // MARK: - Panel Action Routing (0008 M5)
+  // MARK: - Pane Action Routing (0008 M5)
 
-  /// Resolves a `PanelID` to the hierarchy address needed to service
-  /// panel-scoped intents (target resolution for `closeTab`, `moveTab`,
-  /// `selectTab`, `equalizeTabSplits`, etc.). Returns `nil` when the panel
+  /// Resolves a `PaneID` to the hierarchy address needed to service
+  /// pane-scoped intents (target resolution for `closeTab`, `moveTab`,
+  /// `selectTab`, `equalizeTabSplits`, etc.). Returns `nil` when the pane
   /// is not in the catalog — expected during teardown races on the action
   /// callback thread.
-  var addressOf: @MainActor @Sendable (PanelID) -> PanelAddress?
+  var addressOf: @MainActor @Sendable (PaneID) -> PaneAddress?
 
   /// Moves a Tab by a relative offset within its Worktree. Positive shifts
   /// right, negative shifts left. Clamped to the Worktree's tab-array
@@ -235,38 +235,38 @@ nonisolated struct HierarchyClient: Sendable {
   ) throws -> Void
 
   /// Sets every split node's ratio in the Tab's SplitTree to 0.5 so sibling
-  /// panels render at equal sizes. Leaf-only trees are a silent no-op.
+  /// panes render at equal sizes. Leaf-only trees are a silent no-op.
   var equalizeTabSplits: @MainActor @Sendable (
     _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID,
     _ inSpace: SpaceID
   ) throws -> Void
 
-  /// Resizes a Panel in the SplitTree along the given direction by `amount`.
+  /// Resizes a Pane in the SplitTree along the given direction by `amount`.
   /// `amount` is interpreted as a ratio delta (clamped by SplitTree) — the
   /// ghostty RESIZE_SPLIT action carries pixel amounts but touch-code's
   /// tree only stores ratios.
-  var resizePanel: @MainActor @Sendable (
-    _ panelID: PanelID, _ direction: ResizeDirection, _ amount: Double
+  var resizePane: @MainActor @Sendable (
+    _ paneID: PaneID, _ direction: ResizeDirection, _ amount: Double
   ) throws -> Void
 
-  /// Clears the Tab's zoomed-panel flag. Paired with `focusPanel` (which
-  /// sets the zoom) to service `PanelActionRequest.toggleSplitZoom`.
+  /// Clears the Tab's zoomed-pane flag. Paired with `focusPane` (which
+  /// sets the zoom) to service `PaneActionRequest.toggleSplitZoom`.
   var unzoomTab: @MainActor @Sendable (
     _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID,
     _ inSpace: SpaceID
   ) throws -> Void
 }
 
-/// Full hierarchy address a `PanelID` resolves to. Carries the IDs of every
+/// Full hierarchy address a `PaneID` resolves to. Carries the IDs of every
 /// ancestor so `HierarchyClient` mutations that require the full chain
 /// (`closeTab`, `selectTab`, `equalizeTabSplits`, …) can be called without a
 /// second catalog walk.
-nonisolated struct PanelAddress: Sendable, Equatable {
+nonisolated struct PaneAddress: Sendable, Equatable {
   let spaceID: SpaceID
   let projectID: ProjectID
   let worktreeID: WorktreeID
   let tabID: TabID
-  let panelID: PanelID
+  let paneID: PaneID
 }
 
 /// Coarse selection payload. `nil` for any level means "no selection at that
@@ -320,27 +320,27 @@ extension HierarchyClient {
       selectTab: { tabID, worktreeID, projectID, spaceID in
         try manager.selectTab(tabID, in: worktreeID, in: projectID, in: spaceID)
       },
-      openPanel: { tabID, worktreeID, projectID, spaceID, cwd, initial in
-        try manager.openPanel(
+      openPane: { tabID, worktreeID, projectID, spaceID, cwd, initial in
+        try manager.openPane(
           in: tabID, in: worktreeID, in: projectID, in: spaceID,
           workingDirectory: cwd, initialCommand: initial
         )
       },
-      splitPanel: { panelID, direction, tabID, worktreeID, projectID, spaceID, cwd, initial in
-        try manager.splitPanel(
-          panelID, direction: direction,
+      splitPane: { paneID, direction, tabID, worktreeID, projectID, spaceID, cwd, initial in
+        try manager.splitPane(
+          paneID, direction: direction,
           in: tabID, in: worktreeID, in: projectID, in: spaceID,
           workingDirectory: cwd, initialCommand: initial
         )
       },
-      closePanel: { panelID, tabID, worktreeID, projectID, spaceID in
-        try manager.closePanel(panelID, in: tabID, in: worktreeID, in: projectID, in: spaceID)
+      closePane: { paneID, tabID, worktreeID, projectID, spaceID in
+        try manager.closePane(paneID, in: tabID, in: worktreeID, in: projectID, in: spaceID)
       },
-      focusPanel: { panelID, tabID, worktreeID, projectID, spaceID in
-        try manager.focusPanel(panelID, in: tabID, in: worktreeID, in: projectID, in: spaceID)
+      focusPane: { paneID, tabID, worktreeID, projectID, spaceID in
+        try manager.focusPane(paneID, in: tabID, in: worktreeID, in: projectID, in: spaceID)
       },
-      focusSurfaceView: { panelID in
-        manager.focusSurfaceView(for: panelID)
+      focusSurfaceView: { paneID in
+        manager.focusSurfaceView(for: paneID)
       },
       resizeSplit: { path, ratio, tabID, worktreeID, projectID, spaceID in
         try manager.resizeSplit(
@@ -392,8 +392,8 @@ extension HierarchyClient {
           gitWorktreeClient: gitWorktreeClient
         )
       },
-      runningPanelCount: { worktreeID in
-        manager.runningPanelCount(worktreeID: worktreeID)
+      runningPaneCount: { worktreeID in
+        manager.runningPaneCount(worktreeID: worktreeID)
       },
       setProjectLoadState: { projectID, spaceID, state in
         manager.setProjectLoadState(state, projectID: projectID, spaceID: spaceID)
@@ -413,15 +413,15 @@ extension HierarchyClient {
       reorderSpaces: { source, destination in
         manager.reorderSpaces(fromOffsets: source, toOffset: destination)
       },
-      addressOf: { panelID in
-        guard let (spaceID, projectID, worktreeID, tabID) = manager.addressOf(panelID: panelID)
+      addressOf: { paneID in
+        guard let (spaceID, projectID, worktreeID, tabID) = manager.addressOf(paneID: paneID)
         else { return nil }
-        return PanelAddress(
+        return PaneAddress(
           spaceID: spaceID,
           projectID: projectID,
           worktreeID: worktreeID,
           tabID: tabID,
-          panelID: panelID
+          paneID: paneID
         )
       },
       moveTab: { tabID, worktreeID, projectID, spaceID, offset in
@@ -432,11 +432,11 @@ extension HierarchyClient {
       equalizeTabSplits: { tabID, worktreeID, projectID, spaceID in
         try manager.equalizeTabSplits(tabID, in: worktreeID, in: projectID, in: spaceID)
       },
-      resizePanel: { panelID, direction, amount in
-        try manager.resizePanel(panelID, direction: direction, amount: amount)
+      resizePane: { paneID, direction, amount in
+        try manager.resizePane(paneID, direction: direction, amount: amount)
       },
       unzoomTab: { tabID, worktreeID, projectID, spaceID in
-        try manager.unfocusPanel(in: tabID, in: worktreeID, in: projectID, in: spaceID)
+        try manager.unfocusPane(in: tabID, in: worktreeID, in: projectID, in: spaceID)
       }
     )
   }
@@ -598,10 +598,10 @@ extension HierarchyClient: DependencyKey {
     createTab: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     closeTab: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     selectTab: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    openPanel: { _, _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    splitPanel: { _, _, _, _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    closePanel: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    focusPanel: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    openPane: { _, _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    splitPane: { _, _, _, _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    closePane: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    focusPane: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     focusSurfaceView: { _ in fatalError("HierarchyClient.liveValue not configured") },
     resizeSplit: { _, _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     setDefaultEditor: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
@@ -615,7 +615,7 @@ extension HierarchyClient: DependencyKey {
     reconcileDiscoveredWorktrees: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     createWorktreeWithGit: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     removeWorktreeWithGit: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    runningPanelCount: { _ in fatalError("HierarchyClient.liveValue not configured") },
+    runningPaneCount: { _ in fatalError("HierarchyClient.liveValue not configured") },
     setProjectLoadState: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     reorderProjects: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     setProjectWorktreesDirectory: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
@@ -625,7 +625,7 @@ extension HierarchyClient: DependencyKey {
     addressOf: { _ in fatalError("HierarchyClient.liveValue not configured") },
     moveTab: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     equalizeTabSplits: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    resizePanel: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    resizePane: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     unzoomTab: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") }
   )
 
@@ -645,10 +645,10 @@ extension HierarchyClient: DependencyKey {
     createTab: unimplemented("HierarchyClient.createTab", placeholder: TabID()),
     closeTab: unimplemented("HierarchyClient.closeTab"),
     selectTab: unimplemented("HierarchyClient.selectTab"),
-    openPanel: unimplemented("HierarchyClient.openPanel", placeholder: PanelID()),
-    splitPanel: unimplemented("HierarchyClient.splitPanel", placeholder: PanelID()),
-    closePanel: unimplemented("HierarchyClient.closePanel"),
-    focusPanel: unimplemented("HierarchyClient.focusPanel"),
+    openPane: unimplemented("HierarchyClient.openPane", placeholder: PaneID()),
+    splitPane: unimplemented("HierarchyClient.splitPane", placeholder: PaneID()),
+    closePane: unimplemented("HierarchyClient.closePane"),
+    focusPane: unimplemented("HierarchyClient.focusPane"),
     focusSurfaceView: unimplemented("HierarchyClient.focusSurfaceView"),
     resizeSplit: unimplemented("HierarchyClient.resizeSplit"),
     setDefaultEditor: unimplemented("HierarchyClient.setDefaultEditor"),
@@ -670,7 +670,7 @@ extension HierarchyClient: DependencyKey {
       "HierarchyClient.createWorktreeWithGit", placeholder: WorktreeID()
     ),
     removeWorktreeWithGit: unimplemented("HierarchyClient.removeWorktreeWithGit"),
-    runningPanelCount: unimplemented("HierarchyClient.runningPanelCount", placeholder: 0),
+    runningPaneCount: unimplemented("HierarchyClient.runningPaneCount", placeholder: 0),
     setProjectLoadState: unimplemented("HierarchyClient.setProjectLoadState"),
     reorderProjects: unimplemented("HierarchyClient.reorderProjects"),
     setProjectWorktreesDirectory: unimplemented("HierarchyClient.setProjectWorktreesDirectory"),
@@ -680,7 +680,7 @@ extension HierarchyClient: DependencyKey {
     addressOf: unimplemented("HierarchyClient.addressOf", placeholder: nil),
     moveTab: unimplemented("HierarchyClient.moveTab"),
     equalizeTabSplits: unimplemented("HierarchyClient.equalizeTabSplits"),
-    resizePanel: unimplemented("HierarchyClient.resizePanel"),
+    resizePane: unimplemented("HierarchyClient.resizePane"),
     unzoomTab: unimplemented("HierarchyClient.unzoomTab")
   )
 }

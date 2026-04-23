@@ -19,9 +19,9 @@ struct WindowActionRouterFeatureTests {
   // MARK: - new / close / closeAll
 
   @Test
-  func newCallsOpenNewWindowWithSourcePanel() async {
-    let panelID = PanelID()
-    let recorded = LockIsolated<PanelID?>(nil)
+  func newCallsOpenNewWindowWithSourcePane() async {
+    let paneID = PaneID()
+    let recorded = LockIsolated<PaneID?>(nil)
     let store = TestStore(initialState: WindowActionRouterFeature.State()) {
       WindowActionRouterFeature()
     } withDependencies: {
@@ -31,14 +31,14 @@ struct WindowActionRouterFeatureTests {
       $0.updatesClient = UpdatesClient.testValue
     }
 
-    await store.send(.requested(.new(from: panelID)))
-    #expect(recorded.value == panelID)
+    await store.send(.requested(.new(from: paneID)))
+    #expect(recorded.value == paneID)
   }
 
   @Test
-  func closeCallsCloseWindowWithSourcePanel() async {
-    let panelID = PanelID()
-    let recorded = LockIsolated<PanelID?>(nil)
+  func closeCallsCloseWindowWithSourcePane() async {
+    let paneID = PaneID()
+    let recorded = LockIsolated<PaneID?>(nil)
     let store = TestStore(initialState: WindowActionRouterFeature.State()) {
       WindowActionRouterFeature()
     } withDependencies: {
@@ -48,8 +48,8 @@ struct WindowActionRouterFeatureTests {
       $0.updatesClient = UpdatesClient.testValue
     }
 
-    await store.send(.requested(.close(from: panelID)))
-    #expect(recorded.value == panelID)
+    await store.send(.requested(.close(from: paneID)))
+    #expect(recorded.value == paneID)
   }
 
   @Test
@@ -96,8 +96,8 @@ struct WindowActionRouterFeatureTests {
 
   @Test
   func toggleFullscreenCallsWindowServiceToggleFullscreen() async {
-    let panelID = PanelID()
-    let recorded = LockIsolated<PanelID?>(nil)
+    let paneID = PaneID()
+    let recorded = LockIsolated<PaneID?>(nil)
     let store = TestStore(initialState: WindowActionRouterFeature.State()) {
       WindowActionRouterFeature()
     } withDependencies: {
@@ -107,14 +107,14 @@ struct WindowActionRouterFeatureTests {
       $0.updatesClient = UpdatesClient.testValue
     }
 
-    await store.send(.requested(.toggleFullscreen(from: panelID)))
-    #expect(recorded.value == panelID)
+    await store.send(.requested(.toggleFullscreen(from: paneID)))
+    #expect(recorded.value == paneID)
   }
 
   @Test
   func toggleMaximizeCallsWindowServiceToggleMaximize() async {
-    let panelID = PanelID()
-    let recorded = LockIsolated<PanelID?>(nil)
+    let paneID = PaneID()
+    let recorded = LockIsolated<PaneID?>(nil)
     let store = TestStore(initialState: WindowActionRouterFeature.State()) {
       WindowActionRouterFeature()
     } withDependencies: {
@@ -124,14 +124,14 @@ struct WindowActionRouterFeatureTests {
       $0.updatesClient = UpdatesClient.testValue
     }
 
-    await store.send(.requested(.toggleMaximize(from: panelID)))
-    #expect(recorded.value == panelID)
+    await store.send(.requested(.toggleMaximize(from: paneID)))
+    #expect(recorded.value == paneID)
   }
 
   @Test
   func toggleTabOverviewCallsWindowServiceToggleTabOverview() async {
-    let panelID = PanelID()
-    let recorded = LockIsolated<PanelID?>(nil)
+    let paneID = PaneID()
+    let recorded = LockIsolated<PaneID?>(nil)
     let store = TestStore(initialState: WindowActionRouterFeature.State()) {
       WindowActionRouterFeature()
     } withDependencies: {
@@ -141,8 +141,8 @@ struct WindowActionRouterFeatureTests {
       $0.updatesClient = UpdatesClient.testValue
     }
 
-    await store.send(.requested(.toggleTabOverview(from: panelID)))
-    #expect(recorded.value == panelID)
+    await store.send(.requested(.toggleTabOverview(from: paneID)))
+    #expect(recorded.value == paneID)
   }
 
   @Test

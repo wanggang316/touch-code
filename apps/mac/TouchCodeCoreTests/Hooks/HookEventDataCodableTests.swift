@@ -5,46 +5,46 @@ import Testing
 
 struct HookEventDataCodableTests {
   @Test
-  func panelCreatedRoundTrip() throws {
-    try roundTrip(.panelCreated(createdVia: "cli"))
+  func paneCreatedRoundTrip() throws {
+    try roundTrip(.paneCreated(createdVia: "cli"))
   }
 
   @Test
-  func panelReadyRoundTrip() throws {
-    try roundTrip(.panelReady(pid: 4242, shell: "/bin/zsh"))
-    try roundTrip(.panelReady(pid: nil, shell: "/bin/bash"))
+  func paneReadyRoundTrip() throws {
+    try roundTrip(.paneReady(pid: 4242, shell: "/bin/zsh"))
+    try roundTrip(.paneReady(pid: nil, shell: "/bin/bash"))
   }
 
   @Test
-  func panelInputRoundTrip() throws {
-    try roundTrip(.panelInput(text: "ls\n", inputBytes: 3))
+  func paneInputRoundTrip() throws {
+    try roundTrip(.paneInput(text: "ls\n", inputBytes: 3))
   }
 
   @Test
-  func panelOutputRoundTrip() throws {
+  func paneOutputRoundTrip() throws {
     let data = Data("hello".utf8)
-    try roundTrip(.panelOutput(output: data, outputBytes: data.count))
+    try roundTrip(.paneOutput(output: data, outputBytes: data.count))
   }
 
   @Test
-  func panelOutputMatchRoundTrip() throws {
+  func paneOutputMatchRoundTrip() throws {
     let data = Data("READY FOR REVIEW".utf8)
-    try roundTrip(.panelOutputMatch(
+    try roundTrip(.paneOutputMatch(
       match: "READY", matchedRange: HookMatchRange(start: 0, length: 5),
       output: data, outputBytes: data.count
     ))
   }
 
   @Test
-  func panelIdleRoundTrip() throws {
-    try roundTrip(.panelIdle(idleSeconds: 60, sinceLastOutput: 62, sinceLastInput: 80))
+  func paneIdleRoundTrip() throws {
+    try roundTrip(.paneIdle(idleSeconds: 60, sinceLastOutput: 62, sinceLastInput: 80))
   }
 
   @Test
-  func panelExitedAndCrashedRoundTrip() throws {
-    try roundTrip(.panelExited(exitCode: 0))
-    try roundTrip(.panelExited(exitCode: 137))
-    try roundTrip(.panelCrashed(reason: "surface faulted: EXC_BAD_ACCESS"))
+  func paneExitedAndCrashedRoundTrip() throws {
+    try roundTrip(.paneExited(exitCode: 0))
+    try roundTrip(.paneExited(exitCode: 137))
+    try roundTrip(.paneCrashed(reason: "surface faulted: EXC_BAD_ACCESS"))
   }
 
   @Test
@@ -66,15 +66,15 @@ struct HookEventDataCodableTests {
 
   @Test
   func discriminatorTagsMatchEvent() throws {
-    let payload = HookEventData.panelReady(pid: 1, shell: "/bin/sh")
+    let payload = HookEventData.paneReady(pid: 1, shell: "/bin/sh")
     let data = try JSONEncoder().encode(payload)
     let json = String(bytes: data, encoding: .utf8) ?? ""
-    #expect(json.contains("\"kind\":\"panel.ready\""))
+    #expect(json.contains("\"kind\":\"pane.ready\""))
   }
 
   @Test
   func decodeRejectsUnknownKind() throws {
-    let bad = Data(#"{"kind":"panel.reticulate","shell":"/bin/sh"}"#.utf8)
+    let bad = Data(#"{"kind":"pane.reticulate","shell":"/bin/sh"}"#.utf8)
     #expect(throws: (any Error).self) {
       _ = try JSONDecoder().decode(HookEventData.self, from: bad)
     }

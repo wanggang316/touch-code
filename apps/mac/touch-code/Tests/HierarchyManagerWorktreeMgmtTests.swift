@@ -5,7 +5,7 @@ import TouchCodeCore
 
 /// Covers the three new Worktree-Management-era additions on
 /// `HierarchyManager`: `setWorktreeArchived`,
-/// `reconcileDiscoveredWorktrees`, and `runningPanelCount`.
+/// `reconcileDiscoveredWorktrees`, and `runningPaneCount`.
 ///
 /// Each test builds a fresh manager + fake runtime per `init`, matching
 /// the pattern in `HierarchyManagerTests.swift`.
@@ -83,15 +83,15 @@ struct HierarchyManagerWorktreeMgmtTests {
     let tabID = try manager.createTab(
       in: worktreeID, in: projectID, in: spaceID, name: nil
     )
-    let panelID = try manager.openPanel(
+    let paneID = try manager.openPane(
       in: tabID, in: worktreeID, in: projectID, in: spaceID,
       workingDirectory: "/repo/feat", initialCommand: nil
     )
     fakeRuntime.reset()
-    fakeRuntime.livePanelIDs.insert(panelID)
+    fakeRuntime.livePaneIDs.insert(paneID)
 
     try manager.setWorktreeArchived(worktreeID: worktreeID, archived: true)
-    #expect(fakeRuntime.closeSurfaceCalls == [panelID])
+    #expect(fakeRuntime.closeSurfaceCalls == [paneID])
   }
 
   // MARK: - reconcileDiscoveredWorktrees
@@ -270,10 +270,10 @@ struct HierarchyManagerWorktreeMgmtTests {
     #expect(manager.catalog.spaces[0].projects[0].worktrees.count == 2)
   }
 
-  // MARK: - runningPanelCount
+  // MARK: - runningPaneCount
 
   @Test
-  func runningPanelCountReflectsRuntime() throws {
+  func runningPaneCountReflectsRuntime() throws {
     let spaceID = manager.createSpace(name: "s")
     let projectID = try manager.addProject(
       to: spaceID, name: "p", rootPath: "/repo", gitRoot: "/repo"
@@ -284,29 +284,29 @@ struct HierarchyManagerWorktreeMgmtTests {
     let tabID = try manager.createTab(
       in: worktreeID, in: projectID, in: spaceID, name: nil
     )
-    let panelA = try manager.openPanel(
+    let paneA = try manager.openPane(
       in: tabID, in: worktreeID, in: projectID, in: spaceID,
       workingDirectory: "/repo/feat", initialCommand: nil
     )
-    let panelB = try manager.splitPanel(
-      panelA, direction: .right,
+    let paneB = try manager.splitPane(
+      paneA, direction: .right,
       in: tabID, in: worktreeID, in: projectID, in: spaceID,
       workingDirectory: "/repo/feat", initialCommand: nil
     )
-    // Only panelA is live.
-    fakeRuntime.livePanelIDs = [panelA]
-    #expect(manager.runningPanelCount(worktreeID: worktreeID) == 1)
+    // Only paneA is live.
+    fakeRuntime.livePaneIDs = [paneA]
+    #expect(manager.runningPaneCount(worktreeID: worktreeID) == 1)
     // Both live.
-    fakeRuntime.livePanelIDs = [panelA, panelB]
-    #expect(manager.runningPanelCount(worktreeID: worktreeID) == 2)
+    fakeRuntime.livePaneIDs = [paneA, paneB]
+    #expect(manager.runningPaneCount(worktreeID: worktreeID) == 2)
     // None live.
-    fakeRuntime.livePanelIDs = []
-    #expect(manager.runningPanelCount(worktreeID: worktreeID) == 0)
+    fakeRuntime.livePaneIDs = []
+    #expect(manager.runningPaneCount(worktreeID: worktreeID) == 0)
   }
 
   @Test
-  func runningPanelCountUnknownIDIsZero() {
+  func runningPaneCountUnknownIDIsZero() {
     let unknown = WorktreeID()
-    #expect(manager.runningPanelCount(worktreeID: unknown) == 0)
+    #expect(manager.runningPaneCount(worktreeID: unknown) == 0)
   }
 }

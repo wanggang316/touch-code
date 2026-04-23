@@ -15,8 +15,8 @@ struct CatalogCodableTests {
 
   @Test
   func populatedCatalogRoundTrip() throws {
-    let panel = Panel(workingDirectory: "/tmp")
-    let tab = Tab(splitTree: SplitTree(leaf: panel.id), panels: [panel])
+    let pane = Pane(workingDirectory: "/tmp")
+    let tab = Tab(splitTree: SplitTree(leaf: pane.id), panes: [pane])
     let worktree = Worktree(
       name: "main", path: "/repo", branch: "main", tabs: [tab], selectedTabID: tab.id
     )
@@ -63,8 +63,8 @@ struct CatalogCodableTests {
     // and a Worktree without `gitViewerVisible` — by building the JSON
     // structure explicitly, then strip those keys. Defaults must apply on
     // decode without throwing.
-    let panel = Panel(workingDirectory: "/tmp")
-    let tab = Tab(splitTree: SplitTree(leaf: panel.id), panels: [panel])
+    let pane = Pane(workingDirectory: "/tmp")
+    let tab = Tab(splitTree: SplitTree(leaf: pane.id), panes: [pane])
     let worktree = Worktree(
       name: "main", path: "/repo", branch: "main", tabs: [tab], selectedTabID: tab.id
     )
@@ -114,8 +114,8 @@ struct CatalogCodableTests {
 
   @Test
   func roundTripsLastActiveWorktreeAndGitViewerVisible() throws {
-    let panel = Panel(workingDirectory: "/tmp")
-    let tab = Tab(splitTree: SplitTree(leaf: panel.id), panels: [panel])
+    let pane = Pane(workingDirectory: "/tmp")
+    let tab = Tab(splitTree: SplitTree(leaf: pane.id), panes: [pane])
     let worktree = Worktree(
       name: "main",
       path: "/repo",
@@ -176,30 +176,30 @@ struct CatalogCodableTests {
 
   @Test
   func tabInvariantsHoldForSeededTab() throws {
-    let a = Panel(workingDirectory: "/a")
-    let b = Panel(workingDirectory: "/b")
+    let a = Pane(workingDirectory: "/a")
+    let b = Pane(workingDirectory: "/b")
     let tree = try SplitTree(leaf: a.id).inserting(b.id, at: a.id, direction: .right)
-    let tab = Tab(splitTree: tree, panels: [a, b])
+    let tab = Tab(splitTree: tree, panes: [a, b])
     try tab.validateInvariants()
   }
 
   @Test
-  func tabInvariantsFailWhenPanelsDriftFromTree() throws {
-    let a = Panel(workingDirectory: "/a")
-    let b = Panel(workingDirectory: "/b")
-    let extraPanel = Panel(workingDirectory: "/c")
+  func tabInvariantsFailWhenPanesDriftFromTree() throws {
+    let a = Pane(workingDirectory: "/a")
+    let b = Pane(workingDirectory: "/b")
+    let extraPane = Pane(workingDirectory: "/c")
     let tree = try SplitTree(leaf: a.id).inserting(b.id, at: a.id, direction: .right)
-    let badTab = Tab(splitTree: tree, panels: [a, b, extraPanel])
+    let badTab = Tab(splitTree: tree, panes: [a, b, extraPane])
     #expect(throws: Tab.InvariantError.self) {
       try badTab.validateInvariants()
     }
   }
 
   @Test
-  func tabInvariantsFailOnDuplicatePanelIDs() throws {
-    let a = Panel(workingDirectory: "/a")
-    let tab = Tab(splitTree: SplitTree(leaf: a.id), panels: [a, a])
-    #expect(throws: Tab.InvariantError.duplicatePanelIDs) {
+  func tabInvariantsFailOnDuplicatePaneIDs() throws {
+    let a = Pane(workingDirectory: "/a")
+    let tab = Tab(splitTree: SplitTree(leaf: a.id), panes: [a, a])
+    #expect(throws: Tab.InvariantError.duplicatePaneIDs) {
       try tab.validateInvariants()
     }
   }

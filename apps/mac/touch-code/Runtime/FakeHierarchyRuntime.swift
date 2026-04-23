@@ -3,34 +3,34 @@ import TouchCodeCore
 
 final class FakeHierarchyRuntime: HierarchyRuntime {
   struct SurfaceCall: Equatable {
-    let panelID: PanelID
+    let paneID: PaneID
     let worktreeID: WorktreeID
   }
 
   private(set) var ensureSurfaceCalls: [SurfaceCall] = []
-  private(set) var closeSurfaceCalls: [PanelID] = []
-  /// Test-controlled liveness set. Tests assign `livePanelIDs` before
+  private(set) var closeSurfaceCalls: [PaneID] = []
+  /// Test-controlled liveness set. Tests assign `livePaneIDs` before
   /// calling the System Under Test; `hasSurface(for:)` returns `true`
-  /// iff the panel is present.
-  var livePanelIDs: Set<PanelID> = []
+  /// iff the pane is present.
+  var livePaneIDs: Set<PaneID> = []
 
-  func ensureSurface(for panel: Panel, in worktree: Worktree) throws {
-    ensureSurfaceCalls.append(SurfaceCall(panelID: panel.id, worktreeID: worktree.id))
-    livePanelIDs.insert(panel.id)
+  func ensureSurface(for pane: Pane, in worktree: Worktree) throws {
+    ensureSurfaceCalls.append(SurfaceCall(paneID: pane.id, worktreeID: worktree.id))
+    livePaneIDs.insert(pane.id)
   }
 
-  func closeSurface(for panelID: PanelID) {
-    closeSurfaceCalls.append(panelID)
-    livePanelIDs.remove(panelID)
+  func closeSurface(for paneID: PaneID) {
+    closeSurfaceCalls.append(paneID)
+    livePaneIDs.remove(paneID)
   }
 
-  func hasSurface(for panelID: PanelID) -> Bool {
-    livePanelIDs.contains(panelID)
+  func hasSurface(for paneID: PaneID) -> Bool {
+    livePaneIDs.contains(paneID)
   }
 
   func reset() {
     ensureSurfaceCalls.removeAll()
     closeSurfaceCalls.removeAll()
-    livePanelIDs.removeAll()
+    livePaneIDs.removeAll()
   }
 }

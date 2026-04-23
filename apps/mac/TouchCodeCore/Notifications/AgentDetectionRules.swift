@@ -5,9 +5,9 @@ import Foundation
 /// `HookSubscription`s via the sentinel-prefix route (`RuleStore` in M2).
 ///
 /// A rule matches when (a) its `appliesWhen` predicates pass — at minimum
-/// `panelLabelledAgent` corresponds to a Panel label like `"agent:claude"`,
+/// `paneLabelledAgent` corresponds to a Pane label like `"agent:claude"`,
 /// and `hookEvent` scopes to one `HookEvent` case — and (b) for
-/// `.panelOutputMatch`-scoped rules, its `match` regex/literal hits the
+/// `.paneOutputMatch`-scoped rules, its `match` regex/literal hits the
 /// rolling output tail. Matches fire a state transition via
 /// `transitionTo`; `title`/`body` template strings are rendered by
 /// `TemplateRenderer` (M2) at fire time and handed to the notification
@@ -15,7 +15,7 @@ import Foundation
 ///
 /// Schema evolution follows the architecture invariant: readers abort on
 /// unknown `version` rather than silently upgrade. `missingMatch(ruleID:)`
-/// catches the rule-level invariant "any `.panelOutputMatch` rule must
+/// catches the rule-level invariant "any `.paneOutputMatch` rule must
 /// carry a `match`" at load time so malformed rules never reach the
 /// dispatcher.
 public nonisolated struct AgentDetectionRules: Equatable, Sendable {
@@ -64,22 +64,22 @@ public nonisolated struct AgentDetectionRules: Equatable, Sendable {
   }
 
   public struct AppliesWhen: Equatable, Codable, Sendable {
-    public var panelLabelledAgent: String?
+    public var paneLabelledAgent: String?
     public var hookEvent: HookEvent?
-    public var panelID: PanelID?
+    public var paneID: PaneID?
 
     public init(
-      panelLabelledAgent: String? = nil,
+      paneLabelledAgent: String? = nil,
       hookEvent: HookEvent? = nil,
-      panelID: PanelID? = nil
+      paneID: PaneID? = nil
     ) {
-      self.panelLabelledAgent = panelLabelledAgent
+      self.paneLabelledAgent = paneLabelledAgent
       self.hookEvent = hookEvent
-      self.panelID = panelID
+      self.paneID = paneID
     }
   }
 
-  /// Pattern-match spec for `.panelOutputMatch` rules. `containsAny` is a cheap
+  /// Pattern-match spec for `.paneOutputMatch` rules. `containsAny` is a cheap
   /// literal-substring check; `regex` takes an ECMA-262 pattern + `on` selector
   /// controlling which portion of the output tail is matched.
   public enum Match: Equatable, Sendable {
@@ -95,7 +95,7 @@ public nonisolated struct AgentDetectionRules: Equatable, Sendable {
 
   public enum DecodingIssue: Error, Equatable {
     case unsupportedVersion(Int)
-    /// A `.panelOutputMatch`-scoped rule is missing its `match` spec.
+    /// A `.paneOutputMatch`-scoped rule is missing its `match` spec.
     /// Rejected at load time so the dispatcher never sees a malformed rule.
     case missingMatch(ruleID: String)
   }
@@ -115,7 +115,7 @@ extension AgentDetectionRules: Codable {
     let rules = try container.decodeIfPresent([Rule].self, forKey: .rules) ?? []
     // Enforce the rule-level invariant at load time.
     for rule in rules {
-      if rule.appliesWhen.hookEvent == .panelOutputMatch, rule.match == nil {
+      if rule.appliesWhen.hookEvent == .paneOutputMatch, rule.match == nil {
         throw DecodingIssue.missingMatch(ruleID: rule.id)
       }
     }

@@ -9,17 +9,17 @@ struct HookActionCodableTests {
   @Test
   func everyVariantRoundTrips() throws {
     let variants: [HookAction] = [
-      .panelSend(PanelID(), text: "hi", raw: false),
-      .panelBroadcast(scope: .tab(TabID()), text: "all", raw: true),
-      .panelBroadcast(scope: .label("agent"), text: "agents", raw: false),
-      .panelOpen(in: WorktreeID(), tab: TabID(), workingDirectory: "/tmp", initialCommand: "echo"),
-      .panelClose(PanelID()),
+      .paneSend(PaneID(), text: "hi", raw: false),
+      .paneBroadcast(scope: .tab(TabID()), text: "all", raw: true),
+      .paneBroadcast(scope: .label("agent"), text: "agents", raw: false),
+      .paneOpen(in: WorktreeID(), tab: TabID(), workingDirectory: "/tmp", initialCommand: "echo"),
+      .paneClose(PaneID()),
       .tabActivate(TabID()),
       .tabCreate(in: WorktreeID(), name: "agent"),
       .worktreeActivate(WorktreeID()),
-      .notify(title: "Done", body: "Agent finished", panelID: PanelID()),
+      .notify(title: "Done", body: "Agent finished", paneID: PaneID()),
       .log(level: "info", message: "hook fired"),
-      .setPanelLabels(PanelID(), ["agent", "claude"]),
+      .setPaneLabels(PaneID(), ["agent", "claude"]),
     ]
     for variant in variants {
       let data = try JSONEncoder().encode(variant)
@@ -30,13 +30,13 @@ struct HookActionCodableTests {
 
   @Test
   func broadcastScopeEncodesIdenticallyAcrossSurfaces() throws {
-    // DEC-12: HookAction.panelBroadcast(scope:...) and
+    // DEC-12: HookAction.paneBroadcast(scope:...) and
     // terminal.broadcastInput request must share identical wire bytes for
     // the scope sub-object. This guards against schema drift between the
     // two surfaces.
     let scope = IPC.BroadcastScope.label("agent")
 
-    let action = HookAction.panelBroadcast(scope: scope, text: "x", raw: false)
+    let action = HookAction.paneBroadcast(scope: scope, text: "x", raw: false)
     let actionData = try JSONEncoder().encode(action)
     let actionJSON = String(bytes: actionData, encoding: .utf8) ?? ""
     #expect(actionJSON.contains("\"kind\":\"label\""))
@@ -51,8 +51,8 @@ struct HookActionCodableTests {
 
   @Test
   func decoderRejectsUnknownKind() throws {
-    let bad = Data(#"{"kind":"panel.reticulate"}"#.utf8)
-    #expect(throws: HookAction.DecodingIssue.unknownKind("panel.reticulate")) {
+    let bad = Data(#"{"kind":"pane.reticulate"}"#.utf8)
+    #expect(throws: HookAction.DecodingIssue.unknownKind("pane.reticulate")) {
       _ = try JSONDecoder().decode(HookAction.self, from: bad)
     }
   }

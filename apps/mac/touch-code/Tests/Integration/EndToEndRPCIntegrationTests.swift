@@ -53,7 +53,7 @@ struct EndToEndRPCIntegrationTests {
   @Test
   func hookInstallListFireRecentFullLifecycle() async throws {
     try await withStack { client in
-      let sub = HookSubscription(event: .panelReady, command: "echo ready")
+      let sub = HookSubscription(event: .paneReady, command: "echo ready")
 
       // 1. install
       struct InstallParams: Codable { let subscription: HookSubscription }
@@ -71,8 +71,8 @@ struct EndToEndRPCIntegrationTests {
 
       // 3. fire — triggers the FakeHookExecutor
       let envelope = HookEnvelope(
-        event: .panelReady,
-        data: .panelReady(pid: nil, shell: "bash")
+        event: .paneReady,
+        data: .paneReady(pid: nil, shell: "bash")
       )
       struct FireParams: Codable { let envelope: HookEnvelope }
       struct FireResult: Codable { let handlersRun: Int }
@@ -172,13 +172,13 @@ struct EndToEndRPCIntegrationTests {
   func terminalSendWithNoSinkReturnsUnsupported() async throws {
     try await withStack { client in
       struct Params: Codable {
-        let panelID: PanelID
+        let paneID: PaneID
         let text: String
       }
       do {
         _ = try await client.callRaw(
           .terminalSendInput,
-          params: Params(panelID: PanelID(raw: UUID()), text: "hello")
+          params: Params(paneID: PaneID(raw: UUID()), text: "hello")
         )
         Issue.record("expected throw")
       } catch RPCClient.RPCError.ipc(let err) {

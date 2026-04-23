@@ -39,29 +39,29 @@ struct AgentStateTrackerTests {
   // MARK: - Envelope-driven transitions
 
   @Test
-  func panelExitedZeroTransitionsToCompleted() throws {
+  func paneExitedZeroTransitionsToCompleted() throws {
     let tracker = Self.makeTracker()
-    let envelope = Self.envelope(event: .panelExited, data: .panelExited(exitCode: 0))
+    let envelope = Self.envelope(event: .paneExited, data: .paneExited(exitCode: 0))
     let transition = tracker.ingest(envelope: envelope, ruleID: nil)
     #expect(transition?.to == .completed)
-    #expect(transition?.trigger == .envelope(event: .panelExited))
+    #expect(transition?.trigger == .envelope(event: .paneExited))
   }
 
   @Test
-  func panelExitedNonZeroEmitsAndTearsDown() throws {
+  func paneExitedNonZeroEmitsAndTearsDown() throws {
     let tracker = Self.makeTracker()
-    let envelope = Self.envelope(event: .panelExited, data: .panelExited(exitCode: 1))
+    let envelope = Self.envelope(event: .paneExited, data: .paneExited(exitCode: 1))
     let transition = tracker.ingest(envelope: envelope, ruleID: nil)
     // Non-zero → .completed state + .envelope trigger.
     #expect(transition?.to == .completed)
   }
 
   @Test
-  func panelCrashedEmitsAndTearsDown() throws {
+  func paneCrashedEmitsAndTearsDown() throws {
     let tracker = Self.makeTracker()
-    let envelope = Self.envelope(event: .panelCrashed, data: .panelCrashed(reason: "boom"))
+    let envelope = Self.envelope(event: .paneCrashed, data: .paneCrashed(reason: "boom"))
     let transition = tracker.ingest(envelope: envelope, ruleID: nil)
-    #expect(transition?.trigger == .envelope(event: .panelCrashed))
+    #expect(transition?.trigger == .envelope(event: .paneCrashed))
   }
 
   // MARK: - Activity rearm
@@ -71,17 +71,17 @@ struct AgentStateTrackerTests {
     let tracker = Self.makeTracker()
     // Force the FSM into idle via userOverride so we can test the activity path.
     tracker.override(to: .idle)
-    let envelope = Self.envelope(event: .panelOutput, data: .panelOutput(output: Data("hi".utf8), outputBytes: 2))
+    let envelope = Self.envelope(event: .paneOutput, data: .paneOutput(output: Data("hi".utf8), outputBytes: 2))
     let transition = tracker.ingest(envelope: envelope, ruleID: nil)
     #expect(transition?.from == .idle)
     #expect(transition?.to == .running)
-    #expect(transition?.trigger == .envelope(event: .panelOutput))
+    #expect(transition?.trigger == .envelope(event: .paneOutput))
   }
 
   @Test
   func outputActivityInRunningStateIsNoOp() throws {
     let tracker = Self.makeTracker()
-    let envelope = Self.envelope(event: .panelOutput, data: .panelOutput(output: Data("hi".utf8), outputBytes: 2))
+    let envelope = Self.envelope(event: .paneOutput, data: .paneOutput(output: Data("hi".utf8), outputBytes: 2))
     let transition = tracker.ingest(envelope: envelope, ruleID: nil)
     #expect(transition == nil)
   }
@@ -111,7 +111,7 @@ struct AgentStateTrackerTests {
   @Test
   func idleTimerFiresAfterThresholdWithoutActivity() async throws {
     let tracker = AgentStateTracker(
-      panelID: PanelID(),
+      paneID: PaneID(),
       idleThreshold: 0.05,
       clock: ContinuousClock(),
       now: Date()
@@ -137,7 +137,7 @@ struct AgentStateTrackerTests {
     let threshold: TimeInterval = 0.2
     let activityDelay: TimeInterval = 0.1
     let tracker = AgentStateTracker(
-      panelID: PanelID(),
+      paneID: PaneID(),
       idleThreshold: threshold,
       clock: ContinuousClock(),
       now: Date()
@@ -146,8 +146,8 @@ struct AgentStateTrackerTests {
 
     try await Task.sleep(nanoseconds: UInt64(activityDelay * 1_000_000_000))
     let envelope = Self.envelope(
-      event: .panelOutput,
-      data: .panelOutput(output: Data("x".utf8), outputBytes: 1)
+      event: .paneOutput,
+      data: .paneOutput(output: Data("x".utf8), outputBytes: 1)
     )
     _ = tracker.ingest(envelope: envelope, ruleID: nil)
 
@@ -182,7 +182,7 @@ struct AgentStateTrackerTests {
 
   private static func makeTracker(idleThreshold: TimeInterval = 120) -> AgentStateTracker {
     AgentStateTracker(
-      panelID: PanelID(),
+      paneID: PaneID(),
       idleThreshold: idleThreshold,
       clock: ContinuousClock(),
       now: Date()
@@ -198,8 +198,8 @@ struct AgentStateTrackerTests {
       project: nil,
       worktree: nil,
       tab: nil,
-      panel: HookEnvelope.PanelRef(
-        id: PanelID(),
+      pane: HookEnvelope.PaneRef(
+        id: PaneID(),
         workingDirectory: "/tmp",
         initialCommand: nil,
         labels: ["agent:claude"]

@@ -30,8 +30,8 @@ struct WireTypeCodableTests {
   }
 
   @Test
-  func panelOpenRequestRoundTrip() throws {
-    let req = IPC.PanelOpenRequest(
+  func paneOpenRequestRoundTrip() throws {
+    let req = IPC.PaneOpenRequest(
       tabID: TabID(),
       workingDirectory: "/tmp",
       initialCommand: "echo hi",
@@ -39,19 +39,19 @@ struct WireTypeCodableTests {
       activate: true
     )
     let data = try JSONEncoder().encode(req)
-    let decoded = try JSONDecoder().decode(IPC.PanelOpenRequest.self, from: data)
+    let decoded = try JSONDecoder().decode(IPC.PaneOpenRequest.self, from: data)
     #expect(decoded == req)
   }
 
   @Test
   func aliasResolveRoundTrip() throws {
-    let req = IPC.AliasResolveRequest(kind: .panel, value: "@agent", contextPanelID: PanelID())
+    let req = IPC.AliasResolveRequest(kind: .pane, value: "@agent", contextPaneID: PaneID())
     let reqData = try JSONEncoder().encode(req)
     let reqDecoded = try JSONDecoder().decode(IPC.AliasResolveRequest.self, from: reqData)
     #expect(reqDecoded == req)
 
     let result = IPC.AliasResolveResult(
-      kind: .panel,
+      kind: .pane,
       id: UUID(),
       disambiguations: [UUID(), UUID()]
     )

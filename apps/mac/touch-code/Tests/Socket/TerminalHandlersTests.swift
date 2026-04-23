@@ -22,10 +22,10 @@ struct TerminalHandlersTests {
     _ = try await server.awaitResponse()
 
     struct Params: Codable {
-      let panelID: PanelID
+      let paneID: PaneID
       let text: String
     }
-    let params = try JSONValue.encoded(Params(panelID: PanelID(), text: "hello"))
+    let params = try JSONValue.encoded(Params(paneID: PaneID(), text: "hello"))
     try server.send(
       IPC.Request(id: "s1", method: .terminalSendInput, params: params)
     )
@@ -71,13 +71,13 @@ struct TerminalHandlersTests {
     try InMemoryIPCServerTests.sendHello(server)
     _ = try await server.awaitResponse()
 
-    let pid = PanelID()
+    let pid = PaneID()
     sink.registered.insert(pid.raw)
     struct Params: Codable {
-      let panelID: PanelID
+      let paneID: PaneID
       let text: String
     }
-    let params = try JSONValue.encoded(Params(panelID: pid, text: "ls\n"))
+    let params = try JSONValue.encoded(Params(paneID: pid, text: "ls\n"))
     try server.send(
       IPC.Request(id: "s2", method: .terminalSendInput, params: params)
     )
@@ -87,7 +87,7 @@ struct TerminalHandlersTests {
   }
 
   @Test
-  func sendInputToUnknownPanelReturnsNotFound() async throws {
+  func sendInputToUnknownPaneReturnsNotFound() async throws {
     let sink = FakeSink()
     let server = Self.makeHarness(sink: sink)
     defer { server.stop() }
@@ -95,10 +95,10 @@ struct TerminalHandlersTests {
     _ = try await server.awaitResponse()
 
     struct Params: Codable {
-      let panelID: PanelID
+      let paneID: PaneID
       let text: String
     }
-    let params = try JSONValue.encoded(Params(panelID: PanelID(), text: "x"))
+    let params = try JSONValue.encoded(Params(paneID: PaneID(), text: "x"))
     try server.send(
       IPC.Request(id: "s3", method: .terminalSendInput, params: params)
     )
@@ -144,11 +144,11 @@ struct TerminalHandlersTests {
   }
 }
 
-/// Records every invocation; returns success iff the panel id was
+/// Records every invocation; returns success iff the pane id was
 /// pre-registered.
 final class FakeSink: TerminalHandlers.InputSink, @unchecked Sendable {
   struct Delivery: Equatable {
-    let panelID: UUID
+    let paneID: UUID
     let text: String
   }
 
@@ -157,11 +157,11 @@ final class FakeSink: TerminalHandlers.InputSink, @unchecked Sendable {
   private(set) var broadcasts: [(scope: IPC.BroadcastScope, text: String)] = []
   private let lock = NSLock()
 
-  func sendInput(panelID: PanelID, text: String) -> Bool {
+  func sendInput(paneID: PaneID, text: String) -> Bool {
     lock.lock()
     defer { lock.unlock() }
-    guard registered.contains(panelID.raw) else { return false }
-    delivered.append(Delivery(panelID: panelID.raw, text: text))
+    guard registered.contains(paneID.raw) else { return false }
+    delivered.append(Delivery(paneID: paneID.raw, text: text))
     return true
   }
 

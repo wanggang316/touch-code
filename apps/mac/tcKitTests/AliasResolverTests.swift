@@ -19,7 +19,7 @@ struct AliasResolverTests {
     let uuid = UUID()
     let resolved = try await AliasResolver.resolve(
       uuid.uuidString,
-      kind: .panel,
+      kind: .pane,
       env: [:],
       client: Self.failingClient()
     )
@@ -31,8 +31,8 @@ struct AliasResolverTests {
     let uuid = UUID()
     let resolved = try await AliasResolver.resolve(
       "current",
-      kind: .panel,
-      env: ["TOUCH_CODE_PANEL_ID": uuid.uuidString],
+      kind: .pane,
+      env: ["TOUCH_CODE_PANE_ID": uuid.uuidString],
       client: Self.failingClient()
     )
     #expect(resolved == uuid)
@@ -74,7 +74,7 @@ struct AliasResolverTests {
       let real = try JSONDecoder().decode(IPC.Request.self, from: frames[1])
       #expect(real.method == .hierarchyResolveAlias)
       let body = try JSONEncoder().encode(
-        IPC.AliasResolveResult(kind: .panel, id: targetID)
+        IPC.AliasResolveResult(kind: .pane, id: targetID)
       )
       let resultJSON = try JSONDecoder().decode(JSONValue.self, from: body)
       return [
@@ -87,7 +87,7 @@ struct AliasResolverTests {
 
     let resolved = try await AliasResolver.resolve(
       "@agent",
-      kind: .panel,
+      kind: .pane,
       env: [:],
       client: client
     )

@@ -4,14 +4,14 @@ import TouchCodeCore
 /// Public-facing façade that composes `CatalogStore`, `HierarchyManager`, and
 /// `GhosttyRuntime` behind a fan-out event stream. Feature code (TCA clients,
 /// hook runner, notifications) subscribes via `events()` and mutates state
-/// through `hierarchy`. Direct access to `GhosttyRuntime` or `PanelSurface`
+/// through `hierarchy`. Direct access to `GhosttyRuntime` or `PaneSurface`
 /// objects is intentionally not exposed.
 ///
-/// Lifecycle events (`panelCreated`, `panelReady`, `panelExited`,
-/// `panelCrashed`, `tabActivated`, `tabAutoClosed`, `worktreeActivated`,
+/// Lifecycle events (`paneCreated`, `paneReady`, `paneExited`,
+/// `paneCrashed`, `tabActivated`, `tabAutoClosed`, `worktreeActivated`,
 /// `hierarchyMutated`) are delivered with a large per-subscriber buffer
 /// because drops cause persistence and UI desync that can't be recovered.
-/// Output events (`panelOutput`, `panelIdle`) are delivered with a small
+/// Output events (`paneOutput`, `paneIdle`) are delivered with a small
 /// `.bufferingNewest` policy — scrollback retains history, so dropping
 /// coalesced batches under consumer backpressure is safe.
 @MainActor
@@ -55,12 +55,12 @@ final class TerminalEngine {
   var crashPolicy: CrashPolicy = .default
 
   private let registry = SubscriberRegistry()
-  private var outputBuffers: [PanelID: PendingOutputBuffer] = [:]
-  private var crashRings: [PanelID: [Date]] = [:]
+  private var outputBuffers: [PaneID: PendingOutputBuffer] = [:]
+  private var crashRings: [PaneID: [Date]] = [:]
   private let clock: @Sendable () -> Date
   private var finished = false
 
-  /// Inject a `GhosttyRuntime` for real panel surfaces, or pass `nil` for
+  /// Inject a `GhosttyRuntime` for real pane surfaces, or pass `nil` for
   /// headless tests. When nil, `ensureSurface` throws.
   init(
     store: CatalogStore,
@@ -73,93 +73,93 @@ final class TerminalEngine {
     self.ghosttyRuntime = ghosttyRuntime
     self.clock = clock
     // Back-pointer so the libghostty action decoder can emit events
-    // (panelInfoChanged, panelActionRequested, etc.) onto this engine's
+    // (paneInfoChanged, paneActionRequested, etc.) onto this engine's
     // stream. Weak on the runtime side; no cycle.
     ghosttyRuntime?.terminalEngine = self
   }
 
-  // MARK: - Panel surface lifecycle
+  // MARK: - Pane surface lifecycle
 
   enum SurfaceError: Error, Sendable {
     case runtimeUnavailable
-    case panelHasNoTab
+    case paneHasNoTab
   }
 
-  /// Create a libghostty surface for the given Panel. Idempotent: if a
-  /// surface is already registered for the panel, returns the existing one.
+  /// Create a libghostty surface for the given Pane. Idempotent: if a
+  /// surface is already registered for the pane, returns the existing one.
   /// Wires the surface's `onClose` to emit the lifecycle event + dispose
-  /// buffer. Throws `panelHasNoTab` if the Panel isn't yet wired into a
-  /// Tab — the engine uses the Tab ID in the `.panelCreated` event, so
-  /// callers must add the Panel to a Tab via `HierarchyManager.openPanel`
-  /// (or `splitPanel`) before calling this.
+  /// buffer. Throws `paneHasNoTab` if the Pane isn't yet wired into a
+  /// Tab — the engine uses the Tab ID in the `.paneCreated` event, so
+  /// callers must add the Pane to a Tab via `HierarchyManager.openPane`
+  /// (or `splitPane`) before calling this.
   @discardableResult
-  func ensureSurface(for panel: Panel, in worktree: Worktree) throws -> PanelSurface {
+  func ensureSurface(for pane: Pane, in worktree: Worktree) throws -> PaneSurface {
     guard let runtime = ghosttyRuntime else { throw SurfaceError.runtimeUnavailable }
-    if let existing = runtime.surface(for: panel.id) {
+    if let existing = runtime.surface(for: pane.id) {
       return existing
     }
-    guard let tabID = tabIDForPanel(panel.id) else {
-      throw SurfaceError.panelHasNoTab
+    guard let tabID = tabIDForPane(pane.id) else {
+      throw SurfaceError.paneHasNoTab
     }
-    let surface = try PanelSurface(
+    let surface = try PaneSurface(
       runtime: runtime,
-      panelID: panel.id,
-      workingDirectory: panel.workingDirectory
+      paneID: pane.id,
+      workingDirectory: pane.workingDirectory
     )
-    runtime.register(panel: surface)
+    runtime.register(pane: surface)
     surface.onClose = { [weak self] processAlive in
-      self?.handleSurfaceClose(panelID: panel.id, processAlive: processAlive)
+      self?.handleSurfaceClose(paneID: pane.id, processAlive: processAlive)
     }
-    // C8a Phase 4d: forward `panel.initialCommand` to the freshly spawned shell so
-    // `.shellEditor` launches ("$EDITOR\n") actually run. HierarchyManager.openPanel stores
-    // the command on the Panel; this is the one place it gets replayed when the surface
+    // C8a Phase 4d: forward `pane.initialCommand` to the freshly spawned shell so
+    // `.shellEditor` launches ("$EDITOR\n") actually run. HierarchyManager.openPane stores
+    // the command on the Pane; this is the one place it gets replayed when the surface
     // comes up.
-    if let initialCommand = panel.initialCommand, !initialCommand.isEmpty {
+    if let initialCommand = pane.initialCommand, !initialCommand.isEmpty {
       surface.sendInput(initialCommand + "\n")
     }
-    emit(.panelCreated(panel.id, tabID))
-    emit(.panelReady(panel.id))
+    emit(.paneCreated(pane.id, tabID))
+    emit(.paneReady(pane.id))
     return surface
   }
 
-  /// Dispose a panel's surface. Idempotent. Routes through
+  /// Dispose a pane's surface. Idempotent. Routes through
   /// `handleSurfaceClose` so the lifecycle event is emitted exactly once
   /// whether the close is user-initiated or callback-driven.
-  func closeSurface(for panelID: PanelID) {
+  func closeSurface(for paneID: PaneID) {
     guard let runtime = ghosttyRuntime,
-      let surface = runtime.surface(for: panelID)
+      let surface = runtime.surface(for: paneID)
     else { return }
     surface.close()
-    handleSurfaceClose(panelID: panelID, processAlive: true)
+    handleSurfaceClose(paneID: paneID, processAlive: true)
   }
 
-  /// Whether a live surface is currently registered for the panel.
+  /// Whether a live surface is currently registered for the pane.
   /// Used by force-remove to size the "terminate N running processes"
   /// confirmation dialog (spec W-Q3).
-  func hasSurface(for panelID: PanelID) -> Bool {
+  func hasSurface(for paneID: PaneID) -> Bool {
     guard let runtime = ghosttyRuntime else { return false }
-    return runtime.surface(for: panelID) != nil
+    return runtime.surface(for: paneID) != nil
   }
 
-  /// Make the panel's `GhosttySurfaceView` the first responder of its
+  /// Make the pane's `GhosttySurfaceView` the first responder of its
   /// window. Used for `Cmd+D` new-split focus and post-close focus
   /// transfer.
   ///
-  /// Races with SwiftUI's render pass — right after `splitPanel` the
-  /// new panel's NSView has been created but may not yet be attached
+  /// Races with SwiftUI's render pass — right after `splitPane` the
+  /// new pane's NSView has been created but may not yet be attached
   /// to its hosting window. `view.window` is then nil and
   /// `makeFirstResponder` silently fails. Retry with exponential
   /// backoff: 0s, 50ms, 100ms, 200ms, 400ms (capped at ~0.75s total).
   /// Safe to call when the surface or window never materialises —
   /// retries stop on their own.
-  func focusSurfaceView(for panelID: PanelID) {
-    focusSurfaceView(for: panelID, attempt: 0)
+  func focusSurfaceView(for paneID: PaneID) {
+    focusSurfaceView(for: paneID, attempt: 0)
   }
 
-  private func focusSurfaceView(for panelID: PanelID, attempt: Int) {
+  private func focusSurfaceView(for paneID: PaneID, attempt: Int) {
     guard attempt < 5 else { return }
     guard let runtime = ghosttyRuntime,
-      let surface = runtime.surface(for: panelID)
+      let surface = runtime.surface(for: paneID)
     else { return }
     if let window = surface.view.window {
       // Reconcile libghostty focus before the AppKit firstResponder switch.
@@ -172,7 +172,7 @@ final class TerminalEngine {
       // non-target surface to set_focus(false); the target gets set_focus(true)
       // via its own becomeFirstResponder below. `set_focus` is idempotent,
       // so repeats on the normal path are harmless.
-      runtime.defocusAllSurfaces(except: panelID)
+      runtime.defocusAllSurfaces(except: paneID)
       if window.firstResponder !== surface.view {
         window.makeFirstResponder(surface.view)
       }
@@ -181,40 +181,40 @@ final class TerminalEngine {
     let delayMs: Int = attempt == 0 ? 50 : 50 << attempt
     Task { @MainActor [weak self] in
       try? await Task.sleep(for: .milliseconds(delayMs))
-      self?.focusSurfaceView(for: panelID, attempt: attempt + 1)
+      self?.focusSurfaceView(for: paneID, attempt: attempt + 1)
     }
   }
 
-  private func handleSurfaceClose(panelID: PanelID, processAlive: Bool) {
+  private func handleSurfaceClose(paneID: PaneID, processAlive: Bool) {
     // Snapshot the surface state BEFORE unregistering so a stale registry
     // entry can't drop the lifecycle event. Unregister after emit so any
     // in-flight lookup in subscriber code still resolves the surface.
-    let state = ghosttyRuntime?.surface(for: panelID)?.state ?? .ready
-    disposeOutputBuffer(for: panelID)
+    let state = ghosttyRuntime?.surface(for: paneID)?.state ?? .ready
+    disposeOutputBuffer(for: paneID)
 
     switch state {
     case .crashed(let reason):
-      _ = recordPanelCrash(panelID: panelID, reason: reason)
+      _ = recordPaneCrash(paneID: paneID, reason: reason)
     case .exited(let code):
-      emit(.panelExited(panelID, code: code, signal: nil))
+      emit(.paneExited(paneID, code: code, signal: nil))
     default:
       // No explicit state set by markExited/markCrashed: use processAlive
       // to distinguish user-initiated close (code 0) from child exit where
       // we lack a real exit code (code -1 as a "unknown" sentinel).
-      emit(.panelExited(panelID, code: processAlive ? 0 : -1, signal: nil))
+      emit(.paneExited(paneID, code: processAlive ? 0 : -1, signal: nil))
     }
 
-    ghosttyRuntime?.unregister(panelID: panelID)
+    ghosttyRuntime?.unregister(paneID: paneID)
   }
 
-  private func tabIDForPanel(_ panelID: PanelID) -> TabID? {
-    findPanel(panelID)?.tabID
+  private func tabIDForPane(_ paneID: PaneID) -> TabID? {
+    findPane(paneID)?.tabID
   }
 
   /// Return a fresh event stream for a new subscriber. Multi-consumer safe:
   /// each call registers its own continuation.
   ///
-  /// Output events (`panelOutput`, `panelIdle`) drop under subscriber
+  /// Output events (`paneOutput`, `paneIdle`) drop under subscriber
   /// backpressure via `.bufferingNewest(256)` — scrollback retains history
   /// so drops are recoverable. Lifecycle events are never dropped: the
   /// bounded policy only evicts output variants, and the broadcaster does
@@ -253,25 +253,25 @@ final class TerminalEngine {
     registry.broadcast(event)
   }
 
-  /// Feed bytes from a ghostty surface into the per-panel coalescer. Creates
+  /// Feed bytes from a ghostty surface into the per-pane coalescer. Creates
   /// a buffer on first use. Output may split a UTF-8 codepoint at the 16KB
-  /// buffer boundary — text consumers must buffer across batches per panel.
-  func appendOutput(panelID: PanelID, bytes: Data) {
-    let buffer = outputBuffers[panelID] ?? makeBuffer(for: panelID)
+  /// buffer boundary — text consumers must buffer across batches per pane.
+  func appendOutput(paneID: PaneID, bytes: Data) {
+    let buffer = outputBuffers[paneID] ?? makeBuffer(for: paneID)
     buffer.append(bytes)
   }
 
-  func flushOutput(for panelID: PanelID) {
-    outputBuffers[panelID]?.flush()
+  func flushOutput(for paneID: PaneID) {
+    outputBuffers[paneID]?.flush()
   }
 
-  /// Drop the per-panel output buffer, flushing any pending bytes first. The
+  /// Drop the per-pane output buffer, flushing any pending bytes first. The
   /// buffer's isolated-deinit fallback exists as a safety net, but callers
   /// should invoke this explicitly when a surface closes so bytes flush
   /// while the engine is still accepting emits.
-  func disposeOutputBuffer(for panelID: PanelID) {
-    outputBuffers[panelID]?.flush()
-    outputBuffers.removeValue(forKey: panelID)
+  func disposeOutputBuffer(for paneID: PaneID) {
+    outputBuffers[paneID]?.flush()
+    outputBuffers.removeValue(forKey: paneID)
   }
 
   /// Idempotent, terminal. After calling, `emit` is a no-op and all
@@ -290,7 +290,7 @@ final class TerminalEngine {
   // MARK: - Crash isolation
 
   enum CrashOutcome: Equatable, Sendable {
-    /// Panel is still alive; UI should render a retry placeholder.
+    /// Pane is still alive; UI should render a retry placeholder.
     case survived
     /// Enclosing Tab was auto-closed because the crash loop exceeded policy.
     case tabAutoClosed(TabID)
@@ -302,38 +302,38 @@ final class TerminalEngine {
   }
 
   @discardableResult
-  func recordPanelCrash(
-    panelID: PanelID,
+  func recordPaneCrash(
+    paneID: PaneID,
     reason: String
   ) -> CrashOutcome {
     // Flush any buffered output so subscribers see the final bytes BEFORE the
     // crash event — otherwise the UI shows a stale prompt with the crash
-    // overlay and consumers miss the last line of whatever the panel emitted.
-    disposeOutputBuffer(for: panelID)
-    emit(.panelCrashed(panelID, reason: reason))
+    // overlay and consumers miss the last line of whatever the pane emitted.
+    disposeOutputBuffer(for: paneID)
+    emit(.paneCrashed(paneID, reason: reason))
 
     let now = clock()
     let cutoff = now.addingTimeInterval(-crashPolicy.window)
-    var ring = crashRings[panelID, default: []].filter { $0 >= cutoff }
+    var ring = crashRings[paneID, default: []].filter { $0 >= cutoff }
     ring.append(now)
     // Cap the ring so repeated crashes inside the window can't grow memory.
     if ring.count > crashPolicy.maxCrashesInWindow {
       ring = Array(ring.suffix(crashPolicy.maxCrashesInWindow))
     }
-    crashRings[panelID] = ring
+    crashRings[paneID] = ring
 
     guard ring.count >= crashPolicy.maxCrashesInWindow else {
       return .survived
     }
 
-    guard let location = findPanel(panelID) else {
-      crashRings.removeValue(forKey: panelID)
+    guard let location = findPane(paneID) else {
+      crashRings.removeValue(forKey: paneID)
       return .survived
     }
 
-    // Snapshot sibling panels BEFORE closeTab removes them. Each gets its
-    // own panelExited event so per-panel subscribers can release state.
-    let siblingPanelIDs = siblingPanelIDs(in: location, excluding: panelID)
+    // Snapshot sibling panes BEFORE closeTab removes them. Each gets its
+    // own paneExited event so per-pane subscribers can release state.
+    let siblingPaneIDs = siblingPaneIDs(in: location, excluding: paneID)
 
     do {
       try hierarchy.closeTab(
@@ -347,46 +347,46 @@ final class TerminalEngine {
       return .closeFailed(error.localizedDescription)
     }
 
-    crashRings.removeValue(forKey: panelID)
+    crashRings.removeValue(forKey: paneID)
     let cause: TabAutoCloseCause = .crashLoop(count: ring.count, window: crashPolicy.window)
-    for siblingID in siblingPanelIDs {
+    for siblingID in siblingPaneIDs {
       disposeOutputBuffer(for: siblingID)
       // Forced close, not clean exit — distinct variant so persistence and
       // C3 hook consumers don't misreport as code-0 exit.
-      emit(.panelClosedByTab(siblingID, cause: cause))
+      emit(.paneClosedByTab(siblingID, cause: cause))
     }
     emit(.tabAutoClosed(location.tabID, cause: cause))
     return .tabAutoClosed(location.tabID)
   }
 
-  /// Retry a crashed panel. Returns false when the panel no longer exists
+  /// Retry a crashed pane. Returns false when the pane no longer exists
   /// (e.g. its Tab was already auto-closed). M5 replaces the stub body with
   /// real surface recreation via GhosttyRuntime.createSurface.
   @discardableResult
-  func retryPanel(_ panelID: PanelID) -> Bool {
-    guard findPanel(panelID) != nil else {
+  func retryPane(_ paneID: PaneID) -> Bool {
+    guard findPane(paneID) != nil else {
       return false
     }
-    crashRings.removeValue(forKey: panelID)
-    emit(.panelReady(panelID))
+    crashRings.removeValue(forKey: paneID)
+    emit(.paneReady(paneID))
     return true
   }
 
   // MARK: - Private
 
-  private struct PanelLocation {
+  private struct PaneLocation {
     let spaceID: SpaceID
     let projectID: ProjectID
     let worktreeID: WorktreeID
     let tabID: TabID
   }
 
-  private func findPanel(_ panelID: PanelID) -> PanelLocation? {
+  private func findPane(_ paneID: PaneID) -> PaneLocation? {
     for space in hierarchy.catalog.spaces {
       for project in space.projects {
         for worktree in project.worktrees {
-          for tab in worktree.tabs where tab.panels.contains(where: { $0.id == panelID }) {
-            return PanelLocation(
+          for tab in worktree.tabs where tab.panes.contains(where: { $0.id == paneID }) {
+            return PaneLocation(
               spaceID: space.id,
               projectID: project.id,
               worktreeID: worktree.id,
@@ -399,10 +399,10 @@ final class TerminalEngine {
     return nil
   }
 
-  private func siblingPanelIDs(
-    in location: PanelLocation,
-    excluding excluded: PanelID
-  ) -> [PanelID] {
+  private func siblingPaneIDs(
+    in location: PaneLocation,
+    excluding excluded: PaneID
+  ) -> [PaneID] {
     guard
       let space = hierarchy.catalog.spaces.first(where: { $0.id == location.spaceID }),
       let project = space.projects.first(where: { $0.id == location.projectID }),
@@ -411,19 +411,19 @@ final class TerminalEngine {
     else {
       return []
     }
-    return tab.panels.map(\.id).filter { $0 != excluded }
+    return tab.panes.map(\.id).filter { $0 != excluded }
   }
 
-  private func makeBuffer(for panelID: PanelID) -> PendingOutputBuffer {
+  private func makeBuffer(for paneID: PaneID) -> PendingOutputBuffer {
     // The engine must outlive its output buffers. disposeOutputBuffer drops
     // the buffer while the engine is still broadcasting, so the weak capture
     // only matters as a safety net if the buffer is dropped via deinit after
     // finishEventStream — in that case emit is a no-op, bytes silently fall
     // on the floor (documented trade-off).
-    let buffer = PendingOutputBuffer(panelID: panelID) { [weak self] id, data in
-      self?.emit(.panelOutput(id, data))
+    let buffer = PendingOutputBuffer(paneID: paneID) { [weak self] id, data in
+      self?.emit(.paneOutput(id, data))
     }
-    outputBuffers[panelID] = buffer
+    outputBuffers[paneID] = buffer
     return buffer
   }
 }
@@ -434,12 +434,12 @@ extension TerminalEvent {
   /// because scrollback retains history.
   fileprivate var isLifecycle: Bool {
     switch self {
-    case .panelOutput, .panelIdle, .panelInfoChanged:
+    case .paneOutput, .paneIdle, .paneInfoChanged:
       return false
-    case .panelCreated, .panelReady, .panelExited, .panelCrashed,
-      .panelClosedByTab, .tabActivated, .tabAutoClosed,
+    case .paneCreated, .paneReady, .paneExited, .paneCrashed,
+      .paneClosedByTab, .tabActivated, .tabAutoClosed,
       .worktreeActivated, .hierarchyMutated,
-      .panelActionRequested, .windowActionRequested, .configChanged:
+      .paneActionRequested, .windowActionRequested, .configChanged:
       return true
     }
   }

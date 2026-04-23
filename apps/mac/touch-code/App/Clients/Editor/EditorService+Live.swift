@@ -33,7 +33,7 @@ final actor LiveEditorService: EditorService {
     for template in EditorRegistry.registry {
       switch template.launchMode {
       case .shellEditor:
-        // TODO(C8a): re-expose once a Panel-aware open path lands — see exec-plan progress
+        // TODO(C8a): re-expose once a Pane-aware open path lands — see exec-plan progress
         // section. The registry entry stays so the descriptor shape is defined for the
         // future caller, but `describe()` cannot advertise an editor whose `open()` throws
         // `.launchFailed` every time: saving it as a global/project default strands the
@@ -129,23 +129,23 @@ final actor LiveEditorService: EditorService {
       try await launcher.openApplication(at: appURL, configuration: config)
 
     case .shellEditor:
-      // C8a Phase 4d: `TerminalEngine.ensureSurface` now forwards `panel.initialCommand` to
+      // C8a Phase 4d: `TerminalEngine.ensureSurface` now forwards `pane.initialCommand` to
       // the freshly spawned shell, so the primitive IS in place. What's missing is a way for
-      // this service to address a Panel: `.shellEditor` needs a `(spaceID, projectID,
-      // worktreeID, tabID)` tuple to hand `HierarchyManager.openPanel`, and the service's
+      // this service to address a Pane: `.shellEditor` needs a `(spaceID, projectID,
+      // worktreeID, tabID)` tuple to hand `HierarchyManager.openPane`, and the service's
       // `(directory: URL, preferred: EditorID?)` signature intentionally excludes domain
       // types (design doc §"Path-in, nothing else"). Short of widening the service signature
-      // or smuggling a Panel spawner in via closure, `.shellEditor` can't complete from here.
+      // or smuggling a Pane spawner in via closure, `.shellEditor` can't complete from here.
       //
       // Ship: fail gracefully with a descriptive error so the registry entry keeps its shape
       // in `describe()` but attempting to open through it surfaces the unresolved design
       // question instead of silently no-op'ing. Callers that want `.shellEditor` to work end
-      // to end should route through the Panel/Tab-aware code path (e.g. the worktree header
-      // "Open in ▾" + a future `tc open --in editor` wired to `hierarchy.openPanel`).
+      // to end should route through the Pane/Tab-aware code path (e.g. the worktree header
+      // "Open in ▾" + a future `tc open --in editor` wired to `hierarchy.openPane`).
       throw EditorError.launchFailed(
         reason:
           "$EDITOR requires a Tab context that EditorService does not have. "
-          + "Open a Panel via the Worktree header or `hierarchy.openPanel` with initialCommand=\"$EDITOR\". "
+          + "Open a Pane via the Worktree header or `hierarchy.openPane` with initialCommand=\"$EDITOR\". "
           + "See docs/exec-plans/c8a-implementation.md (Phase 4d)."
       )
     }

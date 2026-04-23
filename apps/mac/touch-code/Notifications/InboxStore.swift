@@ -134,18 +134,18 @@ final class InboxStore {
     }
   }
 
-  /// Marks every notification whose panel resolves (through `catalog`) to
+  /// Marks every notification whose pane resolves (through `catalog`) to
   /// the given Worktree as read. `readAt` is set to `now` for any entry
   /// that was previously unread and mapped to the worktree. Skips entries
-  /// whose panel is no longer in the catalog. If anything changed, schedules
+  /// whose pane is no longer in the catalog. If anything changed, schedules
   /// a debounced save and publishes the unread mutation so the Dock badge
   /// updates. Idempotent: a second call on an already-read set is a no-op.
   func markRead(forWorktree worktreeID: WorktreeID, in catalog: Catalog, now: Date = Date()) {
-    let panelIDs = catalog.panelIDs(inWorktree: worktreeID)
-    guard !panelIDs.isEmpty else { return }
+    let paneIDs = catalog.paneIDs(inWorktree: worktreeID)
+    guard !paneIDs.isEmpty else { return }
     var mutated = false
     for index in inbox.notifications.indices {
-      guard panelIDs.contains(inbox.notifications[index].panelID) else { continue }
+      guard paneIDs.contains(inbox.notifications[index].paneID) else { continue }
       guard inbox.notifications[index].readAt == nil else { continue }
       inbox.notifications[index].readAt = now
       mutated = true

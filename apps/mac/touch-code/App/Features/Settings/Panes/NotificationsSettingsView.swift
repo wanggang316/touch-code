@@ -138,9 +138,9 @@ struct NotificationsSettingsView: View {
 
   private static func muteSummary(for mute: MuteSettings) -> String {
     let ruleCount = mute.mutedRuleIDs.count
-    let panelCount = mute.mutedPanelIDs.count
-    if ruleCount == 0 && panelCount == 0 { return "No mute rules" }
-    return "\(ruleCount) rule(s), \(panelCount) panel(s) muted"
+    let paneCount = mute.mutedPaneIDs.count
+    if ruleCount == 0 && paneCount == 0 { return "No mute rules" }
+    return "\(ruleCount) rule(s), \(paneCount) pane(s) muted"
   }
 
   private static func revealDetectionRules() {

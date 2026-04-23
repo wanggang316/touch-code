@@ -10,11 +10,11 @@ import TouchCodeIPC
 ///   a round trip. Fast path for scripted agents that already know IDs.
 /// - **`current` / `.`** — resolves to the relevant `$TOUCH_CODE_*_ID`
 ///   env var (`SPACE_ID`, `PROJECT_ID`, `WORKTREE_ID`, `TAB_ID`, or
-///   `PANEL_ID` depending on `kind`). Used by commands that default to
+///   `PANE_ID` depending on `kind`). Used by commands that default to
 ///   the current context.
-/// - **`@label`** — panel-only. Routed through `hierarchy.resolveAlias`
+/// - **`@label`** — pane-only. Routed through `hierarchy.resolveAlias`
 ///   via the supplied `RPCClient` so the server can match against
-///   `Panel.labels`.
+///   `Pane.labels`.
 /// - **everything else** — sent to `hierarchy.resolveAlias` as a generic
 ///   string; the server decides whether it's an index, path glob, or
 ///   unrecognised.
@@ -49,11 +49,11 @@ public enum AliasResolver {
 
     // 3. Everything else → server resolver.
     let rpc = try client()
-    let contextPanelID: PanelID? = env["TOUCH_CODE_PANEL_ID"].flatMap(UUID.init(uuidString:)).map(PanelID.init(raw:))
+    let contextPaneID: PaneID? = env["TOUCH_CODE_PANE_ID"].flatMap(UUID.init(uuidString:)).map(PaneID.init(raw:))
     let request = IPC.AliasResolveRequest(
       kind: kind,
       value: value,
-      contextPanelID: contextPanelID
+      contextPaneID: contextPaneID
     )
     do {
       let result: IPC.AliasResolveResult = try await rpc.call(
@@ -72,7 +72,7 @@ public enum AliasResolver {
     case .project:  return "TOUCH_CODE_PROJECT_ID"
     case .worktree: return "TOUCH_CODE_WORKTREE_ID"
     case .tab:      return "TOUCH_CODE_TAB_ID"
-    case .panel:    return "TOUCH_CODE_PANEL_ID"
+    case .pane:     return "TOUCH_CODE_PANE_ID"
     }
   }
 }

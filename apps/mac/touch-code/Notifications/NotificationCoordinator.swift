@@ -10,14 +10,14 @@ import os.log
 /// `InboxStore.unreadPublisher` on every mutation (DEC-13).
 ///
 /// Permission flow (DEC-4):
-/// - First-run prompt is deferred to the first `onAgentPanelCreated` call
+/// - First-run prompt is deferred to the first `onAgentPaneCreated` call
 ///   and gated by `alreadyPrompted` + the `authStatus` surfaced through the
 ///   injected `NotificationSettingsReader`; writes flow via the paired
 ///   `NotificationsMutator` (see typealias below).
 /// - `NotificationPermissionDelegate` chooses between `.continue` (go to
 ///   UN request), `.notNow` (24h cool-down), `.never` (permanent suppress).
 /// - Restart-time sweep: M4's wiring step 10 iterates `registry.allTrackers`
-///   and calls `onAgentPanelCreated` per Panel — idempotent, so a second
+///   and calls `onAgentPaneCreated` per Pane — idempotent, so a second
 ///   invocation within the same session is a no-op.
 @MainActor
 final class NotificationCoordinator {
@@ -38,10 +38,10 @@ final class NotificationCoordinator {
   private weak var router: DetectionRouter?
   private let logger = Logger(subsystem: "com.touch-code.notifications", category: "coordinator")
 
-  /// Panels we have already walked through the permission-prompt branch
+  /// Panes we have already walked through the permission-prompt branch
   /// in the current session. Guards against double-prompting when
-  /// restart-time sweep and live creation fire for the same PanelID.
-  private var alreadyPrompted: Set<PanelID> = []
+  /// restart-time sweep and live creation fire for the same PaneID.
+  private var alreadyPrompted: Set<PaneID> = []
 
   init(
     inbox: InboxStore,
@@ -126,7 +126,7 @@ final class NotificationCoordinator {
 
     let body: String = output.body
     let notification = AgentNotification(
-      panelID: output.transition.panelID,
+      paneID: output.transition.paneID,
       agent: output.agent,
       kind: output.kind,
       title: output.title,
@@ -144,7 +144,7 @@ final class NotificationCoordinator {
     }
     guard
       shouldPostToOS(
-        kind: output.kind, ruleID: Self.ruleID(from: output.transition.trigger), panelID: output.transition.panelID,
+        kind: output.kind, ruleID: Self.ruleID(from: output.transition.trigger), paneID: output.transition.paneID,
         muting: muting)
     else {
       return
@@ -157,7 +157,7 @@ final class NotificationCoordinator {
       muting.redactBodies
       ? AgentNotification(
         id: notification.id,
-        panelID: notification.panelID,
+        paneID: notification.paneID,
         agent: notification.agent,
         kind: notification.kind,
         title: notification.title,
@@ -171,11 +171,11 @@ final class NotificationCoordinator {
   private func shouldPostToOS(
     kind: AgentNotification.Kind,
     ruleID: String?,
-    panelID: PanelID,
+    paneID: PaneID,
     muting: MuteSettings
   ) -> Bool {
     if let ruleID, muting.mutedRuleIDs.contains(ruleID) { return false }
-    if muting.mutedPanelIDs.contains(panelID) { return false }
+    if muting.mutedPaneIDs.contains(paneID) { return false }
     if kind == .idle, !muting.surfaceIdle { return false }
     return true
   }
@@ -191,8 +191,8 @@ final class NotificationCoordinator {
   /// and by the registry's `trackerCreations` subscriber). First call
   /// after install on a `.notDetermined` status triggers the pre-prompt
   /// sheet via the delegate; subsequent calls are no-ops (idempotent).
-  func onAgentPanelCreated(_ panelID: PanelID) async {
-    if alreadyPrompted.contains(panelID) { return }
+  func onAgentPaneCreated(_ paneID: PaneID) async {
+    if alreadyPrompted.contains(paneID) { return }
     let status = settingsReader.authStatus
     guard status == .notDetermined else { return }
     if settingsReader.neverPrompt { return }
@@ -205,11 +205,11 @@ final class NotificationCoordinator {
     // user who grants permission in System Settings mid-prompt does not
     // face a redundant `requestAuthorization` call.
     if settingsReader.authStatus != .notDetermined {
-      alreadyPrompted.insert(panelID)
+      alreadyPrompted.insert(paneID)
       return
     }
 
-    alreadyPrompted.insert(panelID)
+    alreadyPrompted.insert(paneID)
     switch decision {
     case .continue:
       let newStatus = await osNotifier.requestAuthorization()

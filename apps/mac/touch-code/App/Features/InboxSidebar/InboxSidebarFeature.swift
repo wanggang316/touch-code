@@ -8,9 +8,9 @@ import TouchCodeCore
 /// `InboxStore` behind `InboxClient`; this state is a cached projection
 /// that reflects the latest snapshot seen on the observe stream.
 ///
-/// Row-tap and banner-click ultimately focus the originating Panel, but
+/// Row-tap and banner-click ultimately focus the originating Pane, but
 /// the navigation chain lives in `RootFeature` — this reducer emits
-/// `.deeplinkRequested(PanelID)` as a delegate action and leaves the
+/// `.deeplinkRequested(PaneID)` as a delegate action and leaves the
 /// actual hierarchy selection to the parent (design sketch
 /// §Deeplink chain).
 @Reducer
@@ -34,8 +34,8 @@ struct InboxSidebarFeature {
     case unreadCountUpdated(Int)
 
     /// Delegate action — parent reducer (RootFeature) focuses the
-    /// originating Panel via HierarchyClient.
-    case deeplinkRequested(PanelID)
+    /// originating Pane via HierarchyClient.
+    case deeplinkRequested(PaneID)
   }
 
   nonisolated enum CancelID: Sendable { case observe, observeUnread }
@@ -73,10 +73,10 @@ struct InboxSidebarFeature {
         // stale snapshot during the animation window). `markRead` is
         // idempotent against unknown ids; we skip the deeplink emit if
         // the entry is no longer in the cached projection.
-        let panelID = state.notifications.first(where: { $0.id == id })?.panelID
+        let paneID = state.notifications.first(where: { $0.id == id })?.paneID
         inboxClient.markRead([id])
-        if let panelID {
-          return .send(.deeplinkRequested(panelID))
+        if let paneID {
+          return .send(.deeplinkRequested(paneID))
         }
         return .none
 

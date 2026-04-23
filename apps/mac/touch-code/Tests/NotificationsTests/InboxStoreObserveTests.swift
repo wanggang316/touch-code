@@ -84,7 +84,7 @@ struct InboxStoreObserveTests {
 
   private static func makeNotification(agent: String) -> AgentNotification {
     AgentNotification(
-      panelID: PanelID(),
+      paneID: PaneID(),
       agent: agent,
       kind: .completed,
       title: "t",

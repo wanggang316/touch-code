@@ -3,9 +3,9 @@ import Foundation
 import OSLog
 import TouchCodeCore
 
-private let panelHostLogger = Logger(subsystem: "com.touch-code.shell", category: "panel-host")
+private let paneHostLogger = Logger(subsystem: "com.touch-code.shell", category: "pane-host")
 
-/// Lifecycle reducer for a single panel's `PanelSurface`. Owns the
+/// Lifecycle reducer for a single pane's `PaneSurface`. Owns the
 /// first-resolve, retry, and failure surfacing that used to live in a
 /// SwiftUI view body. `@Dependency(TerminalClient.self)` sits here
 /// (reducer-scoped, where `Store.withDependencies` in `bringUp()` actually
@@ -16,10 +16,10 @@ private let panelHostLogger = Logger(subsystem: "com.touch-code.shell", category
 /// closures, so the resolve path can mutate state directly — no `.run`
 /// ceremony and no cancellation id to manage.
 @Reducer
-struct PanelHostFeature {
+struct PaneHostFeature {
   @ObservableState
   struct State: Equatable, Identifiable {
-    let panelID: PanelID
+    let paneID: PaneID
     let tabID: TabID
     let worktreeID: WorktreeID
     let projectID: ProjectID
@@ -30,7 +30,7 @@ struct PanelHostFeature {
     /// registry.
     var surface: SurfaceBox?
 
-    var id: PanelID { panelID }
+    var id: PaneID { paneID }
 
     enum Phase: Equatable {
       case loading
@@ -40,7 +40,7 @@ struct PanelHostFeature {
   }
 
   enum Action: Equatable {
-    /// Fired from `LazyPanelHost.task`. Idempotent: registry short-circuit
+    /// Fired from `LazyPaneHost.task`. Idempotent: registry short-circuit
     /// keeps re-renders free.
     case task
     case retryButtonTapped
@@ -64,33 +64,33 @@ struct PanelHostFeature {
   }
 
   private func resolveSurface(state: inout State) {
-    if let existing = terminalClient.surface(state.panelID) {
+    if let existing = terminalClient.surface(state.paneID) {
       state.phase = .ready
       state.surface = SurfaceBox(surface: existing)
       return
     }
     do {
       try terminalClient.ensureSurface(
-        state.panelID, state.tabID, state.worktreeID, state.projectID, state.spaceID
+        state.paneID, state.tabID, state.worktreeID, state.projectID, state.spaceID
       )
     } catch {
       let message = String(describing: error)
-      let panelIDDescription = state.panelID.description
-      panelHostLogger.error(
-        "ensureSurface failed for \(panelIDDescription, privacy: .public): \(message, privacy: .public)"
+      let paneIDDescription = state.paneID.description
+      paneHostLogger.error(
+        "ensureSurface failed for \(paneIDDescription, privacy: .public): \(message, privacy: .public)"
       )
       state.phase = .failed(message)
       state.surface = nil
       return
     }
-    if let surface = terminalClient.surface(state.panelID) {
+    if let surface = terminalClient.surface(state.paneID) {
       state.phase = .ready
       state.surface = SurfaceBox(surface: surface)
     } else {
       let message = "Surface not registered after creation."
-      let panelIDDescription = state.panelID.description
-      panelHostLogger.warning(
-        "\(message, privacy: .public) panelID=\(panelIDDescription, privacy: .public)"
+      let paneIDDescription = state.paneID.description
+      paneHostLogger.warning(
+        "\(message, privacy: .public) paneID=\(paneIDDescription, privacy: .public)"
       )
       state.phase = .failed(message)
       state.surface = nil
@@ -98,11 +98,11 @@ struct PanelHostFeature {
   }
 }
 
-/// Identity-compared wrapper so `PanelSurface` (reference type, not
+/// Identity-compared wrapper so `PaneSurface` (reference type, not
 /// `Equatable`) can live in reducer state without leaking `===` semantics
 /// through a global extension.
 struct SurfaceBox: Equatable {
-  let surface: PanelSurface
+  let surface: PaneSurface
   static func == (lhs: SurfaceBox, rhs: SurfaceBox) -> Bool {
     lhs.surface === rhs.surface
   }

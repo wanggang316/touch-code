@@ -12,17 +12,17 @@ import TouchCodeCore
 /// 2. **When a Worktree is selected**: Git viewer toggle, editor-open
 ///    commands (one per installed `EditorDescriptor`), refresh, close,
 ///    reveal in Finder.
-/// 3. **When a Panel is focused**: all `PanelActionRequest` and
-///    `WindowActionRequest` cases that require a source panel. If no
-///    panel is focused, these items are omitted rather than emitted with
-///    a synthetic panel ID.
+/// 3. **When a Pane is focused**: all `PaneActionRequest` and
+///    `WindowActionRequest` cases that require a source pane. If no
+///    pane is focused, these items are omitted rather than emitted with
+///    a synthetic pane ID.
 enum CommandPaletteItems {
   static func build(
     selection: HierarchySelection,
     catalog: Catalog,
     editorDescriptors: [EditorDescriptor] = [],
-    focusedPanelID: PanelID? = nil,
-    panelFocusPrecise: Bool = false
+    focusedPaneID: PaneID? = nil,
+    paneFocusPrecise: Bool = false
   ) -> [CommandPaletteItem] {
     var items = appItems() + spaceItems(catalog: catalog)
     items.append(contentsOf: worktreeSwitchItems(selection: selection, catalog: catalog))
@@ -30,17 +30,17 @@ enum CommandPaletteItems {
       items.append(contentsOf: worktreeItems(worktreeName: worktree.name))
       items.append(contentsOf: editorItems(worktreeName: worktree.name, descriptors: editorDescriptors))
     }
-    if let focusedPanelID {
+    if let focusedPaneID {
       // Window actions only need any leaf in the current tab to resolve
       // the source NSWindow, so they're always safe once we have a
-      // PanelID. Panel actions that depend on real focus (split / goto /
-      // resize / zoom) are only emitted when the panel was reported by
+      // PaneID. Pane actions that depend on real focus (split / goto /
+      // resize / zoom) are only emitted when the pane was reported by
       // the ghostty keybind path — not a fallback from leaves().first.
-      items.append(contentsOf: windowItems(focusedPanelID: focusedPanelID))
-      if panelFocusPrecise {
-        items.append(contentsOf: panelFocusDependentItems())
+      items.append(contentsOf: windowItems(focusedPaneID: focusedPaneID))
+      if paneFocusPrecise {
+        items.append(contentsOf: paneFocusDependentItems())
       }
-      items.append(contentsOf: panelTabScopedItems())
+      items.append(contentsOf: paneTabScopedItems())
     }
     return items
   }
@@ -202,16 +202,16 @@ enum CommandPaletteItems {
   }
 
   /// Walks the catalog from the selection down to a representative
-  /// panel for the active tab. The catalog doesn't track "focused panel"
+  /// pane for the active tab. The catalog doesn't track "focused pane"
   /// explicitly — the ghostty runtime owns that state — but Window- and
-  /// Panel-scoped palette actions need *a* PanelID to target the right
+  /// Pane-scoped palette actions need *a* PaneID to target the right
   /// window. We use the first leaf of the selected tab's split tree,
   /// which is guaranteed to map to the same NSWindow as the focused
-  /// panel.
-  static func resolveFocusedPanelID(
+  /// pane.
+  static func resolveFocusedPaneID(
     selection: HierarchySelection,
     catalog: Catalog
-  ) -> PanelID? {
+  ) -> PaneID? {
     guard
       let spaceID = selection.spaceID,
       let projectID = selection.projectID,
@@ -227,112 +227,112 @@ enum CommandPaletteItems {
 
   // MARK: - Private builders
 
-  /// Tab-scoped Panel actions: any panel in the current tab resolves to
-  /// the same Tab via `addressOf`, so fallback-resolved panelIDs are
+  /// Tab-scoped Pane actions: any pane in the current tab resolves to
+  /// the same Tab via `addressOf`, so fallback-resolved paneIDs are
   /// sufficient. Safe to emit regardless of whether focus was precise.
-  private static func panelTabScopedItems() -> [CommandPaletteItem] {
+  private static func paneTabScopedItems() -> [CommandPaletteItem] {
     [
       CommandPaletteItem(
-        id: "panel.new-tab",
+        id: "pane.new-tab",
         title: "New Tab",
         icon: "plus.rectangle.on.rectangle",
-        kind: .panelAction(.newTab)
+        kind: .paneAction(.newTab)
       ),
       CommandPaletteItem(
-        id: "panel.equalize",
+        id: "pane.equalize",
         title: "Equalize Splits",
         icon: "rectangle.split.3x1",
-        kind: .panelAction(.equalizeSplits)
+        kind: .paneAction(.equalizeSplits)
       ),
       CommandPaletteItem(
-        id: "panel.close-tab",
+        id: "pane.close-tab",
         title: "Close Tab",
         icon: "xmark.circle",
         hiddenWhenQueryEmpty: true,
-        kind: .panelAction(.closeTab(mode: .this))
+        kind: .paneAction(.closeTab(mode: .this))
       ),
     ]
   }
 
-  /// Panel actions whose target depends on which split is focused —
-  /// splits, focus navigation, zoom toggle. Only emitted when the panel
+  /// Pane actions whose target depends on which split is focused —
+  /// splits, focus navigation, zoom toggle. Only emitted when the pane
   /// was carried in via the ghostty keybind pipeline (precise focus).
   /// A menu-triggered palette open omits these so the user never sees a
   /// "Focus Left Split" that would silently navigate from the wrong
-  /// panel.
-  private static func panelFocusDependentItems() -> [CommandPaletteItem] {
+  /// pane.
+  private static func paneFocusDependentItems() -> [CommandPaletteItem] {
     [
       CommandPaletteItem(
-        id: "panel.split.right",
+        id: "pane.split.right",
         title: "Split Right",
         icon: "rectangle.split.2x1",
-        kind: .panelAction(.newSplit(direction: .right))
+        kind: .paneAction(.newSplit(direction: .right))
       ),
       CommandPaletteItem(
-        id: "panel.split.down",
+        id: "pane.split.down",
         title: "Split Down",
         icon: "rectangle.split.1x2",
-        kind: .panelAction(.newSplit(direction: .down))
+        kind: .paneAction(.newSplit(direction: .down))
       ),
       CommandPaletteItem(
-        id: "panel.focus.left",
+        id: "pane.focus.left",
         title: "Focus Left Split",
         icon: "arrow.left",
-        kind: .panelAction(.gotoSplit(direction: .left))
+        kind: .paneAction(.gotoSplit(direction: .left))
       ),
       CommandPaletteItem(
-        id: "panel.focus.right",
+        id: "pane.focus.right",
         title: "Focus Right Split",
         icon: "arrow.right",
-        kind: .panelAction(.gotoSplit(direction: .right))
+        kind: .paneAction(.gotoSplit(direction: .right))
       ),
       CommandPaletteItem(
-        id: "panel.focus.up",
+        id: "pane.focus.up",
         title: "Focus Split Above",
         icon: "arrow.up",
-        kind: .panelAction(.gotoSplit(direction: .up))
+        kind: .paneAction(.gotoSplit(direction: .up))
       ),
       CommandPaletteItem(
-        id: "panel.focus.down",
+        id: "pane.focus.down",
         title: "Focus Split Below",
         icon: "arrow.down",
-        kind: .panelAction(.gotoSplit(direction: .down))
+        kind: .paneAction(.gotoSplit(direction: .down))
       ),
       CommandPaletteItem(
-        id: "panel.toggle-zoom",
+        id: "pane.toggle-zoom",
         title: "Toggle Split Zoom",
         icon: "plus.magnifyingglass",
-        kind: .panelAction(.toggleSplitZoom)
+        kind: .paneAction(.toggleSplitZoom)
       ),
     ]
   }
 
-  private static func windowItems(focusedPanelID: PanelID) -> [CommandPaletteItem] {
+  private static func windowItems(focusedPaneID: PaneID) -> [CommandPaletteItem] {
     [
       CommandPaletteItem(
         id: "window.new",
         title: "New Window",
         icon: "macwindow.badge.plus",
-        kind: .windowAction(.new(from: focusedPanelID))
+        kind: .windowAction(.new(from: focusedPaneID))
       ),
       CommandPaletteItem(
         id: "window.close",
         title: "Close Window",
         icon: "xmark",
         hiddenWhenQueryEmpty: true,
-        kind: .windowAction(.close(from: focusedPanelID))
+        kind: .windowAction(.close(from: focusedPaneID))
       ),
       CommandPaletteItem(
         id: "window.toggle-fullscreen",
         title: "Toggle Fullscreen",
         icon: "arrow.up.left.and.arrow.down.right",
-        kind: .windowAction(.toggleFullscreen(from: focusedPanelID))
+        kind: .windowAction(.toggleFullscreen(from: focusedPaneID))
       ),
       CommandPaletteItem(
         id: "window.toggle-tab-overview",
         title: "Show Tab Overview",
         icon: "square.grid.2x2",
-        kind: .windowAction(.toggleTabOverview(from: focusedPanelID))
+        kind: .windowAction(.toggleTabOverview(from: focusedPaneID))
       ),
     ]
   }

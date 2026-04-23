@@ -68,13 +68,13 @@ struct HookEventMulticasterTests {
 
   static func makeEnvelope() -> HookEnvelope {
     HookEnvelope(
-      event: .panelReady,
+      event: .paneReady,
       space: .init(id: SpaceID(), name: "s"),
       project: .init(id: ProjectID(), name: "p", rootPath: "/"),
       worktree: .init(id: WorktreeID(), name: "w", path: "/"),
       tab: .init(id: TabID()),
-      panel: .init(id: PanelID(), workingDirectory: "/"),
-      data: .panelReady(pid: nil, shell: "/bin/sh")
+      pane: .init(id: PaneID(), workingDirectory: "/"),
+      data: .paneReady(pid: nil, shell: "/bin/sh")
     )
   }
 

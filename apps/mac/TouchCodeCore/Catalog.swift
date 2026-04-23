@@ -85,15 +85,15 @@ extension Catalog {
     return mutated
   }
 
-  /// Resolve a `PanelID` to the Worktree that currently hosts it, if any.
-  /// Walks `spaces → projects → worktrees → tabs → panels` and returns the
-  /// first match. Linear in the total panel count. Returns `nil` if the
-  /// panel has been closed or never belonged to this catalog.
-  public func worktreeID(forPanel panelID: PanelID) -> WorktreeID? {
+  /// Resolve a `PaneID` to the Worktree that currently hosts it, if any.
+  /// Walks `spaces → projects → worktrees → tabs → panes` and returns the
+  /// first match. Linear in the total pane count. Returns `nil` if the
+  /// pane has been closed or never belonged to this catalog.
+  public func worktreeID(forPane paneID: PaneID) -> WorktreeID? {
     for space in spaces {
       for project in space.projects {
         for worktree in project.worktrees {
-          for tab in worktree.tabs where tab.panels.contains(where: { $0.id == panelID }) {
+          for tab in worktree.tabs where tab.panes.contains(where: { $0.id == paneID }) {
             return worktree.id
           }
         }
@@ -102,15 +102,15 @@ extension Catalog {
     return nil
   }
 
-  /// All `PanelID`s currently living under the given Worktree, flat across
+  /// All `PaneID`s currently living under the given Worktree, flat across
   /// every tab. Returns an empty set if the Worktree is not in the catalog.
-  public func panelIDs(inWorktree worktreeID: WorktreeID) -> Set<PanelID> {
+  public func paneIDs(inWorktree worktreeID: WorktreeID) -> Set<PaneID> {
     for space in spaces {
       for project in space.projects {
         guard let worktree = project.worktrees.first(where: { $0.id == worktreeID }) else { continue }
-        var ids: Set<PanelID> = []
+        var ids: Set<PaneID> = []
         for tab in worktree.tabs {
-          for panel in tab.panels { ids.insert(panel.id) }
+          for pane in tab.panes { ids.insert(pane.id) }
         }
         return ids
       }

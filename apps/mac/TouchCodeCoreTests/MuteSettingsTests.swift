@@ -21,7 +21,7 @@ struct MuteSettingsTests {
     #expect(settings.surfaceIdle == false)
     #expect(settings.redactBodies == false)
     #expect(settings.mutedRuleIDs.isEmpty)
-    #expect(settings.mutedPanelIDs.isEmpty)
+    #expect(settings.mutedPaneIDs.isEmpty)
   }
 
   @Test
@@ -32,7 +32,7 @@ struct MuteSettingsTests {
       surfaceIdle: true,
       redactBodies: true,
       mutedRuleIDs: ["claude.completed", "codex.blocked_on_input"],
-      mutedPanelIDs: [PanelID(), PanelID()]
+      mutedPaneIDs: [PaneID(), PaneID()]
     )
     let data = try JSONEncoder().encode(original)
     let decoded = try JSONDecoder().decode(MuteSettings.self, from: data)

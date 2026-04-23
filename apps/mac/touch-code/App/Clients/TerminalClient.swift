@@ -7,27 +7,27 @@ import TouchCodeCore
 /// each closure to a concrete `TerminalEngine` instance at app startup via
 /// `.withDependencies`.
 nonisolated struct TerminalClient: Sendable {
-  var sendInput: @MainActor @Sendable (_ panelID: PanelID, _ text: String) -> Void
-  var setFocus: @MainActor @Sendable (_ panelID: PanelID, _ focused: Bool) -> Void
-  var retryPanel: @MainActor @Sendable (_ panelID: PanelID) -> Bool
+  var sendInput: @MainActor @Sendable (_ paneID: PaneID, _ text: String) -> Void
+  var setFocus: @MainActor @Sendable (_ paneID: PaneID, _ focused: Bool) -> Void
+  var retryPane: @MainActor @Sendable (_ paneID: PaneID) -> Bool
 
-  /// Create or return the existing `PanelSurface` for the panel. Throws
+  /// Create or return the existing `PaneSurface` for the pane. Throws
   /// `TerminalClient.Error.worktreeNotFound` if the worktree address doesn't
   /// resolve inside the current catalog. The client takes the full address
   /// so the engine's `ensureSurface(for:in:)` can hand the `Worktree`
   /// struct to ghostty as the surface config's working directory source.
   var ensureSurface:
     @MainActor @Sendable (
-      _ panelID: PanelID, _ inTab: TabID, _ inWorktree: WorktreeID,
+      _ paneID: PaneID, _ inTab: TabID, _ inWorktree: WorktreeID,
       _ inProject: ProjectID, _ inSpace: SpaceID
     ) throws -> Void
-  var closeSurface: @MainActor @Sendable (_ panelID: PanelID) -> Void
+  var closeSurface: @MainActor @Sendable (_ paneID: PaneID) -> Void
 
-  /// Look up an existing `PanelSurface` registered with the engine. Returns
-  /// `nil` when no surface has been created for the panel yet; callers
-  /// (notably `LazyPanelHost`) should call `ensureSurface` first on a
+  /// Look up an existing `PaneSurface` registered with the engine. Returns
+  /// `nil` when no surface has been created for the pane yet; callers
+  /// (notably `LazyPaneHost`) should call `ensureSurface` first on a
   /// cache miss.
-  var surface: @MainActor @Sendable (_ panelID: PanelID) -> PanelSurface?
+  var surface: @MainActor @Sendable (_ paneID: PaneID) -> PaneSurface?
 
   /// Event stream from the engine. Multi-consumer: each call returns a fresh
   /// subscriber registration. Lifecycle events always delivered; output
@@ -36,7 +36,7 @@ nonisolated struct TerminalClient: Sendable {
 
   enum Error: Swift.Error, Equatable, Sendable {
     case worktreeNotFound(WorktreeID)
-    case panelNotFound(PanelID)
+    case paneNotFound(PaneID)
   }
 }
 
@@ -46,28 +46,28 @@ extension TerminalClient {
   @MainActor
   static func live(engine: TerminalEngine) -> TerminalClient {
     TerminalClient(
-      sendInput: { panelID, text in
-        engine.ghosttyRuntime?.surface(for: panelID)?.sendInput(text)
+      sendInput: { paneID, text in
+        engine.ghosttyRuntime?.surface(for: paneID)?.sendInput(text)
       },
-      setFocus: { panelID, focused in
-        engine.ghosttyRuntime?.surface(for: panelID)?.setFocus(focused)
+      setFocus: { paneID, focused in
+        engine.ghosttyRuntime?.surface(for: paneID)?.setFocus(focused)
       },
-      retryPanel: { panelID in engine.retryPanel(panelID) },
-      ensureSurface: { panelID, tabID, worktreeID, projectID, spaceID in
+      retryPane: { paneID in engine.retryPane(paneID) },
+      ensureSurface: { paneID, tabID, worktreeID, projectID, spaceID in
         let catalog = engine.hierarchy.catalog
         guard
           let space = catalog.spaces.first(where: { $0.id == spaceID }),
           let project = space.projects.first(where: { $0.id == projectID }),
           let worktree = project.worktrees.first(where: { $0.id == worktreeID }),
           let tab = worktree.tabs.first(where: { $0.id == tabID }),
-          let panel = tab.panels.first(where: { $0.id == panelID })
+          let pane = tab.panes.first(where: { $0.id == paneID })
         else {
           throw TerminalClient.Error.worktreeNotFound(worktreeID)
         }
-        _ = try engine.ensureSurface(for: panel, in: worktree)
+        _ = try engine.ensureSurface(for: pane, in: worktree)
       },
-      closeSurface: { panelID in engine.closeSurface(for: panelID) },
-      surface: { panelID in engine.ghosttyRuntime?.surface(for: panelID) },
+      closeSurface: { paneID in engine.closeSurface(for: paneID) },
+      surface: { paneID in engine.ghosttyRuntime?.surface(for: paneID) },
       events: { engine.events() }
     )
   }
@@ -81,7 +81,7 @@ extension TerminalClient: DependencyKey {
       fatalError("TerminalClient.liveValue not configured; wire via .withDependencies at app startup")
     },
     setFocus: { _, _ in fatalError("TerminalClient.liveValue not configured") },
-    retryPanel: { _ in fatalError("TerminalClient.liveValue not configured") },
+    retryPane: { _ in fatalError("TerminalClient.liveValue not configured") },
     ensureSurface: { _, _, _, _, _ in fatalError("TerminalClient.liveValue not configured") },
     closeSurface: { _ in fatalError("TerminalClient.liveValue not configured") },
     surface: { _ in nil },
@@ -91,7 +91,7 @@ extension TerminalClient: DependencyKey {
   static let testValue: TerminalClient = TerminalClient(
     sendInput: unimplemented("TerminalClient.sendInput"),
     setFocus: unimplemented("TerminalClient.setFocus"),
-    retryPanel: unimplemented("TerminalClient.retryPanel", placeholder: false),
+    retryPane: unimplemented("TerminalClient.retryPane", placeholder: false),
     ensureSurface: unimplemented("TerminalClient.ensureSurface"),
     closeSurface: unimplemented("TerminalClient.closeSurface"),
     surface: unimplemented("TerminalClient.surface", placeholder: nil),

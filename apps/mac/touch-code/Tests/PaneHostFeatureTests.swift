@@ -5,12 +5,12 @@ import TouchCodeCore
 
 @testable import touch_code
 
-/// TCA reducer tests for `PanelHostFeature`. Covers the decision tree that
-/// used to live in `LazyPanelHost.ensureSurface()`: registry short-circuit,
+/// TCA reducer tests for `PaneHostFeature`. Covers the decision tree that
+/// used to live in `LazyPaneHost.ensureSurface()`: registry short-circuit,
 /// first-appearance ensure path, ensure throw, post-ensure lookup nil, and
 /// retry.
 ///
-/// `PanelSurface` requires libghostty + Metal to instantiate; we cannot
+/// `PaneSurface` requires libghostty + Metal to instantiate; we cannot
 /// produce a live instance in xctest. The tests exercise every path that
 /// does NOT land in `.ready` — the `.ready` branch is covered end-to-end
 /// by the app itself (launching with a persisted catalog). For the
@@ -18,10 +18,10 @@ import TouchCodeCore
 /// `nil` causes `ensureSurface` to run; a live-surface short-circuit is
 /// out of xctest reach.
 @MainActor
-struct PanelHostFeatureTests {
-  private static func makeState(panelID: PanelID = PanelID()) -> PanelHostFeature.State {
-    PanelHostFeature.State(
-      panelID: panelID,
+struct PaneHostFeatureTests {
+  private static func makeState(paneID: PaneID = PaneID()) -> PaneHostFeature.State {
+    PaneHostFeature.State(
+      paneID: paneID,
       tabID: TabID(),
       worktreeID: WorktreeID(),
       projectID: ProjectID(),
@@ -40,7 +40,7 @@ struct PanelHostFeatureTests {
   func taskWithEnsureThrowLandsInFailed() async {
     let ensureCalls = LockIsolated<Int>(0)
     let store = TestStore(initialState: Self.makeState()) {
-      PanelHostFeature()
+      PaneHostFeature()
     } withDependencies: {
       $0.terminalClient.surface = { _ in nil }
       $0.terminalClient.ensureSurface = { _, _, _, _, _ in
@@ -59,7 +59,7 @@ struct PanelHostFeatureTests {
   func taskWithEnsureSuccessButLookupNilLandsInFailed() async {
     let ensureCalls = LockIsolated<Int>(0)
     let store = TestStore(initialState: Self.makeState()) {
-      PanelHostFeature()
+      PaneHostFeature()
     } withDependencies: {
       $0.terminalClient.surface = { _ in nil }
       $0.terminalClient.ensureSurface = { _, _, _, _, _ in
@@ -79,7 +79,7 @@ struct PanelHostFeatureTests {
     var initial = Self.makeState()
     initial.phase = .failed("prior")
     let store = TestStore(initialState: initial) {
-      PanelHostFeature()
+      PaneHostFeature()
     } withDependencies: {
       $0.terminalClient.surface = { _ in nil }
       $0.terminalClient.ensureSurface = { _, _, _, _, _ in
@@ -101,12 +101,12 @@ struct PanelHostFeatureTests {
     // The registry short-circuit runs before `ensureSurface` is invoked.
     // When the stub returns `nil`, `ensureSurface` runs; when it returns
     // a surface we'd land on `.ready`. We can't construct a live
-    // PanelSurface here, so we assert the weaker property: if the stub
+    // PaneSurface here, so we assert the weaker property: if the stub
     // returns `nil`, `ensureSurface` is invoked (i.e. the reducer does
     // attempt to create the surface rather than skipping the work).
     let ensureCalls = LockIsolated<Int>(0)
     let store = TestStore(initialState: Self.makeState()) {
-      PanelHostFeature()
+      PaneHostFeature()
     } withDependencies: {
       $0.terminalClient.surface = { _ in nil }
       $0.terminalClient.ensureSurface = { _, _, _, _, _ in

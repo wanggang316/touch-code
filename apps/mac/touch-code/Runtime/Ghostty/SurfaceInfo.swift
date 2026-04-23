@@ -12,9 +12,9 @@ struct ColorChange: Equatable, Sendable {
 }
 
 /// Observable, per-surface informational state maintained from the
-/// `PanelInfoDelta` stream. Every field corresponds to one or more
+/// `PaneInfoDelta` stream. Every field corresponds to one or more
 /// libghostty info-family actions decoded by `GhosttyActionDecoder` and
-/// applied via `PanelSurface.apply(_:)`.
+/// applied via `PaneSurface.apply(_:)`.
 ///
 /// All composite payloads (cell size, size limits, scrollbar, key sequence,
 /// key table) are flattened into individual stored properties — `@Observable`

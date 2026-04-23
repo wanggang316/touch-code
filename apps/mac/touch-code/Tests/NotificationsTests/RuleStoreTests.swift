@@ -28,7 +28,7 @@ struct RuleStoreTests {
         AgentDetectionRules.Rule(
           id: "claude.blocked",
           agent: "claude",
-          appliesWhen: .init(panelLabelledAgent: "claude", hookEvent: .panelOutputMatch),
+          appliesWhen: .init(paneLabelledAgent: "claude", hookEvent: .paneOutputMatch),
           match: .containsAny(["Do you want to proceed?"]),
           transitionTo: .blockedOnInput,
           title: "Claude is waiting",
@@ -49,7 +49,7 @@ struct RuleStoreTests {
     #expect(upserted.count == 1)
     let sub = try #require(upserted.first)
     #expect(sub.command == "\(RuleStore.sentinelPrefix)claude.blocked")
-    #expect(sub.event == .panelOutputMatch)
+    #expect(sub.event == .paneOutputMatch)
   }
 
   @Test
@@ -62,7 +62,7 @@ struct RuleStoreTests {
         AgentDetectionRules.Rule(
           id: "claude.blocked",
           agent: "claude",
-          appliesWhen: .init(panelLabelledAgent: "claude", hookEvent: .panelOutputMatch),
+          appliesWhen: .init(paneLabelledAgent: "claude", hookEvent: .paneOutputMatch),
           match: .regex(pattern: "foo", on: .tail),
           transitionTo: .blockedOnInput,
           title: "t",
@@ -96,7 +96,7 @@ struct RuleStoreTests {
         AgentDetectionRules.Rule(
           id: "bad.regex",
           agent: "x",
-          appliesWhen: .init(hookEvent: .panelOutputMatch),
+          appliesWhen: .init(hookEvent: .paneOutputMatch),
           match: .regex(pattern: "[unclosed", on: .tail),
           transitionTo: .completed,
           title: "t",
@@ -121,7 +121,7 @@ struct RuleStoreTests {
     let rule = AgentDetectionRules.Rule(
       id: "claude.blocked",
       agent: "claude",
-      appliesWhen: .init(hookEvent: .panelOutputMatch),
+      appliesWhen: .init(hookEvent: .paneOutputMatch),
       match: .containsAny(["Do you want to proceed?", "Approve tool call?"]),
       transitionTo: .blockedOnInput,
       title: "t",

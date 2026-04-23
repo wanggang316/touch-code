@@ -3,7 +3,7 @@ import TouchCodeCore
 
 /// Maps a `TerminalEvent` emitted by the Runtime into a fully-anchored
 /// `HookEnvelope` for dispatch. Anchor enrichment (space / project /
-/// worktree / tab / panel refs) walks the supplied `Catalog` snapshot.
+/// worktree / tab / pane refs) walks the supplied `Catalog` snapshot.
 ///
 /// Pure helper — no state, no side effects. The dispatcher's `attach(to:)`
 /// loop calls `map(_:catalog:)` once per inbound event; a `nil` return
@@ -11,16 +11,16 @@ import TouchCodeCore
 /// `.hierarchyMutated` — consumed by TCA, not by user hooks).
 ///
 /// **Scope note:** the heavy output-match regex pass is *not* part of this
-/// mapper. Output events land as `panel.output` envelopes carrying the raw
+/// mapper. Output events land as `pane.output` envelopes carrying the raw
 /// bytes; subscriptions with a `matchPattern` run their regex *after* the
-/// fire, lifting matches into a separate `panel.outputMatch` envelope.
+/// fire, lifting matches into a separate `pane.outputMatch` envelope.
 /// That pass lives in `HookDispatcher.fire`-path helpers (landing with the
 /// remainder of M2.1 hot-path internals tracked as M2.1.1) so the mapper
 /// stays pure + synchronous.
 public enum EventMapper {
   public static func map(_ event: TerminalEvent, catalog: Catalog) -> HookEnvelope? {
     map(
-      event, panel: { panelAnchors($0, catalog: catalog) },
+      event, pane: { paneAnchors($0, catalog: catalog) },
       tab: { tabAnchors($0, catalog: catalog) },
       worktree: { worktreeAnchors($0, catalog: catalog) })
   }
@@ -37,69 +37,69 @@ public enum EventMapper {
   ) -> HookEnvelope? {
     map(
       event,
-      panel: { cache.panelAnchors($0, catalog: catalog) },
+      pane: { cache.paneAnchors($0, catalog: catalog) },
       tab: { cache.tabAnchors($0, catalog: catalog) },
       worktree: { cache.worktreeAnchors($0, catalog: catalog) })
   }
 
   private static func map(
     _ event: TerminalEvent,
-    panel: (PanelID) -> Anchors,
+    pane: (PaneID) -> Anchors,
     tab: (TabID) -> Anchors,
     worktree: (WorktreeID) -> Anchors
   ) -> HookEnvelope? {
     switch event {
-    case .panelCreated(let panelID, _):
+    case .paneCreated(let paneID, _):
       return envelope(
-        event: .panelCreated,
-        data: .panelCreated(createdVia: "runtime"),
-        anchors: panel(panelID)
+        event: .paneCreated,
+        data: .paneCreated(createdVia: "runtime"),
+        anchors: pane(paneID)
       )
 
-    case .panelReady(let panelID):
+    case .paneReady(let paneID):
       return envelope(
-        event: .panelReady,
-        data: .panelReady(pid: nil, shell: ""),
-        anchors: panel(panelID)
+        event: .paneReady,
+        data: .paneReady(pid: nil, shell: ""),
+        anchors: pane(paneID)
       )
 
-    case .panelOutput(let panelID, let data):
+    case .paneOutput(let paneID, let data):
       return envelope(
-        event: .panelOutput,
-        data: .panelOutput(output: data, outputBytes: data.count),
-        anchors: panel(panelID)
+        event: .paneOutput,
+        data: .paneOutput(output: data, outputBytes: data.count),
+        anchors: pane(paneID)
       )
 
-    case .panelIdle(let panelID, let duration):
+    case .paneIdle(let paneID, let duration):
       return envelope(
-        event: .panelIdle,
-        data: .panelIdle(
+        event: .paneIdle,
+        data: .paneIdle(
           idleSeconds: duration,
           sinceLastOutput: duration,
           sinceLastInput: duration
         ),
-        anchors: panel(panelID)
+        anchors: pane(paneID)
       )
 
-    case .panelExited(let panelID, let code, _):
+    case .paneExited(let paneID, let code, _):
       return envelope(
-        event: .panelExited,
-        data: .panelExited(exitCode: code),
-        anchors: panel(panelID)
+        event: .paneExited,
+        data: .paneExited(exitCode: code),
+        anchors: pane(paneID)
       )
 
-    case .panelCrashed(let panelID, let reason):
+    case .paneCrashed(let paneID, let reason):
       return envelope(
-        event: .panelCrashed,
-        data: .panelCrashed(reason: reason),
-        anchors: panel(panelID)
+        event: .paneCrashed,
+        data: .paneCrashed(reason: reason),
+        anchors: pane(paneID)
       )
 
-    case .panelClosedByTab(let panelID, let cause):
+    case .paneClosedByTab(let paneID, let cause):
       return envelope(
-        event: .panelCrashed,
-        data: .panelCrashed(reason: "closed by tab: \(describe(cause))"),
-        anchors: panel(panelID)
+        event: .paneCrashed,
+        data: .paneCrashed(reason: "closed by tab: \(describe(cause))"),
+        anchors: pane(paneID)
       )
 
     case .tabActivated(let tabID):
@@ -125,8 +125,8 @@ public enum EventMapper {
       )
 
     case .hierarchyMutated,
-         .panelInfoChanged,
-         .panelActionRequested,
+         .paneInfoChanged,
+         .paneActionRequested,
          .windowActionRequested,
          .configChanged:
       return nil
@@ -140,7 +140,7 @@ public enum EventMapper {
     public var project: HookEnvelope.ProjectRef?
     public var worktree: HookEnvelope.WorktreeRef?
     public var tab: HookEnvelope.TabRef?
-    public var panel: HookEnvelope.PanelRef?
+    public var pane: HookEnvelope.PaneRef?
   }
 
   private static func envelope(
@@ -154,23 +154,23 @@ public enum EventMapper {
       project: anchors.project,
       worktree: anchors.worktree,
       tab: anchors.tab,
-      panel: anchors.panel,
+      pane: anchors.pane,
       data: data
     )
   }
 
-  public static func panelAnchors(_ panelID: PanelID, catalog: Catalog) -> Anchors {
+  public static func paneAnchors(_ paneID: PaneID, catalog: Catalog) -> Anchors {
     for space in catalog.spaces {
       for project in space.projects {
         for worktree in project.worktrees {
           for tab in worktree.tabs {
-            for panel in tab.panels where panel.id == panelID {
+            for pane in tab.panes where pane.id == paneID {
               return Anchors(
                 space: Self.spaceRef(space),
                 project: Self.projectRef(project),
                 worktree: Self.worktreeRef(worktree),
                 tab: Self.tabRef(tab),
-                panel: Self.panelRef(panel)
+                pane: Self.paneRef(pane)
               )
             }
           }
@@ -233,17 +233,17 @@ public enum EventMapper {
   }
 
   private static func tabRef(_ tab: Tab) -> HookEnvelope.TabRef {
-    // Tab does not track a selected panel directly; TabRef's field is
+    // Tab does not track a selected pane directly; TabRef's field is
     // optional for exactly this reason. Left nil in M2.1.
-    HookEnvelope.TabRef(id: tab.id, name: tab.name, selectedPanelID: nil)
+    HookEnvelope.TabRef(id: tab.id, name: tab.name, selectedPaneID: nil)
   }
 
-  private static func panelRef(_ panel: Panel) -> HookEnvelope.PanelRef {
-    HookEnvelope.PanelRef(
-      id: panel.id,
-      workingDirectory: panel.workingDirectory,
-      initialCommand: panel.initialCommand,
-      labels: Array(panel.labels).sorted()
+  private static func paneRef(_ pane: Pane) -> HookEnvelope.PaneRef {
+    HookEnvelope.PaneRef(
+      id: pane.id,
+      workingDirectory: pane.workingDirectory,
+      initialCommand: pane.initialCommand,
+      labels: Array(pane.labels).sorted()
     )
   }
 

@@ -3,12 +3,12 @@ import Foundation
 /// A single entry in the agent-notification inbox. Persisted; projected over
 /// `Catalog` at render time for the user-visible provenance string.
 ///
-/// `panelID` is the provenance pointer. The inbox view joins against `Catalog`
-/// at render time to resolve the Panel's Project / Worktree / Tab path; the
-/// join is not persisted here because Panels rename and move.
+/// `paneID` is the provenance pointer. The inbox view joins against `Catalog`
+/// at render time to resolve the Pane's Project / Worktree / Tab path; the
+/// join is not persisted here because Panes rename and move.
 public nonisolated struct AgentNotification: Equatable, Codable, Sendable, Identifiable {
   public let id: UUID
-  public let panelID: PanelID
+  public let paneID: PaneID
   public let agent: String
   public let kind: Kind
   public let title: String
@@ -26,7 +26,7 @@ public nonisolated struct AgentNotification: Equatable, Codable, Sendable, Ident
 
   public init(
     id: UUID = UUID(),
-    panelID: PanelID,
+    paneID: PaneID,
     agent: String,
     kind: Kind,
     title: String,
@@ -36,7 +36,7 @@ public nonisolated struct AgentNotification: Equatable, Codable, Sendable, Ident
     dismissedAt: Date? = nil
   ) {
     self.id = id
-    self.panelID = panelID
+    self.paneID = paneID
     self.agent = agent
     self.kind = kind
     self.title = title

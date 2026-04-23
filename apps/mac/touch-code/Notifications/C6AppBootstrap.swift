@@ -11,15 +11,15 @@ import TouchCodeCore
 ///   2. load InboxStore
 ///   3. load + materialise rules via RuleStore → C3 HookConfigStore
 ///   4. construct TrackerRegistry
-///   5. registry.bootstrap() — creates trackers for pre-existing agent Panels
+///   5. registry.bootstrap() — creates trackers for pre-existing agent Panes
 ///   6. subscribeToHierarchyEvents() — deferred (plan R/M4c.1): HierarchyManager
-///      does not yet expose an event stream; Panel add/remove while the session
+///      does not yet expose an event stream; Pane add/remove while the session
 ///      is running requires an explicit call to `trackerRegistry.create/destroy`.
 ///   7. construct DetectionRouter
 ///   8. dispatcher.register(subscriber: router, for: sentinel prefix)
 ///   9. construct NotificationCoordinator
 ///  10. restart-time permission sweep: for tracker in registry.allTrackers
-///      { await coordinator.onAgentPanelCreated(tracker.panelID) }
+///      { await coordinator.onAgentPaneCreated(tracker.paneID) }
 ///  11. Task { await coordinator.bind(to: router.transitions) }
 @MainActor
 final class C6AppBootstrap {
@@ -115,7 +115,7 @@ final class C6AppBootstrap {
 
     // Step 10 — restart-time permission sweep
     for tracker in registry.allTrackers {
-      await coordinator.onAgentPanelCreated(tracker.panelID)
+      await coordinator.onAgentPaneCreated(tracker.paneID)
     }
 
     // Step 11 — bind router → coordinator for the app lifetime. The task

@@ -25,10 +25,10 @@ extension HookEnvelope {
 /// Wire payload delivered to a user hook handler on stdin and to the
 /// `hook.events` streaming RPC.
 ///
-/// Every anchor field (`space`, `project`, `worktree`, `tab`, `panel`) is
-/// optional on the wire because some events carry no panel / tab / worktree
+/// Every anchor field (`space`, `project`, `worktree`, `tab`, `pane`) is
+/// optional on the wire because some events carry no pane / tab / worktree
 /// by construction. `validateAnchors()` asserts the per-scope presence rule
-/// (see the C3 design doc): `panel.*` must carry panel + tab + worktree +
+/// (see the C3 design doc): `pane.*` must carry pane + tab + worktree +
 /// project + space; `tab.*` must carry tab + ancestors; `worktree.*` must
 /// carry worktree + ancestors. Debug builds call it on encode; release
 /// builds trust the producer.
@@ -43,7 +43,7 @@ public nonisolated struct HookEnvelope: Equatable, Codable, Sendable, Identifiab
   public var project: ProjectRef?
   public var worktree: WorktreeRef?
   public var tab: TabRef?
-  public var panel: PanelRef?
+  public var pane: PaneRef?
   public var data: HookEventData
 
   public init(
@@ -55,7 +55,7 @@ public nonisolated struct HookEnvelope: Equatable, Codable, Sendable, Identifiab
     project: ProjectRef? = nil,
     worktree: WorktreeRef? = nil,
     tab: TabRef? = nil,
-    panel: PanelRef? = nil,
+    pane: PaneRef? = nil,
     data: HookEventData
   ) {
     self.id = id
@@ -66,7 +66,7 @@ public nonisolated struct HookEnvelope: Equatable, Codable, Sendable, Identifiab
     self.project = project
     self.worktree = worktree
     self.tab = tab
-    self.panel = panel
+    self.pane = pane
     self.data = data
   }
 
@@ -84,9 +84,9 @@ public nonisolated struct HookEnvelope: Equatable, Codable, Sendable, Identifiab
     }
     let required: [(name: String, present: Bool)]
     switch event.scope {
-    case .panel:
+    case .pane:
       required = [
-        ("panel", panel != nil),
+        ("pane", pane != nil),
         ("tab", tab != nil),
         ("worktree", worktree != nil),
         ("project", project != nil),
@@ -151,20 +151,20 @@ public nonisolated struct HookEnvelope: Equatable, Codable, Sendable, Identifiab
   public struct TabRef: Equatable, Codable, Sendable {
     public var id: TabID
     public var name: String?
-    public var selectedPanelID: PanelID?
-    public init(id: TabID, name: String? = nil, selectedPanelID: PanelID? = nil) {
+    public var selectedPaneID: PaneID?
+    public init(id: TabID, name: String? = nil, selectedPaneID: PaneID? = nil) {
       self.id = id
       self.name = name
-      self.selectedPanelID = selectedPanelID
+      self.selectedPaneID = selectedPaneID
     }
   }
 
-  public struct PanelRef: Equatable, Codable, Sendable {
-    public var id: PanelID
+  public struct PaneRef: Equatable, Codable, Sendable {
+    public var id: PaneID
     public var workingDirectory: String
     public var initialCommand: String?
     public var labels: [String]
-    public init(id: PanelID, workingDirectory: String, initialCommand: String? = nil, labels: [String] = []) {
+    public init(id: PaneID, workingDirectory: String, initialCommand: String? = nil, labels: [String] = []) {
       self.id = id
       self.workingDirectory = workingDirectory
       self.initialCommand = initialCommand

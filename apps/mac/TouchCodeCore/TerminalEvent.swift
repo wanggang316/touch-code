@@ -9,7 +9,7 @@ public nonisolated enum HierarchyMutationScope: Sendable, Equatable {
   case project(SpaceID, ProjectID)
   case worktree(SpaceID, ProjectID, WorktreeID)
   case tab(SpaceID, ProjectID, WorktreeID, TabID)
-  case panel(SpaceID, ProjectID, WorktreeID, TabID, PanelID)
+  case pane(SpaceID, ProjectID, WorktreeID, TabID, PaneID)
   case selection
 }
 
@@ -19,36 +19,36 @@ public nonisolated enum TabAutoCloseCause: Sendable, Equatable {
 }
 
 public nonisolated enum TerminalEvent: Sendable {
-  case panelCreated(PanelID, TabID)
-  case panelReady(PanelID)
+  case paneCreated(PaneID, TabID)
+  case paneReady(PaneID)
   /// Coalesced bytes batch. Note: `data` may split a UTF-8 codepoint at the
   /// 16 KB buffer boundary — consumers that decode text (scrollback viewer,
-  /// C3 hook matchers) must buffer across batches per panel.
-  case panelOutput(PanelID, Data)
-  case panelIdle(PanelID, duration: TimeInterval)
+  /// C3 hook matchers) must buffer across batches per pane.
+  case paneOutput(PaneID, Data)
+  case paneIdle(PaneID, duration: TimeInterval)
   /// Clean child exit. `code` is the exit status; `signal` is non-nil when
   /// the child was terminated by a signal (SIGKILL / SIGTERM / etc.) and
   /// exists to disambiguate from a normal non-zero return.
-  case panelExited(PanelID, code: Int32, signal: Int32?)
-  case panelCrashed(PanelID, reason: String)
-  /// Panel was forcibly closed because its enclosing Tab was auto-closed
-  /// (e.g. by crash-loop). Distinct from `panelExited(code: 0)` because the
+  case paneExited(PaneID, code: Int32, signal: Int32?)
+  case paneCrashed(PaneID, reason: String)
+  /// Pane was forcibly closed because its enclosing Tab was auto-closed
+  /// (e.g. by crash-loop). Distinct from `paneExited(code: 0)` because the
   /// child did not exit cleanly — persistence and hook consumers should not
   /// treat this as a clean exit.
-  case panelClosedByTab(PanelID, cause: TabAutoCloseCause)
+  case paneClosedByTab(PaneID, cause: TabAutoCloseCause)
   case tabActivated(TabID)
   case tabAutoClosed(TabID, cause: TabAutoCloseCause)
   case worktreeActivated(WorktreeID)
   case hierarchyMutated(HierarchyMutationScope)
 
   /// Runtime decoded a libghostty info-family action (title, pwd, mouse,
-  /// search, progress, bell, child-exited). Applied to `PanelSurface.info`
+  /// search, progress, bell, child-exited). Applied to `PaneSurface.info`
   /// before emission so subscribers can choose between reading the
   /// `@Observable` state or reacting to the delta directly.
-  case panelInfoChanged(PanelID, PanelInfoDelta)
+  case paneInfoChanged(PaneID, PaneInfoDelta)
   /// Runtime decoded a tab / split intent. Consumed exclusively by
-  /// `PanelActionRouterFeature` — other features must not subscribe.
-  case panelActionRequested(PanelID, PanelActionRequest)
+  /// `PaneActionRouterFeature` — other features must not subscribe.
+  case paneActionRequested(PaneID, PaneActionRequest)
   /// Runtime decoded a window / app-level intent. Consumed exclusively by
   /// `WindowActionRouterFeature`.
   case windowActionRequested(WindowActionRequest)

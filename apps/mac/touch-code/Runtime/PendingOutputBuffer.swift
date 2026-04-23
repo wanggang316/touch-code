@@ -1,8 +1,8 @@
 import Foundation
 import TouchCodeCore
 
-/// Per-panel output coalescer. Batches `append(bytes:)` calls and emits a
-/// single `.panelOutput` event at most once per `flushInterval`, or when the
+/// Per-pane output coalescer. Batches `append(bytes:)` calls and emits a
+/// single `.paneOutput` event at most once per `flushInterval`, or when the
 /// buffer reaches `maxBufferSize`. Callers should invoke `flush()` (or
 /// `TerminalEngine.disposeOutputBuffer`) before releasing the buffer —
 /// the `isolated deinit` drain is a MainActor-synchronous safety net, but
@@ -10,21 +10,21 @@ import TouchCodeCore
 /// a no-op and the bytes silently fall on the floor.
 @MainActor
 final class PendingOutputBuffer {
-  let panelID: PanelID
+  let paneID: PaneID
   let flushInterval: Duration
   let maxBufferSize: Int
 
   private var buffer = Data()
   private var flushTask: Task<Void, Never>?
-  private let emit: @MainActor @Sendable (PanelID, Data) -> Void
+  private let emit: @MainActor @Sendable (PaneID, Data) -> Void
 
   init(
-    panelID: PanelID,
+    paneID: PaneID,
     flushInterval: Duration = .milliseconds(16),
     maxBufferSize: Int = 16 * 1024,
-    emit: @escaping @MainActor @Sendable (PanelID, Data) -> Void
+    emit: @escaping @MainActor @Sendable (PaneID, Data) -> Void
   ) {
-    self.panelID = panelID
+    self.paneID = paneID
     self.flushInterval = flushInterval
     self.maxBufferSize = maxBufferSize
     self.emit = emit
@@ -61,7 +61,7 @@ final class PendingOutputBuffer {
     guard !buffer.isEmpty else { return }
     let payload = buffer
     buffer = Data()
-    emit(panelID, payload)
+    emit(paneID, payload)
   }
 
   private func armFlushTimer() {

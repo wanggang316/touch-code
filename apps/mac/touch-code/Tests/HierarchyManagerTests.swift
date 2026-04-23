@@ -66,7 +66,7 @@ struct HierarchyManagerTests {
   }
 
   @Test
-  func openPanelInEmptyTabCreatesLeaf() throws {
+  func openPaneInEmptyTabCreatesLeaf() throws {
     let spaceID = manager.createSpace(name: "test")
     let projectID = try manager.addProject(to: spaceID, name: "project", rootPath: "/tmp", gitRoot: "/tmp")
     let worktreeID = try manager.createWorktree(
@@ -78,7 +78,7 @@ struct HierarchyManagerTests {
     )
     let tabID = try manager.createTab(in: worktreeID, in: projectID, in: spaceID, name: nil)
 
-    let panelID = try manager.openPanel(
+    let paneID = try manager.openPane(
       in: tabID,
       in: worktreeID,
       in: projectID,
@@ -88,15 +88,15 @@ struct HierarchyManagerTests {
     )
 
     let tab = manager.catalog.spaces[0].projects[0].worktrees[0].tabs[0]
-    #expect(tab.panels.count == 1)
-    #expect(tab.panels[0].id == panelID)
-    #expect(tab.splitTree.leaves() == [panelID])
+    #expect(tab.panes.count == 1)
+    #expect(tab.panes[0].id == paneID)
+    #expect(tab.splitTree.leaves() == [paneID])
     #expect(fakeRuntime.ensureSurfaceCalls.count == 1)
-    #expect(fakeRuntime.ensureSurfaceCalls[0].panelID == panelID)
+    #expect(fakeRuntime.ensureSurfaceCalls[0].paneID == paneID)
   }
 
   @Test
-  func splitPanelCreatesNewLeaf() throws {
+  func splitPaneCreatesNewLeaf() throws {
     let spaceID = manager.createSpace(name: "test")
     let projectID = try manager.addProject(to: spaceID, name: "project", rootPath: "/tmp", gitRoot: "/tmp")
     let worktreeID = try manager.createWorktree(
@@ -107,7 +107,7 @@ struct HierarchyManagerTests {
       branch: "main"
     )
     let tabID = try manager.createTab(in: worktreeID, in: projectID, in: spaceID, name: nil)
-    let panelID = try manager.openPanel(
+    let paneID = try manager.openPane(
       in: tabID,
       in: worktreeID,
       in: projectID,
@@ -117,8 +117,8 @@ struct HierarchyManagerTests {
     )
 
     fakeRuntime.reset()
-    let newPanelID = try manager.splitPanel(
-      panelID,
+    let newPaneID = try manager.splitPane(
+      paneID,
       direction: .right,
       in: tabID,
       in: worktreeID,
@@ -129,15 +129,15 @@ struct HierarchyManagerTests {
     )
 
     let tab = manager.catalog.spaces[0].projects[0].worktrees[0].tabs[0]
-    #expect(tab.panels.count == 2)
+    #expect(tab.panes.count == 2)
     #expect(tab.splitTree.leaves().count == 2)
-    #expect(tab.splitTree.contains(newPanelID))
+    #expect(tab.splitTree.contains(newPaneID))
     #expect(fakeRuntime.ensureSurfaceCalls.count == 1)
-    #expect(fakeRuntime.ensureSurfaceCalls[0].panelID == newPanelID)
+    #expect(fakeRuntime.ensureSurfaceCalls[0].paneID == newPaneID)
   }
 
   @Test
-  func closePanelRemovesFromSplitTree() throws {
+  func closePaneRemovesFromSplitTree() throws {
     let spaceID = manager.createSpace(name: "test")
     let projectID = try manager.addProject(to: spaceID, name: "project", rootPath: "/tmp", gitRoot: "/tmp")
     let worktreeID = try manager.createWorktree(
@@ -148,7 +148,7 @@ struct HierarchyManagerTests {
       branch: "main"
     )
     let tabID = try manager.createTab(in: worktreeID, in: projectID, in: spaceID, name: nil)
-    let panelID = try manager.openPanel(
+    let paneID = try manager.openPane(
       in: tabID,
       in: worktreeID,
       in: projectID,
@@ -158,12 +158,12 @@ struct HierarchyManagerTests {
     )
 
     fakeRuntime.reset()
-    try manager.closePanel(panelID, in: tabID, in: worktreeID, in: projectID, in: spaceID)
+    try manager.closePane(paneID, in: tabID, in: worktreeID, in: projectID, in: spaceID)
 
     let tab = manager.catalog.spaces[0].projects[0].worktrees[0].tabs[0]
-    #expect(tab.panels.isEmpty)
+    #expect(tab.panes.isEmpty)
     #expect(tab.splitTree.isEmpty)
-    #expect(fakeRuntime.closeSurfaceCalls == [panelID])
+    #expect(fakeRuntime.closeSurfaceCalls == [paneID])
   }
 
   @Test
@@ -178,7 +178,7 @@ struct HierarchyManagerTests {
       branch: "main"
     )
     let tabID = try manager.createTab(in: worktreeID, in: projectID, in: spaceID, name: nil)
-    let panelID = try manager.openPanel(
+    let paneID = try manager.openPane(
       in: tabID,
       in: worktreeID,
       in: projectID,
@@ -187,8 +187,8 @@ struct HierarchyManagerTests {
       initialCommand: nil
     )
 
-    _ = try manager.splitPanel(
-      panelID,
+    _ = try manager.splitPane(
+      paneID,
       direction: .right,
       in: tabID,
       in: worktreeID,
@@ -205,7 +205,7 @@ struct HierarchyManagerTests {
   }
 
   @Test
-  func focusPanelSetsZoom() throws {
+  func focusPaneSetsZoom() throws {
     let spaceID = manager.createSpace(name: "test")
     let projectID = try manager.addProject(to: spaceID, name: "project", rootPath: "/tmp", gitRoot: "/tmp")
     let worktreeID = try manager.createWorktree(
@@ -216,7 +216,7 @@ struct HierarchyManagerTests {
       branch: "main"
     )
     let tabID = try manager.createTab(in: worktreeID, in: projectID, in: spaceID, name: nil)
-    let panelID = try manager.openPanel(
+    let paneID = try manager.openPane(
       in: tabID,
       in: worktreeID,
       in: projectID,
@@ -225,10 +225,10 @@ struct HierarchyManagerTests {
       initialCommand: nil
     )
 
-    try manager.focusPanel(panelID, in: tabID, in: worktreeID, in: projectID, in: spaceID)
+    try manager.focusPane(paneID, in: tabID, in: worktreeID, in: projectID, in: spaceID)
 
     let tab = manager.catalog.spaces[0].projects[0].worktrees[0].tabs[0]
-    #expect(tab.splitTree.zoomed == panelID)
+    #expect(tab.splitTree.zoomed == paneID)
   }
 
   @Test

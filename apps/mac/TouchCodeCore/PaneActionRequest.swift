@@ -1,13 +1,13 @@
 import Foundation
 
 /// Tab / split intent decoded from a libghostty surface-scoped action.
-/// The Runtime emits `TerminalEvent.panelActionRequested(panelID, request)`;
-/// `PanelActionRouterFeature` resolves the request against `HierarchyClient`.
+/// The Runtime emits `TerminalEvent.paneActionRequested(paneID, request)`;
+/// `PaneActionRouterFeature` resolves the request against `HierarchyClient`.
 ///
 /// Intents are policy-free: the reducer decides whether a close is allowed,
 /// how to handle a running process, etc. Runtime stays TCA-free by only
 /// lifting the typed intent onto the event stream.
-public nonisolated enum PanelActionRequest: Sendable, Equatable {
+public nonisolated enum PaneActionRequest: Sendable, Equatable {
   case newTab
   case closeTab(mode: CloseTabMode)
   case moveTab(offset: Int)

@@ -11,7 +11,7 @@ import os.log
 /// state — views compute it via `State.unreadCount(in:)` passing the live
 /// `hierarchyManager.catalog` at render time. That keeps the badge and
 /// the popover grouping (which also reads the live catalog via
-/// `@Environment`) on one `PanelID -> WorktreeID` resolution *and* makes
+/// `@Environment`) on one `PaneID -> WorktreeID` resolution *and* makes
 /// the badge react to catalog mutations (e.g. a Worktree being removed)
 /// without the reducer needing a separate `.catalogChanged` action.
 ///
@@ -34,7 +34,7 @@ struct WorktreeHeaderFeature {
     /// reducers can read it via `hierarchyClient.snapshot()`. Returning a
     /// computed value rather than a stored field avoids a cache-invalidation
     /// axis and guarantees badge / popover parity at the
-    /// `panelWorktreeIndex` level.
+    /// `paneWorktreeIndex` level.
     func unreadCount(in catalog: Catalog) -> Int {
       inbox.totalUnread(in: catalog)
     }

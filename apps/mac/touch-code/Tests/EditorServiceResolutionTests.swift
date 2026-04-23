@@ -125,8 +125,8 @@ struct EditorServiceResolutionTests {
 
   @Test
   func describeReturnsInstalledOnlyAndExcludesShellEditor() async {
-    // v1 design limitation: `.shellEditor` requires a Panel/Tab context that
-    // `EditorService.open` does not carry. Until a Panel-aware launch path lands the
+    // v1 design limitation: `.shellEditor` requires a Pane/Tab context that
+    // `EditorService.open` does not carry. Until a Pane-aware launch path lands the
     // registry entry is suppressed from `describe()` — otherwise the Settings and
     // Project Options pickers would let the user set a default that throws `.launchFailed`
     // on every open. See `EditorService+Live.swift` describe() for the filter.

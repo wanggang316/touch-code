@@ -18,11 +18,11 @@ struct AgentStateTransitionTests {
 
   @Test
   func envelopeTriggerRoundTrip() throws {
-    let transition = Self.makeTransition(trigger: .envelope(event: .panelExited))
+    let transition = Self.makeTransition(trigger: .envelope(event: .paneExited))
     let decoded = try Self.roundTrip(transition)
     #expect(decoded == transition)
     if case .envelope(let event) = decoded.trigger {
-      #expect(event == .panelExited)
+      #expect(event == .paneExited)
     } else {
       Issue.record("Expected .envelope; got \(decoded.trigger)")
     }
@@ -68,7 +68,7 @@ struct AgentStateTransitionTests {
     trigger: AgentStateTransition.Trigger
   ) -> AgentStateTransition {
     AgentStateTransition(
-      panelID: PanelID(),
+      paneID: PaneID(),
       from: from,
       to: to,
       at: Date(timeIntervalSince1970: 1_700_000_000),

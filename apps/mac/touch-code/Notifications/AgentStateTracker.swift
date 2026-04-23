@@ -2,8 +2,8 @@ import Foundation
 import Observation
 import TouchCodeCore
 
-/// Per-Panel FSM for one agent-hosted Panel. Exactly one instance exists per
-/// tracked Panel, owned by `TrackerRegistry`. Callers drive the FSM by
+/// Per-Pane FSM for one agent-hosted Pane. Exactly one instance exists per
+/// tracked Pane, owned by `TrackerRegistry`. Callers drive the FSM by
 /// feeding C3 `HookEnvelope`s (plus the optional `ruleID` and rendered
 /// template strings that `DetectionRouter` resolves); the tracker emits
 /// `AgentStateTransition`s whenever the state changes, and an idle-timer
@@ -12,14 +12,14 @@ import TouchCodeCore
 ///
 /// Notification emission invariants:
 /// - Self-transitions (`from == to`) do not emit a transition.
-/// - `.panelCrashed` always emits a `.crashed`-class transition (even
+/// - `.paneCrashed` always emits a `.crashed`-class transition (even
 ///   when already in `.completed`) and then tears down.
 /// - `userOverride` may set any state but never emits a transition —
 ///   it is a correction, not an event.
 @MainActor
 @Observable
 final class AgentStateTracker {
-  let panelID: PanelID
+  let paneID: PaneID
   private(set) var state: AgentState = .running
   private(set) var lastActivityAt: Date
 
@@ -34,12 +34,12 @@ final class AgentStateTracker {
   private nonisolated(unsafe) var idleTimerTask: Task<Void, Never>?
 
   init(
-    panelID: PanelID,
+    paneID: PaneID,
     idleThreshold: TimeInterval,
     clock: any Clock<Duration> = ContinuousClock(),
     now: Date = Date()
   ) {
-    self.panelID = panelID
+    self.paneID = paneID
     self.idleThreshold = idleThreshold
     self.clock = clock
     self.lastActivityAt = now
@@ -83,22 +83,22 @@ final class AgentStateTracker {
     }
 
     switch envelope.event {
-    case .panelCrashed:
-      let transition = emit(to: .crashedTarget(from: state), trigger: .envelope(event: .panelCrashed), at: now)
+    case .paneCrashed:
+      let transition = emit(to: .crashedTarget(from: state), trigger: .envelope(event: .paneCrashed), at: now)
       teardown()
       return transition
 
-    case .panelExited:
-      if case .panelExited(let code) = envelope.data, code == 0 {
-        return transitionIfChanged(to: .completed, trigger: .envelope(event: .panelExited), at: now)
+    case .paneExited:
+      if case .paneExited(let code) = envelope.data, code == 0 {
+        return transitionIfChanged(to: .completed, trigger: .envelope(event: .paneExited), at: now)
       } else {
         // Non-zero exit is a crash-like signal — emit a crashed transition then teardown.
-        let transition = emit(to: .crashedTarget(from: state), trigger: .envelope(event: .panelExited), at: now)
+        let transition = emit(to: .crashedTarget(from: state), trigger: .envelope(event: .paneExited), at: now)
         teardown()
         return transition
       }
 
-    case .panelOutputMatch:
+    case .paneOutputMatch:
       // Rule lookup + state transition happens in DetectionRouter via
       // applyRuleTransition(to:ruleID:). This branch is a no-op so that
       // a router delegating every envelope still gets the activity timer
@@ -106,12 +106,12 @@ final class AgentStateTracker {
       _ = ruleID
       return nil
 
-    case .panelOutput:
+    case .paneOutput:
       // Activity already handled above; if we were idle, we've moved to
       // .running via `applyActivityIfNeeded`. No further transition.
       return applyActivityIfNeeded(at: now)
 
-    case .panelInput:
+    case .paneInput:
       // User input also counts as activity for the idle timer. Same as output.
       return applyActivityIfNeeded(at: now)
 
@@ -141,7 +141,7 @@ final class AgentStateTracker {
   }
 
   /// Tear down the tracker: cancel the idle timer and finish the stream.
-  /// Called by `TrackerRegistry` when the Panel is removed or loses its
+  /// Called by `TrackerRegistry` when the Pane is removed or loses its
   /// agent label; also called internally on crash/exit.
   func teardown() {
     idleTimerTask?.cancel()
@@ -166,7 +166,7 @@ final class AgentStateTracker {
     at now: Date
   ) -> AgentStateTransition {
     let transition = AgentStateTransition(
-      panelID: panelID,
+      paneID: paneID,
       from: state,
       to: newState,
       at: now,
@@ -179,11 +179,11 @@ final class AgentStateTracker {
 
   /// If we're in `.idle` and an activity envelope just arrived, transition
   /// back to `.running`. Otherwise no-op. Not a rule-triggered transition —
-  /// labelled as `.envelope(event: .panelOutput)` since any envelope with
+  /// labelled as `.envelope(event: .paneOutput)` since any envelope with
   /// bytes drives it.
   private func applyActivityIfNeeded(at now: Date) -> AgentStateTransition? {
     guard state == .idle else { return nil }
-    return emit(to: .running, trigger: .envelope(event: .panelOutput), at: now)
+    return emit(to: .running, trigger: .envelope(event: .paneOutput), at: now)
   }
 
   private func armIdleTimer() {
@@ -215,7 +215,7 @@ final class AgentStateTracker {
 
   private static func isActivity(_ envelope: HookEnvelope) -> Bool {
     switch envelope.event {
-    case .panelOutput, .panelOutputMatch, .panelInput:
+    case .paneOutput, .paneOutputMatch, .paneInput:
       return true
     default:
       return false
@@ -226,7 +226,7 @@ final class AgentStateTracker {
 // MARK: - Helpers
 
 extension AgentState {
-  /// On `.panelCrashed` or non-zero `.panelExited`, the FSM transitions to
+  /// On `.paneCrashed` or non-zero `.paneExited`, the FSM transitions to
   /// `.completed` so `state` reads sensibly; the accompanying `crashed`
   /// notification kind is chosen by the coordinator based on the trigger.
   fileprivate static func crashedTarget(from _: AgentState) -> AgentState { .completed }

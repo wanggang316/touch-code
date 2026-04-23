@@ -32,7 +32,7 @@ public nonisolated struct HookSubscription: Equatable, Sendable, Identifiable {
     command: String,
     matchPattern: String? = nil,
     matchFlags: RegexFlags = [],
-    scope: Scope = .anyPanel,
+    scope: Scope = .anyPane,
     timeoutSeconds: Double = 5,
     mode: Mode = .fireAndForget,
     cwd: String? = nil,
@@ -72,9 +72,9 @@ public nonisolated struct HookSubscription: Equatable, Sendable, Identifiable {
   }
 
   public enum Scope: Equatable, Sendable {
-    case anyPanel
-    case panelID(PanelID)
-    case panelLabel(String)
+    case anyPane
+    case paneID(PaneID)
+    case paneLabel(String)
     case tabID(TabID)
     case tabLabel(String)
     case worktreeID(WorktreeID)
@@ -98,7 +98,7 @@ extension HookSubscription: Codable {
     self.command = try c.decode(String.self, forKey: .command)
     self.matchPattern = try c.decodeIfPresent(String.self, forKey: .matchPattern)
     self.matchFlags = try c.decodeIfPresent(RegexFlags.self, forKey: .matchFlags) ?? []
-    self.scope = try c.decodeIfPresent(Scope.self, forKey: .scope) ?? .anyPanel
+    self.scope = try c.decodeIfPresent(Scope.self, forKey: .scope) ?? .anyPane
     self.timeoutSeconds = try c.decodeIfPresent(Double.self, forKey: .timeoutSeconds) ?? 5
     self.mode = try c.decodeIfPresent(Mode.self, forKey: .mode) ?? .fireAndForget
     self.cwd = try c.decodeIfPresent(String.self, forKey: .cwd)
@@ -131,19 +131,19 @@ extension HookSubscription: Codable {
 extension HookSubscription.Scope: Codable {
   private enum CodingKeys: String, CodingKey { case kind, value }
   private enum Kind: String, Codable {
-    case anyPanel, panelID, panelLabel, tabID, tabLabel, worktreeID, worktreePathGlob
+    case anyPane, paneID, paneLabel, tabID, tabLabel, worktreeID, worktreePathGlob
   }
 
   public init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     let kind = try c.decode(Kind.self, forKey: .kind)
     switch kind {
-    case .anyPanel:
-      self = .anyPanel
-    case .panelID:
-      self = .panelID(try c.decode(PanelID.self, forKey: .value))
-    case .panelLabel:
-      self = .panelLabel(try c.decode(String.self, forKey: .value))
+    case .anyPane:
+      self = .anyPane
+    case .paneID:
+      self = .paneID(try c.decode(PaneID.self, forKey: .value))
+    case .paneLabel:
+      self = .paneLabel(try c.decode(String.self, forKey: .value))
     case .tabID:
       self = .tabID(try c.decode(TabID.self, forKey: .value))
     case .tabLabel:
@@ -158,13 +158,13 @@ extension HookSubscription.Scope: Codable {
   public func encode(to encoder: Encoder) throws {
     var c = encoder.container(keyedBy: CodingKeys.self)
     switch self {
-    case .anyPanel:
-      try c.encode(Kind.anyPanel, forKey: .kind)
-    case .panelID(let id):
-      try c.encode(Kind.panelID, forKey: .kind)
+    case .anyPane:
+      try c.encode(Kind.anyPane, forKey: .kind)
+    case .paneID(let id):
+      try c.encode(Kind.paneID, forKey: .kind)
       try c.encode(id, forKey: .value)
-    case .panelLabel(let label):
-      try c.encode(Kind.panelLabel, forKey: .kind)
+    case .paneLabel(let label):
+      try c.encode(Kind.paneLabel, forKey: .kind)
       try c.encode(label, forKey: .value)
     case .tabID(let id):
       try c.encode(Kind.tabID, forKey: .kind)

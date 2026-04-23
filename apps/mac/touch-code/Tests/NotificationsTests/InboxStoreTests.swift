@@ -232,24 +232,24 @@ struct InboxStoreTests {
     defer { try? FileManager.default.removeItem(at: url) }
     let store = InboxStore(fileURL: url, clock: ContinuousClock(), debounce: .milliseconds(1))
 
-    let panelA = Panel(workingDirectory: "/a")
-    let panelB = Panel(workingDirectory: "/b")
+    let paneA = Pane(workingDirectory: "/a")
+    let paneB = Pane(workingDirectory: "/b")
     let worktreeA = Worktree(
       name: "a", path: "/a",
-      tabs: [Tab(splitTree: SplitTree(leaf: panelA.id), panels: [panelA])]
+      tabs: [Tab(splitTree: SplitTree(leaf: paneA.id), panes: [paneA])]
     )
     let worktreeB = Worktree(
       name: "b", path: "/b",
-      tabs: [Tab(splitTree: SplitTree(leaf: panelB.id), panels: [panelB])]
+      tabs: [Tab(splitTree: SplitTree(leaf: paneB.id), panes: [paneB])]
     )
     let project = Project(
       name: "p", rootPath: "/p", gitRoot: "/p", worktrees: [worktreeA, worktreeB]
     )
     let catalog = Catalog(spaces: [Space(name: "s", projects: [project])])
 
-    store.append(Self.makeNotification(panelID: panelA.id))
-    store.append(Self.makeNotification(panelID: panelA.id))
-    store.append(Self.makeNotification(panelID: panelB.id))
+    store.append(Self.makeNotification(paneID: paneA.id))
+    store.append(Self.makeNotification(paneID: paneA.id))
+    store.append(Self.makeNotification(paneID: paneB.id))
     #expect(store.unreadCount == 3)
 
     store.markRead(forWorktree: worktreeA.id, in: catalog)
@@ -264,15 +264,15 @@ struct InboxStoreTests {
     defer { try? FileManager.default.removeItem(at: url) }
     let store = InboxStore(fileURL: url, clock: ContinuousClock(), debounce: .milliseconds(1))
 
-    let panel = Panel(workingDirectory: "/a")
+    let pane = Pane(workingDirectory: "/a")
     let worktree = Worktree(
       name: "a", path: "/a",
-      tabs: [Tab(splitTree: SplitTree(leaf: panel.id), panels: [panel])]
+      tabs: [Tab(splitTree: SplitTree(leaf: pane.id), panes: [pane])]
     )
     let project = Project(name: "p", rootPath: "/p", gitRoot: "/p", worktrees: [worktree])
     let catalog = Catalog(spaces: [Space(name: "s", projects: [project])])
 
-    store.append(Self.makeNotification(panelID: panel.id))
+    store.append(Self.makeNotification(paneID: pane.id))
     store.markRead(forWorktree: worktree.id, in: catalog)
     let firstRead = store.inbox.notifications.first?.readAt
     store.markRead(forWorktree: worktree.id, in: catalog)
@@ -308,10 +308,10 @@ struct InboxStoreTests {
     agent: String = "claude",
     body: String = "b",
     dismissedAt: Date? = nil,
-    panelID: PanelID = PanelID()
+    paneID: PaneID = PaneID()
   ) -> AgentNotification {
     AgentNotification(
-      panelID: panelID,
+      paneID: paneID,
       agent: agent,
       kind: .completed,
       title: "t",

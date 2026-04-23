@@ -2,15 +2,15 @@ import AppKit
 import SwiftUI
 import TouchCodeCore
 
-/// Hosts a `PanelSurface`'s `GhosttySurfaceView` inside SwiftUI.
+/// Hosts a `PaneSurface`'s `GhosttySurfaceView` inside SwiftUI.
 ///
 /// The host view doesn't own the surface — the caller (typically
 /// `SingleSurfaceHost` or a future TCA feature) retains it. SwiftUI calls
 /// `dismantleNSView` when the representable leaves the tree; we route that
-/// into `PanelSurface.close()` so the ghostty surface + child PTY go down
+/// into `PaneSurface.close()` so the ghostty surface + child PTY go down
 /// even if the wider catalog cleanup fires later.
-struct PanelHostView: NSViewRepresentable {
-  let surface: PanelSurface
+struct PaneHostView: NSViewRepresentable {
+  let surface: PaneSurface
 
   func makeNSView(context: Context) -> GhosttySurfaceView {
     surface.view
@@ -21,7 +21,7 @@ struct PanelHostView: NSViewRepresentable {
   }
 
   static func dismantleNSView(_ nsView: GhosttySurfaceView, coordinator: ()) {
-    // We don't hold a strong ref to the PanelSurface here (NSViewRepresentable
+    // We don't hold a strong ref to the PaneSurface here (NSViewRepresentable
     // methods are static), but the view.attach ↔ detach is idempotent. Actual
     // surface teardown happens via SingleSurfaceHost.tearDown() on scene
     // transition — called separately — so this method is intentionally a

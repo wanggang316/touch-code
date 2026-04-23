@@ -7,8 +7,8 @@ import TouchCodeCore
 /// Process-global libghostty façade. Owns one `ghostty_app_t` and the runtime
 /// config whose callbacks route via a user-data pointer back to a weak
 /// reference to `self`. Surface-scoped callbacks (`close_surface_cb`) use a
-/// separate per-surface userdata (the `PanelSurface` pointer) so the
-/// callback can route directly to the owning panel without a registry
+/// separate per-surface userdata (the `PaneSurface` pointer) so the
+/// callback can route directly to the owning pane without a registry
 /// lookup on the hot path.
 @MainActor
 final class GhosttyRuntime {
@@ -56,14 +56,14 @@ final class GhosttyRuntime {
   private var appFocusObservers: [NSObjectProtocol] = []
 
   /// Back-reference to the engine whose event stream surfaces action decoder
-  /// emits (`panelInfoChanged`, `panelActionRequested`, etc.). Weak to
+  /// emits (`paneInfoChanged`, `paneActionRequested`, etc.). Weak to
   /// avoid a retain cycle with `TerminalEngine.ghosttyRuntime`; the engine
   /// outlives the runtime in every supported configuration, so a dangling
   /// reference is a bug elsewhere.
   weak var terminalEngine: TerminalEngine?
 
   /// Last resolved color scheme applied via `setColorScheme(_:)`. Newly registered
-  /// surfaces adopt this on registration so a panel opened mid-session starts in the
+  /// surfaces adopt this on registration so a pane opened mid-session starts in the
   /// correct palette without waiting for the next toggle.
   private var lastColorScheme: ghostty_color_scheme_e?
 
@@ -78,11 +78,11 @@ final class GhosttyRuntime {
   /// process; init/deinit set and clear this.
   nonisolated(unsafe) static weak var shared: GhosttyRuntime?
 
-  /// Registered panel surfaces by PanelID. Referenced by engine code that
-  /// needs to look up a surface from a Panel (e.g. lazy surface creation on
+  /// Registered pane surfaces by PaneID. Referenced by engine code that
+  /// needs to look up a surface from a Pane (e.g. lazy surface creation on
   /// tab activation). Surface-scoped callbacks do NOT use this table on the
-  /// hot path — they cast the per-surface userdata directly to `PanelSurface`.
-  private var surfacesByPanelID: [PanelID: PanelSurface] = [:]
+  /// hot path — they cast the per-surface userdata directly to `PaneSurface`.
+  private var surfacesByPaneID: [PaneID: PaneSurface] = [:]
 
   init() throws {
     _ = GhosttyBootstrap.initialize
@@ -178,10 +178,10 @@ final class GhosttyRuntime {
     }
     appFocusObservers.removeAll()
 
-    for (_, panel) in surfacesByPanelID {
-      panel.close()
+    for (_, pane) in surfacesByPaneID {
+      pane.close()
     }
-    surfacesByPanelID.removeAll()
+    surfacesByPaneID.removeAll()
 
     if let app {
       ghostty_app_free(app)
@@ -197,21 +197,21 @@ final class GhosttyRuntime {
 
   // MARK: - Surface registry
 
-  func register(panel: PanelSurface) {
-    surfacesByPanelID[panel.panelID] = panel
+  func register(pane: PaneSurface) {
+    surfacesByPaneID[pane.paneID] = pane
     // A surface registered mid-session inherits the most recently applied scheme so
     // the palette matches the app's current appearance from its first frame.
     if let lastColorScheme {
-      panel.applyColorScheme(lastColorScheme)
+      pane.applyColorScheme(lastColorScheme)
     }
   }
 
-  func unregister(panelID: PanelID) {
-    surfacesByPanelID.removeValue(forKey: panelID)
+  func unregister(paneID: PaneID) {
+    surfacesByPaneID.removeValue(forKey: paneID)
   }
 
-  func surface(for panelID: PanelID) -> PanelSurface? {
-    surfacesByPanelID[panelID]
+  func surface(for paneID: PaneID) -> PaneSurface? {
+    surfacesByPaneID[paneID]
   }
 
   /// Force-clear libghostty focus on every surface except `target`. Called
@@ -220,9 +220,9 @@ final class GhosttyRuntime {
   /// views that never received `resignFirstResponder`) stop rendering a
   /// blinking cursor. `ghostty_surface_set_focus(false)` is idempotent, so
   /// it's safe to call on surfaces that are already unfocused.
-  func defocusAllSurfaces(except target: PanelID?) {
-    for (pid, panel) in surfacesByPanelID where pid != target {
-      panel.setFocus(false)
+  func defocusAllSurfaces(except target: PaneID?) {
+    for (pid, pane) in surfacesByPaneID where pid != target {
+      pane.setFocus(false)
     }
   }
 
@@ -243,8 +243,8 @@ final class GhosttyRuntime {
       scheme == .dark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT
     lastColorScheme = ghosttyScheme
     ghostty_app_set_color_scheme(app, ghosttyScheme)
-    for panel in surfacesByPanelID.values {
-      panel.applyColorScheme(ghosttyScheme)
+    for pane in surfacesByPaneID.values {
+      pane.applyColorScheme(ghosttyScheme)
     }
     applyBackgroundColorToWindows()
   }
@@ -324,10 +324,10 @@ final class GhosttyRuntime {
 
     let targetTag = target.tag
     let surface: ghostty_surface_t? = targetTag == GHOSTTY_TARGET_SURFACE ? target.target.surface : nil
-    // PanelID is only meaningful for surface-scoped actions. We need it to
-    // emit panelActionRequested / windowActionRequested from the right
-    // panel, and it must be resolved here while userdata is valid.
-    let panelID: PanelID? = surface.flatMap { GhosttyRuntime.panelIDBytes(fromSurface: $0) }
+    // PaneID is only meaningful for surface-scoped actions. We need it to
+    // emit paneActionRequested / windowActionRequested from the right
+    // pane, and it must be resolved here while userdata is valid.
+    let paneID: PaneID? = surface.flatMap { GhosttyRuntime.paneIDBytes(fromSurface: $0) }
 
     GhosttyActionDecoder.logger.debug(
       "action_cb fired: targetTag=\(targetTag.rawValue, privacy: .public) tag=\(action.tag.rawValue, privacy: .public)"
@@ -351,18 +351,18 @@ final class GhosttyRuntime {
       return consumed
 
     case GHOSTTY_TARGET_SURFACE:
-      guard let panelID else { return false }
-      let decoded = GhosttyActionDecoder.decodeSurfaceAction(action, panelID: panelID)
+      guard let paneID else { return false }
+      let decoded = GhosttyActionDecoder.decodeSurfaceAction(action, paneID: paneID)
       let consumed = decoded.consumed
       if Thread.isMainThread {
         return MainActor.assumeIsolated {
-          _ = GhosttyRuntime.shared?.applySurfaceAction(decoded, panelID: panelID)
+          _ = GhosttyRuntime.shared?.applySurfaceAction(decoded, paneID: paneID)
           return consumed
         }
       }
       DispatchQueue.main.async {
         MainActor.assumeIsolated {
-          _ = GhosttyRuntime.shared?.applySurfaceAction(decoded, panelID: panelID)
+          _ = GhosttyRuntime.shared?.applySurfaceAction(decoded, paneID: paneID)
         }
       }
       return consumed
@@ -380,32 +380,32 @@ final class GhosttyRuntime {
   }
 
   @MainActor
-  fileprivate func applySurfaceAction(_ decoded: DecodedSurfaceAction, panelID: PanelID) -> Bool {
-    guard let panel = surfacesByPanelID[panelID] else { return false }
-    return GhosttyActionDecoder.apply(decoded, panelID: panelID, panel: panel, runtime: self)
+  fileprivate func applySurfaceAction(_ decoded: DecodedSurfaceAction, paneID: PaneID) -> Bool {
+    guard let pane = surfacesByPaneID[paneID] else { return false }
+    return GhosttyActionDecoder.apply(decoded, paneID: paneID, pane: pane, runtime: self)
   }
 
-  /// Copy the PanelID uuid bytes out of libghostty-stored userdata. Same
+  /// Copy the PaneID uuid bytes out of libghostty-stored userdata. Same
   /// pattern as `closeSurfaceCallback` — UAF-safe because userdata points
-  /// to a 16-byte allocation owned by `PanelSurface` for the surface's
+  /// to a 16-byte allocation owned by `PaneSurface` for the surface's
   /// lifetime; we only read the bytes, never the owning Swift object.
-  /// `nonisolated` so the C callback thunk can resolve the PanelID on
+  /// `nonisolated` so the C callback thunk can resolve the PaneID on
   /// whatever thread libghostty invokes us (the read is a pure byte copy).
-  nonisolated static func panelIDBytes(fromSurface surface: ghostty_surface_t) -> PanelID? {
+  nonisolated static func paneIDBytes(fromSurface surface: ghostty_surface_t) -> PaneID? {
     guard let raw = ghostty_surface_userdata(surface) else { return nil }
-    return panelID(fromRawUserdata: raw)
+    return paneID(fromRawUserdata: raw)
   }
 
   /// Read 16 uuid_t bytes from a raw userdata pointer. Used by clipboard
   /// and close callbacks that receive surface-userdata directly.
-  nonisolated static func panelID(fromRawUserdata raw: UnsafeMutableRawPointer) -> PanelID {
+  nonisolated static func paneID(fromRawUserdata raw: UnsafeMutableRawPointer) -> PaneID {
     var bytes = uuid_t(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
     withUnsafeMutableBytes(of: &bytes) { dst in
       _ = dst.baseAddress.map { base in
         base.copyMemory(from: raw, byteCount: MemoryLayout<uuid_t>.size)
       }
     }
-    return PanelID(raw: UUID(uuid: bytes))
+    return PaneID(raw: UUID(uuid: bytes))
   }
 
   // MARK: - Clipboard callbacks
@@ -440,15 +440,15 @@ final class GhosttyRuntime {
     (@convention(c) (UnsafeMutableRawPointer?, ghostty_clipboard_e, UnsafeMutableRawPointer?) -> Bool) = {
       userdata, location, state in
       guard let userdata else { return false }
-      let panelID = panelID(fromRawUserdata: userdata)
+      let paneID = paneID(fromRawUserdata: userdata)
       let stateBits = state.map { UInt(bitPattern: $0) }
       let complete: @MainActor () -> Bool = {
-        guard let panel = GhosttyRuntime.shared?.surface(for: panelID) else { return false }
+        guard let pane = GhosttyRuntime.shared?.surface(for: paneID) else { return false }
         guard let pb = pasteboard(for: location),
           let text = pb.string(forType: .string)
         else { return false }
         let stateBack = stateBits.flatMap { UnsafeMutableRawPointer(bitPattern: $0) }
-        panel.completeClipboardRequest(text: text, state: stateBack, confirmed: false)
+        pane.completeClipboardRequest(text: text, state: stateBack, confirmed: false)
         return true
       }
       if Thread.isMainThread {
@@ -469,12 +469,12 @@ final class GhosttyRuntime {
       userdata, cString, state, _ in
       guard let userdata, let cString else { return }
       let value = String(cString: cString)
-      let panelID = panelID(fromRawUserdata: userdata)
+      let paneID = paneID(fromRawUserdata: userdata)
       let stateBits = state.map { UInt(bitPattern: $0) }
       let complete: @MainActor () -> Void = {
-        guard let panel = GhosttyRuntime.shared?.surface(for: panelID) else { return }
+        guard let pane = GhosttyRuntime.shared?.surface(for: paneID) else { return }
         let stateBack = stateBits.flatMap { UnsafeMutableRawPointer(bitPattern: $0) }
-        panel.completeClipboardRequest(text: value, state: stateBack, confirmed: true)
+        pane.completeClipboardRequest(text: value, state: stateBack, confirmed: true)
       }
       if Thread.isMainThread {
         MainActor.assumeIsolated { complete() }
@@ -528,10 +528,10 @@ final class GhosttyRuntime {
   }
 
   /// Convenience for the info-delta family, which always travels as
-  /// `panelInfoChanged(panelID, delta)`.
+  /// `paneInfoChanged(paneID, delta)`.
   @MainActor
-  func emitInfoChanged(_ panelID: PanelID, _ delta: PanelInfoDelta) {
-    emit(.panelInfoChanged(panelID, delta))
+  func emitInfoChanged(_ paneID: PaneID, _ delta: PaneInfoDelta) {
+    emit(.paneInfoChanged(paneID, delta))
   }
 
   // MARK: - Config mutation
@@ -589,11 +589,11 @@ final class GhosttyRuntime {
   /// conditional state is now stale-from-libghostty's-view and needs the
   /// current app config re-applied so `Surface.updateConfig` can run
   /// `changeConditionalState` with the NEW per-surface state. No-op if the
-  /// PanelID no longer maps to a live surface (racey unregister).
+  /// PaneID no longer maps to a live surface (racey unregister).
   @MainActor
-  func reloadSurfaceConfig(panelID: PanelID, soft: Bool) {
-    guard let panel = surfacesByPanelID[panelID] else { return }
-    panel.reloadConfig(soft: soft, appConfig: config)
+  func reloadSurfaceConfig(paneID: PaneID, soft: Bool) {
+    guard let pane = surfacesByPaneID[paneID] else { return }
+    pane.reloadConfig(soft: soft, appConfig: config)
   }
 
   /// Placeholder for `GHOSTTY_ACTION_TOGGLE_BACKGROUND_OPACITY`. Lands when
@@ -606,31 +606,31 @@ final class GhosttyRuntime {
   }
 
   /// close_surface_cb receives the SURFACE's userdata, which we set at
-  /// creation to the raw bytes of the owning `PanelID.raw.uuid`. We avoid
-  /// casting to a `PanelSurface` pointer because the callback hops through
-  /// `DispatchQueue.main.async`: if the engine drops the PanelSurface on
+  /// creation to the raw bytes of the owning `PaneID.raw.uuid`. We avoid
+  /// casting to a `PaneSurface` pointer because the callback hops through
+  /// `DispatchQueue.main.async`: if the engine drops the PaneSurface on
   /// the main thread between the C call and the async block, the opaque
   /// pointer would reference freed memory.
   ///
-  /// PanelID lookup via the runtime registry is UAF-safe — the registry
-  /// maps a PanelID (value type) to a live PanelSurface, and if the panel
+  /// PaneID lookup via the runtime registry is UAF-safe — the registry
+  /// maps a PaneID (value type) to a live PaneSurface, and if the pane
   /// was already unregistered the lookup returns nil and we no-op.
   private static let closeSurfaceCallback: (@convention(c) (UnsafeMutableRawPointer?, Bool) -> Void) = {
     userdata, processAlive in
     guard let userdata else { return }
     // Copy the UUID bytes out of the userdata payload now, before hopping
-    // to main — the memory may be freed if the PanelSurface is dropped.
+    // to main — the memory may be freed if the PaneSurface is dropped.
     var uuidBytes = uuid_t(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
     withUnsafeMutableBytes(of: &uuidBytes) { dst in
       _ = dst.baseAddress.map { base in
         base.copyMemory(from: userdata, byteCount: MemoryLayout<uuid_t>.size)
       }
     }
-    let panelID = PanelID(raw: UUID(uuid: uuidBytes))
+    let paneID = PaneID(raw: UUID(uuid: uuidBytes))
     DispatchQueue.main.async {
       MainActor.assumeIsolated {
-        guard let panel = GhosttyRuntime.shared?.surface(for: panelID) else { return }
-        panel.requestClose(processAlive: processAlive)
+        guard let pane = GhosttyRuntime.shared?.surface(for: paneID) else { return }
+        pane.requestClose(processAlive: processAlive)
       }
     }
   }

@@ -30,13 +30,13 @@ struct DefaultRulesRoundTripTests {
   }
 
   @Test
-  func everyRuleCarriesRequiredPanelOutputMatchFields() throws {
+  func everyRuleCarriesRequiredPaneOutputMatchFields() throws {
     let data = Data(DefaultRules.json.utf8)
     let rules = try JSONDecoder().decode(AgentDetectionRules.self, from: data)
     for rule in rules.rules {
-      // Every default rule targets .panelOutputMatch — missingMatch is
+      // Every default rule targets .paneOutputMatch — missingMatch is
       // enforced at decode, but we also check transitions are valid.
-      #expect(rule.appliesWhen.hookEvent == .panelOutputMatch)
+      #expect(rule.appliesWhen.hookEvent == .paneOutputMatch)
       #expect(rule.match != nil)
       #expect(AgentState.allCases.contains(rule.transitionTo))
       #expect(!rule.title.isEmpty)

@@ -222,7 +222,7 @@ public nonisolated enum HookRowBuilder {
     if let pattern = subscription.matchPattern, !pattern.isEmpty {
       return truncated(pattern, limit: matchSummaryLimit)
     }
-    if subscription.scope != .anyPanel {
+    if subscription.scope != .anyPane {
       return "scope: \(scopeLabel(subscription.scope))"
     }
     return nil
@@ -240,9 +240,9 @@ public nonisolated enum HookRowBuilder {
 
   private static func scopeLabel(_ scope: HookSubscription.Scope) -> String {
     switch scope {
-    case .anyPanel: return "anyPanel"
-    case .panelID: return "panelID"
-    case .panelLabel: return "panelLabel"
+    case .anyPane: return "anyPane"
+    case .paneID: return "paneID"
+    case .paneLabel: return "paneLabel"
     case .tabID: return "tabID"
     case .tabLabel: return "tabLabel"
     case .worktreeID: return "worktreeID"
@@ -257,7 +257,7 @@ public nonisolated enum HookRowBuilder {
       HookRow(
         id: UUID(),
         displayName: "notify-on-error",
-        eventLabel: "panel.output",
+        eventLabel: "pane.output",
         matchSummary: "error.*",
         enabled: true,
         source: .global
@@ -281,12 +281,12 @@ public nonisolated enum HookRowBuilder {
   HookMergeView(
     rows: [
       HookRow(
-        id: UUID(), displayName: "global hook", eventLabel: "panel.ready",
+        id: UUID(), displayName: "global hook", eventLabel: "pane.ready",
         matchSummary: nil, enabled: true, source: .global
       ),
       HookRow(
-        id: UUID(), displayName: "repo hook", eventLabel: "panel.output",
-        matchSummary: "scope: panelLabel", enabled: true, source: .repository
+        id: UUID(), displayName: "repo hook", eventLabel: "pane.output",
+        matchSummary: "scope: paneLabel", enabled: true, source: .repository
       ),
     ],
     showsSourceTag: true

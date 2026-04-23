@@ -18,10 +18,10 @@ public final class HookHandlers {
 
   public struct ListParams: Codable, Sendable {
     public let eventFilter: HookEvent?
-    public let panelID: PanelID?
-    public init(eventFilter: HookEvent? = nil, panelID: PanelID? = nil) {
+    public let paneID: PaneID?
+    public init(eventFilter: HookEvent? = nil, paneID: PaneID? = nil) {
       self.eventFilter = eventFilter
-      self.panelID = panelID
+      self.paneID = paneID
     }
   }
 
@@ -68,7 +68,7 @@ public final class HookHandlers {
   // MARK: - Handlers
 
   /// `hook.list` — return the loaded subscription table, optionally
-  /// filtered by event or by panel scope.
+  /// filtered by event or by pane scope.
   public func list(_ params: JSONValue) async -> RouterOutcome {
     await Task.yield()
     let filter = (try? params.decoded(as: ListParams.self)) ?? ListParams()
@@ -76,15 +76,15 @@ public final class HookHandlers {
     if let event = filter.eventFilter {
       subs = subs.filter { $0.event == event }
     }
-    if let panelID = filter.panelID {
+    if let paneID = filter.paneID {
       subs = subs.filter { sub in
         // Exhaustive switch — adding a new HookSubscription.Scope case
         // (e.g. when C6 extends the taxonomy) forces a conscious choice
         // here rather than falling through a silent `default`.
         switch sub.scope {
-        case .anyPanel: return true
-        case .panelID(let id): return id == panelID
-        case .panelLabel,
+        case .anyPane: return true
+        case .paneID(let id): return id == paneID
+        case .paneLabel,
           .tabID,
           .tabLabel,
           .worktreeID,

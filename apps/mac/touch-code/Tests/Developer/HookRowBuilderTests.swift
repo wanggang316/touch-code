@@ -11,7 +11,7 @@ struct HookRowBuilderTests {
   @Test
   func buildsShortCommandDisplayNameVerbatim() {
     let cmd = "notify --level warn"  // 19 chars
-    let sub = HookSubscription(event: .panelOutput, command: cmd)
+    let sub = HookSubscription(event: .paneOutput, command: cmd)
 
     let row = HookRowBuilder.make(from: sub, source: .global)
 
@@ -23,7 +23,7 @@ struct HookRowBuilderTests {
     // Truncation contract: 60 is the *final rendered width including the
     // ellipsis*. Long command → 59 "a"s + "…" = 60 glyphs total.
     let cmd = String(repeating: "a", count: 100)
-    let sub = HookSubscription(event: .panelOutput, command: cmd)
+    let sub = HookSubscription(event: .paneOutput, command: cmd)
 
     let row = HookRowBuilder.make(from: sub, source: .global)
 
@@ -38,7 +38,7 @@ struct HookRowBuilderTests {
     // appended). Proves the contract excludes an off-by-one truncation of
     // a legitimately 60-wide command.
     let cmd = String(repeating: "a", count: 60)
-    let sub = HookSubscription(event: .panelOutput, command: cmd)
+    let sub = HookSubscription(event: .paneOutput, command: cmd)
 
     let row = HookRowBuilder.make(from: sub, source: .global)
 
@@ -52,7 +52,7 @@ struct HookRowBuilderTests {
     // including the ellipsis*. A 100-char pattern → 79 glyphs + "…" = 80.
     let pattern = String(repeating: "b", count: 100)
     let sub = HookSubscription(
-      event: .panelOutputMatch, command: "run", matchPattern: pattern)
+      event: .paneOutputMatch, command: "run", matchPattern: pattern)
 
     let row = HookRowBuilder.make(from: sub, source: .global)
 
@@ -65,7 +65,7 @@ struct HookRowBuilderTests {
   @Test
   func prefersMatchPatternSummary() {
     let sub = HookSubscription(
-      event: .panelOutputMatch,
+      event: .paneOutputMatch,
       command: "run",
       matchPattern: "error.*"
     )
@@ -78,20 +78,20 @@ struct HookRowBuilderTests {
   @Test
   func fallsBackToScopeSummary() {
     let sub = HookSubscription(
-      event: .panelOutput,
+      event: .paneOutput,
       command: "run",
-      scope: .panelLabel("alpha")
+      scope: .paneLabel("alpha")
     )
 
     let row = HookRowBuilder.make(from: sub, source: .global)
 
-    #expect(row.matchSummary == "scope: panelLabel")
+    #expect(row.matchSummary == "scope: paneLabel")
   }
 
   @Test
-  func nilSummaryWhenNoMatchAndAnyPanel() {
-    let sub = HookSubscription(event: .panelOutput, command: "run")
-    // Default scope is `.anyPanel` and there is no matchPattern.
+  func nilSummaryWhenNoMatchAndAnyPane() {
+    let sub = HookSubscription(event: .paneOutput, command: "run")
+    // Default scope is `.anyPane` and there is no matchPattern.
 
     let row = HookRowBuilder.make(from: sub, source: .global)
 
@@ -100,8 +100,8 @@ struct HookRowBuilderTests {
 
   @Test
   func enabledInvertsDisabledFlag() {
-    let off = HookSubscription(event: .panelOutput, command: "run", disabled: true)
-    let on = HookSubscription(event: .panelOutput, command: "run", disabled: false)
+    let off = HookSubscription(event: .paneOutput, command: "run", disabled: true)
+    let on = HookSubscription(event: .paneOutput, command: "run", disabled: false)
 
     #expect(HookRowBuilder.make(from: off, source: .global).enabled == false)
     #expect(HookRowBuilder.make(from: on, source: .global).enabled == true)
@@ -109,7 +109,7 @@ struct HookRowBuilderTests {
 
   @Test
   func sourceIsPropagated() {
-    let sub = HookSubscription(event: .panelReady, command: "run")
+    let sub = HookSubscription(event: .paneReady, command: "run")
 
     let global = HookRowBuilder.make(from: sub, source: .global)
     let repo = HookRowBuilder.make(from: sub, source: .repository)

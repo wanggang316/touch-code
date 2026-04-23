@@ -488,7 +488,7 @@ struct TabListRenderable: Encodable, CustomStringConvertible {
   var description: String {
     tabs.isEmpty
       ? "(no tabs)"
-      : tabs.map { "\($0.id)  \($0.name ?? "(untitled)")  (\($0.panels.count) panels)" }
+      : tabs.map { "\($0.id)  \($0.name ?? "(untitled)")  (\($0.panes.count) panes)" }
         .joined(separator: "\n")
   }
 }
@@ -560,20 +560,20 @@ struct TabActivate: AsyncParsableCommand {
   }
 }
 
-// MARK: - tc panel
+// MARK: - tc pane
 
-struct PanelCommand: AsyncParsableCommand {
+struct PaneCommand: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
-    commandName: "panel",
-    abstract: "Panel-level verbs.",
-    subcommands: [PanelLabel.self, PanelList.self, PanelClose.self, PanelFocus.self]
+    commandName: "pane",
+    abstract: "Pane-level verbs.",
+    subcommands: [PaneLabel.self, PaneList.self, PaneClose.self, PaneFocus.self]
   )
 }
 
-struct PanelList: AsyncParsableCommand {
+struct PaneList: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "list",
-    abstract: "List panels in a tab."
+    abstract: "List panes in a tab."
   )
   @OptionGroup var globals: GlobalOptions
   @Option(name: .long) var space: String = "current"
@@ -595,9 +595,9 @@ struct PanelList: AsyncParsableCommand {
         let projectID: ProjectID
         let spaceID: SpaceID
       }
-      struct Result: Codable { let panels: [Panel] }
+      struct Result: Codable { let panes: [Pane] }
       let result: Result = try await client.call(
-        .hierarchyListPanels,
+        .hierarchyListPanes,
         params: Params(
           tabID: TabID(raw: tabUUID),
           worktreeID: WorktreeID(raw: worktreeUUID),
@@ -605,32 +605,32 @@ struct PanelList: AsyncParsableCommand {
           spaceID: SpaceID(raw: spaceUUID)
         )
       )
-      try Renderer.emit(PanelListRenderable(panels: result.panels), mode: globals.renderMode)
+      try Renderer.emit(PaneListRenderable(panes: result.panes), mode: globals.renderMode)
     } catch {
       CLIError.from(error).exitProcess()
     }
   }
 }
 
-struct PanelListRenderable: Encodable, CustomStringConvertible {
-  let panels: [Panel]
-  private enum Key: String, CodingKey { case panels }
+struct PaneListRenderable: Encodable, CustomStringConvertible {
+  let panes: [Pane]
+  private enum Key: String, CodingKey { case panes }
   func encode(to encoder: Encoder) throws {
     var c = encoder.container(keyedBy: Key.self)
-    try c.encode(panels, forKey: .panels)
+    try c.encode(panes, forKey: .panes)
   }
   var description: String {
-    panels.isEmpty
-      ? "(no panels)"
-      : panels.map { panel in
-        let labels = panel.labels.sorted().joined(separator: ",")
+    panes.isEmpty
+      ? "(no panes)"
+      : panes.map { pane in
+        let labels = pane.labels.sorted().joined(separator: ",")
         let labelCol = labels.isEmpty ? "" : " [\(labels)]"
-        return "\(panel.id)  \(panel.workingDirectory)\(labelCol)"
+        return "\(pane.id)  \(pane.workingDirectory)\(labelCol)"
       }.joined(separator: "\n")
   }
 }
 
-struct PanelLocatorArgs: ParsableArguments {
+struct PaneLocatorArgs: ParsableArguments {
   @Option(name: .long) var space: String = "current"
   @Option(name: .long) var project: String = "current"
   @Option(name: .long) var worktree: String = "current"
@@ -638,57 +638,57 @@ struct PanelLocatorArgs: ParsableArguments {
   @Argument var id: String
 }
 
-struct PanelClose: AsyncParsableCommand {
+struct PaneClose: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "close",
-    abstract: "Close a panel."
+    abstract: "Close a pane."
   )
   @OptionGroup var globals: GlobalOptions
-  @OptionGroup var args: PanelLocatorArgs
+  @OptionGroup var args: PaneLocatorArgs
 
   func run() async throws {
-    try await PanelLocatorFlow.run(
+    try await PaneLocatorFlow.run(
       globals: globals,
       args: args,
-      method: .hierarchyClosePanel,
+      method: .hierarchyClosePane,
       verbLabel: "closed"
     )
   }
 }
 
-struct PanelFocus: AsyncParsableCommand {
+struct PaneFocus: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "focus",
-    abstract: "Focus a panel within its tab."
+    abstract: "Focus a pane within its tab."
   )
   @OptionGroup var globals: GlobalOptions
-  @OptionGroup var args: PanelLocatorArgs
+  @OptionGroup var args: PaneLocatorArgs
 
   func run() async throws {
-    try await PanelLocatorFlow.run(
+    try await PaneLocatorFlow.run(
       globals: globals,
       args: args,
-      method: .hierarchyFocusPanel,
+      method: .hierarchyFocusPane,
       verbLabel: "focused"
     )
   }
 }
 
-struct PanelLocatorBody: Codable, Sendable {
-  let id: PanelID
+struct PaneLocatorBody: Codable, Sendable {
+  let id: PaneID
   let tabID: TabID
   let worktreeID: WorktreeID
   let projectID: ProjectID
   let spaceID: SpaceID
 }
 
-enum PanelLocatorFlow {
-  /// Shared panel-locator flow — resolves 5 aliases then dispatches
+enum PaneLocatorFlow {
+  /// Shared pane-locator flow — resolves 5 aliases then dispatches
   /// the supplied method with a `{id, tabID, worktreeID, projectID,
   /// spaceID}` body.
   static func run(
     globals: GlobalOptions,
-    args: PanelLocatorArgs,
+    args: PaneLocatorArgs,
     method: IPC.Method,
     verbLabel: String
   ) async throws {
@@ -699,19 +699,19 @@ enum PanelLocatorFlow {
       let projectUUID = try await AliasResolver.resolve(args.project, kind: .project, client: client)
       let worktreeUUID = try await AliasResolver.resolve(args.worktree, kind: .worktree, client: client)
       let tabUUID = try await AliasResolver.resolve(args.tab, kind: .tab, client: client)
-      let panelUUID = try await AliasResolver.resolve(args.id, kind: .panel, client: client)
+      let paneUUID = try await AliasResolver.resolve(args.id, kind: .pane, client: client)
       _ = try await client.callRaw(
         method,
-        params: PanelLocatorBody(
-          id: PanelID(raw: panelUUID),
+        params: PaneLocatorBody(
+          id: PaneID(raw: paneUUID),
           tabID: TabID(raw: tabUUID),
           worktreeID: WorktreeID(raw: worktreeUUID),
           projectID: ProjectID(raw: projectUUID),
           spaceID: SpaceID(raw: spaceUUID)
         )
       )
-      try Renderer.emitObject(["id": panelUUID.uuidString], mode: globals.renderMode) { _ in
-        "\(verbLabel) panel \(panelUUID.uuidString)"
+      try Renderer.emitObject(["id": paneUUID.uuidString], mode: globals.renderMode) { _ in
+        "\(verbLabel) pane \(paneUUID.uuidString)"
       }
     } catch {
       CLIError.from(error).exitProcess()
@@ -719,32 +719,32 @@ enum PanelLocatorFlow {
   }
 }
 
-struct PanelLabel: AsyncParsableCommand {
+struct PaneLabel: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "label",
-    abstract: "Apply labels to a panel (by UUID or @label alias)."
+    abstract: "Apply labels to a pane (by UUID or @label alias)."
   )
   @OptionGroup var globals: GlobalOptions
-  @Argument(help: "Panel id (UUID, 'current', or @label).")
-  var panel: String
+  @Argument(help: "Pane id (UUID, 'current', or @label).")
+  var pane: String
   @Argument(help: "Labels to apply (whitespace-separated).")
   var labels: [String]
-  @Flag(name: .long, help: "Replace the panel's label set instead of union-merging.")
+  @Flag(name: .long, help: "Replace the pane's label set instead of union-merging.")
   var replace: Bool = false
 
   func run() async throws {
     let client = try CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
-      let uuid = try await AliasResolver.resolve(panel, kind: .panel, client: client)
+      let uuid = try await AliasResolver.resolve(pane, kind: .pane, client: client)
       struct Params: Codable {
-        let id: PanelID
+        let id: PaneID
         let labels: [String]
         let replace: Bool
       }
       _ = try await client.callRaw(
-        .hierarchySetPanelLabels,
-        params: Params(id: PanelID(raw: uuid), labels: labels, replace: replace)
+        .hierarchySetPaneLabels,
+        params: Params(id: PaneID(raw: uuid), labels: labels, replace: replace)
       )
       try Renderer.emitObject(
         ["id": uuid.uuidString, "labels": labels],
@@ -763,7 +763,7 @@ struct PanelLabel: AsyncParsableCommand {
 struct SendCommand: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "send",
-    abstract: "Send text input to a specific panel (by UUID, @label, or 'current')."
+    abstract: "Send text input to a specific pane (by UUID, @label, or 'current')."
   )
   @OptionGroup var globals: GlobalOptions
   @Argument var target: String
@@ -774,20 +774,20 @@ struct SendCommand: AsyncParsableCommand {
     defer { Task { await client.shutdown() } }
     let text = textPieces.joined(separator: " ")
     do {
-      let uuid = try await AliasResolver.resolve(target, kind: .panel, client: client)
+      let uuid = try await AliasResolver.resolve(target, kind: .pane, client: client)
       struct Params: Codable {
-        let panelID: PanelID
+        let paneID: PaneID
         let text: String
       }
       _ = try await client.callRaw(
         .terminalSendInput,
-        params: Params(panelID: PanelID(raw: uuid), text: text)
+        params: Params(paneID: PaneID(raw: uuid), text: text)
       )
       try Renderer.emitObject(
-        ["panelID": uuid.uuidString, "bytes": text.utf8.count],
+        ["paneID": uuid.uuidString, "bytes": text.utf8.count],
         mode: globals.renderMode
       ) { obj in
-        "sent \(obj["bytes"] ?? 0) bytes → \(obj["panelID"] ?? "?")"
+        "sent \(obj["bytes"] ?? 0) bytes → \(obj["paneID"] ?? "?")"
       }
     } catch {
       CLIError.from(error).exitProcess()
@@ -833,7 +833,7 @@ struct BroadcastCommand: AsyncParsableCommand {
         ["delivered": result.delivered, "bytes": text.utf8.count],
         mode: globals.renderMode
       ) { obj in
-        "broadcast \(obj["bytes"] ?? 0) bytes → \(obj["delivered"] ?? 0) panel(s)"
+        "broadcast \(obj["bytes"] ?? 0) bytes → \(obj["delivered"] ?? 0) pane(s)"
       }
     } catch {
       CLIError.from(error).exitProcess()

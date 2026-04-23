@@ -16,8 +16,8 @@ struct GitViewerFeatureTests {
   nonisolated static let samplePath = "/tmp/touch-code-test-repo"
 
   nonisolated static func catalogWithWorktree() -> Catalog {
-    let panel = Panel(workingDirectory: samplePath)
-    let tab = Tab(splitTree: SplitTree(leaf: panel.id), panels: [panel])
+    let pane = Pane(workingDirectory: samplePath)
+    let tab = Tab(splitTree: SplitTree(leaf: pane.id), panes: [pane])
     let worktree = Worktree(
       id: sampleWorktreeID,
       name: "main",

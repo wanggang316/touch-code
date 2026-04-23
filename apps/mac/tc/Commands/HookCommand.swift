@@ -35,7 +35,7 @@ struct HookList: AsyncParsableCommand {
 
   @OptionGroup var globals: GlobalOptions
 
-  @Option(name: .long, help: "Filter by event name (e.g. panel.ready).")
+  @Option(name: .long, help: "Filter by event name (e.g. pane.ready).")
   var event: String?
 
   func run() async throws {

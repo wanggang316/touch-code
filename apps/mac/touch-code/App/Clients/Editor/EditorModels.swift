@@ -18,7 +18,7 @@ public nonisolated struct EditorDescriptor: Equatable, Hashable, Sendable, Ident
     /// JetBrains-family only — other modes cause the IDE to focus its last-opened window and
     /// ignore the argument.
     case applicationWithArguments
-    /// Spawn a Panel at the target directory and send `$EDITOR\n` as initial input. The
+    /// Spawn a Pane at the target directory and send `$EDITOR\n` as initial input. The
     /// user's login shell resolves `$EDITOR` with its own environment. No bundle ID, no LS.
     case shellEditor
   }
@@ -59,7 +59,7 @@ public nonisolated struct EditorChoice: Equatable, Hashable, Sendable, Codable {
   public let id: EditorID
   public let displayName: String
   /// Optional binary path. Absent for NSWorkspace launches (Launch Services owns the bundle);
-  /// populated only for `.shellEditor` where the Panel's shell resolves `$EDITOR`.
+  /// populated only for `.shellEditor` where the Pane's shell resolves `$EDITOR`.
   public let binaryPath: String?
 
   public init(id: EditorID, displayName: String, binaryPath: String? = nil) {

@@ -8,7 +8,7 @@ import Foundation
 ///
 /// Field set is partitioned into:
 /// - **Always available** — context anchors every envelope carries
-///   (`agent`, `state.*`, `panel.*`, `tab.*`, `worktree.*`, `project.*`,
+///   (`agent`, `state.*`, `pane.*`, `tab.*`, `worktree.*`, `project.*`,
 ///   `space.*`). Returned for every `HookEvent`.
 /// - **Event-specific `data.*` fields** — shape-bound to the matching
 ///   `HookEventData` case. Returned from `validPaths(for:)` only when
@@ -26,13 +26,13 @@ public nonisolated enum TemplateField: String, CaseIterable, Hashable, Sendable 
   case stateFrom = "state.from"
   case stateTo = "state.to"
 
-  case panelID = "panel.id"
-  case panelWorkingDirectory = "panel.workingDirectory"
-  case panelInitialCommand = "panel.initialCommand"
+  case paneID = "pane.id"
+  case paneWorkingDirectory = "pane.workingDirectory"
+  case paneInitialCommand = "pane.initialCommand"
 
   case tabID = "tab.id"
   case tabName = "tab.name"
-  case tabSelectedPanelID = "tab.selectedPanelID"
+  case tabSelectedPaneID = "tab.selectedPaneID"
 
   case worktreeID = "worktree.id"
   case worktreeName = "worktree.name"
@@ -46,21 +46,21 @@ public nonisolated enum TemplateField: String, CaseIterable, Hashable, Sendable 
   case spaceID = "space.id"
   case spaceName = "space.name"
 
-  // MARK: - panel.created
+  // MARK: - pane.created
 
   case dataCreatedVia = "data.createdVia"
 
-  // MARK: - panel.ready
+  // MARK: - pane.ready
 
   case dataPID = "data.pid"
   case dataShell = "data.shell"
 
-  // MARK: - panel.input
+  // MARK: - pane.input
 
   case dataText = "data.text"
   case dataInputBytes = "data.inputBytes"
 
-  // MARK: - panel.output / panel.outputMatch
+  // MARK: - pane.output / pane.outputMatch
 
   case dataOutput = "data.output"
   case dataOutputBytes = "data.outputBytes"
@@ -68,17 +68,17 @@ public nonisolated enum TemplateField: String, CaseIterable, Hashable, Sendable 
   case dataMatchedRangeStart = "data.matchedRange.start"
   case dataMatchedRangeLength = "data.matchedRange.length"
 
-  // MARK: - panel.idle
+  // MARK: - pane.idle
 
   case dataIdleSeconds = "data.idleSeconds"
   case dataSinceLastOutput = "data.sinceLastOutput"
   case dataSinceLastInput = "data.sinceLastInput"
 
-  // MARK: - panel.exited
+  // MARK: - pane.exited
 
   case dataExitCode = "data.exitCode"
 
-  // MARK: - panel.crashed / tab.autoClosed
+  // MARK: - pane.crashed / tab.autoClosed
 
   case dataReason = "data.reason"
 
@@ -109,8 +109,8 @@ public nonisolated enum TemplateField: String, CaseIterable, Hashable, Sendable 
   /// The union of anchor fields every envelope carries.
   public static let alwaysAvailable: Set<TemplateField> = [
     .agent, .stateFrom, .stateTo,
-    .panelID, .panelWorkingDirectory, .panelInitialCommand,
-    .tabID, .tabName, .tabSelectedPanelID,
+    .paneID, .paneWorkingDirectory, .paneInitialCommand,
+    .tabID, .tabName, .tabSelectedPaneID,
     .worktreeID, .worktreeName, .worktreePath, .worktreeBranch,
     .projectID, .projectName, .projectRootPath,
     .spaceID, .spaceName,
@@ -122,24 +122,24 @@ public nonisolated enum TemplateField: String, CaseIterable, Hashable, Sendable 
   public static func validPaths(for event: HookEvent) -> Set<TemplateField> {
     var paths = alwaysAvailable
     switch event {
-    case .panelCreated:
+    case .paneCreated:
       paths.insert(.dataCreatedVia)
-    case .panelReady:
+    case .paneReady:
       paths.formUnion([.dataPID, .dataShell])
-    case .panelInput:
+    case .paneInput:
       paths.formUnion([.dataText, .dataInputBytes])
-    case .panelOutput:
+    case .paneOutput:
       paths.formUnion([.dataOutput, .dataOutputBytes])
-    case .panelOutputMatch:
+    case .paneOutputMatch:
       paths.formUnion([
         .dataMatch, .dataOutput, .dataOutputBytes,
         .dataMatchedRangeStart, .dataMatchedRangeLength,
       ])
-    case .panelIdle:
+    case .paneIdle:
       paths.formUnion([.dataIdleSeconds, .dataSinceLastOutput, .dataSinceLastInput])
-    case .panelExited:
+    case .paneExited:
       paths.insert(.dataExitCode)
-    case .panelCrashed:
+    case .paneCrashed:
       paths.insert(.dataReason)
     case .tabActivated:
       paths.insert(.dataPreviousTabID)

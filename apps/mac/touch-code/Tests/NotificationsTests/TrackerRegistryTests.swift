@@ -7,11 +7,11 @@ import TouchCodeCore
 @MainActor
 struct TrackerRegistryTests {
   @Test
-  func bootstrapCreatesTrackerForEveryAgentLabelledPanel() {
-    let catalog = Self.catalog(panels: [
-      Self.panel(labels: ["agent:claude"]),
-      Self.panel(labels: []),
-      Self.panel(labels: ["agent:aider", "misc"]),
+  func bootstrapCreatesTrackerForEveryAgentLabelledPane() {
+    let catalog = Self.catalog(panes: [
+      Self.pane(labels: ["agent:claude"]),
+      Self.pane(labels: []),
+      Self.pane(labels: ["agent:aider", "misc"]),
     ])
     let registry = TrackerRegistry(
       hierarchy: Self.hierarchy(catalog: catalog),
@@ -24,7 +24,7 @@ struct TrackerRegistryTests {
   @Test
   func createIsIdempotent() {
     let registry = Self.emptyRegistry()
-    let id = PanelID()
+    let id = PaneID()
     let first = registry.create(for: id)
     let second = registry.create(for: id)
     #expect(first === second)
@@ -34,7 +34,7 @@ struct TrackerRegistryTests {
   @Test
   func destroyRemovesTracker() {
     let registry = Self.emptyRegistry()
-    let id = PanelID()
+    let id = PaneID()
     _ = registry.create(for: id)
     #expect(registry.tracker(for: id) != nil)
     registry.destroy(for: id)
@@ -51,43 +51,43 @@ struct TrackerRegistryTests {
   func trackerCreationsStreamEmitsOnCreate() async {
     let registry = Self.emptyRegistry()
     var iterator = registry.trackerCreations.makeAsyncIterator()
-    let id = PanelID()
+    let id = PaneID()
     _ = registry.create(for: id)
     let yielded = await iterator.next()
     #expect(yielded == id)
   }
 
   @Test
-  func agentLabelledPanelsStaticWalksFullHierarchy() {
-    let panelA = Self.panel(labels: ["agent:claude"])
-    let panelB = Self.panel(labels: [])
-    let panelC = Self.panel(labels: ["agent:codex"])
-    let catalog = Self.catalog(panels: [panelA, panelB, panelC])
-    let found = TrackerRegistry.agentLabelledPanels(in: catalog)
-    #expect(Set(found.map(\.id)) == [panelA.id, panelC.id])
+  func agentLabelledPanesStaticWalksFullHierarchy() {
+    let paneA = Self.pane(labels: ["agent:claude"])
+    let paneB = Self.pane(labels: [])
+    let paneC = Self.pane(labels: ["agent:codex"])
+    let catalog = Self.catalog(panes: [paneA, paneB, paneC])
+    let found = TrackerRegistry.agentLabelledPanes(in: catalog)
+    #expect(Set(found.map(\.id)) == [paneA.id, paneC.id])
   }
 
   // MARK: - Helpers
 
   private static func emptyRegistry() -> TrackerRegistry {
     TrackerRegistry(
-      hierarchy: Self.hierarchy(catalog: Self.catalog(panels: [])),
+      hierarchy: Self.hierarchy(catalog: Self.catalog(panes: [])),
       idleThreshold: 120
     )
   }
 
-  private static func panel(labels: Set<String>) -> Panel {
-    Panel(
+  private static func pane(labels: Set<String>) -> Pane {
+    Pane(
       workingDirectory: "/tmp",
       initialCommand: nil,
       labels: labels
     )
   }
 
-  private static func catalog(panels: [Panel]) -> Catalog {
+  private static func catalog(panes: [Pane]) -> Catalog {
     let tab = Tab(
-      splitTree: panels.first.map { SplitTree(leaf: $0.id) } ?? SplitTree(leaf: PanelID()),
-      panels: panels
+      splitTree: panes.first.map { SplitTree(leaf: $0.id) } ?? SplitTree(leaf: PaneID()),
+      panes: panes
     )
     let worktree = Worktree(name: "main", path: "/repo", branch: "main", tabs: [tab], selectedTabID: tab.id)
     let project = Project(
