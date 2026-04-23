@@ -38,14 +38,17 @@ struct SettingsGeneralView: View {
 
   var body: some View {
     Form {
-      Section("Appearance") {
-        Picker("Appearance", selection: appearanceBinding) {
-          Text("System").tag(AppearancePreference.system)
-          Text("Light").tag(AppearancePreference.light)
-          Text("Dark").tag(AppearancePreference.dark)
+      Section {
+        LabeledContent("Appearance") {
+          Picker("Appearance", selection: appearanceBinding) {
+            Text("System").tag(AppearancePreference.system)
+            Text("Light").tag(AppearancePreference.light)
+            Text("Dark").tag(AppearancePreference.dark)
+          }
+          .pickerStyle(.segmented)
+          .labelsHidden()
+          .fixedSize()
         }
-        .pickerStyle(.segmented)
-        .frame(maxWidth: 280, alignment: .trailing)
       }
 
       Section {
@@ -53,8 +56,6 @@ struct SettingsGeneralView: View {
           pickerContent
         }
         .pickerStyle(.menu)
-      } header: {
-        Text("Default editor")
       } footer: {
         Text(
           "Used when opening a directory. \"Automatic\" picks the first installed editor "
