@@ -8,6 +8,7 @@ import TouchCodeCore
 /// which pane to render in the detail column.
 public enum SettingsSection: Hashable, Sendable {
   case general
+  case github
   case notifications
   case terminal
   case developer
@@ -17,8 +18,9 @@ public enum SettingsSection: Hashable, Sendable {
   case repositoryGeneral(ProjectID)
   case repositoryHooks(ProjectID)
 
-  /// Canonical iteration order for global sidebar rows (spec M3).
+  /// Canonical iteration order for global sidebar rows (spec M3; GitHub appears between
+  /// General and Notifications per exec-plan 0012 M6 wireframe).
   public static let globals: [SettingsSection] = [
-    .general, .notifications, .terminal, .developer, .shortcuts, .updates, .about,
+    .general, .github, .notifications, .terminal, .developer, .shortcuts, .updates, .about,
   ]
 }

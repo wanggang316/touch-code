@@ -49,6 +49,8 @@ struct SettingsWindowView: View {
         store: store.scope(state: \.general, action: \.general),
         settingsStore: settingsStore
       )
+    case .github:
+      GitHubSettingsView(settingsStore: settingsStore)
     case .notifications:
       NotificationsSettingsView(settingsStore: settingsStore)
     case .terminal:

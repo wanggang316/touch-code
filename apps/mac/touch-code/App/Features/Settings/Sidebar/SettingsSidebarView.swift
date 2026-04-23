@@ -89,6 +89,7 @@ struct SettingsSidebarView: View {
   private func title(for section: SettingsSection) -> String {
     switch section {
     case .general: return "General"
+    case .github: return "GitHub"
     case .notifications: return "Notifications"
     case .terminal: return "Terminal"
     case .developer: return "Developer"
@@ -102,6 +103,7 @@ struct SettingsSidebarView: View {
   private func icon(for section: SettingsSection) -> String {
     switch section {
     case .general: return "gearshape"
+    case .github: return "arrow.triangle.pull"
     case .notifications: return "bell"
     case .terminal: return "terminal"
     case .developer: return "hammer"

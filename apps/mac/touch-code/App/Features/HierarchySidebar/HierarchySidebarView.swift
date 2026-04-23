@@ -27,6 +27,7 @@ struct HierarchySidebarView: View {
   var gitHubStore: StoreOf<GitHubFeature>?
   @Environment(HierarchyManager.self) private var hierarchyManager
   @Environment(InboxStore.self) private var inboxStore
+  @Environment(SettingsStore.self) private var settingsStore
 
   var body: some View {
     let catalog = hierarchyManager.catalog
@@ -726,9 +727,11 @@ struct HierarchySidebarView: View {
       return .noPullRequest(branch: branch)
     }()
 
+    let defaultStrategy = settingsStore.settings.general.defaultMergeStrategy ?? .squash
+
     PullRequestPopover(
       content: content,
-      defaultMergeStrategy: .squash,
+      defaultMergeStrategy: defaultStrategy,
       canMerge: (snapshot?.mergeable == .mergeable
         && snapshot?.state == .open
         && snapshot?.isDraft == false),
@@ -763,9 +766,11 @@ struct HierarchySidebarView: View {
         }
       },
       onOpenCheckLog: { url in store.send(.delegate(.openURL(url))) },
-      onSetProjectDefaultStrategy: { _ in
-        // M6 wires this to SettingsStore.mutateRepository. Today it's a no-op so the
-        // UI path is complete; no data-plane side effect yet.
+      onSetProjectDefaultStrategy: { [settingsStore] strategy in
+        // Per-Project override UI is deferred to a follow-up; writing to the *global*
+        // default is a useful intermediate behavior — "Set as default" means "use this
+        // strategy everywhere". When per-Project lands, this callback splits into two.
+        settingsStore.mutateGeneral { $0.defaultMergeStrategy = strategy }
       },
       onRetry: {
         store.send(.refreshRequested(worktreeID, branch: branch, worktreePath: worktreePath))
