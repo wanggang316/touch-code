@@ -331,6 +331,17 @@ struct RootFeature {
         // from a reducer. Tab is resolved on-the-fly from the catalog.
         let tabID = resolveActiveTab(selection: selection)
         state.detail.splitViewport.activeTabID = tabID
+        // Eagerly rebuild `panelHosts` for the new selection in the SAME
+        // reducer tick, with warm ghostty surfaces pre-attached. SwiftUI's
+        // next render then finds a fully populated `.ready` host array —
+        // no ProgressView scope-miss frame, no "Creating surface…"
+        // placeholder frame. The existing `.task(id:)` sync in
+        // `SplitViewportView` stays as a fallback for paths that don't go
+        // through `selectionChanged` (TabBar tap within the same worktree,
+        // panel open / split / close inside the active tab).
+        reconcilePanelHosts(
+          &state.detail.splitViewport, selection: selection, tabID: tabID
+        )
         // Forward the (projectID, worktreeID) pair to GitViewerFeature so
         // the inspector always reflects the current selection.
         var effects: [Effect<Action>] = [
@@ -805,6 +816,61 @@ struct RootFeature {
       tab.panels.isEmpty
     else { return }
     _ = try? hierarchyClient.openPanel(activeTabID, worktreeID, projectID, spaceID, cwd, nil)
+  }
+
+  /// Rebuilds `SplitViewportFeature.State.panelHosts` for the selection's
+  /// active Tab in the same reducer tick, eagerly marking entries `.ready`
+  /// when the engine already holds a live surface for the panel. Without
+  /// this, the first render after a Worktree switch sees a stale
+  /// `panelHosts` (still keyed by the previous Worktree's PanelIDs), which
+  /// forces `LeafView`'s `store.scope(...)` lookup to return nil and
+  /// render a `ProgressView` placeholder — the visible "flash" on
+  /// cross-Worktree navigation. Preserving entries carried from the prior
+  /// selection keeps any pending `.failed` / `.retry` state intact when
+  /// the same panel re-enters the viewport (e.g. tab-bar cycle).
+  private func reconcilePanelHosts(
+    _ splitViewport: inout SplitViewportFeature.State,
+    selection: HierarchySelection,
+    tabID: TabID?
+  ) {
+    guard
+      let spaceID = selection.spaceID,
+      let projectID = selection.projectID,
+      let worktreeID = selection.worktreeID,
+      let tabID
+    else {
+      splitViewport.panelHosts = []
+      return
+    }
+    let catalog = hierarchyClient.snapshot()
+    guard
+      let tab = catalog
+        .spaces.first(where: { $0.id == spaceID })?
+        .projects.first(where: { $0.id == projectID })?
+        .worktrees.first(where: { $0.id == worktreeID })?
+        .tabs.first(where: { $0.id == tabID })
+    else {
+      splitViewport.panelHosts = []
+      return
+    }
+    let existing = splitViewport.panelHosts
+    splitViewport.panelHosts = IdentifiedArray(
+      uniqueElements: tab.panels.map { panel in
+        if let carry = existing[id: panel.id] { return carry }
+        var seeded = PanelHostFeature.State(
+          panelID: panel.id,
+          tabID: tabID,
+          worktreeID: worktreeID,
+          projectID: projectID,
+          spaceID: spaceID
+        )
+        if let surface = terminalClient.surface(panel.id) {
+          seeded.phase = .ready
+          seeded.surface = SurfaceBox(surface: surface)
+        }
+        return seeded
+      }
+    )
   }
 
   /// Resolve the active tab for a selection using the snapshot from the

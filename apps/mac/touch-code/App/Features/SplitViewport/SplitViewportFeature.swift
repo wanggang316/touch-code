@@ -49,6 +49,10 @@ struct SplitViewportFeature {
   }
 
   @Dependency(HierarchyClient.self) private var hierarchyClient
+  /// Used to eager-attach warm ghostty surfaces when new panel seeds land —
+  /// cuts the "Creating surface…" placeholder frame on tab / worktree
+  /// switches when the surface already lives in the engine registry.
+  @Dependency(TerminalClient.self) private var terminalClient
 
   var body: some Reducer<State, Action> {
     Reduce { state, action in
@@ -60,7 +64,19 @@ struct SplitViewportFeature {
       case .panelsInActiveTabChanged(let seeds):
         let existing = state.panelHosts
         state.panelHosts = IdentifiedArray(
-          uniqueElements: seeds.map { seed in existing[id: seed.panelID] ?? seed }
+          uniqueElements: seeds.map { seed in
+            if let carry = existing[id: seed.panelID] { return carry }
+            // First time seeing this panel in state, but the surface may
+            // already be warm from an earlier lifecycle (worktree revisit,
+            // auto-seeded panel). Skip the `.loading → .ready` round-trip
+            // so the view renders the live surface on the first frame.
+            var seeded = seed
+            if let surface = terminalClient.surface(seed.panelID) {
+              seeded.phase = .ready
+              seeded.surface = SurfaceBox(surface: surface)
+            }
+            return seeded
+          }
         )
         return .none
 
