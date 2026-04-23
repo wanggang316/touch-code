@@ -81,7 +81,9 @@ nonisolated enum JSONOutputParsers {
     }
     do {
       let decoder = JSONDecoder()
-      decoder.dateDecodingStrategy = .iso8601
+      // gh pr view's `updatedAt` includes fractional seconds; plain `.iso8601` rejects
+      // them. Use the same tolerant strategy the checks + run-list parsers use.
+      decoder.dateDecodingStrategy = .iso8601WithFractionalSeconds
       let wire = try decoder.decode(Wire.self, from: data)
       guard let number = wire.number, let title = wire.title, let state = wire.state,
         let headRefName = wire.headRefName, let mergeable = wire.mergeable,

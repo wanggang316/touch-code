@@ -255,11 +255,14 @@ nonisolated struct LiveGitHubService: GitHubService {
   }
 
   nonisolated static func parseHostHint(_ text: String) -> String? {
-    // gh messages often include "to github.com" or "to github.my-company.com".
+    // gh messages often include "to github.com" or "to github.my-company.com". Split on
+    // whitespace / closing punctuation only — '.' is part of the hostname and must not
+    // terminate the token (a prior version truncated "github.com" to "github"). Trim any
+    // trailing sentence punctuation that may have followed the hostname.
     guard let range = text.range(of: "to ") else { return nil }
     let tail = text[range.upperBound...]
-    let token = tail.prefix { !$0.isWhitespace && $0 != "," && $0 != "." }
-    let host = String(token)
+    let token = tail.prefix { !$0.isWhitespace && $0 != "," && $0 != ")" && $0 != "\"" }
+    let host = String(token).trimmingCharacters(in: CharacterSet(charactersIn: ".,;:"))
     return host.isEmpty ? nil : host
   }
 

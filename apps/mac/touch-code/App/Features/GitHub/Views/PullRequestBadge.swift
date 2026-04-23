@@ -170,10 +170,22 @@ private extension View {
 
 /// Convenience helper so views can compute the check rollup from a raw check list.
 extension PullRequestBadge.CheckRollup {
+  /// Failure conclusions that should colour the badge as anyFailing rather than passing.
+  /// The plain `.failure` test missed `.timedOut` / `.actionRequired` / `.cancelled` /
+  /// `.stale` / `.startupFailure` — a check that ran to completion without landing on
+  /// `.success`, `.skipped`, or `.neutral` is not a green check.
+  private static let failingConclusions: Set<CheckConclusion> = [
+    .failure, .cancelled, .timedOut, .actionRequired, .stale, .startupFailure,
+  ]
+
   static func from(checks: [CheckResult]) -> PullRequestBadge.CheckRollup {
     guard !checks.isEmpty else { return .noChecks }
     if checks.contains(where: {
-      if case .completed = $0.status, $0.conclusion == .failure { return true }
+      if case .completed = $0.status, let conclusion = $0.conclusion,
+        failingConclusions.contains(conclusion)
+      {
+        return true
+      }
       return false
     }) {
       return .anyFailing
