@@ -132,55 +132,28 @@ struct GhosttyConfigFile {
 
   // MARK: - Path resolution
 
-  /// Canonical config file the live `GhosttyRuntime` reads. Mirrors Ghostty's own
-  /// `preferredDefaultFilePath` on macOS: pick the first existing candidate in
-  /// override-priority order (highest first), falling back to the top-priority
-  /// default when none exist. The returned URL is always the file a live
-  /// Ghostty's `loadDefaultFiles` would treat as the last-wins source for
-  /// overlapping keys — writing to it guarantees the user's in-app selection
-  /// sticks after `reloadAppConfig` re-parses the directory tree.
+  /// Canonical config file: `$XDG_CONFIG_HOME/ghostty/config`, defaulting to
+  /// `~/.config/ghostty/config`. One path, no candidate list — this is the
+  /// file Settings reads and writes, and the one `reloadAppConfig` re-parses
+  /// from disk.
   ///
-  /// Priority (highest first):
-  ///   1. `~/Library/Application Support/com.mitchellh.ghostty/config.ghostty` — current default on macOS.
-  ///   2. `~/Library/Application Support/com.mitchellh.ghostty/config` — legacy (<1.3.0) App Support path.
-  ///   3. `{$XDG_CONFIG_HOME or ~/.config}/ghostty/config.ghostty` — current XDG path.
-  ///   4. `{$XDG_CONFIG_HOME or ~/.config}/ghostty/config` — legacy XDG path.
-  /// When nothing exists, (1) is returned so we match Ghostty's template-
-  /// creation target on a fresh install.
+  /// libghostty's `loadDefaultFiles` also probes `~/Library/Application
+  /// Support/com.mitchellh.ghostty/...`, but we intentionally don't target
+  /// that: writes would land in a file the user doesn't expect us to touch,
+  /// and when both files exist App Support would override the XDG copy the
+  /// user actually maintains. Only populate the managed region of the XDG
+  /// file; let the user own whatever App Support contains.
   func resolvedConfigURL() -> URL {
-    let candidates = candidateConfigURLs()
-    for url in candidates where fileManager.fileExists(atPath: url.path) {
-      return url
-    }
-    // Guaranteed non-empty by construction below.
-    return candidates[0]
-  }
-
-  private func candidateConfigURLs() -> [URL] {
-    // libghostty hardcodes the Application Support sub-directory to
-    // `com.mitchellh.ghostty` regardless of the host app's bundle identifier —
-    // see `apps/mac/ThirdParty/ghostty/src/build_config.zig:bundle_id`. Our
-    // embedded libghostty reads from that directory, so our resolver has to
-    // target it too or Settings writes land in a file the runtime ignores.
-    let appSupport = homeDirectoryURL
-      .appendingPathComponent("Library", isDirectory: true)
-      .appendingPathComponent("Application Support", isDirectory: true)
-      .appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
-
     let xdgBase: URL
     if let xdg = environment["XDG_CONFIG_HOME"], !xdg.isEmpty {
       xdgBase = URL(fileURLWithPath: xdg, isDirectory: true)
     } else {
       xdgBase = homeDirectoryURL.appendingPathComponent(".config", isDirectory: true)
     }
-    let xdgGhostty = xdgBase.appendingPathComponent("ghostty", isDirectory: true)
-
-    return [
-      appSupport.appendingPathComponent("config.ghostty", isDirectory: false),
-      appSupport.appendingPathComponent("config", isDirectory: false),
-      xdgGhostty.appendingPathComponent("config.ghostty", isDirectory: false),
-      xdgGhostty.appendingPathComponent("config", isDirectory: false),
-    ]
+    return
+      xdgBase
+      .appendingPathComponent("ghostty", isDirectory: true)
+      .appendingPathComponent("config", isDirectory: false)
   }
 
   // MARK: - Load
