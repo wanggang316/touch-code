@@ -1,8 +1,17 @@
-# Design Doc: GitHub Integration (PR-centric, gh-delegated)
+# Design Doc: GitHub Integration (PR-centric, gh-delegated) — v1, SUPERSEDED
 
-**Status:** Draft
+**Status:** Superseded by [github-integration-batched.md](github-integration-batched.md) (v2)
 **Author:** Gump (with Claude)
 **Date:** 2026-04-23
+
+> **Supersede notice.** This document describes the per-Worktree fetch model that
+> shipped in PR #39 and is currently in production. It is retained for historical
+> context — the execution model, client shape, and test scaffolding it describes
+> are still live until the v2 migration (see Phases 1–6 in the successor doc)
+> completes. The v1 surface (sidebar badge, popover, command-palette entries,
+> Settings) is preserved verbatim under v2; only the fetch path changes.
+>
+> For the current design, read **[github-integration-batched.md](github-integration-batched.md)**.
 
 ## Context and Scope
 
