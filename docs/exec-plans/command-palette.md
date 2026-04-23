@@ -74,6 +74,33 @@ ghostty decoder case, and no new `HierarchySelection` field.
 table-driven cases; pruner retention + LRU by 3; feature reducer by 6;
 items builder by 5; routing contract by 7.
 
+**Post-M6 follow-up (Codex review):** A second-opinion review of the
+shipped feature flagged two critical issues and three concerns. All
+five were addressed in commits 21e1f1d + 5dbd416:
+
+- **C1 — Panel commands targeted leftmost split, not focused split.**
+  Plumbed `PanelID` through `PanelActionRouterFeature.Delegate.command-
+  PaletteToggleRequested(PanelID)` → `RootFeature.commandPaletteToggle
+  (PanelID?)` → `CommandPaletteFeature.Action.appeared(...,
+  focusedPanelID, panelFocusPrecise)`. Focus-dependent Panel items
+  (newSplit, gotoSplit, toggleSplitZoom) are only emitted when the
+  ghostty path supplied the panel; menu-triggered opens still get
+  tab-scoped Panel items and all Window items (any leaf in the tab
+  resolves to the same NSWindow).
+- **C2 — `Kind.selectWorktree` routed but never generated.** Items
+  builder now emits one "Switch to Worktree: &lt;name&gt;" per worktree
+  in the active Space (except the currently selected one).
+- **Concern 3 — DP scorer applied span penalty outside endpoint
+  selection.** Span and position terms are now computed inside the
+  final-row scan so the returned score is the true maximum.
+- **Concern 4 — Pruned recency lost on plain dismiss.** RootFeature
+  now persists the child's pruned recency on dismiss *and* on
+  activation.
+- **Concern 5 — CamelCase bonus unreachable.** Subsequence scorer now
+  carries both a case-folded haystack (for matching) and an
+  original-case haystack (for `charBonus` detection), so
+  `prev.isLowercase && char.isUppercase` actually fires.
+
 **Deviations from plan:**
 
 - D10: Palette entry action is `commandPaletteToggle` (top-level),
