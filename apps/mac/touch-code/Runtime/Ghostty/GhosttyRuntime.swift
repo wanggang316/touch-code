@@ -52,6 +52,7 @@ final class GhosttyRuntime {
   private(set) var app: ghostty_app_t?
   private var config: ghostty_config_t?
   let dispatcher = CallbackDispatcher()
+  private var appFocusObservers: [NSObjectProtocol] = []
 
   /// Back-reference to the engine whose event stream surfaces action decoder
   /// emits (`panelInfoChanged`, `panelActionRequested`, etc.). Weak to
@@ -85,15 +86,22 @@ final class GhosttyRuntime {
     self.config = config
 
     dispatcher.runtime = self
+    // libghostty signals "I have work pending; please call ghostty_app_tick
+    // soon" via wakeup_cb. Without a real handler the action queue, new-
+    // surface shell fork, keybind dispatch, and mouse state all stall.
+    // The wakeup shim hops to main; tick on the MainActor here.
+    dispatcher.onWakeup = { [weak self] in
+      self?.tick()
+    }
     let userdata = Unmanaged.passRetained(dispatcher).toOpaque()
     var runtimeConfig = ghostty_runtime_config_s(
       userdata: userdata,
-      supports_selection_clipboard: false,
+      supports_selection_clipboard: true,
       wakeup_cb: Self.wakeupCallback,
       action_cb: Self.actionCallback,
-      read_clipboard_cb: { _, _, _ in false },
-      confirm_read_clipboard_cb: { _, _, _, _ in },
-      write_clipboard_cb: { _, _, _, _, _ in },
+      read_clipboard_cb: Self.readClipboardCallback,
+      confirm_read_clipboard_cb: Self.confirmReadClipboardCallback,
+      write_clipboard_cb: Self.writeClipboardCallback,
       close_surface_cb: Self.closeSurfaceCallback
     )
 
@@ -103,9 +111,47 @@ final class GhosttyRuntime {
     }
     self.app = app
     Self.shared = self
+
+    // App-level focus notifications. libghostty gates some global behavior
+    // (e.g. bell, bracketed-paste toasts) on app focus; without these the
+    // runtime thinks the app is always backgrounded.
+    let center = NotificationCenter.default
+    appFocusObservers.append(
+      center.addObserver(
+        forName: NSApplication.didBecomeActiveNotification,
+        object: nil,
+        queue: .main
+      ) { [weak self] _ in
+        MainActor.assumeIsolated {
+          guard let app = self?.app else { return }
+          ghostty_app_set_focus(app, true)
+        }
+      }
+    )
+    appFocusObservers.append(
+      center.addObserver(
+        forName: NSApplication.didResignActiveNotification,
+        object: nil,
+        queue: .main
+      ) { [weak self] _ in
+        MainActor.assumeIsolated {
+          guard let app = self?.app else { return }
+          ghostty_app_set_focus(app, false)
+        }
+      }
+    )
+    // Initialise to the current state so a runtime created after the app has
+    // already activated doesn't start out "unfocused".
+    ghostty_app_set_focus(app, NSApp.isActive)
   }
 
   isolated deinit {
+    let center = NotificationCenter.default
+    for observer in appFocusObservers {
+      center.removeObserver(observer)
+    }
+    appFocusObservers.removeAll()
+
     for (_, panel) in surfacesByPanelID {
       panel.close()
     }
@@ -177,6 +223,10 @@ final class GhosttyRuntime {
     // panel, and it must be resolved here while userdata is valid.
     let panelID: PanelID? = surface.flatMap { GhosttyRuntime.panelIDBytes(fromSurface: $0) }
 
+    GhosttyActionDecoder.logger.debug(
+      "action_cb fired: targetTag=\(targetTag.rawValue, privacy: .public) tag=\(action.tag.rawValue, privacy: .public)"
+    )
+
     switch targetTag {
     case GHOSTTY_TARGET_APP:
       let decoded = GhosttyActionDecoder.decodeAppAction(action)
@@ -237,6 +287,12 @@ final class GhosttyRuntime {
   /// whatever thread libghostty invokes us (the read is a pure byte copy).
   nonisolated static func panelIDBytes(fromSurface surface: ghostty_surface_t) -> PanelID? {
     guard let raw = ghostty_surface_userdata(surface) else { return nil }
+    return panelID(fromRawUserdata: raw)
+  }
+
+  /// Read 16 uuid_t bytes from a raw userdata pointer. Used by clipboard
+  /// and close callbacks that receive surface-userdata directly.
+  nonisolated static func panelID(fromRawUserdata raw: UnsafeMutableRawPointer) -> PanelID {
     var bytes = uuid_t(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
     withUnsafeMutableBytes(of: &bytes) { dst in
       _ = dst.baseAddress.map { base in
@@ -245,6 +301,116 @@ final class GhosttyRuntime {
     }
     return PanelID(raw: UUID(uuid: bytes))
   }
+
+  // MARK: - Clipboard callbacks
+
+  /// Map ghostty's clipboard enum to the AppKit pasteboard. We route
+  /// SELECTION to a dedicated named pasteboard the way mitchellh/ghostty
+  /// does so OSC52 "selection" writes don't clobber the user's general
+  /// clipboard.
+  @MainActor static func pasteboard(for clipboard: ghostty_clipboard_e) -> NSPasteboard? {
+    switch clipboard {
+    case GHOSTTY_CLIPBOARD_STANDARD:
+      return NSPasteboard.general
+    case GHOSTTY_CLIPBOARD_SELECTION:
+      return ghosttySelectionPasteboard
+    default:
+      return nil
+    }
+  }
+
+  // Named selection pasteboard so SELECTION writes don't clobber the
+  // user's general clipboard. `@MainActor` keeps concurrency happy — all
+  // our clipboard code hops through MainActor before touching it.
+  @MainActor private static let ghosttySelectionPasteboard: NSPasteboard = {
+    NSPasteboard(name: .init("com.mitchellh.ghostty.selection"))
+  }()
+
+  /// Read clipboard on libghostty's behalf. Must return synchronously;
+  /// if not on the main thread we hop via `DispatchQueue.main.sync`.
+  /// The reported `state` pointer is opaque — must be handed back to
+  /// `ghostty_surface_complete_clipboard_request` unchanged.
+  private static let readClipboardCallback:
+    (@convention(c) (UnsafeMutableRawPointer?, ghostty_clipboard_e, UnsafeMutableRawPointer?) -> Bool) = {
+      userdata, location, state in
+      guard let userdata else { return false }
+      let panelID = panelID(fromRawUserdata: userdata)
+      let stateBits = state.map { UInt(bitPattern: $0) }
+      let complete: @MainActor () -> Bool = {
+        guard let panel = GhosttyRuntime.shared?.surface(for: panelID) else { return false }
+        guard let pb = pasteboard(for: location),
+          let text = pb.string(forType: .string)
+        else { return false }
+        let stateBack = stateBits.flatMap { UnsafeMutableRawPointer(bitPattern: $0) }
+        panel.completeClipboardRequest(text: text, state: stateBack, confirmed: false)
+        return true
+      }
+      if Thread.isMainThread {
+        return MainActor.assumeIsolated { complete() }
+      }
+      return DispatchQueue.main.sync {
+        MainActor.assumeIsolated { complete() }
+      }
+    }
+
+  /// Follow-up for the OSC52 paste-confirmation flow. Ghostty calls this
+  /// once the user (via our UI, eventually) has approved an inbound paste;
+  /// today we simply forward the provided string to the surface. The
+  /// confirmation dialog itself is deferred — we trust the OSC52 sender,
+  /// same as supacode's defaults.
+  private static let confirmReadClipboardCallback:
+    (@convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?, UnsafeMutableRawPointer?, ghostty_clipboard_request_e) -> Void) = {
+      userdata, cString, state, _ in
+      guard let userdata, let cString else { return }
+      let value = String(cString: cString)
+      let panelID = panelID(fromRawUserdata: userdata)
+      let stateBits = state.map { UInt(bitPattern: $0) }
+      let complete: @MainActor () -> Void = {
+        guard let panel = GhosttyRuntime.shared?.surface(for: panelID) else { return }
+        let stateBack = stateBits.flatMap { UnsafeMutableRawPointer(bitPattern: $0) }
+        panel.completeClipboardRequest(text: value, state: stateBack, confirmed: true)
+      }
+      if Thread.isMainThread {
+        MainActor.assumeIsolated { complete() }
+      } else {
+        DispatchQueue.main.async {
+          MainActor.assumeIsolated { complete() }
+        }
+      }
+    }
+
+  /// Write `content` (array of {mime, data}) to the requested pasteboard.
+  /// Called when the user invokes `copy_to_clipboard` via keybind or menu.
+  private static let writeClipboardCallback:
+    (@convention(c) (UnsafeMutableRawPointer?, ghostty_clipboard_e, UnsafePointer<ghostty_clipboard_content_s>?, Int, Bool) -> Void) = {
+      _, location, content, len, _ in
+      guard let content, len > 0 else { return }
+      // Copy items out of borrowed pointers into Swift strings before the
+      // main-queue hop — the pointers are valid only for the callback.
+      let items: [(mime: String, data: String)] = (0..<len).compactMap { i in
+        let entry = content.advanced(by: i).pointee
+        guard let mimePtr = entry.mime, let dataPtr = entry.data else { return nil }
+        return (String(cString: mimePtr), String(cString: dataPtr))
+      }
+      guard !items.isEmpty else { return }
+      let write: @MainActor () -> Void = {
+        guard let pb = pasteboard(for: location) else { return }
+        let types: [NSPasteboard.PasteboardType] = items.map { item in
+          item.mime == "text/plain" ? .string : NSPasteboard.PasteboardType(item.mime)
+        }
+        pb.declareTypes(types, owner: nil)
+        for (item, type) in zip(items, types) {
+          pb.setString(item.data, forType: type)
+        }
+      }
+      if Thread.isMainThread {
+        MainActor.assumeIsolated { write() }
+      } else {
+        DispatchQueue.main.async {
+          MainActor.assumeIsolated { write() }
+        }
+      }
+    }
 
   // MARK: - Event emission
 

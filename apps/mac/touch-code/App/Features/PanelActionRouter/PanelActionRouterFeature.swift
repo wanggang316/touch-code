@@ -118,7 +118,15 @@ struct PanelActionRouterFeature {
       return .none
 
     case .newSplit(let direction):
-      guard let address = hierarchyClient.addressOf(panelID) else { return .none }
+      Self.logger.info(
+        "newSplit received: panelID=\(panelID.raw.uuidString, privacy: .public) dir=\(String(describing: direction), privacy: .public)"
+      )
+      guard let address = hierarchyClient.addressOf(panelID) else {
+        Self.logger.info(
+          "newSplit aborted: no address for panelID=\(panelID.raw.uuidString, privacy: .public)"
+        )
+        return .none
+      }
       let catalog = hierarchyClient.snapshot()
       guard
         let sourcePanel = findPanel(

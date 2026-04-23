@@ -83,37 +83,56 @@ struct SplitViewportView: View {
   }
 
   /// Recursive renderer. Returns `AnyView` at every level to prevent
-  /// SwiftUI's generic type inference from blowing up on nested
-  /// `HSplitView`/`VSplitView` + `@ViewBuilder` switch cases (DEC-10).
-  /// Performance cost is negligible at the tree sizes this hierarchy sees
-  /// (≤ 32 panels/tab).
+  /// SwiftUI's generic type inference from blowing up on nested splits
+  /// (DEC-10). Performance cost is negligible at the tree sizes this
+  /// hierarchy sees (≤ 32 panels/tab).
   ///
-  /// Split containers use AppKit-backed `HSplitView` / `VSplitView` to get
-  /// free drag-resize dividers; matches `resizeSplitRequested` action
-  /// semantics without a custom `NSViewRepresentable`. Split ratio
-  /// persistence via the dispatching action is a follow-up (the divider
-  /// drag is observed only in AppKit today).
+  /// We intentionally do NOT use `HSplitView` / `VSplitView`. Those wrap
+  /// AppKit's `NSSplitView`, which propagates Auto Layout constraint
+  /// invalidations through every nested `NSHostingView`. With multiple
+  /// ghostty surfaces emitting `SurfaceInfo` changes on startup, the
+  /// reentrancy trips macOS's "more Update Constraints passes than there
+  /// are views" exception and crashes the app. Instead we compute rects
+  /// with `GeometryReader` and hard-set frames — no Auto Layout ping-pong.
+  /// This also lets us honor `SplitTree.split.ratio` directly, which
+  /// `HSplitView` ignored. Drag-to-resize is deferred (divider drag
+  /// dispatches `resizeSplitRequested` when re-added).
   private func renderNode(_ node: SplitTree<PanelID>.Node, tab: TouchCodeCore.Tab) -> AnyView {
     switch node {
     case .leaf(let panelID):
       return AnyView(panelLeaf(panelID))
     case .split(let split):
-      switch split.direction {
-      case .horizontal:
-        return AnyView(
-          HSplitView {
-            renderNode(split.left, tab: tab)
-            renderNode(split.right, tab: tab)
+      let leftView = renderNode(split.left, tab: tab)
+      let rightView = renderNode(split.right, tab: tab)
+      let ratio = max(0.05, min(0.95, split.ratio))
+      return AnyView(
+        GeometryReader { geo in
+          let size = geo.size
+          let dividerThickness: CGFloat = 1
+          switch split.direction {
+          case .horizontal:
+            let leftW = max(0, size.width * ratio - dividerThickness / 2)
+            let rightW = max(0, size.width - leftW - dividerThickness)
+            HStack(spacing: 0) {
+              leftView.frame(width: leftW, height: size.height)
+              Rectangle()
+                .fill(Color(nsColor: .separatorColor))
+                .frame(width: dividerThickness, height: size.height)
+              rightView.frame(width: rightW, height: size.height)
+            }
+          case .vertical:
+            let topH = max(0, size.height * ratio - dividerThickness / 2)
+            let bottomH = max(0, size.height - topH - dividerThickness)
+            VStack(spacing: 0) {
+              leftView.frame(width: size.width, height: topH)
+              Rectangle()
+                .fill(Color(nsColor: .separatorColor))
+                .frame(width: size.width, height: dividerThickness)
+              rightView.frame(width: size.width, height: bottomH)
+            }
           }
-        )
-      case .vertical:
-        return AnyView(
-          VSplitView {
-            renderNode(split.left, tab: tab)
-            renderNode(split.right, tab: tab)
-          }
-        )
-      }
+        }
+      )
     }
   }
 
