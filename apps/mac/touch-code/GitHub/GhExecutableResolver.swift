@@ -70,8 +70,18 @@ actor GhExecutableResolver {
     cache = .empty
   }
 
-  /// Live prober: iterates `$PATH` components and returns the first directory that contains
-  /// an executable `gh` file. `PATH` unset or empty → `nil` (i.e., "gh not installed").
+  /// Live prober with three fallback layers, matching how a GUI-launched macOS app
+  /// actually sees its environment:
+  ///
+  ///   1. `$PATH` walk — cheapest, but GUI apps inherit a stripped PATH
+  ///      (`/usr/bin:/bin:/usr/sbin:/sbin`) that almost never contains Homebrew
+  ///      or user-added directories, so this usually misses on a real user box.
+  ///   2. Known Homebrew install paths (`/opt/homebrew/bin/gh` on Apple Silicon,
+  ///      `/usr/local/bin/gh` on Intel). Covers the 99% `brew install gh` case
+  ///      without spawning a subprocess.
+  ///   3. Login-shell `which gh`. Loads the user's shell startup files
+  ///      (`.zprofile`, `.bash_profile`, …), so any custom PATH entries resolve.
+  ///      This matches supacode's approach and is the final catch-all.
   ///
   /// `FileManager` is constructed inside the closure rather than captured, because
   /// `FileManager` is not `Sendable` in Swift 6 strict-concurrency mode.
@@ -79,20 +89,74 @@ actor GhExecutableResolver {
     env: any EnvironmentVariableProvider = LiveEnvironment()
   ) -> Prober {
     return {
-      guard let pathValue = env.value(for: "PATH"), !pathValue.isEmpty else { return nil }
       let fileManager = FileManager.default
-      for component in pathValue.split(separator: ":", omittingEmptySubsequences: true) {
-        let candidate = URL(fileURLWithPath: String(component))
-          .appendingPathComponent("gh")
-        var isDir: ObjCBool = false
-        guard fileManager.fileExists(atPath: candidate.path, isDirectory: &isDir),
-          !isDir.boolValue
-        else { continue }
-        if fileManager.isExecutableFile(atPath: candidate.path) {
-          return candidate
+
+      // 1. $PATH walk.
+      if let pathValue = env.value(for: "PATH"), !pathValue.isEmpty {
+        for component in pathValue.split(separator: ":", omittingEmptySubsequences: true) {
+          let candidate = URL(fileURLWithPath: String(component))
+            .appendingPathComponent("gh")
+          if fileManager.isExecutableFile(atPath: candidate.path) {
+            return candidate
+          }
         }
       }
-      return nil
+
+      // 2. Hardcoded Homebrew paths — GUI-launched apps rarely inherit these in $PATH.
+      for hardcoded in ["/opt/homebrew/bin/gh", "/usr/local/bin/gh"] {
+        if fileManager.isExecutableFile(atPath: hardcoded) {
+          return URL(fileURLWithPath: hardcoded)
+        }
+      }
+
+      // 3. Login-shell fallback. Final catch-all for non-standard installs.
+      return await Self.loginShellWhich("gh")
+    }
+  }
+
+  /// Runs `<user-shell> -l -c 'exec "$@"' -- /usr/bin/which <command>` so the user's
+  /// shell rc is sourced and any custom `PATH` entries are visible. Returns the
+  /// resolved absolute URL, or `nil` if the child exited non-zero / stdout was empty /
+  /// `Process.run()` threw.
+  ///
+  /// `Process`/`waitUntilExit()` are synchronous-blocking; the call is detached onto a
+  /// utility Task so Swift's cooperative pool isn't starved while the shell spins up.
+  private static func loginShellWhich(_ command: String) async -> URL? {
+    await withCheckedContinuation { (cont: CheckedContinuation<URL?, Never>) in
+      Task.detached(priority: .utility) {
+        let shellPath = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+        let shellURL = URL(fileURLWithPath: shellPath)
+        let exec =
+          shellURL.lastPathComponent == "fish"
+          ? "exec $argv"
+          : "exec \"$@\""
+
+        let process = Process()
+        process.executableURL = shellURL
+        process.arguments = ["-l", "-c", exec, "--", "/usr/bin/which", command]
+        let stdoutPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+
+        do {
+          try process.run()
+        } catch {
+          cont.resume(returning: nil)
+          return
+        }
+        let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0,
+          let text = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+          !text.isEmpty
+        else {
+          cont.resume(returning: nil)
+          return
+        }
+        cont.resume(returning: URL(fileURLWithPath: text))
+      }
     }
   }
 }
