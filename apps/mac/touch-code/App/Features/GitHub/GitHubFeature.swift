@@ -173,6 +173,13 @@ struct GitHubFeature {
         state.lastError[worktreeID] = nil
         if let snapshot {
           state.snapshots[worktreeID] = snapshot
+          // Prefetch checks so the sidebar row icon's CI-rollup overlay can paint on the
+          // first render, not only after the popover is opened. `worktreePaths` is seeded
+          // by every code path that could produce a snapshot (visibility, refresh,
+          // post-mutation), so the lookup is always populated here.
+          if let worktreePath = state.worktreePaths[worktreeID] {
+            return checksFetchEffect(prNumber: snapshot.number, worktreePath: worktreePath)
+          }
         } else {
           state.snapshots[worktreeID] = nil
         }
