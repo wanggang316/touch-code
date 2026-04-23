@@ -93,6 +93,84 @@ struct GitHubModelsCodableTests {
     #expect(decoded.mergeable == .unknown)
   }
 
+  // MARK: - v2 additive fields (0013 M2)
+
+  @Test
+  func pullRequestSnapshotV2FieldsDefaultWhenAbsent() throws {
+    // A pre-v2 JSON payload without any of the 4 new fields. Decodes cleanly, new
+    // fields fall back to defaults.
+    let preV2JSON = """
+      {
+        "number": 1234,
+        "title": "Fix flaky terminal resize test",
+        "state": "OPEN",
+        "isDraft": false,
+        "headRefName": "feature/github01",
+        "author": "gump",
+        "additions": 128,
+        "deletions": 14,
+        "commitCount": 3,
+        "mergeable": "MERGEABLE",
+        "url": "https://github.com/wanggang316/touch-code/pull/1234",
+        "updatedAt": 1700000000
+      }
+      """
+    let preV2Data = Data(preV2JSON.utf8)
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .secondsSince1970
+    let decoded = try decoder.decode(PullRequestSnapshot.self, from: preV2Data)
+    #expect(decoded.checkRollup.isEmpty)
+    #expect(decoded.mergeStateStatus == .unknown)
+    #expect(decoded.reviewDecision == nil)
+    #expect(decoded.headRepositoryOwner.isEmpty)
+  }
+
+  @Test
+  func pullRequestSnapshotV2FieldsRoundTrip() throws {
+    let snapshot = PullRequestSnapshot(
+      number: 39,
+      title: "feat(github): PR-centric integration",
+      state: .merged,
+      isDraft: false,
+      headRefName: "feature/github01",
+      author: "gump",
+      additions: 5759,
+      deletions: 73,
+      commitCount: 12,
+      mergeable: .mergeable,
+      url: URL(string: "https://github.com/wanggang316/touch-code/pull/39")!,
+      updatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+      checkRollup: [
+        CheckResult(name: "build", status: .completed, conclusion: .success),
+        CheckResult(name: "tests", status: .completed, conclusion: .failure),
+      ],
+      mergeStateStatus: .clean,
+      reviewDecision: .approved,
+      headRepositoryOwner: "wanggang316"
+    )
+    let decoded = try Self.roundTrip(snapshot)
+    #expect(decoded == snapshot)
+    #expect(decoded.checkRollup.count == 2)
+    #expect(decoded.mergeStateStatus == .clean)
+    #expect(decoded.reviewDecision == .approved)
+    #expect(decoded.headRepositoryOwner == "wanggang316")
+  }
+
+  @Test
+  func mergeStateStatusDecodeOrUnknownFallsBackForUnknownCase() {
+    #expect(MergeStateStatus.decodeOrUnknown("CLEAN") == .clean)
+    #expect(MergeStateStatus.decodeOrUnknown("UNEXPECTED_NEW_CASE") == .unknown)
+    #expect(MergeStateStatus.decodeOrUnknown(nil) == .unknown)
+  }
+
+  @Test
+  func reviewDecisionDecodeOrNilReturnsNilForUnknown() {
+    #expect(ReviewDecision.decodeOrNil("APPROVED") == .approved)
+    #expect(ReviewDecision.decodeOrNil("UNEXPECTED_NEW_CASE") == nil)
+    #expect(ReviewDecision.decodeOrNil("") == nil)
+    #expect(ReviewDecision.decodeOrNil(nil) == nil)
+  }
+
   // MARK: - CheckResult round-trip
 
   @Test
