@@ -30,9 +30,40 @@ final class AppearanceApplyingView: NSView {
     }
   }
 
+  /// Last scheme pushed to libghostty via `syncGhosttyScheme`. Skipping redundant
+  /// pushes keeps AppKit's benign tick-driven `viewDidChangeEffectiveAppearance`
+  /// calls from re-painting surfaces on every run-loop iteration.
+  private var lastPushedGhosttyScheme: SwiftUI.ColorScheme?
+
   override func viewDidMoveToWindow() {
     super.viewDidMoveToWindow()
     applyAppearance(reason: "viewDidMoveToWindow")
+    syncGhosttyScheme(reason: "viewDidMoveToWindow")
+  }
+
+  /// AppKit-native hook that fires whenever the resolved appearance changes —
+  /// covers both the manual preference toggle (via the `NSApp.appearance`
+  /// cascade) and the macOS system dark-mode flip when preference is `.system`.
+  /// Pushing from here is more reliable than `GhosttyColorSchemeSyncView`'s
+  /// SwiftUI `onChange(of: \.colorScheme)`, which can miss system-level flips if
+  /// the enclosing view body doesn't re-evaluate. Both paths coexist and are
+  /// deduped by `lastPushedGhosttyScheme` + `setColorScheme`'s idempotency.
+  override func viewDidChangeEffectiveAppearance() {
+    super.viewDidChangeEffectiveAppearance()
+    syncGhosttyScheme(reason: "viewDidChangeEffectiveAppearance")
+  }
+
+  private func syncGhosttyScheme(reason: String) {
+    let isDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    let scheme: SwiftUI.ColorScheme = isDark ? .dark : .light
+    guard lastPushedGhosttyScheme != scheme else { return }
+    lastPushedGhosttyScheme = scheme
+    GhosttyRuntime.shared?.setColorScheme(scheme)
+    AppearanceDiagnostics.log(
+      "ghostty-scheme-sync reason=\(reason) "
+        + "effective=\(effectiveAppearance.name.rawValue) "
+        + "scheme=\(scheme == .dark ? "dark" : "light")"
+    )
   }
 
   private func applyAppearance(reason: String) {
