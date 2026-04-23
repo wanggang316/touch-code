@@ -24,6 +24,9 @@ struct ContentView: View {
   /// for Worktree / Project unread-dot aggregation — matches the
   /// `HierarchyManager`-through-`@Environment` pattern already in use.
   let inboxStore: InboxStore
+  /// Per-Worktree dirty-tree cache threaded into the sidebar so each row can decide
+  /// whether to paint a pending-work dot without owning its own `git status` fetch.
+  let worktreeStatusMonitor: WorktreeStatusMonitor
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
   /// Transient toast for editor-open outcomes (success + failure). Non-nil = visible;
@@ -84,6 +87,7 @@ struct ContentView: View {
     .environment(hierarchyManager)
     .environment(settingsStore)
     .environment(inboxStore)
+    .environment(worktreeStatusMonitor)
     .task {
       store.send(.onLaunch)
       store.send(.worktreeHeader(.onAppear))

@@ -28,6 +28,7 @@ struct HierarchySidebarView: View {
   @Environment(HierarchyManager.self) private var hierarchyManager
   @Environment(InboxStore.self) private var inboxStore
   @Environment(SettingsStore.self) private var settingsStore
+  @Environment(WorktreeStatusMonitor.self) private var worktreeStatusMonitor
 
   /// Tracks whether the `.command` modifier is currently pressed. When held the sidebar
   /// reveals per-row `⌃⌘N` hotkey hints (and the matching `⌃⌘1`–`⌃⌘9` bindings).
@@ -464,6 +465,14 @@ struct HierarchySidebarView: View {
         : Color.clear
     )
     .contextMenu { worktreeContextMenu(worktree: worktree, project: project, space: space) }
+    .task(id: worktree.path) {
+      // Refresh the "dirty" dot on mount / path change. The monitor enforces a 30 s
+      // freshness window internally so list-rerenders don't spawn redundant fetches.
+      await worktreeStatusMonitor.refresh(
+        worktreeID: worktree.id,
+        path: URL(fileURLWithPath: worktree.path)
+      )
+    }
   }
 
   /// The selection-tappable portion of a Worktree row. Extracted so `worktreeRow` fits
@@ -499,6 +508,14 @@ struct HierarchySidebarView: View {
                 .font(.caption2)
                 .foregroundStyle(.orange)
                 .accessibilityLabel("Pinned")
+            }
+            // Pending-work dot: 5 pt circle when `git status` reported non-clean. Uses
+            // the accentColor so it reads as "you have work here" rather than alarm.
+            if worktreeStatusMonitor.isDirty[worktree.id] == true {
+              Circle()
+                .fill(Color.accentColor)
+                .frame(width: 5, height: 5)
+                .accessibilityLabel("Uncommitted changes")
             }
           }
           // Suppress the secondary branch line when it restates the worktree name —

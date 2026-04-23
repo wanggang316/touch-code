@@ -25,7 +25,8 @@ struct TouchCodeApp: App {
             store: store,
             hierarchyManager: appState.hierarchyManager,
             settingsStore: appState.settingsStore,
-            inboxStore: appState.inboxStore
+            inboxStore: appState.inboxStore,
+            worktreeStatusMonitor: appState.worktreeStatusMonitor
           )
           .frame(minWidth: 800, minHeight: 600)
         } else {
@@ -132,6 +133,9 @@ final class AppState {
   /// `HierarchyManager`-through-`@Environment` pattern the sidebar
   /// already uses for structural data.
   let inboxStore: InboxStore
+  /// Per-Worktree "git status is non-clean" cache. The sidebar row's `.task(id:)`
+  /// refreshes this lazily; a small dot is drawn next to the row name when dirty.
+  let worktreeStatusMonitor: WorktreeStatusMonitor
 
   // IPC stack (C3+C4): HookDispatcher + SocketServer + handlers.
   private var hookConfigStore: HookConfigStore?
@@ -191,6 +195,7 @@ final class AppState {
     // env injection; EditorClient closes over it in bringUp().
     self.inboxStore = InboxStore()
     self.settingsStore = SettingsStore()
+    self.worktreeStatusMonitor = .live()
     // TerminalEngine is constructed in bringUp() once we know whether a
     // GhosttyRuntime is available — this avoids a throwaway engine.
   }

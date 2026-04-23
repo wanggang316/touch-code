@@ -17,9 +17,10 @@ nonisolated struct GitServiceClient: Sendable {
   var stagedDiff: @Sendable (URL, Bool) async throws -> UnifiedDiff
   /// `(repoURL, sha, ignoreWhitespace) -> UnifiedDiff`.
   var commitDiff: @Sendable (URL, String, Bool) async throws -> UnifiedDiff
-  // `status` intentionally absent from the client: M4a doesn't consume it. The service
-  // protocol keeps `status(at:)` for the C7 design's header-badges future; add the closure
-  // here alongside the UI surface that reads it (not before). See 0005 M3 review item 2.
+  /// `(repoURL) -> WorkingTreeStatus`. Used by the sidebar's dirty-indicator to decide
+  /// whether a Worktree row carries a pending-work dot; `GitService.status(at:)` had been
+  /// a protocol-only method waiting for this UI surface (see 0005 M3 review item 2).
+  var status: @Sendable (URL) async throws -> WorkingTreeStatus
 }
 
 extension GitServiceClient {
@@ -35,7 +36,8 @@ extension GitServiceClient {
       },
       commitDiff: { url, sha, ignoreWhitespace in
         try await service.commitDiff(at: url, sha: sha, ignoreWhitespace: ignoreWhitespace)
-      }
+      },
+      status: { url in try await service.status(at: url) }
     )
   }
 }
@@ -59,6 +61,10 @@ extension GitServiceClient: DependencyKey {
     commitDiff: unimplemented(
       "GitServiceClient.commitDiff",
       placeholder: UnifiedDiff(scope: .commit(sha: ""), files: [])
+    ),
+    status: unimplemented(
+      "GitServiceClient.status",
+      placeholder: WorkingTreeStatus(entries: [])
     )
   )
 }
