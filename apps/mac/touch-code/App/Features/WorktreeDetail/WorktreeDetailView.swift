@@ -38,13 +38,15 @@ struct WorktreeDetailView: View {
           .overlay(alignment: .trailing) { overlayContent }
           .animation(.easeInOut(duration: 0.15), value: overlayVisible)
       }
-      // Window title follows the current branch, replacing the default
-      // bundle name ("touch_code") that macOS falls back to when no
-      // navigationTitle is set. The visible titlebar content is still
-      // rendered by the `.principal` ToolbarItem in worktreeToolbarContent,
-      // which supplies the branch icon + text; `.navigationTitle` is the
-      // string used in menu/dock affordances and by Accessibility.
-      .navigationTitle(info?.branchLabel ?? "")
+      // Suppress the default bundle-name title ("touch_code") without
+      // double-labeling the titlebar. macOS would otherwise render the
+      // navigationTitle as a plain string in the leading region of the
+      // detail column AND let our `.principal` ToolbarItem render the
+      // branch icon + text centrally — two branch labels side by side.
+      // An empty string collapses the leading slot so only the principal
+      // item remains visible. `.toolbar(removing: .title)` would be
+      // cleaner but requires macOS 15+.
+      .navigationTitle("")
       .toolbar { worktreeToolbarContent(address: address, info: info) }
     } else {
       placeholder
