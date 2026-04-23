@@ -165,7 +165,7 @@ struct WorktreeDetailView: View {
   ) -> some ToolbarContent {
     if let info {
       if info.project.supportsWorktrees {
-        ToolbarItem(placement: .principal) {
+        ToolbarItem(placement: .navigation) {
           HStack(spacing: 6) {
             Image(systemName: "arrow.trianglehead.branch")
               .foregroundStyle(.secondary)
