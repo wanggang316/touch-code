@@ -1,0 +1,11 @@
+{
+  "hosts": {
+    "github.com": {
+      "active_user": "gump",
+      "user": "gump",
+      "git_protocol": "https",
+      "token_source": "oauth_token",
+      "scopes": ["repo", "read:org", "workflow"]
+    }
+  }
+}

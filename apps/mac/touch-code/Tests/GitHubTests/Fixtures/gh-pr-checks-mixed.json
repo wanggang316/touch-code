@@ -1,0 +1,47 @@
+[
+  {
+    "name": "build (macOS)",
+    "state": "SUCCESS",
+    "bucket": "pass",
+    "startedAt": "2026-04-23T05:00:00Z",
+    "completedAt": "2026-04-23T05:01:42Z",
+    "link": "https://github.com/wanggang316/touch-code/actions/runs/1/job/2",
+    "workflow": "CI"
+  },
+  {
+    "name": "unit-tests (macOS)",
+    "state": "SUCCESS",
+    "bucket": "pass",
+    "startedAt": "2026-04-23T05:00:00Z",
+    "completedAt": "2026-04-23T05:03:11Z",
+    "link": "https://github.com/wanggang316/touch-code/actions/runs/1/job/3",
+    "workflow": "CI"
+  },
+  {
+    "name": "ui-snapshots (macOS)",
+    "state": "FAILURE",
+    "bucket": "fail",
+    "startedAt": "2026-04-23T05:00:00Z",
+    "completedAt": "2026-04-23T05:02:04Z",
+    "link": "https://github.com/wanggang316/touch-code/actions/runs/1/job/4",
+    "workflow": "CI"
+  },
+  {
+    "name": "lint",
+    "state": "PENDING",
+    "bucket": "pending",
+    "startedAt": "2026-04-23T05:00:00Z",
+    "completedAt": null,
+    "link": "https://github.com/wanggang316/touch-code/actions/runs/1/job/5",
+    "workflow": "CI"
+  },
+  {
+    "name": "lockfile",
+    "state": "SKIPPING",
+    "bucket": "skipping",
+    "startedAt": null,
+    "completedAt": null,
+    "link": "https://github.com/wanggang316/touch-code/actions/runs/1/job/6",
+    "workflow": "CI"
+  }
+]
