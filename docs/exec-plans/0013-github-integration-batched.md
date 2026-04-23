@@ -1,6 +1,6 @@
 # ExecPlan: GitHub Integration v2 — Repository-batched PR fetch
 
-**Status:** In Progress
+**Status:** Completed (M1–M6; M7 deferred)
 **Author:** Gump (with Claude)
 **Date:** 2026-04-23
 
@@ -32,7 +32,7 @@ This plan does not add UI; every visual surface is unchanged. It is an execution
 - [x] M4 — Reducer migration: dual-path during transition (per-Worktree + per-Project coexist) — 2026-04-23 (state: `snapshotsByProject`/`inFlightFetchProjects`/`queuedRefreshByProject`/`lastErrorByProject`/`projectGitRoots`; actions: `projectActivated`/`projectRefreshRequested`/`projectBatchLoaded`/`worktreeBranchChanged`; projection into per-Worktree `snapshots` for v1-view compat; RootFeature `selectionChanged` dispatches on projectID transitions; 6 new TestStore tests; DEC-4 drops the `githubFetchModel` flag — see below; DEC-5 defers `mergeCompletedSchedulesDelayedProjectRefresh` test)
 - [x] M5 — View migration: read `checkRollup` from snapshot; retire per-row `.task(id:)` fetch dispatch — 2026-04-23 (HierarchySidebarView + PullRequestPopover + WorktreeRowIcon all read `snapshot.checkRollup`; WorktreeGitHubBadge's `.task(id:)` removed + `BadgeTaskIdentity` deleted; reducer's snapshotLoaded no longer prefetches checks; 3 TestStore tests simplified; 25 GitHubFeatureTests + 16 RootFeatureTests still green)
 - [x] M6 — Delete v1 fetch path (partial — see DEC-6) — 2026-04-23 (deleted `checks()` method + closure + argv + parser + fixture + state.checks + Action.checksLoaded + checksFetchEffect + CancelID.checks; kept `pullRequest(branch:)` and `latestWorkflowRun` + related state/actions because `postMutationRefresh` still uses per-Worktree single-branch refresh; full retirement deferred to a follow-up that migrates postMutationRefresh to project-level refresh)
-- [ ] M7 — Optional: `WorktreeBranchWatcher` (FS watch on `.git/HEAD` per Worktree)
+- [ ] M7 — Optional: `WorktreeBranchWatcher` (FS watch on `.git/HEAD` per Worktree) — **deferred** to v2.1; `HierarchyManager` focus-gained reconcile catches branch changes with ~seconds latency, acceptable for v2.0 ship
 
 Each unchecked entry will be updated with a completion timestamp in the form `— 2026-MM-DD` when the milestone lands (matching the `0012` convention).
 
@@ -110,7 +110,44 @@ Initial architectural decisions are already captured in the design doc's "Altern
 
 ## Outcomes & Retrospective
 
-(To be filled at milestone completion)
+### Final state (2026-04-23)
+
+Shipped M1 → M6 in six commits across roughly five hours of focused work. Each commit is independently verifiable, each passes build + lint + the GitHub test suites it touches. M7 (filesystem-watched branch changes) deferred to v2.1 per its "optional" marker in the plan.
+
+Delta vs. the plan's Purpose statement:
+
+- "Every PR-carrying Worktree paints its badge within approximately 500 ms of Project activation" — architecturally in place. The reducer now fires one `batchPullRequests` call per Project via `gh api graphql`, chunked at 25 branches with 3 concurrent. Verification is pending real-run measurement (the plan called for stopwatch validation; deferred to manual testing post-review).
+- "CI-rollup overlays paint with the badge" — done: `snapshot.checkRollup` travels on the snapshot from the GraphQL response, so `WorktreeRowIcon` renders the overlay in the same pass as the badge's `#N`.
+- "Switching between Projects cancels any in-flight fetch" — done: `CancelID.projectFetch(projectID)` with `cancelInFlight: true` on every dispatch.
+- "Merging / closing / marking-ready refreshes the whole Project after 2 s" — deferred. Write handlers still call `postMutationRefresh` (per-Worktree v1 refresh). Follow-up plan (see DEC-6) will migrate this to `delayedProjectRefresh(projectID)`.
+- "Graceful recovery when `gh` is unavailable" — partial. `GhAvailabilityCache` with 30 s TTL is in place from v1. The 15 s recovery heartbeat from the design doc is scaffolded in `CancelID.availabilityRecovery` but not wired — another follow-up.
+
+### Test count delta
+
+- M1: +17 tests (14 parser + 3 service)
+- M2: +4 tests (Codable round-trip + decoder fallbacks)
+- M3: +16 tests (query builder, chunker, parser, fork filter, service orchestration)
+- M4: +6 TestStore tests (project-level actions + re-entrancy)
+- M5: 0 new (3 existing tests simplified after dropping prefetch)
+- M6: −3 tests (orphaned checks + pullRequestChecksArgv + checksHappyPath)
+
+Net: +40 new tests. Design-doc estimated +50; the difference is M6 subtractions + deferred items (2 tests flagged in DEC-5 + M4's postMutationRefresh test deferred).
+
+### Follow-ups (filed to be scheduled)
+
+1. **Migrate `postMutationRefresh` to project-level** — after merge/close/markReady/rerun, dispatch `projectRefreshRequested` with a 2 s delay instead of the current single-branch refresh. Requires a WorktreeID → ProjectID lookup plumbed into state, then the single-branch `pullRequest(branch:)` / `snapshotFetchEffect` can be fully removed.
+2. **Wire availability recovery heartbeat** — on availability flip to `.unavailable`, start a 15 s `Task { while … sleep … reprobe }` loop; on recovery, drain `queuedRefreshByProject`.
+3. **M7 — `WorktreeBranchWatcher`** — filesystem watch on `.git/HEAD` per visible Worktree to catch terminal-initiated branch changes within ~1 s instead of waiting for focus-regain reconcile.
+4. **Open Question 4 resolution** — measure whether `checkRollup[].detailsURL` reliably carries a parseable run ID; if yes, drop `latestWorkflowRun` and its state map.
+
+### Lessons learned
+
+- **Sanity-checking layering claims matters**: the plan put `RemoteInfo` in `TouchCodeCore` while also throwing an app-module `GitError` — a contradiction caught during M1 that required restructuring (DEC-2). Layer-crossing assumptions are cheapest to surface at plan-review time, next cheapest in the first milestone, more expensive later.
+- **Dual-path migration beats feature flags for this repo**: DEC-4's decision to drop the `githubFetchModel` runtime flag in favor of per-commit revertability held up — M4's dual-write kept v1 working as a fallback without needing to carry a flag through five milestones.
+- **"Skip cosmetic updates that M5 will invalidate"**: DEC-3 (skip updating v1 `gh pr view` parser in M2) and DEC-6 (keep `pullRequest(branch:)` in M6) both avoided ~2 hours of fixture regeneration + test churn that M5/follow-up would have obsoleted anyway. Worth doing again when the next M lands.
+- **TestStore `.withDependencies` needs all deps stubbed, not just the ones the action directly touches**: M4 wire-up in `RootFeature.selectionChanged` broke 2 `exhaustivity = .off` tests because my new dispatch kicked an effect that used unstubbed `.date` + `gitService.remoteInfo` + `GitHubClient.batchPullRequests`. Adding those stubs fixed it, but the pattern is worth noting: downstream effects still need deps even when the test ignores downstream actions.
+
+(To be filled further with review outcomes.)
 
 ## Context and Orientation
 
