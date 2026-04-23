@@ -385,36 +385,44 @@ struct HierarchySidebarView: View {
       total += 1
     }
 
-    return Button {
-      store.send(.worktreeRowTapped(worktree.id, inProject: project.id, inSpace: space.id))
-    } label: {
-      HStack(spacing: 6) {
-        Image(systemName: isSelected ? "circle.fill" : "circle")
-          .font(.caption2)
-          .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-          .accessibilityLabel(isSelected ? "Active worktree" : "Inactive worktree")
-        VStack(alignment: .leading, spacing: 0) {
-          Text(worktree.name)
-          // Suppress the secondary branch line when it restates the
-          // worktree name — the common case (main/main, test0003/test0003)
-          // otherwise doubles every row height for zero information.
-          if let branch = worktree.branch, branch != worktree.name {
-            Text(branch)
-              .font(.caption.monospaced())
-              .foregroundStyle(.secondary)
+    // Row and GitHub badge are siblings rather than nested, so the badge's own Button
+    // doesn't live inside the row's Button.label. Tapping the badge opens the PR popover
+    // without also firing the row-selection action. The leading portion of the row is
+    // the Button; the trailing badge sits beside it.
+    return HStack(spacing: 4) {
+      Button {
+        store.send(.worktreeRowTapped(worktree.id, inProject: project.id, inSpace: space.id))
+      } label: {
+        HStack(spacing: 6) {
+          Image(systemName: isSelected ? "circle.fill" : "circle")
+            .font(.caption2)
+            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+            .accessibilityLabel(isSelected ? "Active worktree" : "Inactive worktree")
+          VStack(alignment: .leading, spacing: 0) {
+            Text(worktree.name)
+            // Suppress the secondary branch line when it restates the worktree name —
+            // the common case (main/main, test0003/test0003) otherwise doubles every
+            // row height for zero information.
+            if let branch = worktree.branch, branch != worktree.name {
+              Text(branch)
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+            }
+          }
+          Spacer()
+          if unreadCount > 0 {
+            Circle()
+              .fill(Color.accentColor)
+              .frame(width: 6, height: 6)
+              .accessibilityLabel("Has \(unreadCount) unread notifications")
           }
         }
-        Spacer()
-        if unreadCount > 0 {
-          Circle()
-            .fill(Color.accentColor)
-            .frame(width: 6, height: 6)
-            .accessibilityLabel("Has \(unreadCount) unread notifications")
-        }
-        gitHubBadge(for: worktree, in: project, space: space)
+        .contentShape(Rectangle())
       }
+      .buttonStyle(.plain)
+
+      gitHubBadge(for: worktree, in: project, space: space)
     }
-    .buttonStyle(.plain)
     .listRowInsets(EdgeInsets(top: 2, leading: 12, bottom: 2, trailing: 12))
     .listRowBackground(
       isSelected
@@ -686,7 +694,7 @@ struct HierarchySidebarView: View {
         EmptyView()
       }
     }
-    .task(id: worktreeID) {
+    .task(id: TaskIdentity(worktreeID: worktreeID, branch: branch, path: worktreePath)) {
       store.send(.worktreeBecameVisible(worktreeID, branch: branch, worktreePath: worktreePath))
     }
     .popover(
@@ -791,6 +799,15 @@ struct HierarchySidebarView: View {
     if snapshot.mergeable == .conflicting { return "Pull request has merge conflicts" }
     if snapshot.mergeable == .unknown { return "Merge status unknown — try refresh" }
     return nil
+  }
+
+  /// Composite identity used by `.task(id:)` on the badge so a change to branch *or* path
+  /// (e.g. a Worktree whose branch is re-pointed without the WorktreeID changing)
+  /// re-fires the snapshot fetch. A plain WorktreeID would keep serving stale data.
+  private struct TaskIdentity: Hashable {
+    let worktreeID: WorktreeID
+    let branch: String
+    let path: URL
   }
 }
 
