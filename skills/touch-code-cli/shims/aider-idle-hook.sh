@@ -11,4 +11,4 @@
 # C6's `aider.idle_via_shim` rule matches the sentinel below and posts an
 # "Aider is idle" notification (muted by default per DEC-7; users who want
 # the signal flip notifications.surfaceIdle in settings.json).
-printf '\n::touchcode:agent-idle %s\n' "${TOUCH_CODE_PANEL_ID:-unknown}"
+printf '\n::touchcode:agent-idle %s\n' "${TOUCH_CODE_PANE_ID:-unknown}"
