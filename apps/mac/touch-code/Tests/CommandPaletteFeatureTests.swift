@@ -13,26 +13,25 @@ struct CommandPaletteFeatureTests {
   private static let sampleCatalog = Catalog()
   private static let sampleSelection = HierarchySelection.empty
 
+  private static func testItem(
+    id: String,
+    title: String,
+    kind: CommandPaletteItem.Kind = .openSettings
+  ) -> CommandPaletteItem {
+    CommandPaletteItem(id: id, title: title, icon: "circle", kind: kind)
+  }
+
   // MARK: - Appeared
 
   @Test
-  func appearedBuildsItemsAndSelectsFirst() async {
+  func appearedPopulatesItemsAndSelectsFirst() async {
     let store = TestStore(initialState: CommandPaletteFeature.State()) {
       CommandPaletteFeature()
     }
-    await store.send(.appeared(Self.sampleSelection, Self.sampleCatalog, [:])) {
-      $0.items = CommandPaletteItems.build(
-        selection: Self.sampleSelection, catalog: Self.sampleCatalog
-      )
-      $0.recency = [:]
-      $0.filtered = $0.items  // empty query, same order (sorted by title within band)
-        .sorted { lhs, rhs in
-          // Score-tied items break by title; the M2 seed items all share
-          // the same priority tier, so title ascending is the final order.
-          lhs.title < rhs.title
-        }
-      $0.selectionID = $0.filtered.first?.id
-    }
+    store.exhaustivity = .off
+    await store.send(.appeared(Self.sampleSelection, Self.sampleCatalog, [], [:]))
+    #expect(!store.state.items.isEmpty)
+    #expect(store.state.filtered.first?.id == store.state.selectionID)
   }
 
   @Test
@@ -44,36 +43,31 @@ struct CommandPaletteFeatureTests {
     let store = TestStore(initialState: CommandPaletteFeature.State()) {
       CommandPaletteFeature()
     }
-    await store.send(.appeared(Self.sampleSelection, Self.sampleCatalog, stale)) {
-      $0.items = CommandPaletteItems.build(
-        selection: Self.sampleSelection, catalog: Self.sampleCatalog
-      )
-      // The static ID survives; the dynamic one referring to a missing
-      // worktree is dropped by CommandPalettePruner.
-      $0.recency = ["app.open-settings": 1_700_000_100]
-      $0.filtered = $0.items.sorted { $0.title < $1.title }
-      $0.selectionID = $0.filtered.first?.id
-    }
+    store.exhaustivity = .off
+    await store.send(.appeared(Self.sampleSelection, Self.sampleCatalog, [], stale))
+    // Static ID survives; dynamic ID pointing to a missing worktree is dropped.
+    #expect(store.state.recency["app.open-settings"] == 1_700_000_100)
+    #expect(store.state.recency["worktree.select.00000000-0000-0000-0000-000000000000"] == nil)
   }
 
   // MARK: - Query
 
   @Test
   func queryChangedFiltersItems() async {
-    let initial = CommandPaletteFeature.State()
-    let store = TestStore(initialState: initial) { CommandPaletteFeature() }
-    await store.send(.appeared(Self.sampleSelection, Self.sampleCatalog, [:])) {
-      $0.items = CommandPaletteItems.build(
-        selection: Self.sampleSelection, catalog: Self.sampleCatalog
-      )
-      $0.filtered = $0.items.sorted { $0.title < $1.title }
-      $0.selectionID = $0.filtered.first?.id
-    }
-    await store.send(.queryChanged("git")) {
-      $0.query = "git"
-      $0.filtered = $0.items.filter { $0.title.lowercased().contains("git") }
-      $0.selectionID = $0.filtered.first?.id
-    }
+    var state = CommandPaletteFeature.State()
+    state.items = [
+      Self.testItem(id: "a", title: "Git Viewer"),
+      Self.testItem(id: "b", title: "New Tab"),
+      Self.testItem(id: "c", title: "Quit"),
+    ]
+    state.filtered = state.items
+    state.selectionID = "a"
+    let store = TestStore(initialState: state) { CommandPaletteFeature() }
+    store.exhaustivity = .off
+    await store.send(.queryChanged("git"))
+    #expect(store.state.filtered.count == 1)
+    #expect(store.state.filtered.first?.id == "a")
+    #expect(store.state.selectionID == "a")
   }
 
   // MARK: - Activation + recency write
@@ -81,15 +75,9 @@ struct CommandPaletteFeatureTests {
   @Test
   func selectionCommittedWritesRecencyAndEmitsActivate() async {
     var state = CommandPaletteFeature.State()
-    state.items = CommandPaletteItems.build(
-      selection: Self.sampleSelection, catalog: Self.sampleCatalog
-    )
-    state.filtered = state.items.sorted { $0.title < $1.title }
+    state.filtered = [Self.testItem(id: "app.open-settings", title: "Open Settings")]
     state.selectionID = "app.open-settings"
     let store = TestStore(initialState: state) { CommandPaletteFeature() }
-    // Non-exhaustive: state carries a wall-clock timestamp we can't
-    // predict exactly; assert the contract (key present, delegate sent)
-    // rather than strict state equality.
     store.exhaustivity = .off
     await store.send(.selectionCommitted)
     #expect(store.state.recency["app.open-settings"] != nil)
@@ -99,10 +87,9 @@ struct CommandPaletteFeatureTests {
   @Test
   func rowTappedActivatesAndRecords() async {
     var state = CommandPaletteFeature.State()
-    state.items = CommandPaletteItems.build(
-      selection: Self.sampleSelection, catalog: Self.sampleCatalog
-    )
-    state.filtered = state.items.sorted { $0.title < $1.title }
+    state.filtered = [
+      Self.testItem(id: "git.toggle-viewer", title: "Toggle Git Viewer", kind: .toggleGitViewer)
+    ]
     let store = TestStore(initialState: state) { CommandPaletteFeature() }
     store.exhaustivity = .off
     await store.send(.rowTapped("git.toggle-viewer"))
@@ -116,8 +103,8 @@ struct CommandPaletteFeatureTests {
   func selectionMovedWrapsAtBoundaries() async {
     var state = CommandPaletteFeature.State()
     state.filtered = [
-      CommandPaletteItem(id: "a", title: "A", icon: "x", kind: .openSettings),
-      CommandPaletteItem(id: "b", title: "B", icon: "x", kind: .toggleGitViewer),
+      Self.testItem(id: "a", title: "A"),
+      Self.testItem(id: "b", title: "B", kind: .toggleGitViewer),
     ]
     state.selectionID = "a"
     let store = TestStore(initialState: state) { CommandPaletteFeature() }

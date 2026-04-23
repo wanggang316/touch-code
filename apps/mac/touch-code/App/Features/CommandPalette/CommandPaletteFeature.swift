@@ -25,7 +25,7 @@ struct CommandPaletteFeature {
   }
 
   enum Action: Equatable {
-    case appeared(HierarchySelection, Catalog, [String: TimeInterval])
+    case appeared(HierarchySelection, Catalog, [EditorDescriptor], [String: TimeInterval])
     case queryChanged(String)
     case selectionMoved(Direction)
     case selectionCommitted
@@ -39,8 +39,10 @@ struct CommandPaletteFeature {
   var body: some Reducer<State, Action> {
     Reduce { state, action in
       switch action {
-      case .appeared(let selection, let catalog, let recency):
-        state.items = CommandPaletteItems.build(selection: selection, catalog: catalog)
+      case .appeared(let selection, let catalog, let descriptors, let recency):
+        state.items = CommandPaletteItems.build(
+          selection: selection, catalog: catalog, editorDescriptors: descriptors
+        )
         state.recency = CommandPalettePruner.prune(
           recency: recency, against: state.items
         )

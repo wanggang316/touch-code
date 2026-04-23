@@ -455,8 +455,11 @@ struct RootFeature {
           state.commandPalette = CommandPaletteFeature.State()
           let selection = state.selection
           let catalog = hierarchyClient.snapshot()
+          let descriptors = state.editor.descriptors
           let recency = CommandPaletteRecencyPersistence.load()
-          return .send(.commandPalette(.presented(.appeared(selection, catalog, recency))))
+          return .send(
+            .commandPalette(.presented(.appeared(selection, catalog, descriptors, recency)))
+          )
         } else {
           state.commandPalette = nil
           return .none
@@ -530,27 +533,106 @@ struct RootFeature {
   }
 
   /// Dispatches a Command Palette activation into the feature action that
-  /// already implements the command. **M2 coverage**: openSettings,
-  /// toggleGitViewer, checkForUpdates. M5 expands this switch to every
-  /// `Kind` case.
+  /// already implements the command. Every case forwards into a pre-
+  /// existing action or client — the palette invents no new behavior.
+  // swiftlint:disable:next cyclomatic_complexity function_body_length
   private func route(
     _ kind: CommandPaletteItem.Kind,
     state: inout State
   ) -> Effect<Action> {
     switch kind {
+    // App
     case .openSettings:
       let presenter = settingsWindowPresenter
       return .run { _ in await MainActor.run { presenter.open() } }
+    case .checkForUpdates:
+      return .send(.windowActionRouter(.requested(.checkForUpdates)))
+    case .quit:
+      return .send(.windowActionRouter(.requested(.quit)))
+
+    // Spaces
+    case .selectSpace(let id):
+      return .send(.sidebar(.spaceRowTapped(id)))
+    case .openSpaceManager:
+      return .send(.spaceManagerSheetShown)
+    case .switchToSpaceAtIndex(let n):
+      return .send(.switchToSpaceAtIndex(n))
+
+    // Worktree
+    case .selectWorktree(let spaceID, let projectID, let worktreeID):
+      return .send(
+        .sidebar(.worktreeRowTapped(worktreeID, inProject: projectID, inSpace: spaceID))
+      )
+    case .closeCurrentWorktree:
+      guard let spaceID = state.selection.spaceID,
+            let projectID = state.selection.projectID,
+            let worktreeID = state.selection.worktreeID
+      else { return .none }
+      let catalog = hierarchyClient.snapshot()
+      let name = catalog
+        .spaces.first(where: { $0.id == spaceID })?
+        .projects.first(where: { $0.id == projectID })?
+        .worktrees.first(where: { $0.id == worktreeID })?.name ?? ""
+      return .send(
+        .sidebar(
+          .worktreeRemoveTapped(
+            worktreeID: worktreeID, inProject: projectID, inSpace: spaceID, name: name
+          )
+        )
+      )
+    case .refreshCurrentWorktree:
+      guard let spaceID = state.selection.spaceID,
+            let projectID = state.selection.projectID
+      else { return .none }
+      return .run { [projectReconciler] _ in
+        await projectReconciler.reconcile(projectID: projectID, spaceID: spaceID)
+      }
     case .toggleGitViewer:
       return .send(.gitViewerToggledForCurrentWorktree)
-    case .checkForUpdates:
-      // Hooked up to the updates feature in M5.
-      return .none
-    default:
-      // All other Kind cases are emitted starting in M5; keep this
-      // exhaustive catch so the compiler does not force every case
-      // coverage until then.
-      return .none
+
+    // Editor
+    case .openCurrentWorktreeInDefaultEditor:
+      return .send(.openDefaultForCurrentWorktreeRequested)
+    case .openCurrentWorktreeIn(let editorID):
+      guard let spaceID = state.selection.spaceID,
+            let projectID = state.selection.projectID,
+            let worktreeID = state.selection.worktreeID
+      else { return .none }
+      let catalog = hierarchyClient.snapshot()
+      guard let path = catalog
+        .spaces.first(where: { $0.id == spaceID })?
+        .projects.first(where: { $0.id == projectID })?
+        .worktrees.first(where: { $0.id == worktreeID })?.path
+      else { return .none }
+      return .send(
+        .editor(
+          .openRequested(
+            editorID: editorID, worktreePath: path, projectID: projectID
+          )
+        )
+      )
+    case .revealCurrentWorktreeInFinder:
+      guard let spaceID = state.selection.spaceID,
+            let projectID = state.selection.projectID,
+            let worktreeID = state.selection.worktreeID
+      else { return .none }
+      let catalog = hierarchyClient.snapshot()
+      guard let path = catalog
+        .spaces.first(where: { $0.id == spaceID })?
+        .projects.first(where: { $0.id == projectID })?
+        .worktrees.first(where: { $0.id == worktreeID })?.path
+      else { return .none }
+      let client = finderClient
+      return .run { _ in await MainActor.run { client.reveal(path) } }
+
+    // Panel / Window — thin wrappers over the routers
+    case .panelAction(let req):
+      guard let panelID = CommandPaletteItems.resolveFocusedPanelID(
+        selection: state.selection, catalog: hierarchyClient.snapshot()
+      ) else { return .none }
+      return .send(.panelActionRouter(.requested(panelID, req)))
+    case .windowAction(let req):
+      return .send(.windowActionRouter(.requested(req)))
     }
   }
 
