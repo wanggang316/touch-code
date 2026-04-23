@@ -455,13 +455,17 @@ struct RootFeature {
           state.commandPalette = CommandPaletteFeature.State()
           let selection = state.selection
           let catalog = hierarchyClient.snapshot()
-          return .send(.commandPalette(.presented(.appeared(selection, catalog))))
+          let recency = CommandPaletteRecencyPersistence.load()
+          return .send(.commandPalette(.presented(.appeared(selection, catalog, recency))))
         } else {
           state.commandPalette = nil
           return .none
         }
 
       case .commandPalette(.presented(.delegate(.activate(let kind)))):
+        if let recency = state.commandPalette?.recency {
+          CommandPaletteRecencyPersistence.save(recency)
+        }
         state.commandPalette = nil
         return route(kind, state: &state)
 

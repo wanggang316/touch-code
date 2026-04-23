@@ -17,10 +17,15 @@ struct CommandPaletteFeature {
     var selectionID: CommandPaletteItem.ID?
     var items: [CommandPaletteItem] = []
     var filtered: [CommandPaletteItem] = []
+    /// Read once from the parent on `.appeared`. Held here so filtering
+    /// can blend the recency bonus into each keystroke without re-reading
+    /// UserDefaults on the hot path. Writes land in the parent after
+    /// `.delegate(.activate(…))` completes.
+    var recency: [String: TimeInterval] = [:]
   }
 
   enum Action: Equatable {
-    case appeared(HierarchySelection, Catalog)
+    case appeared(HierarchySelection, Catalog, [String: TimeInterval])
     case queryChanged(String)
     case selectionMoved(Direction)
     case selectionCommitted
@@ -34,15 +39,18 @@ struct CommandPaletteFeature {
   var body: some Reducer<State, Action> {
     Reduce { state, action in
       switch action {
-      case .appeared(let selection, let catalog):
+      case .appeared(let selection, let catalog, let recency):
         state.items = CommandPaletteItems.build(selection: selection, catalog: catalog)
-        state.filtered = filter(items: state.items, query: state.query)
+        state.recency = CommandPalettePruner.prune(
+          recency: recency, against: state.items
+        )
+        state.filtered = filter(items: state.items, query: state.query, recency: state.recency)
         state.selectionID = state.filtered.first?.id
         return .none
 
       case .queryChanged(let query):
         state.query = query
-        state.filtered = filter(items: state.items, query: query)
+        state.filtered = filter(items: state.items, query: query, recency: state.recency)
         state.selectionID = state.filtered.first?.id
         return .none
 
@@ -54,10 +62,12 @@ struct CommandPaletteFeature {
         guard let id = state.selectionID ?? state.filtered.first?.id,
               let item = state.filtered.first(where: { $0.id == id })
         else { return .none }
+        state.recency[item.id] = Date().timeIntervalSince1970
         return .send(.delegate(.activate(item.kind)))
 
       case .rowTapped(let id):
         guard let item = state.filtered.first(where: { $0.id == id }) else { return .none }
+        state.recency[item.id] = Date().timeIntervalSince1970
         return .send(.delegate(.activate(item.kind)))
 
       case .delegate:
@@ -66,11 +76,15 @@ struct CommandPaletteFeature {
     }
   }
 
-  private func filter(items: [CommandPaletteItem], query: String) -> [CommandPaletteItem] {
+  private func filter(
+    items: [CommandPaletteItem],
+    query: String,
+    recency: [String: TimeInterval]
+  ) -> [CommandPaletteItem] {
     let now = Date().timeIntervalSince1970
     let scored: [(CommandPaletteItem, Int)] = items.compactMap { item in
       guard let score = CommandPaletteFuzzyScorer.score(
-        item: item, query: query, recency: [:], now: now
+        item: item, query: query, recency: recency, now: now
       ) else { return nil }
       return (item, score)
     }
