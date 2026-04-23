@@ -214,6 +214,18 @@ final class GhosttyRuntime {
     surfacesByPanelID[panelID]
   }
 
+  /// Force-clear libghostty focus on every surface except `target`. Called
+  /// by `TerminalEngine.focusSurfaceView` before `makeFirstResponder` so
+  /// surfaces left stale by AppKit's focus machinery (e.g. briefly-detached
+  /// views that never received `resignFirstResponder`) stop rendering a
+  /// blinking cursor. `ghostty_surface_set_focus(false)` is idempotent, so
+  /// it's safe to call on surfaces that are already unfocused.
+  func defocusAllSurfaces(except target: PanelID?) {
+    for (pid, panel) in surfacesByPanelID where pid != target {
+      panel.setFocus(false)
+    }
+  }
+
   func tick() {
     guard let app else { return }
     ghostty_app_tick(app)

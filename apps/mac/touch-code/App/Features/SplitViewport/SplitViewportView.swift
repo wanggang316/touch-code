@@ -22,8 +22,16 @@ struct SplitViewportView: View {
   var body: some View {
     Group {
       if let tab = currentTab(), !tab.splitTree.isEmpty, let root = tab.splitTree.root {
-        AnyView(renderNode(root, tab: tab))
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
+        SubtreeView(
+          node: root,
+          path: SplitTree<PanelID>.Path(),
+          store: store,
+          tabID: tabID,
+          worktreeID: worktreeID,
+          projectID: projectID,
+          spaceID: spaceID
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
         emptyPlaceholder
       }
@@ -82,75 +90,123 @@ struct SplitViewportView: View {
     store.send(.panelsInActiveTabChanged(seeds))
   }
 
-  /// Recursive renderer. Returns `AnyView` at every level to prevent
-  /// SwiftUI's generic type inference from blowing up on nested splits
-  /// (DEC-10). Performance cost is negligible at the tree sizes this
-  /// hierarchy sees (≤ 32 panels/tab).
-  ///
-  /// We intentionally do NOT use `HSplitView` / `VSplitView`. Those wrap
-  /// AppKit's `NSSplitView`, which propagates Auto Layout constraint
-  /// invalidations through every nested `NSHostingView`. With multiple
-  /// ghostty surfaces emitting `SurfaceInfo` changes on startup, the
-  /// reentrancy trips macOS's "more Update Constraints passes than there
-  /// are views" exception and crashes the app. Instead we compute rects
-  /// with `GeometryReader` and hard-set frames — no Auto Layout ping-pong.
-  /// This also lets us honor `SplitTree.split.ratio` directly, which
-  /// `HSplitView` ignored. Drag-to-resize is deferred (divider drag
-  /// dispatches `resizeSplitRequested` when re-added).
-  private func renderNode(_ node: SplitTree<PanelID>.Node, tab: TouchCodeCore.Tab) -> AnyView {
+}
+
+/// Recursive subtree renderer. Implemented as a concrete `struct` (not an
+/// `AnyView`-returning function) so SwiftUI can diff identity across re-renders
+/// — otherwise every divider drag tears down and rebuilds every `PanelHostView`,
+/// causing the ghostty surface to re-mount on each frame and visibly flicker.
+/// Self-recursion through a named type collapses the view-type tree to a single
+/// `SubtreeView` at each level, sidestepping the generic-inference explosion
+/// that originally motivated `AnyView`.
+///
+/// Split nodes are rendered via `SplitView` — a `ZStack`-based splitter with a
+/// draggable divider. We intentionally do NOT use `HSplitView`/`VSplitView`:
+/// those wrap `NSSplitView`, which propagates Auto Layout constraint
+/// invalidations through every nested `NSHostingView`, and with multiple ghostty
+/// surfaces emitting `SurfaceInfo` changes on startup the reentrancy trips
+/// macOS's "more Update Constraints passes than there are views" exception.
+/// `SplitView` hard-sets frames and offsets on a `ZStack` instead — no Auto
+/// Layout ping-pong, and it honors `SplitTree.split.ratio` directly.
+///
+/// `path` accumulates as we descend: `.left` for the first child, `.right` for
+/// the second. That's what `resizeSplitRequested` needs to locate the split
+/// node in the tree.
+private struct SubtreeView: View {
+  let node: SplitTree<PanelID>.Node
+  let path: SplitTree<PanelID>.Path
+  let store: StoreOf<SplitViewportFeature>
+  let tabID: TabID
+  let worktreeID: WorktreeID
+  let projectID: ProjectID
+  let spaceID: SpaceID
+
+  var body: some View {
     switch node {
     case .leaf(let panelID):
-      return AnyView(panelLeaf(panelID))
+      LeafView(panelID: panelID, store: store)
     case .split(let split):
-      let leftView = renderNode(split.left, tab: tab)
-      let rightView = renderNode(split.right, tab: tab)
-      let ratio = max(0.05, min(0.95, split.ratio))
-      return AnyView(
-        GeometryReader { geo in
-          let size = geo.size
-          let dividerThickness: CGFloat = 1
-          switch split.direction {
-          case .horizontal:
-            let leftW = max(0, size.width * ratio - dividerThickness / 2)
-            let rightW = max(0, size.width - leftW - dividerThickness)
-            HStack(spacing: 0) {
-              leftView.frame(width: leftW, height: size.height)
-              Rectangle()
-                .fill(Color(nsColor: .separatorColor))
-                .frame(width: dividerThickness, height: size.height)
-              rightView.frame(width: rightW, height: size.height)
-            }
-          case .vertical:
-            let topH = max(0, size.height * ratio - dividerThickness / 2)
-            let bottomH = max(0, size.height - topH - dividerThickness)
-            VStack(spacing: 0) {
-              leftView.frame(width: size.width, height: topH)
-              Rectangle()
-                .fill(Color(nsColor: .separatorColor))
-                .frame(width: size.width, height: dividerThickness)
-              rightView.frame(width: size.width, height: bottomH)
-            }
-          }
-        }
-      )
+      splitBody(split)
     }
   }
 
-  private func panelLeaf(_ panelID: PanelID) -> some View {
-    Group {
-      if let childStore = store.scope(
-        state: \.panelHosts[id: panelID],
-        action: \.panelHosts[id: panelID]
-      ) {
-        LazyPanelHost(store: childStore)
-      } else {
-        // One-frame gap between panel entering the catalog and the sync
-        // action landing `panelHosts[id: panelID]` in state. Render a
-        // neutral placeholder rather than blanking the pane.
-        ProgressView()
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
-          .background(Color(nsColor: .underPageBackgroundColor))
+  private func splitBody(_ split: SplitTree<PanelID>.Split) -> some View {
+    let leftPath = SplitTree<PanelID>.Path(path.components + [.left])
+    let rightPath = SplitTree<PanelID>.Path(path.components + [.right])
+    let direction: SplitView<SubtreeView, SubtreeView>.Direction =
+      split.direction == .horizontal ? .horizontal : .vertical
+    let capturedPath = path
+    return SplitView(
+      direction,
+      Binding<CGFloat>(
+        get: { CGFloat(split.ratio) },
+        set: { newRatio in
+          store.send(
+            .resizeSplitRequested(
+              capturedPath,
+              ratio: Double(newRatio),
+              inTab: tabID,
+              inWorktree: worktreeID,
+              inProject: projectID,
+              inSpace: spaceID
+            ))
+        }
+      ),
+      dividerColor: Color(nsColor: .separatorColor),
+      left: {
+        SubtreeView(
+          node: split.left,
+          path: leftPath,
+          store: store,
+          tabID: tabID,
+          worktreeID: worktreeID,
+          projectID: projectID,
+          spaceID: spaceID
+        )
+      },
+      right: {
+        SubtreeView(
+          node: split.right,
+          path: rightPath,
+          store: store,
+          tabID: tabID,
+          worktreeID: worktreeID,
+          projectID: projectID,
+          spaceID: spaceID
+        )
+      },
+      onEqualize: {
+        store.send(
+          .resizeSplitRequested(
+            capturedPath,
+            ratio: 0.5,
+            inTab: tabID,
+            inWorktree: worktreeID,
+            inProject: projectID,
+            inSpace: spaceID
+          ))
       }
+    )
+  }
+}
+
+private struct LeafView: View {
+  let panelID: PanelID
+  let store: StoreOf<SplitViewportFeature>
+
+  var body: some View {
+    if let childStore = store.scope(
+      state: \.panelHosts[id: panelID],
+      action: \.panelHosts[id: panelID]
+    ) {
+      LazyPanelHost(store: childStore)
+    } else {
+      // One-frame gap between panel entering the catalog and the sync
+      // action landing `panelHosts[id: panelID]` in state. Render a
+      // neutral placeholder rather than blanking the pane.
+      ProgressView()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .underPageBackgroundColor))
     }
   }
 }
