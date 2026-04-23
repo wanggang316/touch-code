@@ -39,13 +39,15 @@ extension PullRequestState {
   }
 
   /// Stroke / foreground tint used by the bordered-pill badge and the row-leading git icon.
-  /// Slightly brighter than `badgeFill` so the pill reads against a sidebar material.
+  /// Mirrors the popover pill's fill tokens (same hue at equal saturation) so the two
+  /// surfaces read as one system — the sidebar row icon + `#N` pill is the same purple
+  /// the popover's "MERGED" capsule uses, not the louder stock `.purple`.
   nonisolated func rowTint(isDraft: Bool) -> Color {
     if isDraft { return .secondary }
     switch self {
-    case .open: return .green
-    case .merged: return .purple
-    case .closed: return .red
+    case .open: return PullRequestStateColor.openFill
+    case .merged: return PullRequestStateColor.mergedFill
+    case .closed: return PullRequestStateColor.closedFill
     }
   }
 

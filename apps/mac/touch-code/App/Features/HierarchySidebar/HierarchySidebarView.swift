@@ -465,7 +465,7 @@ struct HierarchySidebarView: View {
       )
       gitHubBadge(for: worktree, in: project, space: space)
     }
-    .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+    .listRowInsets(EdgeInsets(top: 3, leading: 12, bottom: 3, trailing: 12))
     .listRowBackground(
       isSelected
         ? Color.accentColor.opacity(0.2)
@@ -501,12 +501,13 @@ struct HierarchySidebarView: View {
     let button = Button {
       store.send(.worktreeRowTapped(worktree.id, inProject: project.id, inSpace: space.id))
     } label: {
-      HStack(spacing: 8) {
+      HStack(spacing: 6) {
         WorktreeRowIcon(
-          snapshot: snapshot, rollup: rollup, isSelected: isSelected, roleTint: roleTint
+          snapshot: snapshot, rollup: rollup, isSelected: isSelected,
+          roleTint: roleTint, isMainCheckout: isMainCheckout
         )
         VStack(alignment: .leading, spacing: 0) {
-          HStack(spacing: 4) {
+          HStack(spacing: 2) {
             Text(worktree.name)
             // Explicit pinned marker — keeps the "this row is pinned" signal visible
             // even when the row-icon's role tint is overridden by a PR-state color.
@@ -515,14 +516,6 @@ struct HierarchySidebarView: View {
                 .font(.caption2)
                 .foregroundStyle(.orange)
                 .accessibilityLabel("Pinned")
-            }
-            // Pending-work dot: 5 pt circle when `git status` reported non-clean. Uses
-            // the accentColor so it reads as "you have work here" rather than alarm.
-            if worktreeStatusMonitor.isDirty[worktree.id] == true {
-              Circle()
-                .fill(Color.accentColor)
-                .frame(width: 5, height: 5)
-                .accessibilityLabel("Uncommitted changes")
             }
           }
           // Suppress the secondary branch line when it restates the worktree name —

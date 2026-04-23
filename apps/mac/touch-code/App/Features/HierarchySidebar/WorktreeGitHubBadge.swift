@@ -89,12 +89,14 @@ struct WorktreeGitHubBadge<PopoverContent: View>: View {
     }
   }
 
-  /// Compact `+N −M` patch-size indicator for a PR snapshot. Hidden when both counts
-  /// are zero (a fresh branch / empty PR renders no noise). Reads from the snapshot's
-  /// cached `additions` / `deletions` — no extra gh or git call.
+  /// Compact `+N −M` patch-size indicator for a PR snapshot. Shown only on `.open` PRs —
+  /// merged and closed PRs are historical; the diff they represent is already in the
+  /// base branch (merged) or discarded (closed), so carrying the counts on the sidebar
+  /// row adds visual weight for no actionable information. The popover still surfaces
+  /// full stats when the user drills in. Hidden when both counts are zero.
   @ViewBuilder
   private func diffStatsLabel(snapshot: PullRequestSnapshot) -> some View {
-    if snapshot.additions > 0 || snapshot.deletions > 0 {
+    if snapshot.state == .open, snapshot.additions > 0 || snapshot.deletions > 0 {
       HStack(spacing: 4) {
         if snapshot.additions > 0 {
           Text("+\(snapshot.additions)").foregroundStyle(.green)
