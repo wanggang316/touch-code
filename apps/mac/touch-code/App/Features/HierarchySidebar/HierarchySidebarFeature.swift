@@ -218,6 +218,10 @@ struct HierarchySidebarFeature {
       inProject: ProjectID,
       inSpace: SpaceID
     )
+    /// Right-click menu toggle. Flips the Worktree's `isPinned` flag via `HierarchyClient`.
+    /// The `current` parameter lets the reducer emit the opposite value without reading
+    /// catalog state.
+    case worktreePinToggleTapped(worktreeID: WorktreeID, current: Bool)
 
     // Project ⋯ menu: Archived + Prune.
     case projectShowArchivedTapped(projectID: ProjectID, inSpace: SpaceID)
@@ -563,6 +567,10 @@ struct HierarchySidebarFeature {
 
       case let .worktreeUnarchiveTapped(wid, _, _):
         try? hierarchyClient.setWorktreeArchived(wid, false)
+        return .none
+
+      case let .worktreePinToggleTapped(wid, current):
+        hierarchyClient.setWorktreePinned(wid, !current)
         return .none
 
       case let .projectShowArchivedTapped(projectID, spaceID):

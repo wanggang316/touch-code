@@ -37,6 +37,18 @@ struct HierarchySidebarView: View {
   /// switching (see `MainWindowCommands`), so worktree jumps get `⌃⌘N` instead.
   private static let hotkeyModifiers: EventModifiers = [.command, .control]
 
+  /// Non-archived worktrees in sidebar render order: main checkout first (the row whose
+  /// path matches the Project's rootPath), then user-pinned rows (catalog order), then
+  /// the rest (catalog order). Main checkout is kept first regardless of `isPinned` so
+  /// it never drops below another pin — mirrors supacode's "default" slot.
+  static func orderedVisibleWorktrees(in project: Project) -> [Worktree] {
+    let visible = project.worktrees.filter { !$0.archived }
+    let main = visible.filter { $0.path == project.rootPath }
+    let pinned = visible.filter { $0.isPinned && $0.path != project.rootPath }
+    let rest = visible.filter { !$0.isPinned && $0.path != project.rootPath }
+    return main + pinned + rest
+  }
+
   var body: some View {
     let catalog = hierarchyManager.catalog
     // Build the PanelID→WorktreeID index once per render pass. Worktree rows
@@ -259,14 +271,15 @@ struct HierarchySidebarView: View {
       if activeSpace.projects.isEmpty {
         emptySpaceState
       } else {
-        // Top-down flat enumeration of visible worktrees across projects. Used to assign
-        // `⌃⌘1`…`⌃⌘9` to the first 9 rows and reveal matching hints while ⌘ is held.
-        // Archived rows live in a separate sheet and never claim a hotkey slot.
+        // Top-down flat enumeration of visible worktrees across projects, following the
+        // same main → pinned → others partition the rows themselves render in. Used to
+        // assign `⌃⌘1`…`⌃⌘9` and reveal matching hints while ⌘ is held. Archived rows
+        // live in a separate sheet and never claim a hotkey slot.
         let hotkeyIndex: [WorktreeID: Int] = {
           var map: [WorktreeID: Int] = [:]
           var slot = 0
           for project in activeSpace.projects {
-            for worktree in project.worktrees where !worktree.archived {
+            for worktree in Self.orderedVisibleWorktrees(in: project) {
               if slot >= 9 { return map }
               map[worktree.id] = slot
               slot += 1
@@ -382,7 +395,7 @@ struct HierarchySidebarView: View {
         ) {
           // Filter archived worktrees out of the main list — they surface
           // through the Archived Worktrees sheet instead.
-          ForEach(project.worktrees.filter { !$0.archived }) { worktree in
+          ForEach(Self.orderedVisibleWorktrees(in: project)) { worktree in
             worktreeRow(
               worktree,
               in: project,
@@ -522,6 +535,14 @@ struct HierarchySidebarView: View {
   ) -> some View {
     let isMainCheckout = worktree.path == project.rootPath
     if !isMainCheckout {
+      Button {
+        store.send(.worktreePinToggleTapped(worktreeID: worktree.id, current: worktree.isPinned))
+      } label: {
+        Label(
+          worktree.isPinned ? "Unpin Worktree" : "Pin Worktree",
+          systemImage: worktree.isPinned ? "pin.slash" : "pin"
+        )
+      }
       if worktree.archived {
         Button {
           store.send(.worktreeUnarchiveTapped(

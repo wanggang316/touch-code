@@ -352,6 +352,25 @@ final class HierarchyManager {
     }
   }
 
+  /// Flips the Worktree's pinned flag. Pinned rows render in a dedicated section at the
+  /// top of the project's row group so the user's "current work" set stays visible even
+  /// as the Worktree list grows. Silent no-op for unchanged values and for unknown ids.
+  /// Persists via the standard debounced save pipeline.
+  func setWorktreePinned(worktreeID: WorktreeID, isPinned: Bool) {
+    for spaceIndex in catalog.spaces.indices {
+      for projectIndex in catalog.spaces[spaceIndex].projects.indices {
+        let project = catalog.spaces[spaceIndex].projects[projectIndex]
+        guard let worktreeIndex = project.worktrees.firstIndex(where: { $0.id == worktreeID })
+        else { continue }
+        guard project.worktrees[worktreeIndex].isPinned != isPinned else { return }
+        catalog.spaces[spaceIndex].projects[projectIndex]
+          .worktrees[worktreeIndex].isPinned = isPinned
+        store.scheduleSave(catalog)
+        return
+      }
+    }
+  }
+
   /// Merges worktrees discovered on disk (typically from
   /// `wt ls --json`) into the catalog. Path-canonicalized dedupe
   /// against existing rows — both sides go through

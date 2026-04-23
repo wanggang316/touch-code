@@ -18,6 +18,12 @@ public nonisolated struct Worktree: Equatable, Sendable, Identifiable {
   /// `decodeIfPresent`, and the encode path omits the key when `false` so
   /// existing catalogs round-trip identically.
   public var archived: Bool
+  /// User-marked "pinned" state. Pinned Worktrees render in their own section
+  /// at the top of the Project's row group (below the main checkout). Defaults
+  /// to `false`; pre-pin catalogs decode to `false` via `decodeIfPresent`, and
+  /// the encode path omits the key when `false` so existing catalogs round-trip
+  /// identically.
+  public var isPinned: Bool
 
   public init(
     id: WorktreeID = WorktreeID(),
@@ -27,7 +33,8 @@ public nonisolated struct Worktree: Equatable, Sendable, Identifiable {
     tabs: [Tab] = [],
     selectedTabID: TabID? = nil,
     gitViewerVisible: Bool = false,
-    archived: Bool = false
+    archived: Bool = false,
+    isPinned: Bool = false
   ) {
     self.id = id
     self.name = name
@@ -37,12 +44,13 @@ public nonisolated struct Worktree: Equatable, Sendable, Identifiable {
     self.selectedTabID = selectedTabID
     self.gitViewerVisible = gitViewerVisible
     self.archived = archived
+    self.isPinned = isPinned
   }
 }
 
 extension Worktree: Codable {
   private enum CodingKeys: String, CodingKey {
-    case id, name, path, branch, tabs, selectedTabID, gitViewerVisible, archived
+    case id, name, path, branch, tabs, selectedTabID, gitViewerVisible, archived, isPinned
   }
 
   public init(from decoder: Decoder) throws {
@@ -55,6 +63,7 @@ extension Worktree: Codable {
     self.selectedTabID = try container.decodeIfPresent(TabID.self, forKey: .selectedTabID)
     self.gitViewerVisible = try container.decodeIfPresent(Bool.self, forKey: .gitViewerVisible) ?? false
     self.archived = try container.decodeIfPresent(Bool.self, forKey: .archived) ?? false
+    self.isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
   }
 
   public func encode(to encoder: Encoder) throws {
@@ -77,6 +86,9 @@ extension Worktree: Codable {
     // catalogs round-trip identically.
     if archived {
       try container.encode(true, forKey: .archived)
+    }
+    if isPinned {
+      try container.encode(true, forKey: .isPinned)
     }
   }
 }
