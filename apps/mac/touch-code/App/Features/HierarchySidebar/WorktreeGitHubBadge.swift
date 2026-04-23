@@ -34,10 +34,13 @@ struct WorktreeGitHubBadge<PopoverContent: View>: View {
       if let snapshot {
         let checks = store.checks[snapshot.number] ?? []
         let rollup = PullRequestBadge.CheckRollup.from(checks: checks)
-        PullRequestBadge(
-          state: .loaded(snapshot, rollup: rollup),
-          onTap: { store.send(.delegate(.openURL(snapshot.url))) }
-        )
+        HStack(spacing: 6) {
+          diffStatsLabel(snapshot: snapshot)
+          PullRequestBadge(
+            state: .loaded(snapshot, rollup: rollup),
+            onTap: { store.send(.delegate(.openURL(snapshot.url))) }
+          )
+        }
       } else if isLoading {
         PullRequestBadge(state: .loading, onTap: {})
       } else if let lastError {
@@ -70,6 +73,27 @@ struct WorktreeGitHubBadge<PopoverContent: View>: View {
           isPopoverHovered = hovering
           reconcileHover()
         }
+    }
+  }
+
+  /// Compact `+N −M` patch-size indicator for a PR snapshot. Hidden when both counts
+  /// are zero (a fresh branch / empty PR renders no noise). Reads from the snapshot's
+  /// cached `additions` / `deletions` — no extra gh or git call.
+  @ViewBuilder
+  private func diffStatsLabel(snapshot: PullRequestSnapshot) -> some View {
+    if snapshot.additions > 0 || snapshot.deletions > 0 {
+      HStack(spacing: 4) {
+        if snapshot.additions > 0 {
+          Text("+\(snapshot.additions)").foregroundStyle(.green)
+        }
+        if snapshot.deletions > 0 {
+          Text("−\(snapshot.deletions)").foregroundStyle(.red)
+        }
+      }
+      .font(.caption2.monospacedDigit())
+      .accessibilityLabel(
+        "\(snapshot.additions) additions, \(snapshot.deletions) deletions"
+      )
     }
   }
 
