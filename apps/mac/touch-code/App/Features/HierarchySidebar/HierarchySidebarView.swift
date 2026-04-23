@@ -388,9 +388,12 @@ struct HierarchySidebarView: View {
           .font(.caption2)
           .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
           .accessibilityLabel(isSelected ? "Active worktree" : "Inactive worktree")
-        VStack(alignment: .leading, spacing: 1) {
+        VStack(alignment: .leading, spacing: 0) {
           Text(worktree.name)
-          if let branch = worktree.branch {
+          // Suppress the secondary branch line when it restates the
+          // worktree name — the common case (main/main, test0003/test0003)
+          // otherwise doubles every row height for zero information.
+          if let branch = worktree.branch, branch != worktree.name {
             Text(branch)
               .font(.caption.monospaced())
               .foregroundStyle(.secondary)
@@ -406,6 +409,7 @@ struct HierarchySidebarView: View {
       }
     }
     .buttonStyle(.plain)
+    .listRowInsets(EdgeInsets(top: 2, leading: 12, bottom: 2, trailing: 12))
     .listRowBackground(
       isSelected
         ? Color.accentColor.opacity(0.2)

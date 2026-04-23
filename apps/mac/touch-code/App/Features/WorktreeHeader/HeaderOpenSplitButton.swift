@@ -91,13 +91,6 @@ struct HeaderOpenSplitButton: View {
   private var caret: some View {
     Menu {
       openInMenu
-      Divider()
-      Menu("Set default for this Project") {
-        setDefaultMenuContent
-      }
-      Button("+ Custom editors…") {
-        store.send(.customEditorsTapped)
-      }
     } label: {
       Image(systemName: "chevron.down")
         .font(.caption.bold())
@@ -137,38 +130,4 @@ struct HeaderOpenSplitButton: View {
     }
   }
 
-  /// Contents of the "Set default for this Project" sub-menu. Kept flat (no
-  /// section labels, no nested dividers) because it's already nested inside
-  /// a titled parent menu — an extra header/divider would read as repeated
-  /// chrome. "Use global default" stays first as the canonical reset.
-  @ViewBuilder
-  private var setDefaultMenuContent: some View {
-    Button("Use global default") {
-      store.send(
-        .setProjectDefaultEditorTapped(
-          spaceID: spaceID,
-          projectID: projectID,
-          editorID: nil
-        ))
-    }
-    ForEach(editorStore.state.descriptors) { descriptor in
-      Button {
-        store.send(
-          .setProjectDefaultEditorTapped(
-            spaceID: spaceID,
-            projectID: projectID,
-            editorID: descriptor.id
-          ))
-      } label: {
-        Label {
-          Text(descriptor.displayName)
-        } icon: {
-          AppIconImage(
-            bundleIdentifier: descriptor.bundleIdentifier,
-            fallbackSystemName: "arrow.up.right.square"
-          )
-        }
-      }
-    }
-  }
 }
