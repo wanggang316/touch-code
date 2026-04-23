@@ -83,4 +83,11 @@ nonisolated enum GitCommand {
   static func revParseShowToplevel() -> [String] {
     ["rev-parse", "--show-toplevel"]
   }
+
+  /// `git remote get-url <remote>`. Emits the raw remote URL — SCP-style (`git@host:o/r`),
+  /// HTTPS, or `ssh://`. Parsed via `RemoteInfo.parse` at the service boundary. Defaults to
+  /// the `origin` remote since the GitHub integration does not support multi-remote setups.
+  static func remoteGetUrl(remote: String = "origin") -> [String] {
+    ["remote", "get-url", remote]
+  }
 }

@@ -21,6 +21,10 @@ nonisolated struct GitServiceClient: Sendable {
   /// whether a Worktree row carries a pending-work dot; `GitService.status(at:)` had been
   /// a protocol-only method waiting for this UI surface (see 0005 M3 review item 2).
   var status: @Sendable (URL) async throws -> WorkingTreeStatus
+  /// `(repoURL) -> RemoteInfo`. Parses `git remote get-url origin` into host/owner/repo
+  /// for the GitHub integration's batched PR fetcher. Throws `GitError.malformedRemoteURL`
+  /// on an unrecognised remote shape.
+  var remoteInfo: @Sendable (URL) async throws -> RemoteInfo
 }
 
 extension GitServiceClient {
@@ -37,7 +41,8 @@ extension GitServiceClient {
       commitDiff: { url, sha, ignoreWhitespace in
         try await service.commitDiff(at: url, sha: sha, ignoreWhitespace: ignoreWhitespace)
       },
-      status: { url in try await service.status(at: url) }
+      status: { url in try await service.status(at: url) },
+      remoteInfo: { url in try await service.remoteInfo(at: url) }
     )
   }
 }
@@ -65,6 +70,10 @@ extension GitServiceClient: DependencyKey {
     status: unimplemented(
       "GitServiceClient.status",
       placeholder: WorkingTreeStatus(entries: [])
+    ),
+    remoteInfo: unimplemented(
+      "GitServiceClient.remoteInfo",
+      placeholder: RemoteInfo(host: "github.com", owner: "example", repo: "example")
     )
   )
 }

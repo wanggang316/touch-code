@@ -101,6 +101,7 @@ struct CommitLogView: View {
     case .timedOut: return "`git log` took too long."
     case .exec(_, let stderr): return stderr.components(separatedBy: "\n").first ?? ""
     case .invalidInput(let msg), .unparsable(let msg): return msg
+    case .malformedRemoteURL(let url): return "Could not parse the remote URL: \(url)"
     }
   }
 }

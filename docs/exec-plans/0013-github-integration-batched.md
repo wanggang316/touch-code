@@ -1,6 +1,6 @@
 # ExecPlan: GitHub Integration v2 — Repository-batched PR fetch
 
-**Status:** Draft
+**Status:** In Progress
 **Author:** Gump (with Claude)
 **Date:** 2026-04-23
 
@@ -26,7 +26,7 @@ This plan does not add UI; every visual surface is unchanged. It is an execution
 
 ## Progress
 
-- [ ] M1 — `RemoteInfo` + `GitService.remoteInfo(at:)`
+- [x] M1 — `RemoteInfo` + `GitService.remoteInfo(at:)` — 2026-04-23 (14 parser tests + 3 service tests; `RemoteInfo.ParseError` kept local to TouchCodeCore to avoid a cross-module dep — see DEC-2)
 - [ ] M2 — Extend `PullRequestSnapshot` (new fields + Codable compat)
 - [ ] M3 — `GitHubClient.batchPullRequests` + `LiveGitHubService` implementation (GraphQL builder, chunking, decoder, fork filter)
 - [ ] M4 — Reducer migration: dual-path during transition (per-Worktree + per-Project coexist)
@@ -42,7 +42,19 @@ Each unchecked entry will be updated with a completion timestamp in the form `�
 
 ## Decision Log
 
-(None yet — decisions accumulated here as M1 → M7 proceed; initial architectural decisions already captured in the design doc's "Alternatives Considered" and "Open Questions" sections, which this plan does not duplicate.)
+### DEC-2 (2026-04-23, M1): Local `RemoteInfo.ParseError` instead of reusing `GitError`
+
+Plan's Work Items said "Invalid inputs throw a new `GitError.malformedRemoteURL(String)` case added in `apps/mac/touch-code/Git/GitError.swift`" while also placing `RemoteInfo.swift` in `apps/mac/TouchCodeCore/Git/`. Contradiction: `TouchCodeCore` is a standalone Swift module and cannot import from the app module, so the parser cannot throw `GitError` directly.
+
+Resolved by giving `RemoteInfo` a nested `ParseError.malformed(String)` enum in `TouchCodeCore`. `LiveGitService.remoteInfo(at:)` (app module) catches `RemoteInfo.ParseError.malformed` and rethrows as `GitError.malformedRemoteURL(_)`. Net effect for callers above the service layer: unchanged — they still see `GitError.malformedRemoteURL`. Net effect for the CLI / other future TouchCodeCore consumers: they can reuse `RemoteInfo.parse` without taking an app-layer dep.
+
+Two existing `GitError` exhaustive switches in `CommitLogView.swift` and `FileChangeListView.swift` needed a new case handler. Added `"Could not parse the remote URL: \(url)"` — matches the existing error-description sentence style.
+
+### DEC-1 (2026-04-23): Execute serially, skip Agent Teams parallelization
+
+Plan identifies M1+M2 as potentially parallel (no overlapping file sets: M1 touches `Git/*`, M2 touches `TouchCodeCore/GitHub/*`). Considered dispatching two worktree-isolated agents. Rejected for this execution because each agent would pay a cold-start cost of reading roughly 8–10 files to match existing project conventions (`nonisolated` modifier placement, Swift-Testing framework vs XCTest, golden-file fixture layout, Codable decodeIfPresent patterns, lint rules). At ~30–60 min per milestone, the coordination + review overhead of two parallel agents exceeds the wall-clock savings, and small-step commit cadence from a single executor gives better debugging granularity. Reconsider Agent Teams for M3 if its sub-tasks prove parallelizable in practice (current read: sequential deps make it not a good candidate).
+
+Initial architectural decisions are already captured in the design doc's "Alternatives Considered" and "Open Questions" sections; this log records only choices made *during execution* that deviate from or extend the plan.
 
 ## Outcomes & Retrospective
 

@@ -26,4 +26,9 @@ public nonisolated enum GitError: Error, Equatable, Sendable {
   /// useful to a developer reading logs; the UI falls back to a "Unrecognised diff format"
   /// banner and shows the raw text.
   case unparsable(context: String)
+  /// `git remote get-url origin` returned a URL the `RemoteInfo` parser could not interpret.
+  /// The GitHub integration's batched fetcher treats this as a per-Project error (the whole
+  /// Project is stuck on PR data until the remote is fixed). Payload is the raw URL so logs
+  /// and user-facing banners can echo it.
+  case malformedRemoteURL(String)
 }

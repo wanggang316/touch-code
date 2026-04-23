@@ -76,6 +76,18 @@ nonisolated final class LiveGitService: GitService {
     return try GitOutputParser.parseStatus(out)
   }
 
+  func remoteInfo(at path: URL) async throws -> RemoteInfo {
+    try await ensureIsRepo(at: path)
+    let out = try await run(arguments: GitCommand.remoteGetUrl(), cwd: path)
+    let urlString = String(data: out, encoding: .utf8)?
+      .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    do {
+      return try RemoteInfo.parse(urlString)
+    } catch RemoteInfo.ParseError.malformed(let raw) {
+      throw GitError.malformedRemoteURL(raw)
+    }
+  }
+
   // MARK: - Edge checks
 
   /// Runs `git rev-parse --is-inside-work-tree` and throws `.notARepo` on failure. This is the

@@ -21,6 +21,12 @@ public nonisolated protocol GitService: Sendable {
 
   /// `git status --porcelain=v1 -z`.
   func status(at path: URL) async throws -> WorkingTreeStatus
+
+  /// `git remote get-url origin` parsed into host / owner / repo. Used by the GitHub
+  /// integration's batched PR fetcher to target the right `gh api graphql --hostname` host
+  /// and `(owner, repo)` variables. Throws `GitError.malformedRemoteURL` when the remote
+  /// URL shape is not recognised.
+  func remoteInfo(at path: URL) async throws -> RemoteInfo
 }
 
 extension GitService {
