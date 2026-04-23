@@ -1002,10 +1002,14 @@ private struct HeaderOnlyDisclosureGroupStyle: DisclosureGroupStyle {
   func makeBody(configuration: Configuration) -> some View {
     VStack(spacing: 0) {
       Button {
-        // No `withAnimation` — animating expansion here makes the project-header
-        // row visually "bounce" as the adjacent worktree rows animate into place
-        // and the header's own hover-chrome opacity crossfades. Snap is crisper.
-        configuration.isExpanded.toggle()
+        // Explicit `withTransaction(disablesAnimations: true)` — AppKit-backed
+        // `List(.sidebar)` will otherwise animate the row's height change, which
+        // causes the Project header to visually jitter as adjacent content shifts.
+        var txn = Transaction()
+        txn.disablesAnimations = true
+        withTransaction(txn) {
+          configuration.isExpanded.toggle()
+        }
       } label: {
         configuration.label
           .contentShape(Rectangle())
@@ -1013,29 +1017,49 @@ private struct HeaderOnlyDisclosureGroupStyle: DisclosureGroupStyle {
       .buttonStyle(.plain)
       if configuration.isExpanded {
         configuration.content
+          // No transition — disclosure content appears / disappears in one frame.
+          .transition(.identity)
       }
     }
+    .transaction { $0.animation = nil }
   }
 }
 
-/// Transparent background view that walks the AppKit hierarchy up to the
-/// `NSScrollView` that AppKit-backed `List(.sidebar)` uses, and disables its
-/// vertical scroller. `.scrollIndicators(.hidden)` on SwiftUI `List` is ignored on
-/// macOS so we reach into AppKit directly.
+/// Transparent background view that walks the AppKit hierarchy to find the
+/// `NSScrollView` that AppKit-backed `List(.sidebar)` uses and disables its
+/// vertical scroller. `.scrollIndicators(.hidden)` on SwiftUI `List` is ignored
+/// on macOS so we reach into AppKit directly. Retries a handful of times because
+/// the view may be mounted before the scroll-view ancestor is installed.
 private struct ScrollerHider: NSViewRepresentable {
-  func makeNSView(context: Context) -> NSView { NSView() }
-  func updateNSView(_ nsView: NSView, context: Context) {
-    DispatchQueue.main.async {
-      var ancestor: NSView? = nsView.superview
-      while let view = ancestor {
-        if let scroll = view as? NSScrollView {
-          scroll.hasVerticalScroller = false
-          scroll.hasHorizontalScroller = false
-          scroll.scrollerStyle = .overlay
-          scroll.autohidesScrollers = true
-          return
-        }
-        ancestor = view.superview
+  func makeNSView(context: Context) -> NSView { _ScrollerHiderView() }
+  func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+private final class _ScrollerHiderView: NSView {
+  override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    hideScrollers(retriesLeft: 10)
+  }
+
+  private func hideScrollers(retriesLeft: Int) {
+    var found = false
+    var ancestor: NSView? = self
+    while let v = ancestor {
+      if let scroll = v as? NSScrollView {
+        scroll.hasVerticalScroller = false
+        scroll.hasHorizontalScroller = false
+        scroll.autohidesScrollers = true
+        scroll.scrollerStyle = .overlay
+        scroll.verticalScroller?.alphaValue = 0
+        scroll.verticalScroller?.isHidden = true
+        scroll.horizontalScroller?.isHidden = true
+        found = true
+      }
+      ancestor = v.superview
+    }
+    if !found, retriesLeft > 0 {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+        self?.hideScrollers(retriesLeft: retriesLeft - 1)
       }
     }
   }
