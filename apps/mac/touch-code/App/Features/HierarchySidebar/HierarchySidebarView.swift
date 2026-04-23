@@ -99,6 +99,12 @@ struct HierarchySidebarView: View {
         .background(.bar)
       }
       .toolbar { sidebarToolbarContent }
+      // The window toolbar strip (traffic lights + "+ / ⋯" buttons) lives outside the
+      // `List(.sidebar)` material. Without an explicit background the Ghostty-stained
+      // NSWindow color bleeds through, matching the symptom 7c10cc2 fixed for the
+      // footer. `.toolbarBackground(.visible, for: .windowToolbar)` forces AppKit's
+      // standard toolbar material so the strip reads as proper sidebar chrome.
+      .toolbarBackground(.visible, for: .windowToolbar)
       .sheet(
       item: $store.scope(state: \.addProject, action: \.addProject)
     ) { childStore in
