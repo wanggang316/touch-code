@@ -246,6 +246,37 @@ final class GhosttyRuntime {
     for panel in surfacesByPanelID.values {
       panel.applyColorScheme(ghosttyScheme)
     }
+    applyBackgroundColorToWindows()
+  }
+
+  /// Current ghostty theme background color (from the `background` config
+  /// key, which libghostty resolves against the active light/dark theme).
+  /// Falls back to `NSColor.windowBackgroundColor` when the config can't be
+  /// read — e.g. before `bringUp()` finishes, or in tests with no runtime.
+  ///
+  /// Used by `applyBackgroundColorToWindows` to stain the NSWindow
+  /// background so the translucent sidebar material (blended `withinWindow`
+  /// against pixels underneath) reads as the terminal's theme tone rather
+  /// than the system window color. Matches supacode's approach.
+  func backgroundColor() -> NSColor {
+    guard let config else { return .windowBackgroundColor }
+    var color = ghostty_config_color_s()
+    let key = "background"
+    let keyLen = UInt(key.lengthOfBytes(using: .utf8))
+    guard ghostty_config_get(config, &color, key, keyLen) else {
+      return .windowBackgroundColor
+    }
+    return NSColor(ghostty: color)
+  }
+
+  /// Push the current ghostty theme background to every NSWindow in the app.
+  /// Called on color-scheme changes (from `setColorScheme`) and, through
+  /// `WindowAppearanceSetter`, on appearance-preference toggles. Idempotent.
+  private func applyBackgroundColorToWindows() {
+    let color = backgroundColor()
+    for window in NSApp.windows {
+      window.backgroundColor = color
+    }
   }
 
   /// Triggered by `.ghosttyRuntimeReloadRequested`, which `GhosttyConfigFile.apply`
@@ -573,4 +604,15 @@ extension Notification.Name {
   /// `~/.config/ghostty/config`. `GhosttyRuntime` listens and re-parses the config so
   /// running surfaces pick up the new theme / font without an app restart.
   static let ghosttyRuntimeReloadRequested = Notification.Name("ghosttyRuntimeReloadRequested")
+}
+
+extension NSColor {
+  fileprivate convenience init(ghostty: ghostty_config_color_s) {
+    self.init(
+      red: Double(ghostty.r) / 255,
+      green: Double(ghostty.g) / 255,
+      blue: Double(ghostty.b) / 255,
+      alpha: 1
+    )
+  }
 }
