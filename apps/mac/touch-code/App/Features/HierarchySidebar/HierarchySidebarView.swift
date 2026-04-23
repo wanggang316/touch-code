@@ -476,11 +476,19 @@ struct HierarchySidebarView: View {
     unreadCount: Int, hotkeyNumber: Int?,
     isSelected: Bool
   ) -> some View {
+    let isMainCheckout = worktree.path == project.rootPath
+    let roleTint: Color = {
+      if isMainCheckout { return .yellow }
+      if worktree.isPinned { return .orange }
+      return .secondary
+    }()
     let button = Button {
       store.send(.worktreeRowTapped(worktree.id, inProject: project.id, inSpace: space.id))
     } label: {
       HStack(spacing: 8) {
-        WorktreeRowIcon(snapshot: snapshot, rollup: rollup, isSelected: isSelected)
+        WorktreeRowIcon(
+          snapshot: snapshot, rollup: rollup, isSelected: isSelected, roleTint: roleTint
+        )
         VStack(alignment: .leading, spacing: 0) {
           Text(worktree.name)
           // Suppress the secondary branch line when it restates the worktree name —

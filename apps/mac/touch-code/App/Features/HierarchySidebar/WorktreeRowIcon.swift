@@ -4,18 +4,25 @@ import TouchCodeCore
 /// Leading-edge icon for a Sidebar Worktree row. Replaces the old `circle.fill`/`circle`
 /// selection dot with a GitHub-style glyph that doubles as the row's PR-state signal:
 ///
-/// - No PR snapshot → `git-branch` in secondary grey (accent when the row is selected).
+/// - No PR snapshot → `git-branch` tinted by `roleTint` (yellow for main checkout,
+///   orange for user-pinned rows, secondary otherwise). Desaturates to secondary when
+///   the row is selected — `listRowBackground` already shows selection, so a loud icon
+///   would fight the highlight.
 /// - PR snapshot     → `git-pull-request`, `git-merge`, `git-pull-request-closed`, or
-///   `git-pull-request-draft`, tinted by PR state (green / purple / red / grey).
+///   `git-pull-request-draft`, tinted by PR state (green / purple / red / grey). PR
+///   state is the dominant signal when a PR exists; the role tint is suppressed.
 ///
 /// A 10×10 circle overlays the bottom-right corner when the aggregated check rollup is
 /// non-empty, so the row can surface CI health at a glance without expanding the popover.
-/// Selection feedback is conveyed by `listRowBackground` at the row level — the icon does
-/// not itself change on selection except when no PR exists (accent colour).
 struct WorktreeRowIcon: View {
   let snapshot: PullRequestSnapshot?
   let rollup: PullRequestBadge.CheckRollup
   let isSelected: Bool
+  /// Fallback tint applied when no PR snapshot is available. Encodes the Worktree's
+  /// "role" in the Project — yellow for the main checkout, orange for pinned rows,
+  /// secondary for everything else. See supacode's `WorktreeRow.TitleView` for the same
+  /// semantic, applied there to the subtitle text rather than the icon.
+  var roleTint: Color = .secondary
 
   var body: some View {
     Image(assetName)
@@ -37,7 +44,8 @@ struct WorktreeRowIcon: View {
     if let snapshot {
       return snapshot.state.rowTint(isDraft: snapshot.isDraft)
     }
-    return isSelected ? Color.accentColor : Color.secondary
+    if isSelected { return .secondary }
+    return roleTint
   }
 
   @ViewBuilder
