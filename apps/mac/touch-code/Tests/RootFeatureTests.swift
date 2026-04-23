@@ -112,6 +112,12 @@ struct RootFeatureTests {
       // Worktree path resolves to a live directory in this catalog, so GitViewer reaches
       // `workingTreeDiff`. Stub it with an empty diff — the test is not about the diff.
       $0.gitService.workingTreeDiff = { _, _ in UnifiedDiff(scope: .working, files: []) }
+      // 0013 M4 wired a `.gitHub(.projectActivated)` dispatch on projectID transitions.
+      // This test is exhaustivity=off and not about GitHub, but the fetch effect still
+      // runs and touches .date + remoteInfo + batchPullRequests — stub each to no-op.
+      $0.date = .constant(Date(timeIntervalSince1970: 0))
+      $0.gitService.remoteInfo = { _ in RemoteInfo(host: "github.com", owner: "o", repo: "r") }
+      $0[GitHubClient.self].batchPullRequests = { _, _, _, _ in [:] }
       $0.editorClient = EditorClient.testValue
     }
     // Non-exhaustive: this test is about the splitViewport tabID mirror only; the
@@ -185,6 +191,11 @@ struct RootFeatureTests {
       $0.hierarchyClient.snapshot = { catalog }
       $0.gitService = GitServiceClient.testValue
       $0.gitService.workingTreeDiff = { _, _ in UnifiedDiff(scope: .working, files: []) }
+      // 0013 M4: selectionChanged now dispatches .gitHub(.projectActivated) when the
+      // Project changes. Stub the downstream deps so exhaustivity=off still runs.
+      $0.date = .constant(Date(timeIntervalSince1970: 0))
+      $0.gitService.remoteInfo = { _ in RemoteInfo(host: "github.com", owner: "o", repo: "r") }
+      $0[GitHubClient.self].batchPullRequests = { _, _, _, _ in [:] }
       $0.editorClient = EditorClient.testValue
     }
     store.exhaustivity = .off

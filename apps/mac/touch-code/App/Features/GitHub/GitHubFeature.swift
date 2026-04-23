@@ -47,6 +47,32 @@ struct GitHubFeature {
     /// Per-Worktree last-seen error, cleared on successful refresh.
     var lastError: [WorktreeID: GitHubError] = [:]
 
+    // MARK: - v2 project-batched fetch (0013 M4)
+
+    /// Cached batched result per Project. Keyed by ProjectID because the batched
+    /// GraphQL query targets a single repository. The whole map is rebuilt lazily on
+    /// Project activation / invalidation events.
+    var snapshotsByProject: [ProjectID: BatchedPullRequests] = [:]
+
+    /// Set of Projects with an active `batchPullRequests` subprocess in flight. Used by
+    /// the re-entrancy guard: a second `projectRefreshRequested` for a Project already
+    /// in this set is queued, not dispatched.
+    var inFlightFetchProjects: Set<ProjectID> = []
+
+    /// Projects that requested a refresh while a prior fetch was in flight. Drained
+    /// into a new fetch when the in-flight fetch completes.
+    var queuedRefreshByProject: Set<ProjectID> = []
+
+    /// Per-Project last-seen error from the batched fetch. Cleared on next success.
+    /// Displayed in the sidebar's Settings → GitHub banner, not per-row.
+    var lastErrorByProject: [ProjectID: GitHubError] = [:]
+
+    /// Last-known gitRoot per Project. Stashed so the queued-refresh drain + the
+    /// delayed post-mutation refresh can re-issue a fetch without the caller re-passing
+    /// the gitRoot. Cleared when the Project is removed from the catalog (not modelled
+    /// yet — see Risk R4 in the design doc).
+    var projectGitRoots: [ProjectID: URL] = [:]
+
     /// PR-number ↔ Worktree map derived from `snapshots`. Keeps lookup O(1) for action
     /// completion handlers that only know the PR number.
     func worktree(for prNumber: Int) -> WorktreeID? {
@@ -80,6 +106,47 @@ struct GitHubFeature {
     case rerunFailedJobsRequested(WorktreeID, runID: Int64, worktreePath: URL)
     case rerunFailedJobsCompleted(WorktreeID, TaskResult<VoidSuccess>)
 
+    // MARK: - v2 project-batched fetch (0013 M4)
+
+    /// Project gained focus or was freshly activated. If no cached snapshot exists (or
+    /// the cached branch set does not match the current Worktree list), dispatch a full
+    /// refresh. Payload carries the data the batched fetcher needs so the reducer does
+    /// not read `HierarchyManager` synchronously inside an effect.
+    case projectActivated(
+      ProjectID,
+      gitRoot: URL,
+      worktreeBranches: [WorktreeBranchPair]
+    )
+
+    /// Force a fresh `gh api graphql` for the Project, respecting the in-flight + queued
+    /// re-entrancy model. Used by manual refresh + post-write delayed refresh.
+    case projectRefreshRequested(
+      ProjectID,
+      gitRoot: URL,
+      worktreeBranches: [WorktreeBranchPair]
+    )
+
+    /// Result of a single `batchPullRequests` call. On success, the reducer stores the
+    /// batched result under the Project and projects each branch's snapshot into the
+    /// per-Worktree `state.snapshots` dict so v1 consumers see the refreshed data.
+    case projectBatchLoaded(
+      ProjectID,
+      worktreeBranches: [WorktreeBranchPair],
+      TaskResult<BatchedPullRequests>
+    )
+
+    /// Emitted by the sidebar when a terminal-initiated `git checkout` changes a
+    /// Worktree's branch. Invalidates the Project's cache and kicks a refresh. The
+    /// `WorktreeBranchWatcher` responsible for dispatching this lives in M7 and may
+    /// ship empty-handed in v2.0.
+    case worktreeBranchChanged(
+      WorktreeID,
+      newBranch: String,
+      projectID: ProjectID,
+      gitRoot: URL,
+      worktreeBranches: [WorktreeBranchPair]
+    )
+
     case delegate(Delegate)
 
     enum Delegate: Equatable {
@@ -99,6 +166,20 @@ struct GitHubFeature {
     nonisolated struct VoidSuccess: Equatable, Sendable {
       nonisolated init() {}
     }
+
+    /// `(worktreeID, branch)` pair carried by the v2 project-batched actions. Passed
+    /// into the reducer so it does not need to read `HierarchyManager` from inside an
+    /// effect (which would require bridging `@MainActor` and the `@Sendable` effect
+    /// boundary). The dispatcher — `RootFeature` observing `selectionChanges` —
+    /// constructs the list from the current catalog once per dispatch.
+    nonisolated struct WorktreeBranchPair: Equatable, Sendable, Hashable {
+      let worktreeID: WorktreeID
+      let branch: String
+      init(worktreeID: WorktreeID, branch: String) {
+        self.worktreeID = worktreeID
+        self.branch = branch
+      }
+    }
   }
 
   nonisolated enum CancelID: Hashable, Sendable {
@@ -109,6 +190,14 @@ struct GitHubFeature {
     /// One-cancellation-slot for all mutations on a Worktree so a second click while an
     /// operation is in flight cancels the prior run rather than racing it.
     case mutation(WorktreeID)
+    /// Per-Project batched fetch (0013 M4). Re-dispatching `projectRefreshRequested`
+    /// for an in-flight Project cancels the prior fetch and replaces it.
+    case projectFetch(ProjectID)
+    /// Delayed post-mutation refresh (0013 M4 — merge / close / markReady / rerun all
+    /// schedule this 2 s after a successful write).
+    case delayedProjectRefresh(ProjectID)
+    /// `gh` availability recovery heartbeat — retries every 15 s after an outage.
+    case availabilityRecovery
   }
 
   /// Availability result is treated as fresh for 30 s; subsequent `onAppear` / visibility
@@ -119,7 +208,14 @@ struct GitHubFeature {
   static let snapshotFreshness: TimeInterval = 30
 
   @Dependency(GitHubClient.self) var gitHub
+  /// Resolves `(host, owner, repo)` for batched fetches via `git remote get-url origin`.
+  @Dependency(GitServiceClient.self) var gitServiceClient
   @Dependency(\.date.now) var now
+
+  /// Back-compat alias so existing `gitHubClient` usages compile unchanged. The
+  /// reducer body was written with `gitHub`; the M4 additions use `gitHubClient` for
+  /// clarity inside the new fetch effect builder.
+  private var gitHubClient: GitHubClient { gitHub }
 
   private static let logger = Logger(subsystem: "com.touch-code.github", category: "feature")
 
@@ -332,12 +428,132 @@ struct GitHubFeature {
         state.mutating.remove(worktreeID)
         return postMutationRefresh(worktreeID: worktreeID, state: &state)
 
+      // MARK: - v2 project-batched fetch (0013 M4)
+
+      case let .projectActivated(projectID, gitRoot, pairs):
+        if state.snapshotsByProject[projectID] != nil,
+          Self.branchSetsMatch(cached: state.snapshotsByProject[projectID], current: pairs) {
+          return .none
+        }
+        return enqueueProjectFetch(
+          projectID: projectID, gitRoot: gitRoot, pairs: pairs, state: &state
+        )
+
+      case let .projectRefreshRequested(projectID, gitRoot, pairs):
+        return enqueueProjectFetch(
+          projectID: projectID, gitRoot: gitRoot, pairs: pairs, state: &state
+        )
+
+      case .projectBatchLoaded(let projectID, let pairs, .success(let batched)):
+        state.inFlightFetchProjects.remove(projectID)
+        state.lastErrorByProject[projectID] = nil
+        state.snapshotsByProject[projectID] = batched
+        // Project into per-Worktree `snapshots` so v1 view code keeps rendering
+        // consistent data while M5 migrates views to read from `snapshotsByProject`.
+        // Branches absent from `batched.byBranch` are dropped from `snapshots` so a
+        // PR that was closed between fetches doesn't linger as stale.
+        for pair in pairs {
+          if let snap = batched.byBranch[pair.branch] {
+            state.snapshots[pair.worktreeID] = snap
+            state.snapshotLoadedAt[pair.worktreeID] = now
+            state.lastError[pair.worktreeID] = nil
+          } else {
+            state.snapshots[pair.worktreeID] = nil
+          }
+        }
+        // Drain any queued refresh for this Project.
+        if state.queuedRefreshByProject.remove(projectID) != nil,
+          let gitRoot = state.projectGitRoots[projectID] {
+          return .send(
+            .projectRefreshRequested(projectID, gitRoot: gitRoot, worktreeBranches: pairs)
+          )
+        }
+        return .none
+
+      case .projectBatchLoaded(let projectID, _, .failure(let error)):
+        state.inFlightFetchProjects.remove(projectID)
+        state.lastErrorByProject[projectID] = (error as? GitHubError) ?? .other(String(describing: error))
+        return .none
+
+      case let .worktreeBranchChanged(_, _, projectID, gitRoot, pairs):
+        // Branch change invalidates whatever was cached for the Project and kicks a
+        // fresh batched fetch. The Worktree's own per-row snapshot is not cleared here
+        // — waiting ~500ms for the batched result to arrive avoids a visible flicker.
+        return enqueueProjectFetch(
+          projectID: projectID, gitRoot: gitRoot, pairs: pairs, state: &state
+        )
+
       // MARK: - delegate
 
       case .delegate:
         return .none
       }
     }
+  }
+
+  /// Kicks a batched fetch for the Project, honouring the in-flight guard. If another
+  /// fetch is already running for the same Project, records a queue flag so the in-flight
+  /// completion can dispatch a follow-up. Otherwise starts the subprocess chain, tagged
+  /// with `CancelID.projectFetch(projectID)` so a subsequent call cancels the prior one.
+  private func enqueueProjectFetch(
+    projectID: ProjectID,
+    gitRoot: URL,
+    pairs: [Action.WorktreeBranchPair],
+    state: inout State
+  ) -> Effect<Action> {
+    state.projectGitRoots[projectID] = gitRoot
+    if state.inFlightFetchProjects.contains(projectID) {
+      state.queuedRefreshByProject.insert(projectID)
+      return .none
+    }
+    state.inFlightFetchProjects.insert(projectID)
+    let fetchedAt = now
+    return .run { [client = gitHubClient, gitService = gitServiceClient] send in
+      let result = await TaskResult<BatchedPullRequests> {
+        let remote: RemoteInfo
+        do {
+          remote = try await gitService.remoteInfo(gitRoot)
+        } catch {
+          throw GitHubError.remoteInfoUnavailable
+        }
+        let branches = pairs.map(\.branch)
+        let seen = Set(branches)
+        if branches.isEmpty {
+          return BatchedPullRequests(
+            host: remote.host, owner: remote.owner, repo: remote.repo,
+            byBranch: [:], seenBranches: seen, fetchedAt: fetchedAt
+          )
+        }
+        let byBranch = try await client.batchPullRequests(
+          remote.host, remote.owner, remote.repo, branches
+        )
+        return BatchedPullRequests(
+          host: remote.host, owner: remote.owner, repo: remote.repo,
+          byBranch: byBranch, seenBranches: seen, fetchedAt: fetchedAt
+        )
+      }
+      await send(.projectBatchLoaded(projectID, worktreeBranches: pairs, result))
+    }
+    .cancellable(id: CancelID.projectFetch(projectID), cancelInFlight: true)
+  }
+
+  /// Returns true iff the cached snapshot's branch set exactly matches the current
+  /// Worktree branch list. Used to skip redundant refreshes on repeat activations of
+  /// the same Project (no new Worktree, no branch change).
+  private static func branchSetsMatch(
+    cached: BatchedPullRequests?,
+    current: [Action.WorktreeBranchPair]
+  ) -> Bool {
+    guard let cached else { return false }
+    // Branches that had a PR are in byBranch; branches that did not are absent. For
+    // cache-validity purposes we consider the full pair list; if ANY Worktree exists
+    // that is not represented by cached.byBranch presence-or-absence, refetch.
+    // Conservative check: compare the current list's branches against
+    // cached.byBranch.keys plus those we've previously decided have no PR.
+    // v2.0 keeps this simple: trigger refresh if the current branch *set* differs from
+    // a cached "seen set" of branches. We store the cached seen set on `BatchedPullRequests`.
+    let currentBranches = Set(current.map(\.branch))
+    return cached.seenBranches == currentBranches
   }
 
   // MARK: - Effect builders

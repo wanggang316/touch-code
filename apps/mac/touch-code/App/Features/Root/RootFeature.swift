@@ -287,6 +287,7 @@ struct RootFeature {
         )
 
       case .selectionChanged(let selection):
+        let priorProjectID = state.selection.projectID
         state.selection = selection
         // Mirror the selection's active tab into the split viewport so M5
         // lazy-surface lifecycle can react without reading HierarchyManager
@@ -294,17 +295,42 @@ struct RootFeature {
         let tabID = resolveActiveTab(selection: selection)
         state.detail.splitViewport.activeTabID = tabID
         // Forward the (projectID, worktreeID) pair to GitViewerFeature so
-        // the inspector always reflects the current selection. The Header
-        // feature does not need a dispatched `.catalogChanged` signal —
-        // its unread count is now computed from the live
-        // `@Environment(HierarchyManager.self).catalog`, which re-renders
-        // on any catalog mutation.
-        return .send(
-          .gitViewer(
-            .worktreeSelected(
-              projectID: selection.projectID,
-              worktreeID: selection.worktreeID
-            )))
+        // the inspector always reflects the current selection.
+        var effects: [Effect<Action>] = [
+          .send(
+            .gitViewer(
+              .worktreeSelected(
+                projectID: selection.projectID,
+                worktreeID: selection.worktreeID
+              )))
+        ]
+        // v2 GitHub integration (0013 M4): when the active Project changes, ask
+        // GitHubFeature to batch-fetch PR data for every branch in that Project.
+        // The reducer runs one `gh api graphql` for the whole repo instead of
+        // N per-Worktree calls — see docs/exec-plans/0013-github-integration-batched.md.
+        if selection.projectID != priorProjectID,
+          let projectID = selection.projectID,
+          let project = lookupProject(
+            projectID: projectID, spaceID: selection.spaceID
+          ),
+          let gitRootString = project.gitRoot {
+          let gitRoot = URL(fileURLWithPath: gitRootString)
+          let pairs = project.worktrees.compactMap { worktree -> GitHubFeature.Action.WorktreeBranchPair? in
+            guard !worktree.archived, let branch = worktree.branch, !branch.isEmpty else {
+              return nil
+            }
+            return GitHubFeature.Action.WorktreeBranchPair(
+              worktreeID: worktree.id, branch: branch
+            )
+          }
+          effects.append(
+            .send(
+              .gitHub(
+                .projectActivated(projectID, gitRoot: gitRoot, worktreeBranches: pairs)
+              ))
+          )
+        }
+        return .merge(effects)
 
       case .engineEventReceived(let marker):
         state.lastEvent = marker
@@ -724,6 +750,25 @@ struct RootFeature {
       let worktree = project.worktrees.first(where: { $0.id == worktreeID })
     else { return nil }
     return worktree.selectedTabID
+  }
+
+  /// Locates a `Project` in the current catalog snapshot by `(projectID, spaceID)`.
+  /// `spaceID` narrows the search when present — useful for selection payloads that
+  /// carry both; walks every Space otherwise so stale selection payloads still resolve
+  /// under in-place catalog mutations.
+  private func lookupProject(projectID: ProjectID, spaceID: SpaceID?) -> Project? {
+    let catalog = hierarchyClient.snapshot()
+    if let spaceID,
+      let space = catalog.spaces.first(where: { $0.id == spaceID }),
+      let project = space.projects.first(where: { $0.id == projectID }) {
+      return project
+    }
+    for space in catalog.spaces {
+      if let project = space.projects.first(where: { $0.id == projectID }) {
+        return project
+      }
+    }
+    return nil
   }
 
 }

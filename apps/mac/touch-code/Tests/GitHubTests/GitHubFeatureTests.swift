@@ -414,7 +414,8 @@ struct GitHubFeatureTests {
 
   private static func makeStore(
     initialState: GitHubFeature.State = .init(),
-    customize: @MainActor (inout GitHubClient) -> Void = { _ in }
+    customize: @MainActor (inout GitHubClient) -> Void = { _ in },
+    customizeGit: @MainActor (inout GitServiceClient) -> Void = { _ in }
   ) -> TestStore<GitHubFeature.State, GitHubFeature.Action> {
     TestStore(initialState: initialState) {
       GitHubFeature()
@@ -423,6 +424,158 @@ struct GitHubFeatureTests {
       var client = GitHubClient.testValue
       customize(&client)
       $0[GitHubClient.self] = client
+      var git = GitServiceClient.testValue
+      customizeGit(&git)
+      $0[GitServiceClient.self] = git
+    }
+  }
+
+  // MARK: - v2 project-batched fetch (0013 M4)
+
+  @Test
+  func projectActivatedWithEmptyBranchesReturnsEmptyBatch() async {
+    let projectID = ProjectID()
+    let gitRoot = URL(fileURLWithPath: "/tmp/test-repo")
+    let store = Self.makeStore { _ in
+    } customizeGit: { git in
+      git.remoteInfo = { _ in
+        RemoteInfo(host: "github.com", owner: "w", repo: "r")
+      }
+    }
+    await store.send(.projectActivated(projectID, gitRoot: gitRoot, worktreeBranches: [])) {
+      $0.inFlightFetchProjects.insert(projectID)
+      $0.projectGitRoots[projectID] = gitRoot
+    }
+    await store.receive { action in
+      guard case .projectBatchLoaded(let pid, _, .success(let batched)) = action else { return false }
+      return pid == projectID && batched.byBranch.isEmpty
+    } assert: {
+      $0.inFlightFetchProjects.remove(projectID)
+      $0.snapshotsByProject[projectID] = BatchedPullRequests(
+        host: "github.com", owner: "w", repo: "r",
+        byBranch: [:], seenBranches: [], fetchedAt: Self.fixedDate
+      )
+    }
+  }
+
+  @Test
+  func projectActivatedFiresBatchFetchAndProjectsSnapshots() async {
+    let projectID = ProjectID()
+    let wid = WorktreeID()
+    let gitRoot = URL(fileURLWithPath: "/tmp/test-repo")
+    let pair = GitHubFeature.Action.WorktreeBranchPair(
+      worktreeID: wid, branch: "feature/github01"
+    )
+    let returnedSnapshot = Self.stubSnapshot(number: 39, headRefName: "feature/github01")
+    let store = Self.makeStore { client in
+      client.batchPullRequests = { _, _, _, _ in
+        ["feature/github01": returnedSnapshot]
+      }
+    } customizeGit: { git in
+      git.remoteInfo = { _ in
+        RemoteInfo(host: "github.com", owner: "wanggang316", repo: "touch-code")
+      }
+    }
+    await store.send(.projectActivated(projectID, gitRoot: gitRoot, worktreeBranches: [pair])) {
+      $0.inFlightFetchProjects.insert(projectID)
+      $0.projectGitRoots[projectID] = gitRoot
+    }
+    await store.receive { action in
+      guard case .projectBatchLoaded(let pid, let pairs, .success) = action else { return false }
+      return pid == projectID && pairs == [pair]
+    } assert: {
+      $0.inFlightFetchProjects.remove(projectID)
+      $0.snapshotsByProject[projectID] = BatchedPullRequests(
+        host: "github.com", owner: "wanggang316", repo: "touch-code",
+        byBranch: ["feature/github01": returnedSnapshot],
+        seenBranches: ["feature/github01"],
+        fetchedAt: Self.fixedDate
+      )
+      // Projected into the per-Worktree map for v1-view compatibility during M4–M5.
+      $0.snapshots[wid] = returnedSnapshot
+      $0.snapshotLoadedAt[wid] = Self.fixedDate
+    }
+  }
+
+  @Test
+  func projectActivatedWhileInFlightQueuesRefresh() async {
+    let projectID = ProjectID()
+    var seed = GitHubFeature.State()
+    seed.inFlightFetchProjects.insert(projectID)
+    seed.projectGitRoots[projectID] = URL(fileURLWithPath: "/tmp/r")
+    let store = Self.makeStore(initialState: seed)
+    await store.send(.projectActivated(
+      projectID, gitRoot: URL(fileURLWithPath: "/tmp/r"), worktreeBranches: []
+    )) {
+      $0.queuedRefreshByProject.insert(projectID)
+    }
+  }
+
+  @Test
+  func projectBatchLoadedFailurePopulatesLastError() async {
+    let projectID = ProjectID()
+    var seed = GitHubFeature.State()
+    seed.inFlightFetchProjects.insert(projectID)
+    let store = Self.makeStore(initialState: seed)
+    await store.send(.projectBatchLoaded(
+      projectID, worktreeBranches: [], .failure(GitHubError.network("DNS"))
+    )) {
+      $0.inFlightFetchProjects.remove(projectID)
+      $0.lastErrorByProject[projectID] = .network("DNS")
+    }
+  }
+
+  @Test
+  func projectActivatedSkipsWhenCachedBranchSetMatches() async {
+    let projectID = ProjectID()
+    let wid = WorktreeID()
+    let gitRoot = URL(fileURLWithPath: "/tmp/r")
+    let pair = GitHubFeature.Action.WorktreeBranchPair(
+      worktreeID: wid, branch: "feature/github01"
+    )
+    var seed = GitHubFeature.State()
+    seed.snapshotsByProject[projectID] = BatchedPullRequests(
+      host: "github.com", owner: "w", repo: "r",
+      byBranch: [:], seenBranches: ["feature/github01"], fetchedAt: Self.fixedDate
+    )
+    let store = Self.makeStore(initialState: seed) { client in
+      client.batchPullRequests = { _, _, _, _ in
+        Issue.record("batchPullRequests must not be called when cache is valid")
+        return [:]
+      }
+    }
+    await store.send(.projectActivated(projectID, gitRoot: gitRoot, worktreeBranches: [pair]))
+  }
+
+  @Test
+  func worktreeBranchChangedKicksProjectRefetch() async {
+    let projectID = ProjectID()
+    let wid = WorktreeID()
+    let gitRoot = URL(fileURLWithPath: "/tmp/r")
+    let pair = GitHubFeature.Action.WorktreeBranchPair(worktreeID: wid, branch: "new-branch")
+    let store = Self.makeStore { client in
+      client.batchPullRequests = { _, _, _, _ in [:] }
+    } customizeGit: { git in
+      git.remoteInfo = { _ in
+        RemoteInfo(host: "github.com", owner: "w", repo: "r")
+      }
+    }
+    await store.send(.worktreeBranchChanged(
+      wid, newBranch: "new-branch",
+      projectID: projectID, gitRoot: gitRoot, worktreeBranches: [pair]
+    )) {
+      $0.inFlightFetchProjects.insert(projectID)
+      $0.projectGitRoots[projectID] = gitRoot
+    }
+    await store.receive { action in
+      guard case .projectBatchLoaded(let pid, _, .success(let batched)) = action else { return false }
+      return pid == projectID && batched.byBranch.isEmpty
+    } assert: {
+      $0.inFlightFetchProjects.remove(projectID)
+      $0.snapshotsByProject[projectID] = BatchedPullRequests(
+        host: "github.com", owner: "w", repo: "r",
+        byBranch: [:], seenBranches: ["new-branch"], fetchedAt: Self.fixedDate
+      )
     }
   }
 }
