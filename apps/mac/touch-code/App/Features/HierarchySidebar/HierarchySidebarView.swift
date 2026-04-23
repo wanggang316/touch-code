@@ -471,7 +471,7 @@ struct HierarchySidebarView: View {
       )
       gitHubBadge(for: worktree, in: project, space: space)
     }
-    .listRowInsets(EdgeInsets(top: 7, leading: 12, bottom: 7, trailing: 12))
+    .listRowInsets(EdgeInsets(top: 15, leading: 12, bottom: 15, trailing: 12))
     .listRowBackground(
       isSelected
         ? Color.accentColor.opacity(0.2)
