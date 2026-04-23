@@ -22,7 +22,7 @@ struct SplitViewportView: View {
   var body: some View {
     Group {
       if let tab = currentTab(), !tab.splitTree.isEmpty, let root = tab.splitTree.root {
-        AnyView(renderNode(root, tab: tab))
+        AnyView(renderNode(root, path: SplitTree<PanelID>.Path(), tab: tab))
           .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
         emptyPlaceholder
@@ -87,51 +87,68 @@ struct SplitViewportView: View {
   /// (DEC-10). Performance cost is negligible at the tree sizes this
   /// hierarchy sees (≤ 32 panels/tab).
   ///
-  /// We intentionally do NOT use `HSplitView` / `VSplitView`. Those wrap
-  /// AppKit's `NSSplitView`, which propagates Auto Layout constraint
-  /// invalidations through every nested `NSHostingView`. With multiple
-  /// ghostty surfaces emitting `SurfaceInfo` changes on startup, the
-  /// reentrancy trips macOS's "more Update Constraints passes than there
-  /// are views" exception and crashes the app. Instead we compute rects
-  /// with `GeometryReader` and hard-set frames — no Auto Layout ping-pong.
-  /// This also lets us honor `SplitTree.split.ratio` directly, which
-  /// `HSplitView` ignored. Drag-to-resize is deferred (divider drag
-  /// dispatches `resizeSplitRequested` when re-added).
-  private func renderNode(_ node: SplitTree<PanelID>.Node, tab: TouchCodeCore.Tab) -> AnyView {
+  /// Split nodes are rendered via `SplitView` — a `ZStack`-based splitter
+  /// with a draggable divider. We intentionally do NOT use `HSplitView` /
+  /// `VSplitView`: those wrap `NSSplitView`, which propagates Auto Layout
+  /// constraint invalidations through every nested `NSHostingView`, and
+  /// with multiple ghostty surfaces emitting `SurfaceInfo` changes on
+  /// startup the reentrancy trips macOS's "more Update Constraints passes
+  /// than there are views" exception. `SplitView` hard-sets frames and
+  /// offsets on a `ZStack` instead — no Auto Layout ping-pong, and it
+  /// honors `SplitTree.split.ratio` directly (`HSplitView` ignored it).
+  ///
+  /// `path` accumulates as we descend: `.left` for the first child, `.right`
+  /// for the second. That's what `resizeSplitRequested` needs to locate the
+  /// split node in the tree.
+  private func renderNode(
+    _ node: SplitTree<PanelID>.Node,
+    path: SplitTree<PanelID>.Path,
+    tab: TouchCodeCore.Tab
+  ) -> AnyView {
     switch node {
     case .leaf(let panelID):
       return AnyView(panelLeaf(panelID))
     case .split(let split):
-      let leftView = renderNode(split.left, tab: tab)
-      let rightView = renderNode(split.right, tab: tab)
-      let ratio = max(0.05, min(0.95, split.ratio))
-      return AnyView(
-        GeometryReader { geo in
-          let size = geo.size
-          let dividerThickness: CGFloat = 1
-          switch split.direction {
-          case .horizontal:
-            let leftW = max(0, size.width * ratio - dividerThickness / 2)
-            let rightW = max(0, size.width - leftW - dividerThickness)
-            HStack(spacing: 0) {
-              leftView.frame(width: leftW, height: size.height)
-              Rectangle()
-                .fill(Color(nsColor: .separatorColor))
-                .frame(width: dividerThickness, height: size.height)
-              rightView.frame(width: rightW, height: size.height)
-            }
-          case .vertical:
-            let topH = max(0, size.height * ratio - dividerThickness / 2)
-            let bottomH = max(0, size.height - topH - dividerThickness)
-            VStack(spacing: 0) {
-              leftView.frame(width: size.width, height: topH)
-              Rectangle()
-                .fill(Color(nsColor: .separatorColor))
-                .frame(width: size.width, height: dividerThickness)
-              rightView.frame(width: size.width, height: bottomH)
-            }
-          }
+      let leftPath = SplitTree<PanelID>.Path(path.components + [.left])
+      let rightPath = SplitTree<PanelID>.Path(path.components + [.right])
+      let leftView = renderNode(split.left, path: leftPath, tab: tab)
+      let rightView = renderNode(split.right, path: rightPath, tab: tab)
+      let direction: SplitView<AnyView, AnyView>.Direction =
+        split.direction == .horizontal ? .horizontal : .vertical
+      let capturedPath = path
+      let binding = Binding<CGFloat>(
+        get: { CGFloat(split.ratio) },
+        set: { newRatio in
+          store.send(
+            .resizeSplitRequested(
+              capturedPath,
+              ratio: Double(newRatio),
+              inTab: tabID,
+              inWorktree: worktreeID,
+              inProject: projectID,
+              inSpace: spaceID
+            ))
         }
+      )
+      return AnyView(
+        SplitView(
+          direction,
+          binding,
+          dividerColor: Color(nsColor: .separatorColor),
+          left: { leftView },
+          right: { rightView },
+          onEqualize: {
+            store.send(
+              .resizeSplitRequested(
+                capturedPath,
+                ratio: 0.5,
+                inTab: tabID,
+                inWorktree: worktreeID,
+                inProject: projectID,
+                inSpace: spaceID
+              ))
+          }
+        )
       )
     }
   }
