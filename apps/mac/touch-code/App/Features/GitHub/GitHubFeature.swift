@@ -214,7 +214,7 @@ struct GitHubFeature {
   /// clarity inside the new fetch effect builder.
   private var gitHubClient: GitHubClient { gitHub }
 
-  private static let logger = Logger(subsystem: "com.touch-code.github", category: "feature")
+  nonisolated static let logger = Logger(subsystem: "com.touch-code.github", category: "feature")
 
   var body: some Reducer<State, Action> {
     Reduce { state, action in
@@ -415,8 +415,12 @@ struct GitHubFeature {
       // MARK: - v2 project-batched fetch (0013 M4)
 
       case let .projectActivated(projectID, gitRoot, pairs):
+        Self.logger.info(
+          "projectActivated project=\(projectID.raw.uuidString, privacy: .public) branches=\(pairs.count, privacy: .public) gitRoot=\(gitRoot.path, privacy: .private(mask: .hash))"
+        )
         if state.snapshotsByProject[projectID] != nil,
           Self.branchSetsMatch(cached: state.snapshotsByProject[projectID], current: pairs) {
+          Self.logger.info("projectActivated cache-hit, skipping fetch")
           return .none
         }
         return enqueueProjectFetch(
@@ -429,6 +433,9 @@ struct GitHubFeature {
         )
 
       case .projectBatchLoaded(let projectID, let pairs, .success(let batched)):
+        Self.logger.info(
+          "projectBatchLoaded success project=\(projectID.raw.uuidString, privacy: .public) branches=\(batched.byBranch.count, privacy: .public)/\(pairs.count, privacy: .public)"
+        )
         state.inFlightFetchProjects.remove(projectID)
         state.lastErrorByProject[projectID] = nil
         state.snapshotsByProject[projectID] = batched
@@ -455,6 +462,9 @@ struct GitHubFeature {
         return .none
 
       case .projectBatchLoaded(let projectID, _, .failure(let error)):
+        Self.logger.error(
+          "projectBatchLoaded failure project=\(projectID.raw.uuidString, privacy: .public) error=\(String(describing: error), privacy: .public)"
+        )
         state.inFlightFetchProjects.remove(projectID)
         state.lastErrorByProject[projectID] = (error as? GitHubError) ?? .other(String(describing: error))
         return .none
@@ -492,14 +502,23 @@ struct GitHubFeature {
     }
     state.inFlightFetchProjects.insert(projectID)
     let fetchedAt = now
+    Self.logger.info(
+      "enqueueProjectFetch project=\(projectID.raw.uuidString, privacy: .public) pairs=\(pairs.count, privacy: .public)"
+    )
     return .run { [client = gitHubClient, gitService = gitServiceClient] send in
       let result = await TaskResult<BatchedPullRequests> {
         let remote: RemoteInfo
         do {
           remote = try await gitService.remoteInfo(gitRoot)
         } catch {
+          Self.logger.error(
+            "remoteInfo failed: \(String(describing: error), privacy: .public)"
+          )
           throw GitHubError.remoteInfoUnavailable
         }
+        Self.logger.info(
+          "remoteInfo resolved host=\(remote.host, privacy: .public) owner=\(remote.owner, privacy: .public) repo=\(remote.repo, privacy: .public)"
+        )
         let branches = pairs.map(\.branch)
         let seen = Set(branches)
         if branches.isEmpty {

@@ -65,11 +65,15 @@ struct WorktreeGitHubBadge<PopoverContent: View>: View {
       isBadgeHovered = hovering
       reconcileHover()
     }
-    // 0013 M5: per-Worktree `.task` dispatch is retired. `RootFeature.selectionChanged`
-    // now observes projectID deltas and dispatches `GitHubFeature.Action.projectActivated`
-    // once per Project activation, which kicks a single batched `gh api graphql` call
-    // covering every Worktree in that Project. Views are purely passive consumers from
-    // here on.
+    // 0013 M5 tried to retire this `.task` in favour of the project-level dispatch from
+    // `RootFeature.selectionChanged`. Post-ship verification showed badges did not paint
+    // — the v2 dispatch is in place but the fetch results were not reaching views on
+    // real-app runs. Restore the per-row dispatch as a fallback until the v2 dispatch
+    // path is instrumented enough to confirm end-to-end. Dispatch is idempotent (the
+    // 30 s freshness cache in the reducer elides duplicates).
+    .task(id: BadgeTaskIdentity(worktreeID: worktreeID, branch: branch, path: worktreePath)) {
+      store.send(.worktreeBecameVisible(worktreeID, branch: branch, worktreePath: worktreePath))
+    }
     .popover(
       isPresented: Binding(
         get: { store.popoverTarget == worktreeID },
@@ -127,4 +131,12 @@ struct WorktreeGitHubBadge<PopoverContent: View>: View {
       }
     }
   }
+}
+
+/// Composite identity used by `.task(id:)` so a change to branch *or* path re-fires the
+/// snapshot fetch. A plain `WorktreeID` would keep serving stale data.
+private struct BadgeTaskIdentity: Hashable {
+  let worktreeID: WorktreeID
+  let branch: String
+  let path: URL
 }
