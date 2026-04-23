@@ -294,30 +294,24 @@ struct HierarchySidebarView: View {
           }
           return map
         }()
-        // ScrollView + LazyVStack replaces `List(.sidebar)` because macOS `List` wraps
-        // an `NSScrollView` whose scroller column reserves horizontal space even after
-        // `hasVerticalScroller = false` / `scrollerStyle = .overlay` / `tile()` — the
-        // List implementation re-applies its own layout, overriding our overrides.
-        // `ScrollView.scrollIndicators(.hidden)` is a first-class SwiftUI API and
-        // actually hides the scroller without reserving a gutter. Drag-reorder of
-        // Projects (previously via `List.onMove`) is lost; users reorder via Project
-        // Options for now. `.contentMargins` replaces `.listStyle(.sidebar)`'s
-        // implicit row insets.
-        ScrollView(.vertical) {
-          LazyVStack(alignment: .leading, spacing: 0) {
-            ForEach(activeSpace.projects) { project in
-              projectSection(
-                project,
-                in: activeSpace,
-                panelIndex: panelIndex,
-                inbox: inbox,
-                hotkeyIndex: hotkeyIndex
-              )
-            }
+        // List + .listStyle(.sidebar) matches supacode's approach. Scrollbar visibility
+        // follows the user's system preference (Settings ▸ Appearance ▸ Show scroll
+        // bars). Expand / collapse does not jitter any more because `projectSection`
+        // now emits the header and each worktree as sibling List rows — NSTableView
+        // handles row insert / remove without the row-height animation that
+        // DisclosureGroup-nested rows triggered.
+        List {
+          ForEach(activeSpace.projects) { project in
+            projectSection(
+              project,
+              in: activeSpace,
+              panelIndex: panelIndex,
+              inbox: inbox,
+              hotkeyIndex: hotkeyIndex
+            )
           }
-          .padding(.vertical, 6)
         }
-        .scrollIndicators(.hidden)
+        .listStyle(.sidebar)
       }
     } else {
       noSpacesState
@@ -419,6 +413,9 @@ struct HierarchySidebarView: View {
           )
         }
         .buttonStyle(.plain)
+        .listRowInsets(EdgeInsets(top: 10, leading: 12, bottom: 4, trailing: 12))
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
         if isExpanded {
           ForEach(Self.orderedVisibleWorktrees(in: project)) { worktree in
             worktreeRow(
@@ -477,18 +474,18 @@ struct HierarchySidebarView: View {
       )
       gitHubBadge(for: worktree, in: project, space: space)
     }
-    // `.listRowInsets` is a no-op here because the surrounding
-    // `HeaderOnlyDisclosureGroupStyle` wraps worktree rows in a plain VStack, so
-    // SwiftUI does not treat them as native List rows. Use `.padding` directly.
-    .padding(.vertical, 6)
-    .padding(.horizontal, 8)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .contentShape(RoundedRectangle(cornerRadius: 10))
-    .background(
+    // Worktree rows are now real List children (header + worktrees emitted as
+    // sibling rows from `projectSection`), so `.listRowInsets` + `.listRowBackground`
+    // are the right knobs. The rounded-pill selection lives in the row background so
+    // the selection wash does not paint into the list's trailing gutter.
+    .listRowInsets(EdgeInsets(top: 3, leading: 8, bottom: 3, trailing: 8))
+    .listRowSeparator(.hidden)
+    .listRowBackground(
       RoundedRectangle(cornerRadius: 10, style: .continuous)
         .fill(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
+        .padding(.vertical, 2)
+        .padding(.horizontal, 4)
     )
-    .padding(.horizontal, 4)
     .contextMenu { worktreeContextMenu(worktree: worktree, project: project, space: space) }
     .task(id: worktree.path) {
       // Refresh the "dirty" dot on mount / path change. The monitor enforces a 30 s
