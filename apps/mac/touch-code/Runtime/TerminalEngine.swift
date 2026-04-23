@@ -148,10 +148,10 @@ final class TerminalEngine {
   /// Races with SwiftUI's render pass — right after `splitPanel` the
   /// new panel's NSView has been created but may not yet be attached
   /// to its hosting window. `view.window` is then nil and
-  /// `makeFirstResponder` silently fails. Mirror supacode's
-  /// retry-with-exponential-backoff: 0s, 50ms, 100ms, 200ms, 400ms
-  /// (capped at ~0.75s total). Safe to call when the surface or window
-  /// never materialises — retries stop on their own.
+  /// `makeFirstResponder` silently fails. Retry with exponential
+  /// backoff: 0s, 50ms, 100ms, 200ms, 400ms (capped at ~0.75s total).
+  /// Safe to call when the surface or window never materialises —
+  /// retries stop on their own.
   func focusSurfaceView(for panelID: PanelID) {
     focusSurfaceView(for: panelID, attempt: 0)
   }

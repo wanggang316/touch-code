@@ -141,10 +141,10 @@ struct PanelActionRouterFeature {
         address.tabID, address.worktreeID, address.projectID, address.spaceID,
         sourcePanel.workingDirectory, nil
       )
-      // Match supacode / ghostty macOS controller: focus the new pane.
-      // Dispatched async so the surface view has been attached to the
-      // hosting window by the time `makeFirstResponder` runs — at this
-      // moment the NSViewRepresentable update cycle hasn't finished yet.
+      // Match ghostty macOS controller: focus the new pane. Dispatched
+      // async so the surface view has been attached to the hosting
+      // window by the time `makeFirstResponder` runs — at this moment
+      // the NSViewRepresentable update cycle hasn't finished yet.
       if let newPanelID {
         return .run { [client = hierarchyClient] _ in
           await MainActor.run {

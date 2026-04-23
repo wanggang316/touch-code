@@ -125,8 +125,7 @@ nonisolated extension GitWorktreeClient {
   }
 
   /// Constructs the `wt` argv for a streaming `sw` (switch-and-create)
-  /// invocation. Mirrors supacode's `createWorktreeArguments` — order
-  /// matters for the helper's own parsing.
+  /// invocation. Argument order matters for the helper's own parsing.
   static func makeCreateArguments(for spec: CreateWorktreeSpec) -> [String] {
     var arguments = ["--base-dir", spec.baseDirectory.path(percentEncoded: false), "sw"]
     if spec.copyIgnored { arguments.append("--copy-ignored") }

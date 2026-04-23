@@ -356,8 +356,8 @@ final class GhosttyRuntime {
   /// Follow-up for the OSC52 paste-confirmation flow. Ghostty calls this
   /// once the user (via our UI, eventually) has approved an inbound paste;
   /// today we simply forward the provided string to the surface. The
-  /// confirmation dialog itself is deferred — we trust the OSC52 sender,
-  /// same as supacode's defaults.
+  /// confirmation dialog itself is deferred — we trust the OSC52 sender
+  /// by default.
   private static let confirmReadClipboardCallback:
     (@convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?, UnsafeMutableRawPointer?, ghostty_clipboard_request_e) -> Void) = {
       userdata, cString, state, _ in
