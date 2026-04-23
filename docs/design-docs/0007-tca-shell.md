@@ -7,9 +7,9 @@
 
 ## Context and Scope
 
-Exec-plan 0002 (C1+C2, closed 2026-04-20) shipped the terminal engine and the five-level hierarchy (Space → Project → Worktree → Tab → Panel) end-to-end. `TerminalEngine`, `CatalogStore`, `HierarchyManager`, and `GhosttyRuntime` / `PanelSurface` are live and tested. The app launches with a single hardcoded libghostty shell.
+Exec-plan 0002 (C1+C2, closed 2026-04-20) shipped the terminal engine and the five-level hierarchy (Space → Project → Worktree → Tab → Pane) end-to-end. `TerminalEngine`, `CatalogStore`, `HierarchyManager`, and `GhosttyRuntime` / `PaneSurface` are live and tested. The app launches with a single hardcoded libghostty shell.
 
-What's missing is the TCA application shell that wraps those primitives into a usable macOS app: a sidebar that lets the user navigate Space / Project / Worktree, a tab bar per Worktree, a split viewport that renders `SplitTree<PanelID>`, and the `*Client` dependency-key bridges that every future feature will inject.
+What's missing is the TCA application shell that wraps those primitives into a usable macOS app: a sidebar that lets the user navigate Space / Project / Worktree, a tab bar per Worktree, a split viewport that renders `SplitTree<PaneID>`, and the `*Client` dependency-key bridges that every future feature will inject.
 
 Three downstream capabilities are blocked on this shell:
 - **C6** (agent-notification inbox sidebar)
@@ -28,11 +28,11 @@ Architecture has already mandated the hybrid TCA + `@Observable` split (see [arc
 - `NavigationSplitView` topology — sidebar column + detail column. Inspector slot reserved but not populated.
 - Selection persists: picking a Worktree or a Tab survives restart via `CatalogStore`.
 - Lazy surface creation: switching to an empty Worktree does not spin up surfaces; switching to the active Tab does.
-- Subscribe `RootFeature` to `TerminalEngine.events()` so lifecycle events (panelExited, tabAutoClosed, panelCrashed) update UI state.
+- Subscribe `RootFeature` to `TerminalEngine.events()` so lifecycle events (paneExited, tabAutoClosed, paneCrashed) update UI state.
 - 2+ sub-feature unit tests each using `TestStore` with fake clients.
 
 **Non-Goals**
-- Drag-and-drop reorder of Spaces / Projects / Worktrees / Tabs / Panels.
+- Drag-and-drop reorder of Spaces / Projects / Worktrees / Tabs / Panes.
 - Keyboard-driven navigation (`Cmd+1` / `Cmd+Shift+]` / etc.) — wire the menubar, no keybindings yet.
 - Advanced focus management (returning focus after modal dismissal, shift-tab semantics).
 - Per-Space multi-window (architecture.md Q2 is still open; ship single-window-per-Space for v1).
@@ -73,8 +73,8 @@ The central reason for this split: TCA state must be `Equatable` and value-typed
   │   │  (reads Hier.    │  ├─ TabBarView              │     │
   │   │   catalog;       │  ├─ SplitViewportView       │     │
   │   │   commands via   │  │   (recursively renders   │     │
-  │   │   HierClient)    │  │    SplitTree<PanelID>)   │     │
-  │   │                  │  └─ PanelHostView(surface)  │     │
+  │   │   HierClient)    │  │    SplitTree<PaneID>)   │     │
+  │   │                  │  └─ PaneHostView(surface)  │     │
   │   └──────────────────┴─────────────────────────────┘     │
   └──────────────────────────────────────────────────────────┘
           │                             │
@@ -85,7 +85,7 @@ The central reason for this split: TCA state must be `Equatable` and value-typed
                                     ▼
                               TerminalEngine (@MainActor)
                                     │
-                              GhosttyRuntime + PanelSurface[]
+                              GhosttyRuntime + PaneSurface[]
 ```
 
 ### API Design
@@ -94,15 +94,15 @@ Two `DependencyKey`-conforming function structs, paralleling supacode's `Termina
 
 **HierarchyClient** — structural mutations + catalog read snapshot. All commands return `Void` or an optional ID (for creation); errors arrive back via the event stream (`hierarchyMutated` for success; sheet/alert actions for user-visible failures). Methods are `@MainActor @Sendable` and narrow; the `liveValue` forwards each command to the matching `HierarchyManager` method.
 
-- Commands: `createSpace(name)`, `selectSpace(SpaceID?)`, `addProject(spaceID, name, rootPath, gitRoot?)`, `removeProject(spaceID, projectID)`, `createWorktree(spaceID, projectID, name, path, branch)`, `removeWorktree(spaceID, projectID, worktreeID)`, `selectWorktree(spaceID, projectID, worktreeID?)`, `createTab(…)`, `closeTab(…)`, `selectTab(…, tabID?)`, `openPanel(…)`, `splitPanel(panelID, direction, …)`, `closePanel(…)`, `focusPanel(panelID, …)`, `resizeSplit(path, ratio, …)`.
+- Commands: `createSpace(name)`, `selectSpace(SpaceID?)`, `addProject(spaceID, name, rootPath, gitRoot?)`, `removeProject(spaceID, projectID)`, `createWorktree(spaceID, projectID, name, path, branch)`, `removeWorktree(spaceID, projectID, worktreeID)`, `selectWorktree(spaceID, projectID, worktreeID?)`, `createTab(…)`, `closeTab(…)`, `selectTab(…, tabID?)`, `openPanel(…)`, `splitPanel(paneID, direction, …)`, `closePanel(…)`, `focusPanel(paneID, …)`, `resizeSplit(path, ratio, …)`.
 - Reads: `snapshot() -> Catalog` (immutable copy, handy for tests and `Equatable` feature state); hot-path UI reads do not go through this — they use `HierarchyManager` directly via environment.
 
 **TerminalClient** — input, focus, retry, and the engine event stream. Commands are `@MainActor @Sendable`.
 
-- Commands: `sendInput(panelID, text)`, `setFocus(panelID, focused)`, `retryPanel(panelID) -> Bool`, `ensureSurface(panelID, worktreeID)`, `closeSurface(panelID)`.
+- Commands: `sendInput(paneID, text)`, `setFocus(paneID, focused)`, `retryPanel(paneID) -> Bool`, `ensureSurface(paneID, worktreeID)`, `closeSurface(paneID)`.
 - Events: `events() -> AsyncStream<TerminalEvent>` — same `TerminalEvent` type already in `TouchCodeCore`. Root reducer subscribes once via an `Effect.run` on `.onLaunch`.
 
-The split between the two clients mirrors their concerns: `HierarchyClient` is tree topology; `TerminalClient` is per-Panel runtime. Both compose the same `HierarchyManager` + `TerminalEngine` pair on the `liveValue` side — but separation lets features depend on only the half they need and keeps test setups small.
+The split between the two clients mirrors their concerns: `HierarchyClient` is tree topology; `TerminalClient` is per-Pane runtime. Both compose the same `HierarchyManager` + `TerminalEngine` pair on the `liveValue` side — but separation lets features depend on only the half they need and keeps test setups small.
 
 ### Data Storage
 
@@ -138,7 +138,7 @@ SwiftUI views:
 | `HierarchySidebarView` | `HierarchySidebar/HierarchySidebarView.swift` | `List` with disclosure groups; per-row context menu |
 | `WorktreeDetailView` | `WorktreeDetail/WorktreeDetailView.swift` | Composes `TabBarView` + `SplitViewportView` |
 | `TabBarView` | `TabBar/TabBarView.swift` | Horizontal button strip + "new tab" action |
-| `SplitViewportView` | `SplitViewport/SplitViewportView.swift` | Recursive function walking `SplitTree.Node`; leaves become `PanelHostView` |
+| `SplitViewportView` | `SplitViewport/SplitViewportView.swift` | Recursive function walking `SplitTree.Node`; leaves become `PaneHostView` |
 
 `MainView` (shipped in M5 with its direct `SingleSurfaceHost`) is replaced: `TouchCodeApp.body` swaps to `ContentView`. `SingleSurfaceHost` goes away once `RootFeature` subscribes the real event stream and drives `TerminalClient.ensureSurface` for the active tab's leaves.
 
@@ -151,7 +151,7 @@ Dependency rule: feature files must not `import` each other across peer director
 Store the entire `Catalog` in `RootFeature.State` as `@ObservableState`. `HierarchyManager` becomes a pure data structure (no `@Observable`); TCA reducers mutate the catalog directly and `CatalogStore.scheduleSave` is called from an effect.
 
 - **Pros:** single source of truth, single paradigm, TCA TestStore can verify every mutation.
-- **Cons:** `Catalog` is nested 5 levels deep (Space → Project → Worktree → Tab → Panel); every panel-open or split-resize mutates a deeply nested struct which TCA must Equatable-diff. More importantly, `HierarchyManager` is already shipped, tested, and integrated with `TerminalEngine`, `CatalogStore`, and `GhosttyRuntime` — replacing it would mean rewriting all three to accept a new source-of-truth paradigm. The architecture invariant "`HierarchyManager` is the single writer of the tree" was picked for a reason; inverting it here is a large refactor with no downstream benefit the chosen approach doesn't already give us (selection is persisted; tests can use `HierarchyClient.testValue`).
+- **Cons:** `Catalog` is nested 5 levels deep (Space → Project → Worktree → Tab → Pane); every pane-open or split-resize mutates a deeply nested struct which TCA must Equatable-diff. More importantly, `HierarchyManager` is already shipped, tested, and integrated with `TerminalEngine`, `CatalogStore`, and `GhosttyRuntime` — replacing it would mean rewriting all three to accept a new source-of-truth paradigm. The architecture invariant "`HierarchyManager` is the single writer of the tree" was picked for a reason; inverting it here is a large refactor with no downstream benefit the chosen approach doesn't already give us (selection is persisted; tests can use `HierarchyClient.testValue`).
 - **Rejected.**
 
 ### A2. Pure SwiftUI (no TCA)
@@ -178,7 +178,7 @@ Keep `HierarchySidebar` / `TabBar` / `SplitViewport` as views that send actions 
 
 **Event stream lifecycle.** `RootFeature.onLaunch` arms an `Effect.run { send in for await event in terminalClient.events() { send(.engineEvent(event)) } }`. The effect is cancellable via a `CancelID.events`. On `onQuit` the effect is cancelled and `TerminalEngine.finishEventStream` is called — shipped M4 behaviour supports idempotent finish.
 
-**Backpressure.** The engine already uses `.bufferingNewest(256)` per subscriber. Root is a fast consumer (reducer dispatch is cheap), so drops should not occur in practice; drops when they happen are safe because panel scrollback retains history.
+**Backpressure.** The engine already uses `.bufferingNewest(256)` per subscriber. Root is a fast consumer (reducer dispatch is cheap), so drops should not occur in practice; drops when they happen are safe because pane scrollback retains history.
 
 **Error handling.** Client commands do not throw at the boundary — they swallow `HierarchyError` and surface a `.hierarchyError(String)` action that the root reducer can translate into an `@Presents alert`. The rationale mirrors supacode: TCA effects are more ergonomic when commands return `Void`, and user-visible errors are a presentation concern anyway.
 
@@ -197,11 +197,11 @@ Keep `HierarchySidebar` / `TabBar` / `SplitViewport` as views that send actions 
 **R3 — Split view re-render storms.** `SplitViewportView` re-evaluates on every catalog change. An agent emitting many `hierarchyMutated` signals could thrash.
 *Mitigation:* `HierarchyMutationScope` (shipped M4.1) gives views scope-limited invalidation keys; `SplitViewportView` diff-checks on tab ID + split tree hash and no-ops when the tree is identical. Pre-M5.2 instrumentation already confirmed structural mutations fire on the order of Hz, not kHz.
 
-**R4 — Tab with no Panels.** `closePanel` on the only Panel leaves an empty Tab (per M2 contract). The split viewport must render a sensible empty state.
-*Mitigation:* `SplitViewportView` shows a centered placeholder with "New Panel" button; does not auto-close the Tab. Product behaviour matches the catalog's persisted state.
+**R4 — Tab with no Panes.** `closePanel` on the only Pane leaves an empty Tab (per M2 contract). The split viewport must render a sensible empty state.
+*Mitigation:* `SplitViewportView` shows a centered placeholder with "New Pane" button; does not auto-close the Tab. Product behaviour matches the catalog's persisted state.
 
-**R5 — `@Dependency` propagation into `NSViewRepresentable`.** `PanelHostView` is an `NSViewRepresentable`; SwiftUI dependency injection inside `makeNSView` is subtle.
-*Mitigation:* `PanelHostView` is given the `PanelSurface` directly by its parent TCA feature (already the shipped pattern); no `@Dependency` lookup inside the representable. Looking up the surface by `PanelID` is a synchronous call on `TerminalEngine`, invoked from the view's parent which has environment access.
+**R5 — `@Dependency` propagation into `NSViewRepresentable`.** `PaneHostView` is an `NSViewRepresentable`; SwiftUI dependency injection inside `makeNSView` is subtle.
+*Mitigation:* `PaneHostView` is given the `PaneSurface` directly by its parent TCA feature (already the shipped pattern); no `@Dependency` lookup inside the representable. Looking up the surface by `PaneID` is a synchronous call on `TerminalEngine`, invoked from the view's parent which has environment access.
 
 **R6 — TCA adds 10+ second cold compile time.** swift-composable-architecture + swift-dependencies + Sharing + Perception can inflate initial build significantly.
 *Mitigation:* accepted cost. Same framework both reference projects ship with; cold-build target is CI-only, incremental builds are fast.

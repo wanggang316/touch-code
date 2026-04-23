@@ -15,15 +15,15 @@ The user-visible outcome: `keybind cmd+e = close_tab` in `~/.config/ghostty/conf
 ## Progress
 
 - [x] Milestone 1: Core types and TerminalEvent additions (2026-04-22, `bb7b18e`)
-- [x] Milestone 3: SurfaceInfo and PanelSurface extensions (2026-04-22, `b70b755`)
-- [x] Milestone 5: PanelActionRouterFeature + HierarchyClient/Manager extensions (2026-04-22, `f2b482a`)
+- [x] Milestone 3: SurfaceInfo and PaneSurface extensions (2026-04-22, `b70b755`)
+- [x] Milestone 5: PaneActionRouterFeature + HierarchyClient/Manager extensions (2026-04-22, `f2b482a`)
 - [x] Milestone 6: WindowActionRouterFeature + WindowService/AppLifecycleClient/UpdatesClient (2026-04-22, `1d2260a`)
 - [x] Milestone 2 + 4: GhosttyActionDecoder + GhosttyRuntime routing (2026-04-22, `baa9058`)
 - [x] Milestone 7a: RootFeature integration (2026-04-22, `4476767`)
 - [x] Milestone 7b: Unit tests (2026-04-22) — 4 suites, ~1300 LOC:
-  - `PanelSurfaceApplyTests` (31 `@Test`, 29/29 PanelInfoDelta case mirrored)
+  - `PanelSurfaceApplyTests` (31 `@Test`, 29/29 PaneInfoDelta case mirrored)
   - `GhosttyActionDecoderTests` (29 `@Test`, 6 helper enums × their C values)
-  - `PanelActionRouterFeatureTests` (13 `@Test`, 11/11 request cases + nil-address edge)
+  - `PaneActionRouterFeatureTests` (13 `@Test`, 11/11 request cases + nil-address edge)
   - `WindowActionRouterFeatureTests` (11 `@Test`, 11/11 cases)
 - [x] Milestone 7c: Manual smoke checklist below; Outcomes & Retrospective filled
 
@@ -37,23 +37,23 @@ Both are small additions. No impact on subsequent milestones.
 
 ## Decision Log
 
-**DEC-1 — New Core types at top level, not `Panel/` subfolder.** Plan proposed `TouchCodeCore/Panel/*.swift`. Existing convention: Panel.swift, Project.swift, Space.swift, etc. all sit at top level of TouchCodeCore/. Placed new files at top level to match, avoiding the need to update Tuist `buildableFolders`.
+**DEC-1 — New Core types at top level, not `Pane/` subfolder.** Plan proposed `TouchCodeCore/Pane/*.swift`. Existing convention: Pane.swift, Project.swift, Space.swift, etc. all sit at top level of TouchCodeCore/. Placed new files at top level to match, avoiding the need to update Tuist `buildableFolders`.
 
-**DEC-2 — Inline `sizeLimit` fields instead of defining a `Size` struct.** Plan referenced `Size` in `PanelInfoDelta.sizeLimit(min:max:)`, but no `Size` type exists in Core. Inlined as `sizeLimit(minWidth:minHeight:maxWidth:maxHeight:)` to avoid adding an unused helper type. Four `UInt32` fields are not meaningfully worse than a `Size` struct.
+**DEC-2 — Inline `sizeLimit` fields instead of defining a `Size` struct.** Plan referenced `Size` in `PaneInfoDelta.sizeLimit(min:max:)`, but no `Size` type exists in Core. Inlined as `sizeLimit(minWidth:minHeight:maxWidth:maxHeight:)` to avoid adding an unused helper type. Four `UInt32` fields are not meaningfully worse than a `Size` struct.
 
 **DEC-3 — `panelInfoChanged` classified as non-lifecycle (droppable).** Per design doc's chatty-TUI risk, `SET_TITLE`/`PWD`/`PROGRESS_REPORT` fire on every prompt and must not block the event stream. Three intent/config events (`panelActionRequested`, `windowActionRequested`, `configChanged`) are lifecycle — user keypresses cannot drop.
 
-**DEC-M2-1 — `COPY_TITLE_TO_CLIPBOARD` is currently a stub.** Design doc reads `panel.info.title` and writes `NSPasteboard`. SurfaceInfo shipped in M3; the two-line fill-in is left to a follow-up commit so M2 doesn't depend on future M3 shape.
+**DEC-M2-1 — `COPY_TITLE_TO_CLIPBOARD` is currently a stub.** Design doc reads `pane.info.title` and writes `NSPasteboard`. SurfaceInfo shipped in M3; the two-line fill-in is left to a follow-up commit so M2 doesn't depend on future M3 shape.
 
 **DEC-M2-2 — `NewSplitDirection` collapses 4 C directions → 2 axes.** libghostty's `ghostty_action_split_direction_e` has RIGHT/DOWN/LEFT/UP. Core's `NewSplitDirection` is `.horizontal/.vertical`. Map LEFT/RIGHT→horizontal, UP/DOWN→vertical. Loses orientation hint; acceptable because split creation's UX only cares about axis.
 
 **DEC-M2-3 — `GotoWindowTarget.last`/`.index(Int)` are unreachable from libghostty.** The C enum only emits PREVIOUS/NEXT. Kept as forward-compat cases for IPC callers.
 
-**DEC-M2-5 — Raw C enum tags preserved as `UInt32` through `PanelInfoDelta`.** `PROMPT_TITLE`/`MOUSE_SHAPE`/`SECURE_INPUT`/`QUIT_TIMER`/`PROGRESS_REPORT.state` pass their raw tag through the delta to keep the decoder as the single translation boundary. Consumers that need typed enums remap downstream.
+**DEC-M2-5 — Raw C enum tags preserved as `UInt32` through `PaneInfoDelta`.** `PROMPT_TITLE`/`MOUSE_SHAPE`/`SECURE_INPUT`/`QUIT_TIMER`/`PROGRESS_REPORT.state` pass their raw tag through the delta to keep the decoder as the single translation boundary. Consumers that need typed enums remap downstream.
 
 **DEC-M2-7 — `KEY_TABLE` 3 C tags compress to `(name, depth)`.** ACTIVATE → `(name, +1)`, DEACTIVATE → `(nil, -1)`, DEACTIVATE_ALL → `(nil, 0)`. Depth encodes the mutation, not absolute stack height.
 
-**DEC-M2-8 — `KEY_SEQUENCE.trigger` hashes to a UInt32 fingerprint.** Full `ghostty_input_trigger_s` (tag+key+mods) doesn't fit `PanelInfoDelta.keySequence(trigger: UInt32)`. Hash suffices as a change-detector; expand the delta if a feature ever needs the literal keystroke.
+**DEC-M2-8 — `KEY_SEQUENCE.trigger` hashes to a UInt32 fingerprint.** Full `ghostty_input_trigger_s` (tag+key+mods) doesn't fit `PaneInfoDelta.keySequence(trigger: UInt32)`. Hash suffices as a change-detector; expand the delta if a feature ever needs the literal keystroke.
 
 **DEC-M5-A — `HierarchyClient.unzoomTab` added** because the spec referenced `zoomPanel`/`unzoomPanel` that don't exist; `HierarchyManager.focusPanel`/`unfocusPanel` already implement the zoom semantics under older names. Rename opportunity for later.
 
@@ -61,7 +61,7 @@ Both are small additions. No impact on subsequent milestones.
 
 **DEC-M5-E — `resizePanel` is a ratio delta, not pixels.** libghostty's RESIZE_SPLIT carries pixels; `SplitTree` stores only ratios (clamped [0.1, 0.9]). `amount` is treated as a ratio delta directly. Good enough; the decoder can scale if keybinds feel under/over-responsive.
 
-**DEC-M6-1 — `WindowService.openNewWindow`/`closeWindow` are stubs.** `TouchCodeApp` is single-`WindowGroup` today; SwiftUI's `OpenWindowAction` isn't reachable from a Client, and no per-Panel→NSWindow registry exists. `closeWindow` falls back to `NSApp.keyWindow.performClose(nil)` which ignores the panelID argument but handles the common case (keybind inside the focused window). Full implementation waits on the multi-window design (design doc §Risks).
+**DEC-M6-1 — `WindowService.openNewWindow`/`closeWindow` are stubs.** `TouchCodeApp` is single-`WindowGroup` today; SwiftUI's `OpenWindowAction` isn't reachable from a Client, and no per-Pane→NSWindow registry exists. `closeWindow` falls back to `NSApp.keyWindow.performClose(nil)` which ignores the paneID argument but handles the common case (keybind inside the focused window). Full implementation waits on the multi-window design (design doc §Risks).
 
 **DEC-M6-3 — `openConfig` uses `NSWorkspace.open`, not `EditorClient`.** `EditorClient.open(directory:…)` only accepts directory URLs; no file-level overload. `NSWorkspace.open(URL(fileURLWithPath: "~/.config/ghostty/config"))` respects the user's LaunchServices default for the file type. Switch to `EditorClient` once it gains file opens.
 
@@ -83,7 +83,7 @@ Codex flagged six correctness / safety issues after the initial landing. All are
 
 **DEC-M7d-1 — Decoder split into nonisolated decode + MainActor apply (P1).** Original design stored the raw `ghostty_action_s` struct and deferred all decoding to a main-queue hop. Several union fields carry C pointers whose lifetime ends when `action_cb` returns, so the async apply could read freed memory; the callback also returned `false` even though the action ran asynchronously. The decoder is now two passes: `decodeSurfaceAction` / `decodeAppAction` (`nonisolated`) synchronously copy every pointer-backed field into a Sendable `DecodedSurfaceAction` / `DecodedAppAction` enum (Strings for title/pwd/needle/url/body/key-table name, `ghostty_config_clone` for CONFIG_CHANGE), and `apply(_:)` (`@MainActor`) consumes the owned value. The thunk reports `decoded.consumed` synchronously so the C return value matches reality.
 
-**DEC-M7d-2 — `.newTab` opens a panel using the source panel's cwd (P2).** Earlier dispatch only called `HierarchyClient.createTab`, which initialises an empty Tab; the resulting Tab rendered the "No panels" placeholder. The router now follows `createTab` with `openPanel`, inheriting the source panel's `workingDirectory` (or falling back to `worktree.path`, then `$HOME` if neither resolves).
+**DEC-M7d-2 — `.newTab` opens a pane using the source pane's cwd (P2).** Earlier dispatch only called `HierarchyClient.createTab`, which initialises an empty Tab; the resulting Tab rendered the "No panes" placeholder. The router now follows `createTab` with `openPanel`, inheriting the source pane's `workingDirectory` (or falling back to `worktree.path`, then `$HOME` if neither resolves).
 
 **DEC-M7d-3 — `.gotoTab(.index)` is 1-based with over-bound clamp (P2).** Ghostty's `goto_tab:n` is 1-based and clamps beyond the tab count to the last tab. The router previously treated `n` as a zero-based array index and rejected out-of-range values. Now: `n < 1` rejects, `n` in range picks `tabs[n-1]`, `n > count` picks `tabs[count-1]`.
 
@@ -95,7 +95,7 @@ Codex flagged six correctness / safety issues after the initial landing. All are
 
 ## Outcomes & Retrospective
 
-**What shipped (2026-04-22).** All 65 libghostty action tags are routed: tab/split intents to `PanelActionRouterFeature` → `HierarchyClient` / `HierarchyManager`, window intents to `WindowActionRouterFeature` → `WindowService` / `AppLifecycleClient` / `UpdatesClient` / `EditorClient`, surface-info deltas to `PanelSurface.info` + the `panelInfoChanged` event stream, effectful actions inline via AppKit, and app-level config changes via `GhosttyRuntime.applyClonedConfig` / `reloadConfig`. The prior hardcoded `action_cb` stub — silently dropping every user keybind — is gone. A launch-arg gate (`TOUCH_CODE_DISABLE_ACTION_ROUTING=1`) provides a hotfix escape hatch.
+**What shipped (2026-04-22).** All 65 libghostty action tags are routed: tab/split intents to `PaneActionRouterFeature` → `HierarchyClient` / `HierarchyManager`, window intents to `WindowActionRouterFeature` → `WindowService` / `AppLifecycleClient` / `UpdatesClient` / `EditorClient`, surface-info deltas to `PaneSurface.info` + the `panelInfoChanged` event stream, effectful actions inline via AppKit, and app-level config changes via `GhosttyRuntime.applyClonedConfig` / `reloadConfig`. The prior hardcoded `action_cb` stub — silently dropping every user keybind — is gone. A launch-arg gate (`TOUCH_CODE_DISABLE_ACTION_ROUTING=1`) provides a hotfix escape hatch.
 
 **What was bigger than planned.** The plan scoped the decoder at "~250 lines / 62 cases"; reality was 559 lines / 65 cases, driven by 10+ small trade-offs between libghostty's richer C union and touch-code's typed Swift surface (recorded DEC-M2-1 through DEC-M2-10). The downstream blast radius was also understated: 3 pre-existing exhaustive switches on `TerminalEvent` needed updates (`RootFeature.LastEventMarker`, `EventMapper.map`, `TerminalEngine.isLifecycle`).
 
@@ -107,7 +107,7 @@ Codex flagged six correctness / safety issues after the initial landing. All are
 - `COPY_TITLE_TO_CLIPBOARD` is a 2-line fill-in deferred (DEC-M2-1) so M2 didn't depend on M3's shape.
 - `toggleBackgroundOpacity` is empty — opacity ownership lives in appearance settings, not this runtime.
 - `.delegate(.presentTerminalRequested)` and `.delegate(.commandPaletteToggleRequested)` are consumed as root-level no-ops; touch-code has no command-palette feature yet.
-- Router-to-catalog resolution in `gotoSplit` collapses 4-way spatial directions to previous/next; a true spatial walk needs per-panel frame geometry the reducer doesn't own (DEC-M5-B).
+- Router-to-catalog resolution in `gotoSplit` collapses 4-way spatial directions to previous/next; a true spatial walk needs per-pane frame geometry the reducer doesn't own (DEC-M5-B).
 - `resizeSplit` treats `amount` as a ratio delta because `SplitTree` stores ratios only, not pixels (DEC-M5-E).
 
 **Test host bootstrap is broken independent of this plan.** When invoking `xcodebuild test`, the test host app's `EditorFeature.refresh` recurses on a stack-overflow-style path through `LiveEditorService.describe` / `EditorClient.live`; this reproduces on unmodified test suites (`TerminalEngineTests`) so it is pre-existing, not introduced by this plan. Tests `build-for-testing` cleanly (swift-testing + XCTest + TCA 的 compile 都过); runtime validation runs through the M7c smoke checklist until the bootstrap issue is fixed.
@@ -122,13 +122,13 @@ Codex flagged six correctness / safety issues after the initial landing. All are
 - **TerminalEvent:** `apps/mac/TouchCodeCore/TerminalEvent.swift` — source of the existing event enum.
 
 **Key source files:**
-- `apps/mac/touch-code/Runtime/Ghostty/GhosttyRuntime.swift` — owns action callback stub at line 148; holds Panel registry and shared weak reference.
-- `apps/mac/touch-code/Runtime/Ghostty/PanelSurface.swift` — embeds 16 bytes of PanelID as userdata; needs SurfaceInfo @Observable state added.
+- `apps/mac/touch-code/Runtime/Ghostty/GhosttyRuntime.swift` — owns action callback stub at line 148; holds Pane registry and shared weak reference.
+- `apps/mac/touch-code/Runtime/Ghostty/PaneSurface.swift` — embeds 16 bytes of PaneID as userdata; needs SurfaceInfo @Observable state added.
 - `apps/mac/touch-code/App/Clients/HierarchyClient.swift` — TCA bridge; will gain closures for addressOf, moveTab, equalizeTabSplits, resizePanel.
 - `apps/mac/touch-code/App/Features/RootFeature.swift` — root reducer; will compose the two new routers.
 
 **Orientation:** The work flows upward from Core types to Runtime decoding to TCA feature consumption. The key architectural insight is the layering:
-- **Core (types):** add 4 TerminalEvent cases + 3 public enums for PanelInfoDelta, PanelActionRequest, WindowActionRequest
+- **Core (types):** add 4 TerminalEvent cases + 3 public enums for PaneInfoDelta, PaneActionRequest, WindowActionRequest
 - **Runtime (Ghostty):** decode C enums into typed Swift in one centralized module; emit events
 - **App (features):** consume events via TCA reducers; dispatch to clients
 
@@ -142,16 +142,16 @@ Work is organized into seven milestones, each delivering a self-contained capabi
 
 **Goal:** Define the public types consumed by Runtime and features. All ghostty action dispatch happens through these types — they are the contract between layers.
 
-**What exists at the end:** Three new public enums in `TouchCodeCore/Panel/` and four new TerminalEvent cases in `TouchCodeCore/TerminalEvent.swift`, providing typed representations of every routable action and info mutation.
+**What exists at the end:** Three new public enums in `TouchCodeCore/Pane/` and four new TerminalEvent cases in `TouchCodeCore/TerminalEvent.swift`, providing typed representations of every routable action and info mutation.
 
 **Work:**
 
-1. **`apps/mac/TouchCodeCore/Panel/PanelInfoDelta.swift` (new file)**
+1. **`apps/mac/TouchCodeCore/Pane/PaneInfoDelta.swift` (new file)**
 
    Create enum with 25 cases, one per info-state mutation the decoder will emit. The design doc defines all cases; copy them verbatim:
 
    ```swift
-   public enum PanelInfoDelta: Sendable, Equatable {
+   public enum PaneInfoDelta: Sendable, Equatable {
      case title(String?)
      case tabTitle(String?)
      case promptTitle(UInt32)
@@ -186,12 +186,12 @@ Work is organized into seven milestones, each delivering a self-contained capabi
 
    Note: `Size` is imported from `TouchCodeCore` (used elsewhere for window sizing). Check that it exists; if not, define as `struct Size: Sendable { let width: UInt32; let height: UInt32 }`.
 
-2. **`apps/mac/TouchCodeCore/Panel/PanelActionRequest.swift` (new file)**
+2. **`apps/mac/TouchCodeCore/Pane/PaneActionRequest.swift` (new file)**
 
    Create enum with 11 cases for tab/split intents and supporting types. Include typed wrappers around ghostty's C enums:
 
    ```swift
-   public enum PanelActionRequest: Sendable, Equatable {
+   public enum PaneActionRequest: Sendable, Equatable {
      case newTab
      case closeTab(mode: CloseTabMode)
      case moveTab(offset: Int)
@@ -216,19 +216,19 @@ Work is organized into seven milestones, each delivering a self-contained capabi
 
    (The decoder will map ghostty's C enum tags to these cases; this file just defines the typed wrapper enums that the decoder produces and features consume.)
 
-3. **`apps/mac/TouchCodeCore/Panel/WindowActionRequest.swift` (new file)**
+3. **`apps/mac/TouchCodeCore/Pane/WindowActionRequest.swift` (new file)**
 
    Create enum with 11 cases for window/app intents and typed target wrapper:
 
    ```swift
    public enum WindowActionRequest: Sendable, Equatable {
-     case new(from: PanelID)
-     case close(from: PanelID)
+     case new(from: PaneID)
+     case close(from: PaneID)
      case closeAll
      case goto(target: GotoWindowTarget)
-     case toggleFullscreen(from: PanelID)
-     case toggleMaximize(from: PanelID)
-     case toggleTabOverview(from: PanelID)
+     case toggleFullscreen(from: PaneID)
+     case toggleMaximize(from: PaneID)
+     case toggleTabOverview(from: PaneID)
      case toggleAppVisibility
      case quit
      case checkForUpdates
@@ -247,8 +247,8 @@ Work is organized into seven milestones, each delivering a self-contained capabi
    Add to the `public nonisolated enum TerminalEvent` enum:
 
    ```swift
-   case panelInfoChanged(PanelID, PanelInfoDelta)
-   case panelActionRequested(PanelID, PanelActionRequest)
+   case panelInfoChanged(PaneID, PaneInfoDelta)
+   case panelActionRequested(PaneID, PaneActionRequest)
    case windowActionRequested(WindowActionRequest)
    case configChanged
    ```
@@ -275,13 +275,13 @@ Work is organized into seven milestones, each delivering a self-contained capabi
    - Import `GhosttyKit` (libghostty C bindings) + `Foundation` + `os.log` + necessary Core types
    - Define helper decoding functions (e.g., `String.decode(cstring:)` for safe C string reading; pattern-match from supacode if it exists)
    - Implement `appAction(_ action: ghostty_action_s, runtime: GhosttyRuntime) -> Bool` — routes app-level actions (CONFIG_CHANGE, RELOAD_CONFIG)
-   - Implement `surfaceAction(_ action: ghostty_action_s, panelID: PanelID, panel: PanelSurface, runtime: GhosttyRuntime) -> Bool` — routes surface-scoped actions across 5 buckets
+   - Implement `surfaceAction(_ action: ghostty_action_s, paneID: PaneID, pane: PaneSurface, runtime: GhosttyRuntime) -> Bool` — routes surface-scoped actions across 5 buckets
 
-   **Bucket 1 — Tab/Split intent:** Cases like GHOSTTY_ACTION_NEW_TAB, CLOSE_TAB, etc. Each case emits `.panelActionRequested(panelID, .newTab)` or similar, returns true.
+   **Bucket 1 — Tab/Split intent:** Cases like GHOSTTY_ACTION_NEW_TAB, CLOSE_TAB, etc. Each case emits `.panelActionRequested(paneID, .newTab)` or similar, returns true.
 
-   **Bucket 2 — Window intent:** Cases like GHOSTTY_ACTION_NEW_WINDOW, CLOSE_WINDOW, etc. Each case emits `.windowActionRequested(.new(from: panelID))`, returns true.
+   **Bucket 2 — Window intent:** Cases like GHOSTTY_ACTION_NEW_WINDOW, CLOSE_WINDOW, etc. Each case emits `.windowActionRequested(.new(from: paneID))`, returns true.
 
-   **Bucket 3 — Info:** Cases like SET_TITLE, PWD, MOUSE_SHAPE, etc. Each case calls `panel.apply(delta)` and `runtime.emitInfoChanged(panelID, delta)`, returns true. (Emission pattern ensures both PanelSurface state and event stream are updated.)
+   **Bucket 3 — Info:** Cases like SET_TITLE, PWD, MOUSE_SHAPE, etc. Each case calls `pane.apply(delta)` and `runtime.emitInfoChanged(paneID, delta)`, returns true. (Emission pattern ensures both PaneSurface state and event stream are updated.)
 
    **Bucket 4 — Effectful:** Cases like OPEN_URL, RING_BELL, COPY_TITLE_TO_CLIPBOARD, etc. Direct side effects via NSWorkspace / NSPasteboard / NSApp, plus optional event emission for observability.
 
@@ -294,16 +294,16 @@ Work is organized into seven milestones, each delivering a self-contained capabi
 **Implementation notes:**
 - Helper `String.decode(cstring:)` should safely copy C strings into Swift. Check supacode's GhosttySurfaceBridge or similar for the idiom.
 - For enum decoding (e.g., `NewSplitDirection` from ghostty's int tags), create small helper functions inside or adjacent to the decoder.
-- Log every decoded action at `.debug` level with `(tag, panelID)` for diagnostics.
+- Log every decoded action at `.debug` level with `(tag, paneID)` for diagnostics.
 - For unsupported actions, log at `.info` with the tag int and return false.
 
 ---
 
-### Milestone 3: SurfaceInfo and PanelSurface Extensions
+### Milestone 3: SurfaceInfo and PaneSurface Extensions
 
-**Goal:** Add ephemeral per-session state storage to PanelSurface so that info mutations are persisted and accessible to features.
+**Goal:** Add ephemeral per-session state storage to PaneSurface so that info mutations are persisted and accessible to features.
 
-**What exists at the end:** A new `SurfaceInfo` @Observable class with ~20 fields, embedded in PanelSurface. PanelSurface gains an `apply(_: PanelInfoDelta)` method to mutate the info state, and a read-only property `info` to access it.
+**What exists at the end:** A new `SurfaceInfo` @Observable class with ~20 fields, embedded in PaneSurface. PaneSurface gains an `apply(_: PaneInfoDelta)` method to mutate the info state, and a read-only property `info` to access it.
 
 **Work:**
 
@@ -328,7 +328,7 @@ Work is organized into seven milestones, each delivering a self-contained capabi
 
    Add a convenience initializer if needed for clarity. Keep this class minimal — no methods except properties.
 
-2. **`apps/mac/touch-code/Runtime/Ghostty/PanelSurface.swift` — add state + methods**
+2. **`apps/mac/touch-code/Runtime/Ghostty/PaneSurface.swift` — add state + methods**
 
    a) Add a property:
    ```swift
@@ -339,13 +339,13 @@ Work is organized into seven milestones, each delivering a self-contained capabi
 
    b) Add method:
    ```swift
-   func apply(_ delta: PanelInfoDelta) {
+   func apply(_ delta: PaneInfoDelta) {
      switch delta {
      case .title(let t): info.title = t
      case .tabTitle(let t): info.tabTitle = t
      case .promptTitle(let p): info.promptTitle = p
      case .pwd(let p): info.pwd = p
-     // …(one case per PanelInfoDelta variant)
+     // …(one case per PaneInfoDelta variant)
      }
    }
    ```
@@ -357,9 +357,9 @@ Work is organized into seven milestones, each delivering a self-contained capabi
    }
    ```
 
-   The `apply` method is the single place PanelInfoDelta is translated to field mutations. The decoder calls it; features read via `panel.info.title` etc.
+   The `apply` method is the single place PaneInfoDelta is translated to field mutations. The decoder calls it; features read via `pane.info.title` etc.
 
-3. **Verification:** Build, no errors. Create a simple unit test in `apps/mac/touch-code/Tests/PanelSurfaceTests.swift` that constructs a PanelSurface, applies a few deltas, and asserts the fields changed. (This is a smoke test; the heavy lifting is in the router tests.)
+3. **Verification:** Build, no errors. Create a simple unit test in `apps/mac/touch-code/Tests/PanelSurfaceTests.swift` that constructs a PaneSurface, applies a few deltas, and asserts the fields changed. (This is a smoke test; the heavy lifting is in the router tests.)
 
 ---
 
@@ -367,7 +367,7 @@ Work is organized into seven milestones, each delivering a self-contained capabi
 
 **Goal:** Replace the action callback stub in GhosttyRuntime with real routing logic that dispatches to the decoder and emits events.
 
-**What exists at the end:** GhosttyRuntime has a real `handleAction` method, the C callback thunk hops to MainActor correctly, and panel-to-panelID resolution works via the userdata 16-byte allocation.
+**What exists at the end:** GhosttyRuntime has a real `handleAction` method, the C callback thunk hops to MainActor correctly, and pane-to-paneID resolution works via the userdata 16-byte allocation.
 
 **Work:**
 
@@ -388,11 +388,11 @@ Work is organized into seven milestones, each delivering a self-contained capabi
    ```
 
    c) Add `private func handleSurfaceAction(_ surface: ghostty_surface_t?, _ action: ghostty_action_s) -> Bool` which:
-   - Calls `panelID(fromSurface:)` to resolve the PanelID from userdata
-   - Looks up the panel in `surfacesByPanelID` registry
+   - Calls `paneID(fromSurface:)` to resolve the PaneID from userdata
+   - Looks up the pane in `surfacesByPanelID` registry
    - Calls `GhosttyActionDecoder.surfaceAction(...)`
 
-   d) Add `private func panelID(fromSurface: ghostty_surface_t) -> PanelID?` which copies the 16-byte UUID from userdata. The implementation is in the design doc; paste it verbatim.
+   d) Add `private func paneID(fromSurface: ghostty_surface_t) -> PaneID?` which copies the 16-byte UUID from userdata. The implementation is in the design doc; paste it verbatim.
 
    e) Add stub methods for Runtime to emit events and apply config changes:
    ```swift
@@ -403,8 +403,8 @@ Work is organized into seven milestones, each delivering a self-contained capabi
    }
 
    @MainActor
-   func emitInfoChanged(_ panelID: PanelID, _ delta: PanelInfoDelta) {
-     emit(.panelInfoChanged(panelID, delta))
+   func emitInfoChanged(_ paneID: PaneID, _ delta: PaneInfoDelta) {
+     emit(.panelInfoChanged(paneID, delta))
    }
 
    @MainActor
@@ -434,11 +434,11 @@ Work is organized into seven milestones, each delivering a self-contained capabi
 
 ---
 
-### Milestone 5: PanelActionRouterFeature
+### Milestone 5: PaneActionRouterFeature
 
 **Goal:** Create a TCA reducer that subscribes to `panelActionRequested` events and dispatches to HierarchyClient.
 
-**What exists at the end:** A new feature `apps/mac/touch-code/App/Features/PanelActionRouter/PanelActionRouterFeature.swift` that maps each PanelActionRequest case to the corresponding HierarchyClient call. The feature is composed into RootFeature and automatically routes all tab/split intents.
+**What exists at the end:** A new feature `apps/mac/touch-code/App/Features/PaneActionRouter/PaneActionRouterFeature.swift` that maps each PaneActionRequest case to the corresponding HierarchyClient call. The feature is composed into RootFeature and automatically routes all tab/split intents.
 
 **Work:**
 
@@ -448,26 +448,26 @@ Work is organized into seven milestones, each delivering a self-contained capabi
 
    ```swift
    var addressOf:
-     @MainActor @Sendable (PanelID) -> (spaceID: SpaceID, projectID: ProjectID, worktreeID: WorktreeID)?
+     @MainActor @Sendable (PaneID) -> (spaceID: SpaceID, projectID: ProjectID, worktreeID: WorktreeID)?
    var moveTab:
      @MainActor @Sendable (TabID, _ inWorktree: WorktreeID, _ offset: Int, ...) throws -> Void
    var equalizeTabSplits:
      @MainActor @Sendable (_ tabID: TabID, _ inWorktree: WorktreeID, ...) throws -> Void
    var resizePanel:
-     @MainActor @Sendable (PanelID, direction: ResizeDirection, amount: Double) throws -> Void
+     @MainActor @Sendable (PaneID, direction: ResizeDirection, amount: Double) throws -> Void
    ```
 
    (The exact signatures should match the methods on HierarchyManager; read the manager to confirm the wire format, then expose them via HierarchyClient.)
 
    Add corresponding liveValue closures in the DependencyKey that forward to HierarchyManager.
 
-2. **`apps/mac/touch-code/App/Features/PanelActionRouter/PanelActionRouterFeature.swift` (new file)**
+2. **`apps/mac/touch-code/App/Features/PaneActionRouter/PaneActionRouterFeature.swift` (new file)**
 
    Create a TCA reducer with:
 
    ```swift
    @Reducer
-   struct PanelActionRouterFeature {
+   struct PaneActionRouterFeature {
      @ObservableState
      struct State: Equatable {
        // No state — this is a pass-through router
@@ -475,7 +475,7 @@ Work is organized into seven milestones, each delivering a self-contained capabi
 
      enum Action: Equatable {
        // No public actions — internal only
-       case panelActionRequested(PanelID, PanelActionRequest)
+       case panelActionRequested(PaneID, PaneActionRequest)
        // ... future actions for other event types if needed
      }
 
@@ -485,17 +485,17 @@ Work is organized into seven milestones, each delivering a self-contained capabi
      var body: some Reducer<State, Action> {
        Reduce { state, action in
          switch action {
-         case .panelActionRequested(let panelID, let request):
-           return handlePanelAction(panelID, request)
+         case .panelActionRequested(let paneID, let request):
+           return handlePanelAction(paneID, request)
          }
        }
      }
 
      @MainActor
-     private func handlePanelAction(_ panelID: PanelID, _ request: PanelActionRequest) -> Effect<Action> {
+     private func handlePanelAction(_ paneID: PaneID, _ request: PaneActionRequest) -> Effect<Action> {
        switch request {
        case .newTab:
-         guard let (spaceID, projectID, worktreeID) = hierarchyClient.addressOf(panelID) else {
+         guard let (spaceID, projectID, worktreeID) = hierarchyClient.addressOf(paneID) else {
            return .none
          }
          return .run { _ in
@@ -513,7 +513,7 @@ Work is organized into seven milestones, each delivering a self-contained capabi
          return .none
 
        case .newSplit(let direction):
-         // Call hierarchyClient.splitPanel(panelID, direction: ...)
+         // Call hierarchyClient.splitPanel(paneID, direction: ...)
          return .none
 
        case .gotoSplit(let direction):
@@ -534,7 +534,7 @@ Work is organized into seven milestones, each delivering a self-contained capabi
 
    ```swift
    var body: some Reducer<State, Action> {
-     PanelActionRouterFeature()  // Compose the new router
+     PaneActionRouterFeature()  // Compose the new router
      // ... existing reducers
    }
    ```
@@ -545,8 +545,8 @@ Work is organized into seven milestones, each delivering a self-contained capabi
    .run { send in
      for await event in terminalEngine.events() {
        switch event {
-       case .panelActionRequested(let panelID, let request):
-         await send(.panelActionRouter(.panelActionRequested(panelID, request)))
+       case .panelActionRequested(let paneID, let request):
+         await send(.panelActionRouter(.panelActionRequested(paneID, request)))
        case .panelInfoChanged(...):
          // ... other cases
          break
@@ -557,7 +557,7 @@ Work is organized into seven milestones, each delivering a self-contained capabi
 
 4. **Verification:**
    - Build without errors
-   - Create `PanelActionRouterFeatureTests.swift` with a TestStore that dispatches `.panelActionRequested(.newTab)`, asserts the HierarchyClient.createTab is called with the right params
+   - Create `PaneActionRouterFeatureTests.swift` with a TestStore that dispatches `.panelActionRequested(.newTab)`, asserts the HierarchyClient.createTab is called with the right params
    - Test a few representative cases (newTab, newSplit, gotoSplit) to confirm the routing logic is wired correctly
 
 ---
@@ -577,18 +577,18 @@ Work is organized into seven milestones, each delivering a self-contained capabi
    ```swift
    @MainActor
    struct WindowService: Sendable {
-     var openNewWindow: @Sendable (_ inheriting: PanelID) throws -> Void
-     var closeWindow: @Sendable (_ from: PanelID) throws -> Void
+     var openNewWindow: @Sendable (_ inheriting: PaneID) throws -> Void
+     var closeWindow: @Sendable (_ from: PaneID) throws -> Void
      var activateWindow: @Sendable (_ matching: GotoWindowTarget) -> Void
      var keyWindow: @Sendable () -> NSWindow?
 
      static let liveValue = WindowService(
-       openNewWindow: { panelID in
-         // Resolve panelID → window; create new window inheriting the Space/Worktree settings
-         // Pattern: create a new NSWindow, set it up with the same Space as the source panel's window
+       openNewWindow: { paneID in
+         // Resolve paneID → window; create new window inheriting the Space/Worktree settings
+         // Pattern: create a new NSWindow, set it up with the same Space as the source pane's window
        },
-       closeWindow: { panelID in
-         // Resolve panelID → window; call window.performClose(nil)
+       closeWindow: { paneID in
+         // Resolve paneID → window; call window.performClose(nil)
        },
        activateWindow: { target in
          // Resolve target (recent, next, previous, index) → window; NSApp.activate()
@@ -605,7 +605,7 @@ Work is organized into seven milestones, each delivering a self-contained capabi
    }
    ```
 
-   The implementation is straightforward; most is fetching the window from the panel and calling NSWindow methods.
+   The implementation is straightforward; most is fetching the window from the pane and calling NSWindow methods.
 
 2. **`apps/mac/touch-code/App/Clients/AppLifecycleClient.swift` (new or extend if exists)**
 
@@ -763,7 +763,7 @@ Work is organized into seven milestones, each delivering a self-contained capabi
 
 1. **Integration into RootFeature**
 
-   Ensure both PanelActionRouterFeature and WindowActionRouterFeature are composed into RootFeature's reducer body. Ensure the TerminalEngine event subscriptions route `panelActionRequested` and `windowActionRequested` events correctly.
+   Ensure both PaneActionRouterFeature and WindowActionRouterFeature are composed into RootFeature's reducer body. Ensure the TerminalEngine event subscriptions route `panelActionRequested` and `windowActionRequested` events correctly.
 
 2. **Add observability to GhosttyActionDecoder**
 
@@ -773,7 +773,7 @@ Work is organized into seven milestones, each delivering a self-contained capabi
    private static let logger = Logger(subsystem: "com.touch-code.runtime", category: "action")
 
    // At the start of surfaceAction and appAction:
-   logger.debug("action: \(action.tag.rawValue), panelID: \(panelID)")
+   logger.debug("action: \(action.tag.rawValue), paneID: \(paneID)")
 
    // For unsupported actions:
    logger.info("unsupported ghostty action: \(action.tag.rawValue)")
@@ -802,7 +802,7 @@ Work is organized into seven milestones, each delivering a self-contained capabi
 
    a) **`GhosttyActionDecoderTests.swift`** — test the decoder in isolation. Construct synthetic ghostty_action_s payloads (or use FFI to create real ones), verify each decoded action emits the correct event or side effect. Test at least 15 representative cases (few from each bucket). Pattern: assert `runtime.emittedEvents` contains the expected event.
 
-   b) **`PanelActionRouterFeatureTests.swift`** — TestStore with 5-10 representative cases, verifying HierarchyClient calls. Pattern: record, assert, verify.
+   b) **`PaneActionRouterFeatureTests.swift`** — TestStore with 5-10 representative cases, verifying HierarchyClient calls. Pattern: record, assert, verify.
 
    c) **`WindowActionRouterFeatureTests.swift`** — Similar to above, for window actions.
 
@@ -845,9 +845,9 @@ Run these commands from the root of the repository:
 cd /Users/wanggang/.prowl/repos/touch-code/refactor/arch/apps/mac
 
 # Step 1: Create Core types
-touch touch-code/TouchCodeCore/Panel/PanelInfoDelta.swift
-touch touch-code/TouchCodeCore/Panel/PanelActionRequest.swift
-touch touch-code/TouchCodeCore/Panel/WindowActionRequest.swift
+touch touch-code/TouchCodeCore/Pane/PaneInfoDelta.swift
+touch touch-code/TouchCodeCore/Pane/PaneActionRequest.swift
+touch touch-code/TouchCodeCore/Pane/WindowActionRequest.swift
 # Edit TerminalEvent.swift to add 4 cases
 
 # Step 2: Create decoder
@@ -855,14 +855,14 @@ touch touch-code/Runtime/Ghostty/GhosttyActionDecoder.swift
 
 # Step 3: Create SurfaceInfo
 touch touch-code/Runtime/Ghostty/SurfaceInfo.swift
-# Edit PanelSurface.swift to add state and apply() method
+# Edit PaneSurface.swift to add state and apply() method
 
 # Step 4: Extend GhosttyRuntime
 # Edit GhosttyRuntime.swift to replace action callback and add methods
 
-# Step 5: Create PanelActionRouterFeature
-mkdir -p touch-code/App/Features/PanelActionRouter
-touch touch-code/App/Features/PanelActionRouter/PanelActionRouterFeature.swift
+# Step 5: Create PaneActionRouterFeature
+mkdir -p touch-code/App/Features/PaneActionRouter
+touch touch-code/App/Features/PaneActionRouter/PaneActionRouterFeature.swift
 # Edit HierarchyClient.swift to add 3 new closures
 
 # Step 6: Create WindowActionRouterFeature and clients
@@ -876,7 +876,7 @@ touch touch-code/App/Clients/AppLifecycleClient.swift
 # Edit RootFeature.swift to compose routers
 # Create test files
 touch touch-code/Tests/GhosttyActionDecoderTests.swift
-touch touch-code/Tests/PanelActionRouterFeatureTests.swift
+touch touch-code/Tests/PaneActionRouterFeatureTests.swift
 touch touch-code/Tests/WindowActionRouterFeatureTests.swift
 touch touch-code/Tests/GhosttyRuntimeActionTests.swift
 touch touch-code/Tests/PanelSurfaceTests.swift
@@ -906,7 +906,7 @@ Test Summary: 42 passed, 0 failed.
 
 2. **All 62 actions are routed:** Decoder covers all action tags; no silent failures.
 
-3. **Info state is stored:** Press keys that emit info actions (e.g., setting window title from a shell prompt); verify PanelSurface.info fields are updated via console logging or test inspection.
+3. **Info state is stored:** Press keys that emit info actions (e.g., setting window title from a shell prompt); verify PaneSurface.info fields are updated via console logging or test inspection.
 
 4. **Events fan out correctly:** Subscribe a test feature to TerminalEvent; verify panelActionRequested and windowActionRequested events are emitted on keystroke.
 
@@ -922,7 +922,7 @@ Test Summary: 42 passed, 0 failed.
 
 These cases are not driveable from `tc` because libghostty's action callback only fires under a real keystroke. A tester runs through this list on a dev build before any release that includes routing changes.
 
-**Setup:** Add the listed `keybind` lines to `~/.config/ghostty/config`, relaunch the app, then press each bound key in an active terminal panel.
+**Setup:** Add the listed `keybind` lines to `~/.config/ghostty/config`, relaunch the app, then press each bound key in an active terminal pane.
 
 ### Bucket 1 — Tab / split intent
 
@@ -930,11 +930,11 @@ These cases are not driveable from `tc` because libghostty's action callback onl
 - [ ] `keybind = super+w=close_tab` → the active Tab closes; if it was the last, the Worktree shows the empty state
 - [ ] `keybind = super+alt+right=move_tab:1` → active Tab shifts one slot to the right in the Tab bar
 - [ ] `keybind = super+alt+left=previous_tab` → focus moves to the Tab to the left (wraps at start)
-- [ ] `keybind = super+d=new_split:right` → the active Panel splits horizontally; new Panel takes focus
+- [ ] `keybind = super+d=new_split:right` → the active Pane splits horizontally; new Pane takes focus
 - [ ] `keybind = super+shift+d=new_split:down` → vertical split
 - [ ] `keybind = super+alt+h=goto_split:left` / `...=goto_split:right` → focus jumps to the adjacent split (collapsed onto previous/next per DEC-M5; full spatial nav is a follow-up)
 - [ ] `keybind = super+equal=equalize_splits` → every split in the Tab resizes to equal weight
-- [ ] `keybind = super+shift+return=toggle_split_zoom` → active Panel fills the Tab; press again to restore
+- [ ] `keybind = super+shift+return=toggle_split_zoom` → active Pane fills the Tab; press again to restore
 - [ ] `keybind = super+shift+k=present_terminal` → no user-visible change today (consumed as `.delegate(.presentTerminalRequested)` no-op; record that the log line fires)
 - [ ] `keybind = super+k=toggle_command_palette` → no user-visible change today (delegate no-op; logged)
 
@@ -954,7 +954,7 @@ These cases are not driveable from `tc` because libghostty's action callback onl
 ### Bucket 3 — Surface info
 
 - [ ] In a running terminal, change the shell prompt that emits OSC title → Tab bar shows the new title (via `.panelInfoChanged(.title)`)
-- [ ] `cd /tmp` → the Panel's `info.pwd` updates (inspect via debugger or a `tc panel.status` call if wired)
+- [ ] `cd /tmp` → the Pane's `info.pwd` updates (inspect via debugger or a `tc pane.status` call if wired)
 - [ ] Hover over a URL printed in the terminal → `info.mouseOverLink` populates (mouse-over-link handled)
 - [ ] Run a command that prints `\a` (bell) → `info.bellCount` increments; if notifications are enabled, see the notification surface fire
 - [ ] Trigger a readonly state or secure-input mode → info fields flip; log line at `.debug` fires
@@ -1007,15 +1007,15 @@ The decoder is the heaviest file (~250 lines), but follows a mechanical pattern.
 
 ```swift
 case GHOSTTY_ACTION_NEW_TAB:
-  runtime.emit(.panelActionRequested(panelID, .newTab))
+  runtime.emit(.panelActionRequested(paneID, .newTab))
   return true
 ```
 
-Info cases follow the same pattern with `panel.apply()` + `runtime.emitInfoChanged()`.
+Info cases follow the same pattern with `pane.apply()` + `runtime.emitInfoChanged()`.
 
 ### HierarchyClient extensions (Milestone 5)
 
-The three new closures are required because the router needs to resolve a PanelID to its (SpaceID, ProjectID, WorktreeID, TabID) tuple. Read HierarchyManager to confirm the method signature and implement the forwarder in HierarchyClient.
+The three new closures are required because the router needs to resolve a PaneID to its (SpaceID, ProjectID, WorktreeID, TabID) tuple. Read HierarchyManager to confirm the method signature and implement the forwarder in HierarchyClient.
 
 ### Test patterns
 
@@ -1036,7 +1036,7 @@ func testBellPopover() async {
 }
 ```
 
-Use this pattern for PanelActionRouterFeature and WindowActionRouterFeature tests. Record HierarchyClient calls, verify they are invoked with the right arguments.
+Use this pattern for PaneActionRouterFeature and WindowActionRouterFeature tests. Record HierarchyClient calls, verify they are invoked with the right arguments.
 
 ---
 
@@ -1044,14 +1044,14 @@ Use this pattern for PanelActionRouterFeature and WindowActionRouterFeature test
 
 **New public types (Core):**
 
-In `TouchCodeCore/Panel/`:
-- `enum PanelInfoDelta` (25 cases)
-- `enum PanelActionRequest` (11 cases) + `enum CloseTabMode`, `enum GotoTabTarget`, etc.
+In `TouchCodeCore/Pane/`:
+- `enum PaneInfoDelta` (25 cases)
+- `enum PaneActionRequest` (11 cases) + `enum CloseTabMode`, `enum GotoTabTarget`, etc.
 - `enum WindowActionRequest` (11 cases) + `enum GotoWindowTarget`
 
 In `TouchCodeCore/TerminalEvent.swift`:
-- `case panelInfoChanged(PanelID, PanelInfoDelta)`
-- `case panelActionRequested(PanelID, PanelActionRequest)`
+- `case panelInfoChanged(PaneID, PaneInfoDelta)`
+- `case panelActionRequested(PaneID, PaneActionRequest)`
 - `case windowActionRequested(WindowActionRequest)`
 - `case configChanged`
 
@@ -1062,36 +1062,36 @@ In `touch-code/Runtime/Ghostty/SurfaceInfo.swift`:
 
 In `touch-code/Runtime/Ghostty/GhosttyActionDecoder.swift`:
 - `enum GhosttyActionDecoder`
-  - `static func surfaceAction(_ action, panelID, panel, runtime) -> Bool`
+  - `static func surfaceAction(_ action, paneID, pane, runtime) -> Bool`
   - `static func appAction(_ action, runtime) -> Bool`
 
 In `touch-code/Runtime/Ghostty/GhosttyRuntime.swift`:
 - `@MainActor func handleAction(target, action) -> Bool`
 - `@MainActor private func handleSurfaceAction(_ surface, _ action) -> Bool`
-- `@MainActor private func panelID(fromSurface) -> PanelID?`
+- `@MainActor private func paneID(fromSurface) -> PaneID?`
 - `@MainActor func emit(_ event)`
-- `@MainActor func emitInfoChanged(_ panelID, _ delta)`
+- `@MainActor func emitInfoChanged(_ paneID, _ delta)`
 - `@MainActor func applyClonedConfig(_ config)`
 - `@MainActor func reloadConfig(soft)`
 - `@MainActor func toggleBackgroundOpacity()`
 
-In `touch-code/Runtime/Ghostty/PanelSurface.swift`:
+In `touch-code/Runtime/Ghostty/PaneSurface.swift`:
 - `var info: SurfaceInfo`
-- `func apply(_ delta: PanelInfoDelta)`
+- `func apply(_ delta: PaneInfoDelta)`
 - `func markExited(code: Int32)`
 
 **New App types:**
 
 In `touch-code/App/Clients/HierarchyClient.swift`:
-- `var addressOf: @MainActor @Sendable (PanelID) -> (SpaceID, ProjectID, WorktreeID)?`
+- `var addressOf: @MainActor @Sendable (PaneID) -> (SpaceID, ProjectID, WorktreeID)?`
 - `var moveTab: @MainActor @Sendable (TabID, ...) throws -> Void`
 - `var equalizeTabSplits: @MainActor @Sendable (TabID, ...) throws -> Void`
-- `var resizePanel: @MainActor @Sendable (PanelID, direction, amount) throws -> Void`
+- `var resizePanel: @MainActor @Sendable (PaneID, direction, amount) throws -> Void`
 
 In `touch-code/App/Clients/WindowService.swift`:
 - `struct WindowService: Sendable`
-  - `var openNewWindow: @Sendable (PanelID) throws -> Void`
-  - `var closeWindow: @Sendable (PanelID) throws -> Void`
+  - `var openNewWindow: @Sendable (PaneID) throws -> Void`
+  - `var closeWindow: @Sendable (PaneID) throws -> Void`
   - `var activateWindow: @Sendable (GotoWindowTarget) -> Void`
   - `var keyWindow: @Sendable () -> NSWindow?`
 
@@ -1103,9 +1103,9 @@ In `touch-code/App/Clients/AppLifecycleClient.swift`:
 In `touch-code/App/Clients/UpdatesClient.swift`:
 - `var checkNow: @Sendable () -> Void`
 
-In `touch-code/App/Features/PanelActionRouter/PanelActionRouterFeature.swift`:
-- `@Reducer struct PanelActionRouterFeature`
-  - `enum Action` with `.panelActionRequested(PanelID, PanelActionRequest)` case
+In `touch-code/App/Features/PaneActionRouter/PaneActionRouterFeature.swift`:
+- `@Reducer struct PaneActionRouterFeature`
+  - `enum Action` with `.panelActionRequested(PaneID, PaneActionRequest)` case
   - Reducer body dispatches to HierarchyClient
 
 In `touch-code/App/Features/WindowActionRouter/WindowActionRouterFeature.swift`:
@@ -1116,12 +1116,12 @@ In `touch-code/App/Features/WindowActionRouter/WindowActionRouterFeature.swift`:
 **Dependency injection updates:**
 
 In `touch-code/App/Features/Root/RootFeature.swift`:
-- Compose `PanelActionRouterFeature()` and `WindowActionRouterFeature()` into the body
+- Compose `PaneActionRouterFeature()` and `WindowActionRouterFeature()` into the body
 - Subscribe to TerminalEvent stream; route `panelActionRequested` and `windowActionRequested` events
 
 **Architectural invariants maintained:**
 - ✅ Runtime is TCA-free (only emits events; no HierarchyClient import)
 - ✅ All cross-process communication through TouchCodeIPC (not violated)
-- ✅ Panel state mutation is Runtime-localized (via panel.apply)
+- ✅ Pane state mutation is Runtime-localized (via pane.apply)
 - ✅ No circular dependencies (decoder imports Core, Runtime; routers import Clients)
 - ✅ Events flow one way (Runtime → AsyncStream → TCA)

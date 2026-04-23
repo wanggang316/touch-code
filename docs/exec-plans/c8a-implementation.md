@@ -4,7 +4,7 @@
 
 **Scope:** Replace C8's PATH-based Process spawning with NSWorkspace + Launch Services discovery. Deliver a curated 28-entry editor registry with correct macOS app detection regardless of CLI-shim installation.
 
-**Key Constraint:** C8a's `.editor` case depends on a Panel primitive: "create Panel at path with initial stdin input `$EDITOR\n`". If this primitive doesn't exist, drop `.editor` from this iteration (one-line registry change) and defer to a follow-up when the Panel side is ready.
+**Key Constraint:** C8a's `.editor` case depends on a Pane primitive: "create Pane at path with initial stdin input `$EDITOR\n`". If this primitive doesn't exist, drop `.editor` from this iteration (one-line registry change) and defer to a follow-up when the Pane side is ready.
 
 ---
 
@@ -25,7 +25,7 @@
 - **IPC Handlers** — `apps/mac/touch-code/App/Features/Socket/EditorHandlers.swift`
 - **Settings UI** — `apps/mac/touch-code/App/Features/Settings/Panes/` (add new pane for editor default)
 - **Project Options** — `apps/mac/touch-code/App/Features/Settings/RepositorySettingsFeature.swift`
-- **Panel spawning** — `apps/mac/touch-code/Runtime/Panel*.swift` (verify `.editor` spawn capability)
+- **Pane spawning** — `apps/mac/touch-code/Runtime/Pane*.swift` (verify `.editor` spawn capability)
 
 **Deliverables:**
 1. 28-entry built-in registry with bundle IDs, display names, and launch modes.
@@ -161,15 +161,15 @@ struct Project {
 
 ### Phase 1: Verification & Groundwork (parallel)
 
-**Task 1.1: Panel `.editor` spawn capability check**
+**Task 1.1: Pane `.editor` spawn capability check**
 
-Verify that the Panel primitive exists: "create Panel at path with initial stdin input `$EDITOR\n`".
+Verify that the Pane primitive exists: "create Pane at path with initial stdin input `$EDITOR\n`".
 
 *Outcome:* Document whether the capability exists today or must be built. If doesn't exist, flag for Phase 2 decision (drop `.editor` from registry vs. build the primitive).
 
 *Verification:*
-- Read `apps/mac/touch-code/Runtime/Panel*.swift` to understand Panel creation and stdin routing.
-- Check if there's already a method like `Panel.create(at: URL, initialInput: String)` or equivalent.
+- Read `apps/mac/touch-code/Runtime/Pane*.swift` to understand Pane creation and stdin routing.
+- Check if there's already a method like `Pane.create(at: URL, initialInput: String)` or equivalent.
 - If missing, estimate effort to add it; flag as a blocker for C8a `.editor` delivery.
 
 **Task 1.2: Review existing SettingsStore + Project models**
@@ -345,8 +345,8 @@ struct LiveEditorService: EditorService {
       config.createsNewApplicationInstance = true
       try await launcher.open(urls: [], withApplicationAt: resolved.appURL!, configuration: config)
     case .shellEditor:
-      // Create Panel at directory, send "$EDITOR\n" to stdin.
-      // Requires the Panel primitive from Task 1.1.
+      // Create Pane at directory, send "$EDITOR\n" to stdin.
+      // Requires the Pane primitive from Task 1.1.
       // If not available, this branch throws .launchFailed.
     }
     
@@ -358,7 +358,7 @@ struct LiveEditorService: EditorService {
 *Key implementation notes:*
 - `describe()` caches results; can be called repeatedly without re-probing.
 - `resolve()` does NOT update the cache; that's done elsewhere (Settings pane appear, IPC call).
-- `open()` does NOT spawn a Panel directly for `.shellEditor` — it delegates to the Panel primitive. If that primitive doesn't exist, throw `.launchFailed("Panel primitive not available")`.
+- `open()` does NOT spawn a Pane directly for `.shellEditor` — it delegates to the Pane primitive. If that primitive doesn't exist, throw `.launchFailed("Pane primitive not available")`.
 
 *Verification:*
 - Unit tests (see Task 5.1).
@@ -924,7 +924,7 @@ Once Teams A–C complete and merge incrementally:
 - *Mitigation:* Add `alternateBundleIdentifiers: [String]` field to descriptor; update list if Cursor re-publishes.
 - *Task:* Addressed in Task 2.1 (registry design includes this field).
 
-**Risk R2: Panel `.editor` primitive doesn't exist**
+**Risk R2: Pane `.editor` primitive doesn't exist**
 - *Mitigation:* Task 1.1 verifies availability. If missing, drop `.editor` from registry (one-line change) and defer.
 - *Task:* Addressed in Phase 1. If blocked, mark as a blocker and proceed without `.editor`.
 
@@ -977,11 +977,11 @@ Present this plan for approval. On approval:
 
 ### 2026-04-22 — Phase 1 complete
 
-**Task 1.1 — Panel `.editor` primitive check:** **Partial.** Building blocks exist:
-- `PanelSurface.sendInput(_ text: String)` — `apps/mac/touch-code/Runtime/Ghostty/PanelSurface.swift:118`, fully exposed, production-ready.
-- `HierarchyManager.openPanel(workingDirectory:initialCommand:)` — accepts both parameters; stores `initialCommand` on the Panel; flows through IPC.
+**Task 1.1 — Pane `.editor` primitive check:** **Partial.** Building blocks exist:
+- `PaneSurface.sendInput(_ text: String)` — `apps/mac/touch-code/Runtime/Ghostty/PaneSurface.swift:118`, fully exposed, production-ready.
+- `HierarchyManager.openPanel(workingDirectory:initialCommand:)` — accepts both parameters; stores `initialCommand` on the Pane; flows through IPC.
 
-**Missing:** `TerminalEngine.ensureSurface()` does not forward `panel.initialCommand` to the newly created `PanelSurface`. **3-line fix** required — added as Task 4d in the task list.
+**Missing:** `TerminalEngine.ensureSurface()` does not forward `pane.initialCommand` to the newly created `PaneSurface`. **3-line fix** required — added as Task 4d in the task list.
 
 **Decision:** Ship `.editor` in C8a v1 with the TerminalEngine wiring patch. Zero architectural risk, ~5 minutes of work.
 
@@ -1015,18 +1015,18 @@ Six commits landed on `refactor/open-editor`, one per phase:
 | 2 — Core infrastructure | `0d132c8` | 28-entry `EditorRegistry`, `EditorModels` + `LaunchMode`, `AppLauncher` protocol + `LiveAppLauncher`, 3-case `EditorError`. |
 | 3 — Service refactor | `a2d5bf9` | `LiveEditorService` cascade + cache, `TestEditorService` + `RecordingAppLauncher`, retired `ProcessSpawner` / `PathProber` / `EditorEnv` / `SpawnContract` / `CustomEditor`. |
 | 4a/4b — UX layers | `4a3bdff` | Settings default-editor pane + Project Options per-repo override, both bound to installed-only descriptor list. |
-| 4c/4d — IPC + Panel wiring | `07945c4` | `editor.{describe,open,setGlobalDefault,setProjectDefault}` handlers with per-Project override lookup; `TerminalEngine.ensureSurface` forwards `panel.initialCommand` so `$EDITOR` can reach the shell. |
+| 4c/4d — IPC + Pane wiring | `07945c4` | `editor.{describe,open,setGlobalDefault,setProjectDefault}` handlers with per-Project override lookup; `TerminalEngine.ensureSurface` forwards `pane.initialCommand` so `$EDITOR` can reach the shell. |
 | 5 — Migration + cache refresh | `2d75abd` | `Settings.garbageCollectEditors` + `Catalog.garbageCollectEditors` run once at load; `EditorService.clearCache()` invoked on Settings-pane appear and on every `editor.describe` IPC call. |
 | 6 — Tests | `6bd2875` | Registry sanity (10 tests), service resolution (8 tests), launch branching (8 tests), migration (10 tests), IPC handlers (7 tests), EditorFeature (5 tests) — 51 total, all green. |
 | 7 — Cleanup + progress log | *this commit* | Pruned stale comment references (`EditorEnv`, `LiveProcessSpawnerIntegrationTests`); appended this entry. |
 
-**Known limitation — `.shellEditor` deferred.** The `.shellEditor` registry row is probed and appears in `describe()` results, but `EditorService.open` currently throws a descriptive `.launchFailed` because the service signature (`open(directory: URL, preferred: EditorID?)`) intentionally excludes domain types (Panel / Tab context). The Panel primitive itself was completed in Phase 4d — callers that want `$EDITOR` end-to-end should route through `hierarchy.openPanel` with `initialCommand: "$EDITOR"`. A future iteration either widens the service signature or adds a separate `EditorService.openShell(panelContext:)` entry point. Tracked inline in `EditorService+Live.swift` (search `"Panel" + "Tab context"`).
+**Known limitation — `.shellEditor` deferred.** The `.shellEditor` registry row is probed and appears in `describe()` results, but `EditorService.open` currently throws a descriptive `.launchFailed` because the service signature (`open(directory: URL, preferred: EditorID?)`) intentionally excludes domain types (Pane / Tab context). The Pane primitive itself was completed in Phase 4d — callers that want `$EDITOR` end-to-end should route through `hierarchy.openPane` with `initialCommand: "$EDITOR"`. A future iteration either widens the service signature or adds a separate `EditorService.openShell(panelContext:)` entry point. Tracked inline in `EditorService+Live.swift` (search `"Pane" + "Tab context"`).
 
 ### 2026-04-22 — Codex review follow-up (P1+P2)
 
 Seven post-merge fixes applied after Codex review, landed in two commits:
 
-- **P1-1** (`describe()` filters `.shellEditor`): the registry entry stays but is suppressed from `describe()` so it can no longer be saved as a default that always fails to launch. Filtering is reversible — remove the `continue` when a Panel-aware open path lands. Tests: `EditorServiceResolutionTests.describeReturnsInstalledOnlyAndExcludesShellEditor`, `EditorServiceLaunchTests.shellEditorIsUnreachableFromOpenInV1`.
+- **P1-1** (`describe()` filters `.shellEditor`): the registry entry stays but is suppressed from `describe()` so it can no longer be saved as a default that always fails to launch. Filtering is reversible — remove the `continue` when a Pane-aware open path lands. Tests: `EditorServiceResolutionTests.describeReturnsInstalledOnlyAndExcludesShellEditor`, `EditorServiceLaunchTests.shellEditorIsUnreachableFromOpenInV1`.
 - **P1-2** (JetBrains launch API): `AppLauncher` gained `openApplication(at:configuration:)`; `.applicationWithArguments` routes through it so `configuration.arguments` actually reach the IDE. Tests: `EditorServiceLaunchTests.applicationWithArgumentsLaunchRoutesThroughOpenApplicationWithDirPathArgument`, `allJetBrainsIDsUseOpenApplicationBranch`.
 - **P2-3** (priority cascade respected): reducers hand `nil` (not `"finder"`) to the service when neither override nor global default applies, so the service's priority walk picks the first installed editor. New helper: `EditorFeature.resolveInstalledPreference`.
 - **P2-4** (subdirectory project lookup): `HierarchyManager.project(containing:)` + `HierarchyClient.projectContaining` — `tc open` inside a Project subdirectory now honors the Project's default editor. Deepest-match disambiguation when Projects nest.

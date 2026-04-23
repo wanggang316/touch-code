@@ -11,13 +11,13 @@ The main-window UI redesign (see `docs/product-specs/ui-main-window-redesign.md`
 Concretely T0 must:
 
 1. Extend `TouchCodeCore` models so per-Space last-active-Worktree restoration and per-Worktree Git-Viewer visibility can be persisted and mutated through the normal Catalog path.
-2. Expose an aggregation API over the existing agent-notification inbox so the Header bell (T2) and Sidebar unread dots (T1) can render unread state at Worktree / Project / Space granularity without either feature duplicating the `PanelID → WorktreeID` join.
+2. Expose an aggregation API over the existing agent-notification inbox so the Header bell (T2) and Sidebar unread dots (T1) can render unread state at Worktree / Project / Space granularity without either feature duplicating the `PaneID → WorktreeID` join.
 3. Remove the current Hierarchy ↔ Inbox Picker from `ContentView` so the sidebar column is unambiguously the hierarchy tree. The C6 InboxSidebar feature is kept as a component (T2 will likely reuse its row-rendering inside the bell popover).
 
 Existing state we build on:
 
-- `Catalog` / `Space` / `Project` / `Worktree` / `Tab` / `Panel` value types in `apps/mac/TouchCodeCore/`. `Catalog` already uses a versioned Codable shape; `Space` and `Worktree` do not yet have custom `init(from:)` / `encode(to:)`, so forward-compatibility is currently "whatever the synthesized Codable does with missing keys" — for optionals that is `nil`, which is lossy if a new required field is added.
-- `NotificationInbox` (TouchCodeCore, pure value type) and `InboxStore` (app-side, `@MainActor`, owns debounced persistence + unread signal). `AgentNotification.panelID` is the only hierarchy pointer; the inbox is *not* pre-joined with the Catalog.
+- `Catalog` / `Space` / `Project` / `Worktree` / `Tab` / `Pane` value types in `apps/mac/TouchCodeCore/`. `Catalog` already uses a versioned Codable shape; `Space` and `Worktree` do not yet have custom `init(from:)` / `encode(to:)`, so forward-compatibility is currently "whatever the synthesized Codable does with missing keys" — for optionals that is `nil`, which is lossy if a new required field is added.
+- `NotificationInbox` (TouchCodeCore, pure value type) and `InboxStore` (app-side, `@MainActor`, owns debounced persistence + unread signal). `AgentNotification.paneID` is the only hierarchy pointer; the inbox is *not* pre-joined with the Catalog.
 - `ContentView.sidebarColumn` switches on `RootFeature.State.sidebarMode` to render either `HierarchySidebarView` or `InboxSidebarView`; the toolbar exposes a `modeTogglePicker` for the user.
 - `HierarchyManager` already owns catalog mutations and persistence; new model fields plug into that existing pipeline.
 
@@ -37,7 +37,7 @@ Existing state we build on:
 - No Sidebar / Header / GitViewer UI redesign (T1 / T2 / T3).
 - No read-mark propagation policy beyond what the exposed APIs allow (debouncing, etc. remain T2's call).
 - No new data migrations for existing on-disk catalogs beyond "defaults apply for missing keys".
-- No changes to how `AgentNotification` is keyed (still `PanelID`).
+- No changes to how `AgentNotification` is keyed (still `PaneID`).
 - No deletion of `InboxSidebarFeature` or its view/reducer — kept for T2 reuse.
 
 ## Design
@@ -46,7 +46,7 @@ Existing state we build on:
 
 The Catalog extensions are small Codable-shape evolutions on `Space` and `Worktree`. Both structs switch from synthesized Codable to explicit `init(from:)` / `encode(to:)` so the new optional fields decode with documented defaults when absent and are written out when set. Mutation goes through `HierarchyManager`, matching the existing path for `Space.selectedProjectID` etc.
 
-Aggregation of notifications by Worktree / Project / Space is implemented as **pure helpers on `NotificationInbox`** that take the `Catalog` as an explicit argument. This keeps TouchCodeCore stateless and unit-testable without MainActor. Mutation helpers (`markRead(forWorktree:in:)`, `dismissAll()`) live on `InboxStore` because they must schedule saves and publish the unread signal. The "signatures listed in the task brief" are honored *semantically*; the concrete signatures take the catalog explicitly because the `PanelID → WorktreeID` join requires it and we prefer an explicit dependency over a hidden one.
+Aggregation of notifications by Worktree / Project / Space is implemented as **pure helpers on `NotificationInbox`** that take the `Catalog` as an explicit argument. This keeps TouchCodeCore stateless and unit-testable without MainActor. Mutation helpers (`markRead(forWorktree:in:)`, `dismissAll()`) live on `InboxStore` because they must schedule saves and publish the unread signal. The "signatures listed in the task brief" are honored *semantically*; the concrete signatures take the catalog explicitly because the `PaneID → WorktreeID` join requires it and we prefer an explicit dependency over a hidden one.
 
 The `ContentView` Picker removal is purely a SwiftUI deletion. `RootFeature.State.sidebarMode` is kept as an internal-only property (so existing reducer tests and the hierarchy/inbox scope wiring keep compiling), but its public action `sidebarModeChanged` becomes unused for now — we leave the plumbing rather than remove it, since T2 may choose to repurpose `inbox` state for the bell popover.
 
@@ -156,17 +156,17 @@ Resolution helper (also on `Catalog`, private-internal visibility):
 
 ```swift
 extension Catalog {
-  /// Resolve a PanelID to the Worktree that currently hosts it, if any.
-  /// O(n) across the whole catalog; aggregation callers build a PanelID→WorktreeID
+  /// Resolve a PaneID to the Worktree that currently hosts it, if any.
+  /// O(n) across the whole catalog; aggregation callers build a PaneID→WorktreeID
   /// map once per call to amortize.
-  func worktreeID(forPanel panelID: PanelID) -> WorktreeID?
+  func worktreeID(forPane paneID: PaneID) -> WorktreeID?
 
-  /// All PanelIDs that currently live under a given Worktree (flat across all tabs).
-  func panelIDs(inWorktree worktreeID: WorktreeID) -> Set<PanelID>
+  /// All PaneIDs that currently live under a given Worktree (flat across all tabs).
+  func paneIDs(inWorktree worktreeID: WorktreeID) -> Set<PaneID>
 }
 ```
 
-Implementation detail: aggregation methods build a `[PanelID: WorktreeID]` index once by walking `catalog.spaces → projects → worktrees → tabs → panels`, then scan notifications against it. For O(notifications + panels) cost per call. Good enough at the catalog/inbox sizes in play (catalog ≤ a few hundred panels, inbox ≤ 500).
+Implementation detail: aggregation methods build a `[PaneID: WorktreeID]` index once by walking `catalog.spaces → projects → worktrees → tabs → panes`, then scan notifications against it. For O(notifications + panes) cost per call. Good enough at the catalog/inbox sizes in play (catalog ≤ a few hundred panes, inbox ≤ 500).
 
 "Unread" follows `AgentNotification.isUnread` (existing: `readAt == nil && dismissedAt == nil`).
 
@@ -175,7 +175,7 @@ Implementation detail: aggregation methods build a `[PanelID: WorktreeID]` index
 ```swift
 @MainActor
 extension InboxStore {
-  /// Marks every notification whose panel resolves to this worktree (in catalog)
+  /// Marks every notification whose pane resolves to this worktree (in catalog)
   /// as read (`readAt = now`). Schedules save + publishes unread.
   func markRead(forWorktree worktreeID: WorktreeID, in catalog: Catalog, now: Date = Date())
 
@@ -214,7 +214,7 @@ Backward-compat tests go in `CatalogCodableTests` (new file or appended): decode
 |---|---|---|
 | `TouchCodeCore/Space` | Model fields + Codable | Runtime mutation / persistence |
 | `TouchCodeCore/Worktree` | Model fields + Codable | Runtime mutation / persistence |
-| `TouchCodeCore/Catalog` | Panel→Worktree resolution helpers | Mutation API |
+| `TouchCodeCore/Catalog` | Pane→Worktree resolution helpers | Mutation API |
 | `TouchCodeCore/NotificationInbox` | Pure aggregation helpers | Mutation (those are on `InboxStore`) |
 | `apps/mac/.../HierarchyManager` | `setSpaceLastActiveWorktree`, `setWorktreeGitViewerVisible` | UI, notifications |
 | `apps/mac/.../InboxStore` | `markRead(forWorktree:in:)`, `dismissAll` | Catalog shape |
@@ -229,7 +229,7 @@ Dependency direction stays: `app-side` → `TouchCodeCore`, never the other way.
 Rejected: `InboxStore` is MainActor, which forces every test to `@MainActor` just to exercise aggregation logic. The aggregation is pure given `(inbox, catalog)` — putting it in TouchCodeCore gives free unit coverage and lets T2 compose it (e.g. on a snapshot inside a reducer) without crossing the MainActor boundary.
 
 **(B) Pre-join notifications with WorktreeID at append time and store `worktreeID` on `AgentNotification`.**
-Rejected: panels can move between tabs, and tabs between worktrees; the pointer would go stale and would also require a migration of existing inbox JSON. The current "panelID + render-time join" is the simpler invariant; we keep it and pay the O(n) cost at aggregation time, which is bounded by the 500-row cap.
+Rejected: panes can move between tabs, and tabs between worktrees; the pointer would go stale and would also require a migration of existing inbox JSON. The current "paneID + render-time join" is the simpler invariant; we keep it and pay the O(n) cost at aggregation time, which is bounded by the 500-row cap.
 
 **(C) Fold `lastActiveWorktreeID` into `Project.selectedWorktreeID`.**
 Rejected (and explicitly forbidden by the task brief): the two have different semantics. `Project.selectedWorktreeID` is the "most recently selected worktree under this Project" (global). `Space.lastActiveWorktreeID` is "when returning to this Space from another Space, restore this worktree"; it may be under any Project within the Space, and may differ from that Project's `selectedWorktreeID` when the user Space-hops within the same Project. Merging them loses the distinction.
@@ -240,14 +240,14 @@ Rejected: a version bump implies a migration contract. Additive optional fields 
 **(E) Delete `SidebarMode` / `sidebarMode` / inbox scope from RootFeature entirely.**
 Rejected for now: T2 has not committed to a specific re-use of `InboxSidebarFeature` for the bell popover, but the task brief says "InboxSidebarView remains as a component" and "RootFeature's sidebarMode state/action may be retained as internal implementation detail". Deleting now and adding back later is churn; keep the plumbing, remove only the UI.
 
-**(F) Require an explicit resolver closure on `InboxStore` at init (`panelResolver: (PanelID) -> WorktreeID?`).**
+**(F) Require an explicit resolver closure on `InboxStore` at init (`panelResolver: (PaneID) -> WorktreeID?`).**
 Rejected: the closure would need the catalog, and the catalog changes every time the user adds/removes a tab — wiring that as a captured reference in `InboxStore` is extra lifecycle for no test-ergonomic gain, since pure `(inbox, catalog)` helpers already test cleanly.
 
 ## Cross-Cutting Concerns
 
 **Testing strategy.** Three test surfaces:
 1. `CatalogCodableTests` — decode pre-T0 JSON fixture; assert defaults. Encode → decode round-trip with the new fields set; assert equality.
-2. `NotificationInboxTests` — a tiny catalog with 1 space / 2 projects / 3 worktrees / 4 panels + a handful of `AgentNotification`s: covers (a) unread count on single worktree, (b) hasUnread on project with two worktrees (mixed read/unread), (c) hasUnread on space spanning projects, (d) notifications(forWorktree:) time-ordering and read/dismissed inclusion.
+2. `NotificationInboxTests` — a tiny catalog with 1 space / 2 projects / 3 worktrees / 4 panes + a handful of `AgentNotification`s: covers (a) unread count on single worktree, (b) hasUnread on project with two worktrees (mixed read/unread), (c) hasUnread on space spanning projects, (d) notifications(forWorktree:) time-ordering and read/dismissed inclusion.
 3. `InboxStoreTests` — `markRead(forWorktree:in:)` on a catalog+inbox fixture asserts `unreadCount → 0` for that worktree, unread on the sibling worktree unchanged; `dismissAll()` delegates to `clearAll`.
 
 **Observability.** No new log categories. Existing `inbox` and `hierarchy` loggers already cover persistence/load paths.
@@ -267,8 +267,8 @@ Rejected: the closure would need the catalog, and the catalog changes every time
 
 ## Risks
 
-**R1: Panel-to-Worktree index rebuild cost if the aggregation helpers are called per-row during render.**
-Mitigation: the helpers build the index per-call; a naive `ForEach Project { hasUnread(forProject:in:) }` over N projects does N scans. Document in doc-comments that callers who render many rows per frame should build one snapshot-scoped cache. Concrete values: 500 notifications × 200 panels = ~100K ops worst-case ≈ sub-millisecond; deferred optimization until profiled.
+**R1: Pane-to-Worktree index rebuild cost if the aggregation helpers are called per-row during render.**
+Mitigation: the helpers build the index per-call; a naive `ForEach Project { hasUnread(forProject:in:) }` over N projects does N scans. Document in doc-comments that callers who render many rows per frame should build one snapshot-scoped cache. Concrete values: 500 notifications × 200 panes = ~100K ops worst-case ≈ sub-millisecond; deferred optimization until profiled.
 
 **R2: `decodeIfPresent` silently swallowing a typo in the new key.**
 Mitigation: round-trip tests (encode then decode) catch typos where the encode side writes a different key than the decode side expects.

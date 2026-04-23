@@ -11,20 +11,20 @@ This is a living document. The Progress, Surprises & Discoveries, Decision Log, 
 After this plan lands, a contributor who `make mac-build && make mac-run-app` sees the first working touch-code session:
 
 - The app launches and restores a previously-saved hierarchy from disk, so opening the app twice in a row resumes exactly where the user left off.
-- The sidebar shows Space → Project → Worktree levels. The selected Worktree shows its Tabs in a tab bar; the active Tab shows one or more live Panels arranged by a split tree.
-- Each Panel is a real libghostty terminal running the user's shell. Typing into a Panel works. Splitting, closing, switching Tabs, and switching Worktrees all happen in under one frame.
-- A Panel that crashes shows a placeholder with a "Retry" action instead of taking down the Tab; three crashes in 30s close the Tab with a toast.
+- The sidebar shows Space → Project → Worktree levels. The selected Worktree shows its Tabs in a tab bar; the active Tab shows one or more live Panes arranged by a split tree.
+- Each Pane is a real libghostty terminal running the user's shell. Typing into a Pane works. Splitting, closing, switching Tabs, and switching Worktrees all happen in under one frame.
+- A Pane that crashes shows a placeholder with a "Retry" action instead of taking down the Tab; three crashes in 30s close the Tab with a toast.
 - Creating or removing a git Worktree from the UI calls `git worktree add|remove` under the hood and the file system reflects the change immediately.
 
 This is the first plan where the app becomes recognisable as "a terminal orchestrator" rather than "an empty window". Every later capability (C3 Hooks, C4 CLI, C6 notifications, C7 git viewer, C8 editor) attaches to the event stream and hierarchy produced here.
 
 ## Progress
 
-- [x] M1 — Domain model skeleton in `TouchCodeCore` (IDs, Space/Project/Worktree/Tab/Panel structs, `SplitTree<PanelID>`, `AtomicFileStore`, unit tests) — 2026-04-19
+- [x] M1 — Domain model skeleton in `TouchCodeCore` (IDs, Space/Project/Worktree/Tab/Pane structs, `SplitTree<PaneID>`, `AtomicFileStore`, unit tests) — 2026-04-19
 - [x] M2 — `CatalogStore` + headless `HierarchyManager` (load/save, debounced write, structural mutations, unit tests with fake runtime) — 2026-04-19
 - [x] M3 — GhosttyKit re-enabled (bootstrap DEC-8 resolved), `GhosttyRuntime` bootstrap — 2026-04-20
 - [x] M4 — `TerminalEngine` façade + `AsyncStream<TerminalEvent>` + crash isolation + output coalescing (M4.1–M4.5) — 2026-04-20
-- [x] M5 — PanelSurface + GhosttySurfaceView, surface registry, PanelHostView, live shell in MainView (M5.1–M5.4). TCA/sidebar/tab-bar/split-view UI remains scoped for a follow-up plan — 2026-04-20
+- [x] M5 — PaneSurface + GhosttySurfaceView, surface registry, PaneHostView, live shell in MainView (M5.1–M5.4). TCA/sidebar/tab-bar/split-view UI remains scoped for a follow-up plan — 2026-04-20
 - [x] M6 — Git worktree CLI integration + non-git Project fallback (synthetic single Worktree) — 2026-04-20
 
 ## Surprises & Discoveries
@@ -36,11 +36,11 @@ This is the first plan where the app becomes recognisable as "a terminal orchest
 - **DEC-1 (M1, 2026-04-19): `SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated` on data-only targets.** The workspace-level default is `MainActor`, which caused protocol requirements (`HierarchyID.init(raw:)`, `var raw`) to be MainActor-isolated and unreachable from nonisolated struct extensions. Matching supaterm's `SupatermCLIShared` / `SPCLI` pattern, overrode the setting on `TouchCodeCore`, `TouchCodeCoreTests`, and `TouchCodeIPC`. The app target keeps the MainActor default.
 - **DEC-2 (M1, 2026-04-19): `SplitTree` trimmed — deferred spatial operations.** Supaterm's `SplitTree<ViewType>` carries spatial helpers (`Spatial`, `resizing by:pixels in:`, `sizing to:cells`, `equalized`, `tiled`, `mainVertical`, `viewBounds`) that depend on `NSView` bounds. For the pure-Swift, AppKit-free TouchCodeCore, only algebraic/topological ops ship in M1: `leaves`, `contains`, `path(to:)`, `inserting`, `removing`, `replacing`, `settingZoomed`, `resizing(at:ratio:)`, `focusTarget(for:from:)` (no `.spatial` case), `focusTargetAfterClosing`. UI-layer extensions in M5 will bring back bounds-aware operations.
 - **DEC-3 (M1, 2026-04-19): Disabled SwiftLint `identifier_name` rule.** Same pattern as supaterm. The rule's 3-char minimum conflicts with idiomatic Swift names (`l`/`r` in SplitTree pattern matching, `fd` for file descriptor, `fm` for FileManager, enum cases like `up`/`down`). Domain-meaningful short names are preferable to renaming them; disabling the rule costs less than constant exclusions.
-- **DEC-4 (M1, 2026-04-19): M1 landed as a single commit rather than the two commits the plan predicted.** The plan suggested `feat(core): domain types and SplitTree<PanelID>` plus `feat(core): AtomicFileStore + round-trip tests`. In practice the two pieces were interleaved (tests cover both; the test target PR itself is inherently one unit). Kept it as one coherent M1 commit to preserve reviewability.
-- **DEC-5 (M2, 2026-04-19): Disabled SwiftLint `function_parameter_count`, `large_tuple`, and `line_length` rules.** The hierarchical mutation API requires passing IDs through multiple levels (Space → Project → Worktree → Tab → Panel) to navigate the tree. Refactoring to reduce parameters would either (a) require storing mutable context in the manager itself (loses isolation and complicates reasoning) or (b) create wrapper objects (premature abstraction). The disabled rules were overly restrictive for this intentional design choice. This matches the pattern of disabling `identifier_name` in M1 — rules that don't fit the domain win less than clarity does.
+- **DEC-4 (M1, 2026-04-19): M1 landed as a single commit rather than the two commits the plan predicted.** The plan suggested `feat(core): domain types and SplitTree<PaneID>` plus `feat(core): AtomicFileStore + round-trip tests`. In practice the two pieces were interleaved (tests cover both; the test target PR itself is inherently one unit). Kept it as one coherent M1 commit to preserve reviewability.
+- **DEC-5 (M2, 2026-04-19): Disabled SwiftLint `function_parameter_count`, `large_tuple`, and `line_length` rules.** The hierarchical mutation API requires passing IDs through multiple levels (Space → Project → Worktree → Tab → Pane) to navigate the tree. Refactoring to reduce parameters would either (a) require storing mutable context in the manager itself (loses isolation and complicates reasoning) or (b) create wrapper objects (premature abstraction). The disabled rules were overly restrictive for this intentional design choice. This matches the pattern of disabling `identifier_name` in M1 — rules that don't fit the domain win less than clarity does.
 - **DEC-6 (M3, 2026-04-20): Metal Toolchain + extra frameworks required for GhosttyKit link.** `xcodebuild -downloadComponent MetalToolchain` must run once on the build machine (macOS 26 / Xcode 26 ships without it by default). App target must link `-lc++ -framework Carbon -framework Metal -framework MetalKit -framework CoreText -framework QuartzCore` because `ghostty-internal.a` pulls spirv_cross/glslang (C++) and Carbon HIToolbox symbols (`_TISCopyCurrentKeyboardLayoutInputSource`). Documented in `OTHER_LDFLAGS` on the `touch-code` target.
 - **DEC-7 (M3, 2026-04-20): `ghostty_init(argc, argv)` must precede any other ghostty API call.** Crashes in `ghostty_config_new` on null pointer deref without this. Wrapped via a `static let globalInit` on `GhosttyRuntime` that computes on first access (`_ = Self.globalInit`). Mirrors ghostty's own `macos/Sources/App/macOS/main.swift`.
-- **DEC-8 (M3, 2026-04-20): Deferred full Panel surface rendering.** A complete `PanelSurface` with NSTextInputClient, mouse/keyboard event forwarding, tracking areas, drag-and-drop, focus state, and Metal rendering is ~2000+ lines (supaterm reference: 1300 lines of SurfaceView alone). Not feasible in one session alongside the rest of M3-M5. Shipping only the `ghostty_app_t` bring-up as proof of linkage; full surface view is carry-forward.
+- **DEC-8 (M3, 2026-04-20): Deferred full Pane surface rendering.** A complete `PaneSurface` with NSTextInputClient, mouse/keyboard event forwarding, tracking areas, drag-and-drop, focus state, and Metal rendering is ~2000+ lines (supaterm reference: 1300 lines of SurfaceView alone). Not feasible in one session alongside the rest of M3-M5. Shipping only the `ghostty_app_t` bring-up as proof of linkage; full surface view is carry-forward.
 - **DEC-9 (M6, 2026-04-20): `GitWorktreeCLI.run` kept synchronous inside the actor.** Made public methods non-async since `Process.waitUntilExit` is synchronous; actor isolation still serialises calls. SwiftLint's `async_without_await` rule would flag otherwise, and marking functions as async for the caller purely to satisfy a future refactor is premature.
 
 ## Outcomes & Retrospective
@@ -48,14 +48,14 @@ This is the first plan where the app becomes recognisable as "a terminal orchest
 ### M1 — Domain model skeleton (2026-04-19)
 
 **What landed:**
-- `apps/mac/TouchCodeCore/` — `IDs.swift` (SpaceID/ProjectID/WorktreeID/TabID/PanelID behind `HierarchyID` protocol), `Panel.swift`, `Tab.swift` (with `splitTreeLeafIDs` / `flatPanelIDs` / `validateInvariants()`), `Worktree.swift`, `Project.swift` (with `supportsWorktrees`), `Space.swift`, `Catalog.swift` (version-gated Codable, `currentVersion = 1`, `defaultURL`), `SplitTree.swift` (generic `SplitTree<Leaf>` pure-value API), `AtomicFileStore.swift` (write-to-temp → fsync → rename).
+- `apps/mac/TouchCodeCore/` — `IDs.swift` (SpaceID/ProjectID/WorktreeID/TabID/PaneID behind `HierarchyID` protocol), `Pane.swift`, `Tab.swift` (with `splitTreeLeafIDs` / `flatPaneIDs` / `validateInvariants()`), `Worktree.swift`, `Project.swift` (with `supportsWorktrees`), `Space.swift`, `Catalog.swift` (version-gated Codable, `currentVersion = 1`, `defaultURL`), `SplitTree.swift` (generic `SplitTree<Leaf>` pure-value API), `AtomicFileStore.swift` (write-to-temp → fsync → rename).
 - `apps/mac/TouchCodeCoreTests/` — new `.unitTests` Tuist target with `SplitTreeTests` (15 cases), `CatalogCodableTests` (7 cases), `AtomicFileStoreTests` (5 cases). 28 tests total; all pass on first green build.
 - `apps/mac/Project.swift` — new `TouchCodeCoreTests` target; `SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated` on `TouchCodeCore`, `TouchCodeCoreTests`, `TouchCodeIPC`.
 - `apps/mac/.swiftlint.yml` — added `TouchCodeCoreTests` to included; disabled `identifier_name`.
 
 **Verification:** `xcodebuild test -scheme TouchCodeCore` → 28 passed in 0.028s. `xcodebuild build -scheme touch-code` → `BUILD SUCCEEDED`. `make lint` → clean.
 
-**Carry-forward to M2:** `CatalogStore` can now be built on top of `AtomicFileStore` + `Catalog`'s version-gated decoder. `HierarchyManager` has stable UUID IDs, `Tab.validateInvariants()`, and `SplitTree<PanelID>` mutations to drive structural tests without ghostty.
+**Carry-forward to M2:** `CatalogStore` can now be built on top of `AtomicFileStore` + `Catalog`'s version-gated decoder. `HierarchyManager` has stable UUID IDs, `Tab.validateInvariants()`, and `SplitTree<PaneID>` mutations to drive structural tests without ghostty.
 
 ### M2 — CatalogStore + HierarchyManager (2026-04-19)
 
@@ -70,7 +70,7 @@ This is the first plan where the app becomes recognisable as "a terminal orchest
 
 **Verification:** `xcodebuild test -scheme touch-code` → 8 tests passed. `xcodebuild build -scheme touch-code` → `BUILD SUCCEEDED`. `make lint` → clean. All mutations preserve `Tab.validateInvariants()`.
 
-**Carry-forward to M3:** Runtime can now instantiate and drive surface creation/closure in response to hierarchy mutations. M3 will wire this to `GhosttyRuntime` via `TerminalEngine`, starting with a single hardcoded Panel.
+**Carry-forward to M3:** Runtime can now instantiate and drive surface creation/closure in response to hierarchy mutations. M3 will wire this to `GhosttyRuntime` via `TerminalEngine`, starting with a single hardcoded Pane.
 
 ### M3 — GhosttyKit bring-up (partial, 2026-04-20)
 
@@ -90,36 +90,36 @@ Delivered in five incremental commits (M4.1 → M4.5) with three rounds of revie
 
 **What landed:**
 - `apps/mac/TouchCodeCore/TerminalEvent.swift` — `TerminalEvent` enum (10 variants), `HierarchyMutationScope` sum type for scope-limited invalidation, `TabAutoCloseCause` structured cause (crashLoop/other). Promoted to `TouchCodeCore` so TCA clients can consume without pulling app-target types.
-- `apps/mac/touch-code/Runtime/PendingOutputBuffer.swift` — per-panel output coalescer with `@MainActor @Sendable` emit closure, `isolated deinit` drain, 500ms debounced flush, 16KB overflow-flush.
-- `apps/mac/touch-code/Runtime/TerminalEngine.swift` — `@MainActor` façade composing `CatalogStore`, `HierarchyManager`, and optional `GhosttyRuntime`. Multi-consumer `SubscriberRegistry` broadcasts to fresh per-subscriber `AsyncStream`s with explicit `.bufferingNewest(256)`; `lifecycleOnly` parameter filters out `panelOutput`/`panelIdle`. `finishEventStream()` is idempotent and terminal; `events()` after finish returns already-finished stream.
-- Crash isolation: `CrashOutcome { .survived / .tabAutoClosed(TabID) / .closeFailed(String) }` tri-state return. Per-panel crash ring buffer with configurable `CrashPolicy` (default 3-in-30s); capped at `maxCrashesInWindow` to bound memory. `.panelClosedByTab(PanelID, cause:)` distinct variant for sibling cleanup (never misreported as code-0 exit). Injected clock seam for deterministic tests.
+- `apps/mac/touch-code/Runtime/PendingOutputBuffer.swift` — per-pane output coalescer with `@MainActor @Sendable` emit closure, `isolated deinit` drain, 500ms debounced flush, 16KB overflow-flush.
+- `apps/mac/touch-code/Runtime/TerminalEngine.swift` — `@MainActor` façade composing `CatalogStore`, `HierarchyManager`, and optional `GhosttyRuntime`. Multi-consumer `SubscriberRegistry` broadcasts to fresh per-subscriber `AsyncStream`s with explicit `.bufferingNewest(256)`; `lifecycleOnly` parameter filters out `paneOutput`/`paneIdle`. `finishEventStream()` is idempotent and terminal; `events()` after finish returns already-finished stream.
+- Crash isolation: `CrashOutcome { .survived / .tabAutoClosed(TabID) / .closeFailed(String) }` tri-state return. Per-pane crash ring buffer with configurable `CrashPolicy` (default 3-in-30s); capped at `maxCrashesInWindow` to bound memory. `.panelClosedByTab(PaneID, cause:)` distinct variant for sibling cleanup (never misreported as code-0 exit). Injected clock seam for deterministic tests.
 - `retryPanel(_:) -> Bool` guards `findPanel != nil` before clearing ring.
-- `apps/mac/touch-code/Tests/TerminalEngineTests.swift` — 13 tests covering subscribe-then-emit ordering, multi-consumer fan-out, lifecycle-only filtering, output coalescing, post-finish silence, subscribe-after-finish, crash survival, three-in-window auto-close with explicit event-order assertions (`[panelCrashed×3, panelClosedByTab(sibling), tabAutoClosed]`), window-boundary edge cases, retry ring-clear, retry unknown-ID, sibling close order.
+- `apps/mac/touch-code/Tests/TerminalEngineTests.swift` — 13 tests covering subscribe-then-emit ordering, multi-consumer fan-out, lifecycle-only filtering, output coalescing, post-finish silence, subscribe-after-finish, crash survival, three-in-window auto-close with explicit event-order assertions (`[paneCrashed×3, panelClosedByTab(sibling), tabAutoClosed]`), window-boundary edge cases, retry ring-clear, retry unknown-ID, sibling close order.
 
 **Key review-driven fixes (M4.1→M4.5):**
-- `panelExited(signal: Int32?)` distinguishes SIGKILL from clean non-zero exit.
+- `paneExited(signal: Int32?)` distinguishes SIGKILL from clean non-zero exit.
 - `hierarchyMutated(HierarchyMutationScope)` path-scoped invalidation.
 - Bounded `AsyncStream` prevents memory growth when consumer stalls.
 - Subscribe-after-finish returns finished stream (was: hung forever).
 
 **Verification:** 33 tests pass; lint clean. App binary launches without segfault.
 
-### M5 — PanelSurface + live shell (2026-04-20)
+### M5 — PaneSurface + live shell (2026-04-20)
 
 Delivered in four commits (M5.1 → M5.4) with IME/UAF/lifecycle fixes consolidated in the final revision.
 
 **What landed:**
-- `apps/mac/touch-code/Runtime/Ghostty/PanelSurface.swift` — `@MainActor` class wrapping one `ghostty_surface_t` + its hosting view. 16-byte heap-allocated `uuid_t` buffer passed as `ghostty_surface_config_s.userdata` so `close_surface_cb` can recover the owning `PanelID` via a safe byte-copy across the C→MainActor hop (UAF-resistant). `isolated deinit` frees the ghostty surface + cstring + userdata. State transitions: `.initialising / .ready / .exited(code:) / .crashed(reason:)`.
+- `apps/mac/touch-code/Runtime/Ghostty/PaneSurface.swift` — `@MainActor` class wrapping one `ghostty_surface_t` + its hosting view. 16-byte heap-allocated `uuid_t` buffer passed as `ghostty_surface_config_s.userdata` so `close_surface_cb` can recover the owning `PaneID` via a safe byte-copy across the C→MainActor hop (UAF-resistant). `isolated deinit` frees the ghostty surface + cstring + userdata. State transitions: `.initialising / .ready / .exited(code:) / .crashed(reason:)`.
 - `apps/mac/touch-code/Runtime/Ghostty/GhosttySurfaceView.swift` — ~340-line `NSView + NSTextInputClient`. Key path uses `keyTextAccumulator` during `interpretKeyEvents` to avoid double-forward of IME text; UTF-8 forwarding via `text.utf8.count` (not `strlen`); `flagsChanged` diffs `NSEvent.modifierFlags` to emit correct PRESS / RELEASE per modifier; IME preedit forwarded via `ghostty_surface_preedit` for CJK composition visibility. Mouse events use point coords (ghostty applies content scale internally). Tracking area for cursor events.
-- `apps/mac/touch-code/Runtime/Ghostty/GhosttyRuntime.swift` — surface registry (`PanelID → PanelSurface`), process-global `shared: weak` reference used by `close_surface_cb` to resolve panels after the main-queue hop. `isolated deinit` closes all registered surfaces before freeing the app handle.
-- `apps/mac/touch-code/Runtime/TerminalEngine.swift` — `ensureSurface(for:in:)` / `closeSurface(for:)` APIs. `ensureSurface` requires Panel to be wired into a Tab (throws `.panelHasNoTab` instead of fabricating a random `TabID`). `handleSurfaceClose` snapshots state before unregistering so lifecycle event can't be dropped by concurrent close.
-- `apps/mac/touch-code/App/PanelHostView.swift` — `NSViewRepresentable` hosting `GhosttySurfaceView`; `dismantleNSView` symmetry for future teardown routing.
-- `apps/mac/touch-code/App/MainView.swift` — `SingleSurfaceHost` (`@Observable`) with separate `phase: Phase` and `panel: PanelSurface?` (avoids `@Observable` reference-in-enum diffing footgun). `bringUp()` latches a one-shot `bringUpStarted` flag — SwiftUI `.task` re-running no longer leaks second runtime/surface. `tearDown()` from `.onDisappear`. `friendlyMessage(for:)` maps `GhosttyError` cases to readable strings.
+- `apps/mac/touch-code/Runtime/Ghostty/GhosttyRuntime.swift` — surface registry (`PaneID → PaneSurface`), process-global `shared: weak` reference used by `close_surface_cb` to resolve panes after the main-queue hop. `isolated deinit` closes all registered surfaces before freeing the app handle.
+- `apps/mac/touch-code/Runtime/TerminalEngine.swift` — `ensureSurface(for:in:)` / `closeSurface(for:)` APIs. `ensureSurface` requires Pane to be wired into a Tab (throws `.panelHasNoTab` instead of fabricating a random `TabID`). `handleSurfaceClose` snapshots state before unregistering so lifecycle event can't be dropped by concurrent close.
+- `apps/mac/touch-code/App/PaneHostView.swift` — `NSViewRepresentable` hosting `GhosttySurfaceView`; `dismantleNSView` symmetry for future teardown routing.
+- `apps/mac/touch-code/App/MainView.swift` — `SingleSurfaceHost` (`@Observable`) with separate `phase: Phase` and `pane: PaneSurface?` (avoids `@Observable` reference-in-enum diffing footgun). `bringUp()` latches a one-shot `bringUpStarted` flag — SwiftUI `.task` re-running no longer leaks second runtime/surface. `tearDown()` from `.onDisappear`. `friendlyMessage(for:)` maps `GhosttyError` cases to readable strings.
 - `apps/mac/touch-code/Tests/SingleSurfaceHostTests.swift` — 2 idempotency tests.
 
 **Observable acceptance:** `make mac-run-app` opens a window with a live libghostty-rendered shell in `$HOME`. Typing works. Quitting and relaunching starts a fresh shell. No segfaults.
 
-**Not shipped this session (scoped for a follow-up plan):** Full TCA clients + sidebar + tab bar + split-view UI. Today's MainView bypasses `TerminalEngine.ensureSurface` and drives a single `PanelSurface` directly — adequate to prove the libghostty integration end-to-end. The TCA plumbing is a separate exec plan that will compose what M4+M5 built.
+**Not shipped this session (scoped for a follow-up plan):** Full TCA clients + sidebar + tab bar + split-view UI. Today's MainView bypasses `TerminalEngine.ensureSurface` and drives a single `PaneSurface` directly — adequate to prove the libghostty integration end-to-end. The TCA plumbing is a separate exec plan that will compose what M4+M5 built.
 
 **Verification:** 33 tests pass across 5 suites; `make mac-lint` clean; app binary launches a live shell without segfault.
 
@@ -140,7 +140,7 @@ Related documents (all in this repo):
 
 - Product spec — [docs/product-spec.md](../product-spec.md), capabilities C1 and C2
 - Design doc — [docs/design-docs/0001-terminal-and-hierarchy.md](../design-docs/0001-terminal-and-hierarchy.md) — **authoritative** for every design decision. This plan does not relitigate those decisions; it implements them.
-- Architecture — [docs/architecture.md](../architecture.md) — codemap, dependency direction, invariants (Panel mutability in Runtime, hybrid state management, atomic-rename JSON, IPC namespaces)
+- Architecture — [docs/architecture.md](../architecture.md) — codemap, dependency direction, invariants (Pane mutability in Runtime, hybrid state management, atomic-rename JSON, IPC namespaces)
 - Golden rules — [docs/golden-rules.md](../golden-rules.md)
 - Previous ExecPlan — [docs/exec-plans/0001-bootstrap-monorepo.md](0001-bootstrap-monorepo.md), especially DEC-8 (deferred GhosttyKit `foreignBuild`) which M3 resolves
 
@@ -152,7 +152,7 @@ Reference projects (filesystem-local, read-only — we borrow first and deviate 
   - `supacode/Clients/Terminal/TerminalClient.swift` — the TCA `DependencyKey` command/event bridge we copy
   - `supacode/Domain/` — worktree models
 - **supaterm** — `/Users/wanggang/dev/opensource/supaterm`
-  - `apps/mac/supaterm/Features/Terminal/Models/SplitTree.swift` — the generic split tree we specialise to `SplitTree<PanelID>`
+  - `apps/mac/supaterm/Features/Terminal/Models/SplitTree.swift` — the generic split tree we specialise to `SplitTree<PaneID>`
   - `apps/mac/supaterm/Features/Terminal/Models/TerminalSession*.swift` — schema-versioned catalog with `pruned()` cascade
   - `apps/mac/supaterm/Features/Terminal/Ghostty/GhosttyRuntime.swift` — sibling Ghostty wrapper, simpler than supacode
   - `apps/mac/supaterm/Features/Terminal/Views/SplitView.swift` — the `NSView` tree that renders a `SplitTree`
@@ -161,27 +161,27 @@ Reference projects (filesystem-local, read-only — we borrow first and deviate 
 
 **Terminology used in this plan**:
 
-- **Panel** — the user-facing "one terminal tile" concept from the product spec. In code, a `Panel` is a value-type struct (identity + working directory + initial command) stored under a Tab; its live surface is a separate `PanelSurface` inside Runtime.
-- **PanelSurface** — a Runtime-owned class wrapping one `ghostty_surface_t`. One-to-one with a Panel while alive. Owns scrollback, cursor, crash state, callbacks.
-- **HierarchyManager** — the `@Observable` single writer for the hierarchy tree. All structural mutations (create/remove/move Worktree / Tab / Panel, split, swap) go through it. Exposed to TCA features via `HierarchyClient`.
+- **Pane** — the user-facing "one terminal tile" concept from the product spec. In code, a `Pane` is a value-type struct (identity + working directory + initial command) stored under a Tab; its live surface is a separate `PaneSurface` inside Runtime.
+- **PaneSurface** — a Runtime-owned class wrapping one `ghostty_surface_t`. One-to-one with a Pane while alive. Owns scrollback, cursor, crash state, callbacks.
+- **HierarchyManager** — the `@Observable` single writer for the hierarchy tree. All structural mutations (create/remove/move Worktree / Tab / Pane, split, swap) go through it. Exposed to TCA features via `HierarchyClient`.
 - **TerminalEngine** — a façade that composes `GhosttyRuntime`, `HierarchyManager`, and `CatalogStore` and exposes the public `AsyncStream<TerminalEvent>` and the two `*Client` types. "The Runtime" in the design doc refers to this façade when talking about external-visible behaviour.
-- **SplitTree** — `SplitTree<PanelID>`, a recursive value type (leaf of `PanelID` or split with direction + ratio + two children). Lives in `TouchCodeCore`, Codable, Equatable, pure Swift.
+- **SplitTree** — `SplitTree<PaneID>`, a recursive value type (leaf of `PaneID` or split with direction + ratio + two children). Lives in `TouchCodeCore`, Codable, Equatable, pure Swift.
 - **catalog.json** — the persisted hierarchy file at `~/.config/touch-code/catalog.json`. Version-gated; atomic-rename writes; debounced.
 - **foreignBuild target** — same meaning as in the bootstrap plan: a Tuist target declaring an external build step whose output is an artifact (here, `GhosttyKit.xcframework`). Currently commented out per bootstrap DEC-8; M3 re-enables it.
 
-**Orientation paragraph.** The implementation is layered but we deliver vertically. M1 gives us the pure-Swift domain model; M2 adds persistence and a headless `HierarchyManager` that can be unit-tested without ever spinning up a ghostty surface. M3 derisks the external integration by resolving the deferred `GhosttyKit` `foreignBuild` and landing a single hardcoded Panel — the first moment a user sees a real terminal. M4 merges the two halves: the `HierarchyManager` now drives real `PanelSurface` creation/teardown, wired by a `TerminalEngine` façade exposing the event stream we will reuse in every future capability. M5 wraps it in UI — sidebar, tab bar, split view — and wires restore-on-launch. M6 closes the last gap (git worktree operations and non-git Projects) so that the "add Worktree" button in the sidebar actually creates a worktree on disk. Each milestone is independently verifiable and produces at least one commit per the project's commit-after-each-small-feature cadence.
+**Orientation paragraph.** The implementation is layered but we deliver vertically. M1 gives us the pure-Swift domain model; M2 adds persistence and a headless `HierarchyManager` that can be unit-tested without ever spinning up a ghostty surface. M3 derisks the external integration by resolving the deferred `GhosttyKit` `foreignBuild` and landing a single hardcoded Pane — the first moment a user sees a real terminal. M4 merges the two halves: the `HierarchyManager` now drives real `PaneSurface` creation/teardown, wired by a `TerminalEngine` façade exposing the event stream we will reuse in every future capability. M5 wraps it in UI — sidebar, tab bar, split view — and wires restore-on-launch. M6 closes the last gap (git worktree operations and non-git Projects) so that the "add Worktree" button in the sidebar actually creates a worktree on disk. Each milestone is independently verifiable and produces at least one commit per the project's commit-after-each-small-feature cadence.
 
 ## Plan of Work
 
-Six milestones. Slicing is vertical where it helps: M3 punches end-to-end through to pixels for a single Panel, and M5 does the same for the full UI.
+Six milestones. Slicing is vertical where it helps: M3 punches end-to-end through to pixels for a single Pane, and M5 does the same for the full UI.
 
 ### Milestone 1: Domain model skeleton in TouchCodeCore
 
-**Goal after this milestone.** Every Space/Project/Worktree/Tab/Panel identifier, value type, and the `SplitTree<PanelID>` type exists in `TouchCodeCore` as pure Swift with full Codable / Equatable / Sendable conformance, plus a Persistence helper for atomic-rename reads and writes. Unit tests cover Codable round-trips and every `SplitTree` operation. Zero imports of AppKit, SwiftUI, or GhosttyKit.
+**Goal after this milestone.** Every Space/Project/Worktree/Tab/Pane identifier, value type, and the `SplitTree<PaneID>` type exists in `TouchCodeCore` as pure Swift with full Codable / Equatable / Sendable conformance, plus a Persistence helper for atomic-rename reads and writes. Unit tests cover Codable round-trips and every `SplitTree` operation. Zero imports of AppKit, SwiftUI, or GhosttyKit.
 
 This milestone is cheap, low-risk, and unblocks everything else. It is also the first opportunity to land a new Tuist test target (`TouchCodeCoreTests`).
 
-**Work.** Under `apps/mac/TouchCodeCore/`, create `IDs.swift` defining UUID newtypes `SpaceID`, `ProjectID`, `WorktreeID`, `TabID`, `PanelID`, each a `struct` wrapping `UUID` with Codable / Hashable / Sendable and an `init()` that calls `UUID()`. Create `Space.swift`, `Project.swift`, `Worktree.swift`, `Tab.swift`, `Panel.swift` for the value-type structs as sketched in the design doc (§Data Storage). Create `Catalog.swift` with the top-level `Catalog` struct, `currentVersion: Int = 1`, and a custom `Codable` that aborts on unknown version (copy supaterm's pattern in `TerminalSessionCatalog`). Create `SplitTree.swift` adapting supaterm's `SplitTree<ViewType>` to `SplitTree<PanelID>`: same shape (`Node`, `Split`, `Direction`, `Path`, `SpatialSlot`, `SplitError`, `FocusDirection`, `SizeUnit`, `NewDirection`), but the generic parameter is `PanelID` and the tree is `Codable` + `Equatable` + `Sendable`. Remove anything tied to `NSView` (the `bounds` / `Spatial` computation moves to the UI layer in M5; keep a placeholder `enum SpatialDirection` so paths still parse). Create `AtomicFileStore.swift` with a single public helper:
+**Work.** Under `apps/mac/TouchCodeCore/`, create `IDs.swift` defining UUID newtypes `SpaceID`, `ProjectID`, `WorktreeID`, `TabID`, `PaneID`, each a `struct` wrapping `UUID` with Codable / Hashable / Sendable and an `init()` that calls `UUID()`. Create `Space.swift`, `Project.swift`, `Worktree.swift`, `Tab.swift`, `Pane.swift` for the value-type structs as sketched in the design doc (§Data Storage). Create `Catalog.swift` with the top-level `Catalog` struct, `currentVersion: Int = 1`, and a custom `Codable` that aborts on unknown version (copy supaterm's pattern in `TerminalSessionCatalog`). Create `SplitTree.swift` adapting supaterm's `SplitTree<ViewType>` to `SplitTree<PaneID>`: same shape (`Node`, `Split`, `Direction`, `Path`, `SpatialSlot`, `SplitError`, `FocusDirection`, `SizeUnit`, `NewDirection`), but the generic parameter is `PaneID` and the tree is `Codable` + `Equatable` + `Sendable`. Remove anything tied to `NSView` (the `bounds` / `Spatial` computation moves to the UI layer in M5; keep a placeholder `enum SpatialDirection` so paths still parse). Create `AtomicFileStore.swift` with a single public helper:
 
     enum AtomicFileStore {
       static func read<T: Decodable>(
@@ -196,15 +196,15 @@ This milestone is cheap, low-risk, and unblocks everything else. It is also the 
 
 Create a new Tuist test target `TouchCodeCoreTests` (static framework, `dependencies: [.target(name: "TouchCodeCore")]`, `buildableFolders: ["TouchCodeCoreTests"]`, `product: .unitTests`). Add `TouchCodeCoreTests/SplitTreeTests.swift` with supaterm's SplitTree test cases ported to the new generic (insert, remove, replace, zoom/unzoom, focus navigation, path resolution). Add `TouchCodeCoreTests/CatalogCodableTests.swift` covering round-trip encode/decode, unknown-version rejection, pruning behaviour of `Tab.validateInvariants()`. Add `TouchCodeCoreTests/AtomicFileStoreTests.swift` covering write-then-read, rename semantics (a `kill -9` simulated mid-write leaves the original intact — implemented as two separate writes and a check that the first file is still readable).
 
-Add `invariants(...) -> Bool` and `validateInvariants()` throws helper to `Tab`: the leaf-ID set of `splitTree` equals the ID set of `panels[*].id`. Debug-only callers use this after every structural mutation; release builds skip it.
+Add `invariants(...) -> Bool` and `validateInvariants()` throws helper to `Tab`: the leaf-ID set of `splitTree` equals the ID set of `panes[*].id`. Debug-only callers use this after every structural mutation; release builds skip it.
 
 **Observable acceptance.** `make mac-generate && make mac-build` succeeds. Running the new test scheme from Xcode or via `xcodebuild test -scheme TouchCodeCoreTests` produces all tests green. A quick `grep -r 'import AppKit\|import SwiftUI\|import GhosttyKit' apps/mac/TouchCodeCore` returns no matches (enforced as a review check, not a lint rule for now).
 
-**Expected commits.** One or two commits: `feat(core): domain types and SplitTree<PanelID>`, and `feat(core): AtomicFileStore + round-trip tests`.
+**Expected commits.** One or two commits: `feat(core): domain types and SplitTree<PaneID>`, and `feat(core): AtomicFileStore + round-trip tests`.
 
 ### Milestone 2: CatalogStore + headless HierarchyManager
 
-**Goal after this milestone.** `HierarchyManager` exists in `apps/mac/touch-code/Runtime/`, is fully unit-testable without ghostty, and can round-trip a `Catalog` through `~/.config/touch-code/catalog.json`. A fake runtime covers the Panel side so we can exercise every structural mutation without rendering pixels.
+**Goal after this milestone.** `HierarchyManager` exists in `apps/mac/touch-code/Runtime/`, is fully unit-testable without ghostty, and can round-trip a `Catalog` through `~/.config/touch-code/catalog.json`. A fake runtime covers the Pane side so we can exercise every structural mutation without rendering pixels.
 
 **Work.** Under `apps/mac/touch-code/Runtime/`, create `CatalogStore.swift`:
 
@@ -225,31 +225,31 @@ Create `HierarchyManager.swift`:
       private(set) var catalog: Catalog
       init(catalog: Catalog, store: CatalogStore, runtime: HierarchyRuntime)
 
-      // Space / Project / Worktree / Tab / Panel structural mutations
+      // Space / Project / Worktree / Tab / Pane structural mutations
       func createSpace(name: String) -> SpaceID
       func renameSpace(_ id: SpaceID, name: String) throws
       func removeSpace(_ id: SpaceID) throws
       // … one method per command in the design doc §API Design — Command surface
     }
 
-`HierarchyRuntime` is a narrow protocol that `HierarchyManager` uses to tell the runtime side "open a surface for this Panel ID" and "close the surface for this Panel ID". In M2 we write one real implementation (`FakeHierarchyRuntime`, just records calls) and stub an empty `GhosttyBackedHierarchyRuntime` that `preconditionFailure`s — M4 fills it in.
+`HierarchyRuntime` is a narrow protocol that `HierarchyManager` uses to tell the runtime side "open a surface for this Pane ID" and "close the surface for this Pane ID". In M2 we write one real implementation (`FakeHierarchyRuntime`, just records calls) and stub an empty `GhosttyBackedHierarchyRuntime` that `preconditionFailure`s — M4 fills it in.
 
     protocol HierarchyRuntime: AnyObject {
-      func ensureSurface(for panel: Panel, in worktree: Worktree) throws
-      func closeSurface(for panelID: PanelID)
+      func ensureSurface(for pane: Pane, in worktree: Worktree) throws
+      func closeSurface(for paneID: PaneID)
     }
 
 Add a new Tuist test target `TouchCodeRuntimeTests` (or add to an existing app-hosted test bundle — defer until M2 decides whether `Runtime` stays inside the app target). Provisionally: the Runtime subfolder cannot host a `.unitTests` target directly because it's part of the `touch-code` app target; add `apps/mac/touch-code/Tests/RuntimeTests/` as a new `.unitTests` target that imports `@testable import touch_code`. (If this proves awkward — Tuist's `.unitTests` host-app configuration is fiddly — fall back to a dedicated `TouchCodeRuntimeKit` static-framework target. Flag as a decision to make at implementation time and record in Decision Log.)
 
-Tests cover: `createWorktree` appends to `Project.worktrees`, sets `selectedWorktreeID`, calls `HierarchyRuntime.ensureSurface` zero times (M2: lazy); removing a non-existent ID throws `HierarchyError.notFound`; `splitPanel` inserts a new Panel + calls `ensureSurface` for it + preserves `Tab.validateInvariants`; `closePanel` on the only Panel in a Tab removes the Panel and leaves the Tab with an empty split tree (do **not** auto-close the Tab — empty-Tab UI state is handled in M5); pruning on load discards Worktrees whose `path` no longer exists on disk.
+Tests cover: `createWorktree` appends to `Project.worktrees`, sets `selectedWorktreeID`, calls `HierarchyRuntime.ensureSurface` zero times (M2: lazy); removing a non-existent ID throws `HierarchyError.notFound`; `splitPanel` inserts a new Pane + calls `ensureSurface` for it + preserves `Tab.validateInvariants`; `closePanel` on the only Pane in a Tab removes the Pane and leaves the Tab with an empty split tree (do **not** auto-close the Tab — empty-Tab UI state is handled in M5); pruning on load discards Worktrees whose `path` no longer exists on disk.
 
 **Observable acceptance.** `xcodebuild test -scheme TouchCodeRuntimeTests` is all green. Running the app (still the hello-world from bootstrap) and manually calling `HierarchyManager.createSpace(name: "test")` via a debug hook in `TouchCodeApp.init` produces `~/.config/touch-code/catalog.json` containing `"version": 1` and the new Space UUID. Deleting the file and relaunching produces a freshly defaulted catalog.
 
 **Expected commits.** `feat(runtime): CatalogStore with atomic-rename + debounce`, `feat(runtime): HierarchyManager headless with fake runtime`.
 
-### Milestone 3: Re-enable GhosttyKit and render a single hardcoded Panel
+### Milestone 3: Re-enable GhosttyKit and render a single hardcoded Pane
 
-**Goal after this milestone.** The app launches with a single libghostty-rendered terminal running the user's default shell. Typing works; output shows. No hierarchy integration yet — the Panel is built from a hardcoded Panel value inside `TouchCodeApp.init`. This is the first commit where touch-code is "a terminal" and the first time GhosttyKit ships in a binary.
+**Goal after this milestone.** The app launches with a single libghostty-rendered terminal running the user's default shell. Typing works; output shows. No hierarchy integration yet — the Pane is built from a hardcoded Pane value inside `TouchCodeApp.init`. This is the first commit where touch-code is "a terminal" and the first time GhosttyKit ships in a binary.
 
 This milestone **resolves the deferred work from bootstrap DEC-8**. It is the highest-risk milestone in the plan because of the upstream Zig dependency CDN issue. Derisking happens first (Concrete Steps below lists the priming ritual).
 
@@ -257,12 +257,12 @@ This milestone **resolves the deferred work from bootstrap DEC-8**. It is the hi
 
 1. **Unblock GhosttyKit build.** Attempt `./apps/mac/scripts/build-ghostty.sh` fresh. If it still fails on Zig dep fetch (supacode and bootstrap plan DEC-8 both hit this), prime `.zig-global-cache` one-time by running `./apps/mac/scripts/prime-zig-cache.sh` (the primer script already exists per repo untracked state visible in `git status`; if it doesn't, create it following the recipe supacode used — `curl` each tarball listed in `apps/mac/ThirdParty/ghostty/build.zig.zon` into `~/.cache/zig` under its hash). Re-run `build-ghostty.sh`; it should finish with `.build/ghostty/GhosttyKit.xcframework/` populated.
 2. **Re-enable the Tuist target.** In `apps/mac/Project.swift`, uncomment the `.foreignBuild(name: "GhosttyKit", …)` block (currently commented per bootstrap DEC-8) and add `.target(name: "GhosttyKit")` to the `touch-code` app target's `dependencies:`. Do **not** add GhosttyKit to `TouchCodeCore`, `TouchCodeIPC`, or `tc` — only the app target.
-3. **`GhosttyRuntime`.** Under `apps/mac/touch-code/Runtime/Ghostty/`, create `GhosttyRuntime.swift` modelled on supaterm's (simpler, not supacode's which has a lot of surface-aware extras we don't need yet). Responsibilities: initialise `ghostty_config_t` with minimum config (pick up `~/.config/ghostty/config` if present; otherwise defaults), call `ghostty_app_new`, store the opaque handle, expose `createSurface(options: SurfaceOptions) throws -> PanelSurface`, manage `SurfaceReference` bookkeeping and callback dispatch (wakeup, action, clipboard, close). Stop at callback wiring — full action handling (key bindings, clipboard UI, deeplinks) is M4's job.
-4. **`PanelSurface`.** `apps/mac/touch-code/Runtime/Ghostty/PanelSurface.swift` wraps one `ghostty_surface_t`. Public surface:
+3. **`GhosttyRuntime`.** Under `apps/mac/touch-code/Runtime/Ghostty/`, create `GhosttyRuntime.swift` modelled on supaterm's (simpler, not supacode's which has a lot of surface-aware extras we don't need yet). Responsibilities: initialise `ghostty_config_t` with minimum config (pick up `~/.config/ghostty/config` if present; otherwise defaults), call `ghostty_app_new`, store the opaque handle, expose `createSurface(options: SurfaceOptions) throws -> PaneSurface`, manage `SurfaceReference` bookkeeping and callback dispatch (wakeup, action, clipboard, close). Stop at callback wiring — full action handling (key bindings, clipboard UI, deeplinks) is M4's job.
+4. **`PaneSurface`.** `apps/mac/touch-code/Runtime/Ghostty/PaneSurface.swift` wraps one `ghostty_surface_t`. Public surface:
 
        @MainActor @Observable
-       final class PanelSurface {
-         let panelID: PanelID
+       final class PaneSurface {
+         let paneID: PaneID
          private(set) var state: State   // .initialising / .ready / .crashed(reason)
          var view: NSView { get }        // the ghostty SurfaceView, wrapped or direct
          func sendInput(_ text: String)  // M4 uses this; stub in M3
@@ -272,18 +272,18 @@ This milestone **resolves the deferred work from bootstrap DEC-8**. It is the hi
        }
 
    In M3 this is instantiated once, hardcoded; M4 adds crash state + retry.
-5. **`PanelHostView`.** `apps/mac/touch-code/App/PanelHostView.swift`: a `NSViewRepresentable` that takes a `PanelSurface` and installs its `view` into the SwiftUI hierarchy. Single panel, no split rendering in M3.
-6. **Wire into `MainView`.** Replace the "Hello, touch-code!" `Text` with `PanelHostView(panelSurface: appState.temporaryPanel)` where `appState.temporaryPanel` is a single `PanelSurface` created at app launch from a hardcoded `Panel(id: PanelID(), workingDirectory: NSHomeDirectory(), initialCommand: nil)`.
+5. **`PaneHostView`.** `apps/mac/touch-code/App/PaneHostView.swift`: a `NSViewRepresentable` that takes a `PaneSurface` and installs its `view` into the SwiftUI hierarchy. Single pane, no split rendering in M3.
+6. **Wire into `MainView`.** Replace the "Hello, touch-code!" `Text` with `PaneHostView(panelSurface: appState.temporaryPanel)` where `appState.temporaryPanel` is a single `PaneSurface` created at app launch from a hardcoded `Pane(id: PaneID(), workingDirectory: NSHomeDirectory(), initialCommand: nil)`.
 
 **Observable acceptance.** `make mac-build && make mac-run-app` launches a window showing a live shell. Typing `echo hello\n` prints `hello`. Quitting and relaunching starts a fresh shell (no persistence yet). The app binary links `GhosttyKit.framework` (verified via `otool -L touch-code.app/Contents/MacOS/touch-code | grep Ghostty`).
 
 **Known risk.** If Zig CDN priming still fails, escalate per [bootstrap plan DEC-8](0001-bootstrap-monorepo.md#decision-log) options: bump ghostty submodule to a newer commit with fixed deps; or pin a local mirror of the deps tarballs. Record chosen path in Decision Log.
 
-**Expected commits.** `chore(bootstrap): prime zig cache and re-enable GhosttyKit`, `feat(runtime): GhosttyRuntime + PanelSurface bring-up`, `feat(app): render hardcoded Panel in MainView`.
+**Expected commits.** `chore(bootstrap): prime zig cache and re-enable GhosttyKit`, `feat(runtime): GhosttyRuntime + PaneSurface bring-up`, `feat(app): render hardcoded Pane in MainView`.
 
 ### Milestone 4: TerminalEngine façade + event stream + crash isolation
 
-**Goal after this milestone.** A single `TerminalEngine` façade composes `GhosttyRuntime`, `HierarchyManager`, and `CatalogStore`, exposes an `AsyncStream<TerminalEvent>`, and drives real Panel surfaces from hierarchy mutations. A crashing Panel replaces its view with a placeholder and survives retry; three crashes in 30s close the Tab.
+**Goal after this milestone.** A single `TerminalEngine` façade composes `GhosttyRuntime`, `HierarchyManager`, and `CatalogStore`, exposes an `AsyncStream<TerminalEvent>`, and drives real Pane surfaces from hierarchy mutations. A crashing Pane replaces its view with a placeholder and survives retry; three crashes in 30s close the Tab.
 
 **Work.** Under `apps/mac/touch-code/Runtime/`, create `TerminalEvent.swift` with the event enum exactly as listed in the design doc (§API Design — Event stream). Create `TerminalEngine.swift`:
 
@@ -292,28 +292,28 @@ This milestone **resolves the deferred work from bootstrap DEC-8**. It is the hi
       init(store: CatalogStore, runtime: GhosttyRuntime)
       var hierarchy: HierarchyManager { get }
       func events() -> AsyncStream<TerminalEvent>
-      func ensureSurface(for panel: Panel, in worktree: Worktree) throws
-      func closeSurface(for panelID: PanelID)
-      func sendInput(panelID: PanelID, text: String, raw: Bool) throws
+      func ensureSurface(for pane: Pane, in worktree: Worktree) throws
+      func closeSurface(for paneID: PaneID)
+      func sendInput(paneID: PaneID, text: String, raw: Bool) throws
     }
 
-Replace `GhosttyBackedHierarchyRuntime` (stubbed in M2) with a real implementation that delegates to `TerminalEngine.ensureSurface` / `closeSurface`. Register callbacks from `PanelSurface` back into the engine: on "surface ready", emit `.panelReady`; on "output callback fired with N bytes", coalesce via a per-panel `PendingOutputBuffer` (flush every 16ms or when > 16KB buffered, whichever comes first); on "surface close from child exit", emit `.panelExited`; on "surface close from fault", emit `.panelCrashed` and transition `PanelSurface.state` to `.crashed(reason)`.
+Replace `GhosttyBackedHierarchyRuntime` (stubbed in M2) with a real implementation that delegates to `TerminalEngine.ensureSurface` / `closeSurface`. Register callbacks from `PaneSurface` back into the engine: on "surface ready", emit `.paneReady`; on "output callback fired with N bytes", coalesce via a per-pane `PendingOutputBuffer` (flush every 16ms or when > 16KB buffered, whichever comes first); on "surface close from child exit", emit `.paneExited`; on "surface close from fault", emit `.paneCrashed` and transition `PaneSurface.state` to `.crashed(reason)`.
 
-Crash policy. `HierarchyManager` holds a `@ObservationIgnored` per-panel ring buffer of crash timestamps (supaterm pattern). On `.panelCrashed`, append the timestamp, prune entries older than 30s; if the ring holds ≥ 3, remove the enclosing Tab via `removeTab` and post a `.tabAutoClosed(reason:)` event (new event variant) that M5's UI will render as a toast. Otherwise, keep the Panel entry, keep the leaf in `SplitTree`, and leave the UI to render a placeholder. Retry path: `TerminalEngine.retryPanel(id)` disposes the crashed `PanelSurface`, calls `GhosttyRuntime.createSurface` with the same Panel options, and emits `.panelReady` when the new surface is live.
+Crash policy. `HierarchyManager` holds a `@ObservationIgnored` per-pane ring buffer of crash timestamps (supaterm pattern). On `.paneCrashed`, append the timestamp, prune entries older than 30s; if the ring holds ≥ 3, remove the enclosing Tab via `removeTab` and post a `.tabAutoClosed(reason:)` event (new event variant) that M5's UI will render as a toast. Otherwise, keep the Pane entry, keep the leaf in `SplitTree`, and leave the UI to render a placeholder. Retry path: `TerminalEngine.retryPanel(id)` disposes the crashed `PaneSurface`, calls `GhosttyRuntime.createSurface` with the same Pane options, and emits `.paneReady` when the new surface is live.
 
-Lazy surface creation. `HierarchyManager.selectWorktree(id)` does not open surfaces for every Panel on the Worktree — only for Panels in the currently selected Tab. `TerminalEngine.ensureSurface` is idempotent: calling it for a Panel whose surface is already alive is a no-op. Tab switch calls `ensureSurface` for every leaf in the incoming Tab's split tree.
+Lazy surface creation. `HierarchyManager.selectWorktree(id)` does not open surfaces for every Pane on the Worktree — only for Panes in the currently selected Tab. `TerminalEngine.ensureSurface` is idempotent: calling it for a Pane whose surface is already alive is a no-op. Tab switch calls `ensureSurface` for every leaf in the incoming Tab's split tree.
 
-Output coalescing details. `PendingOutputBuffer` is a small class per Panel with a `bytes: Data` accumulator and a `Task?` timer. First `append(bytes:)` arms `Task.sleep(nanoseconds: 16_000_000)` and, on wake, yields one `.panelOutput(panelID, Data)` event via the engine's `AsyncStream.Continuation`. Further `append` calls before wake fold into the same batch. A `flush()` method exists for synchronous drain on Panel close.
+Output coalescing details. `PendingOutputBuffer` is a small class per Pane with a `bytes: Data` accumulator and a `Task?` timer. First `append(bytes:)` arms `Task.sleep(nanoseconds: 16_000_000)` and, on wake, yields one `.paneOutput(paneID, Data)` event via the engine's `AsyncStream.Continuation`. Further `append` calls before wake fold into the same batch. A `flush()` method exists for synchronous drain on Pane close.
 
-Add `TouchCodeRuntimeTests/TerminalEngineTests.swift` covering: event emission for open/close/exit in order; output coalescing (fire 1KB twice within 5ms → observe one `.panelOutput` of 2KB); crash-then-retry produces `.panelCrashed` then `.panelReady`; three crashes within 30s produce `.tabAutoClosed`.
+Add `TouchCodeRuntimeTests/TerminalEngineTests.swift` covering: event emission for open/close/exit in order; output coalescing (fire 1KB twice within 5ms → observe one `.paneOutput` of 2KB); crash-then-retry produces `.paneCrashed` then `.paneReady`; three crashes within 30s produce `.tabAutoClosed`.
 
-**Observable acceptance.** Run the hardcoded-panel demo from M3 and kill the shell process via `pkill -KILL -f /bin/zsh` — the placeholder appears; clicking a debug "Retry" button brings the shell back. Sleeping the Panel (no input) for 30s produces no console log entries under `com.touch-code.runtime` at `.info` (idle-quiet verified).
+**Observable acceptance.** Run the hardcoded-pane demo from M3 and kill the shell process via `pkill -KILL -f /bin/zsh` — the placeholder appears; clicking a debug "Retry" button brings the shell back. Sleeping the Pane (no input) for 30s produces no console log entries under `com.touch-code.runtime` at `.info` (idle-quiet verified).
 
 **Expected commits.** `feat(runtime): TerminalEvent stream + output coalescing`, `feat(runtime): crash isolation with retry and Tab auto-close`, `feat(runtime): TerminalEngine facade wiring HierarchyManager + GhosttyRuntime`.
 
 ### Milestone 5: TCA clients, sidebar / tab bar / split view, full persistence round-trip
 
-**Goal after this milestone.** The hardcoded Panel is gone. The app shell restores the persisted hierarchy on launch, lazily opens surfaces for visible Panels, and renders the full sidebar → tab bar → split viewport chrome. Users can create Spaces/Projects (via a debug command palette is fine for now), add Tabs, split Panels, switch between everything, close panels, quit, and relaunch — state preserved.
+**Goal after this milestone.** The hardcoded Pane is gone. The app shell restores the persisted hierarchy on launch, lazily opens surfaces for visible Panes, and renders the full sidebar → tab bar → split viewport chrome. Users can create Spaces/Projects (via a debug command palette is fine for now), add Tabs, split Panes, switch between everything, close panes, quit, and relaunch — state preserved.
 
 **Work.** Add TCA as an external dep in `apps/mac/Tuist/Package.swift` (per bootstrap DEC-3: deferred to "when first used" — now). Wire it into the `touch-code` target's dependencies.
 
@@ -324,17 +324,17 @@ Create TCA features:
 - `apps/mac/touch-code/App/Features/Root/RootFeature.swift` — root reducer with child states for sidebar, tab bar, split viewport, toast, launch-flow. Subscribes to `terminalClient.events()` and translates events to `Action.terminal(_)`.
 - `apps/mac/touch-code/App/Features/Hierarchy/HierarchySidebarFeature.swift` — reads `HierarchyManager` bindings; renders Space → Project → Worktree tree. Actions for `selectSpace`, `addProject`, `createWorktree`, etc. — each fans out to `HierarchyClient`.
 - `apps/mac/touch-code/App/Features/TabBar/TabBarFeature.swift` — reads the selected Worktree's Tabs; renders tab buttons; actions for create/close/rename/select.
-- `apps/mac/touch-code/App/Features/Split/SplitViewportFeature.swift` — state is the selected Tab's `SplitTree<PanelID>`; reducer handles `splitPanel`, `closePanel`, `focusPanel`, `resizeSplit` by dispatching to `HierarchyClient`.
+- `apps/mac/touch-code/App/Features/Split/SplitViewportFeature.swift` — state is the selected Tab's `SplitTree<PaneID>`; reducer handles `splitPanel`, `closePanel`, `focusPanel`, `resizeSplit` by dispatching to `HierarchyClient`.
 
-Create the views: `HierarchySidebarView`, `TabBarView`, `SplitView` (SwiftUI that recursively walks `SplitTree.Node` and installs `PanelHostView` for each leaf, using `NSSplitView` via `NSViewRepresentable` for the actual draggable divider). Replace `MainView` with a three-pane layout: sidebar (250pt), viewport (flex), optional inspector placeholder.
+Create the views: `HierarchySidebarView`, `TabBarView`, `SplitView` (SwiftUI that recursively walks `SplitTree.Node` and installs `PaneHostView` for each leaf, using `NSSplitView` via `NSViewRepresentable` for the actual draggable divider). Replace `MainView` with a three-pane layout: sidebar (250pt), viewport (flex), optional inspector placeholder.
 
 Launch flow. In `TouchCodeApp.init`, build one shared `TerminalEngine`, load the catalog, and inject it into the TCA store's dependency values. On `onAppear` of the root view, dispatch `.restore` — which iterates the catalog's selected Space → Project → Worktree → Tab and calls `terminalClient.ensureSurface` for each leaf in the active Tab's split tree. This is the lazy-creation hot path.
 
-Window ↔ Space. `NSApplicationDelegate.applicationShouldHandleReopen` and `WindowGroup` are configured so that opening a new window creates a new `Catalog.Window` entry and presents a Space picker. v1 ships with one window per Space; more than one window per Space is rejected with a dialog (simpler than juggling a second "active panel" per window).
+Window ↔ Space. `NSApplicationDelegate.applicationShouldHandleReopen` and `WindowGroup` are configured so that opening a new window creates a new `Catalog.Window` entry and presents a Space picker. v1 ships with one window per Space; more than one window per Space is rejected with a dialog (simpler than juggling a second "active pane" per window).
 
-Test scaffolding. `TouchCodeRuntimeTests/HierarchyClientIntegrationTests.swift` covers: boot with empty catalog → create Space/Project/Worktree/Tab/Panel via `HierarchyClient` → verify `catalog.json` on disk; boot with pre-seeded catalog pointing at a non-existent Worktree path → verify pruning removes it.
+Test scaffolding. `TouchCodeRuntimeTests/HierarchyClientIntegrationTests.swift` covers: boot with empty catalog → create Space/Project/Worktree/Tab/Pane via `HierarchyClient` → verify `catalog.json` on disk; boot with pre-seeded catalog pointing at a non-existent Worktree path → verify pruning removes it.
 
-**Observable acceptance.** Fresh install: launch → empty sidebar → click "New Space" → name "test" → click "Add Project" → pick this repo's path → see Worktree auto-discovered (M6 will make this real; for M5, manually point at the same path as Project root) → click "New Tab" → see an empty Tab → click "New Panel" → shell appears and is focused. Split the Panel horizontally with a keyboard shortcut (Cmd-D initially — design doc §Open Items has the final bindings for later). Type in each panel independently. Quit. Relaunch. See the two-panel split exactly as it was, shells freshly started.
+**Observable acceptance.** Fresh install: launch → empty sidebar → click "New Space" → name "test" → click "Add Project" → pick this repo's path → see Worktree auto-discovered (M6 will make this real; for M5, manually point at the same path as Project root) → click "New Tab" → see an empty Tab → click "New Pane" → shell appears and is focused. Split the Pane horizontally with a keyboard shortcut (Cmd-D initially — design doc §Open Items has the final bindings for later). Type in each pane independently. Quit. Relaunch. See the two-pane split exactly as it was, shells freshly started.
 
 **Expected commits.** `feat(app): HierarchyClient and TerminalClient TCA bridges`, `feat(app): sidebar + tab bar + split view UI`, `feat(app): launch restore with lazy surface creation`.
 
@@ -363,7 +363,7 @@ Non-git Projects. In `addProject`, resolve `gitRoot` via `GitWorktreeCLI.discove
 
 Tests. `apps/mac/touch-code/Tests/GitTests/GitWorktreeCLITests.swift` creates a temp repo fixture in `NSTemporaryDirectory`, exercises list / create / remove / list-branches / discover-root, and asserts expected state. Non-git Project test: point at `NSTemporaryDirectory` itself → `discoverGitRoot` returns nil.
 
-**Observable acceptance.** Start from M5's state. Add the touch-code repo as a Project (`/Users/wanggang/dev/00/touch-code`). Click "Add Worktree" → enter branch name `exp/test` → directory `/Users/wanggang/dev/00/touch-code-worktrees/exp/test` appears on disk; `git -C … worktree list` lists it. Open a Panel in the new Worktree — its shell's `pwd` is the worktree directory. Remove the Worktree → directory disappears, `git worktree list` no longer shows it. Add a non-git directory (e.g. `/tmp`) as a Project → see a single synthetic Worktree named `/tmp`, no "Add Worktree" button.
+**Observable acceptance.** Start from M5's state. Add the touch-code repo as a Project (`/Users/wanggang/dev/00/touch-code`). Click "Add Worktree" → enter branch name `exp/test` → directory `/Users/wanggang/dev/00/touch-code-worktrees/exp/test` appears on disk; `git -C … worktree list` lists it. Open a Pane in the new Worktree — its shell's `pwd` is the worktree directory. Remove the Worktree → directory disappears, `git worktree list` no longer shows it. Add a non-git directory (e.g. `/tmp`) as a Project → see a single synthetic Worktree named `/tmp`, no "Add Worktree" button.
 
 **Expected commits.** `feat(git): GitWorktreeCLI with list/create/remove/discover`, `feat(runtime): integrate GitWorktreeCLI into HierarchyManager`, `feat(app): non-git Project support with synthetic Worktree`.
 
@@ -433,7 +433,7 @@ Run every command from the repository root (`/Users/wanggang/dev/00/touch-code`)
     make mac-run-app
     # In another terminal:
     pkill -KILL -f "touch-code.*zsh"
-    # Expected: placeholder in the panel; click Retry -> shell back
+    # Expected: placeholder in the pane; click Retry -> shell back
 
 ### M5 steps
 
@@ -442,7 +442,7 @@ Run every command from the repository root (`/Users/wanggang/dev/00/touch-code`)
       xcodebuild test -workspace apps/mac/touch-code.xcworkspace \
                       -scheme TouchCodeRuntimeTests | xcbeautify
     make mac-run-app
-    # Exercise: New Space -> Add Project (repo root) -> New Tab -> New Panel -> split -> quit -> relaunch
+    # Exercise: New Space -> Add Project (repo root) -> New Tab -> New Pane -> split -> quit -> relaunch
     # Expected: sidebar, tab bar, and split all restored
 
 ### M6 steps
@@ -466,10 +466,10 @@ After all six milestones land, a fresh contributor can perform the following and
 1. `make mac-bootstrap && make mac-generate && make mac-build && make mac-run-app`. The app window opens within 1 second of the `mac-run-app` invocation.
 2. Create a Space named `work`. Add a Project pointing at `/Users/wanggang/dev/00/touch-code`. The app auto-detects the git root and creates a default Worktree on the current branch.
 3. Click "Add Worktree", name it `exp/plan-0002`. Within 2 seconds, `/Users/wanggang/dev/00/touch-code-worktrees/exp/plan-0002/` exists and `git -C /Users/wanggang/dev/00/touch-code worktree list` lists it.
-4. In the new Worktree's first Tab, open a Panel. The shell's `pwd` is `/Users/wanggang/dev/00/touch-code-worktrees/exp/plan-0002`.
-5. Split the Panel horizontally. Both panels are alive and independently focused. Panel-to-panel switching completes in one frame (no visible flicker; confirmed via Instruments time profiler if needed).
-6. Kill one Panel's shell externally (`pkill -KILL -f zsh` matching the specific PID). The placeholder appears in that Panel within 1 second; the other Panel is unaffected. Click "Retry" — a fresh shell appears in the same cell.
-7. Cmd-Q the app. Relaunch. Every Space/Project/Worktree/Tab/Panel is present; shells are freshly started; split geometry matches exactly.
+4. In the new Worktree's first Tab, open a Pane. The shell's `pwd` is `/Users/wanggang/dev/00/touch-code-worktrees/exp/plan-0002`.
+5. Split the Pane horizontally. Both panes are alive and independently focused. Pane-to-pane switching completes in one frame (no visible flicker; confirmed via Instruments time profiler if needed).
+6. Kill one Pane's shell externally (`pkill -KILL -f zsh` matching the specific PID). The placeholder appears in that Pane within 1 second; the other Pane is unaffected. Click "Retry" — a fresh shell appears in the same cell.
+7. Cmd-Q the app. Relaunch. Every Space/Project/Worktree/Tab/Pane is present; shells are freshly started; split geometry matches exactly.
 8. All test schemes pass: `xcodebuild test -scheme TouchCodeCoreTests`, `-scheme TouchCodeRuntimeTests`, `-scheme GitTests`.
 9. `make mac-lint` is clean.
 
@@ -492,7 +492,7 @@ None of the steps modify repository-wide state (no system `xcode-select`, no glo
 
 Prototyping findings that inform this plan:
 
-- **SplitTree port is shape-preserving.** Reading supaterm's `SplitTree<ViewType: NSView & Identifiable>` end-to-end confirmed the only type-parameter uses are in `Node.leaf(view:)`, `contains(_ view:)`, `find(id:)`, `inserting(view:at:direction:)`, and the `Spatial` compute (which needs view bounds). For our `SplitTree<PanelID>`, the first four map 1:1 with `view: PanelID` or `id: PanelID.ID` substitutions; the `Spatial` compute moves to the UI layer where the concrete `NSView` bounds are known. No algorithmic rework is needed.
+- **SplitTree port is shape-preserving.** Reading supaterm's `SplitTree<ViewType: NSView & Identifiable>` end-to-end confirmed the only type-parameter uses are in `Node.leaf(view:)`, `contains(_ view:)`, `find(id:)`, `inserting(view:at:direction:)`, and the `Spatial` compute (which needs view bounds). For our `SplitTree<PaneID>`, the first four map 1:1 with `view: PaneID` or `id: PaneID.ID` substitutions; the `Spatial` compute moves to the UI layer where the concrete `NSView` bounds are known. No algorithmic rework is needed.
 - **Ghostty surface view is reusable.** Upstream `ghostty/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift` is a complete `NSView` subclass that handles key events, focus, drag-and-drop, and rendering. Embedding it via `NSViewRepresentable` is the path both reference projects take. We do not re-wrap it.
 - **Persistence debounce pattern from supaterm.** supaterm's `TerminalSessionCatalog` uses a similar debounce-and-atomic-rename; direct translation to our `CatalogStore` is straightforward. The wall-clock behaviour is consistent with design doc §Persistence.
 - **Crash isolation pattern is simpler than expected.** Ghostty's `close_surface_cb` already distinguishes clean exit (`processAlive == false` with zero) from faults; no additional signal handling is needed on our side.
@@ -507,7 +507,7 @@ The following types, functions, and signatures must exist by plan completion. Na
     public struct ProjectID: Codable, Hashable, Sendable { … }
     public struct WorktreeID: Codable, Hashable, Sendable { … }
     public struct TabID: Codable, Hashable, Sendable { … }
-    public struct PanelID: Codable, Hashable, Sendable { … }
+    public struct PaneID: Codable, Hashable, Sendable { … }
 
     public struct Catalog: Codable, Equatable, Sendable {
       public static let currentVersion = 1
@@ -541,11 +541,11 @@ The following types, functions, and signatures must exist by plan completion. Na
     public struct Tab: Codable, Equatable, Sendable {
       public var id: TabID
       public var name: String?
-      public var splitTree: SplitTree<PanelID>
-      public var panels: [Panel]
+      public var splitTree: SplitTree<PaneID>
+      public var panes: [Pane]
       public func validateInvariants() throws  // debug-only callers
     }
-    public struct Panel: Codable, Equatable, Sendable { … }
+    public struct Pane: Codable, Equatable, Sendable { … }
 
     public struct SplitTree<Leaf: Codable & Hashable & Sendable>: Codable, Equatable, Sendable {
       public indirect enum Node: Codable, Equatable, Sendable { case leaf(Leaf); case split(Split) }
@@ -575,8 +575,8 @@ The following types, functions, and signatures must exist by plan completion. Na
     }
 
     protocol HierarchyRuntime: AnyObject {
-      func ensureSurface(for panel: Panel, in worktree: Worktree) throws
-      func closeSurface(for panelID: PanelID)
+      func ensureSurface(for pane: Pane, in worktree: Worktree) throws
+      func closeSurface(for paneID: PaneID)
     }
 
     @MainActor @Observable final class HierarchyManager {
@@ -589,12 +589,12 @@ The following types, functions, and signatures must exist by plan completion. Na
 
     @MainActor final class GhosttyRuntime {
       init() throws
-      func createSurface(options: SurfaceOptions) throws -> PanelSurface
-      // callbacks routed to PanelSurface internally
+      func createSurface(options: SurfaceOptions) throws -> PaneSurface
+      // callbacks routed to PaneSurface internally
     }
 
-    @MainActor @Observable final class PanelSurface {
-      let panelID: PanelID
+    @MainActor @Observable final class PaneSurface {
+      let paneID: PaneID
       enum State: Equatable { case initialising, ready, crashed(reason: String), exited(code: Int32) }
       private(set) var state: State
       var view: NSView { get }
@@ -604,12 +604,12 @@ The following types, functions, and signatures must exist by plan completion. Na
     }
 
     enum TerminalEvent: Sendable {
-      case panelCreated(PanelID, TabID)
-      case panelReady(PanelID)
-      case panelOutput(PanelID, Data)       // coalesced, ≤ 16KB batches, ≤ 60Hz
-      case panelIdle(PanelID, duration: TimeInterval)
-      case panelExited(PanelID, code: Int32)
-      case panelCrashed(PanelID, reason: String)
+      case paneCreated(PaneID, TabID)
+      case paneReady(PaneID)
+      case paneOutput(PaneID, Data)       // coalesced, ≤ 16KB batches, ≤ 60Hz
+      case paneIdle(PaneID, duration: TimeInterval)
+      case paneExited(PaneID, code: Int32)
+      case paneCrashed(PaneID, reason: String)
       case tabActivated(TabID)
       case tabAutoClosed(TabID, reason: String)
       case worktreeActivated(WorktreeID)
@@ -620,8 +620,8 @@ The following types, functions, and signatures must exist by plan completion. Na
       init(store: CatalogStore, runtime: GhosttyRuntime) throws
       var hierarchy: HierarchyManager { get }
       func events() -> AsyncStream<TerminalEvent>
-      func sendInput(panelID: PanelID, text: String, raw: Bool) throws
-      func retryPanel(id: PanelID) throws
+      func sendInput(paneID: PaneID, text: String, raw: Bool) throws
+      func retryPanel(id: PaneID) throws
     }
 
 **`apps/mac/touch-code/App/Clients/`** (TCA bridge):
@@ -635,9 +635,9 @@ The following types, functions, and signatures must exist by plan completion. Na
     extension HierarchyClient: DependencyKey { static let liveValue: HierarchyClient; static let testValue: HierarchyClient }
 
     struct TerminalClient: Sendable {
-      var sendInput: @MainActor @Sendable (PanelID, String, Bool) -> Void
-      var retryPanel: @MainActor @Sendable (PanelID) -> Void
-      var setFocus: @MainActor @Sendable (PanelID, Bool) -> Void
+      var sendInput: @MainActor @Sendable (PaneID, String, Bool) -> Void
+      var retryPanel: @MainActor @Sendable (PaneID) -> Void
+      var setFocus: @MainActor @Sendable (PaneID, Bool) -> Void
     }
     extension TerminalClient: DependencyKey { … }
 

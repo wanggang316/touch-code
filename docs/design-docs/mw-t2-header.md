@@ -30,9 +30,9 @@ T1 (Sidebar) and T3 (Git Viewer overlay + shortcuts) proceed in parallel on sibl
 ### Goals
 
 - Render Header above the Tab bar with the four controls, laid out per the spec's ASCII.
-- Bell badge count = global unread across every Worktree in the catalog, computed via `NotificationInbox.totalUnread(in: catalog)` so the badge shares exactly the same `PanelID → WorktreeID` resolution policy as the popover grouping (orphans excluded from both). Tracked live via `InboxClient.observe()`.
+- Bell badge count = global unread across every Worktree in the catalog, computed via `NotificationInbox.totalUnread(in: catalog)` so the badge shares exactly the same `PaneID → WorktreeID` resolution policy as the popover grouping (orphans excluded from both). Tracked live via `InboxClient.observe()`.
 - Bell popover groups unread-and-non-dismissed notifications by Project → Worktree, each row showing the notification title; empty state "No notifications"; top-right "Dismiss all" action.
-- Clicking a row selects the row's Worktree (via `HierarchyClient.selectWorktree`, cascading through `selectSpace` / `selectProject`) and marks every notification whose panel resolves to that Worktree as read.
+- Clicking a row selects the row's Worktree (via `HierarchyClient.selectWorktree`, cascading through `selectSpace` / `selectProject`) and marks every notification whose pane resolves to that Worktree as read.
 - "Dismiss all" calls `InboxStore.dismissAll()` through `InboxClient`.
 - "Open in …" primary button dispatches the default-editor open through the existing `EditorFeature.openRequested`; caret opens a picker listing all `EditorDescriptor`s (built-in + custom), disables `!isInstalled` entries with a tooltip, and shows a "+ Custom editors…" row that opens the Settings sheet at the editor section.
 - Git Viewer toggle flips `Worktree.gitViewerVisible` via the hierarchy client and visually reflects the live catalog value.
@@ -146,7 +146,7 @@ Add a pure helper next to the existing `unreadCount(forWorktree:in:)`:
 public func totalUnread(in catalog: Catalog) -> Int
 ```
 
-One walk of `panelWorktreeIndex()` summing `isUnread` entries whose panel resolves into the catalog. Shared by the bell badge and — internally — by any future aggregation caller. Kept as a pure extension on `NotificationInbox` (not on `InboxStore`) so it stays Sendable / MainActor-free and directly unit-testable alongside the T0 helpers.
+One walk of `panelWorktreeIndex()` summing `isUnread` entries whose pane resolves into the catalog. Shared by the bell badge and — internally — by any future aggregation caller. Kept as a pure extension on `NotificationInbox` (not on `InboxStore`) so it stays Sendable / MainActor-free and directly unit-testable alongside the T0 helpers.
 
 #### `InboxClient` extension
 
@@ -234,7 +234,7 @@ Rejected. The bell needs its own inbox subscription (so the badge is live even w
 
 ### B. Reuse `InboxSidebarFeature` as the popover's engine
 
-Considered. `InboxSidebarFeature` already subscribes to `InboxClient.observe()` and caches notifications + unread count, which is most of what we need. Rejected because its row-tap semantics (`.deeplinkRequested(PanelID)`) target panel focus, not Worktree selection + markRead for all Worktree notifications. We would also inherit the "filter chip" state (`.all / .unread / ...`) which has no corresponding control in the popover. Forking a focused feature is cheaper than bending a mis-shaped one.
+Considered. `InboxSidebarFeature` already subscribes to `InboxClient.observe()` and caches notifications + unread count, which is most of what we need. Rejected because its row-tap semantics (`.deeplinkRequested(PaneID)`) target pane focus, not Worktree selection + markRead for all Worktree notifications. We would also inherit the "filter chip" state (`.all / .unread / ...`) which has no corresponding control in the popover. Forking a focused feature is cheaper than bending a mis-shaped one.
 
 ### C. Let the Header's GV toggle route through `RootFeature.inspectorVisibilityToggled`
 
@@ -254,7 +254,7 @@ Rejected. Spec removes the gear from the chrome, and the picker's "+ Custom edit
 
 - `WorktreeHeaderFeatureTests`: TestStore-based coverage for each action; uses `.dependency(\.inboxClient, .testValue)` + `.dependency(\.hierarchyClient, .testValue)` with overrides for the closures exercised in each test.
   - `inboxUpdated` drives `unreadCount` via `NotificationInbox.totalUnread(in:)` — feed a catalog fixture + inbox with two unread notifications, assert `unreadCount == 2`.
-  - **Badge/popover parity**: construct a catalog with one known Worktree + one unread notification whose `panelID` belongs to that Worktree, plus one unread notification whose `panelID` is **not** in the catalog (orphan). Feed both through `inboxUpdated`; assert `state.unreadCount == 1` and assert the popover-feeding projection (the view-model function that buckets by Project → Worktree) returns exactly one row. Guards the "badge = rendered rows" invariant.
+  - **Badge/popover parity**: construct a catalog with one known Worktree + one unread notification whose `paneID` belongs to that Worktree, plus one unread notification whose `paneID` is **not** in the catalog (orphan). Feed both through `inboxUpdated`; assert `state.unreadCount == 1` and assert the popover-feeding projection (the view-model function that buckets by Project → Worktree) returns exactly one row. Guards the "badge = rendered rows" invariant.
   - `notificationTapped` drives `selectSpace` / `selectProject` / `selectWorktree` and `markReadForWorktree`.
   - `dismissAllTapped` drives `clearAll`.
   - `openDefaultEditorTapped` emits `.delegate(.openEditor(nil, ...))`.
@@ -320,8 +320,8 @@ Everything else — the Header row, the GV toggle button, the `gitViewerVisible`
 
 ## Risks
 
-1. **Inbox snapshot vs catalog race.** The popover's Project → Worktree grouping is computed from `(inboxSnapshot, catalogSnapshot)`. The inbox updates via `observe()`, the catalog via `HierarchyManager`'s `@Observable`. If a notification's panel is moved between tabs between the inbox yield and catalog render, the row may briefly appear under a stale Worktree or fall into an "orphaned" bucket. Mitigation: compute grouping at render time via `@Environment(HierarchyManager.self).catalog`, not at `.inboxUpdated` time. Orphans (panels no longer in the catalog) are excluded via `panelWorktreeIndex()`'s `nil` lookup — same policy as the T0 aggregation helpers. The badge count and the popover row count share this single `PanelID → WorktreeID` index: both are derived from `NotificationInbox.totalUnread(in: catalog)` / `notifications(forWorktree:in: catalog)`, so an orphan never inflates the badge past the number of rows the popover actually renders.
+1. **Inbox snapshot vs catalog race.** The popover's Project → Worktree grouping is computed from `(inboxSnapshot, catalogSnapshot)`. The inbox updates via `observe()`, the catalog via `HierarchyManager`'s `@Observable`. If a notification's pane is moved between tabs between the inbox yield and catalog render, the row may briefly appear under a stale Worktree or fall into an "orphaned" bucket. Mitigation: compute grouping at render time via `@Environment(HierarchyManager.self).catalog`, not at `.inboxUpdated` time. Orphans (panes no longer in the catalog) are excluded via `panelWorktreeIndex()`'s `nil` lookup — same policy as the T0 aggregation helpers. The badge count and the popover row count share this single `PaneID → WorktreeID` index: both are derived from `NotificationInbox.totalUnread(in: catalog)` / `notifications(forWorktree:in: catalog)`, so an orphan never inflates the badge past the number of rows the popover actually renders.
 2. **Dismiss-all wipes per-Worktree markRead opportunities.** `dismissAll()` sets `dismissedAt` for every entry, which makes `isUnread` false for everything. This is the spec behavior and matches the popover's top-right action. Documented in the popover button's tooltip.
 3. **Default-editor resolution drift between dropdown and split-button.** Mitigated by hoisting the resolution into `EditorFeature.resolveDefault` and unit-testing it. If resolution ever changes (e.g. a per-Worktree override is added), both surfaces pick it up by call-site update in one place.
 4. **ContentView GV visibility read path.** Replacing `store.inspectorVisible` with a catalog-derived flag in `ContentView` means the 3-column layout shows/hides on catalog mutations (including selection changes that flip the flag back to its persisted value for the new Worktree). That is the spec behavior per T0 (§Visibility persists across selections). Mitigation: verify manually by selecting two Worktrees with different `gitViewerVisible` values; add a `RootFeatureTests` case that asserts the resolved flag follows selection + mutation.
-5. **Popover layering over terminal input focus.** Opening the popover does not retire the focused panel's first-responder status; dismissing the popover must not leave the focus in the popover. Mitigation: we rely on SwiftUI's default `.popover` focus behavior; if it misbehaves, T3's keyboard-shortcut work can follow up with `.focusEffectDisabled()` on popover contents.
+5. **Popover layering over terminal input focus.** Opening the popover does not retire the focused pane's first-responder status; dismissing the popover must not leave the focus in the popover. Mitigation: we rely on SwiftUI's default `.popover` focus behavior; if it misbehaves, T3's keyboard-shortcut work can follow up with `.focusEffectDisabled()` on popover contents.

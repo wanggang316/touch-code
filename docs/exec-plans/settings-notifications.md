@@ -344,7 +344,7 @@ design promised is now honoured, and each is guarded by a new test.
    private static func make(
      authStatus: AuthorizationStatusCache = .authorized,
      mutedRuleIDs: Set<String> = [],
-     mutedPanelIDs: Set<PanelID> = [],
+     mutedPanelIDs: Set<PaneID> = [],
      surfaceIdle: Bool = false,
      redactBodies: Bool = false,
      globalEnabled: Bool = true,
@@ -479,7 +479,7 @@ Body outline (one `ScrollView` ⇒ `VStack(alignment: .leading, spacing: 28)`):
 5. **Mute rules** section — `VStack(alignment: .leading)` with:
    - Headline: "Mute rules".
    - Summary `Text` (counts only per Q2 resolution):
-     `"\(rulesCount) rule(s), \(panelsCount) panel(s) muted"`.
+     `"\(rulesCount) rule(s), \(panelsCount) pane(s) muted"`.
      Conditionally append `", idle shown"` if `mute.surfaceIdle` and
      `", bodies redacted"` if `mute.redactBodies`.
    - Button `Label("Reveal rules.json in Finder", systemImage: "folder")`
@@ -560,7 +560,7 @@ and log the outcome. Each item gets a PASS / FAIL marker in
 
 - **AC2 — In-app off suppresses in-app surface.** Toggle In-app
   notifications off. Trigger an agent `completed` transition (e.g.
-  send a known prompt to a running Claude panel). Expect: bell
+  send a known prompt to a running Claude pane). Expect: bell
   popover does not show a new unread item, dock icon shows no
   badge.
 

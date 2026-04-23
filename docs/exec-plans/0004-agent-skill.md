@@ -14,13 +14,13 @@ After this plan lands, a contributor who has just run `make mac-build` and insta
 
 - Open a terminal and run `tc skill install --claude-code`. Within a second, `~/.claude/skills/touch-code/` exists on disk, populated with a versioned `SKILL.md`, a `references/` tree that documents the `tc` CLI, and an install marker.
 - Run `tc skill status`. A table reports which agents have the skill installed, what version they have, and what version the app bundle contains. Mismatches are obvious.
-- Open Claude Code inside a touch-code Panel. Claude has the skill loaded; asking "how do I split this panel?" yields a correct `tc pane split …` answer sourced from the skill's references — not from model memory.
+- Open Claude Code inside a touch-code Pane. Claude has the skill loaded; asking "how do I split this pane?" yields a correct `tc pane split …` answer sourced from the skill's references — not from model memory.
 - Repeat for `--codex` (same UX, same outputs against `~/.codex/skills/touch-code/`). For `--pi`, run `tc skill install --pi` and the command delegates to `pi install git:<mirrorURL>` against the published mirror repo.
 - Upgrade `touch-code.app`. On next launch, a non-blocking banner observes that the installed skill for Claude Code is older than the bundle and suggests `tc skill install --claude-code`. Running it rewrites the directory idempotently.
 
 This is the first capability the app ships that is consumed outside the app's process boundary. The design doc ([docs/design-docs/c5-agent-skill.md](../design-docs/c5-agent-skill.md)) pins the architectural invariant: **the app never loads or parses `SKILL.md`**. This plan implements the install helper, the skill content, the release pipeline, and the per-agent verification, while holding that line.
 
-C5 is deliberately orthogonal to C1 (Terminal engine) and C2 (Hierarchy): Tier-A testing does not depend on `tc ls` or Panel IPC existing, so this plan can land and release independently of [exec-plan 0002](0002-terminal-and-hierarchy.md). Tier-B smoke tests activate progressively as the app's CLI surface fills in.
+C5 is deliberately orthogonal to C1 (Terminal engine) and C2 (Hierarchy): Tier-A testing does not depend on `tc ls` or Pane IPC existing, so this plan can land and release independently of [exec-plan 0002](0002-terminal-and-hierarchy.md). Tier-B smoke tests activate progressively as the app's CLI surface fills in.
 
 ## Progress
 
@@ -31,8 +31,8 @@ C5 is deliberately orthogonal to C1 (Terminal engine) and C2 (Hierarchy): Tier-A
 - [x] M5 — `SkillVersionBanner` + `SkillVersionBannerView` in the app, injectable providers so the banner never reads `SKILL.md` content, one-field `MinimalMarker` decoder, per-agent `UserDefaults` dismissal that re-arms on bundle-version bump, 11 unit tests incl. M5-fix polish (pi skipped at loop, SemVer numeric compare, "Copy command" affordance) — 2026-04-20
 - [x] M6 — Tier-A automation: `tc help-json` subcommand + `generate-skill-version.sh` + `skill-help-roundtrip.py` + `skill-tier-a.sh` + `skill-orthogonality-check.sh` + `skill-golden-update.sh` + `skill-golden-manifest.txt` + Makefile targets + `.github/workflows/skill-tier-a.yml`. All three checks pass locally (roundtrip / golden / orthogonality). 65 unit tests + Tier-A green — 2026-04-20. M6-polish fixes (roundtrip code-scope only, orthogonality anchored to file-path column, version-regex narrowed to CommandConfiguration format) landed alongside M7.
 - [x] M7 — Mirror-repo release automation: `.github/workflows/skill-mirror-push.yml` (tag-triggered, owner-gated on `MIRROR_DEPLOY_KEY` secret, mirror slug derived from `agents.json.pi.mirrorURL`, rsync-subtree-push approach, tag/VERSION consistency check). Concurrency group added to Tier-A workflow as the deferred follow-up. YAML merged but expected to fail at clone-step until owner provisions the deploy key (planned degradation, documented in workflow header) — 2026-04-20
-- [x] M8 — SKILL.md + `references/*.md` + `agents/**/{README,examples}.md` production content pass (~3077 words across SKILL.md + references; 4538 with per-agent docs). Shipped commands + planned commands documented together; planned subtrees gated via a new `PLANNED_TOKENS` dict in `skill-help-roundtrip.py` so CI passes with honest forward-references. 46 `tc …` references in markdown verified by Tier-A (6 shipped + 40 planned) — 2026-04-20. M8-polish (DEC-22) followed: panelID/panelIndex terminology unified, --focus flag position normalised, "discards edits" wording softened, notify recipe order corrected. +2 suggestion fold-ins (`tc send` in Fast Start, ambient intro in targeting).
-- [x] M9 — Release-gate Tier-B: `tests/{claude-code,codex}.smoke.md` specs + `apps/mac/scripts/skill-tier-b-{claude,codex}.sh` harnesses + `touch-code-skill/tests/pi.smoke.sh` + `.github/workflows/skill-tier-b.yml` (tag-triggered) + `make mac-skill-tier-b`. Prompts target the currently-shipped `tc skill *` surface so v0.1.0 can gate on a real PASS; future releases extend with `tc worktree` / `tc tab` / `tc panel` prompts when those land. Locally: claude PASS, codex PASS, pi SKIP (mirror not provisioned yet) — exactly the shape DEC-5 describes — 2026-04-20
+- [x] M8 — SKILL.md + `references/*.md` + `agents/**/{README,examples}.md` production content pass (~3077 words across SKILL.md + references; 4538 with per-agent docs). Shipped commands + planned commands documented together; planned subtrees gated via a new `PLANNED_TOKENS` dict in `skill-help-roundtrip.py` so CI passes with honest forward-references. 46 `tc …` references in markdown verified by Tier-A (6 shipped + 40 planned) — 2026-04-20. M8-polish (DEC-22) followed: paneID/panelIndex terminology unified, --focus flag position normalised, "discards edits" wording softened, notify recipe order corrected. +2 suggestion fold-ins (`tc send` in Fast Start, ambient intro in targeting).
+- [x] M9 — Release-gate Tier-B: `tests/{claude-code,codex}.smoke.md` specs + `apps/mac/scripts/skill-tier-b-{claude,codex}.sh` harnesses + `touch-code-skill/tests/pi.smoke.sh` + `.github/workflows/skill-tier-b.yml` (tag-triggered) + `make mac-skill-tier-b`. Prompts target the currently-shipped `tc skill *` surface so v0.1.0 can gate on a real PASS; future releases extend with `tc worktree` / `tc tab` / `tc pane` prompts when those land. Locally: claude PASS, codex PASS, pi SKIP (mirror not provisioned yet) — exactly the shape DEC-5 describes — 2026-04-20
 
 ## Surprises & Discoveries
 
@@ -63,7 +63,7 @@ The design doc locks Decisions 1-13. The plan adds a handful of implementation-l
 - **DEC-19 (M6 polish, 2026-04-20): `generate-skill-version.sh` version regex narrowed to the CommandConfiguration format.** Earlier sed extracted any `version: … X.Y.Z …` substring, which would pick up a comment like `// version: 0.0.1` if one ever sat above the `CommandConfiguration`. Now the pattern demands the exact literal `version: "touch-code X.Y.Z`. Narrow match = no false positives. If the banner format ever changes, this line changes with it.
 - **DEC-20 (M7, 2026-04-20): Mirror-push derives the mirror slug from `agents.json.pi.mirrorURL`, not a hard-coded workflow string.** Forks and renames flow through `agents.json` (already the single source of truth per DEC-11). The workflow uses `jq` at run time to resolve the SSH form. `concurrency: group: skill-mirror-push-${ref}, cancel-in-progress: false` — in-flight tag pushes must complete; skipping one would leave the mirror out of date for a release.
 - **DEC-21 (M8, 2026-04-20): Skill content documents shipped + planned commands side-by-side, with planned subtrees gated by a `PLANNED_TOKENS` dict in the roundtrip checker.** The alternative — only writing content for shipped commands — would force an M8-sized rewrite for every future milestone that ships more of the CLI. The alternative in the other direction — disabling the roundtrip gate for planned commands — would let stale or invented commands into the skill. Compromise: backtick-wrapped references are still load-bearing (roundtrip check catches unknown names), but a small explicit list of "planned subtree prefixes" in `skill-help-roundtrip.py` is treated as satisfied. Each entry names the exec plan that delivers it; when that plan ships, the entry deletes and the checker starts demanding the real subcommand.
-- **DEC-22 (M9, 2026-04-20): Tier-B smoke prompts target the currently-shipped surface, not the planned surface.** A first attempt asked Claude to "List all panels and report the count" — but `tc ls` hasn't shipped, so Claude correctly replied "there is no panel subcommand" and the gate failed every v0.1.0 release. The fix is structural: every Tier-B prompt must be answerable via a `tc` subcommand that is *in* `tc help-json` today, so release CI can go green as soon as one agent is provisioned on the runner. When C1-C3 land, add new prompts that exercise their surfaces. This mirrors M6's PLANNED_TOKENS split between shipped and planned — the gate is always tight around what's really there.
+- **DEC-22 (M9, 2026-04-20): Tier-B smoke prompts target the currently-shipped surface, not the planned surface.** A first attempt asked Claude to "List all panes and report the count" — but `tc ls` hasn't shipped, so Claude correctly replied "there is no pane subcommand" and the gate failed every v0.1.0 release. The fix is structural: every Tier-B prompt must be answerable via a `tc` subcommand that is *in* `tc help-json` today, so release CI can go green as soon as one agent is provisioned on the runner. When C1-C3 land, add new prompts that exercise their surfaces. This mirrors M6's PLANNED_TOKENS split between shipped and planned — the gate is always tight around what's really there.
 
 ## Outcomes & Retrospective
 
@@ -119,7 +119,7 @@ CI is wired for release tags, and a mirror-push workflow will populate the publi
 **Carry-forward to future plans:**
 
 - `PLANNED_TOKENS` in `skill-help-roundtrip.py` — the exec plans named inside each
-  entry (0002 for `tc ls`/`tc worktree`/`tc tab`/`tc panel`/`tc space`, 0003 for
+  entry (0002 for `tc ls`/`tc worktree`/`tc tab`/`tc pane`/`tc space`, 0003 for
   `tc send`/`tc broadcast`/`tc open`/`tc agent`) must remove their entries on
   landing. CI will then *demand* the real subcommand.
 - Tier-B prompts must grow a new prompt per newly-shipped subcommand group
@@ -187,7 +187,7 @@ This is the cheapest milestone; it also unblocks M3 (`SkillInstaller` tests need
 
 **Work.** Create `touch-code-skill/` at the repo root. Populate:
 
-- `touch-code-skill/SKILL.md` — frontmatter (`name: touch-code`, `description: Control touch-code spaces, projects, worktrees, tabs, and panels with \`tc\`.`), a one-sentence "Use this skill when …" line, and a bulleted stub Terminology + Fast Start + Deep-Dive References list pointing at the `references/*.md` paths. Content is placeholder — M6 rewrites every line. What must be correct *now* is the frontmatter and the reference file names.
+- `touch-code-skill/SKILL.md` — frontmatter (`name: touch-code`, `description: Control touch-code spaces, projects, worktrees, tabs, and panes with \`tc\`.`), a one-sentence "Use this skill when …" line, and a bulleted stub Terminology + Fast Start + Deep-Dive References list pointing at the `references/*.md` paths. Content is placeholder — M6 rewrites every line. What must be correct *now* is the frontmatter and the reference file names.
 - `touch-code-skill/VERSION` — a single line `0.1.0` followed by a newline. Stub value; M5's `generate-skill-version.sh` will overwrite on release builds.
 - `touch-code-skill/package.json` — pi metadata:
       {
@@ -629,7 +629,7 @@ The `skill-orthogonality-check.sh` and `make mac-skill-validate` from M6 run as 
 
 ### Milestone 8: SKILL.md + `references/` production content pass
 
-**Goal after this milestone.** Every stub from M1 has been replaced with production content. A new Claude Code / Codex / pi session inside a touch-code Panel can read `SKILL.md` and produce correct `tc` invocations without guessing. The content rules from design doc §SKILL.md Template are honoured: no Swift, no architecture diagrams, no rationale prose. CLI-only, recipe-rich.
+**Goal after this milestone.** Every stub from M1 has been replaced with production content. A new Claude Code / Codex / pi session inside a touch-code Pane can read `SKILL.md` and produce correct `tc` invocations without guessing. The content rules from design doc §SKILL.md Template are honoured: no Swift, no architecture diagrams, no rationale prose. CLI-only, recipe-rich.
 
 **Work.** Rewrite each file. The content plan — not the content itself — is specified below so that a reviewer can confirm coverage without the plan becoming prescriptive of prose.
 
@@ -637,24 +637,24 @@ The `skill-orthogonality-check.sh` and `make mac-skill-validate` from M6 run as 
 
 - Frontmatter (already correct from M1).
 - One-sentence "Use this skill when …" line ported verbatim from the supaterm model (adapted to `tc`).
-- **Terminology** section: one line per Space / Project / Worktree / Tab / Panel / Hook / Skill, matching the definitions in product-spec §Key Concepts verbatim (a direct quotation keeps the two in sync — when product-spec changes, M6-style refresh updates SKILL.md).
-- **Fast Start** section: 8 commands covering `tc ls --json`, `tc worktree new <branch>`, `tc tab new --focus -- <cmd>`, `tc panel split right`, `tc panel send <id> 'echo hi'`, `tc open --in <editor>`, `tc agent install-hook claude`, `tc skill status`. Every command has an expected JSON or human output line.
+- **Terminology** section: one line per Space / Project / Worktree / Tab / Pane / Hook / Skill, matching the definitions in product-spec §Key Concepts verbatim (a direct quotation keeps the two in sync — when product-spec changes, M6-style refresh updates SKILL.md).
+- **Fast Start** section: 8 commands covering `tc ls --json`, `tc worktree new <branch>`, `tc tab new --focus -- <cmd>`, `tc pane split right`, `tc pane send <id> 'echo hi'`, `tc open --in <editor>`, `tc agent install-hook claude`, `tc skill status`. Every command has an expected JSON or human output line.
 - **Deep-Dive References** section: bulleted links to the six `references/*.md`.
 
 `references/hierarchy-model.md`:
 
 - Define the five-level tree in diagram form (ASCII), citing product-spec §Core Capabilities C2 verbatim.
 - Selector syntax: `1` (Space), `1/2` (Project … wait; re-read product-spec to get ordering exactly) — the correct selector form follows whatever `tc ls` emits. Document the exact form the CLI accepts. Lock this at implementation time against `tc ls --json` output.
-- Ambient env vars: `TOUCH_CODE_PANEL_ID`, `TOUCH_CODE_SOCKET_PATH`, `TOUCH_CODE_TAB_ID` (if exposed), `TOUCH_CODE_WORKTREE_ID`. Cross-reference [architecture §IPC](../architecture.md).
+- Ambient env vars: `TOUCH_CODE_PANE_ID`, `TOUCH_CODE_SOCKET_PATH`, `TOUCH_CODE_TAB_ID` (if exposed), `TOUCH_CODE_WORKTREE_ID`. Cross-reference [architecture §IPC](../architecture.md).
 
 `references/targeting-and-selectors.md`:
 
 - Selector forms, UUIDs, `--in` conventions — adapt the supaterm `references/targeting-and-selectors.md` structure.
-- Creation commands return typed IDs (`tabID`, `panelID`); list-commands use generic `id`.
+- Creation commands return typed IDs (`tabID`, `paneID`); list-commands use generic `id`.
 
 `references/tc-cli.md`:
 
-- One subsection per `tc` subcommand group: `tc ls`, `tc space *`, `tc worktree *`, `tc tab *`, `tc panel *`, `tc send`, `tc broadcast`, `tc open`, `tc agent *`, `tc skill *`. Each subsection shows the subcommand's usage line from `tc <subcmd> --help`, the parameters, and at least one example with expected output.
+- One subsection per `tc` subcommand group: `tc ls`, `tc space *`, `tc worktree *`, `tc tab *`, `tc pane *`, `tc send`, `tc broadcast`, `tc open`, `tc agent *`, `tc skill *`. Each subsection shows the subcommand's usage line from `tc <subcmd> --help`, the parameters, and at least one example with expected output.
 - This file is the target of the Tier-A `tc --help` roundtrip check. Every `tc <subcommand>` it mentions in a code block must exist in `tc --help-json`.
 
 `references/agent-hooks.md`:
@@ -669,7 +669,7 @@ The `skill-orthogonality-check.sh` and `make mac-skill-validate` from M6 run as 
 
 `references/recipes.md`:
 
-- 5-7 worked multi-step recipes: "Start a dev server in a new Tab", "Broadcast a command to every Panel in the current Tab", "Create a worktree for feature branch X and open it in Cursor", "Notify when the current shell finishes a long command" (uses `tc pane notify` once the command returns), "List worktrees as JSON and pick one by name", "Install the skill into a fresh Claude Code session".
+- 5-7 worked multi-step recipes: "Start a dev server in a new Tab", "Broadcast a command to every Pane in the current Tab", "Create a worktree for feature branch X and open it in Cursor", "Notify when the current shell finishes a long command" (uses `tc pane notify` once the command returns), "List worktrees as JSON and pick one by name", "Install the skill into a fresh Claude Code session".
 
 `agents/claude-code/README.md`:
 
@@ -679,7 +679,7 @@ The `skill-orthogonality-check.sh` and `make mac-skill-validate` from M6 run as 
 
 `agents/claude-code/examples.md`:
 
-- 3-5 example prompts showing how Claude uses the skill: "Open a new panel running htop", "Broadcast `pwd` to every panel in this tab", "Create a worktree for branch `exp/foo`", "Show which worktrees are idle", "Install the agent hook so I get notified".
+- 3-5 example prompts showing how Claude uses the skill: "Open a new pane running htop", "Broadcast `pwd` to every pane in this tab", "Create a worktree for branch `exp/foo`", "Show which worktrees are idle", "Install the agent hook so I get notified".
 
 `agents/codex/README.md`, `.../codex/examples.md` — same shape.
 
@@ -709,26 +709,26 @@ After content lands, run `make mac-skill-golden-update` and verify `git diff app
 
 ### Milestone 9: Tier-B per-agent smoke tests + release gate
 
-**Goal after this milestone.** A release tag cannot be cut until Tier-B tests show each agent can drive `tc` via the installed skill. Tier-B tests are written, documented, and gated on the release-tag CI. Where the underlying `tc` surface is not yet live (e.g. `tc ls`, `tc panel …` require exec plan 0002 to land further milestones), the Tier-B test uses the closest realisable command and is marked `skip-unless-feature`.
+**Goal after this milestone.** A release tag cannot be cut until Tier-B tests show each agent can drive `tc` via the installed skill. Tier-B tests are written, documented, and gated on the release-tag CI. Where the underlying `tc` surface is not yet live (e.g. `tc ls`, `tc pane …` require exec plan 0002 to land further milestones), the Tier-B test uses the closest realisable command and is marked `skip-unless-feature`.
 
 **Work.**
 
 `touch-code-skill/tests/claude-code.smoke.md`:
 
-- Document the invocation: from a touch-code Panel, run `claude` non-interactively with a fixed prompt, expect a specific `tc` invocation in the response.
+- Document the invocation: from a touch-code Pane, run `claude` non-interactively with a fixed prompt, expect a specific `tc` invocation in the response.
 - The test harness lives in `apps/mac/scripts/skill-tier-b-claude.sh`. **Note.** The exact non-interactive invocation for Claude Code (`claude -p "..."` vs. `claude --print "..."` vs. piped stdin) is evolving; the script below is a **skeleton** — verify the flag at release time by running `claude --help` on the CI runner. The logic around tier-A fallback (DEC-5) is stable and must be preserved when the invocation is updated.
 
       #!/usr/bin/env bash
       set -euo pipefail
       # Assumes: touch-code.app running; `claude` CLI on PATH; skill installed via tc skill install --claude-code
       tmpdir=$(mktemp -d); trap 'rm -rf "$tmpdir"' EXIT
-      PROMPT='List all panels as JSON and report the count.'
+      PROMPT='List all panes as JSON and report the count.'
       # SKELETON — verify the real non-interactive invocation against `claude --help` at release time.
       OUTPUT=$(claude -p "$PROMPT" 2>"$tmpdir/stderr")
       grep -q 'tc ls --json' <<< "$OUTPUT" || { echo "claude did not reference tc ls --json"; exit 1; }
       # If tc ls is wired (post-0002 M5+), compare Claude's counted number to the authoritative count.
       if tc ls --json >"$tmpdir/ls.json" 2>/dev/null; then
-        expected=$(jq '.panels | length' < "$tmpdir/ls.json")
+        expected=$(jq '.panes | length' < "$tmpdir/ls.json")
         claude_count=$(grep -Eo '[0-9]+' <<< "$OUTPUT" | tail -1)
         [ "$expected" = "$claude_count" ] || { echo "count mismatch"; exit 1; }
       else
@@ -908,7 +908,7 @@ After all nine milestones land, a fresh contributor can perform the following an
 9. `make mac-skill-validate` runs Tier-A and exits 0. Orthogonality check passes.
 10. On a release-tag push (once M7 owner actions are complete), the `mirror-skill.yml` workflow succeeds and the mirror repo contains `touch-code-skill/` at the tagged commit.
 11. On a release-tag push against a properly provisioned runner, `skill-tier-b.yml` completes; claude-code / codex / pi smoke tests pass (or degrade gracefully per DEC-5).
-12. In a real Claude Code session inside a touch-code Panel, asking "how do I split this panel?" yields an answer that references `tc panel split …` by name (skill content pass).
+12. In a real Claude Code session inside a touch-code Pane, asking "how do I split this pane?" yields an answer that references `tc pane split …` by name (skill content pass).
 
 Failure on items 1-9 blocks sign-off. Items 10-12 are release-time gates; M4 through M6 can ship without them fully green as long as the pipelines exist and Tier-A is clean.
 
@@ -942,7 +942,7 @@ The following types, functions, and signatures must exist by plan completion. Na
 
 **`touch-code-skill/`** (content-only, no Swift):
 
-- `SKILL.md` — frontmatter keys `name: touch-code`, `description: Control touch-code spaces, projects, worktrees, tabs, and panels with \`tc\`.`
+- `SKILL.md` — frontmatter keys `name: touch-code`, `description: Control touch-code spaces, projects, worktrees, tabs, and panes with \`tc\`.`
 - `VERSION` — plain-text semver; generated by `apps/mac/scripts/generate-skill-version.sh`.
 - `package.json` — `{ "name": "@touch-code/skill", "version": "<semver>", "pi": { "skills": ["./"] }, … }`.
 - `references/{hierarchy-model,targeting-and-selectors,tc-cli,agent-hooks,worktrees-and-editors,recipes}.md`.

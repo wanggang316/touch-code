@@ -8,7 +8,7 @@ This is a living document. The Progress, Surprises & Discoveries, Decision Log, 
 
 ## Purpose
 
-After this change, a user can register an existing local folder as a Project, see its health state, edit per-Project defaults, reorder Projects, and remove a Project without touching files on disk. Specifically: clicking `+ Add Project` opens a macOS folder picker; picking a folder classifies it as git-backed or scratch, rejects duplicate paths with a "Reveal existing Project" escape hatch, lets the user edit the name at add-time, and commits it to `catalog.json`. Each Project shows a live health badge (`ready` / `loading` / `failed(reason)`) driven by a reconciler that runs on app launch and on window focus. A Project's `⋯` menu opens an Options sheet that edits name, default editor, and `worktreesDirectory` override. Projects reorder inside a Space via drag. Non-git Projects suppress the `+ Worktree` affordance, the header branch label, and the Git Viewer toggle. Removing a Project unregisters it from `catalog.json` and closes its panels — the repository and its worktree directories stay on disk untouched, and the confirmation copy says so unambiguously.
+After this change, a user can register an existing local folder as a Project, see its health state, edit per-Project defaults, reorder Projects, and remove a Project without touching files on disk. Specifically: clicking `+ Add Project` opens a macOS folder picker; picking a folder classifies it as git-backed or scratch, rejects duplicate paths with a "Reveal existing Project" escape hatch, lets the user edit the name at add-time, and commits it to `catalog.json`. Each Project shows a live health badge (`ready` / `loading` / `failed(reason)`) driven by a reconciler that runs on app launch and on window focus. A Project's `⋯` menu opens an Options sheet that edits name, default editor, and `worktreesDirectory` override. Projects reorder inside a Space via drag. Non-git Projects suppress the `+ Worktree` affordance, the header branch label, and the Git Viewer toggle. Removing a Project unregisters it from `catalog.json` and closes its panes — the repository and its worktree directories stay on disk untouched, and the confirmation copy says so unambiguously.
 
 Worktree-list enumeration on reconcile is **not owned by this feature**. It is delegated to `HierarchyClient.reconcileDiscoveredWorktrees(projectID:inSpace:)`, which T-WORKTREE owns (append-only, idempotent, swallows errors, main-actor serialized). Until T-WORKTREE's PR lands on `feature/hierarchy-management`, this branch ships a no-op stub of that closure in `HierarchyClient.liveValue`; on rebase the stub is replaced and our call sites do not change.
 
@@ -303,14 +303,14 @@ extension FolderPickerClient: DependencyKey {
   static let liveValue = FolderPickerClient(
     pick: { prompt in
       await MainActor.run {
-        let panel = NSOpenPanel()
-        panel.prompt = prompt
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.canCreateDirectories = false
-        guard panel.runModal() == .OK else { return Optional<URL>.none }
-        return panel.url
+        let pane = NSOpenPanel()
+        pane.prompt = prompt
+        pane.canChooseFiles = false
+        pane.canChooseDirectories = true
+        pane.allowsMultipleSelection = false
+        pane.canCreateDirectories = false
+        guard pane.runModal() == .OK else { return Optional<URL>.none }
+        return pane.url
       }
     }
   )
@@ -519,13 +519,13 @@ Commit: `feat(pm): hide branch label and Git Viewer toggle on non-git Projects`
 **P5.3** — In `HierarchySidebarView.swift` line 124 (Project removal confirmation message), replace:
 
 ```
-Text("Removes the Project and every Worktree under it. This closes all their panels and cannot be undone.")
+Text("Removes the Project and every Worktree under it. This closes all their panes and cannot be undone.")
 ```
 
 with:
 
 ```
-Text("Removes the Project and closes all its panels. Files on disk are not affected.")
+Text("Removes the Project and closes all its panes. Files on disk are not affected.")
 ```
 
 Commit: `feat(pm): Remove Project dialog copy — "Files on disk are not affected"`

@@ -8,7 +8,7 @@ This is a living document. The Progress, Surprises & Discoveries, Decision Log, 
 
 ## Purpose
 
-After this change, a user can manage git worktrees from inside touch-code as first-class entities. Clicking a Project's `[+]` opens a Create Worktree sheet with a live branch-name validator, a base-ref dropdown defaulted to the Project's default remote branch (e.g. `origin/main`), and toggles for fetching origin beforehand and copying ignored or untracked files with streaming progress. On success a new Worktree row appears in the sidebar, is selected, and receives a single Tab with one Panel opened in its checkout directory. Worktrees created on the command line outside touch-code appear in the sidebar automatically once T-PROJECT schedules a reconcile (we own the implementation of that call). A worktree's context menu offers Archive, which soft-hides it from the main list and closes its Tabs/Panels without touching disk or git; a Project `⋯` menu opens an Archived Worktrees sheet that lists soft-hidden worktrees with Unarchive and Remove actions. Remove runs `git worktree remove` and fails loudly with the specific uncommitted files on disk; a follow-up Force Remove button upgrades to `--force`, hard-killing any still-running terminal processes in that worktree first. The Project `⋯` menu also exposes Prune, which drops stale git references and sidebar rows with a one-line toast confirming the count. The Project's main checkout is pinned at the top of the list and its Archive/Remove actions are suppressed everywhere.
+After this change, a user can manage git worktrees from inside touch-code as first-class entities. Clicking a Project's `[+]` opens a Create Worktree sheet with a live branch-name validator, a base-ref dropdown defaulted to the Project's default remote branch (e.g. `origin/main`), and toggles for fetching origin beforehand and copying ignored or untracked files with streaming progress. On success a new Worktree row appears in the sidebar, is selected, and receives a single Tab with one Pane opened in its checkout directory. Worktrees created on the command line outside touch-code appear in the sidebar automatically once T-PROJECT schedules a reconcile (we own the implementation of that call). A worktree's context menu offers Archive, which soft-hides it from the main list and closes its Tabs/Panes without touching disk or git; a Project `⋯` menu opens an Archived Worktrees sheet that lists soft-hidden worktrees with Unarchive and Remove actions. Remove runs `git worktree remove` and fails loudly with the specific uncommitted files on disk; a follow-up Force Remove button upgrades to `--force`, hard-killing any still-running terminal processes in that worktree first. The Project `⋯` menu also exposes Prune, which drops stale git references and sidebar rows with a one-line toast confirming the count. The Project's main checkout is pinned at the top of the list and its Archive/Remove actions are suppressed everywhere.
 
 ## Progress
 
@@ -68,7 +68,7 @@ After this change, a user can manage git worktrees from inside touch-code as fir
 - **D1** (design doc §Alternatives A): new `GitWorktreeClient` alongside the existing `GitWorktreeCLI` actor. The old actor remains for its current callers but the spec's streaming create + JSON list + base-dir semantics require the bundled `wt` script and async-stream plumbing that does not fit the actor shape.
 - **D2** (design doc §Data Storage, W-Q1): `Worktree.archived` is an in-place `Bool` with `decodeIfPresent ?? false` and omit-when-`false` encode — the exact pattern already used for `gitViewerVisible` at `apps/mac/TouchCodeCore/Worktree.swift:60-66`.
 - **D3** (design doc §Create sheet, W-Q2): base-ref dropdown defaults to the Project's default remote branch. When the repo has no remotes or no default branch can be resolved, we fall back to the local `HEAD` ref.
-- **D4** (design doc §Cross-Cutting Concerns → Running-terminal safety, W-Q3): force-remove counts running panels *after* the user confirms the primary Force Remove dialog; if >0, a second confirmation names the count and, on confirm, `runtime.closeSurface(for:)` each panel before the `git worktree remove --force` call.
+- **D4** (design doc §Cross-Cutting Concerns → Running-terminal safety, W-Q3): force-remove counts running panes *after* the user confirms the primary Force Remove dialog; if >0, a second confirmation names the count and, on confirm, `runtime.closeSurface(for:)` each pane before the `git worktree remove --force` call.
 - **D5** (design doc §Cross-Cutting Concerns → Branch-name sanitization, W-Q5): collisions at the derived directory name are rejected with a clear sheet error. No auto-suffixing.
 - **D6** (design doc §Tuist / submodule wiring): we do NOT use Tuist's `resources:` parameter for `git-wt`; a post-build shell script copies only the `wt` file into the bundle's `Resources/git-wt/wt`. supacode's own Project.swift does the same for the same reason (avoids copying README/tests into the `.app`).
 - **D7** (master revision 2026-04-21): the reconcile contract (signature, idempotency, swallow-errors, never-delete) will be repeated verbatim in the PR body under a `## reconcile contract` heading so T-PROJECT can reference it without re-reading the design doc.
@@ -141,7 +141,7 @@ Key source files in this repo (full repository-relative paths):
 - `apps/mac/TouchCodeCore/Worktree.swift` — `Worktree` struct + existing `Codable` pattern with `decodeIfPresent ?? false` and omit-when-default encode. M3 extends it with `archived`.
 - `apps/mac/TouchCodeCore/Project.swift` — `Project` already carries `worktreesDirectory: String?` and `gitRoot: String?`. `supportsWorktrees` gates the feature on `gitRoot != nil`; we do not modify this file.
 - `apps/mac/touch-code/Runtime/HierarchyManager.swift` — `@MainActor @Observable` catalog owner. Currently offers pure-data `createWorktree` and `removeWorktree`. M7 adds `setWorktreeArchived`, `reconcileDiscoveredWorktrees`, `runningPanelCount`.
-- `apps/mac/touch-code/Runtime/HierarchyRuntime.swift` — protocol with `closeSurface(for panelID:)`; used to tear down terminal surfaces on force-remove.
+- `apps/mac/touch-code/Runtime/HierarchyRuntime.swift` — protocol with `closeSurface(for paneID:)`; used to tear down terminal surfaces on force-remove.
 - `apps/mac/touch-code/Git/GitWorktreeCLI.swift` — existing actor wrapping `/usr/bin/git`; NOT modified by this plan. Kept for its existing callers and as a fallback if `wt` cannot be located.
 - `apps/mac/touch-code/App/Clients/HierarchyClient.swift` — TCA dependency bridge over `HierarchyManager`. M8 appends six new closures at end of file, updates the `liveValue` and `testValue` blocks, and (where safe) registers `GitWorktreeClient` as a dependency.
 - `apps/mac/touch-code/App/Features/HierarchySidebar/HierarchySidebarFeature.swift` — sidebar reducer hosting sheets / popovers / confirmation dialogs. M12 composes Create + Archived sub-features, upgrades the remove path, adds Prune + Archive context menu items.
@@ -287,9 +287,9 @@ Commit: `test(git): unit-cover GitWorktreeClient argv + parse + error mapping`.
 
 Edit `apps/mac/touch-code/Runtime/HierarchyManager.swift`:
 
-- Add `func setWorktreeArchived(_ id: WorktreeID, archived: Bool) throws` — locates the Worktree, guards `worktree.path != project.rootPath` (throwing `HierarchyError.invariantViolation("Cannot archive main checkout")`), sets the flag, on `archived == true` iterates the Worktree's Panels and calls `runtime.closeSurface(for:)` for each, and schedules save. Idempotent: if the current value already matches, return without saving.
+- Add `func setWorktreeArchived(_ id: WorktreeID, archived: Bool) throws` — locates the Worktree, guards `worktree.path != project.rootPath` (throwing `HierarchyError.invariantViolation("Cannot archive main checkout")`), sets the flag, on `archived == true` iterates the Worktree's Panes and calls `runtime.closeSurface(for:)` for each, and schedules save. Idempotent: if the current value already matches, return without saving.
 - Add `func reconcileDiscoveredWorktrees(projectID:inSpace:entries: [GitWtEntry])` — the actual merge logic, called synchronously by a wrapper that does the IO. Takes canonicalized entries; appends a new `Worktree` for each entry not matched by `standardizedFileURL.path`. Never removes or mutates existing rows. Returns the count of appended rows.
-- Add `func runningPanelCount(worktreeID: WorktreeID) -> Int` — sum of `panels.count` across the Worktree's Tabs whose Panels have live surfaces. Because `HierarchyRuntime` does not today expose a "panel is alive" query, we extend `HierarchyRuntime` with `func hasSurface(for panelID: PanelID) -> Bool` and sum matches. (Rationale: simpler than making the manager track liveness; the runtime is the source of truth.)
+- Add `func runningPanelCount(worktreeID: WorktreeID) -> Int` — sum of `panes.count` across the Worktree's Tabs whose Panes have live surfaces. Because `HierarchyRuntime` does not today expose a "pane is alive" query, we extend `HierarchyRuntime` with `func hasSurface(for paneID: PaneID) -> Bool` and sum matches. (Rationale: simpler than making the manager track liveness; the runtime is the source of truth.)
 
 Extend `apps/mac/touch-code/Runtime/HierarchyRuntime.swift` with the new `hasSurface` method; update the default implementations (`touch-code/Runtime/Ghostty/*.swift` and `FakeHierarchyRuntime.swift`) accordingly.
 
@@ -299,9 +299,9 @@ Add tests to `apps/mac/touch-code/Tests/Harness/HierarchyManagerArchiveTests.swi
 - `testSetWorktreeArchivedClosesSurfaces` — using the existing `FakeHierarchyRuntime` assert `closeSurface` calls.
 - `testReconcileDiscoveredAppendsOnly` — initial catalog has one Worktree; feeding two `GitWtEntry` rows (one matching, one new) appends exactly one.
 - `testReconcileIsIdempotent` — calling twice with the same entries is a no-op the second time.
-- `testRunningPanelCountReflectsRuntime` — build a tab with two panels, fake runtime claims one is alive → count is 1.
+- `testRunningPanelCountReflectsRuntime` — build a tab with two panes, fake runtime claims one is alive → count is 1.
 
-Commit: `feat(hierarchy): add archive / reconcile-append / running-panel-count`.
+Commit: `feat(hierarchy): add archive / reconcile-append / running-pane-count`.
 
 ### Milestone 8 — `HierarchyClient` closures
 
@@ -310,7 +310,7 @@ Edit `apps/mac/touch-code/App/Clients/HierarchyClient.swift`. **Insertions ONLY 
 - `setWorktreeArchived: @MainActor @Sendable (WorktreeID, Bool) throws -> Void`.
 - `reconcileDiscoveredWorktrees: @MainActor @Sendable (ProjectID, SpaceID) async -> Void` — resolves the Project, reads `gitRoot`, calls `gitWorktreeClient.lsWorktrees`, canonicalizes, forwards to manager's `reconcileDiscoveredWorktrees(projectID:inSpace:entries:)`. Swallows and logs `GitWorktreeError` (never throws).
 - `createWorktreeWithGit: @MainActor @Sendable (ProjectID, SpaceID, branch: String, directoryName: String, path: String) throws -> WorktreeID` — catalog-append only; the git work has already been done by the caller.
-- `removeWorktreeWithGit: @MainActor @Sendable (WorktreeID, ProjectID, SpaceID, force: Bool) async throws -> Void` — resolves worktree, runs `gitWorktreeClient.removeWorktree(repoRoot:, path:, force:)`, on success calls manager's `removeWorktree`. On `force == true`, first `runtime.closeSurface(for:)` every Panel of the Worktree (accessed via manager) so the terminal is hard-killed before git removes the directory. `GitWorktreeError.uncommittedChanges` and `.commandFailed` are re-thrown for the sidebar feature to surface.
+- `removeWorktreeWithGit: @MainActor @Sendable (WorktreeID, ProjectID, SpaceID, force: Bool) async throws -> Void` — resolves worktree, runs `gitWorktreeClient.removeWorktree(repoRoot:, path:, force:)`, on success calls manager's `removeWorktree`. On `force == true`, first `runtime.closeSurface(for:)` every Pane of the Worktree (accessed via manager) so the terminal is hard-killed before git removes the directory. `GitWorktreeError.uncommittedChanges` and `.commandFailed` are re-thrown for the sidebar feature to surface.
 - `runningPanelCount: @MainActor @Sendable (WorktreeID) -> Int` — one-line forward to manager.
 
 Keep the existing `createWorktree` / `removeWorktree` closures intact — they're still called from `HierarchySidebarFeature.worktreeRemoveConfirmed` today, and we migrate those call sites to the `*WithGit` variants in M12. By the end of M12 the legacy `removeWorktree` closure may become unused for app code; we keep it until the CLI path (`tc worktree rm`, if it exists) is audited — out of scope.
@@ -448,7 +448,7 @@ Manual checklist (expand from design doc §Testing):
 - [ ] Build + launch the app; verify the Create Worktree sheet opens, validates live, creates a real worktree on the touch-code repo itself.
 - [ ] External `git worktree add` via terminal → window focus → row appears (after T-PROJECT schedules a reconcile; we validate via calling `hierarchyClient.reconcileDiscoveredWorktrees(projectID:inSpace:)` from a debug hook).
 - [ ] Archive → row disappears from main list, appears in Archived sheet.
-- [ ] Force-remove with a running `top` panel in that worktree; confirm dialogs fire in order; row is gone after confirm.
+- [ ] Force-remove with a running `top` pane in that worktree; confirm dialogs fire in order; row is gone after confirm.
 - [ ] Main checkout row context menu hides Archive + Remove entries.
 - [ ] `git worktree list` and `wt ls --json` agree after every operation.
 
@@ -513,7 +513,7 @@ After each green run:
 The plan is complete when every box in Progress is checked, the PR is open, and the following behaviors observably pass on a real macOS machine with the touch-code repo open as a Project:
 
 - Click `+` on a Project → sheet opens within 500 ms, base-ref dropdown populated, branch-name live validator rejects `feature (with space)` and accepts `feature/new-work`.
-- Enable "Copy ignored" on a tree with a sizable `.gitignore` → progress lines stream in the sheet while `wt` runs; Create button re-enables only on completion; new row visible, new tab + panel in its directory.
+- Enable "Copy ignored" on a tree with a sizable `.gitignore` → progress lines stream in the sheet while `wt` runs; Create button re-enables only on completion; new row visible, new tab + pane in its directory.
 - Run `git worktree add ../sibling -b sideline HEAD` on the CLI → focus the app window → invoke reconcile (via test hook or by letting T-PROJECT's scheduler fire) → `sideline` row appears.
 - Right-click a Worktree with a modified file → Remove Worktree → first dialog: Remove confirmation; confirm → second dialog: "3 files have uncommitted changes in ..."; click Force Remove → third dialog: "This will terminate N running processes" (if any) → confirm → row and directory are gone.
 - Right-click main checkout → menu has Reveal in Finder + Open in Editor but NOT Archive or Remove.

@@ -447,7 +447,7 @@ This pattern handles the merge-close-mark-ready-merge rapid-fire case cleanly: t
 
 The v1 probe (`gh auth status --json hosts`, 30 s TTL) is reused with two additions:
 
-**1. In-flight dedup.** Multiple reducer cases can ask for availability concurrently (first-run, Settings panel, post-install refresh). An actor-serialized cache ensures one subprocess runs:
+**1. In-flight dedup.** Multiple reducer cases can ask for availability concurrently (first-run, Settings pane, post-install refresh). An actor-serialized cache ensures one subprocess runs:
 
 ```swift
 actor GhAvailabilityCache {
@@ -682,7 +682,7 @@ The only change: the post-mutation refresh goes to the whole Project, not just t
 
 ### Settings Surface
 
-Unchanged from v1. The availability panel, merge strategy picker, and post-merge-action picker all continue to work. A new optional setting (may land in v2.1):
+Unchanged from v1. The availability pane, merge strategy picker, and post-merge-action picker all continue to work. A new optional setting (may land in v2.1):
 
 - **"Refresh on app focus"** — toggle, default off. If on, `NSApp.didBecomeActiveNotification` fires `projectRefreshRequested` for every open Project, rate-limited to 60 s per Project.
 

@@ -6,7 +6,7 @@
 
 ## Context and Scope
 
-touch-code ships a small in-app surface for inspecting the Git state of the currently selected Worktree. [Product-spec C7](../product-spec.md) pins the intent: a *read-only* viewer for working-tree diff, staged diff, commit log, and per-commit diff. Anything beyond inspection — staging, committing, merging, editing — is deliberately delegated: terminal Panels already host `git`/`lazygit`; external editors (C8) already host diff/merge UIs. touch-code is not an IDE.
+touch-code ships a small in-app surface for inspecting the Git state of the currently selected Worktree. [Product-spec C7](../product-spec.md) pins the intent: a *read-only* viewer for working-tree diff, staged diff, commit log, and per-commit diff. Anything beyond inspection — staging, committing, merging, editing — is deliberately delegated: terminal Panes already host `git`/`lazygit`; external editors (C8) already host diff/merge UIs. touch-code is not an IDE.
 
 The viewer exists because the user switches Worktrees constantly and wants *quick* answers to "what changed here?" and "what did I commit yesterday?" without leaving the app. It is the smallest useful read surface compatible with a terminal-first tool.
 
@@ -37,7 +37,7 @@ This document is the source of truth for how C7 is structured. It does not speci
 - **No merge-conflict UI** — conflicts render as ordinary unified diff with `<<<<<<<` markers; resolution is external.
 - **No syntax highlighting** in v1. Plaintext, monospace, selectable. Call out as Future Consideration.
 - **No blame, file history, word-level diff, 3-way view, inline comments, graph log, or stash browser** in v1.
-- **No IPC surface (`git.*` methods)** in v1. The viewer is an in-app UI; `tc` already has shell access to plain `git` inside any Panel. Leave the namespace reserved (see Seams).
+- **No IPC surface (`git.*` methods)** in v1. The viewer is an in-app UI; `tc` already has shell access to plain `git` inside any Pane. Leave the namespace reserved (see Seams).
 - **No libgit2 / SwiftGit2 / other FFI.** Shell out to `git`.
 - **No submodule recursion** — submodule pointers render as a single line ("subproject commit $SHA → $SHA"), which is `git`'s default.
 
@@ -367,12 +367,12 @@ Keep a persistent `git cat-file --batch` child per Worktree; stream SHA requests
 - **Cons:** manual protocol framing, manual lifecycle per Worktree, background process management, no use of `git`'s own caching for diff text (which is the 80% of volume). Startup amortisation buys nothing for scopes dominated by diff text.
 - **Verdict:** rejected. Revisit only if log pagination becomes the bottleneck.
 
-### A4. Render diffs in the terminal (Panel) rather than in SwiftUI
+### A4. Render diffs in the terminal (Pane) rather than in SwiftUI
 
-Feed `git diff` into a side-Panel and rely on libghostty to render.
+Feed `git diff` into a side-Pane and rely on libghostty to render.
 
 - **Pros:** leverage existing renderer; free colour support.
-- **Cons:** loses selection, filter, file list, file-level navigation; conflates viewer state with terminal state; breaks keyboard-navigation semantics (Panel inputs would bind to `git`, not to `j/k` nav). The whole point of having a viewer is that `git` in a terminal already exists and users want a structured surface.
+- **Cons:** loses selection, filter, file list, file-level navigation; conflates viewer state with terminal state; breaks keyboard-navigation semantics (Pane inputs would bind to `git`, not to `j/k` nav). The whole point of having a viewer is that `git` in a terminal already exists and users want a structured surface.
 - **Verdict:** rejected — reimplements why the viewer is a separate surface at all.
 
 ### A5. `@Observable` feature instead of TCA
@@ -396,7 +396,7 @@ Keep parsed diffs under `~/.cache/` keyed by `(worktreeID, scope, HEAD SHA)`.
 Render a graph log with branch topology.
 
 - **Pros:** richer information.
-- **Cons:** graph rendering is its own UI project; character-cell rendering via SwiftUI requires explicit grid layout; users who want this launch `tig` or `lazygit` in a Panel, which is strictly better at it. Drops the minimalism the whole viewer is premised on.
+- **Cons:** graph rendering is its own UI project; character-cell rendering via SwiftUI requires explicit grid layout; users who want this launch `tig` or `lazygit` in a Pane, which is strictly better at it. Drops the minimalism the whole viewer is premised on.
 - **Verdict:** rejected — not in goal set.
 
 ## Cross-Cutting Concerns
@@ -421,7 +421,7 @@ Render a graph log with branch topology.
 
 ### Theming & font
 
-- Uses the app's existing monospaced font tokens (same as Panel rendering). Users who change the Panel font from Settings see the same change in the viewer.
+- Uses the app's existing monospaced font tokens (same as Pane rendering). Users who change the Pane font from Settings see the same change in the viewer.
 - Diff colours live under a new `Theme.git.{added,removed,context,renamed}` namespace; defaults track the current light/dark palette, overridable later.
 
 ### Migration path
@@ -433,7 +433,7 @@ Render a graph log with branch topology.
 - **R1 — `git` version drift.** `--pretty=format:%aI` requires `git ≥ 2.2`; `-z --porcelain=v1` is stable but `--porcelain=v2` has better rename info. Mitigation: stick to v1 porcelain and `%aI`, which cover macOS system `git` ≥ macOS 13. Document the floor.
 - **R2 — Diff parser false negatives on exotic output.** `git` has obscure output for merge commits (combined diffs), symlink changes, typechanges, and submodule diffs. Mitigation: every known case is a parser fixture; an unknown shape falls back to rendering the raw text in the right pane under a "Unrecognised diff format — showing raw output" banner rather than crashing.
 - **R3 — Long-running `git` calls on network volumes or large repos.** 10 s timeout is a guess; may be wrong for some real repos. Mitigation: keep the timeout tunable via `Settings.gitTimeoutMs`; log the 95th-percentile wall-clock during dogfooding and adjust.
-- **R4 — `index.lock` races.** When the user is mid-commit in a Panel, `git status` and `git diff --cached` can error with "another git process seems to be running". Mitigation: single automatic retry after 300 ms (inherited from supacode's pattern); on second failure surface the error verbatim.
+- **R4 — `index.lock` races.** When the user is mid-commit in a Pane, `git status` and `git diff --cached` can error with "another git process seems to be running". Mitigation: single automatic retry after 300 ms (inherited from supacode's pattern); on second failure surface the error verbatim.
 - **R5 — SwiftUI large-text rendering regressions.** Apple's lazy stacks have historically regressed on very long monospaced content across OS versions. Mitigation: 50 000-line cutoff; measure on every OS version we support; if a regression lands, fall back to `NSTextView` inside an `NSViewRepresentable` specifically for hunk rendering.
 - **R6 — Feature creep toward write ops.** Users (including the author) will ask for "just a quick stage button". Mitigation: the non-goals section is load-bearing; any write-ops proposal must be its own design doc and must justify the expansion of scope on evidence from dogfooding, not anticipation.
 - **R7 — C8 coupling.** The `Enter` key depends on `EditorService` being resolvable. If C8 is not yet present, the action is a no-op with a status-bar notice. Mitigation: the delegate protocol has a default no-op implementation so C7 can land before C8.

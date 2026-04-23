@@ -153,15 +153,15 @@ Key files to read before starting:
    ```
 
 4. **Create `GhosttyColorSchemeSyncView<Content>`** (`app/Theme/GhosttyColorSchemeSyncView.swift`, ~20 LOC)
-   - Wraps terminal-hosting subtree (in `ContentView` or where panels render).
+   - Wraps terminal-hosting subtree (in `ContentView` or where panes render).
    - Reads `@Environment(\.colorScheme)` and calls `ghostty.setColorScheme(_:)` on change.
    - Include `initial: true` so new surfaces get the scheme on mount.
 
 5. **Wire `GhosttyColorSchemeSyncView` into `ContentView`** (modify `app/ContentView.swift`)
-   - Wrap the `PanelHostView` or similar where Ghostty surfaces render.
+   - Wrap the `PaneHostView` or similar where Ghostty surfaces render.
 
 **Verification:**
-- Launch app, open a terminal panel (Ghostty surface).
+- Launch app, open a terminal pane (Ghostty surface).
 - Toggle Settings → General → Appearance.
 - Observe Ghostty palette (foreground, background, ANSI colors) flips immediately.
 - Toggle system macOS Appearance while in System mode; Ghostty follows without user action.
@@ -278,7 +278,7 @@ Key files to read before starting:
 - Verify light and dark theme lists are populated (non-empty if Ghostty has themes).
 - Select a different light theme; verify Settings shows loading indicator briefly, then settles.
 - Check `~/.config/ghostty/config`; assert theme line updated.
-- Open Ghostty panel in main window; verify palette visually changes to the selected light theme.
+- Open Ghostty pane in main window; verify palette visually changes to the selected light theme.
 - Toggle app appearance to Dark; verify palette switches to the selected dark theme.
 - Manually edit `~/.config/ghostty/config` to corrupt the theme line; re-open Settings → Terminal and select a new theme.
 - Assert error message appears (e.g., "Config file had parse issues — reverted to previous state").

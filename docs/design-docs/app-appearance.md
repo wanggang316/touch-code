@@ -18,7 +18,7 @@ The two layers compose: when the app is in dark appearance, Ghostty renders the 
 In scope:
 
 - SwiftUI-managed chrome (both `WindowGroup` main window and `Window("Settings")` scene in `TouchCodeApp`).
-- AppKit-hosted surfaces — primarily Ghostty terminal views in `apps/mac/touch-code/Runtime/Ghostty/` and `App/PanelHostView.swift`. These do not inherit SwiftUI's `.preferredColorScheme` automatically.
+- AppKit-hosted surfaces — primarily Ghostty terminal views in `apps/mac/touch-code/Runtime/Ghostty/` and `App/PaneHostView.swift`. These do not inherit SwiftUI's `.preferredColorScheme` automatically.
 - The Ghostty terminal palette (foreground, background, ANSI colors) controlled via named themes stored in Ghostty's own config file.
 - A new `Terminal` section in the Settings window.
 
@@ -38,7 +38,7 @@ Out of scope:
 - `SettingsGeneralView` renders a `Picker` bound to `settingsStore.setAppearance(_:)`; the caption declares it a preview.
 - `SettingsSection` has no `terminal` case; settings sidebar (`SettingsWindowView`) lists only `general`, `notifications`, `developer`, `shortcuts`, `updates`, `about` plus per-repository rows.
 - The app has two scenes (`WindowGroup` for the main window, `Window("Settings")`). Both default to whatever appearance macOS decides.
-- `GhosttyRuntime` exposes `register(panel:)` / `unregister(panelID:)` / `surface(for:)` / `tick()` — **no appearance or config-reload API**. Ghostty terminal surfaces currently render whatever palette the user's global Ghostty config dictates at launch and do not react to the in-app picker.
+- `GhosttyRuntime` exposes `register(pane:)` / `unregister(paneID:)` / `surface(for:)` / `tick()` — **no appearance or config-reload API**. Ghostty terminal surfaces currently render whatever palette the user's global Ghostty config dictates at launch and do not react to the in-app picker.
 - No code today reads or writes `~/.config/ghostty/config`.
 - 54 color call sites across the UI layer: predominantly system semantic colors (`Color(nsColor: .textBackgroundColor)`, `.secondary`, materials) that auto-adapt, plus a handful of hand-tuned accents (`Color.red`, `Color.orange.opacity(0.08)`).
 
@@ -195,7 +195,7 @@ struct GhosttyColorSchemeSyncView<Content: View>: View {
 }
 ```
 
-Wraps the panel-host subtree in `ContentView` / `PanelHostView` at a point where `GhosttyRuntime` is accessible. Reads `@Environment(\.colorScheme)` (already resolved by `AppAppearanceView`). `initial: true` so freshly created Ghostty surfaces inherit the current scheme without waiting for a user change.
+Wraps the pane-host subtree in `ContentView` / `PaneHostView` at a point where `GhosttyRuntime` is accessible. Reads `@Environment(\.colorScheme)` (already resolved by `AppAppearanceView`). `initial: true` so freshly created Ghostty surfaces inherit the current scheme without waiting for a user change.
 
 **`GhosttyRuntime` — two new methods.**
 
@@ -214,7 +214,7 @@ extension GhosttyRuntime {
 }
 ```
 
-`setColorScheme` also tracks the last-applied scheme, so when a new `PanelSurface` registers the runtime can immediately apply the correct scheme to it (otherwise new panels open in the wrong palette until the next scheme toggle).
+`setColorScheme` also tracks the last-applied scheme, so when a new `PaneSurface` registers the runtime can immediately apply the correct scheme to it (otherwise new panes open in the wrong palette until the next scheme toggle).
 
 `reloadAppConfig` is invoked from the notification listener registered in `GhosttyRuntime.init`:
 

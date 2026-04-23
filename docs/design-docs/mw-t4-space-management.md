@@ -212,7 +212,7 @@ The popover's new "Manage Spaces…" button sends
 pattern to the existing `openInDefaultEditor` delegate routing.
 
 Rationale: the sheet is window-modal and its effects span features (edits
-the catalog, closes terminal panels via cascade). Lifting it to
+the catalog, closes terminal panes via cascade). Lifting it to
 `RootFeature` matches where settings already lives and keeps the sidebar
 reducer focused on sidebar concerns. TCA's `ifLet(\.$spaceManagerSheet,
 …)` gives us automatic dismiss on child effect completion.
@@ -323,7 +323,7 @@ Mapped 1:1 to the product spec's AC list:
   preserved.
 - **Manager state owned by `HierarchySidebarFeature`.** Rejected — the
   sheet is window-modal and its effects span beyond the sidebar (catalog
-  mutation, terminal panel close). Matching `SettingsSheetFeature`'s
+  mutation, terminal pane close). Matching `SettingsSheetFeature`'s
   Root-owned presentation keeps the two window-level sheets symmetric.
 - **Eager persist on seed (saveNow).** Rejected — adds a throw path to
   `TouchCodeApp.init` for a 0.5 s window no user will notice; reseed on

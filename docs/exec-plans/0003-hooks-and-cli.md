@@ -10,9 +10,9 @@ This is a living document. The Progress, Surprises & Discoveries, Decision Log, 
 
 After this plan lands, a contributor who runs `make mac-build && make mac-run-app` can:
 
-- Write a shell handler for Panel / Tab / Worktree lifecycle events, drop it in `~/.config/touch-code/hooks.json`, and see the handler fire with a fully-typed JSON envelope on stdin whenever the matching event occurs. Handlers can write a small JSON DSL on stdout to request follow-up app actions (send text to a Panel, open a Tab, fire an OS notification) with the recursion guard preventing runaway loops.
-- Drive touch-code from any Panel's shell with a real `tc` CLI: create Spaces, add Projects, spin up Worktrees, open Panels, send text across Panels, broadcast to a Tab, install / test / tail hook subscriptions, hand a Worktree to an external editor, install the published Agent Skill into Claude Code / Codex / pi. Every command has stable exit codes and a machine-readable `--json` mode.
-- Observe event flow end-to-end: an agent running in a Panel emits `READY FOR REVIEW`; a user-installed `panel.outputMatch` hook fires; the handler writes `{"actions":[{"notify":{…}}]}` on stdout; the dispatcher translates that to a native notification — all without rebuilding the app.
+- Write a shell handler for Pane / Tab / Worktree lifecycle events, drop it in `~/.config/touch-code/hooks.json`, and see the handler fire with a fully-typed JSON envelope on stdin whenever the matching event occurs. Handlers can write a small JSON DSL on stdout to request follow-up app actions (send text to a Pane, open a Tab, fire an OS notification) with the recursion guard preventing runaway loops.
+- Drive touch-code from any Pane's shell with a real `tc` CLI: create Spaces, add Projects, spin up Worktrees, open Panes, send text across Panes, broadcast to a Tab, install / test / tail hook subscriptions, hand a Worktree to an external editor, install the published Agent Skill into Claude Code / Codex / pi. Every command has stable exit codes and a machine-readable `--json` mode.
+- Observe event flow end-to-end: an agent running in a Pane emits `READY FOR REVIEW`; a user-installed `pane.outputMatch` hook fires; the handler writes `{"actions":[{"notify":{…}}]}` on stdout; the dispatcher translates that to a native notification — all without rebuilding the app.
 
 This is the plan where touch-code becomes *programmable*. C6 (OS-notification aggregation) layers directly on the `hook.events` stream and the in-process `internalEventStream()` seam delivered here. C5 (published Agent Skill) can document a real CLI contract once M6 lands. Every subsequent capability reuses the RPC framing, the hook event taxonomy, or both.
 
@@ -27,8 +27,8 @@ This plan implements those decisions; it does not relitigate them.
 
 - [x] M1 — `TouchCodeCore` + `TouchCodeIPC` wire types and Codable round-trip tests — 2026-04-20 (86 tests across 14 suites passing; `make mac-lint` clean; zero AppKit/SwiftUI/GhosttyKit imports in leaf packages)
 - [x] M2 — `apps/mac/touch-code/Hooks/` in-app subfolder public surface + C6-unblocking APIs — 2026-04-20 (60 tests / 10 suites green; `make lint` clean). Hot-path internals (regex output-match, recursion guard, rate limiter, idle client-side filter, `TerminalEvent` → envelope mapper) deferred to **M2.1 follow-up**, tracked below.
-- [x] M2.1 — `EventMapper` + `HookDispatcher.attach(to:)` real implementation + `ProcessHookExecutor` — 2026-04-20 (EventMapper maps every user-facing `TerminalEvent` case to a fully-anchored `HookEnvelope`; `HookDispatcher.attach(to:catalog:)` replaces the M2 assertion-stub with a real subscribe-map-fire loop; `ProcessHookExecutor` spawns `/bin/sh -c <command>` with argv-only invocation, env allowlist (PATH/HOME/USER/SHELL/LANG/LC_ALL/TERM) + subscription.env override, JSON envelope on stdin, `subscription.timeoutSeconds` enforcement via SIGTERM, and `[HookAction]` / NDJSON stdout parse. 21 new tests: 9 EventMapper (anchor-chain, per-case mapping, hierarchyMutated→nil, unknown-panel graceful), 3 HookDispatcherAttach (fires into executor, skips mutated, stop cancels), 9 ProcessHookExecutor (env allowlist + override, NDJSON + array parse, garbage returns empty, exit code, stdout JSON capture, timeout enforcement, fire-and-forget fast return). **C6 M7 unblocked.** Hot-path extras — output-match regex eval, recursion guard, rate limiter, idle client-side filter — tracked as M2.1.1. touch-code 102/18 + tcKit 29/6 + TouchCodeCore 88/14 green; lint clean.)
-- [x] M2.1.1 — SIGKILL escalation ladder + synthesised timeout exit code + deterministic attach-test polling + `panel.outputMatch` fire-path — 2026-04-20 (ProcessHookExecutor: `waitWithTimeout` rewritten around single-shot `WaitState<Bool>` with SIGTERM → 1 s poll → SIGKILL → 2 s poll escalation ladder that reaps grandchild-SIGTERM-trapping handlers; stdout/stderr drain migrated to `PipeAccumulator` via `readabilityHandler` so `readToEnd()` never blocks on an orphan-held fd; exit code now read after the ladder guarantees reap. HookDispatcher.fire: adds output-match fan-out — `.panelOutput` envelopes with matching `.panelOutputMatch` subscriptions synthesise a `.panelOutputMatch` envelope per first-regex-hit and re-enter the dispatcher (regex compiled per-fire for M2.1.1; pre-compilation deferred to M2.1.1.1 if measured hot). HookDispatcherAttachTests: `waitUntil(_:timeout:)` poll helper replaces naked 50 ms sleeps; absence-assertion test gets 250 ms soak. +3 tests: trap-TERM → SIGKILL ladder elapsed < 3 s, timeout exit-code sanity (not 0, not -1), panel.outputMatch hit + miss. touch-code 105/18 + tcKit 29/6 + TouchCodeCore 88/14 green; lint clean.)
+- [x] M2.1 — `EventMapper` + `HookDispatcher.attach(to:)` real implementation + `ProcessHookExecutor` — 2026-04-20 (EventMapper maps every user-facing `TerminalEvent` case to a fully-anchored `HookEnvelope`; `HookDispatcher.attach(to:catalog:)` replaces the M2 assertion-stub with a real subscribe-map-fire loop; `ProcessHookExecutor` spawns `/bin/sh -c <command>` with argv-only invocation, env allowlist (PATH/HOME/USER/SHELL/LANG/LC_ALL/TERM) + subscription.env override, JSON envelope on stdin, `subscription.timeoutSeconds` enforcement via SIGTERM, and `[HookAction]` / NDJSON stdout parse. 21 new tests: 9 EventMapper (anchor-chain, per-case mapping, hierarchyMutated→nil, unknown-pane graceful), 3 HookDispatcherAttach (fires into executor, skips mutated, stop cancels), 9 ProcessHookExecutor (env allowlist + override, NDJSON + array parse, garbage returns empty, exit code, stdout JSON capture, timeout enforcement, fire-and-forget fast return). **C6 M7 unblocked.** Hot-path extras — output-match regex eval, recursion guard, rate limiter, idle client-side filter — tracked as M2.1.1. touch-code 102/18 + tcKit 29/6 + TouchCodeCore 88/14 green; lint clean.)
+- [x] M2.1.1 — SIGKILL escalation ladder + synthesised timeout exit code + deterministic attach-test polling + `pane.outputMatch` fire-path — 2026-04-20 (ProcessHookExecutor: `waitWithTimeout` rewritten around single-shot `WaitState<Bool>` with SIGTERM → 1 s poll → SIGKILL → 2 s poll escalation ladder that reaps grandchild-SIGTERM-trapping handlers; stdout/stderr drain migrated to `PipeAccumulator` via `readabilityHandler` so `readToEnd()` never blocks on an orphan-held fd; exit code now read after the ladder guarantees reap. HookDispatcher.fire: adds output-match fan-out — `.paneOutput` envelopes with matching `.paneOutputMatch` subscriptions synthesise a `.paneOutputMatch` envelope per first-regex-hit and re-enter the dispatcher (regex compiled per-fire for M2.1.1; pre-compilation deferred to M2.1.1.1 if measured hot). HookDispatcherAttachTests: `waitUntil(_:timeout:)` poll helper replaces naked 50 ms sleeps; absence-assertion test gets 250 ms soak. +3 tests: trap-TERM → SIGKILL ladder elapsed < 3 s, timeout exit-code sanity (not 0, not -1), pane.outputMatch hit + miss. touch-code 105/18 + tcKit 29/6 + TouchCodeCore 88/14 green; lint clean.)
 - [ ] M2.1.1.1 — Pre-compile regex per-subscription + add recursion guard + token-bucket rate limiter + idle client-side filter
 - [x] M3 — App-side `SocketServer` + `MethodRouter` + `hook.*` + `system.*` handlers + `InMemoryIPCServer` test harness — 2026-04-20 (66 tests / 12 suites green; lint clean; app boots the Unix socket at `/tmp/touch-code-<uid>.sock` on launch outside XCTest). Hot-path items deferred to **M3.1**: per-connection backpressure queue (DEC-9), `LOCAL_PEERCRED` peer auth, `HierarchyReadHandlers`, and end-to-end multicaster streaming test with `hook.events`.
 - [x] M3.1 — SocketPeerAuth + per-connection inflight cap wire contract — 2026-04-20 (SocketPeerAuth: LOCAL_PEERCRED-style `getpeereid(3)` peer-UID check in `apps/mac/touch-code/App/Features/Socket/SocketPeerAuth.swift`; integrated into `SocketServer.startConnection` — mismatched-UID peers get fd shutdown immediately, before any framing or handshake. Defense-in-depth beyond the 0600 socket-file mode + TOCTOU tail coverage. Per-connection inflight cap: `SocketConnection` gets an `inflightLimit: Int = 64` knob (DEC-9) + `inflight` counter + post-hello `.overloaded` rejection when `inflight >= limit`. Actor-serialized handling keeps real inflight at ≤ 1 today so the cap is defense-in-depth; true concurrent dispatch (Task.detached per-frame with actor-guarded state) tracked as M3.1.1. +5 tests: 4 SocketPeerAuth (self-connect UID, authorize pass / mismatch reject, invalid-fd nil) + 1 InMemoryIPCServer overload path (cap=0 forces overloaded response). touch-code 110/19 + tcKit 29/6 + TouchCodeCore 88/14 green; lint clean.)
@@ -38,7 +38,7 @@ This plan implements those decisions; it does not relitigate them.
 - [x] M4 — `tc` CLI scaffold + `tcKit` static framework + `system` verbs — 2026-04-20 (`tc --help` / `--version` / `system ping` / `system status` / `system sockets` wired; RPCClient with DEC-4 pipelined handshake; CLIExitCode per C4 D8; 10 tcKit tests / 3 suites green; touch-code 67/12 green; lint clean). Deferred to **M4.1**: `AliasResolver` UUID-fast-path + `hierarchy.resolveAlias` integration (unblocked on hierarchy read handlers in M3.1), completion-script generation, `tc system launch` auto-bring-up flow.
 - [x] M5 — `tc hook {list,install,remove,enable,disable,reload,test,fire,recent,tail,edit}` including streaming tail — 2026-04-20 (all 11 subcommands wired; `tc hook --help` discoverable; streaming `tc hook tail` via RPCClient.stream + AsyncThrowingStream; bundles M4 review polish — InboundPump id-gated timeout, RPCClient.shutdown(), response.id validation with new `.misorderedResponse` error, PingCommand uses Renderer, StubbedNamespaces switches to CLIExitCode.unsupported.rawValue; 10 tcKit + 67 touch-code tests still green; lint clean)
 - [x] M5.1 — Tests for the 5 M5 behaviors + 4 code fixes — 2026-04-20 (tcKit 19 / 4 green: +9 tests covering stream happy path, cancellation, misordered hello / real / stream frame, InboundPump id-gate, shutdown idempotency, deinit fallback, per-frame decode error surface. Code: stream now throws on per-frame decode failure; HookTail gains `--idle-timeout` flag + M3.1 TODO; HookInstall uses readToEnd; HookEdit documents connect-after-editor flow)
-- [x] M6 — `tc {space,project,worktree,tab,panel,send,broadcast,rpc}` hierarchy + terminal verbs + mutation handlers — 2026-04-20 (AliasResolver + 8 new CLI subcommand trees + HierarchyHandlers + TerminalHandlers + MethodRouter extensions + AppBootstrap wires HierarchyManager. tcKit 24/5 + touch-code 70/13 + TouchCodeCore 88/14 green; lint clean; `tc --help` lists all 12 subcommands. Extended verbs — rename/remove/split/resize/zoom/prune/list for project/worktree/tab/panel — deferred to **M6.1**)
+- [x] M6 — `tc {space,project,worktree,tab,pane,send,broadcast,rpc}` hierarchy + terminal verbs + mutation handlers — 2026-04-20 (AliasResolver + 8 new CLI subcommand trees + HierarchyHandlers + TerminalHandlers + MethodRouter extensions + AppBootstrap wires HierarchyManager. tcKit 24/5 + touch-code 70/13 + TouchCodeCore 88/14 green; lint clean; `tc --help` lists all 12 subcommands. Extended verbs — rename/remove/split/resize/zoom/prune/list for project/worktree/tab/pane — deferred to **M6.1**)
 - [x] M6.0.1 — M6 review blocker + 4 important items — 2026-04-20 (describeSpace rewritten with clean do/catch + single predicate; `failure(for:fallbackKind:fallbackID:)` helper maps HierarchyError to the correct IPCError variant so conflicts land as exit 3 not 2; openPanel label-apply failures propagate as `.internal` instead of silent drop; AliasResolverTests use a throwing sentinel autoclosure so "client never dialed" is proven rather than asserted; +6 tests across TerminalHandlersTests + RPCCommandArgumentTests covering .unsupported, fake-sink routing, notFound, broadcast scope encoding stability, rpc escape-hatch method lookup. tcKit 29/6 + touch-code 74/14 green; lint clean)
 - [x] M7 — `tc open` CLI wrapper calling C8-owned `editor.open` RPC (implementation pending C8 merge) — 2026-04-20 (**scope downsized via DEC-15**: `ExternalEditor.swift` + `SystemOpenHandlers.swift` + ExternalEditorTests deleted in M7.1 reconciliation because exec-plan 0005 (C8) already ships the comprehensive `EditorService` (748 LOC) in its worktree. This plan ships only `tc open [--in EDITOR] [--path PATH] [<worktree>]` via `AliasResolver` + the `editor.open` IPC method slot; C8 owns `EditorHandlers`. Product-spec Q7 is **implementation-pending C8 merge**, not resolved here. touch-code 74/14 + tcKit 29/6 + TouchCodeCore 88/14 green; lint clean.)
 - [x] M8 — Router-backed end-to-end integration tests + docs pass + exec-plan 0003 closure — 2026-04-20 (7 new end-to-end tests in `touch-codeTests/Integration/EndToEndRPCIntegrationTests.swift` drive a real `RPCClient` over a new `RouterBackedTransport` against a real `MethodRouter` + every handler (hook / hierarchy / terminal / system) with real Framing + real `SocketConnection`; the stack exercises pipelined handshake, typed Codable round-trips, and the full error taxonomy (`.unsupported` for `.editorOpen` + `.terminalSendInput` without sink, `.notFound` for describe-missing-space). `UnixSocketTransport` + `SocketServer` accept path intentionally deferred to **M8.1** — prior attempt to drive real Unix sockets under Swift Testing hung due to a suspected parallel-test / MainActor interaction; tracked as a Surprises entry. Docs pass: product-spec Open Qs Q1 / Q4 / Q5 / Q7 marked resolved-or-C8-pending; architecture Open Qs Q3 + Q5 marked resolved. Exec-plans README moves 0003 to Completed. **M8.1 follow-ups:** real-socket integration tests, completion-script generation + `tc --man`, CHANGELOG entry at release time. touch-code 81/15 + tcKit 29/6 + TouchCodeCore 88/14 green; lint clean.)
@@ -70,7 +70,7 @@ Decisions made by this plan — distinct from the design docs' in-doc decisions,
 - **DEC-8 (pre-M2, 2026-04-20): `HookConfigStore` uses the same `AtomicFileStore` helper `CatalogStore` uses.** Design doc says "same atomic-rename + version-gated decoder pattern as `catalog.json`"; this plan binds the implementation to the exact `TouchCodeCore.AtomicFileStore.read/write` methods landed in exec-plan-0002 M1, not a re-implementation.
 - **DEC-9 (pre-M3, 2026-04-20): Backpressure queue is per-accepted-connection, not global.** Design doc C4 D11 and architecture Open Q #5 set the limit at 64 in-flight per connection. This plan implements it as a `AsyncChannel<QueuedRequest>(maxBufferedElements: 64)` per `SocketConnection` actor; overflow waits up to 2s (`ContinuousClock` deadline) then throws `IPCError.overloaded`.
 - **DEC-14 (M2, 2026-04-20): M2 splits into "public surface" (this commit) + "M2.1 hot-path internals" (follow-up).** The original M2 scope bundled (a) the public API C6 and M3 consume, (b) the execution engine internals (output-match regex hot path, recursion guard, rate limiter, idle client-side filter, ProcessHookExecutor, EventMapper from TerminalEvent → HookEnvelope), and (c) 20+ tests. Shipping all three in a single commit would mean either rushing the hot-path details or blocking C6/M3 longer than necessary. Instead this commit ships the surface cleanly — `HookConfigStore` (full, including `upsertInternal` / `removeInternal`), `HookEventMulticaster` (full multi-subscriber fan-out), `InternalHookSubscriber` protocol + sentinel routing, `HookAction` (moved from M1 per DEC-13), `HookDispatcher` (attach is a drain stub, `fire` routes subscriptions correctly through either sentinel or executor path), `HookExecutor` protocol + `FakeHookExecutor`, `HookActionDispatcher` protocol + `RecordingHookActionDispatcher`, `HookRecentRing` + `HookFireRecord`, and `HierarchyManager.setPanelLabels` canonical writer. M2.1 adds: `ProcessHookExecutor` (real `/bin/sh -c` spawn), `EventMapper` (TerminalEvent → HookEnvelope with anchor enrichment via HierarchyManager catalog snapshot), recursion-guard with `HookConfig.recursionWindowMs`, per-subscription token-bucket rate limiter (30 fires / 10 s), client-side idle-threshold filter, `AsyncSemaphore`-backed concurrency cap, regex output-match pre-compilation, and the remaining tests listed in the plan's M2 §Tests section. Each M2.1 item is pre-scoped in the existing §Plan of Work description so no plan edits are needed when the follow-up lands.
-- **DEC-13 (M1, 2026-04-20): `HookAction` ships with M2, not M1.** The v1 plan placed `HookAction.swift` under `apps/mac/TouchCodeCore/Hooks/`. But the `panelBroadcast` variant carries `IPC.BroadcastScope` directly (DEC-12), requiring `import TouchCodeIPC`. Since `TouchCodeIPC` already imports `TouchCodeCore`, `HookAction` in `TouchCodeCore` would close a cycle and violate the leaf-package invariant. `HookAction` moves to the `touch-code/Hooks/` in-app subfolder (where the C3 design doc §Component Boundaries always placed it) and lands in M2. C6's M1 unblocking does not depend on `HookAction` — the blocked types are `HookEvent`, `HookEnvelope`, `HookEventData`, `HookSubscription`, `HookMatchRange`, `Panel.labels`, all of which landed in M1 as planned.
+- **DEC-13 (M1, 2026-04-20): `HookAction` ships with M2, not M1.** The v1 plan placed `HookAction.swift` under `apps/mac/TouchCodeCore/Hooks/`. But the `panelBroadcast` variant carries `IPC.BroadcastScope` directly (DEC-12), requiring `import TouchCodeIPC`. Since `TouchCodeIPC` already imports `TouchCodeCore`, `HookAction` in `TouchCodeCore` would close a cycle and violate the leaf-package invariant. `HookAction` moves to the `touch-code/Hooks/` in-app subfolder (where the C3 design doc §Component Boundaries always placed it) and lands in M2. C6's M1 unblocking does not depend on `HookAction` — the blocked types are `HookEvent`, `HookEnvelope`, `HookEventData`, `HookSubscription`, `HookMatchRange`, `Pane.labels`, all of which landed in M1 as planned.
 - **DEC-10 (pre-M3, 2026-04-20): `hook.events` RPC and `internalEventStream()` are fed from a single in-dispatcher multicaster, not a shared `AsyncStream`.** Review flagged that a single `AsyncStream<HookEnvelope>` is single-consumer, which would mean C6 (in-process) and any `tc hook tail` CLI connection would fight over the same buffer. Design doc C3 DEC-16 names them as *independent peer paths*; pin the implementation: `HookDispatcher` owns a single `HookEventMulticaster` that receives every envelope the dispatcher produces post-match and fans out to N subscribers. Each call to `internalEventStream()` registers a fresh `AsyncStream<HookEnvelope>.Continuation` with bounded buffering (newest-64) and returns the paired stream; each `hook.events` RPC connection registers a parallel subscriber. Subscriber teardown (stream cancellation or socket close) unregisters; the multicaster prunes on next publish. This keeps every consumer isolated — a slow CLI tailer cannot block C6.
 - **DEC-11 (pre-M3, 2026-04-20): Canonical in-memory RPC harness at `apps/mac/tc/Tests/Harness/InMemoryIPCServer.swift`.** The class implements `SocketServer`'s method table over an in-memory `Pipe`-pair, so both sides of the wire can be driven from a single XCTestCase. Lands in M3 (so M3's streaming + handshake tests can drive it) and is consumed from M4 / M5 `tcTests` via cross-target test-support (see Interfaces). Moving it here also keeps it outside the app target — test-only code should never link into the shipped `touch-code.app`.
 - **DEC-12 (pre-M2, 2026-04-20): `HookAction`'s broadcast variant carries the shared `TouchCodeIPC.BroadcastScope` type directly, not a nested alias.** Review flagged that v1 of this plan declared `HookAction.BroadcastScope` as a "thin alias" encoding to the same JSON — schema-fragile and duplicative. `TouchCodeIPC` is importable by `Hooks` per the approved boundaries (C3 §Component Boundaries), so `HookAction.panelBroadcast(scope: IPC.BroadcastScope, text: String, raw: Bool)` uses the wire type verbatim. A dedicated round-trip test (`HookActionBroadcastSchemaTests`) asserts that a `HookAction` JSON and a `terminal.broadcastInput` request JSON encode the `scope` payload bytes-identically.
@@ -83,8 +83,8 @@ Decisions made by this plan — distinct from the design docs' in-doc decisions,
 
 **What landed:**
 - `apps/mac/TouchCodeCore/Hooks/` — `HookEvent.swift` (15-case enum with `scope` accessor), `HookScope.swift`, `HookMatchRange.swift`, `HookEventData.swift` (tagged-union Codable with `kind` discriminator), `HookEnvelope.swift` (with `SpaceRef`/`ProjectRef`/`WorktreeRef`/`TabRef`/`PanelRef`, `validateAnchors()`), `HookSubscription.swift` (with `Scope`/`Mode`/`RegexFlags`), `HookConfig.swift` (version-gated, `recursionWindowMs` default 250).
-- `apps/mac/TouchCodeCore/Panel.swift` — additive `labels: Set<String>` field with backward-compatible Codable (`decodeIfPresent`, elided when empty).
-- `apps/mac/TouchCodeIPC/` — replaced the 1-line stub with `Method.swift` (36 methods), `Envelope.swift` (Request/Response), `IPCError.swift` (9 cases including `.invalidFrame`), `Framing.swift` (UInt32-BE + 16 MiB cap), `HandshakeTypes.swift`, `JSONValue.swift`, and `WireTypes/{BroadcastScope,PanelOpenRequest,AliasResolveRequest}.swift`.
+- `apps/mac/TouchCodeCore/Pane.swift` — additive `labels: Set<String>` field with backward-compatible Codable (`decodeIfPresent`, elided when empty).
+- `apps/mac/TouchCodeIPC/` — replaced the 1-line stub with `Method.swift` (36 methods), `Envelope.swift` (Request/Response), `IPCError.swift` (9 cases including `.invalidFrame`), `Framing.swift` (UInt32-BE + 16 MiB cap), `HandshakeTypes.swift`, `JSONValue.swift`, and `WireTypes/{BroadcastScope,PaneOpenRequest,AliasResolveRequest}.swift`.
 - `apps/mac/TouchCodeCoreTests/Hooks/` — 6 new test files, 30 `@Test` cases.
 - `apps/mac/TouchCodeCoreTests/IPC/` — 4 new test files, 17 `@Test` cases.
 - `apps/mac/Project.swift` — `TouchCodeCore` gains `TouchCodeCore/Hooks` buildableFolder; `TouchCodeIPC` gains `TouchCodeIPC/WireTypes`; `TouchCodeCoreTests` now links `TouchCodeIPC` and includes `TouchCodeCoreTests/{Hooks,IPC}` folders.
@@ -97,7 +97,7 @@ Decisions made by this plan — distinct from the design docs' in-doc decisions,
 
 **What landed:**
 - `apps/mac/touch-code/Hooks/` — 8 new Swift files (replaced the 1-line `Hooks.swift` stub): `HookAction.swift` (10 variants; `panelBroadcast` uses `IPC.BroadcastScope` directly per DEC-12; nonisolated Codable extension), `HookConfigStore.swift` (atomic-rename via `TouchCodeCore.AtomicFileStore`; debounced `scheduleSave`; `load()` rejects reserved-env + reserved-prefix + invalid-regex subs silently; `upsertInternal(_:)` + `removeInternal(idsPrefixed:)` for C6; broken-file backup), `HookEventMulticaster.swift` (one multicaster → N independently-buffered `AsyncStream<HookEnvelope>` subscribers per DEC-10; `onTermination` auto-unregister), `InternalHookSubscriber.swift` + reserved `touchCodeInternalPrefix` constant, `HookExecutor.swift` (protocol + `HookExecutionResult` + `FakeHookExecutor`), `HookActionDispatcher.swift` (protocol + `RecordingHookActionDispatcher`), `HookDispatcher.swift` (the orchestrator: `attach(to:)` drain, `fire(_:)` match + route to sentinel-or-executor, `reloadConfig()`, `internalEventStream()` via multicaster, `register(subscriber:for:)` + `unregister`, `recentFires` accessor; DEC-7 snapshot discipline observed), `HookFireRecord.swift` + `HookRecentRing` (256-capacity bounded ring).
-- `apps/mac/touch-code/Runtime/HierarchyManager.swift` — `setPanelLabels(_:labels:replace:)` canonical writer (C3 D10 / C4 D16 invariant); merges-or-replaces a Panel's label set and triggers `scheduleSave`.
+- `apps/mac/touch-code/Runtime/HierarchyManager.swift` — `setPanelLabels(_:labels:replace:)` canonical writer (C3 D10 / C4 D16 invariant); merges-or-replaces a Pane's label set and triggers `scheduleSave`.
 - `apps/mac/touch-code/Tests/Hooks/` — 5 new test files: `HookConfigStoreTests.swift` (10 cases covering empty load, round-trip, broken-file backup, reserved-env rejection, reserved-prefix rejection + `upsertInternal`/`removeInternal` semantics, additivity to user subs), `HookEventMulticasterTests.swift` (4 cases: single subscriber, 3-subscriber fan-out, unsubscribe, slow-does-not-block-fast), `HookActionCodableTests.swift` (3 cases: every variant round-trips; `DEC-12` bytes-identical scope with `IPC.BroadcastScope`; unknown-kind rejection), `HookDispatcherTests.swift` (7 cases: fire matches, disabled skip, event mismatch, sentinel short-circuit, non-reserved-prefix register rejection, `internalEventStream()` delivery, `recentFires` ring entry), `HierarchyManagerSetPanelLabelsTests.swift` (3 cases: replace, merge union, unknown id throws).
 - `apps/mac/TouchCodeCoreTests/` — 2 follow-up tests for M1.x items: `HookSubscriptionCodableTests.idRoundTripsPreservedVerbatim` (guards a future CodingKeys regression of `id`), `FramingTests.decodeSurvivesRollingBufferBaseIndex` (guards a latent raw-bytes-load-on-sliced-Data regression).
 - `apps/mac/TouchCodeCore/Hooks/HookEnvelope.swift` — added `HookEnvelope.encoder() / .decoder()` factories pinning `.iso8601` date strategy (M1.x follow-up #3: was deferring to the default Apple-epoch strategy).
@@ -116,7 +116,7 @@ Decisions made by this plan — distinct from the design docs' in-doc decisions,
 **What landed:**
 - `apps/mac/touch-code/App/Features/Socket/` — `SocketPaths.swift` (shared path helper, `/tmp/touch-code-<uid>.sock` with `$TOUCH_CODE_SOCKET_PATH` override), `SocketServer.swift` (Darwin `socket(AF_UNIX)` + `bind` + `listen` + accept loop; mode `0600`; stale-socket cleanup; per-connection task), `SocketConnection.swift` (per-connection actor: length-prefix framing via `TouchCodeIPC.Framing`, first-frame-must-be-`system.hello` rule, `stream: true` fan-out to streaming handlers with server-initiated final `{stream: false}` frame, unary vs streaming dispatch), `MethodRouter.swift` (typed `IPC.Method` dispatch producing `RouterOutcome.unary` / `.streaming` / `.failed`; every not-yet-wired method returns `.unsupported` so the CLI exits with the right code).
 - `apps/mac/touch-code/App/Features/Socket/handlers/SystemHandlers.swift` — `system.hello` handshake with major-version compatibility check, `system.ping` / `system.version` / `system.status` / `system.quit` (quit acknowledges then terminates on next tick so the response frame flushes).
-- `apps/mac/touch-code/App/Features/Socket/handlers/HookHandlers.swift` — every `hook.*` RPC: `hook.list` (filtered by event / panel scope), `hook.install` (rejects reserved-prefix commands at the RPC boundary per DEC-5), `hook.remove` / `hook.enable` (enforces the `disabled = !enabled` inversion from M1.x follow-up #1), `hook.reload` / `hook.test` / `hook.fire` / `hook.recent`, and streaming `hook.events` fed by `HookDispatcher.internalEventStream()` (multicaster fan-out per DEC-10).
+- `apps/mac/touch-code/App/Features/Socket/handlers/HookHandlers.swift` — every `hook.*` RPC: `hook.list` (filtered by event / pane scope), `hook.install` (rejects reserved-prefix commands at the RPC boundary per DEC-5), `hook.remove` / `hook.enable` (enforces the `disabled = !enabled` inversion from M1.x follow-up #1), `hook.reload` / `hook.test` / `hook.fire` / `hook.recent`, and streaming `hook.events` fed by `HookDispatcher.internalEventStream()` (multicaster fan-out per DEC-10).
 - `apps/mac/touch-code/Tests/Harness/InMemoryIPCServer.swift` — test-only harness that binds a `MethodRouter` to in-memory streams via a `CheckedContinuation`-based waiter queue. Tests call `server.send(request)` and `await server.awaitResponse()` with timeout, no `FileHandle.availableData` blocking.
 - `apps/mac/touch-code/App/TouchCodeApp.swift` — `AppBootstrap` constructs the shared `HookDispatcher` + `SocketServer` at launch and calls `server.start()`. Gated to skip under XCTest so the app test host doesn't compete with `InMemoryIPCServer` on the shared socket path.
 
@@ -130,7 +130,7 @@ Decisions made by this plan — distinct from the design docs' in-doc decisions,
 
 **What landed:**
 - `apps/mac/tcKit/` — new static framework target. Files: `ExitCode.swift` (`CLIExitCode` enum per C4 D8, with `CLIExitCode.from(_: IPCError)` mapping), `Transport/Transport.swift` (protocol seam), `Transport/UnixSocketTransport.swift` (production Unix-socket impl using the same Darwin AF_UNIX + loop-write pattern as the server side), `Transport/SocketDiscovery.swift` (env-override + default path + `isReachable(path:)` probe), `Transport/RPCClient.swift` (typed `call<Params, Result>(_:params:timeout:)`; pipelines `system.hello` + the real request in one write per DEC-4; timeout-cancellable inbound pump via `InboundPump` actor sidestepping `AsyncStream.Iterator` `sending` rules), `Render/Mode.swift` + `Render/Renderer.swift` (text vs JSON output, shared by every subcommand).
-- `apps/mac/tc/` — `TouchCodeCLI.swift` (@main AsyncParsableCommand root, `GlobalOptions` for `--json` / `--socket` / `--timeout`), `Commands/SystemCommand.swift` (five subcommands: `system ping`, `system version`, `system status`, `system quit`, `system sockets`; plus `CLISession` helper and `CLIError` with `exitProcess()` that bypasses ArgumentParser's default exit mapping), `Commands/StubbedNamespaces.swift` (space/project/worktree/tab/panel/send/broadcast/hook/skill/open — each exits with code 4 "not yet implemented" so agents get the right exit code today and the command tree stays stable as later milestones wire verbs in).
+- `apps/mac/tc/` — `TouchCodeCLI.swift` (@main AsyncParsableCommand root, `GlobalOptions` for `--json` / `--socket` / `--timeout`), `Commands/SystemCommand.swift` (five subcommands: `system ping`, `system version`, `system status`, `system quit`, `system sockets`; plus `CLISession` helper and `CLIError` with `exitProcess()` that bypasses ArgumentParser's default exit mapping), `Commands/StubbedNamespaces.swift` (space/project/worktree/tab/pane/send/broadcast/hook/skill/open — each exits with code 4 "not yet implemented" so agents get the right exit code today and the command tree stays stable as later milestones wire verbs in).
 - `apps/mac/tcKitTests/` — new unit-tests target. `RPCClientTests.swift` (pipelined-hello round-trip, server-error-on-real-request → `.ipc` error, versionMismatch on hello → early-throw, timeout when no response), `InMemoryTransport.swift` (client-side test fixture with a scripted response block; auto-runs on first `send(_:)` so tests don't have to race `run()` against the client), `ExitCodeTests.swift` (every IPCError maps to the expected `CLIExitCode`; raw-value stability check per DEC-8), `SocketDiscoveryTests.swift` (env override, default path, reachability probe).
 - `apps/mac/Project.swift` — added `tcKit` (staticFramework, SWIFT_DEFAULT_ACTOR_ISOLATION=nonisolated) + `tcKitTests` (unitTests, links TouchCodeCore + TouchCodeIPC + tcKit) targets; `tc` target gains `tcKit` dep and switches to SWIFT_DEFAULT_ACTOR_ISOLATION=nonisolated (ArgumentParser commands run off MainActor).
 
@@ -159,7 +159,7 @@ Decisions made by this plan — distinct from the design docs' in-doc decisions,
 
 **Verification:** `xcodebuild test -scheme tcKit` → 10 tests / 3 suites green. `-scheme touch-code` → 67 / 12 green. `-scheme TouchCodeCore` → 88 / 14 green. `xcodebuild build -scheme tc` → BUILD SUCCEEDED. `tc hook --help` lists all 11 subcommands (`list install remove enable disable reload test fire recent tail edit`). `make lint` → clean.
 
-**Carry-forward to M6:** `HookCommand` is the template for the hierarchy + terminal verbs (space / project / worktree / tab / panel / send / broadcast). Same pattern: one `AsyncParsableCommand` per subcommand, `CLISession.connect` → `client.call(...)` → `Renderer.emit*`, `CLIError.from(error).exitProcess()` for error paths. `tc rpc METHOD [JSON]` escape hatch (C4 D9) also fits this shape — a single file can land it.
+**Carry-forward to M6:** `HookCommand` is the template for the hierarchy + terminal verbs (space / project / worktree / tab / pane / send / broadcast). Same pattern: one `AsyncParsableCommand` per subcommand, `CLISession.connect` → `client.call(...)` → `Renderer.emit*`, `CLIError.from(error).exitProcess()` for error paths. `tc rpc METHOD [JSON]` escape hatch (C4 D9) also fits this shape — a single file can land it.
 
 **Carry-forward to M3.1:** `hook.events` streaming is exercised end-to-end now; M3.1's backpressure queue (DEC-9) + real multicaster backpressure test has a live consumer to validate against.
 
@@ -168,7 +168,7 @@ Decisions made by this plan — distinct from the design docs' in-doc decisions,
 ### M6 — Hierarchy + Terminal verbs + server handlers (2026-04-20)
 
 **What landed:**
-- `apps/mac/tc/Commands/HierarchyCommands.swift` — 7 new subcommand trees: `tc space {list,create,activate}`, `tc project add`, `tc worktree activate`, `tc tab activate`, `tc panel label`, and the pair `tc send <target> <text>` + `tc broadcast --(tab|worktree|space|label) <text>`. Also `tc rpc METHOD [JSON]` — the C4 D9 debug escape hatch in the same file for cohesion.
+- `apps/mac/tc/Commands/HierarchyCommands.swift` — 7 new subcommand trees: `tc space {list,create,activate}`, `tc project add`, `tc worktree activate`, `tc tab activate`, `tc pane label`, and the pair `tc send <target> <text>` + `tc broadcast --(tab|worktree|space|label) <text>`. Also `tc rpc METHOD [JSON]` — the C4 D9 debug escape hatch in the same file for cohesion.
 - `apps/mac/tcKit/Transport/AliasResolver.swift` — the UUID-fast-path + @label routing agent that the hierarchy / terminal subcommands share. Resolves `current`, UUID, and `@label` forms client-side when cheap; falls through to `hierarchy.resolveAlias` server-side otherwise. Tests use a throwing-sentinel autoclosure so "client never dialed" is *proven*, not asserted by side channel.
 - `apps/mac/touch-code/App/Features/Socket/handlers/HierarchyHandlers.swift` + `TerminalHandlers.swift` — every mutation verb the CLI needs (create/activate at all 4 levels, addProject, openPanel, setPanelLabels, createTab, createWorktree, sendInput, broadcastInput) plus the three reads used by the CLI (listSpaces, describeSpace, resolveAlias).
 - `apps/mac/touch-code/App/TouchCodeApp.swift` — AppBootstrap now threads a `HierarchyManager` (loaded from `CatalogStore`, over a `FakeHierarchyRuntime` pending a real one in M8) + `HierarchyHandlers` + `TerminalHandlers(sink: nil)` into the `MethodRouter`. `terminal.*` RPCs return `.unsupported` correctly until a live `GhosttyRuntime` is wired.
@@ -176,16 +176,16 @@ Decisions made by this plan — distinct from the design docs' in-doc decisions,
 
 **Verification:** `xcodebuild test -scheme tcKit` → 24 / 5 green. `-scheme touch-code` → 70 / 13 green. `-scheme TouchCodeCore` → 88 / 14 green. `make mac-lint` → clean. `tc --help` lists all 12 subcommands; each subcommand's `--help` is accurate.
 
-**Deferred to M6.1** (✅ landed 2026-04-20): extended hierarchy verbs. M6.1 ships `tc space {rename,remove}`, `tc project {list,remove}`, `tc worktree {list,remove}`, `tc tab {list,close}`, `tc panel {list,close,focus}` — 10 new subcommands plus their 10 paired `hierarchy.*` server handlers (renameSpace / removeSpace / removeProject / removeWorktree / closeTab / closePanel / focusPanel + listProjects / listWorktrees / listTabs / listPanels). MethodRouter's hierarchy dispatch splits into reads / space-mutations / tree-mutations per swiftlint cyclomatic-complexity cap. Verbs needing HierarchyManager APIs not present in 0002 — `rename` for project / worktree / tab, `prune` for worktree, `split` / `resize` / `zoom` / `unzoom` for panel, `set-editor` for project — stay deferred to **M6.1.1** (each one is a HierarchyManager method + handler + CLI verb, but they want upstream 0002 additions first).
+**Deferred to M6.1** (✅ landed 2026-04-20): extended hierarchy verbs. M6.1 ships `tc space {rename,remove}`, `tc project {list,remove}`, `tc worktree {list,remove}`, `tc tab {list,close}`, `tc pane {list,close,focus}` — 10 new subcommands plus their 10 paired `hierarchy.*` server handlers (renameSpace / removeSpace / removeProject / removeWorktree / closeTab / closePanel / focusPanel + listProjects / listWorktrees / listTabs / listPanels). MethodRouter's hierarchy dispatch splits into reads / space-mutations / tree-mutations per swiftlint cyclomatic-complexity cap. Verbs needing HierarchyManager APIs not present in 0002 — `rename` for project / worktree / tab, `prune` for worktree, `split` / `resize` / `zoom` / `unzoom` for pane, `set-editor` for project — stay deferred to **M6.1.1** (each one is a HierarchyManager method + handler + CLI verb, but they want upstream 0002 additions first).
 
 ### M6.0.1 — M6 review hardening (2026-04-20)
 
 **What landed:**
 - `HierarchyHandlers.describeSpace` rewritten: the original tangled `try params.decoded(as:)` into a `first(where:)` predicate that short-circuited on decode failure and masked the real error. New version: do/catch on decode with a clean `invalidParams` return, then a single-predicate `first(where: { $0.id == req.id })` lookup. Review blocker resolved.
 - `HierarchyHandlers.failure(for:fallbackKind:fallbackID:)` helper — every mutation catch block now funnels through a single mapper that switches on `HierarchyError.notFound` → `.notFound` (CLIExitCode 2), `HierarchyError.invariantViolation` → `.conflict` (CLIExitCode 3), else → `.internal` (CLIExitCode 20). Before this, conflict cases landed as exit 2 and confused the CLI — review #2 important.
-- `HierarchyHandlers.openPanel` label-apply failure now propagates as `.internal("panel created (id=X) but setPanelLabels failed: ...")` instead of silently dropping. Review #1 important.
+- `HierarchyHandlers.openPanel` label-apply failure now propagates as `.internal("pane created (id=X) but setPanelLabels failed: ...")` instead of silently dropping. Review #1 important.
 - `AliasResolverTests` adopts a throwing-sentinel autoclosure (`Self.failingClient()` throwing `ResolverShouldNotDialClient`) so the "client never dialed on UUID fast path" invariant is asserted by throw rather than a `Issue.record` side channel + real-client race. Review #3 important.
-- +6 tests across `TerminalHandlersTests` + `RPCCommandArgumentTests` covering `.unsupported` with no sink, fake-sink delivery, `notFound` on unknown panel, broadcast scope JSON stability, and the `tc rpc METHOD` escape hatch's method-lookup path.
+- +6 tests across `TerminalHandlersTests` + `RPCCommandArgumentTests` covering `.unsupported` with no sink, fake-sink delivery, `notFound` on unknown pane, broadcast scope JSON stability, and the `tc rpc METHOD` escape hatch's method-lookup path.
 
 **Verification:** `xcodebuild test -scheme tcKit` → 29 / 6 green. `-scheme touch-code` → 74 / 14 green. `-scheme TouchCodeCore` → 88 / 14 green. `make mac-lint` → clean.
 
@@ -247,10 +247,10 @@ Related documents (all in this repo):
 
 Key source files (current state on `main`, post-0002-M4.1 refactor `78df1a6`):
 
-- `apps/mac/TouchCodeCore/` — domain value types (`Space`, `Project`, `Worktree`, `Tab`, `Panel`, `SplitTree<PanelID>`, `Catalog`, `AtomicFileStore`). Leaf package, zero AppKit/SwiftUI/GhosttyKit imports. M1 adds `Hooks/HookEvent.swift` and siblings under this folder.
+- `apps/mac/TouchCodeCore/` — domain value types (`Space`, `Project`, `Worktree`, `Tab`, `Pane`, `SplitTree<PaneID>`, `Catalog`, `AtomicFileStore`). Leaf package, zero AppKit/SwiftUI/GhosttyKit imports. M1 adds `Hooks/HookEvent.swift` and siblings under this folder.
 - `apps/mac/TouchCodeIPC/IPC.swift` — currently one-line stub `public enum IPC {}`. M1 replaces it with the full namespace: `IPC.Method`, `IPC.Request`, `IPC.Response`, `IPCError`, `Framing`, plus the wire-only struct types defined in C4.
 - `apps/mac/touch-code/Hooks/Hooks.swift` — one-line stub `public enum Hooks {}`. M2 fills this subfolder with `HookDispatcher`, `HookExecutor`, `HookConfigStore`, `HookActionDispatcher`, sentinel-routing extension. Not promoted to a Tuist target — stays an in-app subfolder per C3 design doc §Component Boundaries.
-- `apps/mac/touch-code/Runtime/HierarchyManager.swift` — `@MainActor @Observable` structural writer landed in 0002 M2. M2 of this plan adds `setPanelLabels(_:labels:replace:)` as the canonical writer for C3/C4-added `Panel.labels`. Exec-plan-0002 M4/M5 adds the mutation methods backing the CLI verbs (createWorktree over real git, send input, broadcast, etc.).
+- `apps/mac/touch-code/Runtime/HierarchyManager.swift` — `@MainActor @Observable` structural writer landed in 0002 M2. M2 of this plan adds `setPanelLabels(_:labels:replace:)` as the canonical writer for C3/C4-added `Pane.labels`. Exec-plan-0002 M4/M5 adds the mutation methods backing the CLI verbs (createWorktree over real git, send input, broadcast, etc.).
 - `apps/mac/touch-code/Runtime/HierarchyRuntime.swift` + `Runtime/Runtime.swift` — runtime protocol + shared engine stub, populated by 0002 M3/M4. This plan's M3 consumes `TerminalEngine.events()` once 0002 M4 lands.
 - `apps/mac/tc/main.swift` — current body is `print(version)`. M4 replaces it with the ArgumentParser root and command tree.
 - `apps/mac/Project.swift` — Tuist root. M1 adds the IPC test target, M2 adds no new target (tests land inside `touch-codeTests`), M4 adds the `tcTests` target and a small `tcIntegrationTests` scheme.
@@ -279,8 +279,8 @@ The plan inherits every numbered decision in the approved design docs. The table
 | C3 | D6 | No in-app UI for hook subscriptions in v1 | scope cut — not planned |
 | C3 | D7 | Timeout default is 5 s | M2 (`HookSubscription` default + `ProcessHookExecutor`) |
 | C3 | D8 | Handler concurrency cap is global (8) | M2 (`HookDispatcher.maxConcurrency`) |
-| C3 | D9 | `panel.output` raw subscription requires `allowRawOutput: true` | M2 (load-time validation) |
-| C3 | D10 | `Panel.labels` added to `TouchCodeCore` | M2 (`HierarchyManager.setPanelLabels` canonical writer) |
+| C3 | D9 | `pane.output` raw subscription requires `allowRawOutput: true` | M2 (load-time validation) |
+| C3 | D10 | `Pane.labels` added to `TouchCodeCore` | M2 (`HierarchyManager.setPanelLabels` canonical writer) |
 | C3 | D11 | Hooks config is JSON, not TOML | M2 (`HookConfigStore` + `AtomicFileStore`) |
 | C3 | D12 | `hook.events` is streaming | M3 + M5 |
 | C3 | D13 | `HookEventData` is tagged-union Codable | M1 |
@@ -302,7 +302,7 @@ The plan inherits every numbered decision in the approved design docs. The table
 | C4 | D13 | `tc skill install` defaults to symlink | deferred to 0004 (see DEC-5) |
 | C4 | D14 | `tc open` uses built-in editor allowlist + user templates (resolves Q7) | M7 |
 | C4 | D15 | Pre-generated completion scripts | M8 |
-| C4 | D16 | `Panel.labels` canonical writer invariant | M2 |
+| C4 | D16 | `Pane.labels` canonical writer invariant | M2 |
 | C4 | D17 | No shell-integration layer | M4 (by construction) |
 | C4 | D18 | `send` / `broadcast` are top-level verbs | M6 |
 | C4 | D19 | Default `--newline` is off | M6 (`SendCommand` / `BroadcastCommand`) |
@@ -324,24 +324,24 @@ Eight milestones. M1–M2 are parallelizable with 0002's M3 (GhosttyKit bring-up
 
 ### Milestone 1: TouchCodeCore + TouchCodeIPC wire types
 
-**Goal after this milestone.** Every value type the design docs name — `HookEvent`, `HookScope`, `HookMatchRange`, `HookEventData`, `HookEnvelope`, `HookSubscription`, `HookConfig`, `BroadcastScope`, `PanelOpenRequest`, `AliasResolveRequest`, `AliasResolveResult`, plus the `IPC.Request` / `IPC.Response` / `IPC.Method` / `IPCError` envelopes and the `Framing` helper — exists in Swift with full `Codable` + `Equatable` + `Sendable` conformance. A test suite round-trips every variant through `JSONEncoder` ↔ `JSONDecoder`. Zero AppKit / SwiftUI / GhosttyKit imports. Nothing on the wire yet; nothing spawns anything; this milestone is pure types + tests.
+**Goal after this milestone.** Every value type the design docs name — `HookEvent`, `HookScope`, `HookMatchRange`, `HookEventData`, `HookEnvelope`, `HookSubscription`, `HookConfig`, `BroadcastScope`, `PaneOpenRequest`, `AliasResolveRequest`, `AliasResolveResult`, plus the `IPC.Request` / `IPC.Response` / `IPC.Method` / `IPCError` envelopes and the `Framing` helper — exists in Swift with full `Codable` + `Equatable` + `Sendable` conformance. A test suite round-trips every variant through `JSONEncoder` ↔ `JSONDecoder`. Zero AppKit / SwiftUI / GhosttyKit imports. Nothing on the wire yet; nothing spawns anything; this milestone is pure types + tests.
 
 Why this ships first. Three later milestones (M2 Hooks, M3 app-side RPC, M4 CLI) all import these types. Landing them first makes every later build self-contained — a contributor can pick up M4 without waiting on M2.
 
 **Work.** Under `apps/mac/TouchCodeCore/Hooks/` create:
 
-- `HookEvent.swift` — the enum defined in C3 §API Design, including the `scope` accessor and `CaseIterable` conformance, with `panel.input` included per C3 v2 fix.
+- `HookEvent.swift` — the enum defined in C3 §API Design, including the `scope` accessor and `CaseIterable` conformance, with `pane.input` included per C3 v2 fix.
 - `HookScope.swift` — the four-case helper enum.
 - `HookMatchRange.swift` — portable `{ start, length }` struct replacing `NSRange`.
 - `HookEventData.swift` — the tagged-union `Codable` enum with hand-rolled encoder/decoder keyed on a `"kind"` discriminator.
 - `HookEnvelope.swift` — the struct with `SpaceRef` / `ProjectRef` / `WorktreeRef` / `TabRef` / `PanelRef` nested types, ISO-8601 date coding via a shared `JSONEncoder.isoStyle()` factory, and a `validateAnchors()` throws helper (debug-only caller convention; release builds skip the check but the code compiles identically).
-- `HookSubscription.swift` — the struct with `Scope` enum (`anyPanel` / `panelID` / `panelLabel` / `tabID` / `tabLabel` / `worktreeID` / `worktreePathGlob`), `Mode` enum, `RegexFlags` option set, `allowRawOutput`, `allowRawInput`, `idleThresholdSeconds`, `disabled`.
+- `HookSubscription.swift` — the struct with `Scope` enum (`anyPanel` / `paneID` / `panelLabel` / `tabID` / `tabLabel` / `worktreeID` / `worktreePathGlob`), `Mode` enum, `RegexFlags` option set, `allowRawOutput`, `allowRawInput`, `idleThresholdSeconds`, `disabled`.
 - `HookConfig.swift` — the top-level file schema with `version: Int = 1`, `recursionWindowMs: Int = 250`, `subscriptions: [HookSubscription]`. Same version-gated `Codable` pattern as `Catalog`.
 - `HookAction.swift` — the action DSL enum with all 10 variants. **Imports `TouchCodeIPC`** and uses `IPC.BroadcastScope` for the `panelBroadcast` variant directly — no nested alias (DEC-12). A companion test `HookActionBroadcastSchemaTests` encodes a `HookAction.panelBroadcast(...)` and a `terminal.broadcastInput` request and asserts the `scope` sub-object bytes-match.
 
-Also in M1, one additive tweak to the existing `apps/mac/TouchCodeCore/Panel.swift`:
+Also in M1, one additive tweak to the existing `apps/mac/TouchCodeCore/Pane.swift`:
 
-- Add `public var labels: Set<String> = []` to the `Panel` struct (C3 D10 / C4 D16). Pure additive field; the version-gated `Catalog` decoder uses `decodeIfPresent` so v1 `catalog.json` files still parse. **The canonical *writer* — `HierarchyManager.setPanelLabels(_:labels:replace:)` — ships in M2**; M1 only lands the data shape so downstream consumers (notably C6 / exec-plan 0006) can compile against it without waiting for M2.
+- Add `public var labels: Set<String> = []` to the `Pane` struct (C3 D10 / C4 D16). Pure additive field; the version-gated `Catalog` decoder uses `decodeIfPresent` so v1 `catalog.json` files still parse. **The canonical *writer* — `HierarchyManager.setPanelLabels(_:labels:replace:)` — ships in M2**; M1 only lands the data shape so downstream consumers (notably C6 / exec-plan 0006) can compile against it without waiting for M2.
 
 Under `apps/mac/TouchCodeIPC/` replace the one-line stub `IPC.swift` with:
 
@@ -349,14 +349,14 @@ Under `apps/mac/TouchCodeIPC/` replace the one-line stub `IPC.swift` with:
 - `Method.swift` — `enum IPC.Method: String, Codable, Sendable { case systemHello = "system.hello"; case systemPing = "system.ping"; /* … every method referenced in C4 API tables … */ }`. Pin every method string in one file.
 - `Envelope.swift` — `struct IPC.Request { id, method, params: JSONValue, stream: Bool }` and `struct IPC.Response { id, stream: Bool, result: JSONValue?, error: IPCError? }`. `JSONValue` is a small enum for dynamic params; per-method typed decoders live in callers.
 - `IPCError.swift` — the enum with all eight cases per C4 §Error codes; Codable encoding is `{ "code": String, "message": String, "path": [String]? }`.
-- `WireTypes/BroadcastScope.swift`, `WireTypes/PanelOpenRequest.swift`, `WireTypes/AliasResolveRequest.swift`, `WireTypes/AliasResolveResult.swift`, `WireTypes/PanelRef.swift` (reused by `HookEnvelope`), `WireTypes/WorktreeRef.swift`, etc. — pure struct definitions.
+- `WireTypes/BroadcastScope.swift`, `WireTypes/PaneOpenRequest.swift`, `WireTypes/AliasResolveRequest.swift`, `WireTypes/AliasResolveResult.swift`, `WireTypes/PanelRef.swift` (reused by `HookEnvelope`), `WireTypes/WorktreeRef.swift`, etc. — pure struct definitions.
 - `HandshakeTypes.swift` — `struct HelloRequest { clientVersion: String; clientBinary: String }` and `struct HelloResponse { serverVersion, appBundleVersion, protocolMajor, protocolMinor, deprecatedMethods: [String] }`.
 
 Add new test files under `apps/mac/TouchCodeCoreTests/Hooks/`:
 
 - `HookEventCodableTests.swift` — every case of `HookEvent` round-trips through a small `{"event": "…"}` JSON.
 - `HookEventDataCodableTests.swift` — every `HookEventData` case encodes with the correct `"kind"` discriminator and decodes back to equality.
-- `HookEnvelopeCodableTests.swift` — a Panel-scoped envelope carrying every field round-trips; decoding rejects unknown top-level fields; `validateAnchors()` throws when a `panel.*` envelope is missing its `tab` field in debug builds.
+- `HookEnvelopeCodableTests.swift` — a Pane-scoped envelope carrying every field round-trips; decoding rejects unknown top-level fields; `validateAnchors()` throws when a `pane.*` envelope is missing its `tab` field in debug builds.
 - `HookSubscriptionCodableTests.swift` — every `Scope` variant round-trips; decoder rejects reserved env-var keys (`TOUCH_CODE_*`); decoder rejects `command` prefixes in the reserved `__touch-code/internal:` namespace unless loaded with an `internalNamespaceAllowed: true` flag.
 - `HookConfigCodableTests.swift` — unknown-version rejection; default-value behaviour when `recursionWindowMs` absent.
 - `HookActionCodableTests.swift` — all 10 action variants round-trip; decoder rejects unknown action kinds.
@@ -371,7 +371,7 @@ Under `apps/mac/TouchCodeCoreTests/IPC/` (new folder in the same test target; no
 
 **Observable acceptance.** `make mac-generate && make mac-build` produces `TouchCodeCore.framework` and `TouchCodeIPC.framework` with the new types exported. `xcodebuild test -scheme TouchCodeCoreTests` reports **all tests pass**, with the new hook-codable tests numbering at least 20. `make mac-lint` is clean. `grep -r 'import AppKit\|import SwiftUI\|import GhosttyKit' apps/mac/TouchCodeCore apps/mac/TouchCodeIPC` returns no matches. A quick `swift -e` snippet that instantiates a `HookEnvelope`, encodes it, decodes it back, and asserts equality compiles and runs.
 
-**Expected commits.** `feat(core): HookEvent/HookEventData/HookEnvelope wire types + tests`, `feat(ipc): IPC envelope, framing, method enum, IPCError, handshake types`, `feat(ipc): BroadcastScope + PanelOpenRequest + AliasResolve wire types`.
+**Expected commits.** `feat(core): HookEvent/HookEventData/HookEnvelope wire types + tests`, `feat(ipc): IPC envelope, framing, method enum, IPCError, handshake types`, `feat(ipc): BroadcastScope + PaneOpenRequest + AliasResolve wire types`.
 
 ### Milestone 2: Hooks in-app subfolder
 
@@ -410,7 +410,7 @@ Under `apps/mac/TouchCodeCoreTests/IPC/` (new folder in the same test target; no
         public func unregister(prefix: String)
       }
 
-  Implementation details the design doc already pins: pre-compiled regex table `[PanelID: [(HookSubscription, NSRegularExpression)]]` built on `reloadConfig`; per-event lookup `[HookEvent: [HookSubscription]]`; `AsyncSemaphore` with capacity `maxConcurrency`; per-subscription token bucket (30 fires / 10s) that transitions a subscription to `disabled` on overflow (R1). In-flight handlers get a `let`-captured snapshot (DEC-7). Recursion guard tags every action with its originating envelope id and suppresses direct re-entry within `HookConfig.recursionWindowMs` (default 250) on `.panelOutput` / `.panelInput`.
+  Implementation details the design doc already pins: pre-compiled regex table `[PaneID: [(HookSubscription, NSRegularExpression)]]` built on `reloadConfig`; per-event lookup `[HookEvent: [HookSubscription]]`; `AsyncSemaphore` with capacity `maxConcurrency`; per-subscription token bucket (30 fires / 10s) that transitions a subscription to `disabled` on overflow (R1). In-flight handlers get a `let`-captured snapshot (DEC-7). Recursion guard tags every action with its originating envelope id and suppresses direct re-entry within `HookConfig.recursionWindowMs` (default 250) on `.paneOutput` / `.paneInput`.
 - `HookEventMulticaster.swift` — the fan-out adapter that backs both `internalEventStream()` and the app-side `hook.events` RPC (DEC-10). Internally owns `[UUID: AsyncStream<HookEnvelope>.Continuation]` (one entry per live subscriber) with bounded buffering (newest-64 per subscriber). Public API: `func publish(_ envelope: HookEnvelope)` and `func subscribe() -> (id: UUID, AsyncStream<HookEnvelope>)`. Teardown on stream cancellation unregisters automatically via `onTermination`. Unit-tested with N=3 simulated subscribers: each receives every event; a subscriber that stops consuming does not stall the others; removing a subscriber stops delivery to it within one publish cycle.
 - `HookRecentRing.swift` — bounded ring buffer of `HookFireRecord` (256 entries, design-doc default). Read from `hook.recent` RPC in M3.
 - `HookFireRecord.swift` — `{ id, envelope, subscriptionID, duration, exitCode, actionsDispatched, actionsRefused, timedOut, killed, rateLimited }` plus `Codable` for RPC exposure.
@@ -418,9 +418,9 @@ Under `apps/mac/TouchCodeCoreTests/IPC/` (new folder in the same test target; no
 
 Update `apps/mac/touch-code/Runtime/HierarchyManager.swift` to add the canonical labels writer:
 
-    public func setPanelLabels(_ id: PanelID, labels: Set<String>, replace: Bool = false) throws
+    public func setPanelLabels(_ id: PaneID, labels: Set<String>, replace: Bool = false) throws
 
-Implementation: updates `catalog.spaces[*].projects[*].worktrees[*].tabs[*].panels[*].labels`; calls `store.scheduleSave(catalog)`. Replace vs. merge is a flag. Throws `.panelNotFound` when the id is unknown. Unit test in `HierarchyManagerTests.swift`.
+Implementation: updates `catalog.spaces[*].projects[*].worktrees[*].tabs[*].panes[*].labels`; calls `store.scheduleSave(catalog)`. Replace vs. merge is a flag. Throws `.panelNotFound` when the id is unknown. Unit test in `HierarchyManagerTests.swift`.
 
 Add tests under `apps/mac/touch-code/Tests/Hooks/`:
 
@@ -429,15 +429,15 @@ Add tests under `apps/mac/touch-code/Tests/Hooks/`:
 - `HookEventMulticasterTests.swift` — three parallel subscribers each receive the same envelope from one `publish` call; a slow subscriber that stops consuming does not stall the others (one continuation fills to capacity and drops; other continuations continue); `onTermination` unregisters; `publish` after all subscribers disappear is a silent no-op.
 - `HookActionBroadcastSchemaTests.swift` — a `HookAction.panelBroadcast(scope: IPC.BroadcastScope.tab(...), ...)` JSON and a `terminal.broadcastInput` request JSON share an identical `scope` sub-object (asserts per-byte equality of the scope field).
 - `HookDispatcherFireTests.swift` — firing an envelope invokes the right subscription via `FakeHookExecutor`; multiple matching subscriptions each get invoked; non-matching events are silent.
-- `HookDispatcherOutputMatchTests.swift` — a `.panelOutput(Data)` event with a 4KB payload against a `(?i)ready` regex synthesises exactly one `.panelOutputMatch` envelope with correct `HookMatchRange`. A panel without any matching subscription pays zero per-batch regex cost (asserted by checking the compiled-regex table for that panel is empty).
+- `HookDispatcherOutputMatchTests.swift` — a `.paneOutput(Data)` event with a 4KB payload against a `(?i)ready` regex synthesises exactly one `.paneOutputMatch` envelope with correct `HookMatchRange`. A pane without any matching subscription pays zero per-batch regex cost (asserted by checking the compiled-regex table for that pane is empty).
 - `HookDispatcherIdleTests.swift` — idle envelopes below `idleThresholdSeconds` are dropped client-side; above it, the executor fires.
 - `HookDispatcherConcurrencyTests.swift` — with `maxConcurrency = 2`, three simultaneous fires run 2-at-a-time; token bucket rate-limits to 30/10s; exceeding rate transitions the subscription to `disabled`.
-- `HookDispatcherRecursionGuardTests.swift` — a handler that emits `HookAction.panelSend(same-panel, text)` does not re-fire within `recursionWindowMs`; a handler that emits `tab.activate` does re-fire (tab events are not guarded).
+- `HookDispatcherRecursionGuardTests.swift` — a handler that emits `HookAction.panelSend(same-pane, text)` does not re-fire within `recursionWindowMs`; a handler that emits `tab.activate` does re-fire (tab events are not guarded).
 - `HookDispatcherInternalSubscriberTests.swift` — a subscription with `command: "__touch-code/internal:notif:<uuid>"` registered to a fake subscriber bypasses `FakeHookExecutor` and is delivered directly.
 - `HookActionDispatcherTests.swift` — every `HookAction` case routes to the right in-process method; `setPanelLabels` hits `HierarchyManager.setPanelLabels`.
 - `HookConfigHotReloadTests.swift` — `reloadConfig()` atomically swaps the table; an in-flight handler retains its old snapshot (captured via a fake that sleeps then inspects its subscription reference).
 
-**Observable acceptance.** `xcodebuild test -scheme touch-code -only-testing:touch-codeTests/Hooks` reports **all tests pass**, with at least 20 hook-dispatcher tests. `grep -r 'import GhosttyKit\|import AppKit' apps/mac/touch-code/Hooks` returns no matches. `make mac-lint` is clean. A tiny manual smoke via a debug hook in `TouchCodeApp.init` that calls `HookDispatcher.fire(syntheticPanelReadyEnvelope)` and a handler at `echo -n "$TOUCH_CODE_PANEL_ID" > /tmp/tc-hook-echo` leaves the right UUID in `/tmp/tc-hook-echo`.
+**Observable acceptance.** `xcodebuild test -scheme touch-code -only-testing:touch-codeTests/Hooks` reports **all tests pass**, with at least 20 hook-dispatcher tests. `grep -r 'import GhosttyKit\|import AppKit' apps/mac/touch-code/Hooks` returns no matches. `make mac-lint` is clean. A tiny manual smoke via a debug hook in `TouchCodeApp.init` that calls `HookDispatcher.fire(syntheticPanelReadyEnvelope)` and a handler at `echo -n "$TOUCH_CODE_PANE_ID" > /tmp/tc-hook-echo` leaves the right UUID in `/tmp/tc-hook-echo`.
 
 **Expected commits.** `feat(hooks): HookConfigStore + atomic-rename + load-time validation`, `feat(hooks): HookDispatcher + HookExecutor + FakeHookExecutor`, `feat(hooks): HookActionDispatcher + internalEventStream + sentinel routing`, `feat(runtime): HierarchyManager.setPanelLabels canonical writer`.
 
@@ -458,9 +458,9 @@ Add tests under `apps/mac/touch-code/Tests/Hooks/`:
   - `hook.install` → validates, appends, persists via `HookConfigStore.save`.
   - `hook.remove`, `hook.enable`, `hook.reload`, `hook.test`, `hook.fire` — each a small method on `HookDispatcher`.
   - `hook.recent` → reads the `HookRecentRing`.
-  - `hook.events` → streaming. Subscribes to a fresh multicaster slot via `HookDispatcher.internalEventStream()` (DEC-10) — guarantees every `hook.events` RPC call and every in-process C6 consumer see the same event stream without fighting over a single `AsyncStream`. Events are filtered through the dispatcher's match pass first, so tailing sees the same synthesised `.panelOutputMatch` a handler would see. Emits `{id, stream: true, result: <envelope>}` frames per event. On connection-write-half close (client-initiated end), flushes in-flight events, sends `{id, stream: false}` final frame, closes its write half. Server-initiated end (e.g., `hook.*` reload reset) sends a `{id, stream: false, error: … }` frame then closes.
+  - `hook.events` → streaming. Subscribes to a fresh multicaster slot via `HookDispatcher.internalEventStream()` (DEC-10) — guarantees every `hook.events` RPC call and every in-process C6 consumer see the same event stream without fighting over a single `AsyncStream`. Events are filtered through the dispatcher's match pass first, so tailing sees the same synthesised `.paneOutputMatch` a handler would see. Emits `{id, stream: true, result: <envelope>}` frames per event. On connection-write-half close (client-initiated end), flushes in-flight events, sends `{id, stream: false}` final frame, closes its write half. Server-initiated end (e.g., `hook.*` reload reset) sends a `{id, stream: false, error: … }` frame then closes.
 - `handlers/SystemHandlers.swift` — `system.ping` / `system.version` / `system.status` / `system.quit` / `system.hello`.
-- `handlers/HierarchyReadHandlers.swift` — read-only handlers backing M4 (`hierarchy.listSpaces`, `hierarchy.describeSpace`, etc.). Populate just enough to satisfy M4's `system` verbs + `tc panel list` / `tc panel show`; the mutation handlers land in M6.
+- `handlers/HierarchyReadHandlers.swift` — read-only handlers backing M4 (`hierarchy.listSpaces`, `hierarchy.describeSpace`, etc.). Populate just enough to satisfy M4's `system` verbs + `tc pane list` / `tc pane show`; the mutation handlers land in M6.
 
 Under `apps/mac/tc/Tests/Harness/` (new folder, M3 delivers it; M4+ consumes it; DEC-11):
 
@@ -520,7 +520,7 @@ Add to `apps/mac/Project.swift`:
 - `tcTests` target wiring (dependencies on `tc`, `TouchCodeIPC`, `TouchCodeCore`).
 - `tc` gains `"Tests/**"` exclusion from its own `buildableFolders` so test sources don't compile into the CLI binary.
 
-**Observable acceptance.** `xcodebuild build -scheme tc` succeeds. `xcodebuild test -scheme tcTests` is green. `make mac-run-app &` then `./apps/mac/.build/.../tc system ping` prints `pong` and exits 0. `tc system status --json | jq .serverVersion` prints the running app's version. `tc --help` lists `space / project / worktree / tab / panel / send / broadcast / skill / open / hook / system`, with every non-system subcommand showing its stub.
+**Observable acceptance.** `xcodebuild build -scheme tc` succeeds. `xcodebuild test -scheme tcTests` is green. `make mac-run-app &` then `./apps/mac/.build/.../tc system ping` prints `pong` and exits 0. `tc system status --json | jq .serverVersion` prints the running app's version. `tc --help` lists `space / project / worktree / tab / pane / send / broadcast / skill / open / hook / system`, with every non-system subcommand showing its stub.
 
 **Expected commits.** `feat(cli): ArgumentParser root + global flags + exit-code table`, `feat(cli): SocketDiscovery + RPCClient with system.hello pipelining`, `feat(cli): tc system {ping, status, version, launch, quit, sockets}`, `feat(cli): AliasResolver UUID-fast-path + stubbed namespace commands`.
 
@@ -531,13 +531,13 @@ Add to `apps/mac/Project.swift`:
 **Work.** Under `apps/mac/tc/Commands/`:
 
 - `HookCommands.swift` — the subcommand tree:
-  - `tc hook list [--event E] [--panel ID]` → `hook.list`. Renders a table in text mode, JSON array in JSON mode.
+  - `tc hook list [--event E] [--pane ID]` → `hook.list`. Renders a table in text mode, JSON array in JSON mode.
   - `tc hook install FILE|-` → reads JSON from FILE or stdin, sends `hook.install`. Prints the assigned id.
   - `tc hook remove ID` → `hook.remove`. Exits 2 if not found.
   - `tc hook enable ID` / `tc hook disable ID` → `hook.enable { enabled: true|false }`.
   - `tc hook reload` → `hook.reload`. Prints `{loadedCount, errors}` in text mode.
   - `tc hook test ID [--payload PATH]` → reads a synthetic envelope (default: a minimal one matching the subscription's event) and sends `hook.test`. Prints `HookExecutionResult`.
-  - `tc hook fire EVENT [--panel ID] [--data JSON]` → `hook.fire`. Prints `{handlersRun}`.
+  - `tc hook fire EVENT [--pane ID] [--data JSON]` → `hook.fire`. Prints `{handlersRun}`.
   - `tc hook recent [--limit N]` → `hook.recent`. Renders a table (timestamp, subscription id, event, exitCode, duration).
   - `tc hook tail [--event E]` → opens the `hook.events` streaming RPC. Prints NDJSON lines (one JSON envelope per line, newline-separated). SIGINT cleanly closes the write half and exits 0 after the server's final frame.
   - `tc hook edit` → opens `~/.config/touch-code/hooks.json` in `$EDITOR`; on exit, if the file was modified, calls `hook.reload` automatically.
@@ -549,13 +549,13 @@ Update tests:
 - `tcTests/HookCommandsTests.swift` — each subcommand's parse + render against the `InMemoryIPCServer` harness. `tc hook tail` asserts it prints three NDJSON lines when the server emits three envelopes before closing its write half.
 - App-side `apps/mac/touch-code/Tests/Socket/` gains a round-trip scenario: `tc hook install` over real Unix socket against a test-harness `SocketServer`; the installed subscription is present in a subsequent `tc hook list`.
 
-**Observable acceptance.** With the app running: `tc hook install <(echo '{"id":"11111111-1111-4111-8111-111111111111","event":"panel.ready","command":"echo from-hook"}')` exits 0 and prints the id. `tc hook list --json | jq '.subscriptions | length'` prints `1`. `tc hook test 11111111-…` runs the handler in-app and prints `exitCode: 0, stdout: "from-hook\n"`. `tc hook tail` prints events as they fire — `tc panel open` in another shell (stubbed in M4, real in M6) or `tc hook fire panel.ready --panel <id>` triggers a line on stdout.
+**Observable acceptance.** With the app running: `tc hook install <(echo '{"id":"11111111-1111-4111-8111-111111111111","event":"pane.ready","command":"echo from-hook"}')` exits 0 and prints the id. `tc hook list --json | jq '.subscriptions | length'` prints `1`. `tc hook test 11111111-…` runs the handler in-app and prints `exitCode: 0, stdout: "from-hook\n"`. `tc hook tail` prints events as they fire — `tc pane open` in another shell (stubbed in M4, real in M6) or `tc hook fire pane.ready --pane <id>` triggers a line on stdout.
 
 **Expected commits.** `feat(cli): tc hook {list, install, remove, enable, disable, reload}`, `feat(cli): tc hook {test, fire, recent}`, `feat(cli): tc hook tail (streaming) + tc hook edit`.
 
 ### Milestone 6: Hierarchy + Terminal mutation verbs
 
-**Goal after this milestone.** The full hierarchy and terminal command surface works against a running app: the user can drive Spaces / Projects / Worktrees / Tabs / Panels entirely from the CLI, send and broadcast text into panels, and run `tc system quit` to shut down cleanly. Skill and Open verbs are *not* part of this milestone — skill ships via 0004 (DEC-5), Open ships in M7. This keeps M6's file count inside the ~5-per-task target: six CLI command files + three app-side handler files + tests.
+**Goal after this milestone.** The full hierarchy and terminal command surface works against a running app: the user can drive Spaces / Projects / Worktrees / Tabs / Panes entirely from the CLI, send and broadcast text into panes, and run `tc system quit` to shut down cleanly. Skill and Open verbs are *not* part of this milestone — skill ships via 0004 (DEC-5), Open ships in M7. This keeps M6's file count inside the ~5-per-task target: six CLI command files + three app-side handler files + tests.
 
 **Work.** Under `apps/mac/tc/Commands/`, replace the stubs with full implementations:
 
@@ -563,21 +563,21 @@ Update tests:
 - `ProjectCommands.swift` — `list`, `add`, `remove`, `rename`, `set-editor`, `show`. (`set-editor` writes `Project.defaultEditor` which M7's `tc open` reads — no forward dependency broken.)
 - `WorktreeCommands.swift` — `list`, `create`, `remove`, `activate`, `rename`, `show`, `prune`. `create` and `remove` refuse on non-git Projects with exit 4 via the server's `.unsupported` error.
 - `TabCommands.swift` — `list`, `create`, `close`, `activate`, `rename`, `show`.
-- `PanelCommands.swift` — `list`, `open`, `split`, `close`, `focus`, `resize`, `zoom`, `unzoom`, `retry`, `label`, `show`, `info`.
+- `PaneCommands.swift` — `list`, `open`, `split`, `close`, `focus`, `resize`, `zoom`, `unzoom`, `retry`, `label`, `show`, `info`.
 - `SendBroadcastCommands.swift` — `tc send` and `tc broadcast` (both back `terminal.sendInput` / `terminal.broadcastInput` per C4 D6 and DEC-12).
 - `RPCDebugCommand.swift` — `tc rpc METHOD [JSON]` debug escape (C4 D9).
 
 App side (`apps/mac/touch-code/App/Features/Socket/handlers/`):
 
 - `HierarchyMutationHandlers.swift` — one method per mutation RPC (`hierarchy.createSpace`, `…renameSpace`, `…removeSpace`, `…activateSpace`, `…addProject`, `…removeProject`, `…renameProject`, `…setProjectEditor`, `…createWorktree`, `…removeWorktree`, `…activateWorktree`, `…renameWorktree`, `…pruneWorktrees`, `…createTab`, `…closeTab`, `…activateTab`, `…renameTab`, `…openPanel`, `…splitPanel`, `…closePanel`, `…focusPanel`, `…resizePanel`, `…zoomPanel`, `…unzoomPanel`, `…setPanelLabels`, `…resolveAlias`, `…resolvePanelLabel`, `…resolveWorktreeGlob`). Each is a thin call to `HierarchyManager`. Mutations landed by 0002 M5 are delegated directly; any mutation that 0002 has not yet shipped (for example, `resizePanel` if it slips) is temporarily backed by an `.unsupported` response and a note in this plan's Surprises & Discoveries, resolved as soon as 0002 ships it.
-- `TerminalHandlers.swift` — `terminal.sendInput`, `terminal.broadcastInput`, `terminal.retryPanel` backed by `TerminalEngine.sendInput` / fan-out helper.
+- `TerminalHandlers.swift` — `terminal.sendInput`, `terminal.broadcastInput`, `terminal.retryPane` backed by `TerminalEngine.sendInput` / fan-out helper.
 
 Tests:
 
 - `tcTests/HierarchyCommandsTests.swift` — parse + render for each subcommand; golden files for text + JSON modes.
 - `tcTests/SendBroadcastCommandsTests.swift` — `tc send` unary + stdin modes; `tc broadcast` scope flags mutually exclusive at parser level; scope encoding uses the shared `IPC.BroadcastScope` bytes (cross-checks DEC-12).
 - `touch-codeTests/Socket/HierarchyMutationHandlersTests.swift` — each mutation RPC issues the right call against a fake `HierarchyManager` via the `InMemoryIPCServer` harness.
-- `touch-codeTests/Socket/TerminalHandlersTests.swift` — `terminal.sendInput` routes to the right panel; broadcast fan-out covers every panel in the target scope.
+- `touch-codeTests/Socket/TerminalHandlersTests.swift` — `terminal.sendInput` routes to the right pane; broadcast fan-out covers every pane in the target scope.
 
 **Observable acceptance.** With the app running:
 
@@ -585,15 +585,15 @@ Tests:
     tc project add .
     tc worktree create exp/validate
     tc tab create agent --activate
-    tc panel open --label agent --cwd .
+    tc pane open --label agent --cwd .
 
-Each call exits 0 and produces visible state in the sidebar. `tc send @agent 'echo hello\n'` injects the command and the Panel's scrollback shows `hello`. `tc broadcast --tab current 'date\n'` injects `date` into every panel in the current tab. `tc system quit` gracefully closes the app.
+Each call exits 0 and produces visible state in the sidebar. `tc send @agent 'echo hello\n'` injects the command and the Pane's scrollback shows `hello`. `tc broadcast --tab current 'date\n'` injects `date` into every pane in the current tab. `tc system quit` gracefully closes the app.
 
-**Expected commits.** `feat(cli): tc space + project + worktree`, `feat(cli): tc tab + panel`, `feat(cli): tc send + tc broadcast + tc rpc`, `feat(socket): hierarchy + terminal mutation handlers`.
+**Expected commits.** `feat(cli): tc space + project + worktree`, `feat(cli): tc tab + pane`, `feat(cli): tc send + tc broadcast + tc rpc`, `feat(socket): hierarchy + terminal mutation handlers`.
 
 ### Milestone 7: `tc open` + `ExternalEditor` service (resolves product-spec Q7)
 
-**Goal after this milestone.** `tc open` opens the current Worktree in the user's configured external editor (VSCode, Cursor, Zed, Xcode, Sublime Text, Finder, or any user-template), from any Panel's shell. The GUI's Worktree-header "open in editor" button (C8) reuses the same `ExternalEditor` service under the hood. Product-spec Open Q #7 is resolved by landing the code that the design doc (C4 D14) specified.
+**Goal after this milestone.** `tc open` opens the current Worktree in the user's configured external editor (VSCode, Cursor, Zed, Xcode, Sublime Text, Finder, or any user-template), from any Pane's shell. The GUI's Worktree-header "open in editor" button (C8) reuses the same `ExternalEditor` service under the hood. Product-spec Open Q #7 is resolved by landing the code that the design doc (C4 D14) specified.
 
 **Work.** Under `apps/mac/tc/Commands/`:
 
@@ -642,7 +642,7 @@ The GUI Worktree-header button arrives outside this plan (C8 UI work) — but th
 - `apps/mac/tc/Resources/completions/` — pre-generated `tc.zsh`, `tc.bash`, `tc.fish`. Regenerated via a `make mac-regen-completions` target (calls `tc --generate-completion-script <shell>` for each shell).
 - `apps/mac/tc/Resources/tc.1` — groff man page generated from ArgumentParser command metadata. Include it as a resource in the `tc` Tuist target; `tc --man` prints it via `man -l -`.
 - `docs/generated/tc-cli-reference.md` — auto-generated from `tc --help` and each subcommand's `--help`; `make mac-docs` regenerates.
-- `docs/product-spec.md` — update the Open Questions table: Q1 (CLI name) resolved via C4 D1; Q4 (hook execution) resolved via C3 D1; Q5 (agent detection) resolved via C3 D10 + C4 Panel labels; Q7 (editor discovery) resolved via C4 D14 + M7 implementation. (The Q1-vs-Q5 lean in the product spec was pre-verified on 2026-04-20: both remain open pending this milestone.)
+- `docs/product-spec.md` — update the Open Questions table: Q1 (CLI name) resolved via C4 D1; Q4 (hook execution) resolved via C3 D1; Q5 (agent detection) resolved via C3 D10 + C4 Pane labels; Q7 (editor discovery) resolved via C4 D14 + M7 implementation. (The Q1-vs-Q5 lean in the product spec was pre-verified on 2026-04-20: both remain open pending this milestone.)
 - `docs/architecture.md` — Open Architectural Questions 3, 5 resolved; update inline refs to the new `Hooks` subfolder + `SocketServer` path.
 - `CHANGELOG.md` — add a "0.2.0 — Hooks + CLI" entry.
 - `docs/exec-plans/README.md` — move 0003 from Active to Completed, list it alongside 0002.
@@ -689,7 +689,7 @@ Run every command from the repository root (`/Users/wanggang/dev/00/touch-code`)
                       -only-testing:touch-codeTests/Hooks | xcbeautify
     # Expected: all hook-dispatcher tests pass.
 
-    # Manual smoke: debug hook in TouchCodeApp.init fires a synthetic panel.ready envelope.
+    # Manual smoke: debug hook in TouchCodeApp.init fires a synthetic pane.ready envelope.
     make mac-run-app
     # Expected: ~/.config/touch-code/hooks.json present if you touched any; /tmp/tc-hook-echo
     # contains a valid UUID iff the smoke subscription was installed.
@@ -732,13 +732,13 @@ Run every command from the repository root (`/Users/wanggang/dev/00/touch-code`)
 
     # End-to-end:
     make mac-run-app
-    echo '{"id":"11111111-1111-4111-8111-111111111111","event":"panel.ready","command":"echo from-hook"}' \
+    echo '{"id":"11111111-1111-4111-8111-111111111111","event":"pane.ready","command":"echo from-hook"}' \
       | ./apps/mac/.build/.../tc hook install -
     # Expected: "installed 11111111-…"
     ./apps/mac/.build/.../tc hook list --json | jq '.subscriptions | length'
     # Expected: 1
     ./apps/mac/.build/.../tc hook tail &
-    ./apps/mac/.build/.../tc hook fire panel.ready --panel current
+    ./apps/mac/.build/.../tc hook fire pane.ready --pane current
     # Expected: one NDJSON line on the tail's stdout.
     kill %1
 
@@ -753,9 +753,9 @@ Run every command from the repository root (`/Users/wanggang/dev/00/touch-code`)
     ./apps/mac/.build/.../tc space create "validate" --activate
     ./apps/mac/.build/.../tc project add .
     ./apps/mac/.build/.../tc worktree create exp/validate
-    ./apps/mac/.build/.../tc panel open --cwd .
+    ./apps/mac/.build/.../tc pane open --cwd .
     ./apps/mac/.build/.../tc send @current 'echo hello\n'
-    # Expected: current Panel's scrollback shows "hello".
+    # Expected: current Pane's scrollback shows "hello".
 
 ### M7 steps
 
@@ -794,10 +794,10 @@ After all eight milestones land, a fresh contributor can perform the following e
 1. `make mac-bootstrap && make mac-generate && make mac-build && make mac-run-app` — the app launches within 1s.
 2. From another shell: `tc system ping` → `pong`, exit 0 within 50ms.
 3. `tc space create work --activate && tc project add . && tc worktree create exp/e2e` — the sidebar reflects the new Space / Project / Worktree immediately.
-4. `tc panel open --cwd .` in the new Worktree — a live shell appears in the active Tab.
+4. `tc pane open --cwd .` in the new Worktree — a live shell appears in the active Tab.
 5. `tc hook install <(cat tests/fixtures/hooks/notify-stop.json)` — the handler is installed; `tc hook list --json | jq '.subscriptions | length'` prints `1`.
-6. In a third shell: `tc hook tail &`. In the Panel: type `echo DONE` and press Enter. The tail emits an NDJSON line with `event: "panel.outputMatch"`, `data.match: "DONE"`.
-7. `tc broadcast --tab current 'date\n'` — every Panel in the current Tab shows today's date.
+6. In a third shell: `tc hook tail &`. In the Pane: type `echo DONE` and press Enter. The tail emits an NDJSON line with `event: "pane.outputMatch"`, `data.match: "DONE"`.
+7. `tc broadcast --tab current 'date\n'` — every Pane in the current Tab shows today's date.
 8. `tc open --in vscode` — VSCode opens the Worktree directory.
 9. `tc system quit` — the app closes gracefully; the socket file is unlinked.
 10. All test schemes pass: `xcodebuild test -scheme TouchCodeCoreTests`, `-scheme touch-codeTests`, `-scheme tcTests`, `-scheme tcIntegrationTests`.
@@ -842,13 +842,13 @@ The following types, functions, and signatures must exist by plan completion. Na
 **`TouchCodeCore/Hooks/`** (no AppKit / SwiftUI / GhosttyKit imports):
 
     public enum HookEvent: String, Codable, Hashable, Sendable, CaseIterable {
-      case panelCreated, panelReady, panelInput, panelOutput, panelOutputMatch,
-           panelIdle, panelExited, panelCrashed,
+      case paneCreated, paneReady, paneInput, paneOutput, paneOutputMatch,
+           paneIdle, paneExited, paneCrashed,
            tabActivated, tabDeactivated, tabAutoClosed,
            worktreeActivated, worktreeDeactivated, worktreeCreated, worktreeRemoved
       public var scope: HookScope { get }
     }
-    public enum HookScope: String, Codable, Sendable { case panel, tab, worktree, space }
+    public enum HookScope: String, Codable, Sendable { case pane, tab, worktree, space }
     public struct HookMatchRange: Codable, Equatable, Sendable { public var start, length: Int }
     public enum HookEventData: Codable, Equatable, Sendable { /* 15 tagged cases */ }
     public struct HookEnvelope: Codable, Equatable, Sendable {
@@ -860,7 +860,7 @@ The following types, functions, and signatures must exist by plan completion. Na
       public var project: ProjectRef?
       public var worktree: WorktreeRef?
       public var tab: TabRef?
-      public var panel: PanelRef?
+      public var pane: PanelRef?
       public var data: HookEventData
       public func validateAnchors() throws       // debug-only callers
     }
@@ -924,8 +924,8 @@ The following types, functions, and signatures must exist by plan completion. Na
       public let deprecatedMethods: [String]
     }
     public struct BroadcastScope: Codable, Equatable, Sendable { /* { kind, target } */ }
-    public struct PanelOpenRequest: Codable, Equatable, Sendable { /* tabID?, cwd?, initialCommand?, labels, activate */ }
-    public struct AliasResolveRequest: Codable, Equatable, Sendable { /* kind, value, contextPanelID? */ }
+    public struct PaneOpenRequest: Codable, Equatable, Sendable { /* tabID?, cwd?, initialCommand?, labels, activate */ }
+    public struct AliasResolveRequest: Codable, Equatable, Sendable { /* kind, value, contextPaneID? */ }
     public struct AliasResolveResult: Codable, Equatable, Sendable { /* kind, id, disambiguations? */ }
 
 **`apps/mac/touch-code/Hooks/`** (in-app subfolder):
@@ -1012,7 +1012,7 @@ The following types, functions, and signatures must exist by plan completion. Na
         commandName: "tc",
         abstract: "Control touch-code from the terminal.",
         subcommands: [SpaceCommand.self, ProjectCommand.self, WorktreeCommand.self, TabCommand.self,
-                      PanelCommand.self, SendCommand.self, BroadcastCommand.self,
+                      PaneCommand.self, SendCommand.self, BroadcastCommand.self,
                       SkillCommand.self /* M4 stub; fleshed out in 0004 per DEC-5 */,
                       OpenCommand.self  /* M7 */,
                       HookCommand.self, SystemCommand.self, RPCCommand.self]

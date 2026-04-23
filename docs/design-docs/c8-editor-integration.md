@@ -201,7 +201,7 @@ Validation on save: `id` must not collide with a built-in; `template.binary` mus
 
 #### Resolution order
 
-Resolution has two layers. First, **which Worktree are we opening?** For in-app callers the Worktree comes from the current selection. For the CLI (`tc open`), it comes from an explicit `<worktree>` positional argument, otherwise from the `TOUCH_CODE_PANEL_ID` env var injected into every Panel. If neither is set — `tc open` run outside a touch-code Panel with no `<worktree>` — the IPC handler returns `EditorError.unresolvedWorktree` and the CLI prints a clear message telling the user to pass `<worktree>` explicitly. We do **not** fall back to the last-focused Worktree or to any heuristic; an unresolved call is a user error, not a guess.
+Resolution has two layers. First, **which Worktree are we opening?** For in-app callers the Worktree comes from the current selection. For the CLI (`tc open`), it comes from an explicit `<worktree>` positional argument, otherwise from the `TOUCH_CODE_PANE_ID` env var injected into every Pane. If neither is set — `tc open` run outside a touch-code Pane with no `<worktree>` — the IPC handler returns `EditorError.unresolvedWorktree` and the CLI prints a clear message telling the user to pass `<worktree>` explicitly. We do **not** fall back to the last-focused Worktree or to any heuristic; an unresolved call is a user error, not a guess.
 
 Second, once the Worktree is pinned, **which editor?**
 
@@ -231,7 +231,7 @@ Reserved methods, payloads pinned by the CLI design doc. Minimum surface:
 - `editor.open { worktreeID?: UUID, preferred?: EditorID }` → `EditorChoice`
 - `editor.setDefault { projectID: UUID, editorID: EditorID? }` → `void` (null → unset; falls back to global)
 
-`tc open [--in <editor>] [<worktree>]` maps to `editor.open`. The CLI resolves `worktreeID` in this order: (1) the explicit `<worktree>` argument if given; (2) the Panel whose UUID is in the invoking shell's `TOUCH_CODE_PANEL_ID` env var (the app injects this into every Panel) — the handler then walks up to the Panel's owning Worktree; (3) otherwise, **no fallback** — the handler returns `EditorError.unresolvedWorktree` and the CLI prints `error: no worktree (pass <worktree> or run from inside a touch-code Panel)` to stderr with exit code 2.
+`tc open [--in <editor>] [<worktree>]` maps to `editor.open`. The CLI resolves `worktreeID` in this order: (1) the explicit `<worktree>` argument if given; (2) the Pane whose UUID is in the invoking shell's `TOUCH_CODE_PANE_ID` env var (the app injects this into every Pane) — the handler then walks up to the Pane's owning Worktree; (3) otherwise, **no fallback** — the handler returns `EditorError.unresolvedWorktree` and the CLI prints `error: no worktree (pass <worktree> or run from inside a touch-code Pane)` to stderr with exit code 2.
 
 ### Data Storage
 
@@ -279,7 +279,7 @@ apps/mac/tc/
 
 **What each component is NOT responsible for:**
 
-- `EditorService`: not responsible for deciding *when* to open (that's a user action), not responsible for UI, not responsible for resolving the invoking Panel's worktree (that's IPC's job in `tc open`).
+- `EditorService`: not responsible for deciding *when* to open (that's a user action), not responsible for UI, not responsible for resolving the invoking Pane's worktree (that's IPC's job in `tc open`).
 - `EditorRegistry`: not responsible for discovery. It returns the declared templates; `PathProber` decorates them with installation status.
 - `PathProber`: not responsible for caching semantics beyond returning results; the service owns the cache.
 - `ProcessSpawner`: not responsible for any business logic; it spawns and waits, nothing more.
@@ -308,7 +308,7 @@ apps/mac/tc/
 | `.timedOut` | Child still running after 5 s; service sent SIGTERM/SIGKILL | Toast: "<editor> did not respond within 5 seconds. Retry or open in another editor." with a retry action |
 | `.badTemplate(id, reason)` | Custom template invalid (no `{dir}`, empty binary) | Settings inline validation; never reaches runtime |
 | `.notADirectory(path)` | Worktree path resolves to a file or is missing | Toast: "Worktree directory not found on disk" |
-| `.unresolvedWorktree` | `tc open` invoked with no `<worktree>` and no `TOUCH_CODE_PANEL_ID` | CLI: stderr `error: no worktree ...`, exit 2. Never raised from in-app callers. |
+| `.unresolvedWorktree` | `tc open` invoked with no `<worktree>` and no `TOUCH_CODE_PANE_ID` | CLI: stderr `error: no worktree ...`, exit 2. Never raised from in-app callers. |
 
 All errors are also logged at `os.Logger` category `com.touch-code.editor` with the editor ID and the redacted argv (the path is not a secret but is included as-is — this matches `os.Logger`'s standard privacy guarantees for string interpolation).
 
@@ -378,7 +378,7 @@ Route all opens through `DeeplinkConfirmationFeature` (used by `touch-code://` U
 
 - **Pros:** consistent with how the app confirms `tc send` from an untrusted source.
 - **Cons:** user-initiated, in-app opens are *not* untrusted. A confirmation modal on every dropdown click is friction with no safety benefit.
-- **Verdict:** rejected for in-app and for CLI-from-inside-a-Panel calls. Apply confirmation only if a future deeplink (`touch-code://worktree/<id>/open-in/vscode`) arrives from outside the app.
+- **Verdict:** rejected for in-app and for CLI-from-inside-a-Pane calls. Apply confirmation only if a future deeplink (`touch-code://worktree/<id>/open-in/vscode`) arrives from outside the app.
 
 ## Cross-Cutting Concerns
 

@@ -36,7 +36,7 @@ After this change, a user opening touch-code sees the new Sidebar layout from th
 - **D5** (from design doc §Action Surface, reinforced by master revision 2026-04-21): `.worktreeRowTapped` skips the `setSpaceLastActiveWorktree` call when the active Space's current `lastActiveWorktreeID` already equals the tapped worktreeID. Keeps reducer-level trace clean; does not rely solely on T0's manager-side dedup.
 - **D6** (from design doc §View Composition): the active Space's Projects render at the root level of the tree — no outer Space-level `DisclosureGroup`. `expandedSpaceIDs` state and its prune path stay (dead but cheap; removing touches too many tests for zero user-visible gain).
 - **D7** (from design doc §Alternatives G): stub sheets use plain `Optional<Struct>` state rather than `@Presents` + child reducer. Sheet bodies are TODO placeholders (spec Won't-Have); the extra boilerplate has no test payoff.
-- **D8** (from design doc §Alternatives H, extended during M5 convergence): Remove Worktree AND Remove Project each present a `.confirmationDialog` before calling the respective `HierarchyClient` remover. Both paths transitively kill every panel's running process via `runtime.closeSurface` (`HierarchyManager.removeProject` calls `removeWorktree` for every child). State carries symmetric `pendingWorktreeRemoval` / `pendingProjectRemoval` payloads.
+- **D8** (from design doc §Alternatives H, extended during M5 convergence): Remove Worktree AND Remove Project each present a `.confirmationDialog` before calling the respective `HierarchyClient` remover. Both paths transitively kill every pane's running process via `runtime.closeSurface` (`HierarchyManager.removeProject` calls `removeWorktree` for every child). State carries symmetric `pendingWorktreeRemoval` / `pendingProjectRemoval` payloads.
 - **D9** (per master revision 2026-04-21, post-PLAN): `EditorFeature.Action.openRequested(editorID:worktreePath:projectID:)` takes a non-optional `EditorID`, so the sidebar→Root→Editor delegate path cannot pass `nil`. `RootFeature.sidebar(.delegate(.openInDefaultEditor))` inlines the per-Project-override → global-default → `EditorRegistry.finderID` resolution chain (mirroring `WorktreeHeaderOpenButton.currentDefaultLabel`), accepting each tier only if the descriptor is `isInstalled`. T2 will later hoist the chain into an `EditorFeature.resolveDefault(...)` helper; inlining now keeps T1 self-contained and doesn't touch `EditorFeature.Action`, which is T2's boundary. Adds `EditorRegistry.finderID: EditorID` constant to centralize the magic string.
 - **D10** (docs hygiene, per master revision 2026-04-21): M5 in-plan discussion artifacts on Remove-Project confirmation and Reveal-in-Finder routing were collapsed into their final decisions (D8 and D2 respectively). The living ExecPlan reads as instructions, not as a debate transcript.
 - **D11** (M9 discovery, 2026-04-21): the `.send(.editor(.onAppear))` eager prime added to `RootFeature.onLaunch` in M8 was reverted in M9. The live `EditorService.describe()` path executes `MainActor.assumeIsolated { ... }` inside a `.run`-spawned background Task; under the xctest host that assertion fails with `dispatch_assert_queue_fail` (Signal 5) during test bootstrap, crashing the test process before any test runs. The sidebar context-menu "Open in default editor" path tolerates an empty descriptor cache: its inline resolution chain falls through to `EditorRegistry.finderID`, which is always installed. **Follow-up**: a MainActor-safe eager prime is still desirable (so the first-right-click-before-header-render shows the user's configured editor instead of Finder) — likely dispatched from `ContentView.task` or a dedicated `@MainActor` hop inside the reducer effect rather than through `.run`. Not in T1 scope.
@@ -56,7 +56,7 @@ Related documents:
 
 Key source files (full repository-relative paths):
 
-- `apps/mac/TouchCodeCore/Notifications/NotificationInboxAggregation.swift` — Pure aggregation helpers `unreadCount(forWorktree:in:)`, `hasUnread(forProject:in:)`, `hasUnread(forSpace:in:)`, `notifications(forWorktree:in:)` plus the `Catalog.panelWorktreeIndex()` / `panelIDs(inWorktree:)` resolvers. M3 promotes `panelWorktreeIndex()` from default-`internal` to `public`.
+- `apps/mac/TouchCodeCore/Notifications/NotificationInboxAggregation.swift` — Pure aggregation helpers `unreadCount(forWorktree:in:)`, `hasUnread(forProject:in:)`, `hasUnread(forSpace:in:)`, `notifications(forWorktree:in:)` plus the `Catalog.panelWorktreeIndex()` / `paneIDs(inWorktree:)` resolvers. M3 promotes `panelWorktreeIndex()` from default-`internal` to `public`.
 - `apps/mac/touch-code/Runtime/HierarchyManager.swift` — `@MainActor @Observable` owner of catalog mutations; exposes `createSpace`, `renameSpace`, `removeSpace`, `addProject`, `removeProject`, `selectProject`, `createWorktree`, `removeWorktree`, `selectWorktree`, `setSpaceLastActiveWorktree`, `setWorktreeGitViewerVisible`. M1 adds `renameProject(_:in:name:)`.
 - `apps/mac/touch-code/App/Clients/HierarchyClient.swift` — TCA dependency-injection wrapper exposing closures that the reducers call. M1 adds `renameProject` and `setSpaceLastActiveWorktree` closures + their `liveValue` / `testValue` / `unimplemented(...)` entries (three edits per closure, mechanical).
 - `apps/mac/touch-code/App/Features/HierarchySidebar/HierarchySidebarFeature.swift` — Current reducer holding `expandedSpaceIDs` / `expandedProjectIDs` + row-tap forwarders. M4 adds the file-private `nextUntitledSpaceName(in:)` helper; M5 expands state/actions/reducer.
@@ -76,7 +76,7 @@ Terms of art (defined where first used in this plan):
 - **Hover chrome** — the `+` / `⋯` buttons on a Project section header that only appear while the mouse is over the row. Implemented via SwiftUI's `.onHover` + per-row `@State var isHovering`.
 - **Stub sheet** — a SwiftUI `.sheet` whose body is intentionally a placeholder (spec Won't-Have). The action path presenting and dismissing it is fully exercised; the body contains a title, a one-line TODO explanation, and a `Done` button that dismisses.
 - **Delegate action (TCA)** — a nested action enum inside a child reducer (`HierarchySidebarFeature.Action.Delegate`) that the parent `RootFeature` pattern-matches in its own reducer to route side effects. The child emits it; the child's own reducer returns `.none` for delegates so only the parent reacts.
-- **Snapshot-scoped index** — a `[PanelID: WorktreeID]` dictionary built once per SwiftUI `body` pass from the current catalog snapshot, reused by multiple aggregation calls inside that pass to avoid the per-call rebuild cost called out in `NotificationInboxAggregation.swift`'s doc-comments.
+- **Snapshot-scoped index** — a `[PaneID: WorktreeID]` dictionary built once per SwiftUI `body` pass from the current catalog snapshot, reused by multiple aggregation calls inside that pass to avoid the per-call rebuild cost called out in `NotificationInboxAggregation.swift`'s doc-comments.
 
 ## Plan of Work
 
@@ -166,13 +166,13 @@ Acceptance: `make mac-generate && xcodebuild -workspace apps/mac/touch-code.xcwo
 
 ### Milestone 3: Catalog.panelWorktreeIndex() becomes public
 
-After this milestone `HierarchySidebarView` can build the `[PanelID: WorktreeID]` index once per render pass and feed it into inline aggregation code, amortizing the rebuild across Worktree and Project dots.
+After this milestone `HierarchySidebarView` can build the `[PaneID: WorktreeID]` index once per render pass and feed it into inline aggregation code, amortizing the rebuild across Worktree and Project dots.
 
 Edit `apps/mac/TouchCodeCore/Notifications/NotificationInboxAggregation.swift`. Change:
 
 ```swift
 extension Catalog {
-  nonisolated func panelWorktreeIndex() -> [PanelID: WorktreeID] {
+  nonisolated func panelWorktreeIndex() -> [PaneID: WorktreeID] {
 ```
 
 to:
@@ -184,7 +184,7 @@ extension Catalog {
   /// `NotificationInbox.*(forWorktree:in:)` helpers do. Keep using the helpers
   /// when you only need one or two lookups; reach for this when you're
   /// iterating over many worktrees/projects in the same render pass.
-  public nonisolated func panelWorktreeIndex() -> [PanelID: WorktreeID] {
+  public nonisolated func panelWorktreeIndex() -> [PaneID: WorktreeID] {
 ```
 
 The two resolver helpers `worktreeIDs(inProject:)` / `worktreeIDs(inSpace:)` stay `internal` — they're internal-only conveniences.
@@ -257,7 +257,7 @@ Implement each action branch in the Reduce block. Guidance per branch:
 - `.projectRenameDraftChanged(newDraft)` — `state.renameProjectSheet?.draft = newDraft`.
 - `.projectRenameConfirmed` — pull sheet payload; if `trimmed.isEmpty` dismiss without calling the client; otherwise `try? hierarchyClient.renameProject(projectID, inSpace: spaceID, name: trimmed)`; clear `state.renameProjectSheet`.
 - `.projectRenameCancelled` — `state.renameProjectSheet = nil`.
-- `.projectRemoveTapped(projectID, inSpace: spaceID, name)` — populates `state.pendingProjectRemoval = .init(projectID:, spaceID:, displayName: name)`. Removing a Project removes every Worktree under it, killing their panel processes — same risk class as `Remove Worktree`, so we gate it with the same confirmation pattern (see D8).
+- `.projectRemoveTapped(projectID, inSpace: spaceID, name)` — populates `state.pendingProjectRemoval = .init(projectID:, spaceID:, displayName: name)`. Removing a Project removes every Worktree under it, killing their pane processes — same risk class as `Remove Worktree`, so we gate it with the same confirmation pattern (see D8).
 - `.projectRemoveConfirmed` — pull payload; `try? hierarchyClient.removeProject(projectID, inSpace: spaceID)`; clear `state.pendingProjectRemoval`.
 - `.projectRemoveCancelled` — `state.pendingProjectRemoval = nil`.
 - `.worktreeRemoveTapped(worktreeID, inProject, inSpace, name)` — `state.pendingWorktreeRemoval = .init(worktreeID: worktreeID, projectID: projectID, spaceID: spaceID, displayName: name)`.
@@ -519,7 +519,7 @@ The feature is accepted iff **all** of the following hold:
    - Right-click on a Worktree → Remove shows a confirmation; confirming removes the Worktree and its tabs; cancel leaves it alone.
    - Right-click → Reveal opens a Finder window rooted at the Worktree's directory.
    - Right-click → Open in default editor opens the Worktree in the user's configured editor (or Finder fallback).
-   - Writing an unread notification whose panel resolves to a Worktree puts a trailing dot on that Worktree row and a dot on its Project header; marking read clears both.
+   - Writing an unread notification whose pane resolves to a Worktree puts a trailing dot on that Worktree row and a dot on its Project header; marking read clears both.
 6. PR opens against `feature/main-window` (not `main`). PR description links both `docs/design-docs/mw-t1-sidebar.md` and `docs/exec-plans/0009-mw-t1-sidebar.md`.
 
 ## Idempotence and Recovery
@@ -576,7 +576,7 @@ In `apps/mac/TouchCodeCore/Notifications/NotificationInboxAggregation.swift`:
 
 ```swift
 extension Catalog {
-  public nonisolated func panelWorktreeIndex() -> [PanelID: WorktreeID]
+  public nonisolated func panelWorktreeIndex() -> [PaneID: WorktreeID]
 }
 ```
 

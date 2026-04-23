@@ -8,13 +8,13 @@ This is a living document. The Progress, Surprises & Discoveries, Decision Log, 
 
 ## Purpose
 
-After this change, sibling agents can build the new Sidebar (T1), Header bell (T2), and Git Viewer overlay (T3) against a frozen contract: the Catalog can persist Space-scoped last-active-Worktree and per-Worktree Git-Viewer visibility; the notification inbox can be queried by Worktree/Project/Space without every caller re-implementing the `PanelID → WorktreeID` join; and `ContentView` no longer carries the Hierarchy ↔ Inbox sidebar-mode Picker. End-users see no visual difference from T0 alone except for the missing mode-toggle segmented control in the sidebar toolbar.
+After this change, sibling agents can build the new Sidebar (T1), Header bell (T2), and Git Viewer overlay (T3) against a frozen contract: the Catalog can persist Space-scoped last-active-Worktree and per-Worktree Git-Viewer visibility; the notification inbox can be queried by Worktree/Project/Space without every caller re-implementing the `PaneID → WorktreeID` join; and `ContentView` no longer carries the Hierarchy ↔ Inbox sidebar-mode Picker. End-users see no visual difference from T0 alone except for the missing mode-toggle segmented control in the sidebar toolbar.
 
 ## Progress
 
 - [x] M1 — Catalog model extensions (Space.lastActiveWorktreeID, Worktree.gitViewerVisible) with explicit Codable + backward-compat tests (2026-04-21)
 - [x] M2 — HierarchyManager mutation API (setSpaceLastActiveWorktree, setWorktreeGitViewerVisible) + tests (2026-04-21)
-- [x] M3 — Catalog panel/worktree resolution helpers (worktreeID(forPanel:), panelIDs(inWorktree:)) + tests (2026-04-21)
+- [x] M3 — Catalog pane/worktree resolution helpers (worktreeID(forPane:), paneIDs(inWorktree:)) + tests (2026-04-21)
 - [x] M4 — NotificationInbox pure aggregation helpers (unreadCount / hasUnread ×2 / notifications) + tests (2026-04-21)
 - [x] M5 — InboxStore markRead(forWorktree:in:) and dismissAll() + tests (2026-04-21)
 - [x] M6 — ContentView drop sidebar mode Picker; RootFeature doc-comment only (state kept) (2026-04-21)
@@ -44,7 +44,7 @@ After this change, sibling agents can build the new Sidebar (T1), Header bell (T
 Shipped:
 - Catalog model fields (`Space.lastActiveWorktreeID`, `Worktree.gitViewerVisible`) with backward-compatible Codable.
 - HierarchyManager setters (`setSpaceLastActiveWorktree`, `setWorktreeGitViewerVisible`) on the standard debounced save pipeline.
-- Catalog resolution helpers (`worktreeID(forPanel:)`, `panelIDs(inWorktree:)`).
+- Catalog resolution helpers (`worktreeID(forPane:)`, `paneIDs(inWorktree:)`).
 - Pure NotificationInbox aggregation (`unreadCount`, two `hasUnread`, `notifications(forWorktree:)`) with the render-hot perf note baked into every doc-comment.
 - InboxStore `markRead(forWorktree:in:)` and canonical `dismissAll` (forwards to legacy `clearAll`).
 - ContentView Picker removed; sidebar always renders hierarchy; `SidebarMode` / `.sidebarModeChanged` / `.inbox` Scope kept with "T2 must either reuse or remove" notes.
@@ -58,7 +58,7 @@ Gaps / deferred:
 Lessons:
 - Auditing the base branch's lint state before starting would have surfaced the `async_without_await` violations earlier. Worth a quick `make mac-lint` at the start of every feature sub-branch.
 - The pre-T0 filename collision on `SettingsStoreTests` is a reminder that Tuist's `buildableFolders` recursion can silently allow basename clashes; a later hygiene pass could enforce unique basenames.
-- The `[PanelID: WorktreeID]` index is the natural caching boundary for per-frame aggregation — design the T1/T2 bell/sidebar render paths around building it once per catalog snapshot.
+- The `[PaneID: WorktreeID]` index is the natural caching boundary for per-frame aggregation — design the T1/T2 bell/sidebar render paths around building it once per catalog snapshot.
 
 ## Context and Orientation
 
@@ -71,7 +71,7 @@ Key source files:
 
 - `apps/mac/TouchCodeCore/Space.swift` — Space value type; gains `lastActiveWorktreeID` and explicit Codable. Currently 20 lines, no custom Codable.
 - `apps/mac/TouchCodeCore/Worktree.swift` — Worktree value type; gains `gitViewerVisible` and explicit Codable. Currently 26 lines, no custom Codable.
-- `apps/mac/TouchCodeCore/Catalog.swift` — Already uses explicit Codable (version-gated); gets two new helpers (`worktreeID(forPanel:)`, `panelIDs(inWorktree:)`).
+- `apps/mac/TouchCodeCore/Catalog.swift` — Already uses explicit Codable (version-gated); gets two new helpers (`worktreeID(forPane:)`, `paneIDs(inWorktree:)`).
 - `apps/mac/TouchCodeCore/Notifications/NotificationInbox.swift` — Pure inbox projection; gains four aggregation helpers.
 - `apps/mac/touch-code/Runtime/HierarchyManager.swift` — `@MainActor @Observable`; gains two mutation methods that go through the existing `store.scheduleSave(catalog)` pipeline (same shape as `renameSpace`, `selectProject`).
 - `apps/mac/touch-code/Notifications/InboxStore.swift` — `@MainActor` actor-equivalent; gains `markRead(forWorktree:in:)` and `dismissAll`. Uses existing `scheduleSave` + `publishMutation`.
@@ -135,23 +135,23 @@ Acceptance: app scheme test suite passes. Reading `catalog.spaces[...].lastActiv
 
 **Commit after M2**: `feat(runtime): add HierarchyManager setters for lastActiveWorktreeID and gitViewerVisible`
 
-### Milestone 3 — Catalog panel/worktree resolution helpers
+### Milestone 3 — Catalog pane/worktree resolution helpers
 
 Goal: a pure, testable API that the aggregation helpers can call.
 
 In `apps/mac/TouchCodeCore/Catalog.swift`:
-- Add `extension Catalog { public func worktreeID(forPanel panelID: PanelID) -> WorktreeID? }` — walks `spaces → projects → worktrees → tabs → panels`, returns the first match or `nil`. Linear scan; documented as O(n).
-- Add `extension Catalog { public func panelIDs(inWorktree worktreeID: WorktreeID) -> Set<PanelID> }` — returns all PanelIDs under the worktree across all tabs.
-- Add an internal-or-private helper if it simplifies M4 (e.g. `panelIndex: [PanelID: WorktreeID]`) — *but do not expose publicly*; aggregation helpers build their own index in M4. Decide during M4 whether to share.
+- Add `extension Catalog { public func worktreeID(forPane paneID: PaneID) -> WorktreeID? }` — walks `spaces → projects → worktrees → tabs → panes`, returns the first match or `nil`. Linear scan; documented as O(n).
+- Add `extension Catalog { public func paneIDs(inWorktree worktreeID: WorktreeID) -> Set<PaneID> }` — returns all PaneIDs under the worktree across all tabs.
+- Add an internal-or-private helper if it simplifies M4 (e.g. `panelIndex: [PaneID: WorktreeID]`) — *but do not expose publicly*; aggregation helpers build their own index in M4. Decide during M4 whether to share.
 
 Tests — new file `apps/mac/TouchCodeCoreTests/CatalogResolutionTests.swift`:
-- `worktreeIDForPanelFindsAcrossTabs` — catalog with 2 tabs, 2 panels in each; resolve each panel; assert correct worktree.
-- `worktreeIDForPanelMissingReturnsNil` — resolve a random PanelID; expect `nil`.
-- `panelIDsInWorktreeReturnsAllLeaves` — catalog with one Worktree hosting 2 tabs × 2 panels each; expect set of 4 PanelIDs.
+- `worktreeIDForPanelFindsAcrossTabs` — catalog with 2 tabs, 2 panes in each; resolve each pane; assert correct worktree.
+- `worktreeIDForPanelMissingReturnsNil` — resolve a random PaneID; expect `nil`.
+- `panelIDsInWorktreeReturnsAllLeaves` — catalog with one Worktree hosting 2 tabs × 2 panes each; expect set of 4 PaneIDs.
 
 Acceptance: CoreTests scheme green.
 
-**Commit after M3**: `feat(core): add Catalog panel/worktree resolution helpers`
+**Commit after M3**: `feat(core): add Catalog pane/worktree resolution helpers`
 
 ### Milestone 4 — NotificationInbox aggregation helpers
 
@@ -159,17 +159,17 @@ Goal: pure, catalog-aware aggregation callable from both reducer-land and views.
 
 In `apps/mac/TouchCodeCore/Notifications/NotificationInbox.swift` (or a sibling file `NotificationInbox+Aggregation.swift` for clarity — decision during edit; prefer one file if it stays under ~120 lines total):
 - Implement `unreadCount(forWorktree:in:)`, `hasUnread(forProject:in:)`, `hasUnread(forSpace:in:)`, `notifications(forWorktree:in:)` per design API.
-- Helpers build a single `[PanelID: WorktreeID]` map per call from the catalog (not from tabs in reverse — iterate outward for cache locality and so a panel without a matching worktree is just absent).
+- Helpers build a single `[PaneID: WorktreeID]` map per call from the catalog (not from tabs in reverse — iterate outward for cache locality and so a pane without a matching worktree is just absent).
 - Each helper doc-comment carries the render-hot-path perf note per **D6**.
 
 Test file — either append to `apps/mac/TouchCodeCoreTests/NotificationInboxTests.swift` or new `NotificationInboxAggregationTests.swift`:
-- Fixture: Space `S1` { Project `P1` [Worktree `W1a`, `W1b`], Project `P2` [Worktree `W2`] }, one Panel per worktree. Inbox has: one unread + one read on `W1a`, one unread on `W1b`, zero on `W2`.
+- Fixture: Space `S1` { Project `P1` [Worktree `W1a`, `W1b`], Project `P2` [Worktree `W2`] }, one Pane per worktree. Inbox has: one unread + one read on `W1a`, one unread on `W1b`, zero on `W2`.
 - `unreadCountForW1aIsOne` — asserts 1, not 2 (read one excluded).
 - `hasUnreadForP1IsTrue` — aggregates W1a+W1b, true.
 - `hasUnreadForP2IsFalse` — no notifications under W2.
 - `hasUnreadForS1IsTrue` — cross-project aggregation.
 - `notificationsForW1aIsTimeDescending` — returns both notifications (read included), newest first by `createdAt`.
-- `aggregationIgnoresPanelsNotInCatalog` — append a notification with a PanelID not in any catalog worktree; none of the helpers should surface it.
+- `aggregationIgnoresPanelsNotInCatalog` — append a notification with a PaneID not in any catalog worktree; none of the helpers should surface it.
 
 Acceptance: CoreTests scheme green. No MainActor annotations on the helpers (verified by the tests living outside `@MainActor` scope).
 
@@ -180,12 +180,12 @@ Acceptance: CoreTests scheme green. No MainActor annotations on the helpers (ver
 Goal: T2 can drive markRead/dismissAll from the Header bell popover.
 
 In `apps/mac/touch-code/Notifications/InboxStore.swift`:
-- Add `func markRead(forWorktree worktreeID: WorktreeID, in catalog: Catalog, now: Date = Date())`. Implementation: build the `panelIDs(inWorktree:)` set from catalog; iterate `inbox.notifications` and set `readAt = now` on each entry whose `panelID` is in the set and whose `readAt == nil`. If anything mutated, call `scheduleSave()` + `publishMutation()`. (Match `markRead(_ ids:)` shape.)
+- Add `func markRead(forWorktree worktreeID: WorktreeID, in catalog: Catalog, now: Date = Date())`. Implementation: build the `paneIDs(inWorktree:)` set from catalog; iterate `inbox.notifications` and set `readAt = now` on each entry whose `paneID` is in the set and whose `readAt == nil`. If anything mutated, call `scheduleSave()` + `publishMutation()`. (Match `markRead(_ ids:)` shape.)
 - Add `func dismissAll(now: Date = Date())` — forwards to `clearAll(now:)`. Doc-comment per **D7**.
 - Update doc-comment on existing `clearAll` to cross-link: *"Legacy alias of `dismissAll`; see design doc T0."*
 
 Tests — append to `apps/mac/touch-code/Tests/NotificationsTests/InboxStoreTests.swift`:
-- `markReadForWorktreeOnlyMarksScopedNotifications` — catalog with two worktrees; append notifications for panels in each; call setter for one worktree; assert the other worktree's unread count is unchanged.
+- `markReadForWorktreeOnlyMarksScopedNotifications` — catalog with two worktrees; append notifications for panes in each; call setter for one worktree; assert the other worktree's unread count is unchanged.
 - `markReadForWorktreeIsIdempotent` — calling twice leaves state unchanged after the first call (second call does not re-schedule save; observe via `pendingSaveTask` or by counting `unreadCount` transitions).
 - `dismissAllDelegatesToClearAll` — one appended notification; call `dismissAll`; assert `isUnread` → false and `dismissedAt != nil`.
 
@@ -299,7 +299,7 @@ prowl send --target 81AAD975-7EF9-4B55-9599-8EFA2752A074 --no-wait \
   - `apps/mac/touch-code/App/Features/Root/RootFeature.swift`
   - `docs/design-docs/mw-t0-foundation.md` (already committed before execute phase starts? — if yes, skip)
   - `docs/exec-plans/0008-mw-t0-foundation.md`
-- Manual smoke: `make mac-run-app`; sidebar renders hierarchy; no mode-toggle segmented control in toolbar; existing tabs/panels still render; opening/closing a panel still writes notifications to the inbox (C6 unchanged).
+- Manual smoke: `make mac-run-app`; sidebar renders hierarchy; no mode-toggle segmented control in toolbar; existing tabs/panes still render; opening/closing a pane still writes notifications to the inbox (C6 unchanged).
 - Acceptance in behavior terms: given a Catalog with `Space.lastActiveWorktreeID` set and `Worktree.gitViewerVisible = true`, quitting and re-launching the app preserves both values. T1/T3 can read them on startup.
 
 ## Idempotence and Recovery
@@ -327,13 +327,13 @@ public extension Worktree {
 }
 
 public extension Catalog {
-  func worktreeID(forPanel panelID: PanelID) -> WorktreeID?
-  func panelIDs(inWorktree worktreeID: WorktreeID) -> Set<PanelID>
+  func worktreeID(forPane paneID: PaneID) -> WorktreeID?
+  func paneIDs(inWorktree worktreeID: WorktreeID) -> Set<PaneID>
 }
 
 public extension NotificationInbox {
   /// Render-hot paths should cache a snapshot-scoped index — the helper rebuilds
-  /// `[PanelID: WorktreeID]` per call.
+  /// `[PaneID: WorktreeID]` per call.
   func unreadCount(forWorktree worktreeID: WorktreeID, in catalog: Catalog) -> Int
 
   /// Render-hot paths should cache a snapshot-scoped index.

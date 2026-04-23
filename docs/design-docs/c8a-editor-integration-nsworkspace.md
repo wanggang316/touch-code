@@ -21,8 +21,8 @@ It additionally **decouples the feature from Worktree**: "Open in X" is fundamen
 
 - Ship a curated registry of 28 entries spanning editors, terminals, git clients, Xcode, Finder, and `$EDITOR`, each pinned to a bundle identifier.
 - Detect every installed entry reliably regardless of `$PATH`, using `NSWorkspace.urlForApplication(withBundleIdentifier:)`.
-- Take an arbitrary directory URL and launch it in the resolved target via `NSWorkspace` (or, for `.editor`, by spawning a Panel that runs `$EDITOR`), with the real .app icon visible in every UI surface.
-- Keep the service strictly path-oriented: the open API is `(directory: URL, preferred: EditorID?)`. No Worktree, Panel, Project, or any other domain type appears in the signature.
+- Take an arbitrary directory URL and launch it in the resolved target via `NSWorkspace` (or, for `.editor`, by spawning a Pane that runs `$EDITOR`), with the real .app icon visible in every UI surface.
+- Keep the service strictly path-oriented: the open API is `(directory: URL, preferred: EditorID?)`. No Worktree, Pane, Project, or any other domain type appears in the signature.
 - Settings UX is a single dropdown of **installed** entries (uninstalled are hidden); no install-guidance, no download CTAs, no PATH troubleshooting.
 - Default resolution cascades: explicit request → global default → priority-list auto-pick → Finder.
 - Fully testable via a narrow `AppLauncher` seam — no real app launches in unit tests.
@@ -34,7 +34,7 @@ It additionally **decouples the feature from Worktree**: "Open in X" is fundamen
 - Install / download / quarantine help. If the entry isn't installed, it doesn't appear. That's the whole UX.
 - Disambiguation between multiple installed versions of the same app (e.g. Xcode stable vs. Xcode-beta). Launch Services' choice wins. Document the limitation.
 - Subsetting the registry based on touch-code's own overlapping capabilities (e.g. "we already have a built-in terminal, skip terminal apps"). Respect user choice — don't prune.
-- Coupling the editor service to Worktree, Project, or Panel types. The service is a pure path-opener; any per-Project semantics live one layer up, in the feature/handler that calls it.
+- Coupling the editor service to Worktree, Project, or Pane types. The service is a pure path-opener; any per-Project semantics live one layer up, in the feature/handler that calls it.
 
 ## Design
 
@@ -47,9 +47,9 @@ Three mechanism changes and one UX consequence:
 2. **Launch = three branches by category.**
    - **`.directory` mode** — `NSWorkspace.open(urls:withApplicationAt:configuration:)` with a single directory URL. Covers editors (Cursor, Zed, VSCode, Windsurf, Antigravity, Sublime, Xcode, …), terminals (Ghostty, Wezterm, Alacritty, Kitty, Warp, Terminal.app), git clients (GitHub Desktop, Sourcetree, Fork, GitKraken, Sublime Merge, SmartGit, GitUp), and Finder.
    - **`.applicationWithArguments` mode** — `NSWorkspace.openApplication(at:configuration:)` with `configuration.arguments = [dir]` + `createsNewApplicationInstance = true`. JetBrains-family only (IntelliJ, WebStorm, PyCharm, RubyMine, RustRover); any other mode makes JetBrains IDEs focus their last-opened window and ignore the argument.
-   - **`.shellEditor` mode** — the special `.editor` case. Creates a new Panel at the target directory and sends `$EDITOR\n` as input; the user's login shell expands `$EDITOR` with its own environment. No bundle ID, no LS involvement. Requires the terminal/Panel side to expose a "create Panel at path with initial input" primitive — flagged as an implementation dependency in /hs-planner.
+   - **`.shellEditor` mode** — the special `.editor` case. Creates a new Pane at the target directory and sends `$EDITOR\n` as input; the user's login shell expands `$EDITOR` with its own environment. No bundle ID, no LS involvement. Requires the terminal/Pane side to expose a "create Pane at path with initial input" primitive — flagged as an implementation dependency in /hs-planner.
 
-   No `Process` spawning, no argv substitution, no env whitelist, no 5-second timeout. The kernel (for `.directory` / `.applicationWithArguments`) or the Panel's shell (for `.shellEditor`) is doing the work.
+   No `Process` spawning, no argv substitution, no env whitelist, no 5-second timeout. The kernel (for `.directory` / `.applicationWithArguments`) or the Pane's shell (for `.shellEditor`) is doing the work.
 
 3. **Priority-based auto-resolution.** When no default is set, walk a concatenated priority list (`editorPriority + [xcode, finder] + terminalPriority + gitClientPriority`) and pick the first that is installed. Finder is always installed, so the chain always terminates. Recomputed on every resolve, so installing a higher-priority editor takes effect on the next open with no restart.
 
@@ -83,7 +83,7 @@ The load-bearing trade-off is **"uniform mechanism" (C8's aesthetic) vs. "mechan
  │  └────────────┬──────────────────────┬──────────────────┬─┘      │
  │               │                      │                  │        │
  │        ┌──────▼──────────┐    ┌──────▼────────┐    ┌────▼─────┐  │
- │        │  AppLauncher    │    │ SettingsStore │    │  Panel   │  │
+ │        │  AppLauncher    │    │ SettingsStore │    │  Pane   │  │
  │        │  (NSWorkspace)  │    │ defaultEditor │    │  spawner │  │
  │        │ open(urls:      │    │ ID (read)     │    │ (for     │  │
  │        │ withApp:config) │    │               │    │ $EDITOR) │  │
@@ -127,7 +127,7 @@ struct EditorDescriptor: Identifiable, Equatable, Sendable {
   enum LaunchMode: Equatable, Sendable {
     case directory                    // NSWorkspace.open(urls:withApplicationAt:configuration:)
     case applicationWithArguments     // NSWorkspace.openApplication(at:configuration:) with args
-    case shellEditor                  // new Panel, send "$EDITOR\n" to stdin
+    case shellEditor                  // new Pane, send "$EDITOR\n" to stdin
   }
 }
 ```
@@ -338,7 +338,7 @@ Dropdown contents follow `menuOrder`, filtered to installed entries, with thin c
 ⌨   $EDITOR
 ```
 
-Uninstalled entries: **not shown**. No banner, no explanation, no download link. If the user installs Cursor after touch-code is running, opening Settings re-probes on pane appear and the dropdown now includes Cursor. `.editor` is always shown (no bundle to probe) as long as the Panel primitive it depends on is available.
+Uninstalled entries: **not shown**. No banner, no explanation, no download link. If the user installs Cursor after touch-code is running, opening Settings re-probes on pane appear and the dropdown now includes Cursor. `.editor` is always shown (no bundle to probe) as long as the Pane primitive it depends on is available.
 
 **Per-Project override** lives in the Project Options sheet and uses the same picker shape, with one extra row `↩ Use global default` at the top (equivalent to setting `Project.defaultEditor = nil`). Writes go through `HierarchyClient.setRepositoryDefaultEditor(projectID, editorID)` — unchanged from C8. The value domain is now restricted to installed built-in IDs (the picker only offers installed editors, like the global picker).
 
@@ -384,9 +384,9 @@ Detect via bundle IDs, but still spawn the CLI shim (`code`, `cursor`, ...) once
 
 ### A3. Subset the list to only code editors
 
-Cut terminals and git clients on the grounds that touch-code has built-in Panels (terminal) and C7 Git Viewer (git client), making external equivalents redundant.
+Cut terminals and git clients on the grounds that touch-code has built-in Panes (terminal) and C7 Git Viewer (git client), making external equivalents redundant.
 
-- **Pros:** shorter dropdown, smaller registry, matches touch-code's "Panel IS the terminal" stance.
+- **Pros:** shorter dropdown, smaller registry, matches touch-code's "Pane IS the terminal" stance.
 - **Cons:** pre-empts the user's choice. Some users want Warp's AI, Ghostty on a second monitor, or GitHub Desktop's PR UI alongside the built-in features. The cost of keeping them is ~20 rows in a Swift enum; the benefit is "no one ever has to ask where X went".
 - **Verdict:** rejected. Ship all 28.
 
@@ -450,7 +450,7 @@ Covered under Data Storage above. One-line summary: decode is tolerant, stale ID
 - **R1 — ToDesktop-style bundle ID drift.** Cursor's bundle ID is a ToDesktop hash (`com.todesktop.230313mzl4w4u92`). If a future Cursor release re-publishes under a different ID, detection misses it. **Mitigation:** `alternateBundleIdentifiers: [String]` on every descriptor; probe primary first, fall through alternates. Update the list when the shim moves (code change).
 - **R2 — JetBrains special-case drift.** If JetBrains changes how its apps accept folder-open via `configuration.arguments`, our one branch breaks silently (app launches, folder ignored) for all five JetBrains entries (IntelliJ, WebStorm, PyCharm, RubyMine, RustRover). **Mitigation:** manual smoke test on one JetBrains IDE in every release; if fragile in practice, prefer `ides-openFolder` URL scheme as a per-editor override.
 
-- **R2b — `.editor` depends on a Panel primitive that may not exist yet.** touch-code needs a "create Panel at path with initial stdin input (`$EDITOR\n`)" capability for the `.shellEditor` launch mode. If the Panel feature doesn't already expose this, C8a's `.editor` case can't ship. **Mitigation:** /hs-planner's first task is to verify or build this primitive. If it's not trivial, drop `.editor` from this iteration (one-line registry change) and re-add it when the Panel side is ready — the rest of the 28-entry parity is unaffected.
+- **R2b — `.editor` depends on a Pane primitive that may not exist yet.** touch-code needs a "create Pane at path with initial stdin input (`$EDITOR\n`)" capability for the `.shellEditor` launch mode. If the Pane feature doesn't already expose this, C8a's `.editor` case can't ship. **Mitigation:** /hs-planner's first task is to verify or build this primitive. If it's not trivial, drop `.editor` from this iteration (one-line registry change) and re-add it when the Pane side is ready — the rest of the 28-entry parity is unaffected.
 - **R3 — Launch Services picks wrong Xcode version.** User has Xcode and Xcode-beta installed; LS picks whichever is "default". **Mitigation:** document as a known limitation; consider a separate `xcodeBeta` descriptor with bundle ID `com.apple.dt.Xcode-beta` (if Apple uses a stable alternate ID) in a follow-up.
 - **R4 — First-install race.** User installs Cursor while touch-code is running; the cached `describe()` still says it's missing. **Mitigation:** `describe()` re-probes when Settings pane becomes visible and when IPC `editor.describe` is called. Sufficient for the use case; avoids polling.
 - **R5 — Loss of escape hatch for niche editors.** A user who was using a Custom template for, say, Helix, loses their setup on upgrade. **Mitigation:** add Helix to the built-in registry if requested (2-line change). The current `customEditors` surface has no known users per logs, so the migration-loss blast radius is near zero. If wrong, revert via amendment.
@@ -464,7 +464,7 @@ Supersedes C8's Resolved Items #1, #2, #3, #9:
 2. **Discovery.** `NSWorkspace.urlForApplication(withBundleIdentifier:)` per built-in editor, cached; refreshed on Settings-appear and IPC `editor.describe`. (Was: "`$PATH` probe at startup".)
 3. **Built-in allowlist.** 28 entries — 12 editors + Xcode + Finder + 6 terminals + 7 git clients + `$EDITOR`. Additions remain code changes. (Was: 6 editors.)
 4. **Custom templates.** Removed. (Was: `customEditors: [CustomEditor]` in settings.) Re-add only via future amendment with concrete user demand.
-5. **Service coupling.** The service API is `(directory: URL, preferred: EditorID?)`. No Worktree, Project, Panel, or catalog type appears in any service signature. Per-Project override semantics live in the caller layer (TCA feature / IPC handler), which pre-resolves a `preferred EditorID?` and hands it to the service. (Was: service signature mixed path with `ProjectID`.)
+5. **Service coupling.** The service API is `(directory: URL, preferred: EditorID?)`. No Worktree, Project, Pane, or catalog type appears in any service signature. Per-Project override semantics live in the caller layer (TCA feature / IPC handler), which pre-resolves a `preferred EditorID?` and hands it to the service. (Was: service signature mixed path with `ProjectID`.)
 6. **Resolution cascade — split across two layers.** Caller resolves `userExplicitPick ?? (projectOverride if installed)` into a single `preferred`. Service then cascades `preferred` (strict) → `Settings.defaultEditorID` (lenient) → priority auto-pick → Finder.
 
 C8 Resolved Items #4 (fallback order — preserved in spirit, re-factored across layers), #5 (no silent fallthrough for explicit preferred), #7 (directory-only scope; no file-level, line-level, or diff-level opens), #8 (storage: `defaultEditorID` + `Project.defaultEditor` both kept) still stand.

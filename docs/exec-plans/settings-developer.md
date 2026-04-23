@@ -625,14 +625,14 @@ bullets):
    {
      "version": 1,
      "subscriptions": [
-       { "id": "<uuid>", "event": "panel.output", "command": "notify",
+       { "id": "<uuid>", "event": "pane.output", "command": "notify",
          "matchPattern": "error.*", "scope": { "kind": "anyPanel" } }
      ]
    }
    ```
 
    Click Reload → row appears: enabled green dot, display name
-   `notify`, event `panel.output`, match summary `error.*`. Toggle
+   `notify`, event `pane.output`, match summary `error.*`. Toggle
    `"disabled": true` in the file, Reload → dot greys out.
 6. **M6.3** — Click Reveal settings.json → Finder highlights
    `~/.config/touch-code/settings.json`. Click Reveal hooks.json → same.

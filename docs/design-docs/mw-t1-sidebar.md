@@ -46,14 +46,14 @@ Existing pieces T1 builds on:
   doc-comments).
 - `HierarchyClient` already exposes `createSpace`, `renameSpace`, `removeSpace`,
   `addProject`, `removeProject`, `createWorktree`, `removeWorktree`,
-  `selectSpace`, `selectProject`, `selectWorktree`, and related panel/tab verbs.
+  `selectSpace`, `selectProject`, `selectWorktree`, and related pane/tab verbs.
   It **does not** yet expose `setSpaceLastActiveWorktree` or `renameProject`.
 - `EditorFeature` owns the "Open in …" dispatch path (`openRequested` →
   `openSucceeded` / `openFailed`) with toast wiring in `ContentView`. The
   sidebar context menu should reuse this path — not a second `EditorClient`
   call site — so toasts behave consistently.
 - `NotificationInbox` aggregation helpers are pure and build a
-  `[PanelID: WorktreeID]` index per call. The doc-comment says "callers that
+  `[PaneID: WorktreeID]` index per call. The doc-comment says "callers that
   render many rows per frame should cache a snapshot-scoped index".
 
 ## Goals and Non-Goals
@@ -559,7 +559,7 @@ tests. Deletion is reversible in one commit if T2 disagrees.
 rebuild cost in the sidebar aggregation helpers.**
 Rejected (mildly): at worst we rebuild the index N times per render pass
 (N = number of Projects + number of Worktrees). For catalogs with ≤ 200
-panels and ≤ 20 worktrees that's ≤ 4000 ops per frame — measurable on slow
+panes and ≤ 20 worktrees that's ≤ 4000 ops per frame — measurable on slow
 hardware and easy to avoid with a one-line access-level bump. Chose the
 public-bump option. The helpers themselves still accept `Catalog` rather than
 pre-built index so their API doesn't change for other callers.
@@ -572,9 +572,9 @@ gets us everything we need: state-driven present/dismiss, TestStore coverage
 on the action path, and a two-line rewrite when the real sheets land.
 
 **(H) Skip the `Remove Worktree` confirmation dialog.**
-Rejected: removing a Worktree kills all its tab panels and their running
+Rejected: removing a Worktree kills all its tab panes and their running
 processes (see `HierarchyManager.removeWorktree` calling `runtime.closeSurface`
-for every panel). Losing an interactive agent session to a misclick is a bad
+for every pane). Losing an interactive agent session to a misclick is a bad
 first-run experience. The spec's acceptance criterion is "context menu
 includes at minimum: Remove Worktree" — it doesn't forbid a confirm step. We
 add one; it's a single `.confirmationDialog` and two actions.

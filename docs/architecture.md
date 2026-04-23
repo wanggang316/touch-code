@@ -2,7 +2,7 @@
 
 ## Overview
 
-touch-code is a native macOS application that orchestrates terminals into a five-level hierarchy (Space → Project → Worktree → Tab → Panel) for CLI-agent power users. See [Product Spec](product-spec.md) for capabilities and boundaries.
+touch-code is a native macOS application that orchestrates terminals into a five-level hierarchy (Space → Project → Worktree → Tab → Pane) for CLI-agent power users. See [Product Spec](product-spec.md) for capabilities and boundaries.
 
 The system is a **Tuist-managed monorepo** because the product ships three co-versioned artifacts — the Mac app, the `tc` CLI, and the published Agent Skill — whose development benefits from atomic cross-cutting changes (protocol edits, CLI contract changes, domain-model evolution) and shared tooling.
 
@@ -16,7 +16,7 @@ The mac platform (Tuist project, sources, ghostty submodule) lives under `apps/m
 
 | Target | Kind | Source path | Purpose |
 |---|---|---|---|
-| `TouchCodeCore` | static framework | `apps/mac/TouchCodeCore/` | Pure domain types: Space/Project/Worktree/Tab/Panel models, `SplitTree`, stable UUID identifiers. Zero internal deps. Consumed by app + CLI. |
+| `TouchCodeCore` | static framework | `apps/mac/TouchCodeCore/` | Pure domain types: Space/Project/Worktree/Tab/Pane models, `SplitTree`, stable UUID identifiers. Zero internal deps. Consumed by app + CLI. |
 | `TouchCodeIPC` | static framework | `apps/mac/TouchCodeIPC/` | JSON-RPC wire protocol: Request/Response envelopes, Method constants, payload types, socket discovery. Shared between app and CLI. |
 | `tc` | command-line tool | `apps/mac/tc/` | CLI binary. Depends on `TouchCodeCore`, `TouchCodeIPC`, `ArgumentParser`. Runtime / Hooks / Git are intentionally off-limits — CLI is a thin RPC client. |
 | `touch-code` | macOS app | `apps/mac/touch-code/{App,Runtime,Hooks,Git}/` | The Mac app. Buildable subfolders compile as one target. Depends on `TouchCodeCore`, `TouchCodeIPC`, `tc` (so app builds produce the CLI binary alongside). |
@@ -26,8 +26,8 @@ The mac platform (Tuist project, sources, ghostty submodule) lives under `apps/m
 | Subfolder | Purpose |
 |---|---|
 | `touch-code/App/` | `@main TouchCodeApp.swift`, root SwiftUI scene, TCA store construction |
-| `touch-code/Runtime/` | libghostty integration: GhosttyKit Swift bindings, Panel lifecycle, Surface rendering adapter, `@Observable` runtime state |
-| `touch-code/Hooks/` | Lifecycle event taxonomy (Panel created / ready / output match / idle / exit; Tab activated; Worktree activated), hook registration, out-of-process shell handler dispatch |
+| `touch-code/Runtime/` | libghostty integration: GhosttyKit Swift bindings, Pane lifecycle, Surface rendering adapter, `@Observable` runtime state |
+| `touch-code/Hooks/` | Lifecycle event taxonomy (Pane created / ready / output match / idle / exit; Tab activated; Worktree activated), hook registration, out-of-process shell handler dispatch |
 | `touch-code/Process/` | Shared subprocess primitive — `CommandRunner` protocol + `FoundationCommandRunner` / `RecordingCommandRunner`. Extracted from `Git/` during the GitHub integration (0012 DEC-5) so `Git/` and `GitHub/` can depend on a common runner without taking a sibling-module import. Timeout + SIGTERM→SIGKILL ladder + pipe-drain backpressure live here; translation from `CommandOutcome` to a domain error type is each caller's responsibility. |
 | `touch-code/Git/` | Read-only git data access: diff parsing, log enumeration, commit detail extraction. No write operations. |
 | `touch-code/GitHub/` | gh-delegated GitHub integration data layer (0012). `GitHubService` protocol + `LiveGitHubService` wrapping `gh` via `CommandRunner`, `GhCommand` argv builder, `GhExecutableResolver` actor, `JSONOutputParsers` translating gh stdout → `TouchCodeCore` DTOs, `GitHubError` taxonomy. Zero HTTP in-app; auth/tokens live entirely in gh's own config store. App-layer TCA bits live in `App/Clients/GitHubClient.swift` + `App/Features/GitHub/`. |
@@ -87,7 +87,7 @@ touch-code-skill/                           (orthogonal — no Swift dependency;
 - `touch-code` (app) and `tc` must communicate only through IPC (`TouchCodeIPC` wire types + Unix socket), never via shared state or file-based IPC.
 - `TouchCodeCore` must have zero imports from any other internal package — it is the universal leaf.
 - No circular dependencies between frameworks.
-- **In-app module boundaries** (`Runtime` ↔ `Hooks` ↔ `Git` ↔ `App`) are enforced by folder convention + code review only. No Tuist target edge exists between them because they compile into the same app binary. See "Architectural Invariants" for the rules that must not be violated (e.g., "Panel state mutability is localized to `Runtime`").
+- **In-app module boundaries** (`Runtime` ↔ `Hooks` ↔ `Git` ↔ `App`) are enforced by folder convention + code review only. No Tuist target edge exists between them because they compile into the same app binary. See "Architectural Invariants" for the rules that must not be violated (e.g., "Pane state mutability is localized to `Runtime`").
 - `touch-code-skill/` must not import or reference any Swift target — it is pure markdown + reference content.
 
 **Enforcement:**
@@ -99,13 +99,13 @@ touch-code-skill/                           (orthogonal — no Swift dependency;
 
 Rules not visible in code. Violating any of these will not fail tests immediately but will rot the system.
 
-- **Panel state mutability is localized to `Runtime`.** Panel scrollback, cursor, and selection are mutable only inside `touch-code/Runtime (in-app module)`. Other layers read via `@Observable` bindings or event streams; they must not call mutators directly.
+- **Pane state mutability is localized to `Runtime`.** Pane scrollback, cursor, and selection are mutable only inside `touch-code/Runtime (in-app module)`. Other layers read via `@Observable` bindings or event streams; they must not call mutators directly.
 - **All cross-process communication goes through `TouchCodeIPC`.** No other channel between `apps/cli` and `apps/mac`. No HTTP, no TCP, no file-based queues, no shared memory.
 - **Hooks are out-of-process only in v1.** Hook handlers execute as shell commands fork-exec'd by the app, receiving JSON on stdin and returning JSON on stdout. In-process handlers (embedded JS, WASM) are explicitly deferred.
 - **State management is hybrid by design, with a clear boundary.** High-frequency terminal state uses `@Observable`; app flow state uses TCA. Mixing the two patterns within a single feature is a red flag. See [State Management](#state-management-hybrid-tca--observable).
 - **Persistence is atomic-rename JSON with a top-level `version: Int`.** All files under `~/.config/touch-code/` include a schema version. Readers that encounter an unknown version abort rather than silently upgrade. Writers write to a temp file and rename over the original.
 - **`tc` is stateless.** The CLI has no persistent state of its own. All truth lives in the running app; `tc` is a thin RPC client. Adding file reads/writes in `apps/cli` requires a design doc.
-- **Identifiers are UUIDs.** Every Space, Project, Worktree, Tab, Panel has a stable UUID. Index-based addressing (`tc panel focus 1/2/3`) is convenience sugar resolved to a UUID before any state mutation. Internal code must use UUIDs.
+- **Identifiers are UUIDs.** Every Space, Project, Worktree, Tab, Pane has a stable UUID. Index-based addressing (`tc pane focus 1/2/3`) is convenience sugar resolved to a UUID before any state mutation. Internal code must use UUIDs.
 - **Agent Skill is consumed, never loaded.** The app must not parse, index, or invoke `SKILL.md`. The only skill-related runtime code is the `tc skill install` helper, which copies files to the agent's skill directory.
 - **`touch-code/Runtime (in-app module)` is TCA-free.** Runtime exposes `@Observable` classes and AsyncStream events. TCA bridging lives in `apps/mac` (the `*Client` types). This keeps Runtime independently testable and portable.
 
@@ -121,14 +121,14 @@ Rules not visible in code. Violating any of these will not fail tests immediatel
 
 **Swift Observation (`@Observable`)** is used for:
 - `Runtime.PanelState` — libghostty surface, scrollback, cursor
-- `Runtime.TerminalEngine` — manages N panels
-- `HierarchyManager` — mutable tree of Spaces/Projects/Worktrees/Tabs/Panels
+- `Runtime.TerminalEngine` — manages N panes
+- `HierarchyManager` — mutable tree of Spaces/Projects/Worktrees/Tabs/Panes
 
 **Bridge:** `apps/mac/Clients/*Client.swift` exposes:
-- **Commands** (TCA → runtime): `terminalClient.openPanel(in: worktree)`, `terminalClient.sendInput(panel, text)`
+- **Commands** (TCA → runtime): `terminalClient.openPanel(in: worktree)`, `terminalClient.sendInput(pane, text)`
 - **Events** (runtime → TCA): `terminalClient.events()` returns an `AsyncStream<TerminalEvent>` the root reducer subscribes to and maps to `Action.terminal(...)`
 
-Rationale: agent-heavy panels produce thousands of output events per second; routing every byte through a TCA reducer is a known anti-pattern (value-type state diffs, Effect allocation, Equatable checks). Both reference projects ended at this split — supacode explicitly; supaterm implicitly via reference-type state within TCA.
+Rationale: agent-heavy panes produce thousands of output events per second; routing every byte through a TCA reducer is a known anti-pattern (value-type state diffs, Effect allocation, Equatable checks). Both reference projects ended at this split — supacode explicitly; supaterm implicitly via reference-type state within TCA.
 
 ### IPC
 
@@ -139,12 +139,12 @@ Rationale: agent-heavy panels produce thousands of output events per second; rou
   - Error: `{"id": "uuid", "error": {"code": Int, "message": "…"}}`
 - **Methods:** namespaced (`terminal.*`, `hierarchy.*`, `git.*`, `skill.*`, `system.*`)
 - **Discovery in `apps/cli`:** env var `TOUCH_CODE_SOCKET_PATH` → default path probe → (optional) launch app and wait up to 10s
-- **Context panel id:** the app sets `TOUCH_CODE_PANEL_ID` in each Panel's environment so `tc` commands run inside a Panel can default to that Panel's UUID without an explicit flag (mirrors `SUPATERM_PANE_ID`)
+- **Context pane id:** the app sets `TOUCH_CODE_PANE_ID` in each Pane's environment so `tc` commands run inside a Pane can default to that Pane's UUID without an explicit flag (mirrors `SUPATERM_PANE_ID`)
 
 ### URL scheme
 
 - Scheme: `touch-code://`
-- Examples: `touch-code://worktree/<id>/focus`, `touch-code://panel/<id>/send?text=...`
+- Examples: `touch-code://worktree/<id>/focus`, `touch-code://pane/<id>/send?text=...`
 - Parsed by `apps/mac/Features/Deeplink/DeeplinkParser.swift`; maps onto the same IPC methods used by `tc`
 - Routed through `DeeplinkConfirmationFeature` for user approval on sensitive actions (send, exec)
 
@@ -154,7 +154,7 @@ Files under `~/.config/touch-code/` (JSON, UTF-8, pretty-printed with sorted key
 
 | File | Contents |
 |---|---|
-| `catalog.json` | Space → Project → Worktree → Tab → Panel tree with UUIDs, split geometry, current selection at every level |
+| `catalog.json` | Space → Project → Worktree → Tab → Pane tree with UUIDs, split geometry, current selection at every level |
 | `settings.json` | User preferences (default external editor per Project, hook paths, feature toggles) |
 | `hooks.json` | User-configured hook subscriptions (event → shell command + options) |
 
@@ -254,6 +254,6 @@ Readers abort on unknown `version` field.
 
 5. **IPC backpressure.** *Resolved by exec-plan 0003 (DEC-9):* per-connection bounded queue, **64 in-flight**, 2-second overflow wait before the server returns `IPCError.overloaded` (CLI exit 5). Global queue rejected — slow clients would starve healthy ones. See [exec-plan 0003 DEC-9](exec-plans/0003-hooks-and-cli.md). Implementation of the actual queue deferred to M3.1 (the wire surface already returns `.overloaded` when it lands).
 
-6. **Runtime crash recovery.** A single Panel's libghostty surface crashes — should Runtime restart just the Panel, surface the crash to the user, or tear down the whole Tab? *Leaning:* per-Panel restart with a user-visible placeholder showing the error; 3 crashes in 30s escalates to Tab tear-down.
+6. **Runtime crash recovery.** A single Pane's libghostty surface crashes — should Runtime restart just the Pane, surface the crash to the user, or tear down the whole Tab? *Leaning:* per-Pane restart with a user-visible placeholder showing the error; 3 crashes in 30s escalates to Tab tear-down.
 
 7. **Worktree storage layout defaults.** Where do new worktrees live? Per product-spec Q6. **Blocks:** `apps/mac/Features/Hierarchy` Worktree creator. *Leaning:* sibling `<repo>-worktrees/<branch>/` by default, per-Project override.

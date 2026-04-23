@@ -11,10 +11,10 @@ This is a living document. The Progress, Surprises & Discoveries, Decision Log, 
 After this change, a touch-code user can:
 
 - Press **⌘P** from anywhere in the main window and see a floating search box at the top-center of the active window.
-- Type a few characters and see a fuzzy-ranked list of every command currently available — Space switching, Worktree switching, "Open in default editor", "Toggle Git Viewer", split/new-tab/focus panel actions, new/close window, open settings — without needing to remember which menu hosts each.
+- Type a few characters and see a fuzzy-ranked list of every command currently available — Space switching, Worktree switching, "Open in default editor", "Toggle Git Viewer", split/new-tab/focus pane actions, new/close window, open settings — without needing to remember which menu hosts each.
 - Press **↑/↓** to move selection, **Enter** to execute, **Esc** (or click outside) to dismiss.
 - On reopen, see their recently-used commands float to the top: commands activated within the last 30 days are boosted, with half-life = 7 days.
-- Press the ghostty keybind bound to `toggle_command_palette` (if the user configured one in `ghostty/config`) and see the same palette open — the existing intent hook in `PanelActionRouterFeature.Delegate.commandPaletteToggleRequested` stops being a no-op.
+- Press the ghostty keybind bound to `toggle_command_palette` (if the user configured one in `ghostty/config`) and see the same palette open — the existing intent hook in `PaneActionRouterFeature.Delegate.commandPaletteToggleRequested` stops being a no-op.
 
 Nothing new happens at the "what can the app do" layer — every command invoked from the palette already has a dedicated entry point (menu, sidebar row, header button, ghostty keybind). The palette is a single keyboard-first surface that lowers the discovery cost for all of them.
 
@@ -30,7 +30,7 @@ Nothing new happens at the "what can the app do" layer — every command invoked
 
 ## Surprises & Discoveries
 
-- **S1** (2026-04-23, M0): `make -C apps/mac lint` emitted 8 **pre-existing** violations on `feature/command-p` before any palette edit: `EditorService+Test.swift:128,144` (async-without-await), `EditorService+Live.swift:36` (todo), `PanelActionRouterFeature.swift:64` (superfluous disable), `PanelSurface.swift:195` (cyclomatic), `GhosttyActionDecoder.swift:142` (cyclomatic + function-body-length), `PanelSurfaceApplyTests.swift:27` (cyclomatic). Out of palette scope; tracked here so the post-work lint comparison is apples-to-apples. No palette-introduced violations shall join that list.
+- **S1** (2026-04-23, M0): `make -C apps/mac lint` emitted 8 **pre-existing** violations on `feature/command-p` before any palette edit: `EditorService+Test.swift:128,144` (async-without-await), `EditorService+Live.swift:36` (todo), `PaneActionRouterFeature.swift:64` (superfluous disable), `PaneSurface.swift:195` (cyclomatic), `GhosttyActionDecoder.swift:142` (cyclomatic + function-body-length), `PanelSurfaceApplyTests.swift:27` (cyclomatic). Out of palette scope; tracked here so the post-work lint comparison is apples-to-apples. No palette-introduced violations shall join that list.
 - **S2** (2026-04-23, M0): `git-wt` submodule was not checked out on this worktree — `xcodebuild` failed at the "Verify git-wt" pre-script until `git submodule update --init apps/mac/ThirdParty/git-wt` completed. No code change needed; add to the onboarding note if other agents bootstrap this branch.
 
 ## Decision Log
@@ -39,8 +39,8 @@ Nothing new happens at the "what can the app do" layer — every command invoked
 - **D2** (planning, 2026-04-23): Palette view is a **ZStack overlay**, not `.sheet(item:)`. The ContentView already hosts a ZStack where the Git Viewer overlay lives; palette joins there at `.zIndex(100)`. `.sheet` was rejected because it dims the window chrome, animates slowly, and pre-empts `Esc` before the reducer can handle activation-and-dismiss.
 - **D3** (planning, 2026-04-23): Command items are **rebuilt on open**, not held as a static catalog. `CommandPaletteItems.build(for:)` is a pure function over `(Catalog, HierarchySelection, EditorFeature.State)`. This makes context-sensitivity free — if no Worktree is selected, worktree-scoped Kinds simply aren't in the list — and avoids a registration protocol that would only pay off with a plugin system we do not have.
 - **D4** (planning, 2026-04-23): Activation routes through a new `CommandPaletteFeature.Action.Delegate.activate(Kind)` that `RootFeature` pattern-matches into existing feature actions (`.editor(.openRequested)`, `.gitViewerToggledForCurrentWorktree`, `.switchToSpaceAtIndex`, `.sidebar(.spaceRowTapped)`, `.panelActionRouter(.requested)`, `.windowActionRouter(.requested)`, `SettingsWindowPresenter.open()`). No new client, no new dependency; every branch reuses a path that already ships.
-- **D5** (planning, 2026-04-23): **Panel-scoped palette actions resolve the target panel on demand, not from `HierarchySelection`.** Confirmed while reading `HierarchyClient.swift:268` — `HierarchySelection` carries `(spaceID, projectID, worktreeID)` only; no `panelID` field. The `route(_:)` helper walks `Tab.selectedPanelID` in the current catalog snapshot to find the focused panel when dispatching a `Kind.panelAction(…)`. No `HierarchySelection` schema change.
-- **D6** (planning, 2026-04-23): Ghostty-sourced `toggle_command_palette` intent is reused. `PanelActionRouterFeature.swift:42` already emits `Delegate.commandPaletteToggleRequested`; `RootFeature.swift:421` currently consumes it as an explicit no-op. In M5 that branch becomes `.send(.commandPalette(.togglePresented))`.
+- **D5** (planning, 2026-04-23): **Pane-scoped palette actions resolve the target pane on demand, not from `HierarchySelection`.** Confirmed while reading `HierarchyClient.swift:268` — `HierarchySelection` carries `(spaceID, projectID, worktreeID)` only; no `paneID` field. The `route(_:)` helper walks `Tab.selectedPanelID` in the current catalog snapshot to find the focused pane when dispatching a `Kind.panelAction(…)`. No `HierarchySelection` schema change.
+- **D6** (planning, 2026-04-23): Ghostty-sourced `toggle_command_palette` intent is reused. `PaneActionRouterFeature.swift:42` already emits `Delegate.commandPaletteToggleRequested`; `RootFeature.swift:421` currently consumes it as an explicit no-op. In M5 that branch becomes `.send(.commandPalette(.togglePresented))`.
 - **D7** (planning, 2026-04-23): Recency stored as `[String: TimeInterval]` under UserDefaults key `commandPaletteRecency` via `@Shared(.appStorage(...))`. Rejected routing it through `SettingsStore` — settings are atomic-rename JSON on disk with a 500 ms debounce designed for versioned user-facing preferences, not for write-heavy ephemeral counters touched on every palette activation.
 - **D8** (planning, 2026-04-23): First cut ships **no category/section headers** in the UI and **no mode prefixes** (`>`, `@`, `:`). Flat list ordered by score. These can be added later without breaking existing recency IDs.
 - **D9** (planning, 2026-04-23): `⌘K` Space switcher stays as-is. Palette can select any Space by typing its name, but `⌘K` is muscle memory and removing it is a separate UX call that should not block palette landing.
@@ -57,7 +57,7 @@ Nothing new happens at the "what can the app do" layer — every command invoked
 **Result (2026-04-23):** Command Palette shipped across 7 commits on
 `feature/command-p`. The feature opens via `⌘P` or the ghostty
 `toggle_command_palette` keybind, searches every user-visible
-command — App / Spaces / Worktree / Editor / Panel / Window — via a
+command — App / Spaces / Worktree / Editor / Pane / Window — via a
 three-band fuzzy scorer with recency decay, and dispatches every
 activation through existing feature actions with no new client, no new
 ghostty decoder case, and no new `HierarchySelection` field.
@@ -78,14 +78,14 @@ items builder by 5; routing contract by 7.
 shipped feature flagged two critical issues and three concerns. All
 five were addressed in commits 21e1f1d + 5dbd416:
 
-- **C1 — Panel commands targeted leftmost split, not focused split.**
-  Plumbed `PanelID` through `PanelActionRouterFeature.Delegate.command-
-  PaletteToggleRequested(PanelID)` → `RootFeature.commandPaletteToggle
-  (PanelID?)` → `CommandPaletteFeature.Action.appeared(...,
-  focusedPanelID, panelFocusPrecise)`. Focus-dependent Panel items
+- **C1 — Pane commands targeted leftmost split, not focused split.**
+  Plumbed `PaneID` through `PaneActionRouterFeature.Delegate.command-
+  PaletteToggleRequested(PaneID)` → `RootFeature.commandPaletteToggle
+  (PaneID?)` → `CommandPaletteFeature.Action.appeared(...,
+  focusedPanelID, panelFocusPrecise)`. Focus-dependent Pane items
   (newSplit, gotoSplit, toggleSplitZoom) are only emitted when the
-  ghostty path supplied the panel; menu-triggered opens still get
-  tab-scoped Panel items and all Window items (any leaf in the tab
+  ghostty path supplied the pane; menu-triggered opens still get
+  tab-scoped Pane items and all Window items (any leaf in the tab
   resolves to the same NSWindow).
 - **C2 — `Kind.selectWorktree` routed but never generated.** Items
   builder now emits one "Switch to Worktree: &lt;name&gt;" per worktree
@@ -108,7 +108,7 @@ five were addressed in commits 21e1f1d + 5dbd416:
   creates state and fires `.appeared(...)` immediately so items are
   built on the reducer tick rather than a SwiftUI lifecycle side
   effect.
-- D11: Ghostty intent hook (`PanelActionRouter.Delegate.command-
+- D11: Ghostty intent hook (`PaneActionRouter.Delegate.command-
   PaletteToggleRequested`) wired in M2 instead of M5 to avoid
   shipping an inert ghostty keybind through a released milestone.
 - D13: Subsequence scorer is DP over (needle, haystack) positions,
@@ -122,8 +122,8 @@ five were addressed in commits 21e1f1d + 5dbd416:
 **Lessons:**
 
 - The Ghostty side of the app was already expecting a command-palette
-  feature (`PanelActionRequest.toggleCommandPalette`,
-  `PanelActionRouterFeature.Delegate.commandPaletteToggleRequested`,
+  feature (`PaneActionRequest.toggleCommandPalette`,
+  `PaneActionRouterFeature.Delegate.commandPaletteToggleRequested`,
   the explicit-no-op at `RootFeature:421`). Wiring into pre-existing
   hooks was cheaper than inventing new plumbing.
 - Greedy subsequence matching gives intuitive-looking results on
@@ -140,7 +140,7 @@ Related documents:
 
 - Design doc: `docs/design-docs/command-palette.md` — read in full before M1. Contains the state/action shapes, the scorer rules, the seven alternatives considered, and the risk table. This ExecPlan does not duplicate them.
 - Architecture: `docs/architecture.md`, `docs/golden-rules.md`.
-- Ghostty routing precedent: `docs/design-docs/0008-ghostty-action-routing.md`. The palette reuses `PanelActionRequest` / `WindowActionRequest` verbatim, so understanding the decoder → router → root fan-out is load-bearing.
+- Ghostty routing precedent: `docs/design-docs/0008-ghostty-action-routing.md`. The palette reuses `PaneActionRequest` / `WindowActionRequest` verbatim, so understanding the decoder → router → root fan-out is load-bearing.
 
 Key source files to read (in this order) before M1:
 
@@ -148,9 +148,9 @@ Key source files to read (in this order) before M1:
 - `apps/mac/touch-code/App/Features/SpaceManager/SpaceManagerFeature.swift` — **read for shape only, do not edit**. This is the cleanest in-tree example of a `@Presents`-hosted child reducer. The new feature's file layout (`State` / `Action` / `body: some Reducer` / `Delegate`) matches this one.
 - `apps/mac/touch-code/App/Commands/MainWindowCommands.swift` — the `CommandGroup(after: .newItem)` block. A new `Button("Quick Action…") { store.send(.commandPalette(.togglePresented)) }.keyboardShortcut("p", modifiers: .command)` is inserted *above* the existing ⌘E / ⌘⇧G / ⌘K block.
 - `apps/mac/touch-code/App/ContentView.swift` — the overlay host. The palette overlay is mounted in the same `ZStack` that already carries the Git Viewer overlay, with `.zIndex(100)` so it sits above it.
-- `apps/mac/touch-code/App/Features/PanelActionRouter/PanelActionRouterFeature.swift` — lines 37–43 declare `Delegate.commandPaletteToggleRequested`; lines 179–180 emit it. Nothing changes here; M5 just connects the delegate to a real action in `RootFeature`.
-- `apps/mac/TouchCodeCore/PanelActionRequest.swift` and `apps/mac/TouchCodeCore/WindowActionRequest.swift` — the public enums `CommandPaletteItem.Kind` wraps. **Do not edit these enums**. Every case is reachable from the palette by adding a `Kind.panelAction(case)` or `Kind.windowAction(case)` item to `build(for:)`.
-- `apps/mac/touch-code/App/Clients/HierarchyClient.swift` — lines 268–274 (`HierarchySelection`) confirm the selection does not carry a panel ID; palette routing resolves the focused panel by walking `Tab.selectedPanelID` from the catalog snapshot. No client changes.
+- `apps/mac/touch-code/App/Features/PaneActionRouter/PaneActionRouterFeature.swift` — lines 37–43 declare `Delegate.commandPaletteToggleRequested`; lines 179–180 emit it. Nothing changes here; M5 just connects the delegate to a real action in `RootFeature`.
+- `apps/mac/TouchCodeCore/PaneActionRequest.swift` and `apps/mac/TouchCodeCore/WindowActionRequest.swift` — the public enums `CommandPaletteItem.Kind` wraps. **Do not edit these enums**. Every case is reachable from the palette by adding a `Kind.panelAction(case)` or `Kind.windowAction(case)` item to `build(for:)`.
+- `apps/mac/touch-code/App/Clients/HierarchyClient.swift` — lines 268–274 (`HierarchySelection`) confirm the selection does not carry a pane ID; palette routing resolves the focused pane by walking `Tab.selectedPanelID` from the catalog snapshot. No client changes.
 - `apps/mac/touch-code/App/Features/Editor/EditorFeature.swift` — look up `State.descriptors` and `State.globalDefault`; the palette item builder reads both to emit `Kind.openCurrentWorktreeIn(EditorID)` items for each installed editor.
 
 Terms of art:
@@ -158,7 +158,7 @@ Terms of art:
 - **Kind** — a discriminated enum inside `CommandPaletteItem` describing what the item does. One case per command family; parameterized cases carry stable IDs (e.g. `SpaceID`) so recency survives app restart.
 - **Recency** — a `[stableCommandID: lastActivationTimestamp]` map persisted to UserDefaults. Read during scoring to apply an exponential-decay bonus; written on every command activation.
 - **Contiguous mode** — the fuzzy scorer matches the query as a single substring of the title, not as a subsequence. Triggered by a double-quoted query (`"git view"`) or implicitly as the highest-scoring match when both succeed.
-- **Focused panel resolution** — given a `HierarchySelection`, the palette finds the panel to target by looking up the selected Worktree's `selectedTabID`, then that Tab's `selectedPanelID`. The `RootFeature.resolveActiveTab` helper at line 509 is the existing precedent; a sibling helper `resolveFocusedPanelID` is added for palette routing.
+- **Focused pane resolution** — given a `HierarchySelection`, the palette finds the pane to target by looking up the selected Worktree's `selectedTabID`, then that Tab's `selectedPanelID`. The `RootFeature.resolveActiveTab` helper at line 509 is the existing precedent; a sibling helper `resolveFocusedPanelID` is added for palette routing.
 
 Test target layout:
 
@@ -269,10 +269,10 @@ Expand `CommandPaletteItems.build(forSelection:editor:catalog:)` to emit every `
 
 - Always: `openSettings`, `checkForUpdates`, `openSpaceManager`, one `selectSpace(id)` per `catalog.spaces`, one `switchToSpaceAtIndex(n)` for n=1…min(9, spaces.count).
 - When `selection.worktreeID != nil`: `toggleGitViewer`, `closeCurrentWorktree` (flagged `hiddenWhenQueryEmpty = true`), `refreshCurrentWorktree`, `openCurrentWorktreeInDefaultEditor`, `revealCurrentWorktreeInFinder`, one `openCurrentWorktreeIn(editorID)` per installed descriptor in `editor.descriptors`.
-- When `selection.worktreeID != nil`: panel actions — one `panelAction(.newTab)`, one per `NewSplitDirection`, one per `FocusDirection` as `panelAction(.gotoSplit(direction:))`, `panelAction(.closeTab(.this))` (hidden-when-empty), `panelAction(.equalizeSplits)`, `panelAction(.toggleSplitZoom)`.
-- Always: window actions — `windowAction(.new(from: resolvedPanelID))`, `windowAction(.close(from: resolvedPanelID))`, `windowAction(.toggleFullscreen(from: resolvedPanelID))`, `windowAction(.toggleTabOverview(from: resolvedPanelID))`. When no panel is focused, these items are omitted rather than emitting synthetic IDs.
+- When `selection.worktreeID != nil`: pane actions — one `panelAction(.newTab)`, one per `NewSplitDirection`, one per `FocusDirection` as `panelAction(.gotoSplit(direction:))`, `panelAction(.closeTab(.this))` (hidden-when-empty), `panelAction(.equalizeSplits)`, `panelAction(.toggleSplitZoom)`.
+- Always: window actions — `windowAction(.new(from: resolvedPanelID))`, `windowAction(.close(from: resolvedPanelID))`, `windowAction(.toggleFullscreen(from: resolvedPanelID))`, `windowAction(.toggleTabOverview(from: resolvedPanelID))`. When no pane is focused, these items are omitted rather than emitting synthetic IDs.
 
-Items whose Kind requires a focused `PanelID` resolve it at build time via a new helper `resolveFocusedPanelID(selection:catalog:) -> PanelID?` that walks Tab→selectedPanelID. If `nil`, the corresponding items are not emitted.
+Items whose Kind requires a focused `PaneID` resolve it at build time via a new helper `resolveFocusedPanelID(selection:catalog:) -> PaneID?` that walks Tab→selectedPanelID. If `nil`, the corresponding items are not emitted.
 
 Extend `RootFeature.route(_:)` to cover all Kinds. Each case is 1–4 lines, dispatching into an existing feature action. A typical block:
 
@@ -289,9 +289,9 @@ case .openCurrentWorktreeIn(let editorID):
   // Build a worktree-path resolver inline or reuse RootFeature.projectOverrideEditorID
   …
 case .panelAction(let req):
-  guard let panelID = resolveFocusedPanelID(selection: state.selection,
+  guard let paneID = resolveFocusedPanelID(selection: state.selection,
                                             catalog: hierarchyClient.snapshot()) else { return .none }
-  return .send(.panelActionRouter(.requested(panelID, req)))
+  return .send(.panelActionRouter(.requested(paneID, req)))
 case .windowAction(let req):
   return .send(.windowActionRouter(.requested(req)))
 ```
@@ -326,7 +326,7 @@ Manual QA matrix:
 - Close palette, reopen → recently-used commands float to the top.
 - Delete a Space whose `selectSpace` command had recency, reopen → the stale recency entry is pruned (assert via `defaults read com.touch-code commandPaletteRecency`).
 - Configure ghostty `toggle_command_palette` on a key combo → pressing it opens the palette.
-- Open palette, then click into a terminal panel → palette dismisses; ghostty receives the click normally.
+- Open palette, then click into a terminal pane → palette dismisses; ghostty receives the click normally.
 
 Run `make -C apps/mac lint` and `xcodebuild test -scheme touch-code -destination 'platform=macOS'` — all green.
 
@@ -366,7 +366,7 @@ make -C apps/mac mac-run-app
 # M5 ghostty hook smoke
 # in ~/.config/ghostty/config (or per-worktree override):
 #   keybind = ctrl+shift+p=toggle_command_palette
-# then in a touch-code terminal panel, press ctrl+shift+p → palette opens
+# then in a touch-code terminal pane, press ctrl+shift+p → palette opens
 ```
 
 ```
@@ -381,11 +381,11 @@ Expected: a dictionary mapping stable command IDs (e.g. `app.open-settings`) to 
 The feature is accepted when all of the following are true:
 
 1. Pressing `⌘P` in any main-window state opens the palette; pressing `Esc` or clicking the scrim dismisses it.
-2. Typing a command name selects the expected top item for all of: `"settings"` → Open Settings; `"git"` → Toggle Git Viewer; one of the space names → Switch to that Space; `"new tab"` → Panel: New Tab; `"open in <editor>"` → Open Current Worktree in that editor (only when installed).
+2. Typing a command name selects the expected top item for all of: `"settings"` → Open Settings; `"git"` → Toggle Git Viewer; one of the space names → Switch to that Space; `"new tab"` → Pane: New Tab; `"open in <editor>"` → Open Current Worktree in that editor (only when installed).
 3. Pressing `Enter` on the top item executes it and dismisses the palette in the same tick.
 4. Activating the same command three times in a session causes it to appear at the top of the empty-query list on the next open, and after relaunching the app.
 5. Deleting a Worktree whose `worktree.select.<uuid>` had recency causes that recency entry to disappear on the next palette open (verified via `defaults read`).
-6. A ghostty keybind bound to `toggle_command_palette` opens the palette; the existing `PanelActionRouterFeature.Delegate.commandPaletteToggleRequested` no longer no-ops at `RootFeature`.
+6. A ghostty keybind bound to `toggle_command_palette` opens the palette; the existing `PaneActionRouterFeature.Delegate.commandPaletteToggleRequested` no longer no-ops at `RootFeature`.
 7. `RootFeatureCommandPaletteRoutingTests` passes with every `Kind` case covered.
 8. `CommandPaletteFuzzyScorerTests` passes; the scorer's ordering is deterministic on identical input.
 9. No regression in lint or existing tests.
@@ -435,7 +435,7 @@ Edits to existing files:
 - `apps/mac/touch-code/App/Commands/MainWindowCommands.swift` — ~6 lines added (new Button, ⌘P binding, inserted at the top of `CommandGroup(after: .newItem)`).
 - `apps/mac/touch-code/App/ContentView.swift` — ~6 lines added (overlay mount inside existing ZStack).
 
-No edits expected to: `PanelActionRouterFeature.swift`, `PanelActionRequest.swift`, `WindowActionRequest.swift`, `HierarchyClient.swift`, `EditorFeature.swift`, `SettingsWindowPresenter`, `TouchCodeApp.swift`, `GhosttyActionDecoder.swift`.
+No edits expected to: `PaneActionRouterFeature.swift`, `PaneActionRequest.swift`, `WindowActionRequest.swift`, `HierarchyClient.swift`, `EditorFeature.swift`, `SettingsWindowPresenter`, `TouchCodeApp.swift`, `GhosttyActionDecoder.swift`.
 
 ## Interfaces and Dependencies
 
@@ -470,7 +470,7 @@ struct CommandPaletteItem: Equatable, Identifiable {
     case openCurrentWorktreeIn(EditorID)
     case revealCurrentWorktreeInFinder
 
-    case panelAction(PanelActionRequest)
+    case panelAction(PaneActionRequest)
     case windowAction(WindowActionRequest)
   }
 }
@@ -559,15 +559,15 @@ private func route(
 private func resolveFocusedPanelID(
   selection: HierarchySelection,
   catalog: Catalog
-) -> PanelID?
+) -> PaneID?
 ```
 
-No changes to `PanelActionRequest`, `WindowActionRequest`, `HierarchyClient`, `HierarchyManager`, or any `*Feature` outside CommandPalette / Root.
+No changes to `PaneActionRequest`, `WindowActionRequest`, `HierarchyClient`, `HierarchyManager`, or any `*Feature` outside CommandPalette / Root.
 
 Dependencies:
 
 - **The Composable Architecture** — already a target dependency; uses `@Reducer`, `@ObservableState`, `@Presents`, `@Shared(.appStorage(…))`, `Scope`, `.ifLet(_:action:)`, `PresentationAction`.
 - **SwiftUI** — `ZStack`, `TextField`, `List`, `FocusState`, `.onKeyPress`, `.ultraThinMaterial`. All available on macOS 14+; the app's `Tuist.swift` already pins `compatibleXcodeVersions: .upToNextMajor("26.0")` which ships with macOS 14+ SDKs.
-- **TouchCodeCore** — `PanelActionRequest`, `WindowActionRequest`, `Catalog`, `Space`, `Project`, `Worktree`, `SpaceID`, `ProjectID`, `WorktreeID`, `PanelID`, `TabID`. Imported, not modified.
+- **TouchCodeCore** — `PaneActionRequest`, `WindowActionRequest`, `Catalog`, `Space`, `Project`, `Worktree`, `SpaceID`, `ProjectID`, `WorktreeID`, `PaneID`, `TabID`. Imported, not modified.
 
 No new third-party dependencies. No new Swift Package additions.

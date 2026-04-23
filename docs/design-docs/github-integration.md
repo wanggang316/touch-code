@@ -36,7 +36,7 @@ This document is the source of truth for *how* v1 GitHub integration is structur
 - Show, for every Worktree whose branch matches an open/merged/closed PR on the default `gh` host, a compact **status badge** (state + aggregate check result) inline in the sidebar row.
 - Expose a **PR details popover** from that badge: number, title, author, draft/ready/merged, commit count, additions/deletions, per-check status list with "open failing check" / "rerun failed jobs" actions, "open on GitHub" link.
 - Expose **command-palette actions** for the active Worktree's PR: merge (with strategy), close, mark-ready, rerun failed jobs, open on GitHub.
-- Offer a **Settings panel** that: (a) detects `gh` installation + auth status and surfaces clear remediation copy when missing, (b) lets the user pick default merge strategy and post-merge Worktree action (none / archive / delete), (c) toggles the whole feature off per-Project.
+- Offer a **Settings pane** that: (a) detects `gh` installation + auth status and surfaces clear remediation copy when missing, (b) lets the user pick default merge strategy and post-merge Worktree action (none / archive / delete), (c) toggles the whole feature off per-Project.
 - Reuse `FoundationCommandRunner`. No new subprocess infrastructure, no new timeout/signal code.
 - Reuse the hybrid TCA + `@Observable` + `*Client` shape that C7 established. Anything a feature reducer calls goes through a typed TCA `DependencyKey` client.
 - Stay inside `touch-code/GitHub/` (in-app module) with pure-function parsers and Decodable DTOs that *could* later move to `TouchCodeCore` if a CLI/iOS consumer needs them. Do not pre-move them.
@@ -47,7 +47,7 @@ This document is the source of truth for *how* v1 GitHub integration is structur
 - **No issues, reviews, discussions, notifications inbox, codespaces, actions dashboard, releases, projects, gists.** PR-only.
 - **No in-app diff rendering for PRs.** "View diff" is `gh pr view --web`. C7's diff viewer is working-tree/log/staged — unrelated.
 - **No webhooks, no server push, no background polling thread.** All refresh is user-initiated (open popover, invoke command) or event-triggered (worktree selection change, merge/close action completion + short debounce).
-- **No IPC surface (`github.*` methods)** in v1. `tc` already has shell access to `gh` inside any Panel, which is the strictly-better scripted interface. Reserve the namespace (see [Seams](#seams-for-future-work)).
+- **No IPC surface (`github.*` methods)** in v1. `tc` already has shell access to `gh` inside any Pane, which is the strictly-better scripted interface. Reserve the namespace (see [Seams](#seams-for-future-work)).
 - **No GitHub Enterprise multi-host UI.** Read the default host from `gh auth status`; if the user has multiple hosts configured, we use the default and document the limitation.
 - **No merge-conflict resolution, no branch rebase, no force-push, no PR creation.** Creation is explicitly deferred to a sibling design (the existing terminal + `gh pr create` is sufficient for v1).
 - **No persistence of PR state to disk.** Memory-only, reset on app launch. Tokens live in `gh`'s config. We store zero secret material.
@@ -71,7 +71,7 @@ Three load-bearing decisions, covered in [Alternatives Considered](#alternatives
 
 2. **On-demand per-Worktree fetch; GraphQL batch only as a named Phase 2.** v1 lazily fetches a PR snapshot when a Worktree becomes visible in the sidebar viewport or gains selection. This avoids the complexity of a batched GraphQL query (aliased-per-branch, dynamic-keyed decoding, chunked concurrency) until there is measured latency to justify it. See [Risks](#risks) for the sidebar-population burst concern.
 
-3. **Memory-only state, no disk, no IPC in v1.** PR snapshots are rebuilt on app launch. `tc`'s scripted surface for GitHub is plain `gh` inside any Panel (already better than anything we would expose), which lets us keep the IPC wire surface frozen and defer the `github.*` method design until real workflows appear.
+3. **Memory-only state, no disk, no IPC in v1.** PR snapshots are rebuilt on app launch. `tc`'s scripted surface for GitHub is plain `gh` inside any Pane (already better than anything we would expose), which lets us keep the IPC wire surface frozen and defer the `github.*` method design until real workflows appear.
 
 Why this is enough. The PR-status question is read-mostly, low-volume (the user checks a handful of Worktrees per session), user-initiated (no background polling), and the authoritative data lives on GitHub's servers. A reducer + a subprocess + a 30-second availability cache covers the hot path. We are not building a PR database.
 
@@ -119,7 +119,7 @@ External boundaries touched:
 - **`gh` CLI** — only external dependency. Resolved once per app session via `which gh` and cached in a `GhExecutableResolver` actor that deduplicates concurrent lookups. All invocations are fixed argument lists; user-supplied values (branch names, SHAs, merge strategy) are passed as arguments, never interpolated into a shell. No shell interpretation anywhere.
 - **File system** — read-only, via `gh`. The Worktree's `path` is passed as `cwd` so `gh` resolves the repo + remote naturally.
 - **`HierarchyManager`** — read-only: reactions to `selectedWorktree` changes trigger "refresh this one Worktree's PR snapshot" effects. No writes.
-- **`SettingsStore`** — read/write for the Settings panel (merge strategy, post-merge action, per-Project feature toggle).
+- **`SettingsStore`** — read/write for the Settings pane (merge strategy, post-merge action, per-Project feature toggle).
 - **`WorktreeService`** (hierarchy mutator) — invoked on `postMergeAction == .archive` or `.delete` after a successful merge. Existing method; no new plumbing.
 
 ### API Design
@@ -199,7 +199,7 @@ Delegate actions let `RootFeature` react to "merge completed" with the user-conf
 
 ### UI Design
 
-Four surfaces, in decreasing order of glanceability: sidebar badge → detail popover → command-palette actions → Settings section. Nothing else. The design deliberately has no dedicated panel, no full-screen view, no toolbar item — the feature should feel like a read-out the app already had, not a new mode.
+Four surfaces, in decreasing order of glanceability: sidebar badge → detail popover → command-palette actions → Settings section. Nothing else. The design deliberately has no dedicated pane, no full-screen view, no toolbar item — the feature should feel like a read-out the app already had, not a new mode.
 
 **Visual principles.**
 
@@ -351,7 +351,7 @@ Registers as a new sidebar entry in the existing Settings window, alphabetically
 └────────────────────────────────────────────────────────────┘
 ```
 
-**Availability banner** — the most important piece of this panel, because it is what the user sees when the feature silently fails:
+**Availability banner** — the most important piece of this pane, because it is what the user sees when the feature silently fails:
 
 - `.available(host, user)` → green dot + `Connected to <host> as @<user>`.
 - `.notInstalled` → amber banner: *"GitHub CLI is not installed. Run `brew install gh` to enable pull-request features."* with a `[ Copy command ]` button and a dismissible help link.
@@ -484,7 +484,7 @@ Make "PR diff + checks" a new tab of the existing git viewer rather than a separ
 - **Downside:** Conflates two very different data paths (local git subprocesses vs. remote `gh` with network/auth/rate-limits vs. different error modes / timeouts / states). C7's current scope is *read-only local*; GitHub brings mutations (merge/close). Error-handling vocabulary diverges. Couples cadences: a C7 refactor would now risk GitHub functionality.
 - **Why rejected:** Explicitly contradicts the C7 design doc Non-Goal "No IPC surface, no remote data." Keeping the features separate preserves C7's guarantees and lets `GitHubFeature` own its own lifecycle (availability probe, debounced refresh, popover focus).
 
-### 4. Defer everything except the Settings panel — just detect `gh` availability in v1
+### 4. Defer everything except the Settings pane — just detect `gh` availability in v1
 
 Zero UI beyond a Settings checkbox + doctor page.
 
@@ -520,7 +520,7 @@ Zero UI beyond a Settings checkbox + doctor page.
 - `.timeout` — `CommandOutcome.timedOut`. Rare; logs at `.error`.
 - `.other(String)` — catchall with stderr preserved.
 
-Errors render inline in the popover with a single remediation button. The Settings panel shows a persistent banner when `availability != .available`.
+Errors render inline in the popover with a single remediation button. The Settings pane shows a persistent banner when `availability != .available`.
 
 ### Testing strategy
 
@@ -545,7 +545,7 @@ The feature is entirely additive with a per-Project toggle. Disabling the toggle
 
 - **R2: Sidebar-population subprocess burst.** On a Project with 15 Worktrees, selecting it fires 15 `gh` processes. Mitigation: `GitHubFeature` caps in-flight fetches at 3 (per-Project `TaskGroup`) and enqueues the rest. If this proves visibly slow in practice, switch to the batched GraphQL path (already seam-reserved). Decision gate: measurable P50 > 500 ms for full badge population on a realistic Project.
 
-- **R3: User has `gh` but configured a non-default host.** Mitigation: `availability` returns `.available(host)` with the host name; Settings panel shows the active host. Multi-host switching is an explicit Non-Goal for v1; document the limitation in the Settings panel help copy.
+- **R3: User has `gh` but configured a non-default host.** Mitigation: `availability` returns `.available(host)` with the host name; Settings pane shows the active host. Multi-host switching is an explicit Non-Goal for v1; document the limitation in the Settings pane help copy.
 
 - **R4: PR↔Worktree match ambiguity** (two Worktrees on same branch, stale refs, branch renamed). Mitigation: tie-break by Worktree mtime (most-recently-activated wins). Show the badge only on the winning row; log `.debug` for the skipped ones. Stale/renamed branches simply fall to the `.notAPullRequest` path.
 
@@ -553,7 +553,7 @@ The feature is entirely additive with a per-Project toggle. Disabling the toggle
 
 - **R6: `CommandRunner` move (from `touch-code/Git/` to `touch-code/Process/`) breaks C7.** Mitigation: the move is mechanical (rename + update 2 importers); land it as a prep commit with full C7 test suite passing before touching GitHub code. If the move proves disruptive, fall back to leaving `CommandRunner` in `Git/` and adding a `@_exported import` shim — strictly worse but reversible.
 
-- **R7: User runs touch-code without `gh` installed and finds no feature.** Mitigation: first-run onboarding detects missing `gh` and offers the `brew install gh` copy-to-clipboard plus a "Configure later" dismiss; after that, only the Settings panel banner surfaces the state. The rest of the app is unaffected.
+- **R7: User runs touch-code without `gh` installed and finds no feature.** Mitigation: first-run onboarding detects missing `gh` and offers the `brew install gh` copy-to-clipboard plus a "Configure later" dismiss; after that, only the Settings pane banner surfaces the state. The rest of the app is unaffected.
 
 ## Open Questions
 
@@ -569,7 +569,7 @@ These are blocking for exec-plan authoring; flagged here rather than guessed:
 
 ## References
 
-- [architecture.md § Architectural Invariants](../architecture.md) — Panel/IPC/persistence invariants honored by this design
+- [architecture.md § Architectural Invariants](../architecture.md) — Pane/IPC/persistence invariants honored by this design
 - [docs/design-docs/c7-git-viewer.md](c7-git-viewer.md) — layering and `CommandRunner` reuse pattern this design mirrors
 - [docs/design-docs/c8a-editor-integration-nsworkspace.md](c8a-editor-integration-nsworkspace.md) — delegate-action + `*Client` pattern this design copies
 - [GitHub CLI](https://cli.github.com/) — v2.x reference; we test against whatever `mise` / `brew` resolves in CI for the user

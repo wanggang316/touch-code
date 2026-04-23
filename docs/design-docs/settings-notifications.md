@@ -75,7 +75,7 @@ Out of scope (T3 / T4 / future):
   the inbox surface. See D2.
 - NG2 — New SettingsStore APIs or schema fields. All four toggles already
   exist on `NotificationsSettings` per T1.
-- NG3 — Editing muted rule IDs / panel IDs from inside the pane. M5.5
+- NG3 — Editing muted rule IDs / pane IDs from inside the pane. M5.5
   is explicitly "summary + Reveal in Finder".
 - NG4 — Changing how `authStatus` is refreshed. `NotificationCoordinator.
   refreshAuthorizationStatus()` already handles the external-flip case on
@@ -160,7 +160,7 @@ with five sections, each a section header + control:
    Caption: "Shows the unread notification count on the app icon."
 5. **Mute rules** — read-only summary row + "Reveal rules.json in Finder"
    button. Summary is strictly counts-only per spec M5.5 (Q2 APPROVE):
-   `"<N> rule(s), <M> panel(s) muted"` where N = `mute.mutedRuleIDs.count`
+   `"<N> rule(s), <M> pane(s) muted"` where N = `mute.mutedRuleIDs.count`
    and M = `mute.mutedPanelIDs.count`; when both counts are zero the
    summary collapses to `"No mute rules"`. `surfaceIdle` / `redactBodies`
    are intentionally omitted — users who want detail click Reveal.
@@ -188,7 +188,7 @@ System notifications toggle is flipped to `true`:
 - If `authStatus == .notDetermined`, do nothing extra. The existing
   `onAgentPanelCreated` pre-prompt flow still governs the real request.
   (The pane does not initiate an OS permission request — that is
-  `NotificationCoordinator`'s job and happens on panel creation.)
+  `NotificationCoordinator`'s job and happens on pane creation.)
 - If `authStatus == .denied`, set `showPermissionAlert = true`. The
   toggle value stays `true` (write persists). Rationale: once the user
   grants permission in System Settings, the `refreshAuthorizationStatus`
@@ -523,7 +523,7 @@ reader it captures.
   UI; alternatively leave `inAppEnabled` inert and ship pane toggles
   only (A3 variant).
 - **Q2 — Mute-rules summary fidelity.** D2's summary reports rule /
-  panel counts only. Should it also list the rule IDs themselves (up
+  pane counts only. Should it also list the rule IDs themselves (up
   to N with a "…" overflow)? Spec M5.5 says "摘要" which is ambiguous.
   My read: counts only; users who want specifics hit Reveal. Flag if
   this is wrong.

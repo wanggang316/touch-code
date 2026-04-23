@@ -364,7 +364,7 @@ follows, evaluated against the target Project's `worktrees`:
 
 ```
 .anyPanel                               → .global
-.panelID(_)                             → .global   (panels are ephemeral)
+.paneID(_)                             → .global   (panes are ephemeral)
 .panelLabel(_)                          → .global
 .tabID(_)                               → .global   (tabs are ephemeral)
 .tabLabel(_)                            → .global
@@ -412,13 +412,13 @@ visually identical except for the source-tag column, which
 `HookMergeView` toggles via its `showsSourceTag: Bool` parameter
 (T4 passes `true`).
 
-**Trade-off on panelID/tabID.** A subscription scoped to a specific
-panel/tab ID *could* belong to a Repository (the panel is inside a
+**Trade-off on paneID/tabID.** A subscription scoped to a specific
+pane/tab ID *could* belong to a Repository (the pane is inside a
 worktree that belongs to this Project). Classifying it as `.global`
-is pragmatic: panel/tab IDs are not stable across app restarts — a
+is pragmatic: pane/tab IDs are not stable across app restarts — a
 subscription scoped by ID is likely an internal-namespace hook (C6
 notifications) or user-authored debug scaffolding. A future version
-can walk `Project.worktrees[*].tabs[*].panels[*]` to classify these
+can walk `Project.worktrees[*].tabs[*].panes[*]` to classify these
 exactly, but spec M12 does not require it and doing so introduces a
 non-trivial catalog-traversal cost on every hooks-pane render. We
 prefer the simple rule; if users report misclassification, upgrade

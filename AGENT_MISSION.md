@@ -31,7 +31,7 @@ Look at how they define hooks, IPC, CLI command surface, event dispatch.
 ## Process
 
 1. Run `/hs-design` for C3 first. Resolve **Open Question #4** (hook execution model) inside the doc — recommend out-of-process-first (spawn user binary with env + JSON stdin) and explain why. Reference ghostty event hooks + supacode hooks if they exist.
-2. Run `/hs-design` for C4. Resolve **Open Question #1** (CLI name) — keep `tc`, fallback `tcode` — and document collision check plan. Define the full command surface: `tc space|project|worktree|tab|panel|send|broadcast|skill|open|hook`. Anchor every command to an HierarchyManager/CatalogStore operation in TouchCodeCore.
+2. Run `/hs-design` for C4. Resolve **Open Question #1** (CLI name) — keep `tc`, fallback `tcode` — and document collision check plan. Define the full command surface: `tc space|project|worktree|tab|pane|send|broadcast|skill|open|hook`. Anchor every command to an HierarchyManager/CatalogStore operation in TouchCodeCore.
 3. Each doc must include:
    - Scope & non-goals (align with product-spec exclusions)
    - Public interfaces (Swift types, exact signatures, IPC wire protocol additions)

@@ -50,19 +50,19 @@ not an incremental subset. Rationale:
 
 ### Existing state we build on
 
-- `GhosttyRuntime` owns a `[PanelID: PanelSurface]` registry and a
+- `GhosttyRuntime` owns a `[PaneID: PaneSurface]` registry and a
   `weak shared` static for UAF-safe callback hops
   (`GhosttyRuntime.swift:61`).
-- `PanelSurface` embeds 16 bytes of `PanelID.raw.uuid` as the surface's
+- `PaneSurface` embeds 16 bytes of `PaneID.raw.uuid` as the surface's
   libghostty userdata; `ghostty_surface_userdata()` recovers this pointer
-  so surface-scoped callbacks resolve the Panel without dereferencing
-  Swift-object memory (`PanelSurface.swift:57-81`).
+  so surface-scoped callbacks resolve the Pane without dereferencing
+  Swift-object memory (`PaneSurface.swift:57-81`).
 - `TerminalEngine` is the multi-subscriber event-stream fan-out; lifecycle
   events emit via `TerminalEvent` (`TerminalEvent.swift`).
 - `HierarchyManager` exposes the mutations every tab/split intent needs.
   IPC `Method.swift` already lists `hierarchyCreateTab` /
-  `hierarchyActivateTab` / `hierarchySplitPanel` / `hierarchyZoomPanel` /
-  `hierarchyUnzoomPanel` / `hierarchyFocusPanel` — the server-side
+  `hierarchyActivateTab` / `hierarchySplitPane` / `hierarchyZoomPane` /
+  `hierarchyUnzoomPane` / `hierarchyFocusPane` — the server-side
   wiring exists.
 - The invariant "Runtime is TCA-free" is stated in `docs/architecture.md`
   §Architectural Invariants — Runtime exposes `@Observable` + AsyncStream
@@ -90,7 +90,7 @@ organized into four buckets. Each case must either succeed (return
 (return `false`), or lift an intent onto the `TerminalEvent` stream for
 a TCA feature to consume.
 
-#### Bucket 1 — Tab / Split intent (→ `PanelActionRouterFeature` → `HierarchyClient`)
+#### Bucket 1 — Tab / Split intent (→ `PaneActionRouterFeature` → `HierarchyClient`)
 
 `NEW_TAB`, `CLOSE_TAB`, `MOVE_TAB`, `GOTO_TAB`, `NEW_SPLIT`, `GOTO_SPLIT`,
 `RESIZE_SPLIT`, `EQUALIZE_SPLITS`, `TOGGLE_SPLIT_ZOOM`, `PRESENT_TERMINAL`,
@@ -103,7 +103,7 @@ a TCA feature to consume.
 `TOGGLE_WINDOW_DECORATIONS`, `TOGGLE_QUICK_TERMINAL`, `TOGGLE_VISIBILITY`,
 `TOGGLE_BACKGROUND_OPACITY`, `QUIT`, `CHECK_FOR_UPDATES`, `OPEN_CONFIG`. (14)
 
-#### Bucket 3 — Surface info (→ `PanelSurface.SurfaceInfo` + `panelInfoChanged` event)
+#### Bucket 3 — Surface info (→ `PaneSurface.SurfaceInfo` + `panelInfoChanged` event)
 
 `SET_TITLE`, `SET_TAB_TITLE`, `PROMPT_TITLE`, `PWD`, `MOUSE_SHAPE`,
 `MOUSE_VISIBILITY`, `MOUSE_OVER_LINK`, `COLOR_CHANGE`, `RENDERER_HEALTH`,
@@ -167,7 +167,7 @@ dispatch accordingly. The asymmetry between buckets is deliberate:
   observability event. (Why: there's nothing for a reducer to *decide* —
   "open this URL" has one correct action.)
 - **Intent** actions (tab, split, window) emit a typed
-  `PanelActionRequest` or `WindowActionRequest` for a feature to
+  `PaneActionRequest` or `WindowActionRequest` for a feature to
   service. (Why: reducers own policy — is the worktree archived? is a
   modal up? does the user need confirmation to close a tab with a
   running process?)
@@ -189,12 +189,12 @@ covering every action the user can bind.
 │   hop to MainActor → handleAction(target, action)          │
 │                                                            │
 │   target == APP     → handleAppAction                      │
-│   target == SURFACE → resolve PanelID via                  │
+│   target == SURFACE → resolve PaneID via                  │
 │                       ghostty_surface_userdata → 16 bytes  │
 │                       → handleSurfaceAction                │
 │                                                            │
 │   decoder (GhosttyActionDecoder)                           │
-│     ├─ INFO     → panel.info += delta; emit InfoChanged    │
+│     ├─ INFO     → pane.info += delta; emit InfoChanged    │
 │     ├─ EFFECT   → NSWorkspace/NSPasteboard/NSApp;          │
 │     │            emit InfoChanged for observability        │
 │     ├─ INTENT   → emit .panelActionRequested OR            │
@@ -209,7 +209,7 @@ covering every action the user can bind.
 └─────────┬──────────────────────┬───────────────────────────┘
           │                      │
           ▼                      ▼
- PanelActionRouterFeature  WindowActionRouterFeature
+ PaneActionRouterFeature  WindowActionRouterFeature
     │                            │
     ├─ HierarchyClient           ├─ WindowService (NSWindow)
     │  (createTab, splitPanel,   ├─ UpdatesClient
@@ -254,24 +254,24 @@ func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {
 private func handleSurfaceAction(
   _ surface: ghostty_surface_t?, _ action: ghostty_action_s
 ) -> Bool {
-  guard let surface, let panelID = panelID(fromSurface: surface) else { return false }
-  guard let panel = surfacesByPanelID[panelID] else { return false }
+  guard let surface, let paneID = paneID(fromSurface: surface) else { return false }
+  guard let pane = surfacesByPanelID[paneID] else { return false }
   return GhosttyActionDecoder.surfaceAction(
-    action, panelID: panelID, panel: panel, runtime: self
+    action, paneID: paneID, pane: pane, runtime: self
   )
 }
 
-/// Copy the PanelID uuid bytes out of libghostty-stored userdata.
+/// Copy the PaneID uuid bytes out of libghostty-stored userdata.
 /// Same pattern as close_surface_cb — UAF-safe because userdata points
-/// to a dedicated 16-byte allocation owned by PanelSurface for as long
+/// to a dedicated 16-byte allocation owned by PaneSurface for as long
 /// as the ghostty_surface_t exists.
-private func panelID(fromSurface surface: ghostty_surface_t) -> PanelID? {
+private func paneID(fromSurface surface: ghostty_surface_t) -> PaneID? {
   guard let raw = ghostty_surface_userdata(surface) else { return nil }
   var bytes = uuid_t(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
   withUnsafeMutableBytes(of: &bytes) { dst in
     dst.baseAddress?.copyMemory(from: raw, byteCount: MemoryLayout<uuid_t>.size)
   }
-  return PanelID(raw: UUID(uuid: bytes))
+  return PaneID(raw: UUID(uuid: bytes))
 }
 ```
 
@@ -288,69 +288,69 @@ enum GhosttyActionDecoder {
 
   static func surfaceAction(
     _ action: ghostty_action_s,
-    panelID: PanelID,
-    panel: PanelSurface,
+    paneID: PaneID,
+    pane: PaneSurface,
     runtime: GhosttyRuntime
   ) -> Bool {
     switch action.tag {
 
     // Tab intent
     case GHOSTTY_ACTION_NEW_TAB:
-      runtime.emit(.panelActionRequested(panelID, .newTab))
+      runtime.emit(.panelActionRequested(paneID, .newTab))
       return true
     case GHOSTTY_ACTION_CLOSE_TAB:
-      runtime.emit(.panelActionRequested(panelID,
+      runtime.emit(.panelActionRequested(paneID,
         .closeTab(mode: CloseTabMode(action.action.close_tab_mode))))
       return true
     case GHOSTTY_ACTION_MOVE_TAB:
-      runtime.emit(.panelActionRequested(panelID,
+      runtime.emit(.panelActionRequested(paneID,
         .moveTab(offset: Int(action.action.move_tab.amount))))
       return true
     case GHOSTTY_ACTION_GOTO_TAB:
-      runtime.emit(.panelActionRequested(panelID,
+      runtime.emit(.panelActionRequested(paneID,
         .gotoTab(target: GotoTabTarget(action.action.goto_tab))))
       return true
 
     // Split intent
     case GHOSTTY_ACTION_NEW_SPLIT:
       if let dir = NewSplitDirection.decode(action.action.new_split) {
-        runtime.emit(.panelActionRequested(panelID, .newSplit(direction: dir)))
+        runtime.emit(.panelActionRequested(paneID, .newSplit(direction: dir)))
         return true
       }
       return false
     case GHOSTTY_ACTION_GOTO_SPLIT:
       if let dir = FocusDirection.decode(action.action.goto_split) {
-        runtime.emit(.panelActionRequested(panelID, .gotoSplit(direction: dir)))
+        runtime.emit(.panelActionRequested(paneID, .gotoSplit(direction: dir)))
         return true
       }
       return false
     case GHOSTTY_ACTION_RESIZE_SPLIT:
       let resize = action.action.resize_split
       if let dir = ResizeDirection.decode(resize.direction) {
-        runtime.emit(.panelActionRequested(panelID,
+        runtime.emit(.panelActionRequested(paneID,
           .resizeSplit(direction: dir, amount: Double(resize.amount))))
         return true
       }
       return false
     case GHOSTTY_ACTION_EQUALIZE_SPLITS:
-      runtime.emit(.panelActionRequested(panelID, .equalizeSplits))
+      runtime.emit(.panelActionRequested(paneID, .equalizeSplits))
       return true
     case GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM:
-      runtime.emit(.panelActionRequested(panelID, .toggleSplitZoom))
+      runtime.emit(.panelActionRequested(paneID, .toggleSplitZoom))
       return true
     case GHOSTTY_ACTION_PRESENT_TERMINAL:
-      runtime.emit(.panelActionRequested(panelID, .presentTerminal))
+      runtime.emit(.panelActionRequested(paneID, .presentTerminal))
       return true
     case GHOSTTY_ACTION_TOGGLE_COMMAND_PALETTE:
-      runtime.emit(.panelActionRequested(panelID, .toggleCommandPalette))
+      runtime.emit(.panelActionRequested(paneID, .toggleCommandPalette))
       return true
 
     // Window intent (SURFACE-scoped because fired from inside a surface
     // but semantically targets the enclosing window)
     case GHOSTTY_ACTION_NEW_WINDOW:
-      runtime.emit(.windowActionRequested(.new(from: panelID))); return true
+      runtime.emit(.windowActionRequested(.new(from: paneID))); return true
     case GHOSTTY_ACTION_CLOSE_WINDOW:
-      runtime.emit(.windowActionRequested(.close(from: panelID))); return true
+      runtime.emit(.windowActionRequested(.close(from: paneID))); return true
     case GHOSTTY_ACTION_CLOSE_ALL_WINDOWS:
       runtime.emit(.windowActionRequested(.closeAll)); return true
     case GHOSTTY_ACTION_GOTO_WINDOW:
@@ -358,13 +358,13 @@ enum GhosttyActionDecoder {
         .goto(target: GotoWindowTarget(action.action.goto_window))))
       return true
     case GHOSTTY_ACTION_TOGGLE_FULLSCREEN:
-      runtime.emit(.windowActionRequested(.toggleFullscreen(from: panelID)))
+      runtime.emit(.windowActionRequested(.toggleFullscreen(from: paneID)))
       return true
     case GHOSTTY_ACTION_TOGGLE_MAXIMIZE:
-      runtime.emit(.windowActionRequested(.toggleMaximize(from: panelID)))
+      runtime.emit(.windowActionRequested(.toggleMaximize(from: paneID)))
       return true
     case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW:
-      runtime.emit(.windowActionRequested(.toggleTabOverview(from: panelID)))
+      runtime.emit(.windowActionRequested(.toggleTabOverview(from: paneID)))
       return true
     case GHOSTTY_ACTION_TOGGLE_WINDOW_DECORATIONS:
       // macOS: no per-window decoration toggle equivalent; documented
@@ -391,96 +391,96 @@ enum GhosttyActionDecoder {
     // Surface info — title family
     case GHOSTTY_ACTION_SET_TITLE:
       let title = String.decode(cstring: action.action.set_title.title)
-      panel.apply(.title(title)); runtime.emitInfoChanged(panelID, .title(title))
+      pane.apply(.title(title)); runtime.emitInfoChanged(paneID, .title(title))
       return true
     case GHOSTTY_ACTION_SET_TAB_TITLE:
       let title = String.decode(cstring: action.action.set_tab_title.title)
-      panel.apply(.tabTitle(title)); runtime.emitInfoChanged(panelID, .tabTitle(title))
+      pane.apply(.tabTitle(title)); runtime.emitInfoChanged(paneID, .tabTitle(title))
       return true
     case GHOSTTY_ACTION_PROMPT_TITLE:
       let flag = action.action.prompt_title
-      panel.apply(.promptTitle(flag)); runtime.emitInfoChanged(panelID, .promptTitle(flag))
+      pane.apply(.promptTitle(flag)); runtime.emitInfoChanged(paneID, .promptTitle(flag))
       return true
     case GHOSTTY_ACTION_PWD:
       let pwd = String.decode(cstring: action.action.pwd.pwd)
-      panel.apply(.pwd(pwd)); runtime.emitInfoChanged(panelID, .pwd(pwd))
+      pane.apply(.pwd(pwd)); runtime.emitInfoChanged(paneID, .pwd(pwd))
       return true
 
     // Surface info — mouse family
     case GHOSTTY_ACTION_MOUSE_SHAPE:
-      panel.apply(.mouseShape(action.action.mouse_shape)); return true
+      pane.apply(.mouseShape(action.action.mouse_shape)); return true
     case GHOSTTY_ACTION_MOUSE_VISIBILITY:
-      panel.apply(.mouseVisible(action.action.mouse_visibility == GHOSTTY_MOUSE_VISIBLE))
+      pane.apply(.mouseVisible(action.action.mouse_visibility == GHOSTTY_MOUSE_VISIBLE))
       return true
     case GHOSTTY_ACTION_MOUSE_OVER_LINK:
       let link = action.action.mouse_over_link
       let str = String.decode(cstring: link.url, length: link.len)
-      panel.apply(.mouseOverLink(str)); return true
+      pane.apply(.mouseOverLink(str)); return true
 
     // Surface info — geometry family
     case GHOSTTY_ACTION_CELL_SIZE, GHOSTTY_ACTION_SIZE_LIMIT,
          GHOSTTY_ACTION_INITIAL_SIZE, GHOSTTY_ACTION_RESET_WINDOW_SIZE:
-      applyGeometryAction(action, panel: panel, runtime: runtime, panelID: panelID)
+      applyGeometryAction(action, pane: pane, runtime: runtime, paneID: paneID)
       return true
 
     // Surface info — scrollbar / renderer health / color
     case GHOSTTY_ACTION_SCROLLBAR:
       let s = action.action.scrollbar
-      panel.apply(.scrollbar(total: s.total, offset: s.offset, length: s.len))
-      runtime.emitInfoChanged(panelID, .scrollbar(total: s.total, offset: s.offset, length: s.len))
+      pane.apply(.scrollbar(total: s.total, offset: s.offset, length: s.len))
+      runtime.emitInfoChanged(paneID, .scrollbar(total: s.total, offset: s.offset, length: s.len))
       return true
     case GHOSTTY_ACTION_RENDERER_HEALTH:
-      panel.apply(.rendererHealthy(action.action.renderer_health == GHOSTTY_RENDERER_HEALTH_HEALTHY))
+      pane.apply(.rendererHealthy(action.action.renderer_health == GHOSTTY_RENDERER_HEALTH_HEALTHY))
       return true
     case GHOSTTY_ACTION_COLOR_CHANGE:
       let c = action.action.color_change
-      panel.apply(.colorChange(kind: c.kind, r: c.r, g: c.g, b: c.b))
+      pane.apply(.colorChange(kind: c.kind, r: c.r, g: c.g, b: c.b))
       return true
 
     // Surface info — secure input / key family / readonly / quit timer / float
     case GHOSTTY_ACTION_SECURE_INPUT:
-      panel.apply(.secureInput(action.action.secure_input))
-      runtime.emitInfoChanged(panelID, .secureInput(action.action.secure_input))
+      pane.apply(.secureInput(action.action.secure_input))
+      runtime.emitInfoChanged(paneID, .secureInput(action.action.secure_input))
       return true
     case GHOSTTY_ACTION_KEY_SEQUENCE:
       let seq = action.action.key_sequence
-      panel.apply(.keySequence(active: seq.active, trigger: seq.trigger))
+      pane.apply(.keySequence(active: seq.active, trigger: seq.trigger))
       return true
     case GHOSTTY_ACTION_KEY_TABLE:
-      panel.apply(.keyTable(decode: action.action.key_table))
+      pane.apply(.keyTable(decode: action.action.key_table))
       return true
     case GHOSTTY_ACTION_READONLY:
-      panel.apply(.readonly(action.action.readonly)); return true
+      pane.apply(.readonly(action.action.readonly)); return true
     case GHOSTTY_ACTION_QUIT_TIMER:
-      panel.apply(.quitTimer(action.action.quit_timer)); return true
+      pane.apply(.quitTimer(action.action.quit_timer)); return true
     case GHOSTTY_ACTION_FLOAT_WINDOW:
-      panel.apply(.floatWindow(action.action.float_window)); return true
+      pane.apply(.floatWindow(action.action.float_window)); return true
 
     // Search (state only; overlay UI consumes via InfoChanged)
     case GHOSTTY_ACTION_START_SEARCH:
       let needle = String.decode(cstring: action.action.start_search.needle) ?? ""
-      panel.apply(.searchStarted(needle: needle))
-      runtime.emitInfoChanged(panelID, .searchStarted(needle: needle))
+      pane.apply(.searchStarted(needle: needle))
+      runtime.emitInfoChanged(paneID, .searchStarted(needle: needle))
       return true
     case GHOSTTY_ACTION_END_SEARCH:
-      panel.apply(.searchEnded)
-      runtime.emitInfoChanged(panelID, .searchEnded)
+      pane.apply(.searchEnded)
+      runtime.emitInfoChanged(paneID, .searchEnded)
       return true
     case GHOSTTY_ACTION_SEARCH_TOTAL:
-      panel.apply(.searchTotal(Int(action.action.search_total.total)))
-      runtime.emitInfoChanged(panelID, .searchTotal(Int(action.action.search_total.total)))
+      pane.apply(.searchTotal(Int(action.action.search_total.total)))
+      runtime.emitInfoChanged(paneID, .searchTotal(Int(action.action.search_total.total)))
       return true
     case GHOSTTY_ACTION_SEARCH_SELECTED:
-      panel.apply(.searchSelected(Int(action.action.search_selected.selected)))
-      runtime.emitInfoChanged(panelID, .searchSelected(Int(action.action.search_selected.selected)))
+      pane.apply(.searchSelected(Int(action.action.search_selected.selected)))
+      runtime.emitInfoChanged(paneID, .searchSelected(Int(action.action.search_selected.selected)))
       return true
 
     // Progress report
     case GHOSTTY_ACTION_PROGRESS_REPORT:
       let r = action.action.progress_report
-      panel.apply(.progress(state: r.state,
+      pane.apply(.progress(state: r.state,
         value: r.progress == -1 ? nil : Int(r.progress)))
-      runtime.emitInfoChanged(panelID, .progress(state: r.state,
+      runtime.emitInfoChanged(paneID, .progress(state: r.state,
         value: r.progress == -1 ? nil : Int(r.progress)))
       return true
 
@@ -489,30 +489,30 @@ enum GhosttyActionDecoder {
       return handleOpenURL(action.action.open_url)
     case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
       let n = action.action.desktop_notification
-      runtime.emitInfoChanged(panelID, .desktopNotification(
+      runtime.emitInfoChanged(paneID, .desktopNotification(
         title: String.decode(cstring: n.title) ?? "",
         body: String.decode(cstring: n.body) ?? ""))
       return true
     case GHOSTTY_ACTION_RING_BELL:
-      panel.apply(.bellRang); runtime.emitInfoChanged(panelID, .bellRang)
+      pane.apply(.bellRang); runtime.emitInfoChanged(paneID, .bellRang)
       return true
     case GHOSTTY_ACTION_COMMAND_FINISHED:
       let f = action.action.command_finished
-      panel.apply(.commandFinished(exitCode: f.exit_code, duration: f.duration))
-      runtime.emitInfoChanged(panelID,
+      pane.apply(.commandFinished(exitCode: f.exit_code, duration: f.duration))
+      runtime.emitInfoChanged(paneID,
         .commandFinished(exitCode: f.exit_code, duration: f.duration))
       return true
     case GHOSTTY_ACTION_SHOW_CHILD_EXITED:
       let ex = action.action.child_exited
-      panel.markExited(code: ex.exit_code)
-      runtime.emitInfoChanged(panelID, .childExited(code: ex.exit_code))
+      pane.markExited(code: ex.exit_code)
+      runtime.emitInfoChanged(paneID, .childExited(code: ex.exit_code))
       return true
     case GHOSTTY_ACTION_UNDO:
       NSApp.sendAction(#selector(UndoManager.undo), to: nil, from: nil); return true
     case GHOSTTY_ACTION_REDO:
       NSApp.sendAction(#selector(UndoManager.redo), to: nil, from: nil); return true
     case GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD:
-      if let title = panel.info.title, !title.isEmpty {
+      if let title = pane.info.title, !title.isEmpty {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(title, forType: .string)
       }
@@ -557,7 +557,7 @@ enum GhosttyActionDecoder {
 
 Above is illustrative — the final shape lives in the prototype. The
 invariants that matter: one case per action; intents `emit(.panelAction*)`
-or `emit(.windowAction*)`; info cases write `panel.apply(delta)` +
+or `emit(.windowAction*)`; info cases write `pane.apply(delta)` +
 `emitInfoChanged`; effects run the side effect; unsupported log + false.
 
 #### New `TerminalEvent` cases
@@ -567,19 +567,19 @@ Add to `TouchCodeCore/TerminalEvent.swift`:
 ```swift
 public nonisolated enum TerminalEvent: Sendable {
   // …existing cases…
-  case panelInfoChanged(PanelID, PanelInfoDelta)
-  case panelActionRequested(PanelID, PanelActionRequest)
+  case panelInfoChanged(PaneID, PaneInfoDelta)
+  case panelActionRequested(PaneID, PaneActionRequest)
   case windowActionRequested(WindowActionRequest)
   case configChanged
 }
 ```
 
-#### `PanelInfoDelta`, `PanelActionRequest`, `WindowActionRequest` (Core)
+#### `PaneInfoDelta`, `PaneActionRequest`, `WindowActionRequest` (Core)
 
-In `TouchCodeCore/Panel/`:
+In `TouchCodeCore/Pane/`:
 
 ```swift
-public enum PanelInfoDelta: Sendable, Equatable {
+public enum PaneInfoDelta: Sendable, Equatable {
   case title(String?)
   case tabTitle(String?)
   case promptTitle(UInt32)
@@ -611,7 +611,7 @@ public enum PanelInfoDelta: Sendable, Equatable {
   case childExited(code: Int32)
 }
 
-public enum PanelActionRequest: Sendable, Equatable {
+public enum PaneActionRequest: Sendable, Equatable {
   case newTab
   case closeTab(mode: CloseTabMode)
   case moveTab(offset: Int)
@@ -626,13 +626,13 @@ public enum PanelActionRequest: Sendable, Equatable {
 }
 
 public enum WindowActionRequest: Sendable, Equatable {
-  case new(from: PanelID)
-  case close(from: PanelID)
+  case new(from: PaneID)
+  case close(from: PaneID)
   case closeAll
   case goto(target: GotoWindowTarget)
-  case toggleFullscreen(from: PanelID)
-  case toggleMaximize(from: PanelID)
-  case toggleTabOverview(from: PanelID)
+  case toggleFullscreen(from: PaneID)
+  case toggleMaximize(from: PaneID)
+  case toggleTabOverview(from: PaneID)
   case toggleAppVisibility
   case quit
   case checkForUpdates
@@ -654,10 +654,10 @@ boundary.
 
 Two new lightweight TCA features:
 
-**`PanelActionRouterFeature`** (`apps/mac/touch-code/App/Features/PanelActionRouter/`)
-subscribes to `panelActionRequested`. Resolves `PanelID` →
+**`PaneActionRouterFeature`** (`apps/mac/touch-code/App/Features/PaneActionRouter/`)
+subscribes to `panelActionRequested`. Resolves `PaneID` →
 `(SpaceID, ProjectID, WorktreeID, TabID)` via a small addition to
-`HierarchyClient.addressOf(panelID:)`, then dispatches:
+`HierarchyClient.addressOf(paneID:)`, then dispatches:
 
 | Request | Action |
 |---|---|
@@ -665,7 +665,7 @@ subscribes to `panelActionRequested`. Resolves `PanelID` →
 | `.closeTab(mode)` | resolve siblings by mode; `closeTab` each |
 | `.moveTab(offset)` | new `HierarchyClient.moveTab` (add if missing) |
 | `.gotoTab(target)` | `HierarchyClient.activateTab` after target resolution |
-| `.newSplit(dir)` | `HierarchyClient.splitPanel(panelID, direction: dir.mapToSplitDirection, …)` |
+| `.newSplit(dir)` | `HierarchyClient.splitPanel(paneID, direction: dir.mapToSplitDirection, …)` |
 | `.gotoSplit(dir)` | `HierarchyClient.focusPanel` on spatial neighbor |
 | `.resizeSplit` | new `HierarchyClient.resizePanel` (M5 method exists; bind) |
 | `.equalizeSplits` | new `HierarchyClient.equalizeTabSplits` (add) |
@@ -678,8 +678,8 @@ subscribes to `windowActionRequested`. Maps onto:
 
 | Request | Action |
 |---|---|
-| `.new(from)` | `WindowService.openNewWindow(inheriting: panelID)` |
-| `.close(from)` | `panelID → window → window.performClose` |
+| `.new(from)` | `WindowService.openNewWindow(inheriting: paneID)` |
+| `.close(from)` | `paneID → window → window.performClose` |
 | `.closeAll` | `NSApp.terminate` path via `AppLifecycleClient` |
 | `.goto(target)` | `WindowService.activateWindow(matching: target)` |
 | `.toggleFullscreen` | `NSWindow.toggleFullScreen(nil)` |
@@ -696,7 +696,7 @@ the Space-to-window mapping (1:1 per current plan).
 
 ### Data Storage
 
-New `@Observable` state on `PanelSurface`:
+New `@Observable` state on `PaneSurface`:
 
 ```swift
 @MainActor
@@ -732,9 +732,9 @@ final class SurfaceInfo {
   var lastCommandDuration: UInt64?
 }
 
-extension PanelSurface {
+extension PaneSurface {
   var info: SurfaceInfo { /* lazily created */ }
-  func apply(_ delta: PanelInfoDelta) { /* one switch; mutate fields */ }
+  func apply(_ delta: PaneInfoDelta) { /* one switch; mutate fields */ }
 }
 ```
 
@@ -746,16 +746,16 @@ persistence only tracks stable hierarchy.
 | Layer | File | Responsibility |
 |---|---|---|
 | **Core** | `TouchCodeCore/TerminalEvent.swift` | Add `.panelInfoChanged`, `.panelActionRequested`, `.windowActionRequested`, `.configChanged` cases |
-| **Core** | `TouchCodeCore/Panel/PanelInfoDelta.swift` (new) | Info-update enum |
-| **Core** | `TouchCodeCore/Panel/PanelActionRequest.swift` (new) | Panel intent enum + typed sub-enums |
-| **Core** | `TouchCodeCore/Panel/WindowActionRequest.swift` (new) | Window intent enum + typed sub-enums |
-| **Runtime** | `Runtime/Ghostty/GhosttyRuntime.swift` | Replace action stub; add `handleAction`, `panelID(fromSurface:)`, `applyClonedConfig`, `reloadConfig`, `toggleBackgroundOpacity` |
+| **Core** | `TouchCodeCore/Pane/PaneInfoDelta.swift` (new) | Info-update enum |
+| **Core** | `TouchCodeCore/Pane/PaneActionRequest.swift` (new) | Pane intent enum + typed sub-enums |
+| **Core** | `TouchCodeCore/Pane/WindowActionRequest.swift` (new) | Window intent enum + typed sub-enums |
+| **Runtime** | `Runtime/Ghostty/GhosttyRuntime.swift` | Replace action stub; add `handleAction`, `paneID(fromSurface:)`, `applyClonedConfig`, `reloadConfig`, `toggleBackgroundOpacity` |
 | **Runtime** | `Runtime/Ghostty/GhosttyActionDecoder.swift` (new) | The one module that touches `ghostty_action_tag` — everything else speaks typed Swift |
-| **Runtime** | `Runtime/Ghostty/PanelSurface.swift` | Add `SurfaceInfo`, `apply(_:)`, `markExited` |
+| **Runtime** | `Runtime/Ghostty/PaneSurface.swift` | Add `SurfaceInfo`, `apply(_:)`, `markExited` |
 | **Runtime** | `Runtime/Ghostty/SurfaceInfo.swift` (new) | `@Observable` surface state class |
-| **App** | `App/Features/PanelActionRouter/*` (new) | Subscribe + dispatch `panelActionRequested` → `HierarchyClient` / `UIClient` |
+| **App** | `App/Features/PaneActionRouter/*` (new) | Subscribe + dispatch `panelActionRequested` → `HierarchyClient` / `UIClient` |
 | **App** | `App/Features/WindowActionRouter/*` (new) | Subscribe + dispatch `windowActionRequested` → `WindowService` / `UpdatesClient` / `AppLifecycleClient` / `EditorClient` |
-| **App** | `App/Clients/HierarchyClient.swift` | Add `addressOf(panelID:)`, `moveTab`, `equalizeTabSplits`, `resizePanel` closures |
+| **App** | `App/Clients/HierarchyClient.swift` | Add `addressOf(paneID:)`, `moveTab`, `equalizeTabSplits`, `resizePanel` closures |
 | **App** | `App/Clients/WindowService.swift` (new) | `NSWindow` / `NSApp` façade |
 | **App** | `App/Clients/AppLifecycleClient.swift` (new) | `requestQuit`, `terminate` |
 | **App** | `App/Clients/UpdatesClient.swift` (new or existing) | `checkNow` (Sparkle seam) |
@@ -775,14 +775,14 @@ path `if Thread.isMainThread` calls synchronously under
 and return `false` (the async result lands later; Ghostty's app-level
 defaults are no-ops, so the async application is benign).
 
-The Panel registry lookup inside `handleSurfaceAction` is @MainActor-
+The Pane registry lookup inside `handleSurfaceAction` is @MainActor-
 isolated, so all decoder code runs single-threaded once dispatched.
 
 ## Alternatives Considered
 
 ### Alternative A: "Fat bridge per surface"
 
-One `GhosttySurfaceBridge` class per `PanelSurface` holding ~15 closure
+One `GhosttySurfaceBridge` class per `PaneSurface` holding ~15 closure
 callbacks and ~30 state fields; engine wires closures at surface
 creation.
 
@@ -808,7 +808,7 @@ Emit `NSNotification` from the C callback; features listen.
 NSNotification (untyped payloads, no ordering guarantees, no type-safety
 across modules); and there is no ordering relative to existing
 lifecycle events already on `TerminalEvent`, so consumers wanting both
-"title changed" and "panel exited" would have two streams to reconcile.
+"title changed" and "pane exited" would have two streams to reconcile.
 
 ### Alternative D: "Implement only the high-value subset now; defer the rest"
 
@@ -836,7 +836,7 @@ cross module boundaries cleanly; decoder duplication risk.
 ### Observability
 
 - `os.Logger` category `com.touch-code.runtime.action`. Every decoded
-  action logs at `.debug` with `(panelID, tag)`. Unsupported branch logs
+  action logs at `.debug` with `(paneID, tag)`. Unsupported branch logs
   at `.info` with the tag int.
 - `tc system.status` gains a `ghostty.actions` section: per-tag counter
   of observed actions in the current session. Makes "agent asks why
@@ -854,7 +854,7 @@ cross module boundaries cleanly; decoder duplication risk.
   `ghostty_action_s → DecodedAction` is trivial (pointer dereferences +
   enum remap), factored into a separate fn tested against synthetic
   byte-patterns.
-- **Unit — routers.** `PanelActionRouterFeatureTests` and
+- **Unit — routers.** `PaneActionRouterFeatureTests` and
   `WindowActionRouterFeatureTests` dispatch each enum case, assert the
   matching client call (TCA test store with recording stubs).
 - **Integration — engine.** `TerminalEngineTests` feeds synthetic
@@ -866,7 +866,7 @@ cross module boundaries cleanly; decoder duplication risk.
 
 ### Error handling
 
-- `ghostty_surface_userdata` nil or PanelID-not-in-registry → return
+- `ghostty_surface_userdata` nil or PaneID-not-in-registry → return
   `false`, no emit. Expected during teardown races.
 - Malformed action payloads (e.g. `GOTO_TAB` with out-of-range index)
   → log `.info`, return `false`.
@@ -901,9 +901,9 @@ cross module boundaries cleanly; decoder duplication risk.
 | Risk | Mitigation |
 |---|---|
 | **Action firehose overwhelms fan-out.** Chatty TUI fires `SET_TITLE`/`PWD`/`PROGRESS_REPORT` on every prompt. | `.bufferingNewest(256)` on `TerminalEvent`. Emit `.panelInfoChanged` only when the field actually changed (memo via `apply` diff). Lifecycle events stay unbuffered. |
-| **Thread-safety bug**: action callback fires non-main; userdata race with `PanelSurface` deinit. | `ghostty_surface_userdata` returns the 16-byte allocation that lives as long as the surface; decode copies bytes before any main hop. Registry access is @MainActor. |
+| **Thread-safety bug**: action callback fires non-main; userdata race with `PaneSurface` deinit. | `ghostty_surface_userdata` returns the 16-byte allocation that lives as long as the surface; decode copies bytes before any main hop. Registry access is @MainActor. |
 | **Unknown action flood.** Future libghostty versions emit tags we haven't seen. | Default branch logs `.info` + bumps bounded counter; `tc system.status` surfaces top unknown tags; schedule an agent sweep to add decoder cases. |
-| **Router becomes a god-reducer.** Every new action expands `PanelActionRouterFeature` until it knows everything. | Only intents go through routers. Info / effect stay in Runtime. If a new intent's servicing logic exceeds ~20 lines, extract to its own reducer composed into the router. |
+| **Router becomes a god-reducer.** Every new action expands `PaneActionRouterFeature` until it knows everything. | Only intents go through routers. Info / effect stay in Runtime. If a new intent's servicing logic exceeds ~20 lines, extract to its own reducer composed into the router. |
 | **Window intent without multi-window model.** `NEW_WINDOW` today maps to a single NSWindow app model; behavior may need to change when multi-window arch question lands. | `WindowService` is the single seam; revising multi-window touches one file. `WindowActionRouterFeature` is intentionally thin so rewrites are cheap. |
 | **Double-consumption.** A future feature also subscribes to `panelActionRequested` and double-runs the mutation. | Exclusivity is documented in `architecture.md` §Architectural Invariants: `panelActionRequested` and `windowActionRequested` are consumed by their named routers only. Code review gate. |
 | **Config reload clobbers live sessions.** `CONFIG_CHANGE` replacing the `ghostty_config_t` could disturb in-flight surfaces. | `ghostty_config_clone` + atomic replace in `GhosttyRuntime.applyClonedConfig`; drop the old config on the main queue after surfaces finish any in-flight config-dependent calls. |

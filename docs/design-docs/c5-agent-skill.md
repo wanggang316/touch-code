@@ -105,7 +105,7 @@ touch-code-skill/
 ├── VERSION                      # Plain-text "0.1.0" — generated from tc's version on build
 ├── package.json                 # pi metadata (name, version, pi.skills entry)
 ├── references/
-│   ├── hierarchy-model.md       # Space/Project/Worktree/Tab/Panel concepts (C2)
+│   ├── hierarchy-model.md       # Space/Project/Worktree/Tab/Pane concepts (C2)
 │   ├── targeting-and-selectors.md  # UUIDs, selectors, ambient env vars
 │   ├── tc-cli.md                # Full `tc` subcommand reference for agents
 │   ├── agent-hooks.md           # `tc agent install-hook`, lifecycle events (C3/C6)
@@ -262,17 +262,17 @@ SKILL.md follows the same shape as `skills/supaterm/SKILL.md`:
 ```markdown
 ---
 name: touch-code
-description: Control touch-code spaces, projects, worktrees, tabs, and panels with `tc`.
+description: Control touch-code spaces, projects, worktrees, tabs, and panes with `tc`.
 ---
 
 Use this skill when you need to control touch-code from a terminal that is
-already running inside a touch-code Panel.
+already running inside a touch-code Pane.
 
 ## Terminology
-<Space / Project / Worktree / Tab / Panel, one line each>
+<Space / Project / Worktree / Tab / Pane, one line each>
 
 ## Fast Start
-<5-8 commands covering `tc ls`, `tc worktree new`, `tc panel split`, `tc send`>
+<5-8 commands covering `tc ls`, `tc worktree new`, `tc pane split`, `tc send`>
 
 ## Deep-Dive References
 - [Targeting and selectors](references/targeting-and-selectors.md)
@@ -287,7 +287,7 @@ already running inside a touch-code Panel.
 
 - **Teach the CLI surface, not the Swift types.** Agents cannot import Swift; they invoke `tc`. Every example is a shell command.
 - **Prefer UUIDs in examples only when showing the full contract; prefer selectors (`1/2/3`) in Fast Start.** Selectors are short and readable for agents; UUIDs are accurate but visually noisy.
-- **Show the ambient-context pattern.** The skill must explain that inside a Panel, most commands can omit the target because `TOUCH_CODE_PANEL_ID` is set (per [architecture § IPC](../architecture.md)).
+- **Show the ambient-context pattern.** The skill must explain that inside a Pane, most commands can omit the target because `TOUCH_CODE_PANE_ID` is set (per [architecture § IPC](../architecture.md)).
 - **Describe events and hooks at the CLI level, not the Swift level.** `tc agent install-hook claude` is the entry point — not `HookDispatcher.swift`.
 - **Copy-pasteable recipes are the single most valuable section.** Every reference gets at least one worked example.
 - **Tone: concise and imperative.** No marketing. No "Welcome to touch-code!" prose. Agents are the audience.
@@ -302,11 +302,11 @@ already running inside a touch-code Panel.
 
 **Anti-example (Swift-level reference that must not appear in the skill):**
 
-> ~~To create a Panel, call `HierarchyClient.openPanel(tabID)` which dispatches through `TerminalEngine` → `GhosttyRuntime.ensureSurface(panelID)` and emits `.panelCreated` on the `AsyncStream<TerminalEvent>`.~~
+> ~~To create a Pane, call `HierarchyClient.openPanel(tabID)` which dispatches through `TerminalEngine` → `GhosttyRuntime.ensureSurface(paneID)` and emits `.paneCreated` on the `AsyncStream<TerminalEvent>`.~~
 
 Wrong on two counts: (1) it names Swift types the agent cannot invoke; (2) it leaks internals that may change without breaking `tc`'s CLI contract. The skill should instead say:
 
-> To create a Panel, run `tc panel new` (creates in the current Tab) or `tc panel split <direction>` (creates by splitting). Both accept `--in <tab-or-pane>` for explicit targeting and print the new panel's ID with `--json`.
+> To create a Pane, run `tc pane new` (creates in the current Tab) or `tc pane split <direction>` (creates by splitting). Both accept `--in <tab-or-pane>` for explicit targeting and print the new pane's ID with `--json`.
 
 ### Component Boundaries
 
@@ -361,11 +361,11 @@ Three layers. The lower two do not depend on the app or on `tc ls` being wired u
    - **`tc-help-roundtrip`.** Parse every `tc <subcommand>` reference in `references/tc-cli.md` and assert each subcommand appears in `tc --help` (or a `tc help-json` dump). Catches doc drift without needing the app to be running. This is the primary release gate for the C5 content contract.
    - **Install-then-read.** `tc skill install --claude-code --dest <tmp>` then verify the directory tree against a golden manifest (file list + SHA-256s). No agent involvement.
 3. **Tier-B per-agent live tests (manual + CI gate on release tag, once app/CLI are far enough along).**
-   - **Claude Code (`tests/claude-code.smoke.md`).** A scripted session file that, when fed to a fresh Claude Code run inside a touch-code Panel, asks Claude to "List all panels and report the count." Passes if the returned count matches `tc ls --json | jq '.panels | length'`.
+   - **Claude Code (`tests/claude-code.smoke.md`).** A scripted session file that, when fed to a fresh Claude Code run inside a touch-code Pane, asks Claude to "List all panes and report the count." Passes if the returned count matches `tc ls --json | jq '.panes | length'`.
    - **Codex (`tests/codex.smoke.md`).** Same shape as Claude Code, adapted to Codex's invocation.
    - **pi (`tests/pi.smoke.sh`).** A shell script that runs `pi install git:...` against the mirror repo, then invokes pi non-interactively with a canned prompt and asserts the expected JSON output.
 
-CI runs Tier-1 and Tier-A on every PR. Tier-B gates release tags; until `tc ls` (and the Panel IPC surface it needs) lands, a release can ship with Tier-A green alone — Tier-B then lights up incrementally as each agent's prerequisites arrive. This removes the ordering constraint between C5 and the rest of the capability graph.
+CI runs Tier-1 and Tier-A on every PR. Tier-B gates release tags; until `tc ls` (and the Pane IPC surface it needs) lands, a release can ship with Tier-A green alone — Tier-B then lights up incrementally as each agent's prerequisites arrive. This removes the ordering constraint between C5 and the rest of the capability graph.
 
 ## Alternatives Considered
 

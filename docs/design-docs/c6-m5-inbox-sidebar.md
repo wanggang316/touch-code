@@ -26,7 +26,7 @@ writes the SwiftUI views.
 ## Sidebar slot — decision deferred to 0007
 
 This sketch originally assumed a **trailing overlay slide-in** (320pt
-panel, `.transition(.move(edge: .trailing))`) cohabiting with whatever
+pane, `.transition(.move(edge: .trailing))`) cohabiting with whatever
 primary sidebar + detail 0007 lands. That is a **third option** alongside
 the two 707A645A outlined for the root composition:
 
@@ -52,14 +52,14 @@ is picked. The view + reducer interfaces below are slot-agnostic.
 
 Under `apps/mac/touch-code/Notifications/Views/`:
 
-- `InboxSidebar.swift` — root view. 320pt panel. Entry animation TBD
+- `InboxSidebar.swift` — root view. 320pt pane. Entry animation TBD
   per §Sidebar slot above (overlay transition vs. primary-sidebar
   swap). Bound to a `@Bindable` `InboxViewModel`.
 - `InboxRow.swift` — single-row cell. Agent avatar (32pt circle with
   first letter uppercase), title, body (1 line, truncated to the cell),
-  provenance (Project · Worktree · Tab · Panel), relative `createdAt`,
+  provenance (Project · Worktree · Tab · Pane), relative `createdAt`,
   state chip (Completed / Waiting / Idle / Crashed). Hover shows
-  trailing actions (Focus Panel, Dismiss). `.swipeActions` exposes
+  trailing actions (Focus Pane, Dismiss). `.swipeActions` exposes
   Dismiss on trailing edge with `allowsFullSwipe: true`.
 - `InboxFilter.swift` — enum `{ all, unread, waiting, completed, crashed }`
   with a projection helper `filter(_:through:)` that returns the
@@ -100,7 +100,7 @@ struct InboxFeature {
     case onAppear                                // kick off the subscribe effects
     case inboxUpdated(NotificationInbox)         // from InboxClient.observe()
     case unreadCountUpdated(Int)                 // from InboxClient.observeUnread()
-    case deeplinkRequested(PanelID)              // delegate up to RootFeature
+    case deeplinkRequested(PaneID)              // delegate up to RootFeature
   }
 
   @Dependency(\.inboxClient) var inboxClient
@@ -131,11 +131,11 @@ struct InboxFeature {
         return .none
 
       case .rowTapped(let id):
-        let panelID = state.notifications.first(where: { $0.id == id })?.panelID
+        let paneID = state.notifications.first(where: { $0.id == id })?.paneID
         return .run { send in
           await inboxClient.markRead([id])
-          if let panelID {
-            await send(.deeplinkRequested(panelID))
+          if let paneID {
+            await send(.deeplinkRequested(paneID))
           }
         }
 
@@ -193,7 +193,7 @@ records every call.
 
 Row-tap and OS-banner click both resolve through the same
 `RootFeature`-level action chain. M5 does not own the final navigation
-— `InboxFeature` emits a `.deeplinkRequested(PanelID)` delegate action
+— `InboxFeature` emits a `.deeplinkRequested(PaneID)` delegate action
 and `RootFeature` decides how to surface it. The expected chain,
 assuming 0007 ships `tabSelect` / `splitFocus` conventions similar to
 supaterm:
@@ -201,23 +201,23 @@ supaterm:
 ```
 InboxFeature.Action.rowTapped(id)
   → InboxClient.markRead([id])
-  → InboxFeature.Action.deeplinkRequested(panelID)
-RootFeature.Action.inbox(.deeplinkRequested(panelID))
-  → HierarchyClient.resolvePanel(panelID) → (spaceID, projectID, worktreeID, tabID)
+  → InboxFeature.Action.deeplinkRequested(paneID)
+RootFeature.Action.inbox(.deeplinkRequested(paneID))
+  → HierarchyClient.resolvePanel(paneID) → (spaceID, projectID, worktreeID, tabID)
   → RootFeature.Action.hierarchy(.spaceSelect(spaceID))
   → RootFeature.Action.hierarchy(.worktreeSelect(worktreeID))
   → RootFeature.Action.hierarchy(.tabSelect(tabID))
-  → RootFeature.Action.hierarchy(.splitFocus(panelID))
+  → RootFeature.Action.hierarchy(.splitFocus(paneID))
   → RootFeature.Action.inbox(.toggleSidebar)    // optional, close on focus
 ```
 
-If `resolvePanel` returns nil (Panel was closed since the banner
-fired), emit a `toast` action with copy "Panel closed; inbox entry
+If `resolvePanel` returns nil (Pane was closed since the banner
+fired), emit a `toast` action with copy "Pane closed; inbox entry
 remains." and leave the sidebar open with the row highlighted.
 
 External surface: OS-banner click goes through AppDelegate's
 `handle(url:)` → `DeeplinkRouter` → same `RootFeature.Action.inbox
-(.deeplinkRequested(panelID))` entry. One code path for row-tap and
+(.deeplinkRequested(paneID))` entry. One code path for row-tap and
 banner-click.
 
 ## Open design decisions
@@ -270,7 +270,7 @@ UI-level (deferred to a later task):
   (architecture §URL scheme pinned the path but the file doesn't
   exist yet on main).
 - Toolbar host in `MainView` (today `MainView` is a single
-  `PanelHostView` — 0007 replaces with the full app shell).
+  `PaneHostView` — 0007 replaces with the full app shell).
 
 ## Out-of-scope for M5
 
@@ -278,4 +278,4 @@ UI-level (deferred to a later task):
 - Rich media / attachments in rows (design §Non-Goals).
 - Keyboard navigation of the inbox list — accessibility enhancement, later.
 - Per-row reply UI (design §Non-Goals — replying happens by focusing
-  the Panel and typing).
+  the Pane and typing).

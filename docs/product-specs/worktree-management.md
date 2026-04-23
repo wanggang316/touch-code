@@ -6,7 +6,7 @@
 
 ## Summary
 
-A **Worktree** is a `git worktree` of a Project — a concrete branch checkout on disk with its own directory and its own Tab/Panel layout. touch-code is built around the workflow of running multiple features in parallel, one Worktree per feature, each with its own terminal and agent. This spec covers the full user-facing Worktree lifecycle: creating a Worktree (branch name + base ref + optional fetch), listing pre-existing ones, switching between them, archiving (soft-hide, reversible), removing (physical delete with safety checks), and pruning stale entries. Worktree operations run through the bundled `git-wt` helper (the same one supacode uses), which wraps `git worktree` with better defaults and streaming output.
+A **Worktree** is a `git worktree` of a Project — a concrete branch checkout on disk with its own directory and its own Tab/Pane layout. touch-code is built around the workflow of running multiple features in parallel, one Worktree per feature, each with its own terminal and agent. This spec covers the full user-facing Worktree lifecycle: creating a Worktree (branch name + base ref + optional fetch), listing pre-existing ones, switching between them, archiving (soft-hide, reversible), removing (physical delete with safety checks), and pruning stale entries. Worktree operations run through the bundled `git-wt` helper (the same one supacode uses), which wraps `git worktree` with better defaults and streaming output.
 
 ## Background: why `git-wt`
 
@@ -24,7 +24,7 @@ This spec describes the user-facing behavior; the `git-wt` dependency is noted h
 - As a developer starting a new feature, I want to create a Worktree by specifying a branch name and base ref so I can spin up an isolated checkout without typing the full `git worktree add` incantation.
 - As a user with uncommitted tooling (`.env`, `node_modules`) in the current checkout, I want an option to copy ignored and/or untracked files into the new Worktree so it's immediately runnable.
 - As a user returning to a Project, I want existing worktrees — including those I created on the CLI outside touch-code — to show up automatically in the sidebar.
-- As a user switching between features, I want clicking a Worktree in the sidebar to instantly activate its tabs, panels, and terminal state.
+- As a user switching between features, I want clicking a Worktree in the sidebar to instantly activate its tabs, panes, and terminal state.
 - As a user finishing a feature, I want to **archive** a Worktree to hide it from the main list without deleting files, so I can come back if I need to re-run or re-reference it.
 - As a user cleaning up, I want to **remove** a Worktree — physically delete the directory and deregister the branch from git — with a safety check for uncommitted changes and a confirmation dialog.
 - As a user whose worktrees got deleted outside touch-code, I want a **prune** action that clears stale git references and orphaned sidebar rows.
@@ -45,7 +45,7 @@ This spec describes the user-facing behavior; the `git-wt` dependency is noted h
   - **Copy untracked files** (optional toggle, default off). Passes `--copy-untracked` to `git-wt`.
 - [ ] **Streaming progress.** When `copyIgnored` or `copyUntracked` is enabled, the sheet shows live output lines from `git-wt` so large copies don't look frozen.
 - [ ] **Worktree path derivation.** The on-disk path is computed as `<Project.worktreesDirectory>/<sanitized-branch-name>`, where `Project.worktreesDirectory` defaults to `~/.touch-code/repos/<project-name>/` (per [Project Management spec](project-management.md)). Branch-name sanitization: replace `/` with `-` and strip characters invalid on macOS filesystems.
-- [ ] **Post-create selection.** On success, the new Worktree is added to the sidebar, selected, and a single Tab with a single Panel opens in its directory.
+- [ ] **Post-create selection.** On success, the new Worktree is added to the sidebar, selected, and a single Tab with a single Pane opens in its directory.
 - [ ] **Create failure handling.** On failure, the sheet stays open with a human-readable error (branch exists / ref not found / filesystem error / `git fetch` failed); no partial state is left in `catalog.json`.
 
 #### List / discover
@@ -61,19 +61,19 @@ This spec describes the user-facing behavior; the `git-wt` dependency is noted h
 
 #### Switch
 
-- [ ] **One-click activation.** Clicking a Worktree row selects it, restores its Tabs/Panels, and updates the header's branch label and git-viewer state.
+- [ ] **One-click activation.** Clicking a Worktree row selects it, restores its Tabs/Panes, and updates the header's branch label and git-viewer state.
 - [ ] **Switch is instant.** No progress UI; state for the target Worktree is already in memory. (Inherits from T1/T3 behavior — this spec just affirms it applies to newly-created Worktrees too.)
 
 #### Archive (soft hide, reversible)
 
 - [ ] **Archive Worktree** action on the row's context menu. Archiving:
   - hides the Worktree from the Project's main list in the sidebar,
-  - closes any open Tabs/Panels of that Worktree,
+  - closes any open Tabs/Panes of that Worktree,
   - does **not** touch files on disk,
   - does **not** deregister the branch from git,
   - is reversible via Unarchive.
 - [ ] **Archived-Worktrees surface.** A secondary surface (sheet or dedicated section at the bottom of the Project) lists the Project's archived Worktrees, with Unarchive and Remove actions per row.
-- [ ] **Unarchive** returns the Worktree to the main list at its original creation-time sort position; no tabs/panels are auto-reopened (user selects to re-activate).
+- [ ] **Unarchive** returns the Worktree to the main list at its original creation-time sort position; no tabs/panes are auto-reopened (user selects to re-activate).
 - [ ] **Archive confirmation.** First-time archive in a session shows a confirmation explaining the soft-hide semantics ("Files and branch are kept. Find it later under 'Archived Worktrees'."). Subsequent archives skip the confirmation for the rest of the session.
 
 #### Remove (hard delete)
@@ -85,7 +85,7 @@ This spec describes the user-facing behavior; the `git-wt` dependency is noted h
   - the worktree directory is deleted from disk,
   - the worktree is deregistered from git (`.git/worktrees/<name>` removed by git),
   - the row disappears from the sidebar and from the archived list (if applicable),
-  - any open Tabs/Panels of that Worktree are closed.
+  - any open Tabs/Panes of that Worktree are closed.
 - [ ] **Remove failure handling.** On failure, leave the Worktree in place with the git error message in a banner; never leave catalog and disk out of sync.
 - [ ] **Main checkout cannot be removed** from within touch-code; the context-menu entry is hidden for that row.
 
@@ -122,7 +122,7 @@ This spec describes the user-facing behavior; the `git-wt` dependency is noted h
 
 - **Given** a user manually ran `git worktree add` outside touch-code, **when** they focus the touch-code window, **then** the new Worktree appears in the sidebar within the reconcile cycle.
 - **Given** two Worktrees on the same branch at different paths, **when** they are listed, **then** each row shows the relative path so the user can disambiguate.
-- **Given** the user clicks an inactive Worktree row, **when** it becomes active, **then** the header branch label updates and the Worktree's saved Tabs/Panels restore.
+- **Given** the user clicks an inactive Worktree row, **when** it becomes active, **then** the header branch label updates and the Worktree's saved Tabs/Panes restore.
 
 ### Archive
 

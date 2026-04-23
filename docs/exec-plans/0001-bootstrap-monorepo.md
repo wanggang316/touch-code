@@ -16,7 +16,7 @@ Today the repository contains documentation but no code, no build system, and no
 - A GhosttyKit XCFramework built from the `ThirdParty/ghostty` submodule via Zig
 - CI that lints and builds on every push
 
-Every subsequent ExecPlan (Panel rendering, IPC, hierarchy, etc.) lands inside this skeleton. Getting it right here saves rework later.
+Every subsequent ExecPlan (Pane rendering, IPC, hierarchy, etc.) lands inside this skeleton. Getting it right here saves rework later.
 
 ## Progress
 
@@ -157,7 +157,7 @@ Deferred items tracked in the plan:
 - **GhosttyKit foreign build (DEC-8)** — Ghostty's Zig deps CDN blocks Zig's HTTP client while accepting curl. Upstream issue. `scripts/build-ghostty.sh` is complete and ready; foreignBuild target commented out in `Project.swift`. Re-enable when upstream resolves, or prime the package cache manually as a one-off for first-terminal-render milestone.
 - **AsyncParsableCommand (DEC-12)** — wait for first async subcommand.
 
-The skeleton is now sufficient for the next ExecPlan (IPC or Panel rendering) to attach new code without further scaffolding work.
+The skeleton is now sufficient for the next ExecPlan (IPC or Pane rendering) to attach new code without further scaffolding work.
 
 ## Context and Orientation
 

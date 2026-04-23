@@ -21,7 +21,7 @@ Worktree: `design+c7-c8-viewer-editor` · Branch: `worktree-design+c7-c8-viewer-
 - CLI wrappers over `Process` for everything: `code`, `cursor`, `zed`, `subl`, `open -a Xcode`, `open` (Finder). Launch Services used only to locate Xcode.
 - `$PATH` probe at startup (cached; refreshed on Settings open / IPC `editor.describe`).
 - Fallback chain: explicit → `Project.defaultEditor` → `Settings.defaultEditorID` → Finder. **No silent fallthrough** on missing preferred editor.
-- Worktree resolution for `tc open`: explicit `<worktree>` → `TOUCH_CODE_PANEL_ID` env lookup → **error** (no heuristic fallback).
+- Worktree resolution for `tc open`: explicit `<worktree>` → `TOUCH_CODE_PANE_ID` env lookup → **error** (no heuristic fallback).
 - User-defined templates: `binary` + `args` with exactly one `{dir}` placeholder; ID matches `[a-z][a-z0-9_-]{1,31}`.
 - Spawn contract: wait up to 5 s; exit 0 = success, non-zero = `.nonZeroExit`, still running at 5 s = `.timedOut` (SIGTERM then SIGKILL). No "assume-detached" heuristic.
 - Env whitelist: `PATH`, `HOME`, `LC_ALL` only (aligned with C7; `SHELL` dropped).
@@ -31,7 +31,7 @@ Worktree: `design+c7-c8-viewer-editor` · Branch: `worktree-design+c7-c8-viewer-
 
 - **C8 spawn contract** rewritten: removed the 250 ms fire-and-forget heuristic; single-rule contract (exit 0 / non-zero / 5 s timeout). Error table, R6, Resolved Items #6, and testing-strategy assertions all updated.
 - **`.timedOut`** is now a real user-visible error case with retry toast (was previously marked silent-success).
-- **C8 Worktree resolution** spelled out for `tc open`: no `TOUCH_CODE_PANEL_ID` and no `<worktree>` arg → `EditorError.unresolvedWorktree`, CLI exits 2 with an explicit message. Does not fall through to Finder.
+- **C8 Worktree resolution** spelled out for `tc open`: no `TOUCH_CODE_PANE_ID` and no `<worktree>` arg → `EditorError.unresolvedWorktree`, CLI exits 2 with an explicit message. Does not fall through to Finder.
 - **`SHELL` dropped** from the C8 env whitelist (aligned with C7's env stripping).
 - **C7 `-M -C` only**; aliases `--find-renames --find-copies` removed (`-M -C` carry the same semantics).
 - **C7 editor hand-off** renamed `openPath` → `openDirectory`, and the doc now explicitly says `Enter` opens the Worktree directory, not the file under the cursor.

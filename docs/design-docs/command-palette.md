@@ -13,11 +13,11 @@ touch-code exposes its functionality through three disjoint surfaces today:
 - Sidebar and header buttons wired into TCA features under
   `App/Features/{HierarchySidebar, WorktreeHeader, SpaceManager, …}`.
 - Ghostty keybindings decoded by `Runtime/Ghostty/GhosttyActionDecoder.swift`
-  and fanned out through `PanelActionRouterFeature` / `WindowActionRouterFeature`.
+  and fanned out through `PaneActionRouterFeature` / `WindowActionRouterFeature`.
 
 To reach a non-default action the user has to *know where it lives* — which
 menu, which context menu, which popover, or which ghostty keybind. As the
-action surface grows (Spaces, Worktrees, Panels, Editor, Git viewer) this
+action surface grows (Spaces, Worktrees, Panes, Editor, Git viewer) this
 cost climbs quadratically.
 
 This design introduces a **Command Palette**: a single keyboard-first surface
@@ -28,11 +28,11 @@ dedicated entry point elsewhere.
 
 Two pieces of plumbing already anticipate this feature:
 
-- `PanelActionRequest.toggleCommandPalette`
-  (`apps/mac/TouchCodeCore/PanelActionRequest.swift`) is decoded from
+- `PaneActionRequest.toggleCommandPalette`
+  (`apps/mac/TouchCodeCore/PaneActionRequest.swift`) is decoded from
   ghostty's `toggle_command_palette` action.
-- `PanelActionRouterFeature.Delegate.commandPaletteToggleRequested`
-  (`apps/mac/touch-code/App/Features/PanelActionRouter/PanelActionRouterFeature.swift:42`)
+- `PaneActionRouterFeature.Delegate.commandPaletteToggleRequested`
+  (`apps/mac/touch-code/App/Features/PaneActionRouter/PaneActionRouterFeature.swift:42`)
   is emitted when that intent arrives. `RootFeature:421` currently consumes
   it as an explicit no-op.
 
@@ -48,7 +48,7 @@ chord to the same entry point.
 - Every user-visible command reachable from one of the existing three
   surfaces must be reachable from the palette — in particular:
   Space switch / manage / `⌘1`–`⌘9`, Worktree switch / open in editor /
-  toggle git viewer, Panel new-tab / split / focus / close,
+  toggle git viewer, Pane new-tab / split / focus / close,
   Window new / close / fullscreen / tab overview, App open-settings /
   check-for-updates / quit.
 - Fuzzy matching with sensible ranking: prefix > contiguous > subsequence;
@@ -111,7 +111,7 @@ premature given the ~25-command first cut.
        ⌘P menu command ┐
                        ├──► RootFeature.Action.commandPalette(.togglePresented)
  ghostty keybind ──────┤
- (PanelActionRouter)   │
+ (PaneActionRouter)   │
                        │
 ┌──────────────────────▼──────────────────────┐
 │         CommandPaletteFeature               │
@@ -175,8 +175,8 @@ struct CommandPaletteItem: Equatable, Identifiable {
     case openCurrentWorktreeIn(EditorID)
     case revealCurrentWorktreeInFinder
 
-    // Panel — thin wrappers over PanelActionRequest
-    case panelAction(PanelActionRequest)
+    // Pane — thin wrappers over PaneActionRequest
+    case panelAction(PaneActionRequest)
 
     // Window — thin wrappers over WindowActionRequest
     case windowAction(WindowActionRequest)
@@ -191,8 +191,8 @@ ID naming convention (stable across launches):
   `"space.select.<SpaceID>"`, `"worktree.select.<WorktreeID>"`,
   `"editor.open.<EditorID>"`.
 - Parameterized commands with transient targets:
-  `"panel.split.right"`, `"window.goto-tab.3"` — the parameter is part
-  of the ID, not the current panel identity.
+  `"pane.split.right"`, `"window.goto-tab.3"` — the parameter is part
+  of the ID, not the current pane identity.
 
 This lets recency for "switch to Worktree X" survive even when X moves
 between Projects; recency entries whose IDs no longer resolve to an item
@@ -332,8 +332,8 @@ private func route(_ kind: CommandPaletteItem.Kind, state: inout State) -> Effec
   case .openCurrentWorktreeInDefaultEditor:
     return .send(.openDefaultForCurrentWorktreeRequested)
   case .panelAction(let req):
-    guard let panelID = state.selection.focusedPanelID else { return .none }
-    return .send(.panelActionRouter(.requested(panelID, req)))
+    guard let paneID = state.selection.focusedPanelID else { return .none }
+    return .send(.panelActionRouter(.requested(paneID, req)))
   case .windowAction(let req):
     return .send(.windowActionRouter(.requested(req)))
   // … remaining 8 cases
@@ -552,7 +552,7 @@ filesystem paths.
 ### 5.4 Error Handling
 
 The palette is fire-and-forget: a command that fails (e.g. closing the
-last panel in an already-empty worktree) logs via its owning feature's
+last pane in an already-empty worktree) logs via its owning feature's
 existing error path. The palette itself has no error states — it closes
 on activation regardless of downstream outcome. This matches the menu
 bar's behavior and avoids an error-UI design scope creep.
@@ -585,7 +585,7 @@ Budget: <16 ms from keystroke to re-rendered list at 200 items.
 | `⌘P` collides with a ghostty keybind the user has configured for print-to-PDF or similar | The menu binding wins at window scope for SwiftUI. For in-ghostty shortcuts that bubble through `performKeyEquivalent`, we verify during manual QA that `⌘P` does not double-fire (once as menu, once as ghostty action). If collision appears, make `⌘P` user-remappable in Settings → Keybindings. |
 | Scorer ranking feels wrong on real catalogs | Ship the feature with logging (§5.1) and tune constants based on the first week's activation logs. Scorer is a single file with no dependents — re-tuning is trivially revertible. |
 | Dynamic-entity command IDs (`worktree.select.<uuid>`) accumulate in recency after entity deletion | Prune on open (§3.7). Additionally cap dictionary size at 200 entries, LRU-evicting. |
-| Full-surface ZStack overlay blocks ghostty's key event handling when palette is open | The overlay consumes `.onKeyPress` before it bubbles to the split viewport. This is the *intended* behavior for `Esc`, arrows, Enter, and typing into the search field. When the overlay is dismissed (`isPresented = false`), the overlay view isn't in the view tree so ghostty receives keys normally. Verify by toggling palette and typing into a terminal panel afterwards. |
+| Full-surface ZStack overlay blocks ghostty's key event handling when palette is open | The overlay consumes `.onKeyPress` before it bubbles to the split viewport. This is the *intended* behavior for `Esc`, arrows, Enter, and typing into the search field. When the overlay is dismissed (`isPresented = false`), the overlay view isn't in the view tree so ghostty receives keys normally. Verify by toggling palette and typing into a terminal pane afterwards. |
 | Recency persists across app reinstalls only as long as UserDefaults survives | Acceptable. If a user resets preferences, the palette falls back to score-only ranking — no functional break. |
 | Adding a new feature action later requires remembering to add it to the palette | Low-grade tax, addressed by convention only (no enforced contract). Revisit if we see drift via log analysis: features that log zero palette activations over ≥4 weeks are candidates for either removal or missing palette entries. |
 

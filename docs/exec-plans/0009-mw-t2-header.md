@@ -26,7 +26,7 @@ After this change, every selected Worktree shows a Header row above the terminal
 
 ## Decision Log
 
-- **D1**: Scope hierarchy keeps the bell subscription inside `WorktreeHeaderFeature` rather than reusing `InboxSidebarFeature`'s subscription. Rationale: the bell popover needs Worktree-scoped `markRead` on row-tap plus worktree selection chaining; the sidebar feature's row-tap emits `.deeplinkRequested(PanelID)` for panel focus, which is a different verb.
+- **D1**: Scope hierarchy keeps the bell subscription inside `WorktreeHeaderFeature` rather than reusing `InboxSidebarFeature`'s subscription. Rationale: the bell popover needs Worktree-scoped `markRead` on row-tap plus worktree selection chaining; the sidebar feature's row-tap emits `.deeplinkRequested(PaneID)` for pane focus, which is a different verb.
 - **D2**: `ContentView` continues to render the Git Viewer as the 3rd column in an `HStack` (no overlay conversion in T2). The visibility predicate switches from `store.inspectorVisible` to a catalog-derived `resolveGVVisible(selection)` helper in `ContentView`. T3 replaces the entire `HStack` shape with a trailing overlay; see design doc §Coordination with T3 for the locked diff range.
 - **D3**: `WorktreeHeaderOpenButton.swift` is deleted in M5 (zero tests reference it; `grep -r WorktreeHeaderOpenButton apps/mac/touch-code/Tests` returns nothing). The new `HeaderOpenSplitButton` covers the picker + Project-override sub-menu.
 - **D4**: `NotificationInbox.totalUnread(in:)` is defined alongside the T0 aggregation helpers in `NotificationInboxAggregation.swift`, not on `InboxStore`. Keeps aggregation pure / Sendable / testable without MainActor plumbing.
@@ -49,7 +49,7 @@ Related documents:
 Key source files (post-T0 state):
 
 - `apps/mac/TouchCodeCore/Notifications/NotificationInboxAggregation.swift` — Hosts the four T0 helpers (`unreadCount(forWorktree:in:)`, two `hasUnread`, `notifications(forWorktree:in:)`). Adds `totalUnread(in:)` (M1).
-- `apps/mac/TouchCodeCore/Catalog.swift` — Source of `panelWorktreeIndex()`, `panelIDs(inWorktree:)`, `worktreeID(forPanel:)`. No changes.
+- `apps/mac/TouchCodeCore/Catalog.swift` — Source of `panelWorktreeIndex()`, `paneIDs(inWorktree:)`, `worktreeID(forPane:)`. No changes.
 - `apps/mac/touch-code/Notifications/InboxStore.swift` — Hosts `markRead(forWorktree:in:)` + `dismissAll` (T0). No changes.
 - `apps/mac/touch-code/App/Clients/InboxClient.swift` — TCA bridge over `InboxStore`. Grows one closure (`markReadForWorktree`) in M2.
 - `apps/mac/touch-code/App/Clients/HierarchyClient.swift` — TCA bridge over `HierarchyManager`. Grows one closure (`setWorktreeGitViewerVisible`) in M2.
@@ -61,8 +61,8 @@ Key source files (post-T0 state):
 
 Terminology:
 
-- **Orphan notification** — an `AgentNotification` whose `panelID` is no longer present in the current catalog (panel closed / worktree removed). Per design, orphans are excluded from both the bell badge count and the popover's rendered rows.
-- **Catalog-resolvable unread** — an unread, non-dismissed `AgentNotification` whose `panelID` still resolves to a Worktree in the catalog.
+- **Orphan notification** — an `AgentNotification` whose `paneID` is no longer present in the current catalog (pane closed / worktree removed). Per design, orphans are excluded from both the bell badge count and the popover's rendered rows.
+- **Catalog-resolvable unread** — an unread, non-dismissed `AgentNotification` whose `paneID` still resolves to a Worktree in the catalog.
 - **Primary / caret** — the two halves of the Open-in split button. Primary dispatches the default editor open; caret opens the picker menu.
 
 ## Plan of Work
@@ -75,11 +75,11 @@ Add the catalog-resolvable global-unread helper that the bell badge consumes. Pu
 
 Edit `apps/mac/TouchCodeCore/Notifications/NotificationInboxAggregation.swift`:
 
-- Add `public func totalUnread(in catalog: Catalog) -> Int`. Body walks `catalog.panelWorktreeIndex()` once, reduces `notifications.reduce(into: 0)` counting entries where `isUnread` is true **and** the index lookup for the entry's `panelID` is non-nil (filters orphans). Doc-comment: *"Render-hot paths should cache a snapshot-scoped index. Counts unread, non-dismissed notifications whose panel resolves to some Worktree in the given catalog. Shared by the Header bell badge and intended as the canonical 'total resolvable unread' accessor. Orphans (panelID not in catalog) are excluded, matching the popover grouping's rendering policy so badge count and popover row count never diverge."*
+- Add `public func totalUnread(in catalog: Catalog) -> Int`. Body walks `catalog.panelWorktreeIndex()` once, reduces `notifications.reduce(into: 0)` counting entries where `isUnread` is true **and** the index lookup for the entry's `paneID` is non-nil (filters orphans). Doc-comment: *"Render-hot paths should cache a snapshot-scoped index. Counts unread, non-dismissed notifications whose pane resolves to some Worktree in the given catalog. Shared by the Header bell badge and intended as the canonical 'total resolvable unread' accessor. Orphans (paneID not in catalog) are excluded, matching the popover grouping's rendering policy so badge count and popover row count never diverge."*
 
 Edit `apps/mac/TouchCodeCoreTests/NotificationInboxAggregationTests.swift`:
 
-- Add `func testTotalUnreadInCatalogExcludesOrphans()` — build a `Catalog` with one Worktree holding one Panel, then an inbox with (1) one unread whose `panelID` is that panel, (2) one unread orphan, (3) one read entry in-catalog, (4) one dismissed entry in-catalog. Assert `inbox.totalUnread(in: catalog) == 1`.
+- Add `func testTotalUnreadInCatalogExcludesOrphans()` — build a `Catalog` with one Worktree holding one Pane, then an inbox with (1) one unread whose `paneID` is that pane, (2) one unread orphan, (3) one read entry in-catalog, (4) one dismissed entry in-catalog. Assert `inbox.totalUnread(in: catalog) == 1`.
 - Add `func testTotalUnreadEmpty()` — empty inbox → 0.
 - Add `func testTotalUnreadAllReadOrDismissed()` — several read/dismissed entries → 0.
 
@@ -107,7 +107,7 @@ Edit `apps/mac/touch-code/Tests/HierarchyClientTests.swift` (if exists and alrea
 
 Edit `apps/mac/touch-code/Tests/NotificationsTests/InboxStoreTests.swift` (or a sibling for `InboxClient` if one exists):
 
-- If there is no `InboxClient` bridging test today, add a lightweight one that wires the live client against an in-memory `InboxStore`, appends a notification with a known panelID, builds a catalog placing that panel under a worktree, invokes `markReadForWorktree`, and asserts `inbox.notifications[0].readAt != nil`.
+- If there is no `InboxClient` bridging test today, add a lightweight one that wires the live client against an in-memory `InboxStore`, appends a notification with a known paneID, builds a catalog placing that pane under a worktree, invokes `markReadForWorktree`, and asserts `inbox.notifications[0].readAt != nil`.
 
 Acceptance: all three test schemes (`TouchCodeCore`, `touch-code`, any app-level smoke) build and pass; lint unchanged.
 
@@ -164,7 +164,7 @@ Add `apps/mac/touch-code/Tests/WorktreeHeaderFeatureTests.swift` with a TestStor
 
 - `testInboxUpdatedRecomputesUnread()` — inject catalog fixture + inbox with two catalog-resolvable unreads, send `.inboxUpdated`, assert `state.unreadCount == 2`.
 - `testInboxUpdatedExcludesOrphansFromBadge()` — inbox with one valid unread + one orphan unread, send `.inboxUpdated`, assert `state.unreadCount == 1`. **Parity case called out in the design doc §Testing.**
-- `testCatalogChangedRecomputesUnread()` — after `inboxUpdated` places 2 in badge, simulate catalog change (override the `hierarchyClient.snapshot` to return a catalog where one panel went orphan), send `.catalogChanged`, assert badge drops to 1.
+- `testCatalogChangedRecomputesUnread()` — after `inboxUpdated` places 2 in badge, simulate catalog change (override the `hierarchyClient.snapshot` to return a catalog where one pane went orphan), send `.catalogChanged`, assert badge drops to 1.
 - `testNotificationTappedChainsSelectionAndMarksRead()` — use a recording `HierarchyClient` + `InboxClient`; assert the four closures fire in order; assert `state.popoverOpen == false`.
 - `testDismissAllTappedCallsClearAll()` — assert `inboxClient.clearAll` was invoked; popover closes.
 - `testGitViewerToggledDispatchesFlip()` — recording `HierarchyClient.setWorktreeGitViewerVisible`; assert it fires with `!currentVisibility`.
@@ -340,7 +340,7 @@ Expected test deltas:
 
 Behavior acceptance (must be observable in a live build):
 
-1. Launch app with at least one unread notification bound to an in-catalog Panel. The Header bell badge renders the correct count. Add an unread notification whose PanelID does not exist in any catalog (orphan) — the badge count does **not** change.
+1. Launch app with at least one unread notification bound to an in-catalog Pane. The Header bell badge renders the correct count. Add an unread notification whose PaneID does not exist in any catalog (orphan) — the badge count does **not** change.
 2. Open the bell popover. The rendered rows group by Project → Worktree and the row count equals the badge count.
 3. Click a popover row. The Sidebar selection follows the row; the chosen Worktree's unread notifications are cleared from the popover on next render; the badge decreases accordingly.
 4. Click "Dismiss all". The badge drops to 0 and the popover shows "No notifications".
