@@ -31,7 +31,7 @@ let project = Project(
       bundleId: "app.touch-code.core",
       deploymentTargets: .macOS("14.0"),
       infoPlist: .default,
-      buildableFolders: ["TouchCodeCore", "TouchCodeCore/Hooks"],
+      buildableFolders: ["TouchCodeCore", "TouchCodeCore/Hooks", "TouchCodeCore/GitHub"],
       settings: .settings(
         base: ["SWIFT_DEFAULT_ACTOR_ISOLATION": "nonisolated"],
         defaultSettings: .essential
@@ -52,6 +52,7 @@ let project = Project(
         "TouchCodeCoreTests",
         "TouchCodeCoreTests/Hooks",
         "TouchCodeCoreTests/IPC",
+        "TouchCodeCoreTests/GitHubTests",
       ],
       dependencies: [
         .target(name: "TouchCodeCore"),
