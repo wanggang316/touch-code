@@ -2,12 +2,18 @@ import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
 
-/// General pane — global "Default editor" picker (C8a Phase 4a).
+/// General pane — Appearance + global "Default editor" picker.
 ///
-/// Contract: shows only installed editors, grouped by category with thin dividers between
-/// groups. The list order follows `EditorRegistry.menuOrder`; "installed" means the
-/// descriptor is present in the live `describe()` result (which already applies the
-/// Launch Services filter and always keeps `.shellEditor`).
+/// Appearance writes directly through `SettingsStore.setAppearance(_:)` (injected via the
+/// environment-held store); the value is read back by `AppAppearanceView` wrapped around
+/// every scene to drive both SwiftUI's `.preferredColorScheme` and the AppKit
+/// `NSApp.appearance` poke. No TCA round-trip because appearance doesn't participate in
+/// any other reducer state.
+///
+/// Editor picker contract (C8a Phase 4a): shows only installed editors, grouped by
+/// category with thin dividers between groups. Order follows `EditorRegistry.menuOrder`;
+/// "installed" means the descriptor is present in the live `describe()` result (which
+/// already applies the Launch Services filter and always keeps `.shellEditor`).
 ///
 /// Refresh model: the view dispatches `.refreshRequested` on appear so the service's
 /// `describe()` cache is flushed before re-fetch. Editors installed while touch-code was
@@ -23,10 +29,31 @@ struct SettingsGeneralView: View {
     )
   }
 
+  private var appearanceBinding: Binding<AppearancePreference> {
+    Binding(
+      get: { settingsStore.settings.general.appearance },
+      set: { settingsStore.setAppearance($0) }
+    )
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
       Text("General")
         .font(.title2.bold())
+
+      VStack(alignment: .leading, spacing: 6) {
+        Text("Appearance")
+          .font(.subheadline.weight(.medium))
+
+        Picker("Appearance", selection: appearanceBinding) {
+          Text("System").tag(AppearancePreference.system)
+          Text("Light").tag(AppearancePreference.light)
+          Text("Dark").tag(AppearancePreference.dark)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(maxWidth: 280, alignment: .leading)
+      }
 
       VStack(alignment: .leading, spacing: 6) {
         Text("Default editor")

@@ -125,6 +125,15 @@ final class PanelSurface {
     ghostty_surface_set_focus(surface, focused)
   }
 
+  /// Apply a color scheme to this surface and request a redraw. No-op after `close()`.
+  /// Called by `GhosttyRuntime.setColorScheme(_:)` when the app's resolved
+  /// color scheme changes (either user picker toggle or OS-level appearance flip).
+  func applyColorScheme(_ scheme: ghostty_color_scheme_e) {
+    guard let surface else { return }
+    ghostty_surface_set_color_scheme(surface, scheme)
+    ghostty_surface_refresh(surface)
+  }
+
   /// Fulfils a `read_clipboard_cb` request by forwarding the string back to
   /// libghostty. Called from `GhosttyRuntime`'s clipboard bridge on
   /// MainActor after the pasteboard is read.

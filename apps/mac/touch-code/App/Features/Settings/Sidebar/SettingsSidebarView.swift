@@ -90,6 +90,7 @@ struct SettingsSidebarView: View {
     switch section {
     case .general: return "General"
     case .notifications: return "Notifications"
+    case .terminal: return "Terminal"
     case .developer: return "Developer"
     case .shortcuts: return "Shortcuts"
     case .updates: return "Updates"
@@ -102,6 +103,7 @@ struct SettingsSidebarView: View {
     switch section {
     case .general: return "gearshape"
     case .notifications: return "bell"
+    case .terminal: return "terminal"
     case .developer: return "hammer"
     case .shortcuts: return "command"
     case .updates: return "arrow.down.circle"

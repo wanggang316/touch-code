@@ -15,15 +15,18 @@ struct SettingsWindowFeature {
   struct State: Equatable {
     var selection: SettingsSection?
     var general: EditorFeature.State = .init()
+    var terminal: SettingsTerminalFeature.State = .init()
     var repositoryPanes: IdentifiedArrayOf<RepositorySettingsFeature.State> = []
 
     init(
       selection: SettingsSection? = nil,
       general: EditorFeature.State = .init(),
+      terminal: SettingsTerminalFeature.State = .init(),
       repositoryPanes: IdentifiedArrayOf<RepositorySettingsFeature.State> = []
     ) {
       self.selection = selection
       self.general = general
+      self.terminal = terminal
       self.repositoryPanes = repositoryPanes
     }
 
@@ -36,6 +39,7 @@ struct SettingsWindowFeature {
   enum Action: Equatable {
     case selectionChanged(SettingsSection?)
     case general(EditorFeature.Action)
+    case terminal(SettingsTerminalFeature.Action)
     case repositoryPanes(IdentifiedActionOf<RepositorySettingsFeature>)
     /// Fired by `SettingsWindowView`'s `.onDisappear`. Clears sidebar selection per M16.
     case windowClosed
@@ -48,6 +52,9 @@ struct SettingsWindowFeature {
   var body: some Reducer<State, Action> {
     Scope(state: \.general, action: \.general) {
       EditorFeature()
+    }
+    Scope(state: \.terminal, action: \.terminal) {
+      SettingsTerminalFeature()
     }
     Reduce { state, action in
       switch action {
@@ -65,6 +72,8 @@ struct SettingsWindowFeature {
         }
         return .none
       case .general:
+        return .none
+      case .terminal:
         return .none
       case .repositoryPanes:
         return .none

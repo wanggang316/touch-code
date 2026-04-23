@@ -19,32 +19,34 @@ struct TouchCodeApp: App {
 
   var body: some Scene {
     WindowGroup {
-      if let store = appState.store, appState.terminalEngine != nil {
-        ContentView(
-          store: store,
-          hierarchyManager: appState.hierarchyManager,
-          settingsStore: appState.settingsStore,
-          inboxStore: appState.inboxStore
-        )
-        .frame(minWidth: 800, minHeight: 600)
-        .navigationTitle("touch-code")
-      } else {
-        // Initial loading state while appState.bringUp runs.
-        VStack(spacing: 12) {
-          ProgressView()
-          Text("Starting touch-code…")
-            .font(.callout)
-            .foregroundStyle(.secondary)
-        }
-        .frame(minWidth: 800, minHeight: 600)
-        // Idempotency guard on bringUp (store == nil check) is
-        // load-bearing — SwiftUI re-runs .task on scene reattach.
-        .task {
-          appDelegate.appState = appState
-          appState.openSettingsWindowAction = {
-            openWindow(id: TouchCodeApp.settingsWindowID)
+      AppAppearanceView(settingsStore: appState.settingsStore) {
+        if let store = appState.store, appState.terminalEngine != nil {
+          ContentView(
+            store: store,
+            hierarchyManager: appState.hierarchyManager,
+            settingsStore: appState.settingsStore,
+            inboxStore: appState.inboxStore
+          )
+          .frame(minWidth: 800, minHeight: 600)
+          .navigationTitle("touch-code")
+        } else {
+          // Initial loading state while appState.bringUp runs.
+          VStack(spacing: 12) {
+            ProgressView()
+            Text("Starting touch-code…")
+              .font(.callout)
+              .foregroundStyle(.secondary)
           }
-          appState.bringUp()
+          .frame(minWidth: 800, minHeight: 600)
+          // Idempotency guard on bringUp (store == nil check) is
+          // load-bearing — SwiftUI re-runs .task on scene reattach.
+          .task {
+            appDelegate.appState = appState
+            appState.openSettingsWindowAction = {
+              openWindow(id: TouchCodeApp.settingsWindowID)
+            }
+            appState.bringUp()
+          }
         }
       }
     }
@@ -62,16 +64,18 @@ struct TouchCodeApp: App {
     }
 
     Window("Settings", id: TouchCodeApp.settingsWindowID) {
-      if let store = appState.settingsWindowStore {
-        SettingsWindowView(store: store, settingsStore: appState.settingsStore)
-          .environment(appState.hierarchyManager)
-          .environment(appState.settingsStore)
-          .environment(appState.developerPaneDependencies)
-      } else {
-        // Settings window can be opened before AppState.bringUp completes (rare but
-        // possible during launch). Render a transient placeholder; SwiftUI will
-        // re-evaluate once the store lands.
-        ProgressView().frame(minWidth: 750, minHeight: 500)
+      AppAppearanceView(settingsStore: appState.settingsStore) {
+        if let store = appState.settingsWindowStore {
+          SettingsWindowView(store: store, settingsStore: appState.settingsStore)
+            .environment(appState.hierarchyManager)
+            .environment(appState.settingsStore)
+            .environment(appState.developerPaneDependencies)
+        } else {
+          // Settings window can be opened before AppState.bringUp completes (rare but
+          // possible during launch). Render a transient placeholder; SwiftUI will
+          // re-evaluate once the store lands.
+          ProgressView().frame(minWidth: 750, minHeight: 500)
+        }
       }
     }
     .windowResizability(.contentMinSize)
@@ -263,6 +267,7 @@ final class AppState {
       $0.settingsWriter = .live(settings)
       $0.hierarchyClient = hierarchy
       $0[HookConfigClient.self] = .live(store: hookConfigStore)
+      $0[GhosttyTerminalSettingsClient.self] = .appLive()
     }
 
     startIPC(

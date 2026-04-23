@@ -37,6 +37,12 @@ struct ContentView: View {
   }
 
   var body: some View {
+    GhosttyColorSchemeSyncView {
+      mainSplit
+    }
+  }
+
+  private var mainSplit: some View {
     NavigationSplitView(columnVisibility: $columnVisibility) {
       HierarchySidebarView(
         store: store.scope(state: \.sidebar, action: \.sidebar),
