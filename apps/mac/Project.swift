@@ -190,6 +190,7 @@ let project = Project(
         "touch-code/App",
         "touch-code/App/Features/Socket",
         "touch-code/App/Features/Socket/handlers",
+        "touch-code/App/Features/GitHub",
         "touch-code/Runtime",
         "touch-code/Hooks",
         "touch-code/Process",
