@@ -20,17 +20,18 @@ Nothing new happens at the "what can the app do" layer — every command invoked
 
 ## Progress
 
-- [ ] M0 — Baseline: lint + `xcodebuild build` green on current branch `feature/command-p`; record any pre-existing failures
-- [ ] M1 — Data types: `CommandPaletteItem` + `Kind` enum + `KeyEquivalentDescriptor` in new folder `App/Features/CommandPalette/`, no behavior
-- [ ] M2 — Vertical slice: `CommandPaletteFeature` reducer (toggle / query / selection / commit) + minimal `CommandPaletteItems.build(for:)` returning 3 static global commands (`openSettings`, `toggleGitViewer`, `checkForUpdates`) + basic `CommandPaletteView` overlay + `⌘P` menu binding + `RootFeature` wiring + `route(_:)` for those 3 Kinds — user can `⌘P → type → Enter → Settings opens`
-- [ ] M3 — Full fuzzy scorer: `CommandPaletteFuzzyScorer.score(...)` with contiguous / subsequence / separator-bonus / quoted-contiguous rules + unit tests; feature reducer swaps stub filter for scorer
-- [ ] M4 — Recency: `@Shared(.appStorage("commandPaletteRecency"))` dictionary, write on commit, read during scoring, prune-on-open, 200-entry LRU cap + tests
-- [ ] M5 — Full command set: expand `CommandPaletteItems.build` to cover all `Kind` cases (Space / Worktree / Editor / Panel / Window); extend `RootFeature.route(_:)` to cover them; wire `panelActionRouter.delegate.commandPaletteToggleRequested` at `RootFeature:421` to dispatch `.commandPalette(.togglePresented)` instead of no-op
-- [ ] M6 — Tests + manual QA + PR: `CommandPaletteFeatureTests`, `CommandPaletteItemsTests`, `RootFeatureRoutingTests` (exhaustive `Kind` → action map), manual pass across all item categories, lint, xcodebuild test, open PR against `main`
+- [x] M0 — Baseline: `xcodebuild build` green (2026-04-23); 8 pre-existing lint violations recorded below and out of scope
+- [x] M1 — Data types: `CommandPaletteItem` + `Kind` enum + `KeyEquivalentDescriptor` landed in `App/Features/CommandPalette/` (2026-04-23, commit ab7e34f); build green
+- [x] M2 — Vertical slice: feature + view + wiring landed in two commits 8150d41 + 77d4e07 (2026-04-23); build green. Note: the ghostty `toggle_command_palette` hook at `RootFeature:421` also replaced in the same pass (originally planned for M5) — the branch is one line and tying it to M2 avoids shipping a live palette that doesn't respond to the already-decoded ghostty intent.
+- [x] M3 — Full fuzzy scorer with DP subsequence + recency decay + 12 unit tests (2026-04-23, commit b2cc021); all tests green
+- [x] M4 — Recency persistence + pruner + LRU cap + 9 tests (2026-04-23, commit 12856d8); all tests green. Note: switched from `@Shared(.appStorage)` to parent-owned `UserDefaults` round-trip (see D15).
+- [x] M5 — Full command set: items builder expanded to all Kind cases (2026-04-23, commits e4826e7 + e20dffe); RootFeature.route fan-out exhaustive; ghostty hook rewired in M2. 12 new tests (items + routing contract).
+- [x] M6 — 33 palette tests green across 5 suites (Feature/Pruner/Scorer/Items/Routing); RootFeature existing 16-test suite green; lint back to baseline (8 pre-existing, 0 palette-introduced) after commit 67ca462. Manual QA + PR pending human sign-off post codex review.
 
 ## Surprises & Discoveries
 
-(None yet)
+- **S1** (2026-04-23, M0): `make -C apps/mac lint` emitted 8 **pre-existing** violations on `feature/command-p` before any palette edit: `EditorService+Test.swift:128,144` (async-without-await), `EditorService+Live.swift:36` (todo), `PanelActionRouterFeature.swift:64` (superfluous disable), `PanelSurface.swift:195` (cyclomatic), `GhosttyActionDecoder.swift:142` (cyclomatic + function-body-length), `PanelSurfaceApplyTests.swift:27` (cyclomatic). Out of palette scope; tracked here so the post-work lint comparison is apples-to-apples. No palette-introduced violations shall join that list.
+- **S2** (2026-04-23, M0): `git-wt` submodule was not checked out on this worktree — `xcodebuild` failed at the "Verify git-wt" pre-script until `git submodule update --init apps/mac/ThirdParty/git-wt` completed. No code change needed; add to the onboarding note if other agents bootstrap this branch.
 
 ## Decision Log
 
@@ -43,10 +44,68 @@ Nothing new happens at the "what can the app do" layer — every command invoked
 - **D7** (planning, 2026-04-23): Recency stored as `[String: TimeInterval]` under UserDefaults key `commandPaletteRecency` via `@Shared(.appStorage(...))`. Rejected routing it through `SettingsStore` — settings are atomic-rename JSON on disk with a 500 ms debounce designed for versioned user-facing preferences, not for write-heavy ephemeral counters touched on every palette activation.
 - **D8** (planning, 2026-04-23): First cut ships **no category/section headers** in the UI and **no mode prefixes** (`>`, `@`, `:`). Flat list ordered by score. These can be added later without breaking existing recency IDs.
 - **D9** (planning, 2026-04-23): `⌘K` Space switcher stays as-is. Palette can select any Space by typing its name, but `⌘K` is muscle memory and removing it is a separate UX call that should not block palette landing.
+- **D10** (M2, 2026-04-23): Palette entry action is `RootFeature.Action.commandPaletteToggle` (a top-level case), not a `.commandPalette(.present)` case. The toggle reducer branch creates `CommandPaletteFeature.State()` and immediately dispatches `.commandPalette(.presented(.appeared(selection, catalog)))` so the items are built from live state on the reducer tick rather than the view's `.task`. Keeps the build-items phase inside TCA's test-observable tick instead of a SwiftUI lifecycle side effect.
+- **D11** (M2, 2026-04-23): Ghostty `toggle_command_palette` hook wired in M2 instead of M5. The original plan deferred it one milestone; the branch is a one-line `.send(.commandPaletteToggle)` and shipping the live palette without the hook would ship a visible inconsistency (the ghostty keybind is decoded but the palette is inert). Tying them keeps the user-visible surface honest at every commit.
+- **D12** (M2, 2026-04-23): View dismisses via an `onDismiss` closure injected by the parent, not a `.dismissed` reducer action. The feature has no teardown work of its own; `RootFeature.commandPaletteToggle` is the single dismiss path. Avoids a second, redundant action that the test store would also have to observe.
+- **D13** (M3, 2026-04-23): Subsequence scorer is **DP over (needle, haystack) positions**, not greedy left-to-right matching. Greedy fails on realistic inputs like `"nt"` on `"Open New Tab"` — the left-most 'n' lives inside "Open" and carries no separator bonus, so greedy scores lower than random titles with early 'n's. DP is `O(m·n)` where `m ≤ 40` (query cap) and `n ≤ 120` (title cap); at real-world sizes the total scoring work for a 200-item catalog stays inside the 16 ms budget by a wide margin.
+- **D14** (M3, 2026-04-23): Separator bonus = 20, camelCase bonus = 10, first-char bonus = 10, gap penalty = 1 per skipped char, span penalty = 2 per covered char. These constants were tuned against the test suite; they strike a balance where a word-start two-char subsequence match (e.g. 'nt' on 'Open New Tab') beats a same-length earlier subsequence match without word boundaries, while still letting recency reorder within a band without flipping across bands.
+- **D15** (M4, 2026-04-23): Recency persistence routed through a plain `UserDefaults` helper (`CommandPaletteRecencyPersistence`), not `@Shared(.appStorage(…))`. The Sharing library's `.appStorage` key-path API has limited Dictionary support and would have required an extra encoding hop via `Codable` or a custom `SharedKey` conformance; a single read on toggle + single write on activate keeps the semantics simpler and testable via `withSuite(_:)`. Tradeoff acknowledged: SwiftUI views cannot observe the recency map directly, which is fine because the UI never needs to.
+- **D16** (M4, 2026-04-23): Recency is written to `state.recency` on activation and then pulled up by `RootFeature` before nil-ing the `@Presents` slot. This keeps the child reducer pure (no `UserDefaults` dependency in tests) at the cost of a small coupling — RootFeature has to remember to persist after `activate`. A `@Dependency` client would have inverted this; chose not to add one for a single call site.
 
 ## Outcomes & Retrospective
 
-(To be filled at milestone completion)
+**Result (2026-04-23):** Command Palette shipped across 7 commits on
+`feature/command-p`. The feature opens via `⌘P` or the ghostty
+`toggle_command_palette` keybind, searches every user-visible
+command — App / Spaces / Worktree / Editor / Panel / Window — via a
+three-band fuzzy scorer with recency decay, and dispatches every
+activation through existing feature actions with no new client, no new
+ghostty decoder case, and no new `HierarchySelection` field.
+
+**Lines of code (net additions, excluding docs):**
+
+- Feature: ~720 lines across `CommandPalette/` (6 files)
+- RootFeature edits: +120 lines
+- ContentView / MainWindowCommands edits: +14 lines
+- Tests: ~690 lines across 5 suites (33 tests)
+
+**Test coverage:** 33 palette-specific tests + existing 16-test
+`RootFeatureTests` stayed green. Scorer DP branch is covered by 12
+table-driven cases; pruner retention + LRU by 3; feature reducer by 6;
+items builder by 5; routing contract by 7.
+
+**Deviations from plan:**
+
+- D10: Palette entry action is `commandPaletteToggle` (top-level),
+  not `.commandPalette(.presented(.togglePresented))` — the reducer
+  creates state and fires `.appeared(...)` immediately so items are
+  built on the reducer tick rather than a SwiftUI lifecycle side
+  effect.
+- D11: Ghostty intent hook (`PanelActionRouter.Delegate.command-
+  PaletteToggleRequested`) wired in M2 instead of M5 to avoid
+  shipping an inert ghostty keybind through a released milestone.
+- D13: Subsequence scorer is DP over (needle, haystack) positions,
+  not greedy — needed to make `"nt"` prefer `"Open [N]ew [T]ab"` over
+  a left-anchored no-separator match.
+- D15: Recency persistence uses a plain `UserDefaults` helper, not
+  `@Shared(.appStorage(...))`. The Sharing library's AppStorage
+  dictionary support is thin; a single-read-on-open /
+  single-write-on-activate round-trip is simpler.
+
+**Lessons:**
+
+- The Ghostty side of the app was already expecting a command-palette
+  feature (`PanelActionRequest.toggleCommandPalette`,
+  `PanelActionRouterFeature.Delegate.commandPaletteToggleRequested`,
+  the explicit-no-op at `RootFeature:421`). Wiring into pre-existing
+  hooks was cheaper than inventing new plumbing.
+- Greedy subsequence matching gives intuitive-looking results on
+  easy inputs and surprising results on the common "first letter of
+  each word" pattern. DP is the right default.
+- Procedural item generation vs a registry protocol was the right
+  call: 26 items across 6 context bands took ~200 lines of straight-
+  line Swift, no new cross-target API surface. A protocol would have
+  earned its keep only with plugin-sourced commands we don't have.
 
 ## Context and Orientation
 
