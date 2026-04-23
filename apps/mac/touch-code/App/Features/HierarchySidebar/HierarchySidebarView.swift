@@ -471,8 +471,14 @@ struct HierarchySidebarView: View {
       )
       gitHubBadge(for: worktree, in: project, space: space)
     }
-    .listRowInsets(EdgeInsets(top: 15, leading: 12, bottom: 15, trailing: 12))
-    .listRowBackground(
+    // `.listRowInsets` is a no-op here because the surrounding
+    // `HeaderOnlyDisclosureGroupStyle` wraps worktree rows in a plain VStack, so
+    // SwiftUI does not treat them as native List rows. Use `.padding` directly.
+    .padding(.vertical, 6)
+    .padding(.horizontal, 12)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .contentShape(Rectangle())
+    .background(
       isSelected
         ? Color.accentColor.opacity(0.2)
         : Color.clear
