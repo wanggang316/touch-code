@@ -21,6 +21,10 @@ import TouchCodeCore
 struct HierarchySidebarView: View {
   @Bindable var store: StoreOf<HierarchySidebarFeature>
   let currentSelection: HierarchySelection
+  /// Optional GitHub integration store. When non-nil, each Worktree row renders a PR
+  /// badge (silent when no PR is matched) and the row hosts the PR popover. Nil in
+  /// previews / tests that don't exercise the integration.
+  var gitHubStore: StoreOf<GitHubFeature>?
   @Environment(HierarchyManager.self) private var hierarchyManager
   @Environment(InboxStore.self) private var inboxStore
 
@@ -406,6 +410,7 @@ struct HierarchySidebarView: View {
             .frame(width: 6, height: 6)
             .accessibilityLabel("Has \(unreadCount) unread notifications")
         }
+        gitHubBadge(for: worktree, in: project, space: space)
       }
     }
     .buttonStyle(.plain)
@@ -629,6 +634,153 @@ struct HierarchySidebarView: View {
   private var runningTerminalMessage: String {
     guard let pending = store.pendingRunningTerminalWarning else { return "" }
     return "Force-removing “\(pending.displayName)” will terminate \(pending.count) running terminal process\(pending.count == 1 ? "" : "es") in that Worktree."
+  }
+
+  // MARK: - GitHub badge + popover
+
+  @ViewBuilder
+  fileprivate func gitHubBadge(for worktree: Worktree, in project: Project, space: Space) -> some View {
+    if let gitHubStore, let branch = worktree.branch {
+      let path = URL(fileURLWithPath: worktree.path)
+      gitHubBadgeView(
+        store: gitHubStore,
+        worktreeID: worktree.id,
+        branch: branch,
+        worktreePath: path
+      )
+    } else {
+      EmptyView()
+    }
+  }
+
+  @ViewBuilder
+  private func gitHubBadgeView(
+    store: StoreOf<GitHubFeature>,
+    worktreeID: WorktreeID,
+    branch: String,
+    worktreePath: URL
+  ) -> some View {
+    let snapshot = store.snapshots[worktreeID]
+    let isLoading = store.loading.contains(worktreeID)
+    let error = store.lastError[worktreeID]
+
+    Group {
+      if let snapshot {
+        let checks = store.checks[snapshot.number] ?? []
+        let rollup = PullRequestBadge.CheckRollup.from(checks: checks)
+        PullRequestBadge(
+          state: .loaded(snapshot, rollup: rollup),
+          onTap: { store.send(.presentPopover(worktreeID, worktreePath: worktreePath)) },
+          onCommandTap: { store.send(.delegate(.openURL(snapshot.url))) }
+        )
+      } else if isLoading {
+        PullRequestBadge(state: .loading, onTap: {}, onCommandTap: {})
+      } else if let error {
+        PullRequestBadge(
+          state: .error(error),
+          onTap: { store.send(.refreshRequested(worktreeID, branch: branch, worktreePath: worktreePath)) },
+          onCommandTap: {}
+        )
+      } else {
+        EmptyView()
+      }
+    }
+    .task(id: worktreeID) {
+      store.send(.worktreeBecameVisible(worktreeID, branch: branch, worktreePath: worktreePath))
+    }
+    .popover(
+      isPresented: Binding(
+        get: { store.popoverTarget == worktreeID },
+        set: { if !$0 { store.send(.dismissPopover) } }
+      ),
+      arrowEdge: .trailing
+    ) {
+      gitHubPopoverContent(
+        store: store,
+        worktreeID: worktreeID,
+        branch: branch,
+        worktreePath: worktreePath
+      )
+    }
+  }
+
+  @ViewBuilder
+  private func gitHubPopoverContent(
+    store: StoreOf<GitHubFeature>,
+    worktreeID: WorktreeID,
+    branch: String,
+    worktreePath: URL
+  ) -> some View {
+    let snapshot = store.snapshots[worktreeID]
+    let error = store.lastError[worktreeID]
+    let isLoading = store.loading.contains(worktreeID)
+
+    let content: PullRequestPopover.Content = {
+      if let error { return .error(error) }
+      if let snapshot {
+        let checks = store.checks[snapshot.number] ?? []
+        let run = store.latestWorkflowRuns[snapshot.number]
+        return .loaded(snapshot, checks: checks, workflowRun: run)
+      }
+      if isLoading { return .loading }
+      return .noPullRequest(branch: branch)
+    }()
+
+    PullRequestPopover(
+      content: content,
+      defaultMergeStrategy: .squash,
+      canMerge: (snapshot?.mergeable == .mergeable
+        && snapshot?.state == .open
+        && snapshot?.isDraft == false),
+      mergeDisabledReason: Self.mergeDisabledReason(for: snapshot),
+      onMerge: { strategy in
+        if let pr = snapshot {
+          store.send(
+            .mergeRequested(worktreeID, prNumber: pr.number, strategy: strategy, worktreePath: worktreePath)
+          )
+        }
+      },
+      onClose: {
+        if let pr = snapshot {
+          store.send(.closeRequested(worktreeID, prNumber: pr.number, worktreePath: worktreePath))
+        }
+      },
+      onMarkReady: {
+        if let pr = snapshot {
+          store.send(.markReadyRequested(worktreeID, prNumber: pr.number, worktreePath: worktreePath))
+        }
+      },
+      onRerunFailedJobs: {
+        if let pr = snapshot, let run = store.latestWorkflowRuns[pr.number] {
+          store.send(
+            .rerunFailedJobsRequested(worktreeID, runID: run.databaseID, worktreePath: worktreePath)
+          )
+        }
+      },
+      onOpenOnWeb: {
+        if let url = snapshot?.url {
+          store.send(.delegate(.openURL(url)))
+        }
+      },
+      onOpenCheckLog: { url in store.send(.delegate(.openURL(url))) },
+      onSetProjectDefaultStrategy: { _ in
+        // M6 wires this to SettingsStore.mutateRepository. Today it's a no-op so the
+        // UI path is complete; no data-plane side effect yet.
+      },
+      onRetry: {
+        store.send(.refreshRequested(worktreeID, branch: branch, worktreePath: worktreePath))
+      }
+    )
+  }
+
+  private static func mergeDisabledReason(for snapshot: PullRequestSnapshot?) -> String? {
+    guard let snapshot else { return "No pull request for this Worktree" }
+    if snapshot.state == .merged { return "Pull request already merged" }
+    if snapshot.state == .closed { return "Pull request closed" }
+    if snapshot.isDraft { return "Pull request is a draft" }
+    if snapshot.mergeable == .conflicting { return "Pull request has merge conflicts" }
+    if snapshot.mergeable == .unknown { return "Merge status unknown — try refresh" }
+    return nil
   }
 }
 
