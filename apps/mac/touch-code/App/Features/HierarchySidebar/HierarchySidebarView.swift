@@ -294,28 +294,30 @@ struct HierarchySidebarView: View {
           }
           return map
         }()
-        List {
-          ForEach(activeSpace.projects) { project in
-            projectSection(
-              project,
-              in: activeSpace,
-              panelIndex: panelIndex,
-              inbox: inbox,
-              hotkeyIndex: hotkeyIndex
-            )
-          }
-          .onMove { source, destination in
-            store.send(
-              .reorderProjects(
-                from: source,
-                to: destination,
-                inSpace: activeSpace.id
+        // ScrollView + LazyVStack replaces `List(.sidebar)` because macOS `List` wraps
+        // an `NSScrollView` whose scroller column reserves horizontal space even after
+        // `hasVerticalScroller = false` / `scrollerStyle = .overlay` / `tile()` — the
+        // List implementation re-applies its own layout, overriding our overrides.
+        // `ScrollView.scrollIndicators(.hidden)` is a first-class SwiftUI API and
+        // actually hides the scroller without reserving a gutter. Drag-reorder of
+        // Projects (previously via `List.onMove`) is lost; users reorder via Project
+        // Options for now. `.contentMargins` replaces `.listStyle(.sidebar)`'s
+        // implicit row insets.
+        ScrollView(.vertical) {
+          LazyVStack(alignment: .leading, spacing: 0) {
+            ForEach(activeSpace.projects) { project in
+              projectSection(
+                project,
+                in: activeSpace,
+                panelIndex: panelIndex,
+                inbox: inbox,
+                hotkeyIndex: hotkeyIndex
               )
-            )
+            }
           }
+          .padding(.vertical, 6)
         }
-        .listStyle(.sidebar)
-        .background(ScrollerHider())
+        .scrollIndicators(.hidden)
       }
     } else {
       noSpacesState
@@ -991,99 +993,3 @@ private struct ProjectHeaderRow: View {
 }
 
 
-/// Transparent background view that finds the `NSScrollView` hosting our `List`
-/// (AppKit backs it with `NSScrollView` + `NSTableView`) and configures it so the
-/// vertical scroller overlays the content without reserving a column of horizontal
-/// space — the effect you'd get from `.scrollIndicators(.hidden)` if that modifier
-/// applied to macOS Lists (it doesn't).
-///
-/// Why not simply clear `hasVerticalScroller`? Setting that to `false` makes the
-/// scroller unreachable but does NOT retroactively fix the `clipView` geometry that
-/// NSScrollView computed under the assumption of a legacy (space-reserving)
-/// scroller. The visible symptom is a blank column of width ~15pt on the right of
-/// the List. The clean fix is to keep the scroller installed but switch to the
-/// overlay style (floats on top, reserves no space), zero out the inset bookkeeping,
-/// call `tile()` to recompute `clipView`'s frame, and fade the scroller to invisible.
-///
-/// Retries a few times because `List` may attach or re-attach its scroll view after
-/// this view first moves to a window (first-run appearance change, etc.).
-private struct ScrollerHider: NSViewRepresentable {
-  func makeNSView(context: Context) -> NSView { _ScrollerHiderView() }
-  func updateNSView(_ nsView: NSView, context: Context) {}
-}
-
-private final class _ScrollerHiderView: NSView {
-  override func viewDidMoveToWindow() {
-    super.viewDidMoveToWindow()
-    applyOverlayScrollers(retriesLeft: 20)
-  }
-
-  private func applyOverlayScrollers(retriesLeft: Int) {
-    guard let root = self.window?.contentView else {
-      if retriesLeft > 0 {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-          self?.applyOverlayScrollers(retriesLeft: retriesLeft - 1)
-        }
-      }
-      return
-    }
-    for scroll in Self.findTableHostingScrollViews(in: root) {
-      configure(scroll)
-    }
-    if retriesLeft > 0 {
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-        self?.applyOverlayScrollers(retriesLeft: retriesLeft - 1)
-      }
-    }
-  }
-
-  private func configure(_ scroll: NSScrollView) {
-    // Overlay style: scroller floats on top of content instead of claiming a
-    // horizontal column — this is the one setting that actually eliminates the
-    // reserved-space gap. The user's system preference ("Show scroll bars: Always"
-    // vs "When scrolling") normally dictates scrollerStyle; we override per-view.
-    scroll.scrollerStyle = .overlay
-    scroll.autohidesScrollers = true
-    // Kill any inset bookkeeping that would preserve a column for a legacy scroller.
-    scroll.automaticallyAdjustsContentInsets = false
-    scroll.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
-    scroll.scrollerInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
-    // Recompute `clipView` geometry under the new scroller style so the documentView
-    // actually reclaims the full width. Without `tile()` the old legacy-style frame
-    // sticks around until the next resize event.
-    scroll.tile()
-    // Belt + suspenders: even when the scroller is overlay-styled and auto-hiding,
-    // the brief flash during scroll shows a translucent knob. Zero alpha hides it
-    // for good without removing the scroller instance (removing it can make
-    // NSScrollView re-reserve space on next resize).
-    scroll.verticalScroller?.alphaValue = 0
-    scroll.horizontalScroller?.alphaValue = 0
-  }
-
-  /// BFS through `root`'s view tree, collecting every `NSScrollView` whose
-  /// `documentView` hosts an `NSTableView`. Restricts the override to `List`-backed
-  /// scroll views so text views, popovers, etc. elsewhere in the window are untouched.
-  private static func findTableHostingScrollViews(in root: NSView) -> [NSScrollView] {
-    var out: [NSScrollView] = []
-    var queue: [NSView] = [root]
-    while let view = queue.first {
-      queue.removeFirst()
-      if let scroll = view as? NSScrollView {
-        if let doc = scroll.documentView, Self.containsTableView(doc) {
-          out.append(scroll)
-          continue
-        }
-      }
-      queue.append(contentsOf: view.subviews)
-    }
-    return out
-  }
-
-  private static func containsTableView(_ view: NSView) -> Bool {
-    if view is NSTableView { return true }
-    for sub in view.subviews where Self.containsTableView(sub) {
-      return true
-    }
-    return false
-  }
-}
