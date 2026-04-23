@@ -45,6 +45,12 @@ struct RootFeature {
     /// presents the sheet for managing (list / rename / reorder / delete) Spaces.
     @Presents var spaceManagerSheet: SpaceManagerFeature.State?
 
+    /// Command Palette overlay presentation. `nil` = hidden; non-nil
+    /// renders the floating search card on top of the main split. Cleared
+    /// on activation (the child emits `.delegate(.activate(…))`, the root
+    /// routes it to a feature action and nils this slot in the same tick).
+    @Presents var commandPalette: CommandPaletteFeature.State?
+
     /// T3: live read of the current Worktree's `gitViewerVisible` against
     /// a catalog snapshot. Not a cached field — views pass in
     /// `hierarchyManager.catalog` so SwiftUI's `@Observable` tracking
@@ -135,6 +141,14 @@ struct RootFeature {
     case spaceManagerSheetShown
     case spaceManagerSheet(PresentationAction<SpaceManagerFeature.Action>)
     case switchToSpaceAtIndex(Int)
+    /// Toggle the Command Palette overlay. Sources: `⌘P` menu binding
+    /// (source panel unknown — payload is `nil`), and
+    /// `panelActionRouter(.delegate(.commandPaletteToggleRequested(panelID)))`
+    /// forwarded from the ghostty keybind pipeline (payload carries the
+    /// source panel so Panel-scoped palette actions target the right
+    /// split).
+    case commandPaletteToggle(PanelID?)
+    case commandPalette(PresentationAction<CommandPaletteFeature.Action>)
     case sidebar(HierarchySidebarFeature.Action)
     case detail(WorktreeDetailFeature.Action)
     case gitViewer(GitViewerFeature.Action)
@@ -412,13 +426,14 @@ struct RootFeature {
       case .worktreeHeader:
         return .none
 
-      // 0008: panel-action router delegate actions. `presentTerminal` and
-      // `toggleCommandPalette` don't have dedicated handlers in this
-      // reducer yet — touch-code has no command-palette feature, and
-      // the sidebar/detail focus flow already handles active-worktree
-      // swaps. Consumed here as explicit no-ops so future integrations
-      // can attach without re-touching the router.
-      case .panelActionRouter(.delegate):
+      // 0008: panel-action router delegate actions.
+      // `commandPaletteToggleRequested` forwards the ghostty keybind
+      // pipeline into the palette's top-level toggle. `presentTerminal`
+      // stays an explicit no-op — the sidebar/detail focus flow already
+      // handles active-worktree swaps.
+      case .panelActionRouter(.delegate(.commandPaletteToggleRequested(let panelID))):
+        return .send(.commandPaletteToggle(panelID))
+      case .panelActionRouter(.delegate(.presentTerminalRequested)):
         return .none
 
       case .panelActionRouter:
@@ -436,6 +451,60 @@ struct RootFeature {
         return .none
 
       case .spaceManagerSheet:
+        return .none
+
+      case .commandPaletteToggle(let sourcePanelID):
+        if state.commandPalette == nil {
+          state.commandPalette = CommandPaletteFeature.State()
+          let selection = state.selection
+          let catalog = hierarchyClient.snapshot()
+          let descriptors = state.editor.descriptors
+          let recency = CommandPaletteRecencyPersistence.load()
+          // Menu-triggered palette opens have no source panel; fall back
+          // to the first leaf of the selected tab's split tree so Window-
+          // scoped actions still resolve to the correct NSWindow.
+          // Panel-scoped palette items that depend on real focus are
+          // omitted by the builder when the source is a leaf fallback.
+          let resolvedPanelID = sourcePanelID
+            ?? CommandPaletteItems.resolveFocusedPanelID(
+              selection: selection, catalog: catalog
+            )
+          let panelSourceIsPrecise = sourcePanelID != nil
+          return .send(
+            .commandPalette(
+              .presented(
+                .appeared(
+                  selection, catalog, descriptors, recency,
+                  resolvedPanelID, panelSourceIsPrecise
+                )
+              )
+            )
+          )
+        } else {
+          // Closing without activating: persist any pruning the child
+          // did on `.appeared` so stale entries don't re-surface on the
+          // next open. Activation path already persists via the
+          // `.activate` branch above.
+          if let recency = state.commandPalette?.recency {
+            CommandPaletteRecencyPersistence.save(recency)
+          }
+          state.commandPalette = nil
+          return .none
+        }
+
+      case .commandPalette(.presented(.delegate(.activate(let kind)))):
+        if let recency = state.commandPalette?.recency {
+          CommandPaletteRecencyPersistence.save(recency)
+        }
+        let sourcePanelID = state.commandPalette?.focusedPanelID
+        state.commandPalette = nil
+        return route(kind, state: &state, sourcePanelID: sourcePanelID)
+
+      case .commandPalette(.dismiss):
+        state.commandPalette = nil
+        return .none
+
+      case .commandPalette:
         return .none
 
       case .switchToSpaceAtIndex(let index):
@@ -486,7 +555,119 @@ struct RootFeature {
     .ifLet(\.$spaceManagerSheet, action: \.spaceManagerSheet) {
       SpaceManagerFeature()
     }
+    .ifLet(\.$commandPalette, action: \.commandPalette) {
+      CommandPaletteFeature()
+    }
   }
+
+  // swiftlint:disable cyclomatic_complexity
+  /// Dispatches a Command Palette activation into the feature action
+  /// that already implements the command. Every case forwards into a
+  /// pre-existing action or client — the palette invents no new
+  /// behavior.
+  private func route(
+    _ kind: CommandPaletteItem.Kind,
+    state: inout State,
+    sourcePanelID: PanelID?
+  ) -> Effect<Action> {
+    switch kind {
+    // App
+    case .openSettings:
+      let presenter = settingsWindowPresenter
+      return .run { _ in await MainActor.run { presenter.open() } }
+    case .checkForUpdates:
+      return .send(.windowActionRouter(.requested(.checkForUpdates)))
+    case .quit:
+      return .send(.windowActionRouter(.requested(.quit)))
+
+    // Spaces
+    case .selectSpace(let id):
+      return .send(.sidebar(.spaceRowTapped(id)))
+    case .openSpaceManager:
+      return .send(.spaceManagerSheetShown)
+    case .switchToSpaceAtIndex(let n):
+      return .send(.switchToSpaceAtIndex(n))
+
+    // Worktree
+    case .selectWorktree(let spaceID, let projectID, let worktreeID):
+      return .send(
+        .sidebar(.worktreeRowTapped(worktreeID, inProject: projectID, inSpace: spaceID))
+      )
+    case .closeCurrentWorktree:
+      guard let spaceID = state.selection.spaceID,
+            let projectID = state.selection.projectID,
+            let worktreeID = state.selection.worktreeID
+      else { return .none }
+      let catalog = hierarchyClient.snapshot()
+      let name = catalog
+        .spaces.first(where: { $0.id == spaceID })?
+        .projects.first(where: { $0.id == projectID })?
+        .worktrees.first(where: { $0.id == worktreeID })?.name ?? ""
+      return .send(
+        .sidebar(
+          .worktreeRemoveTapped(
+            worktreeID: worktreeID, inProject: projectID, inSpace: spaceID, name: name
+          )
+        )
+      )
+    case .refreshCurrentWorktree:
+      guard let spaceID = state.selection.spaceID,
+            let projectID = state.selection.projectID
+      else { return .none }
+      return .run { [projectReconciler] _ in
+        await projectReconciler.reconcile(projectID: projectID, spaceID: spaceID)
+      }
+    case .toggleGitViewer:
+      return .send(.gitViewerToggledForCurrentWorktree)
+
+    // Editor
+    case .openCurrentWorktreeInDefaultEditor:
+      return .send(.openDefaultForCurrentWorktreeRequested)
+    case .openCurrentWorktreeIn(let editorID):
+      guard let spaceID = state.selection.spaceID,
+            let projectID = state.selection.projectID,
+            let worktreeID = state.selection.worktreeID
+      else { return .none }
+      let catalog = hierarchyClient.snapshot()
+      guard let path = catalog
+        .spaces.first(where: { $0.id == spaceID })?
+        .projects.first(where: { $0.id == projectID })?
+        .worktrees.first(where: { $0.id == worktreeID })?.path
+      else { return .none }
+      return .send(
+        .editor(
+          .openRequested(
+            editorID: editorID, worktreePath: path, projectID: projectID
+          )
+        )
+      )
+    case .revealCurrentWorktreeInFinder:
+      guard let spaceID = state.selection.spaceID,
+            let projectID = state.selection.projectID,
+            let worktreeID = state.selection.worktreeID
+      else { return .none }
+      let catalog = hierarchyClient.snapshot()
+      guard let path = catalog
+        .spaces.first(where: { $0.id == spaceID })?
+        .projects.first(where: { $0.id == projectID })?
+        .worktrees.first(where: { $0.id == worktreeID })?.path
+      else { return .none }
+      let client = finderClient
+      return .run { _ in await MainActor.run { client.reveal(path) } }
+
+    // Panel / Window — thin wrappers over the routers
+    case .panelAction(let req):
+      guard let panelID = sourcePanelID
+        ?? CommandPaletteItems.resolveFocusedPanelID(
+          selection: state.selection, catalog: hierarchyClient.snapshot()
+        )
+      else { return .none }
+      return .send(.panelActionRouter(.requested(panelID, req)))
+    case .windowAction(let req):
+      return .send(.windowActionRouter(.requested(req)))
+    }
+  }
+  // swiftlint:enable cyclomatic_complexity
 
   /// Per-Project editor override, if any. Used to resolve the Header's
   /// default-editor dispatch through `EditorFeature.resolveDefault` without

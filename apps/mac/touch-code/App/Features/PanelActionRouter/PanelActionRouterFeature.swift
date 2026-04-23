@@ -36,10 +36,12 @@ struct PanelActionRouterFeature {
     /// Parent-consumed delegate. `PresentTerminal` and
     /// `ToggleCommandPalette` are UI-level intents the root reducer owns;
     /// the router only lifts them onto a typed action so the parent can
-    /// service them without re-decoding the ghostty action.
+    /// service them without re-decoding the ghostty action. Both carry
+    /// the source panel so the parent can resolve per-panel context
+    /// (e.g. which panel is focused when the palette opens).
     enum Delegate: Equatable {
       case presentTerminalRequested(PanelID)
-      case commandPaletteToggleRequested
+      case commandPaletteToggleRequested(PanelID)
     }
   }
 
@@ -177,7 +179,7 @@ struct PanelActionRouterFeature {
       return .send(.delegate(.presentTerminalRequested(panelID)))
 
     case .toggleCommandPalette:
-      return .send(.delegate(.commandPaletteToggleRequested))
+      return .send(.delegate(.commandPaletteToggleRequested(panelID)))
     }
   }
 
