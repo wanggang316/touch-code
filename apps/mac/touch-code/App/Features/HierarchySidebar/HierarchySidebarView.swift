@@ -29,6 +29,14 @@ struct HierarchySidebarView: View {
   @Environment(InboxStore.self) private var inboxStore
   @Environment(SettingsStore.self) private var settingsStore
 
+  /// Tracks whether the `.command` modifier is currently pressed. When held the sidebar
+  /// reveals per-row `⌃⌘N` hotkey hints (and the matching `⌃⌘1`–`⌃⌘9` bindings).
+  @State private var commandKeyObserver = CommandKeyObserver()
+
+  /// Modifier set for the per-row worktree hotkey. `⌘1`–`⌘9` is already bound to Space
+  /// switching (see `MainWindowCommands`), so worktree jumps get `⌃⌘N` instead.
+  private static let hotkeyModifiers: EventModifiers = [.command, .control]
+
   var body: some View {
     let catalog = hierarchyManager.catalog
     // Build the PanelID→WorktreeID index once per render pass. Worktree rows
@@ -251,9 +259,30 @@ struct HierarchySidebarView: View {
       if activeSpace.projects.isEmpty {
         emptySpaceState
       } else {
+        // Top-down flat enumeration of visible worktrees across projects. Used to assign
+        // `⌃⌘1`…`⌃⌘9` to the first 9 rows and reveal matching hints while ⌘ is held.
+        // Archived rows live in a separate sheet and never claim a hotkey slot.
+        let hotkeyIndex: [WorktreeID: Int] = {
+          var map: [WorktreeID: Int] = [:]
+          var slot = 0
+          for project in activeSpace.projects {
+            for worktree in project.worktrees where !worktree.archived {
+              if slot >= 9 { return map }
+              map[worktree.id] = slot
+              slot += 1
+            }
+          }
+          return map
+        }()
         List {
           ForEach(activeSpace.projects) { project in
-            projectSection(project, in: activeSpace, panelIndex: panelIndex, inbox: inbox)
+            projectSection(
+              project,
+              in: activeSpace,
+              panelIndex: panelIndex,
+              inbox: inbox,
+              hotkeyIndex: hotkeyIndex
+            )
           }
           .onMove { source, destination in
             store.send(
@@ -316,7 +345,8 @@ struct HierarchySidebarView: View {
     _ project: Project,
     in space: Space,
     panelIndex: [PanelID: WorktreeID],
-    inbox: NotificationInbox
+    inbox: NotificationInbox,
+    hotkeyIndex: [WorktreeID: Int]
   ) -> some View {
     let projectHasUnread = inbox.notifications.contains { notification in
       guard notification.isUnread,
@@ -353,7 +383,14 @@ struct HierarchySidebarView: View {
           // Filter archived worktrees out of the main list — they surface
           // through the Archived Worktrees sheet instead.
           ForEach(project.worktrees.filter { !$0.archived }) { worktree in
-            worktreeRow(worktree, in: project, space: space, panelIndex: panelIndex, inbox: inbox)
+            worktreeRow(
+              worktree,
+              in: project,
+              space: space,
+              panelIndex: panelIndex,
+              inbox: inbox,
+              hotkeySlot: hotkeyIndex[worktree.id]
+            )
           }
         } label: {
           ProjectHeaderRow(
@@ -375,7 +412,8 @@ struct HierarchySidebarView: View {
     in project: Project,
     space: Space,
     panelIndex: [PanelID: WorktreeID],
-    inbox: NotificationInbox
+    inbox: NotificationInbox,
+    hotkeySlot: Int?
   ) -> some View {
     let isSelected = currentSelection.worktreeID == worktree.id
     let unreadCount = inbox.notifications.reduce(into: 0) { total, notification in
@@ -391,40 +429,19 @@ struct HierarchySidebarView: View {
       }
       return PullRequestBadge.CheckRollup.from(checks: checks)
     }()
+    let hotkeyNumber = hotkeySlot.map { $0 + 1 }
 
     // Row and GitHub badge are siblings rather than nested, so the badge's own Button
     // doesn't live inside the row's Button.label. Tapping the badge opens the PR popover
     // without also firing the row-selection action. The leading portion of the row is
     // the Button; the trailing badge sits beside it.
     return HStack(spacing: 6) {
-      Button {
-        store.send(.worktreeRowTapped(worktree.id, inProject: project.id, inSpace: space.id))
-      } label: {
-        HStack(spacing: 8) {
-          WorktreeRowIcon(snapshot: snapshot, rollup: rollup, isSelected: isSelected)
-          VStack(alignment: .leading, spacing: 0) {
-            Text(worktree.name)
-            // Suppress the secondary branch line when it restates the worktree name —
-            // the common case (main/main, test0003/test0003) otherwise doubles every
-            // row height for zero information.
-            if let branch = worktree.branch, branch != worktree.name {
-              Text(branch)
-                .font(.caption.monospaced())
-                .foregroundStyle(.secondary)
-            }
-          }
-          Spacer()
-          if unreadCount > 0 {
-            Circle()
-              .fill(Color.orange)
-              .frame(width: 6, height: 6)
-              .accessibilityLabel("Has \(unreadCount) unread notifications")
-          }
-        }
-        .contentShape(Rectangle())
-      }
-      .buttonStyle(.plain)
-
+      rowSelectionButton(
+        worktree: worktree, project: project, space: space,
+        snapshot: snapshot, rollup: rollup,
+        unreadCount: unreadCount, hotkeyNumber: hotkeyNumber,
+        isSelected: isSelected
+      )
       gitHubBadge(for: worktree, in: project, space: space)
     }
     .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
@@ -434,6 +451,66 @@ struct HierarchySidebarView: View {
         : Color.clear
     )
     .contextMenu { worktreeContextMenu(worktree: worktree, project: project, space: space) }
+  }
+
+  /// The selection-tappable portion of a Worktree row. Extracted so `worktreeRow` fits
+  /// under swiftlint's `function_body_length` and so the hotkey-hint + keyboard shortcut
+  /// wiring stays close to the button those bindings drive.
+  @ViewBuilder
+  private func rowSelectionButton(
+    worktree: Worktree, project: Project, space: Space,
+    snapshot: PullRequestSnapshot?, rollup: PullRequestBadge.CheckRollup,
+    unreadCount: Int, hotkeyNumber: Int?,
+    isSelected: Bool
+  ) -> some View {
+    let button = Button {
+      store.send(.worktreeRowTapped(worktree.id, inProject: project.id, inSpace: space.id))
+    } label: {
+      HStack(spacing: 8) {
+        WorktreeRowIcon(snapshot: snapshot, rollup: rollup, isSelected: isSelected)
+        VStack(alignment: .leading, spacing: 0) {
+          Text(worktree.name)
+          // Suppress the secondary branch line when it restates the worktree name —
+          // the common case (main/main, test0003/test0003) otherwise doubles every
+          // row height for zero information.
+          if let branch = worktree.branch, branch != worktree.name {
+            Text(branch)
+              .font(.caption.monospaced())
+              .foregroundStyle(.secondary)
+          }
+        }
+        Spacer()
+        if unreadCount > 0 {
+          Circle()
+            .fill(Color.orange)
+            .frame(width: 6, height: 6)
+            .accessibilityLabel("Has \(unreadCount) unread notifications")
+        }
+        if let hotkeyNumber, commandKeyObserver.isCommandHeld {
+          Text("⌃⌘\(hotkeyNumber)")
+            .font(.caption2.monospaced())
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1)
+            .overlay(
+              RoundedRectangle(cornerRadius: 3)
+                .stroke(Color.secondary.opacity(0.35), lineWidth: 1)
+            )
+            .accessibilityHidden(true)
+        }
+      }
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+
+    if let hotkeyNumber {
+      button.keyboardShortcut(
+        KeyEquivalent(Character("\(hotkeyNumber)")),
+        modifiers: Self.hotkeyModifiers
+      )
+    } else {
+      button
+    }
   }
 
   // Main-checkout guard: the row whose path is the Project's rootPath is the main checkout
