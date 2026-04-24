@@ -478,6 +478,16 @@ struct RootFeature {
       case .gitViewer:
         return .none
 
+      // 0014 M2: surface editor-open outcomes in the titlebar status bar.
+      // The child `Scope(state: \.editor, ...)` has already mutated
+      // `lastOpenResult`; we only fan a toast out. Success shows the chosen
+      // editor's display name; failure shows a scrubbed one-line reason.
+      case .editor(.openSucceeded(_, let displayName)):
+        return .send(.statusBar(.push(.success("Opened in \(displayName)"))))
+
+      case .editor(.openFailed(let reason)):
+        return .send(.statusBar(.push(.warning(Self.shortToastMessage(reason)))))
+
       case .editor:
         return .none
 
@@ -882,6 +892,23 @@ struct RootFeature {
         return seeded
       }
     )
+  }
+
+  /// Collapses a potentially multi-line error / warning string into a single
+  /// status-bar-sized line. Keeps the first line (trimmed) and caps at 80
+  /// characters so paths, tokens, and shell noise inside an `EditorError`
+  /// don't bleed into the titlebar.
+  ///
+  /// The 80-char limit is not PII scrubbing per se — it's UX width. Upstream
+  /// callers are responsible for not stuffing secrets into error messages;
+  /// `EditorFeature.editorErrorDescription` already emits short friendly
+  /// strings, so the truncation here is usually a no-op.
+  static func shortToastMessage(_ raw: String) -> String {
+    let firstLine = raw.split(separator: "\n", maxSplits: 1).first.map(String.init) ?? raw
+    let trimmed = firstLine.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard trimmed.count > 80 else { return trimmed }
+    let cutoff = trimmed.index(trimmed.startIndex, offsetBy: 79)
+    return String(trimmed[..<cutoff]) + "…"
   }
 
   /// Resolve the active tab for a selection using the snapshot from the

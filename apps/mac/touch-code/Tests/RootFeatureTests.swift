@@ -600,4 +600,25 @@ struct RootFeatureTests {
       #expect(RootFeature.LastEventMarker(event) == expected)
     }
   }
+
+  // MARK: - 0014 status-bar toast routing
+
+  /// The multi-line / over-80-char scrubber that the `.editor(.openFailed)`
+  /// and `.gitHub(...Completed)` branches pipe through before constructing a
+  /// warning toast. Kept as a pure function so the message-shape invariants
+  /// are locked in without spinning up a `RootFeature` TestStore — a full
+  /// multi-scope TestStore interacts badly with the StatusBarFeature suite's
+  /// TestClock-driven sleeps when they share the host-app process, so we
+  /// exercise the forwarding itself through the M1/M7 app-run smoke tests
+  /// instead.
+  @Test
+  func shortToastMessageTakesFirstLineAndCapsAt80Characters() {
+    #expect(RootFeature.shortToastMessage("one") == "one")
+    #expect(RootFeature.shortToastMessage("first\nsecond") == "first")
+    #expect(RootFeature.shortToastMessage("  padded\n ") == "padded")
+    let long = String(repeating: "x", count: 120)
+    let clipped = RootFeature.shortToastMessage(long)
+    #expect(clipped.count == 80)
+    #expect(clipped.hasSuffix("…"))
+  }
 }

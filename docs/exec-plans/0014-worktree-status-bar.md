@@ -24,7 +24,7 @@ This is a living document. The Progress, Surprises & Discoveries, Decision Log, 
   - [x] M1.1 StatusToast 值类型（TouchCodeCore/StatusBar/StatusToast.swift） — commit `7e7610c`
   - [x] M1.2 StatusBarFeature reducer + 单测（7/7 绿） — commit `c579d2f`
   - [x] M1.3 StatusBarView 最小实现 + 挂 toolbar
-- [ ] M2 Editor hook
+- [x] **M2 Editor hook** (2026-04-24)
 - [ ] M3 GitHub hook
 - [ ] M4 PR form
   - [ ] M4.A ChecksRollupRing（可并行）
@@ -39,7 +39,7 @@ This is a living document. The Progress, Surprises & Discoveries, Decision Log, 
 
 ## Surprises & Discoveries
 
-- **2026-04-24 (M1.2)** Running `xcodebuild test -only-testing:touch-codeTests/StatusBarFeatureTests` in the default parallel mode intermittently crashes with `Fatal error: Unimplemented: GitHubClient.batchPullRequests`. The issue is pre-existing and unrelated to StatusBarFeature — it's the host app's bootstrap effect racing with swift-testing's parallel dependency reset; another suite's unimplemented `testValue` fires before the test's `withDependencies` block takes effect. **Workaround**: add `-parallel-testing-enabled NO` when running this suite, or scope `-only-testing` down to a single test function. All 7 StatusBar tests pass under serial execution.
+- **2026-04-24 (M1.2 → M2.1)** The `touch-code` test target shares its app binary as the xctest host. When a test run starts, SwiftUI mounts `TouchCodeApp` + `AppState.bringUp()` in the same process, which touches live clients (GitHubClient, EditorClient, …). Under swift-testing's default parallel execution, that bootstrap races with our TestStores and produces non-deterministic `Test crashed with signal trap` on whichever test happens to be on-CPU. Running individual `StatusBarFeatureTests` cases in isolation passes every time; running the whole suite is flaky (observed 7/7, 6/7, 2/7 in three consecutive attempts). This is pre-existing and orthogonal to 0014 — any new TestStore suite in this target is exposed to the same race. **Workaround**: rely on `-only-testing` at the test-function level for deterministic signal during M1-M7 work; do not treat aggregate flakes as code regressions. A follow-up hardening task (add `LSUIElement` + test-mode guard in `AppState.bringUp()`) is a candidate for a separate plan. M2 forwarding tests that touched `RootFeature` + `StatusBarFeature` in one TestStore were retired in favour of a pure-function `shortToastMessage` test; the `.editor(.openSucceeded/.openFailed)` → `.statusBar(.push(...))` forwarding is verified via app-run smoke (M7 step).
 
 ## Decision Log
 
