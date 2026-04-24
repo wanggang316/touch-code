@@ -1,6 +1,6 @@
 # ExecPlan: Tab Bar Uplift
 
-**Status:** In Progress (M1 shipped; M2 / M3 pending)
+**Status:** In Progress (M1 + M2 shipped; M3 pending)
 **Author:** Gump (via Claude)
 **Date:** 2026-04-24
 
@@ -35,17 +35,17 @@ Timestamp format: `YYYY-MM-DD`. Update as each item closes.
 
 ### M2 — Interactions (right-click, drag, middle-click, shortcuts, overflow, trailing splits)
 
-- [ ] T2.1 `HierarchyManager` + `HierarchyClient` gain `renameTab`, `reorderTabs`, `closeOtherTabs`, `closeTabsToRight`, `closeAllTabs`, `selectAdjacentTab(direction:)`.
-- [ ] T2.2 `TabBarFeature` gains matching actions: `renameSubmitted`, `contextMenuCloseOthers`, `contextMenuCloseToRight`, `contextMenuCloseAll`, `dragReorderEnded`, `middleClicked`.
-- [ ] T2.3 Right-click context menu (`TabChipContextMenu`) wired with `Rename`, `Close`, `Close Others` (disabled on single tab), `Close to the Right` (disabled on last tab), `Close All`.
-- [ ] T2.4 Inline rename `TextField`, commits to `renameSubmitted(...)`. `Esc` cancels. Focus returns to the previously focused pane.
-- [ ] T2.5 Drag-to-reorder gesture with 3-pt movement threshold; on drop dispatches `dragReorderEnded(orderedIDs:)`. Spring animation `response: 0.3, damping: 0.85`.
-- [ ] T2.6 Middle-click close via `TabChipMiddleClickView` (NSViewRepresentable wrapping `NSView.mouseDown` for `.otherMouseUp`).
-- [ ] T2.7 `TabBarOverflowScroll` — horizontal ScrollView with hidden scrollbar, 16-pt edge gradient shadows when content overflows; `ScrollViewReader.scrollTo(selected, anchor: .center)` with `easeInOut(0.15s)` on selection change.
-- [ ] T2.8 `TabBarTrailingAccessories` — `+` button (new tab), `⊟` split-right, `⊟↓` split-down. Hover delay 350 ms then show `SplitPreviewPopoverView` rendering a miniature of the active tab's split tree.
-- [ ] T2.9 Main-menu shortcuts added to `MainWindowCommands`: `⌘T` / `⌘W` / `⌥⌘1`..`⌥⌘9` / `⌘⇧[` / `⌘⇧]`. Each declares a Root-level resolver action that snapshots the current `(space, project, worktree)` and forwards to `TabBarFeature`.
-- [ ] T2.10 `TabBarFeatureTests` covers every new action; `HierarchyManagerTests` covers the five new manager methods + invariants (selected tab remains valid after bulk close; reorder rejects mismatched ID sets).
-- [ ] T2.11 Manual smoke script in the PR description: 1 / 5 / 20 / 50 tabs; drag-reorder mid-animation; `⌘T` × 12 then `⌘W` × 12; rename with terminal focus active; middle-click; all five context-menu items; trailing split + hover preview.
+- [x] T2.1 `HierarchyManager` + `HierarchyClient` gain `renameTab`, `reorderTabs`, `closeOtherTabs`, `closeTabsToRight`, `closeAllTabs`, `selectAdjacentTab(direction:)`. (2026-04-24, `87c1359`)
+- [x] T2.2 `TabBarFeature` gains matching actions + middle-click alias. HierarchyClient scaffolding wired through live / liveValue / testValue. (2026-04-24, `c7b621d`)
+- [x] T2.3 Right-click context menu (`TabChipContextMenu`) — Rename / Close / Close Others (disabled single-tab) / Close to the Right (disabled last-tab) / Close All. (2026-04-24, `14c5c54`)
+- [x] T2.4 Inline rename `TextField`: Return commits via `onRenameCommit` (empty-after-trim → nil), Esc discards, focus auto-returns to previously focused pane. (2026-04-24, `edaf740`)
+- [x] T2.5 Drag-to-reorder via `.onDrag` / `DropDelegate`; single `dragReorderEnded` dispatch on drop; spring settle animation. (2026-04-24, `ba25da9`)
+- [x] T2.6 Middle-click via `TabChipMiddleClickView` (NSViewRepresentable with buttonNumber == 2 hit-test gate); left/right clicks fall through to SwiftUI. (2026-04-24, `239f179`)
+- [x] T2.7 `TabBarOverflowScroll` — horizontal ScrollView + 16-pt edge gradient shadows (only when overflowing) + auto-scroll-to-selected. GeometryReader + PreferenceKey used instead of macOS 15's `onScrollGeometryChange` to honour the macOS 14 deployment target. (2026-04-24, `bd35440`)
+- [x] T2.8 Trailing `+` / split-right / split-down with 350-ms hover preview popover showing a recursive miniature of the active tab's split tree. Splits anchor off the leftmost leaf — upgrades to last-focused pane when M3 lands. (2026-04-24, `184dbe7`)
+- [x] T2.9 Main-menu shortcuts in a new `MainWindowCommands` group: `⌘T` / `⌘W` / `⌘⇧[` / `⌘⇧]` / `⌥⌘1..⌥⌘9`. Root resolver actions match the ⌘E / ⌘⇧G pattern. (2026-04-24, `045814b`)
+- [x] T2.10 Tests: 11 new `HierarchyManagerTests` cases, 8 new `TabBarFeatureTests` cases + fix for the in-suite new-tab flake, 6 new `RootFeatureTests` cases. (2026-04-24, `572bdc3`)
+- [x] T2.11 Smoke script documented in the PR description. Manual UI verification is owner-gated — the agent session does not exercise the running app; see "Retrospective — M2" below for the script.
 
 ### M3 — Runtime state: focus memory + dirty read path
 
@@ -72,8 +72,9 @@ Timestamp format: `YYYY-MM-DD`. Update as each item closes.
 - **D2** (plan-time, 2026-04-24): Tab-bar keyboard shortcuts are dispatched from `MainWindowCommands` via **Root-level resolver actions** (e.g. `.newTabForCurrentWorktree`, `.selectTabAtIndexForCurrentWorktree(Int)`), matching the established pattern for `⌘E` (`openDefaultForCurrentWorktreeRequested`) and `⌘⇧G` (`gitViewerToggledForCurrentWorktree`). The Root reducer snapshots `hierarchyClient.snapshot()`, resolves `(space, project, worktree)`, and forwards to `TabBarFeature` via the existing `WorktreeDetailFeature → .tabBar` scope. `TabBarFeature` stays TCA-pure; `Commands` never touches `HierarchyClient` directly (the `liveValue` there fatalErrors).
 - **D3** (plan-time, 2026-04-24): Drag reorder dispatches `dragReorderEnded(orderedIDs: [TabID])` **once on drop**, not on each pointer tick. Reason: `CatalogStore.scheduleSave` is debounced, but a per-tick reducer action still recomputes SwiftUI layout and can flicker across midpoints. One atomic write matches how the catalog wants to be mutated and keeps the invariant check (`orderedIDs == Set(existing.tabs.map(\.id))`) in one place.
 - **D4** (plan-time, 2026-04-24): `paneRunning` is a **runtime-only map on `HierarchyManager`**, not a persisted `Tab` field. Reason: running state is wall-clock-live — it must be rewritten on every app launch anyway, so persisting it would either leak stale spinners or force an always-zero save-path. Adding a writer closure (`markPaneRunning`) with no caller in this PR keeps the contract symmetric for C3.
-
-(No more decisions yet.)
+- **D5** (M2-T2.7, 2026-04-24): Edge-shadow visibility uses a `GeometryReader` + `PreferenceKey` pair, **not** `onScrollGeometryChange`. Reason: `onScrollGeometryChange` requires macOS 15 and the project targets macOS 14. The preference-key shim is slightly noisier (one layout pass per scroll tick) but correct and backward-compatible.
+- **D6** (M2-T2.8, 2026-04-24): Trailing split buttons anchor off the **leftmost leaf** of the active tab's split tree rather than a user-focused pane. Reason: focus tracking (`lastFocusedPaneByTab`) lands in M3; adding it here would widen M2 scope and make the milestone uglier to revert. Documented as an M3 upgrade.
+- **D7** (M2-T2.8, 2026-04-24): `TabBarFeature` **does** own `trailingSplitRequested`, even though the plan had implied T2.9 would own any new cross-layer actions. Reason: the button is chrome inside the tab bar, so the action domain is still "tab bar stuff." Defining it on `RootFeature` would have meant a resolver that could only be called from inside the bar — an awkward split.
 
 ## Outcomes & Retrospective
 
@@ -96,6 +97,39 @@ Timestamp format: `YYYY-MM-DD`. Update as each item closes.
 - `make build` (which hits `-workspace`) is the canonical green-gate; raw `xcodebuild -project` misses the Tuist-managed SPM products and fails on `ArgumentParser`. `make clean` also deletes `Tuist/Package.resolved`, so recovery needs `tuist install` before `tuist generate`.
 - SwiftUI's `UnevenRoundedRectangle` + `Rectangle` overlay gives a cleaner "folder tab with accent stripe" than a single-corner radius trick and avoids a custom shape.
 - Press state on the chip is exposed via a `ButtonStyle` that reflects `configuration.isPressed` into a parent binding; the alternative (custom gesture) fights SwiftUI's tap detection and tends to swallow clicks.
+
+### M2 — 2026-04-24 — shipped on `feature/tab-and-pane`
+
+**Shipped:**
+- Manager / client API surface: `renameTab`, `reorderTabs`, `closeOtherTabs`, `closeTabsToRight`, `closeAllTabs`, `selectAdjacentTab` — all exposed through `HierarchyClient` with the matching live / liveValue / testValue scaffolding. `TabAdjacency` enum lives in `TouchCodeCore`.
+- `TabBarFeature.Action`: six new cases (renameSubmitted, contextMenuCloseOthers, contextMenuCloseToRight, contextMenuCloseAll, dragReorderEnded, middleClicked) plus `trailingSplitRequested(direction:...)` for the trailing split buttons. Reducer stays stateless; every case is a one-line forward or resolver.
+- Chip interactions: right-click context menu (Rename / Close / Close Others [disabled single-tab] / Close to the Right [disabled last-tab] / Close All), inline `TextField` rename (Return commits, Esc discards), middle-click close (NSViewRepresentable bridge), drag-to-reorder (single `dragReorderEnded` dispatch on drop, spring settle).
+- Row-level: `TabBarOverflowScroll` wraps the chip row with a hidden-scrollbar horizontal ScrollView, 16-pt leading/trailing gradient shadows that fade in only when the row overflows either edge, and a `ScrollViewReader.scrollTo(id, anchor: .center)` on `activeTabID` changes (easeInOut 0.15s). Trailing accessories (`+` / split-right / split-down) stay pinned outside the scroll.
+- Trailing splits: clicking either split button resolves the leftmost leaf of the active tab and forwards through the existing `splitPane` client. Hovering either for 350 ms pops a miniature preview of the active tab's split tree (recursive GeometryReader + proportional frames).
+- Main-menu shortcuts: `⌘T` (new tab), `⌘W` (close active tab), `⌘⇧[` / `⌘⇧]` (previous / next with wrap-around), `⌥⌘1..⌥⌘9` (select by index). All items disable when no Worktree is selected. The tab-index namespace dodges `⌘1..⌘9` (Space) and `⌃⌘1..⌃⌘9` (Worktree).
+- Tests: `HierarchyManagerTests` gains 11 cases; `TabBarFeatureTests` gains 8 cases plus a stub fix that stabilizes the pre-existing `newTabButtonCallsCreateTab` in-suite flake noted in the M1 retrospective; `RootFeatureTests` gains 6 cases for the four resolver actions.
+
+**Manual smoke script** (owner to run before merge):
+
+1. Open 1 / 5 / 20 / 50 tabs via `⌘T`; confirm the row scrolls, edge gradients show, and the active chip auto-scrolls into view when using `⌘⇧]`.
+2. Drag the leftmost chip to the middle of the row; release; order persists; spring settle is smooth.
+3. Right-click any chip; exercise all five menu items, including the disable states (single-tab → Close Others disabled; last-tab → Close to the Right disabled).
+4. Right-click → Rename…; type a new title, press Return; commit persists. Open a fresh Rename; press Esc; title unchanged and focus lands back in the previously focused pane.
+5. Middle-click a chip; it closes without the context menu flashing.
+6. `⌥⌘1..⌥⌘9` select Nth tab (no-op past `count`). `⌘1..⌘9` still switches Space; `⌃⌘1..⌃⌘9` still jumps Worktree (regression check).
+7. Hover either trailing split button for >350 ms; preview popover shows a miniature of the active tab's tree. Click → new split lands on the leftmost leaf.
+
+**Gaps / deferred:**
+- Trailing split buttons anchor off the leftmost leaf rather than the user-focused pane; M3 upgrades the anchor selection once `lastFocusedPaneByTab` lands.
+- `onScrollGeometryChange` is macOS 15+; the PreferenceKey-based shim is correct but less efficient. Revisit when the deployment target bumps.
+- Snapshot reference PNGs still not committed — M3's focus wiring or a dedicated CI step will record them with a deterministic host window.
+- `selectionChangedMirrorsActiveTabFromSnapshot` + `gitViewerOverlayVisibleTracksSelectionAgainstCatalog` baseline flakes in `RootFeatureTests` remain untouched; unrelated to M2 scope.
+
+**Lessons:**
+- `NSItemProvider`'s `loadObject` callback invokes off-main; non-Sendable TCA closures must be typed `@MainActor @Sendable` and called via `Task { @MainActor in … }` to compile clean under Swift 6 strict concurrency.
+- SwiftUI `.contextMenu` + `@FocusState`-driven `TextField` is the cheapest path to inline rename; alternative (`.alert` / sheet) fights the chip's own hover/press state.
+- Hover-delayed popovers want `Task.sleep` + cancellation on `.onHover(false)` rather than `DispatchWorkItem`; the async path composes with SwiftUI lifecycle without manual invalidation bookkeeping.
+- Static vars can't live inside generic types; a file-private `let` constant works for "coordinate space name"-style sentinels without the generic-storage rules kicking in.
 
 ## Context and Orientation
 
