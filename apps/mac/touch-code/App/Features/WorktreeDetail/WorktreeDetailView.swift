@@ -165,19 +165,7 @@ struct WorktreeDetailView: View {
   ) -> some ToolbarContent {
     if let info {
       if info.project.supportsWorktrees {
-        ToolbarItem(placement: .navigation) {
-          HStack(spacing: 6) {
-            Image(systemName: "arrow.trianglehead.branch")
-              .foregroundStyle(.secondary)
-              .accessibilityHidden(true)
-            Text(info.branchLabel)
-              .lineLimit(1)
-          }
-          .font(.headline)
-          .accessibilityElement(children: .ignore)
-          .accessibilityLabel("Current branch: \(info.branchLabel)")
-          .accessibilityAddTraits(.isStaticText)
-        }
+        branchToolbarItem(info: info)
       }
       // Three independent trailing buttons. `ToolbarItemGroup` keeps the
       // relative order while preventing SwiftUI from collapsing them into a
@@ -204,6 +192,28 @@ struct WorktreeDetailView: View {
           .buttonStyle(.plain)
         }
       }
+    }
+  }
+
+  @ToolbarContentBuilder
+  private func branchToolbarItem(info: WorktreeInfo) -> some ToolbarContent {
+    let item = ToolbarItem(placement: .navigation) {
+      HStack(spacing: 6) {
+        Image(systemName: "arrow.trianglehead.branch")
+          .foregroundStyle(.secondary)
+          .accessibilityHidden(true)
+        Text(info.branchLabel)
+          .lineLimit(1)
+      }
+      .font(.headline)
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel("Current branch: \(info.branchLabel)")
+      .accessibilityAddTraits(.isStaticText)
+    }
+    if #available(macOS 26.0, *) {
+      item.sharedBackgroundVisibility(.hidden)
+    } else {
+      item
     }
   }
 
