@@ -28,7 +28,7 @@ migrate transparently on first launch.
 ## Progress
 
 - [x] Step 1 — `ProjectKind` enum + `Project.kind` + `HierarchyClient.kind(of:)` (2026-04-24)
-- [ ] Step 2 — `ProjectSettings` + `GitProjectSettings` types (additive)
+- [x] Step 2 — `ProjectSettings` + `GitProjectSettings` types (additive) (2026-04-24)
 - [ ] Step 3 — `settings.json` v3 codable + v2-fold decoder path
 - [ ] Step 4 — `catalog.json` v2 (Project fields stripped from encoder)
 - [ ] Step 5 — `hooks.json` v2 (new Scope cases + fail-soft Kind)
