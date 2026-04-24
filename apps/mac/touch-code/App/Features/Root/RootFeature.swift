@@ -136,6 +136,20 @@ struct RootFeature {
     /// to `liveValue` and crashes on the stubbed `snapshot` accessor) and
     /// dispatches `.editor(.openDefaultInCurrentWorktreeRequested)`.
     case openDefaultForCurrentWorktreeRequested
+    /// Tab-bar uplift: `⌘T` menu binding. Resolves the current Worktree
+    /// and forwards `.detail(.tabBar(.newTabButtonTapped))`.
+    case newTabForCurrentWorktree
+    /// `⌘W` menu binding — closes the Worktree's active tab via
+    /// `.detail(.tabBar(.closeButtonTapped))`. Silent no-op when no tab
+    /// is active.
+    case closeActiveTabForCurrentWorktree
+    /// `⌥⌘1..⌥⌘9` menu bindings — selects the Nth tab (1-indexed).
+    /// Silent no-op when the index exceeds the tab count.
+    case selectTabAtIndexForCurrentWorktree(Int)
+    /// `⌘⇧[` / `⌘⇧]` menu bindings — jumps to the previous / next tab
+    /// with wrap-around. Calls `HierarchyClient.selectAdjacentTab`
+    /// directly since the traversal logic lives in `HierarchyManager`.
+    case selectAdjacentTabForCurrentWorktree(TabAdjacency)
     /// T3: ⌘K entry point. Forwards to the sidebar so its Space-switcher
     /// popover opens. Handled inline by the root reducer as a `.send` into
     /// `.sidebar(.externalSpacePopoverOpenRequested)`.
@@ -650,6 +664,74 @@ struct RootFeature {
 
       case .openSpaceSwitcherRequested:
         return .send(.sidebar(.externalSpacePopoverOpenRequested))
+
+      case .newTabForCurrentWorktree:
+        guard
+          let spaceID = state.selection.spaceID,
+          let projectID = state.selection.projectID,
+          let worktreeID = state.selection.worktreeID
+        else { return .none }
+        return .send(
+          .detail(
+            .tabBar(
+              .newTabButtonTapped(
+                inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+              ))))
+
+      case .closeActiveTabForCurrentWorktree:
+        guard
+          let spaceID = state.selection.spaceID,
+          let projectID = state.selection.projectID,
+          let worktreeID = state.selection.worktreeID
+        else { return .none }
+        let catalog = hierarchyClient.snapshot()
+        guard
+          let worktree = catalog
+            .spaces.first(where: { $0.id == spaceID })?
+            .projects.first(where: { $0.id == projectID })?
+            .worktrees.first(where: { $0.id == worktreeID }),
+          let activeTabID = worktree.selectedTabID
+        else { return .none }
+        return .send(
+          .detail(
+            .tabBar(
+              .closeButtonTapped(
+                activeTabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+              ))))
+
+      case .selectTabAtIndexForCurrentWorktree(let n):
+        guard
+          n >= 1,
+          let spaceID = state.selection.spaceID,
+          let projectID = state.selection.projectID,
+          let worktreeID = state.selection.worktreeID
+        else { return .none }
+        let catalog = hierarchyClient.snapshot()
+        guard
+          let worktree = catalog
+            .spaces.first(where: { $0.id == spaceID })?
+            .projects.first(where: { $0.id == projectID })?
+            .worktrees.first(where: { $0.id == worktreeID }),
+          n <= worktree.tabs.count
+        else { return .none }
+        let targetTabID = worktree.tabs[n - 1].id
+        return .send(
+          .detail(
+            .tabBar(
+              .tabButtonTapped(
+                targetTabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+              ))))
+
+      case .selectAdjacentTabForCurrentWorktree(let direction):
+        guard
+          let spaceID = state.selection.spaceID,
+          let projectID = state.selection.projectID,
+          let worktreeID = state.selection.worktreeID
+        else { return .none }
+        // Selection mutation lives in HierarchyManager — no TabBarFeature
+        // action to forward since there's no TabID to look up yet.
+        _ = try? hierarchyClient.selectAdjacentTab(direction, worktreeID, projectID, spaceID)
+        return .none
       }
     }
     .ifLet(\.$spaceManagerSheet, action: \.spaceManagerSheet) {
