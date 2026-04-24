@@ -3,8 +3,13 @@ import SwiftUI
 import TouchCodeCore
 
 /// Horizontal tab bar for the active Worktree. Reads `Worktree.tabs` from
-/// the environment `HierarchyManager`; dispatches create/select/close
+/// the environment `HierarchyManager`; dispatches create / select / close
 /// actions through `TabBarFeature`.
+///
+/// Post M1-T1.2, the chip / row / accessory visuals live in dedicated view
+/// types under `Views/`; the container itself stays minimal — read the
+/// catalog, forward selection + close + new-tab closures into the row, and
+/// let the children own their own layout.
 struct TabBarView: View {
   let store: StoreOf<TabBarFeature>
   /// Resolved address of the active worktree whose tabs we render. If any
@@ -18,21 +23,31 @@ struct TabBarView: View {
   var body: some View {
     HStack(spacing: 4) {
       if let worktree = currentWorktree() {
-        ForEach(worktree.tabs) { tab in
-          tabButton(tab)
+        TabBarRowView(
+          tabs: worktree.tabs,
+          activeTabID: activeTabID,
+          onSelect: { tabID in
+            store.send(
+              .tabButtonTapped(
+                tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+              ))
+          },
+          onClose: { tabID in
+            store.send(
+              .closeButtonTapped(
+                tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+              ))
+          }
+        )
+      }
+      TabBarTrailingAccessories(
+        onNewTab: {
+          store.send(
+            .newTabButtonTapped(
+              inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+            ))
         }
-      }
-      Button {
-        store.send(
-          .newTabButtonTapped(
-            inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
-          ))
-      } label: {
-        Image(systemName: "plus")
-          .accessibilityLabel("New Tab")
-      }
-      .buttonStyle(.borderless)
-      .padding(.horizontal, 6)
+      )
     }
   }
 
@@ -40,39 +55,5 @@ struct TabBarView: View {
     hierarchyManager.catalog.spaces.first(where: { $0.id == spaceID })?
       .projects.first(where: { $0.id == projectID })?
       .worktrees.first(where: { $0.id == worktreeID })
-  }
-
-  private func tabButton(_ tab: TouchCodeCore.Tab) -> some View {
-    HStack(spacing: 4) {
-      Button {
-        store.send(
-          .tabButtonTapped(
-            tab.id, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
-          ))
-      } label: {
-        Text(tab.name ?? "Tab")
-          .lineLimit(1)
-          .padding(.horizontal, 8)
-      }
-      .buttonStyle(.plain)
-      Button {
-        store.send(
-          .closeButtonTapped(
-            tab.id, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
-          ))
-      } label: {
-        Image(systemName: "xmark")
-          .font(.caption2)
-          .accessibilityLabel("Close Tab")
-      }
-      .buttonStyle(.borderless)
-      .opacity(0.6)
-    }
-    .padding(.vertical, 3)
-    .padding(.horizontal, 4)
-    .background(
-      RoundedRectangle(cornerRadius: 4)
-        .fill(activeTabID == tab.id ? Color.accentColor.opacity(0.2) : Color.clear)
-    )
   }
 }
