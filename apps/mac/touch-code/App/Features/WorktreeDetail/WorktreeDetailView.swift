@@ -27,6 +27,10 @@ struct WorktreeDetailView: View {
   /// 0014: titlebar-center Worktree Status Bar store. Owns the toast slot; PR /
   /// motivational forms are view-level projections of other scopes (added in M4/M5).
   let statusBarStore: StoreOf<StatusBarFeature>
+  /// 0014 M4: scoped GitHub feature store; read for the PR form's
+  /// `snapshots[worktreeID]` lookup. Same store the sidebar badge reads so
+  /// the two surfaces stay in sync by construction.
+  let gitHubStore: StoreOf<GitHubFeature>
   /// T3: derived from `RootFeature.State.gitViewerOverlayVisible`; never assigned locally.
   let overlayVisible: Bool
   @Environment(HierarchyManager.self) private var hierarchyManager
@@ -177,7 +181,11 @@ struct WorktreeDetailView: View {
       // keeps the cluster hugged against the right edge rather than drifting
       // into the center as other items resize.
       ToolbarItem(placement: .principal) {
-        StatusBarView(store: statusBarStore)
+        StatusBarView(
+          store: statusBarStore,
+          gitHubStore: gitHubStore,
+          worktreeID: address.worktree
+        )
       }
       // Three independent trailing buttons. `ToolbarItemGroup` keeps the
       // relative order while preventing SwiftUI from collapsing them into a

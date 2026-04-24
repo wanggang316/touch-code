@@ -73,6 +73,7 @@ struct ContentView: View {
         headerStore: store.scope(state: \.worktreeHeader, action: \.worktreeHeader),
         gitViewerStore: store.scope(state: \.gitViewer, action: \.gitViewer),
         statusBarStore: store.scope(state: \.statusBar, action: \.statusBar),
+        gitHubStore: store.scope(state: \.gitHub, action: \.gitHub),
         // Live read against the observed `hierarchyManager.catalog` — any
         // write to `Worktree.gitViewerVisible` (⌘⇧G, Header button, or
         // external API) re-renders this view without needing a reducer
