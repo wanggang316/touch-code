@@ -3,12 +3,12 @@ import Observation
 import TouchCodeCore
 import os.log
 
-/// `@MainActor @Observable` owner of `~/.config/touch-code/settings.json` (v2). Single writer
+/// `@MainActor @Observable` owner of `~/.config/touch-code/settings.json` (v3). Single writer
 /// for the file — the former `NotificationSettingsStore` is deleted in this step. Mirrors the
 /// `CatalogStore` pattern: atomic-rename writes via `AtomicFileStore`, 500 ms trailing
 /// debounce on structural mutations, broken-file backup on decode failure. On first launch
-/// after the v1→v2 transition, any pre-v2 `settings.json` is routed through
-/// `SettingsMigration.load` and its original is preserved as `settings.json.v1-<ts>`.
+/// after a schema transition, the pre-current `settings.json` is routed through
+/// `SettingsMigration.load` and its original is preserved as `settings.json.v{N}-<ts>`.
 ///
 /// Mutations go through section-scoped `mutate*` closures or the editor-specific
 /// convenience methods; direct property assignment is not exposed. Views subscribe through
@@ -35,30 +35,31 @@ final class SettingsStore {
   init(
     fileURL: URL = Settings.defaultURL(),
     debounceWindow: Duration = SettingsStore.debounceWindow,
-    knownEditorIDs: Set<EditorID> = Set(EditorRegistry.registry.map(\.id))
+    knownEditorIDs: Set<EditorID> = Set(EditorRegistry.registry.map(\.id)),
+    catalogOverrides: @Sendable (ProjectID) -> (defaultEditor: EditorID?, worktreesDirectory: String?)? = { _ in nil }
   ) {
     self.fileURL = fileURL
     self.debounceWindow = debounceWindow
     // `migrationSafeToPersist` gates every subsequent save attempt. When the migration
-    // helper returns `.migrationBackupFailed`, the original v1 file may still be sitting at
-    // the canonical URL — writing on top of it would destroy the user's historical data.
+    // helper returns `.migrationBackupFailed`, the original v1/v2 file may still be sitting
+    // at the canonical URL — writing on top of it would destroy the user's historical data.
     // Setting the flag to false puts the store into a read-only / in-memory-only mode.
     var safeToPersist = true
 
     do {
-      switch try SettingsMigration.load(from: fileURL) {
+      switch try SettingsMigration.load(from: fileURL, catalogOverrides: catalogOverrides) {
       case .fresh:
         self.settings = .default
-      case .v2(let existing):
+      case .v3(let existing):
         self.settings = existing
-      case .migratedFromV1(_, let backupURL):
+      case .migratedFromV1(_, let backupURL), .migratedFromV2(_, let backupURL):
         // Migration already committed both the new canonical file and the backup durably —
         // we just read the migrated tree back from disk so the in-memory copy matches what
         // the next launch will see.
         let persisted = (try? AtomicFileStore.read(Settings.self, at: fileURL)) ?? nil
         if let persisted {
           self.settings = persisted
-          logger.info("Loaded migrated v2 settings.json (backup: \(backupURL.lastPathComponent, privacy: .public))")
+          logger.info("Loaded migrated settings.json (backup: \(backupURL.lastPathComponent, privacy: .public))")
         } else {
           // Extraordinarily unlikely: migration claimed success but the file isn't readable.
           // Treat as unsafe — don't overwrite whatever IS on disk.
@@ -126,16 +127,17 @@ final class SettingsStore {
     scheduleSave()
   }
 
-  /// Mutates the `RepositorySettings` for `projectID`, creating an empty entry if none
+  /// Mutates the `ProjectSettings` for `projectID`, creating an empty entry if none
   /// exists. The pre-save garbage collection in `scheduleSave` drops any entry that ends up
-  /// effectively empty so `settings.json` never accumulates useless `{}` objects.
-  func mutateRepository(
+  /// effectively empty so `settings.json` never accumulates useless `{}` objects, and also
+  /// collapses `projects[pid].git` to `nil` when the nested subtree is at defaults.
+  func mutateProject(
     _ projectID: ProjectID,
-    _ transform: (inout RepositorySettings) -> Void
+    _ transform: (inout ProjectSettings) -> Void
   ) {
-    var entry = settings.repositories[projectID] ?? RepositorySettings()
+    var entry = settings.projects[projectID] ?? ProjectSettings()
     transform(&entry)
-    settings.repositories[projectID] = entry
+    settings.projects[projectID] = entry
     scheduleSave()
   }
 

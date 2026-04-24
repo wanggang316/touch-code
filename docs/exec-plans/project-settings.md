@@ -29,7 +29,7 @@ migrate transparently on first launch.
 
 - [x] Step 1 — `ProjectKind` enum + `Project.kind` + `HierarchyClient.kind(of:)` (2026-04-24)
 - [x] Step 2 — `ProjectSettings` + `GitProjectSettings` types (additive) (2026-04-24)
-- [ ] Step 3 — `settings.json` v3 codable + v2-fold decoder path
+- [x] Step 3 — `settings.json` v3 codable + v2-fold decoder path (2026-04-24)
 - [ ] Step 4 — `catalog.json` v2 (Project fields stripped from encoder)
 - [ ] Step 5 — `hooks.json` v2 (new Scope cases + fail-soft Kind)
 - [ ] Step 6 — `SettingsStore.mutateProject` + `HierarchyClient` slim-down + "Open in" rewire
@@ -47,8 +47,26 @@ migrate transparently on first launch.
 
 ## Decision Log
 
-(None yet — all design-time decisions recorded in
-`docs/design-docs/project-settings.md`; plan-time decisions go here.)
+### 2026-04-24 — Step 3 subsumed Step 6's `mutateRepository → mutateProject` rename
+
+Rationale: `Settings.repositories: [ProjectID: RepositorySettings]` → `Settings.projects:
+[ProjectID: ProjectSettings]` forces the `SettingsStore.mutateRepository(_ ... (inout
+RepositorySettings) -> Void)` closure type to change (value type is now `ProjectSettings`
+and the old `RepositorySettings` struct is deleted in Step 3). Keeping the old method name
+alive with a shim translating between two types would be noise. Consequence: Step 6's
+scope shrinks to HierarchyClient slim-down + "Open in" dropdown rewire only.
+
+### 2026-04-24 — Step 3 fixed two pre-existing flaky tests as a side effect
+
+`SettingsStoreTests.writeFailureLogsButDoesNotMoveFileAside` and
+`saveNowCancelsPendingDebouncedWrite` both seeded sentinel editor IDs (`"initial"`,
+`"SENTINEL"`) that `Settings.garbageCollectEditors` would wipe on load. The tests passed
+under CI's swift-testing `-only-testing` filter because the filter's regex excluded those
+individual tests. Running the suite without the filter revealed the breakage. Fix: pass
+`knownEditorIDs: [...]` containing the sentinel(s) at each affected `SettingsStore` init so
+the normalisation step leaves the test seed intact. Scope limited to those two call sites
+— no behavioural change to `garbageCollectEditors`.
+
 
 ## Outcomes & Retrospective
 
