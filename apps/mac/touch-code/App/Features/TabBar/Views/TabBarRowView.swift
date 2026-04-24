@@ -44,6 +44,7 @@ struct TabBarRowView: View {
           onCloseAll: onCloseAll,
           onRenameCommit: { newName in onRenameCommit(tab.id, newName) }
         )
+        .id(tab.id)
         .onDrag {
           NSItemProvider(object: tab.id.raw.uuidString as NSString)
         }

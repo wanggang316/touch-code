@@ -4,12 +4,12 @@ import TouchCodeCore
 
 /// Horizontal tab bar for the active Worktree. Reads `Worktree.tabs` from
 /// the environment `HierarchyManager`; dispatches create / select / close
-/// actions through `TabBarFeature`.
+/// / rename / reorder / bulk-close actions through `TabBarFeature`.
 ///
-/// Post M1-T1.2, the chip / row / accessory visuals live in dedicated view
-/// types under `Views/`; the container itself stays minimal — read the
-/// catalog, forward selection + close + new-tab closures into the row, and
-/// let the children own their own layout.
+/// Post M2-T2.7 the chip row lives inside `TabBarOverflowScroll`, which
+/// owns horizontal scrolling, edge-gradient shadows, and auto-scroll-to-
+/// selected; the trailing accessory cluster is pinned outside the scroll
+/// region so `+` is always visible regardless of chip count.
 struct TabBarView: View {
   let store: StoreOf<TabBarFeature>
   /// Resolved address of the active worktree whose tabs we render. If any
@@ -29,60 +29,9 @@ struct TabBarView: View {
   private func barContent() -> some View {
     Group {
       if let worktree = currentWorktree() {
-        TabBarRowView(
-          tabs: worktree.tabs,
-          activeTabID: activeTabID,
-          onSelect: { tabID in
-            store.send(
-              .tabButtonTapped(
-                tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
-              ))
-          },
-          onClose: { tabID in
-            store.send(
-              .closeButtonTapped(
-                tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
-              ))
-          },
-          onMiddleClick: { tabID in
-            store.send(
-              .middleClicked(
-                tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
-              ))
-          },
-          onCloseOthers: { tabID in
-            store.send(
-              .contextMenuCloseOthers(
-                tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
-              ))
-          },
-          onCloseToRight: { tabID in
-            store.send(
-              .contextMenuCloseToRight(
-                tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
-              ))
-          },
-          onCloseAll: {
-            store.send(
-              .contextMenuCloseAll(
-                inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
-              ))
-          },
-          onRenameCommit: { tabID, newName in
-            store.send(
-              .renameSubmitted(
-                tabID, name: newName,
-                inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
-              ))
-          },
-          onReorder: { orderedIDs in
-            store.send(
-              .dragReorderEnded(
-                orderedIDs: orderedIDs,
-                inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
-              ))
-          }
-        )
+        TabBarOverflowScroll(activeTabID: activeTabID) {
+          rowView(for: worktree)
+        }
       }
       TabBarTrailingAccessories(
         onNewTab: {
@@ -93,6 +42,64 @@ struct TabBarView: View {
         }
       )
     }
+  }
+
+  @ViewBuilder
+  private func rowView(for worktree: Worktree) -> some View {
+    TabBarRowView(
+      tabs: worktree.tabs,
+      activeTabID: activeTabID,
+      onSelect: { tabID in
+        store.send(
+          .tabButtonTapped(
+            tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+          ))
+      },
+      onClose: { tabID in
+        store.send(
+          .closeButtonTapped(
+            tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+          ))
+      },
+      onMiddleClick: { tabID in
+        store.send(
+          .middleClicked(
+            tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+          ))
+      },
+      onCloseOthers: { tabID in
+        store.send(
+          .contextMenuCloseOthers(
+            tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+          ))
+      },
+      onCloseToRight: { tabID in
+        store.send(
+          .contextMenuCloseToRight(
+            tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+          ))
+      },
+      onCloseAll: {
+        store.send(
+          .contextMenuCloseAll(
+            inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+          ))
+      },
+      onRenameCommit: { tabID, newName in
+        store.send(
+          .renameSubmitted(
+            tabID, name: newName,
+            inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+          ))
+      },
+      onReorder: { orderedIDs in
+        store.send(
+          .dragReorderEnded(
+            orderedIDs: orderedIDs,
+            inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+          ))
+      }
+    )
   }
 
   private func currentWorktree() -> Worktree? {
