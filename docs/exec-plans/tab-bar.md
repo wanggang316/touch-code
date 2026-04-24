@@ -1,6 +1,6 @@
 # ExecPlan: Tab Bar Uplift
 
-**Status:** Draft
+**Status:** In Progress (M1 shipped; M2 / M3 pending)
 **Author:** Gump (via Claude)
 **Date:** 2026-04-24
 
@@ -27,11 +27,11 @@ Timestamp format: `YYYY-MM-DD`. Update as each item closes.
 
 ### M1 — UI refactor (no behavior change)
 
-- [ ] T1.1 Extract `TabBarMetrics` and `TabBarColors` under `App/Features/TabBar/Style/`.
-- [ ] T1.2 Split `TabBarView` into `TabBarView` (container) + `TabBarRowView` (HStack) + `TabChipView` (one chip) + `TabChipLabel` + `TabChipCloseButton` + `TabChipBackground`. No behavior change; the bar still renders new/select/close with today's semantics plus the new visual vocabulary.
-- [ ] T1.3 Three-state chip background (idle / hover / active+press) with 2-pt top underline on the active chip; hover-revealed close button; thin divider between idle chips.
-- [ ] T1.4 Snapshot test suite — `TabChipSnapshotTests` under `apps/mac/touch-code/Tests/Snapshots/` — covers the four chip states + dirty state (spinner slot collapses to 0 when not dirty).
-- [ ] T1.5 `TabBarFeatureTests` remains green. App builds, lints clean.
+- [x] T1.1 Extract `TabBarMetrics` and `TabBarColors` under `App/Features/TabBar/Style/`. (2026-04-24, `8c7c7e5`)
+- [x] T1.2 Split `TabBarView` into `TabBarView` (container) + `TabBarRowView` (HStack) + `TabChipView` (one chip) + `TabChipLabel` + `TabChipCloseButton` + `TabChipBackground`. Pure refactor, pre-split visuals preserved. (2026-04-24, `135a980`)
+- [x] T1.3 Three-state chip background (idle / hover / active+press) with 2-pt top underline on the active chip; hover-revealed close button; thin divider between idle chips. (2026-04-24, `72db8d2`)
+- [x] T1.4 Snapshot test suite — `TabChipSnapshotTests` in `apps/mac/touch-code/Tests/` — covers the five chip background states + a row composite. Dirty case deferred to M3 (lands with the writer). (2026-04-24, `013fc4c`)
+- [x] T1.5 `TabBarFeatureTests` remains green on the two deterministic cases; `make build` succeeds; `swiftlint` clean on every new Tab-bar file. Pre-existing `GhosttyThemeCatalog` + `newTabButtonCallsCreateTab` suite-level flake are baseline issues (see Surprises). (2026-04-24)
 
 ### M2 — Interactions (right-click, drag, middle-click, shortcuts, overflow, trailing splits)
 
@@ -59,7 +59,12 @@ Timestamp format: `YYYY-MM-DD`. Update as each item closes.
 
 - **Shortcut collision on `⌘1..⌘9`** (plan-time, 2026-04-24): `MainWindowCommands.swift:60-65` already binds `⌘N` to `switchToSpaceAtIndex(N)` (1..9); `HierarchySidebarView.swift:39` reserves `⌃⌘N` for worktree jumps. The design doc originally proposed `⌘1..⌘9` for tab index. Resolved in the Decision Log as **D1**: tab index moves to `⌥⌘1..⌥⌘9`, and the design doc was updated before this plan was finalized.
 
-(No runtime surprises yet — M1 has not started.)
+- **Baseline lint violations pre-date M1** (2026-04-24): `make -C apps/mac lint` surfaces ~13 violations in files outside the Tab-bar scope (`GitHub/`, `HierarchySidebarView`, `Ghostty*.swift`, `PaneSurface`, etc.). None of my new Tab-bar files introduce violations; the baseline is red independently. Matches T0 M7 precedent — escalated in commit messages but not fixed here.
+- **Baseline Ghostty-theme tests fail** (2026-04-24): `GhosttyThemeCatalogTests` reports 9 failing cases (`emptyDirectoryYieldsEmptyArrays`, `alphabeticalSortUsesLocalizedStandardCompare`, `singleDarkThemeClassifiedAsDark`, …). All assert against the Ghostty theme directory contents and are orthogonal to the Tab bar — same-arch baseline on an untouched `TabBarMetrics.swift` commit reproduces the failures. Recorded as baseline.
+- **`newTabButtonCallsCreateTab` is a suite-order flake** (2026-04-24): Running the case in isolation passes; running all three `TabBarFeatureTests` together records an `HierarchyClient.snapshot` unimplemented-issue on the new-tab case because the test does not stub the post-`createTab` snapshot/openPane chain. Predates this milestone — stash + rerun on a pre-T1.2 tree shows the same symptom. M2's broader test sweep will patch the stub when it adds the new action coverage.
+- **`Tab` name shadowing with SwiftUI.Tab**: SwiftUI's `TabView` ecosystem exposes a `Tab` type that collides with `TouchCodeCore.Tab` in implicit-import scope. Addressed by fully-qualifying to `TouchCodeCore.Tab` in `TabBarRowView`; the original `TabBarView` already hit + handled this shadow, so the pattern is established.
+- **Tuist `buildableFolders` requires child paths** (2026-04-24): Adding `App/Features/TabBar/Style/` and `App/Features/TabBar/Views/` did *not* need a Project.swift edit — the top-level `"touch-code/App"` entry is folder-referenced and picks up new subdirectories recursively for non-test targets. But the test target explicitly lists its subfolders (`Tests/Hooks`, `Tests/Socket`, …), so I kept `TabChipSnapshotTests.swift` flat under `Tests/` rather than creating a `Tests/Snapshots/` subfolder that would have required a Project.swift edit.
+- **Disk exhaustion on `/tmp` mid-session** (2026-04-24): Tool runtime's task output directory on `/private/tmp` ran out of space during the M1 verification pass, blocking Bash entirely. Unblocked by the user after a host-side cleanup. Not repro-able from the plan steps alone — an environmental hiccup, not a signal about the code.
 
 ## Decision Log
 
@@ -72,7 +77,25 @@ Timestamp format: `YYYY-MM-DD`. Update as each item closes.
 
 ## Outcomes & Retrospective
 
-(To be filled at each milestone completion.)
+### M1 — 2026-04-24 — shipped on `feature/tab-and-pane`
+
+**Shipped:**
+- `TabBarMetrics` + `TabBarColors` centralize the chip visual tokens (`App/Features/TabBar/Style/`).
+- `TabBarView` split into a thin container + `TabBarRowView` + `TabBarTrailingAccessories` + `TabChipView` + `TabChipLabel` + `TabChipCloseButton` + `TabChipBackground` (`App/Features/TabBar/Views/`).
+- Chip visuals: three-state background (idle / hover / press-or-active), 2-pt accent-tinted active underline, top-only 6-pt corners, middle-truncated single-line title, hover-revealed close button, flush chip layout with dividers suppressed adjacent to the active chip, responsive min/max width clamp (120–220 pt).
+- `TabChipSnapshotTests` — 5 background-state cases + 1 row-composite case, gated behind `TC_RUN_SNAPSHOT_TESTS=1` + per-call `recordMode`.
+- All five M1 tasks landed as independent commits (`8c7c7e5` → `013fc4c`).
+
+**Gaps / deferred:**
+- Responsive width division across the bar (floor/clamp per chip count) deferred to M2-T2.7 where the overflow scroll lands.
+- Snapshot reference PNGs not committed — the first record pass needs a reliable window-host harness on CI; M2 or follow-up.
+- Dirty-state visuals in the chip label — deferred to M3 alongside the runtime writer.
+- Pre-existing baseline test / lint failures (see Surprises) not addressed; out of scope per plan.
+
+**Lessons:**
+- `make build` (which hits `-workspace`) is the canonical green-gate; raw `xcodebuild -project` misses the Tuist-managed SPM products and fails on `ArgumentParser`. `make clean` also deletes `Tuist/Package.resolved`, so recovery needs `tuist install` before `tuist generate`.
+- SwiftUI's `UnevenRoundedRectangle` + `Rectangle` overlay gives a cleaner "folder tab with accent stripe" than a single-corner radius trick and avoids a custom shape.
+- Press state on the chip is exposed via a `ButtonStyle` that reflects `configuration.isPressed` into a parent binding; the alternative (custom gesture) fights SwiftUI's tap detection and tends to swallow clicks.
 
 ## Context and Orientation
 
