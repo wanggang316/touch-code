@@ -44,6 +44,12 @@ struct TabBarView: View {
                 tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
               ))
           },
+          onMiddleClick: { tabID in
+            store.send(
+              .middleClicked(
+                tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+              ))
+          },
           onCloseOthers: { tabID in
             store.send(
               .contextMenuCloseOthers(

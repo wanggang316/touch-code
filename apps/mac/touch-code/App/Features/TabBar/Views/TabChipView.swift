@@ -13,6 +13,7 @@ struct TabChipView: View {
   let isLastTab: Bool
   let onSelect: () -> Void
   let onClose: () -> Void
+  let onMiddleClick: () -> Void
   let onCloseOthers: () -> Void
   let onCloseToRight: () -> Void
   let onCloseAll: () -> Void
@@ -59,6 +60,7 @@ struct TabChipView: View {
       )
     )
     .contentShape(Rectangle())
+    .overlay(TabChipMiddleClickView(onMiddleClick: onMiddleClick))
     .onHover { hovering in
       withAnimation(.easeInOut(duration: 0.10)) {
         isHovering = hovering

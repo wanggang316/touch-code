@@ -21,6 +21,7 @@ struct TabBarRowView: View {
   let activeTabID: TabID?
   let onSelect: (TabID) -> Void
   let onClose: (TabID) -> Void
+  let onMiddleClick: (TabID) -> Void
   let onCloseOthers: (TabID) -> Void
   let onCloseToRight: (TabID) -> Void
   let onCloseAll: () -> Void
@@ -37,6 +38,7 @@ struct TabBarRowView: View {
           isLastTab: index == tabs.count - 1,
           onSelect: { onSelect(tab.id) },
           onClose: { onClose(tab.id) },
+          onMiddleClick: { onMiddleClick(tab.id) },
           onCloseOthers: { onCloseOthers(tab.id) },
           onCloseToRight: { onCloseToRight(tab.id) },
           onCloseAll: onCloseAll,
