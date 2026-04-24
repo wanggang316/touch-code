@@ -1,6 +1,6 @@
 # ExecPlan: Tab Bar Uplift
 
-**Status:** In Progress (M1 + M2 shipped; M3 pending)
+**Status:** Completed
 **Author:** Gump (via Claude)
 **Date:** 2026-04-24
 
@@ -49,11 +49,11 @@ Timestamp format: `YYYY-MM-DD`. Update as each item closes.
 
 ### M3 — Runtime state: focus memory + dirty read path
 
-- [ ] T3.1 `HierarchyManager` adds `lastFocusedPaneByTab: [TabID: PaneID]` + `paneRunning: [PaneID: Bool]`; adds `setLastFocusedPane(_:in:)`, `lastFocusedPane(in:)`, `markPaneRunning(_:)`, `markPaneIdle(_:)`, `tabIsDirty(_:)`; clears the entries on pane / tab close.
-- [ ] T3.2 `selectTab` restores focus via `lastFocusedPane(in:)`, falling back to the leftmost leaf.
-- [ ] T3.3 `HierarchyClient` exposes `tabIsDirty`, `lastFocusedPane`, plus passive `markPaneRunning` / `markPaneIdle` closures (dormant callers — no writer in this PR).
-- [ ] T3.4 `TabChipLabel` reads `client.tabIsDirty(tabID)` and renders a `ProgressView().controlSize(.mini)` in place of the leading bullet when true. Always false today; visual state covered by a targeted snapshot.
-- [ ] T3.5 `HierarchyManagerTests` covers focus restoration (stored pane present → focused; stored pane missing → leftmost fallback; close pane clears entry).
+- [x] T3.1 `HierarchyManager` adds `lastFocusedPaneByTab: [TabID: PaneID]` + `runningPanes: Set<PaneID>`; five new helpers (`setLastFocusedPane`, `lastFocusedPane(in:)`, `markPaneRunning`, `markPaneIdle`, `tabIsDirty`). `closePane` / `closeTab` / `tearDownWorktreeSurfaces` / `focusPane` touch the maps where appropriate. (2026-04-24, `58257b0`)
+- [x] T3.2 `selectTab` routes `runtime.focusSurfaceView` on the restored last-focused pane (or leftmost leaf fallback) after persisting the selection. (2026-04-24, shipped in the same commit as T3.1)
+- [x] T3.3 `HierarchyClient` exposes `tabIsDirty`, `lastFocusedPane`, plus dormant `markPaneRunning` / `markPaneIdle` closures. `liveValue` uses safe no-op defaults for reads so unconfigured DI does not crash production; `testValue` keeps unimplemented stubs for test hygiene. (2026-04-24, `ace020f`)
+- [x] T3.4 `TabChipLabel` gains `isDirty`; when true, a 12×12 mini `ProgressView` leads the label. `TabBarRowView` threads a `(TabID) -> Bool` lookup; `TabBarView` binds that lookup to `@Observable HierarchyManager.tabIsDirty(_:)` so hook flips propagate via SwiftUI observation. (2026-04-24, shipped in the same commit as T3.3)
+- [x] T3.5 `HierarchyManagerTests` adds five cases: `selectTabRestoresLastFocusedPane`, `selectTabFallsBackToLeftmostLeafWhenRememberedPaneClosed`, `closePaneClearsLastFocusedAndRunningEntries`, `closeTabClearsRuntimeMapsForAllPanes`, `tabIsDirtyReflectsAnyRunningPane`. `FakeHierarchyRuntime` now records `focusSurfaceView` calls so focus-restoration assertions can inspect the call history. (2026-04-24)
 
 ## Surprises & Discoveries
 
@@ -75,6 +75,9 @@ Timestamp format: `YYYY-MM-DD`. Update as each item closes.
 - **D5** (M2-T2.7, 2026-04-24): Edge-shadow visibility uses a `GeometryReader` + `PreferenceKey` pair, **not** `onScrollGeometryChange`. Reason: `onScrollGeometryChange` requires macOS 15 and the project targets macOS 14. The preference-key shim is slightly noisier (one layout pass per scroll tick) but correct and backward-compatible.
 - **D6** (M2-T2.8, 2026-04-24): Trailing split buttons anchor off the **leftmost leaf** of the active tab's split tree rather than a user-focused pane. Reason: focus tracking (`lastFocusedPaneByTab`) lands in M3; adding it here would widen M2 scope and make the milestone uglier to revert. Documented as an M3 upgrade.
 - **D7** (M2-T2.8, 2026-04-24): `TabBarFeature` **does** own `trailingSplitRequested`, even though the plan had implied T2.9 would own any new cross-layer actions. Reason: the button is chrome inside the tab bar, so the action domain is still "tab bar stuff." Defining it on `RootFeature` would have meant a resolver that could only be called from inside the bar — an awkward split.
+- **D8** (M3-T3.1, 2026-04-24): `runningPanes` is a **`Set<PaneID>`** rather than the plan's `[PaneID: Bool]`. Absence is the natural "idle" signal and `contains` is the only read shape; a dictionary would force a `.filter { $0.value }` walk on every `tabIsDirty` call for no upside.
+- **D9** (M3-T3.3, 2026-04-24): `HierarchyClient.liveValue` uses **safe default-false / nil returns** for `tabIsDirty` / `lastFocusedPane` (plus no-op writers for `markPaneRunning` / `markPaneIdle`), instead of the project-wide `fatalError("HierarchyClient.liveValue not configured")` pattern. Reason: these are dormant read paths. An uncontrolled production caller (e.g. a background-rendered chip during shutdown) should stay inert rather than trap; wrong DI wiring is already caught by `testValue`'s unimplemented stubs.
+- **D10** (M3-T3.4, 2026-04-24): Chip-dirty observation hangs off the **`@Observable HierarchyManager` via `TabBarView`**, not the `HierarchyClient` closure. Reason: clients are plain closures — SwiftUI cannot track observation through them. Binding the `(TabID) -> Bool` lookup at the TabBarView layer (which already owns an `@Environment(HierarchyManager.self)`) preserves observation so a future hook writer flipping `runningPanes` re-renders the chip automatically.
 
 ## Outcomes & Retrospective
 
@@ -130,6 +133,26 @@ Timestamp format: `YYYY-MM-DD`. Update as each item closes.
 - SwiftUI `.contextMenu` + `@FocusState`-driven `TextField` is the cheapest path to inline rename; alternative (`.alert` / sheet) fights the chip's own hover/press state.
 - Hover-delayed popovers want `Task.sleep` + cancellation on `.onHover(false)` rather than `DispatchWorkItem`; the async path composes with SwiftUI lifecycle without manual invalidation bookkeeping.
 - Static vars can't live inside generic types; a file-private `let` constant works for "coordinate space name"-style sentinels without the generic-storage rules kicking in.
+
+### M3 — 2026-04-24 — shipped on `feature/tab-and-pane`
+
+**Shipped:**
+- Two runtime-only maps on `HierarchyManager`: `lastFocusedPaneByTab` (focus memory) and `runningPanes` (dirty set). Neither is persisted — wall-clock state that rebuilds each launch.
+- Five helpers: `setLastFocusedPane`, `lastFocusedPane(in:)`, `markPaneRunning`, `markPaneIdle`, `tabIsDirty(_:)`. Teardown paths (`closePane`, `closeTab`, `tearDownWorktreeSurfaces`) clear their entries; `focusPane` remembers the pane.
+- `selectTab` restores focus automatically — routes `runtime.focusSurfaceView` on the remembered pane, falls back to the leftmost leaf when the memory is stale or absent.
+- `HierarchyClient` gains four closures (`tabIsDirty`, `lastFocusedPane`, `markPaneRunning`, `markPaneIdle`); live / liveValue / testValue scaffolding in place.
+- `TabChipLabel` renders a mini `ProgressView` in a 12×12 leading slot when `isDirty`. `TabBarRowView` accepts a `(TabID) -> Bool` lookup; `TabBarView` binds it to `hierarchyManager.tabIsDirty(_:)` so SwiftUI observation propagates future hook writes.
+- Five new `HierarchyManagerTests` cases cover focus restoration (happy + stale), teardown cleanup (closePane + closeTab), and dirty signal propagation. `FakeHierarchyRuntime` now records `focusSurfaceView` calls so these assertions are inspectable.
+
+**Gaps / deferred:**
+- No production writer calls `markPaneRunning` / `markPaneIdle` today. The C3 hooks plan lands the writer when `command_started` / `command_finished` events ship.
+- Focus restoration is synchronous — `runtime.focusSurfaceView` hits AppKit inside the same call as the catalog mutation. The existing `focusSurfaceView` implementation is a no-op in tests and best-effort in production; no backpressure logic needed today.
+- Trailing split buttons still anchor off the leftmost leaf rather than the remembered pane. A one-line upgrade lands when the next follow-up touches them.
+
+**Lessons:**
+- `@Observable` tracking only fires for properties read through the observed instance in a view body. Reading through a plain closure (e.g. a TCA client) bypasses observation, so dirty-signal UI has to dereference the manager directly.
+- Runtime-state teardown is easy to miss — `closePane`, `closeTab`, and `tearDownWorktreeSurfaces` all needed bookkeeping updates. Centralizing the "clear-on-teardown" pass in dedicated helpers would cut the diff but add indirection; the inline updates are shorter in the happy path.
+- `Set` beats `[Key: Bool]` for "membership is the state" patterns — one less `.filter { $0.value }` per read and no "stored false" edge case to reason about.
 
 ## Context and Orientation
 

@@ -656,4 +656,98 @@ struct HierarchyManagerTests {
     )
     #expect(result == nil)
   }
+
+  // MARK: - Runtime state: focus memory + dirty (M3-T3.5)
+
+  /// Seeds a worktree with two tabs. Tab A has two panes (so we can
+  /// remember "the second pane"), tab B has one pane (so selectTab has
+  /// a fallback leaf on the other side).
+  @MainActor
+  private func makeFixtureTwoTabsWithPanes() throws -> (
+    SpaceID, ProjectID, WorktreeID, TabID, TabID, PaneID, PaneID, PaneID
+  ) {
+    let spaceID = manager.createSpace(name: "test")
+    let projectID = try manager.addProject(
+      to: spaceID, name: "project", rootPath: "/tmp", gitRoot: "/tmp"
+    )
+    let worktreeID = try manager.createWorktree(
+      in: projectID, in: spaceID, name: "main", path: "/repo", branch: "main"
+    )
+    let tabA = try manager.createTab(in: worktreeID, in: projectID, in: spaceID, name: "A")
+    let tabAPane1 = try manager.openPane(
+      in: tabA, in: worktreeID, in: projectID, in: spaceID,
+      workingDirectory: "/tmp", initialCommand: nil
+    )
+    let tabAPane2 = try manager.splitPane(
+      tabAPane1, direction: .right,
+      in: tabA, in: worktreeID, in: projectID, in: spaceID,
+      workingDirectory: "/tmp", initialCommand: nil
+    )
+    let tabB = try manager.createTab(in: worktreeID, in: projectID, in: spaceID, name: "B")
+    let tabBPane = try manager.openPane(
+      in: tabB, in: worktreeID, in: projectID, in: spaceID,
+      workingDirectory: "/tmp", initialCommand: nil
+    )
+    return (spaceID, projectID, worktreeID, tabA, tabB, tabAPane1, tabAPane2, tabBPane)
+  }
+
+  @Test
+  func selectTabRestoresLastFocusedPane() throws {
+    let (sp, pr, wt, tabA, tabB, _, tabAPane2, _) = try makeFixtureTwoTabsWithPanes()
+    // Remember tabA's second pane, then bounce through tabB and back.
+    try manager.focusPane(tabAPane2, in: tabA, in: wt, in: pr, in: sp)
+    fakeRuntime.reset()
+    try manager.selectTab(tabB, in: wt, in: pr, in: sp)
+    try manager.selectTab(tabA, in: wt, in: pr, in: sp)
+    // Selecting tabA restores tabAPane2 (focusSurfaceView called with it).
+    #expect(fakeRuntime.focusSurfaceViewCalls.contains(tabAPane2))
+  }
+
+  @Test
+  func selectTabFallsBackToLeftmostLeafWhenRememberedPaneClosed() throws {
+    let (sp, pr, wt, tabA, tabB, tabAPane1, tabAPane2, _) = try makeFixtureTwoTabsWithPanes()
+    try manager.focusPane(tabAPane2, in: tabA, in: wt, in: pr, in: sp)
+    // The remembered pane disappears out from under us.
+    try manager.closePane(tabAPane2, in: tabA, in: wt, in: pr, in: sp)
+    fakeRuntime.reset()
+    try manager.selectTab(tabB, in: wt, in: pr, in: sp)
+    try manager.selectTab(tabA, in: wt, in: pr, in: sp)
+    // Fallback: leftmost leaf of tabA's tree = tabAPane1.
+    #expect(fakeRuntime.focusSurfaceViewCalls.contains(tabAPane1))
+  }
+
+  @Test
+  func closePaneClearsLastFocusedAndRunningEntries() throws {
+    let (sp, pr, wt, tabA, _, _, tabAPane2, _) = try makeFixtureTwoTabsWithPanes()
+    try manager.focusPane(tabAPane2, in: tabA, in: wt, in: pr, in: sp)
+    manager.markPaneRunning(tabAPane2)
+    #expect(manager.lastFocusedPane(in: tabA) == tabAPane2)
+    #expect(manager.tabIsDirty(tabA))
+    try manager.closePane(tabAPane2, in: tabA, in: wt, in: pr, in: sp)
+    #expect(manager.lastFocusedPane(in: tabA) == nil)
+    #expect(!manager.tabIsDirty(tabA))
+  }
+
+  @Test
+  func closeTabClearsRuntimeMapsForAllPanes() throws {
+    let (sp, pr, wt, tabA, _, tabAPane1, tabAPane2, _) = try makeFixtureTwoTabsWithPanes()
+    try manager.focusPane(tabAPane1, in: tabA, in: wt, in: pr, in: sp)
+    manager.markPaneRunning(tabAPane2)
+    try manager.closeTab(tabA, in: wt, in: pr, in: sp)
+    #expect(manager.lastFocusedPane(in: tabA) == nil)
+    // Dirty read on a now-absent tab: the walk finds no tab → false.
+    #expect(!manager.tabIsDirty(tabA))
+  }
+
+  @Test
+  func tabIsDirtyReflectsAnyRunningPane() throws {
+    let (_, _, _, tabA, _, tabAPane1, tabAPane2, _) = try makeFixtureTwoTabsWithPanes()
+    #expect(!manager.tabIsDirty(tabA))
+    manager.markPaneRunning(tabAPane1)
+    #expect(manager.tabIsDirty(tabA))
+    manager.markPaneIdle(tabAPane1)
+    #expect(!manager.tabIsDirty(tabA))
+    manager.markPaneRunning(tabAPane2)
+    #expect(manager.tabIsDirty(tabA))
+  }
 }
