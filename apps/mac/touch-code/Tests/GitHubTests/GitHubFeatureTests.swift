@@ -489,9 +489,11 @@ struct GitHubFeatureTests {
     seed.inFlightFetchProjects.insert(projectID)
     seed.projectGitRoots[projectID] = URL(fileURLWithPath: "/tmp/r")
     let store = Self.makeStore(initialState: seed)
-    await store.send(.projectActivated(
-      projectID, gitRoot: URL(fileURLWithPath: "/tmp/r"), worktreeBranches: []
-    )) {
+    await store.send(
+      .projectActivated(
+        projectID, gitRoot: URL(fileURLWithPath: "/tmp/r"), worktreeBranches: []
+      )
+    ) {
       $0.queuedRefreshByProject.insert(projectID)
     }
   }
@@ -502,9 +504,11 @@ struct GitHubFeatureTests {
     var seed = GitHubFeature.State()
     seed.inFlightFetchProjects.insert(projectID)
     let store = Self.makeStore(initialState: seed)
-    await store.send(.projectBatchLoaded(
-      projectID, worktreeBranches: [], .failure(GitHubError.network("DNS"))
-    )) {
+    await store.send(
+      .projectBatchLoaded(
+        projectID, worktreeBranches: [], .failure(GitHubError.network("DNS"))
+      )
+    ) {
       $0.inFlightFetchProjects.remove(projectID)
       $0.lastErrorByProject[projectID] = .network("DNS")
     }
@@ -545,10 +549,12 @@ struct GitHubFeatureTests {
         RemoteInfo(host: "github.com", owner: "w", repo: "r")
       }
     }
-    await store.send(.worktreeBranchChanged(
-      wid, newBranch: "new-branch",
-      projectID: projectID, gitRoot: gitRoot, worktreeBranches: [pair]
-    )) {
+    await store.send(
+      .worktreeBranchChanged(
+        wid, newBranch: "new-branch",
+        projectID: projectID, gitRoot: gitRoot, worktreeBranches: [pair]
+      )
+    ) {
       $0.inFlightFetchProjects.insert(projectID)
       $0.projectGitRoots[projectID] = gitRoot
     }

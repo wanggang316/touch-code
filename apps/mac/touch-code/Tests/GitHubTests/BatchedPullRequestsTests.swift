@@ -15,11 +15,12 @@ struct BatchedPullRequestsTests {
     let (query, aliasMap) = try BatchedPullRequestQuery.buildQuery(
       branches: ["main", "feature/github01", "feat/test-005"]
     )
-    #expect(aliasMap == [
-      "branch0": "main",
-      "branch1": "feature/github01",
-      "branch2": "feat/test-005",
-    ])
+    #expect(
+      aliasMap == [
+        "branch0": "main",
+        "branch1": "feature/github01",
+        "branch2": "feat/test-005",
+      ])
     #expect(query.contains("branch0: pullRequests"))
     #expect(query.contains("branch1: pullRequests"))
     #expect(query.contains("branch2: pullRequests"))
@@ -131,7 +132,8 @@ struct BatchedPullRequestsTests {
 
   @Test
   func graphQLErrorsArrayThrowsGraphQLError() {
-    let payload = Data(#"""
+    let payload = Data(
+      #"""
       {"data": null, "errors": [{"message": "Field 'foo' doesn't exist on type 'Repository'"}]}
       """#.utf8)
     #expect(throws: GitHubError.graphQLError("Field 'foo' doesn't exist on type 'Repository'")) {
@@ -143,7 +145,8 @@ struct BatchedPullRequestsTests {
 
   @Test
   func nullRepositoryReturnsEmptyDictionary() throws {
-    let payload = Data(#"""
+    let payload = Data(
+      #"""
       {"data": {"repository": null}}
       """#.utf8)
     let result = try JSONOutputParsers.parseBatchedPullRequests(
@@ -168,7 +171,7 @@ struct BatchedPullRequestsTests {
   func batchPullRequestsHappyPathDecodesFixture() async throws {
     let fixture = try Self.loadFixture("gh-api-graphql-batched-happy")
     let runner = RecordingCommandRunner(outcomes: [
-      .exited(code: 0, stdout: fixture, stderr: Data(), stdoutOverflow: false),
+      .exited(code: 0, stdout: fixture, stderr: Data(), stdoutOverflow: false)
     ])
     let service = LiveGitHubService(
       runner: runner,
@@ -214,7 +217,7 @@ struct BatchedPullRequestsTests {
   @Test
   func batchPullRequestsOversizeStdoutSurfacesOversizeResponse() async {
     let runner = RecordingCommandRunner(outcomes: [
-      .exited(code: 0, stdout: Data(), stderr: Data(), stdoutOverflow: true),
+      .exited(code: 0, stdout: Data(), stderr: Data(), stdoutOverflow: true)
     ])
     let service = LiveGitHubService(
       runner: runner,

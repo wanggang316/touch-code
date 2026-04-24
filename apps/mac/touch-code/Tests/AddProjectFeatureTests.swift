@@ -1,8 +1,9 @@
 import ComposableArchitecture
 import Foundation
 import Testing
-@testable import touch_code
 import TouchCodeCore
+
+@testable import touch_code
 
 @MainActor
 struct AddProjectFeatureTests {
@@ -69,7 +70,7 @@ struct AddProjectFeatureTests {
     #expect(captured.count == 1)
     #expect(captured.first?.0 == spaceID)
     #expect(captured.first?.2 == canonical)
-    #expect(captured.first?.3 != nil) // gitRoot resolved
+    #expect(captured.first?.3 != nil)  // gitRoot resolved
   }
 
   @Test
@@ -105,7 +106,7 @@ struct AddProjectFeatureTests {
 
     let inner = capturedGitRoot.value
     if case .some(let unwrapped) = inner {
-      #expect(unwrapped == nil) // non-git → gitRoot is nil
+      #expect(unwrapped == nil)  // non-git → gitRoot is nil
     } else {
       Issue.record("addProject was never invoked")
     }

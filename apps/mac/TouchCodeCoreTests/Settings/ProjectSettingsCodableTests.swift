@@ -17,7 +17,7 @@ struct ProjectSettingsCodableTests {
   func emptyProjectSettingsEncodesAsEmptyObject() throws {
     let settings = ProjectSettings()
     let data = try encoder.encode(settings)
-    let text = String(decoding: data, as: UTF8.self)
+    let text = try #require(String(bytes: data, encoding: .utf8))
     #expect(text == "{}")
   }
 
@@ -80,7 +80,7 @@ struct ProjectSettingsCodableTests {
     // `"git": {}`.
     let settings = ProjectSettings(git: GitProjectSettings())
     let data = try encoder.encode(settings)
-    let text = String(decoding: data, as: UTF8.self)
+    let text = try #require(String(bytes: data, encoding: .utf8))
     #expect(text == "{}")
   }
 
@@ -90,7 +90,7 @@ struct ProjectSettingsCodableTests {
   func emptyGitEncodesAsEmptyObject() throws {
     let git = GitProjectSettings()
     let data = try encoder.encode(git)
-    let text = String(decoding: data, as: UTF8.self)
+    let text = try #require(String(bytes: data, encoding: .utf8))
     #expect(text == "{}")
     #expect(git.isEffectivelyEmpty == true)
   }
@@ -110,7 +110,7 @@ struct ProjectSettingsCodableTests {
       githubDisabled: false
     )
     let data = try encoder.encode(git)
-    let text = String(decoding: data, as: UTF8.self)
+    let text = try #require(String(bytes: data, encoding: .utf8))
     #expect(text.contains("githubDisabled") == false)
     #expect(text.contains("squash") == true)
   }

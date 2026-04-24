@@ -91,7 +91,8 @@ public nonisolated struct RemoteInfo: Equatable, Hashable, Sendable {
     // Strip the optional `user@` authority.
     if let atIndex = remainder.firstIndex(of: "@"),
       let slashIndex = remainder.firstIndex(of: "/"),
-      atIndex < slashIndex {
+      atIndex < slashIndex
+    {
       remainder = String(remainder[remainder.index(after: atIndex)...])
     }
 

@@ -447,7 +447,7 @@ struct GitHubFeature {
 
       // MARK: - v2 project-batched fetch (0013 M4)
 
-      case let .projectActivated(projectID, gitRoot, pairs):
+      case .projectActivated(let projectID, let gitRoot, let pairs):
         Self.logger.info(
           "projectActivated project=\(projectID.raw.uuidString, privacy: .public) branches=\(pairs.count, privacy: .public) gitRoot=\(gitRoot.path, privacy: .private(mask: .hash))"
         )
@@ -461,7 +461,7 @@ struct GitHubFeature {
           projectID: projectID, gitRoot: gitRoot, pairs: pairs, state: &state
         )
 
-      case let .projectRefreshRequested(projectID, gitRoot, pairs):
+      case .projectRefreshRequested(let projectID, let gitRoot, let pairs):
         return enqueueProjectFetch(
           projectID: projectID, gitRoot: gitRoot, pairs: pairs, state: &state
         )
@@ -494,7 +494,8 @@ struct GitHubFeature {
         }
         // Drain any queued refresh for this Project.
         if state.queuedRefreshByProject.remove(projectID) != nil,
-          let gitRoot = state.projectGitRoots[projectID] {
+          let gitRoot = state.projectGitRoots[projectID]
+        {
           return .send(
             .projectRefreshRequested(projectID, gitRoot: gitRoot, worktreeBranches: pairs)
           )
@@ -509,7 +510,7 @@ struct GitHubFeature {
         state.lastErrorByProject[projectID] = (error as? GitHubError) ?? .other(String(describing: error))
         return .none
 
-      case let .worktreeBranchChanged(_, _, projectID, gitRoot, pairs):
+      case .worktreeBranchChanged(_, _, let projectID, let gitRoot, let pairs):
         // Branch change invalidates whatever was cached for the Project and kicks a
         // fresh batched fetch. The Worktree's own per-row snapshot is not cleared here
         // — waiting ~500ms for the batched result to arrive avoids a visible flicker.

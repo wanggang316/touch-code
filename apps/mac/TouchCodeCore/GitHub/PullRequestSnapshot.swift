@@ -110,13 +110,15 @@ public struct PullRequestSnapshot: Equatable, Codable, Sendable, Identifiable {
     // v2-additive fields — decode-if-present with defaults so v1-produced snapshots
     // (which pre-date these fields) round-trip identically.
     self.checkRollup = try c.decodeIfPresent([CheckResult].self, forKey: .checkRollup) ?? []
-    self.mergeStateStatus = try c.decodeIfPresent(
-      MergeStateStatus.self, forKey: .mergeStateStatus
-    ) ?? .unknown
+    self.mergeStateStatus =
+      try c.decodeIfPresent(
+        MergeStateStatus.self, forKey: .mergeStateStatus
+      ) ?? .unknown
     self.reviewDecision = try c.decodeIfPresent(ReviewDecision.self, forKey: .reviewDecision)
-    self.headRepositoryOwner = try c.decodeIfPresent(
-      String.self, forKey: .headRepositoryOwner
-    ) ?? ""
+    self.headRepositoryOwner =
+      try c.decodeIfPresent(
+        String.self, forKey: .headRepositoryOwner
+      ) ?? ""
   }
 
   public func encode(to encoder: Encoder) throws {

@@ -362,7 +362,8 @@ struct RootFeature {
           let project = lookupProject(
             projectID: projectID, spaceID: selection.spaceID
           ),
-          let gitRootString = project.gitRoot {
+          let gitRootString = project.gitRoot
+        {
           let gitRoot = URL(fileURLWithPath: gitRootString)
           let pairs = project.worktrees.compactMap { worktree -> GitHubFeature.Action.WorktreeBranchPair? in
             guard !worktree.archived, let branch = worktree.branch, !branch.isEmpty else {
@@ -483,11 +484,13 @@ struct RootFeature {
           // An explicit pick from the "Open in ▾" submenu is strict; absent that, fall to
           // the shared resolver which returns nil when nothing is installed so the service
           // cascades through the priority list (see `resolveInstalledPreference`).
-          let preferred: EditorID? = editorID ?? EditorFeature.resolveInstalledPreference(
-            projectOverride: projectOverrideEditorID(for: projectID),
-            globalDefault: state.editor.globalDefault,
-            descriptors: state.editor.descriptors
-          )
+          let preferred: EditorID? =
+            editorID
+            ?? EditorFeature.resolveInstalledPreference(
+              projectOverride: projectOverrideEditorID(for: projectID),
+              globalDefault: state.editor.globalDefault,
+              descriptors: state.editor.descriptors
+            )
           return .send(
             .editor(
               .openRequested(
@@ -566,7 +569,8 @@ struct RootFeature {
           // scoped actions still resolve to the correct NSWindow.
           // Pane-scoped palette items that depend on real focus are
           // omitted by the builder when the source is a leaf fallback.
-          let resolvedPaneID = sourcePaneID
+          let resolvedPaneID =
+            sourcePaneID
             ?? CommandPaletteItems.resolveFocusedPaneID(
               selection: selection, catalog: catalog
             )
@@ -696,11 +700,12 @@ struct RootFeature {
       )
     case .closeCurrentWorktree:
       guard let spaceID = state.selection.spaceID,
-            let projectID = state.selection.projectID,
-            let worktreeID = state.selection.worktreeID
+        let projectID = state.selection.projectID,
+        let worktreeID = state.selection.worktreeID
       else { return .none }
       let catalog = hierarchyClient.snapshot()
-      let name = catalog
+      let name =
+        catalog
         .spaces.first(where: { $0.id == spaceID })?
         .projects.first(where: { $0.id == projectID })?
         .worktrees.first(where: { $0.id == worktreeID })?.name ?? ""
@@ -713,7 +718,7 @@ struct RootFeature {
       )
     case .refreshCurrentWorktree:
       guard let spaceID = state.selection.spaceID,
-            let projectID = state.selection.projectID
+        let projectID = state.selection.projectID
       else { return .none }
       return .run { [projectReconciler] _ in
         await projectReconciler.reconcile(projectID: projectID, spaceID: spaceID)
@@ -726,14 +731,15 @@ struct RootFeature {
       return .send(.openDefaultForCurrentWorktreeRequested)
     case .openCurrentWorktreeIn(let editorID):
       guard let spaceID = state.selection.spaceID,
-            let projectID = state.selection.projectID,
-            let worktreeID = state.selection.worktreeID
+        let projectID = state.selection.projectID,
+        let worktreeID = state.selection.worktreeID
       else { return .none }
       let catalog = hierarchyClient.snapshot()
-      guard let path = catalog
-        .spaces.first(where: { $0.id == spaceID })?
-        .projects.first(where: { $0.id == projectID })?
-        .worktrees.first(where: { $0.id == worktreeID })?.path
+      guard
+        let path = catalog
+          .spaces.first(where: { $0.id == spaceID })?
+          .projects.first(where: { $0.id == projectID })?
+          .worktrees.first(where: { $0.id == worktreeID })?.path
       else { return .none }
       return .send(
         .editor(
@@ -744,24 +750,26 @@ struct RootFeature {
       )
     case .revealCurrentWorktreeInFinder:
       guard let spaceID = state.selection.spaceID,
-            let projectID = state.selection.projectID,
-            let worktreeID = state.selection.worktreeID
+        let projectID = state.selection.projectID,
+        let worktreeID = state.selection.worktreeID
       else { return .none }
       let catalog = hierarchyClient.snapshot()
-      guard let path = catalog
-        .spaces.first(where: { $0.id == spaceID })?
-        .projects.first(where: { $0.id == projectID })?
-        .worktrees.first(where: { $0.id == worktreeID })?.path
+      guard
+        let path = catalog
+          .spaces.first(where: { $0.id == spaceID })?
+          .projects.first(where: { $0.id == projectID })?
+          .worktrees.first(where: { $0.id == worktreeID })?.path
       else { return .none }
       let client = finderClient
       return .run { _ in await MainActor.run { client.reveal(path) } }
 
     // Pane / Window — thin wrappers over the routers
     case .paneAction(let req):
-      guard let paneID = sourcePaneID
-        ?? CommandPaletteItems.resolveFocusedPaneID(
-          selection: state.selection, catalog: hierarchyClient.snapshot()
-        )
+      guard
+        let paneID = sourcePaneID
+          ?? CommandPaletteItems.resolveFocusedPaneID(
+            selection: state.selection, catalog: hierarchyClient.snapshot()
+          )
       else { return .none }
       return .send(.paneActionRouter(.requested(paneID, req)))
     case .windowAction(let req):
@@ -895,7 +903,8 @@ struct RootFeature {
     let catalog = hierarchyClient.snapshot()
     if let spaceID,
       let space = catalog.spaces.first(where: { $0.id == spaceID }),
-      let project = space.projects.first(where: { $0.id == projectID }) {
+      let project = space.projects.first(where: { $0.id == projectID })
+    {
       return project
     }
     for space in catalog.spaces {

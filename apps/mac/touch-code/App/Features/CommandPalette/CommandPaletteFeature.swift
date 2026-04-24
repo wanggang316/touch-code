@@ -84,7 +84,7 @@ struct CommandPaletteFeature {
 
       case .selectionCommitted:
         guard let id = state.selectionID ?? state.filtered.first?.id,
-              let item = state.filtered.first(where: { $0.id == id })
+          let item = state.filtered.first(where: { $0.id == id })
         else { return .none }
         state.recency[item.id] = Date().timeIntervalSince1970
         return .send(.delegate(.activate(item.kind)))
@@ -107,12 +107,15 @@ struct CommandPaletteFeature {
   ) -> [CommandPaletteItem] {
     let now = Date().timeIntervalSince1970
     let scored: [(CommandPaletteItem, Int)] = items.compactMap { item in
-      guard let score = CommandPaletteFuzzyScorer.score(
-        item: item, query: query, recency: recency, now: now
-      ) else { return nil }
+      guard
+        let score = CommandPaletteFuzzyScorer.score(
+          item: item, query: query, recency: recency, now: now
+        )
+      else { return nil }
       return (item, score)
     }
-    return scored
+    return
+      scored
       .sorted { lhs, rhs in
         if lhs.1 != rhs.1 { return lhs.1 > rhs.1 }
         return lhs.0.title < rhs.0.title
@@ -125,7 +128,8 @@ struct CommandPaletteFeature {
       state.selectionID = nil
       return
     }
-    let currentIndex = state.selectionID
+    let currentIndex =
+      state.selectionID
       .flatMap { id in state.filtered.firstIndex(where: { $0.id == id }) } ?? 0
     let count = state.filtered.count
     let nextIndex: Int

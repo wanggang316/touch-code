@@ -137,7 +137,7 @@ struct AddProjectFeature {
 
       case .submitTapped:
         guard state.canSubmit,
-              let path = state.pickedPath
+          let path = state.pickedPath
         else { return .none }
         let trimmed = state.nameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         state.isSubmitting = true

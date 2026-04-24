@@ -95,14 +95,15 @@ struct CreateWorktreeFeature {
           let loadedRefs = await refs
           let loadedLocals = await locals
           let loadedAuto = await auto
-          await send(.optionsLoaded(
-            baseRefs: loadedRefs,
-            localBranchNamesLower: loadedLocals,
-            automaticBaseRef: loadedAuto
-          ))
+          await send(
+            .optionsLoaded(
+              baseRefs: loadedRefs,
+              localBranchNamesLower: loadedLocals,
+              automaticBaseRef: loadedAuto
+            ))
         }
 
-      case let .optionsLoaded(baseRefs, locals, auto):
+      case .optionsLoaded(let baseRefs, let locals, let auto):
         state.loadingOptions = false
         state.baseRefOptions = baseRefs
         state.localBranchNamesLower = locals
@@ -114,7 +115,7 @@ struct CreateWorktreeFeature {
         }
         return .none
 
-      case let .branchDraftChanged(draft):
+      case .branchDraftChanged(let draft):
         state.branchNameDraft = draft
         // Live-validate synchronously against the local-branch set we
         // already fetched. The `git check-ref-format` path is also
@@ -131,23 +132,23 @@ struct CreateWorktreeFeature {
         }
         return .none
 
-      case let .validated(error):
+      case .validated(let error):
         state.validationError = error
         return .none
 
-      case let .baseRefSelected(ref):
+      case .baseRefSelected(let ref):
         state.selectedBaseRef = ref
         return .none
 
-      case let .fetchOriginToggled(value):
+      case .fetchOriginToggled(let value):
         state.fetchOrigin = value
         return .none
 
-      case let .copyIgnoredToggled(value):
+      case .copyIgnoredToggled(let value):
         state.copyIgnored = value
         return .none
 
-      case let .copyUntrackedToggled(value):
+      case .copyUntrackedToggled(let value):
         state.copyUntracked = value
         return .none
 
@@ -210,16 +211,16 @@ struct CreateWorktreeFeature {
           }
         }
 
-      case let .progressLine(line):
+      case .progressLine(let line):
         state.progressLines.append(line)
         return .none
 
-      case let .createFailed(message):
+      case .createFailed(let message):
         state.isSubmitting = false
         state.submitError = message
         return .none
 
-      case let .createSucceeded(path):
+      case .createSucceeded(let path):
         state.isSubmitting = false
         let projectID = state.projectID
         let spaceID = state.spaceID
@@ -236,7 +237,8 @@ struct CreateWorktreeFeature {
             tabID, worktreeID, projectID, spaceID, pathString, nil
           )
         } catch {
-          state.submitError = "Worktree created on disk, but failed to attach in the sidebar: \(error.localizedDescription)"
+          state.submitError =
+            "Worktree created on disk, but failed to attach in the sidebar: \(error.localizedDescription)"
           return .none
         }
         return .send(.delegate(.submitted))

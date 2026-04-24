@@ -36,7 +36,7 @@ migrate transparently on first launch.
 - [x] Step 7 — `RepositorySettingsFeature` → `ProjectSettingsFeature` rename + `HookSource.project` (2026-04-25)
 - [x] Step 8 — `SettingsWindowFeature` rename + sidebar kind-aware rendering + 4 new `SettingsSection` cases (2026-04-25)
 - [x] Step 9 — Pane view file renames + 4 scaffold pane views (2026-04-25)
-- [ ] Step 10 — CI grep gate for `Repository` rename residue
+- [x] Step 10 — CI grep gate for `Repository` rename residue (2026-04-25)
 - [ ] Step 11 — Manual QA walk + doc updates (`architecture.md`, `ui-settings-window.md`, deprecated exec-plan header)
 - [ ] Step 12 — `/codex:review` on the branch + fix findings
 - [ ] Final — push + `gh pr create --base main`

@@ -231,8 +231,7 @@ struct PullRequestPopover: View {
     for c in checks {
       switch c.status {
       case .completed:
-        if c.conclusion == .success { passed += 1 }
-        else if c.conclusion == .failure { failed += 1 }
+        if c.conclusion == .success { passed += 1 } else if c.conclusion == .failure { failed += 1 }
       case .inProgress, .queued, .waiting, .pending:
         pending += 1
       }

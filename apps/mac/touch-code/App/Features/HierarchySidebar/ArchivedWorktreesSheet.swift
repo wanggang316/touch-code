@@ -98,7 +98,7 @@ struct ArchivedWorktreesSheet: View {
   private func archivedWorktrees() -> [Worktree] {
     let catalog = hierarchyManager.catalog
     guard let space = catalog.spaces.first(where: { $0.id == store.spaceID }),
-          let project = space.projects.first(where: { $0.id == store.projectID })
+      let project = space.projects.first(where: { $0.id == store.projectID })
     else { return [] }
     return project.worktrees.filter { $0.archived }
   }
@@ -116,9 +116,11 @@ struct ArchivedWorktreesSheet: View {
       return "Uncommitted changes will be discarded. This cannot be undone."
     }
     let shown = pending.uncommittedFiles.prefix(3).joined(separator: ", ")
-    let more = pending.uncommittedFiles.count > 3
+    let more =
+      pending.uncommittedFiles.count > 3
       ? " and \(pending.uncommittedFiles.count - 3) more"
       : ""
-    return "\(pending.uncommittedFiles.count) file(s) have uncommitted changes: \(shown)\(more). Force remove will discard them. This cannot be undone."
+    return
+      "\(pending.uncommittedFiles.count) file(s) have uncommitted changes: \(shown)\(more). Force remove will discard them. This cannot be undone."
   }
 }

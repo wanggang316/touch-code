@@ -79,7 +79,8 @@ nonisolated final class LiveGitService: GitService {
   func remoteInfo(at path: URL) async throws -> RemoteInfo {
     try await ensureIsRepo(at: path)
     let out = try await run(arguments: GitCommand.remoteGetUrl(), cwd: path)
-    let urlString = String(data: out, encoding: .utf8)?
+    let urlString =
+      String(data: out, encoding: .utf8)?
       .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     do {
       return try RemoteInfo.parse(urlString)

@@ -1,7 +1,7 @@
 import ComposableArchitecture
 import Foundation
-import Observation
 import OSLog
+import Observation
 import TouchCodeCore
 
 /// Logger for the background reconcile path. Matches the project's
@@ -134,36 +134,41 @@ nonisolated struct HierarchyClient: Sendable {
   // MARK: - Worktree Management additions (feat/worktree-mgmt)
 
   /// Flips `Worktree.archived` for the given Worktree.
-  var setWorktreeArchived: @MainActor @Sendable (
-    _ worktreeID: WorktreeID, _ archived: Bool
-  ) throws -> Void
+  var setWorktreeArchived:
+    @MainActor @Sendable (
+      _ worktreeID: WorktreeID, _ archived: Bool
+    ) throws -> Void
 
   /// Flips `Worktree.isPinned` for the given Worktree. Silent for unknown ids / unchanged
   /// values. Persists via the standard debounced save pipeline.
-  var setWorktreePinned: @MainActor @Sendable (
-    _ worktreeID: WorktreeID, _ isPinned: Bool
-  ) -> Void
+  var setWorktreePinned:
+    @MainActor @Sendable (
+      _ worktreeID: WorktreeID, _ isPinned: Bool
+    ) -> Void
 
   /// Reads the Project's git root, calls `GitWorktreeClient.lsWorktrees`
   /// off the main actor, and merges on-disk worktrees into the catalog.
   /// Append-only — never removes catalog rows. Swallows errors. Consumed
   /// by `ProjectReconciler` on feat/project-mgmt.
-  var reconcileDiscoveredWorktrees: @MainActor @Sendable (
-    _ projectID: ProjectID, _ inSpace: SpaceID
-  ) async -> Void
+  var reconcileDiscoveredWorktrees:
+    @MainActor @Sendable (
+      _ projectID: ProjectID, _ inSpace: SpaceID
+    ) async -> Void
 
   /// Catalog-append step for Create Worktree.
-  var createWorktreeWithGit: @MainActor @Sendable (
-    _ projectID: ProjectID, _ inSpace: SpaceID,
-    _ branch: String, _ directoryName: String, _ path: String
-  ) throws -> WorktreeID
+  var createWorktreeWithGit:
+    @MainActor @Sendable (
+      _ projectID: ProjectID, _ inSpace: SpaceID,
+      _ branch: String, _ directoryName: String, _ path: String
+    ) throws -> WorktreeID
 
   /// End-to-end Remove Worktree. `GitWorktreeError.uncommittedChanges` is
   /// re-thrown so the sidebar can surface the specific files.
-  var removeWorktreeWithGit: @MainActor @Sendable (
-    _ worktreeID: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID,
-    _ force: Bool
-  ) async throws -> Void
+  var removeWorktreeWithGit:
+    @MainActor @Sendable (
+      _ worktreeID: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID,
+      _ force: Bool
+    ) async throws -> Void
 
   /// Forwards `HierarchyManager.runningPaneCount`.
   var runningPaneCount: @MainActor @Sendable (_ worktreeID: WorktreeID) -> Int
@@ -171,14 +176,16 @@ nonisolated struct HierarchyClient: Sendable {
   // MARK: - Project Management (pm) — added on feat/project-mgmt.
 
   /// Transient Project health signal. Written by `ProjectReconciler` only.
-  var setProjectLoadState: @MainActor @Sendable (
-    _ projectID: ProjectID, _ inSpace: SpaceID, _ state: ProjectLoadState
-  ) -> Void
+  var setProjectLoadState:
+    @MainActor @Sendable (
+      _ projectID: ProjectID, _ inSpace: SpaceID, _ state: ProjectLoadState
+    ) -> Void
 
   /// Reorder Projects inside a Space. Mirrors `ForEach.onMove`'s signature.
-  var reorderProjects: @MainActor @Sendable (
-    _ inSpace: SpaceID, _ from: IndexSet, _ to: Int
-  ) throws -> Void
+  var reorderProjects:
+    @MainActor @Sendable (
+      _ inSpace: SpaceID, _ from: IndexSet, _ to: Int
+    ) throws -> Void
 
   /// Duplicate-add guard. Caller canonicalizes before querying.
   var isPathRegistered: @MainActor @Sendable (_ canonicalPath: String) -> (SpaceID, ProjectID)?
@@ -214,32 +221,36 @@ nonisolated struct HierarchyClient: Sendable {
   /// Moves a Tab by a relative offset within its Worktree. Positive shifts
   /// right, negative shifts left. Clamped to the Worktree's tab-array
   /// bounds by `HierarchyManager.moveTab`.
-  var moveTab: @MainActor @Sendable (
-    _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID,
-    _ inSpace: SpaceID, _ offset: Int
-  ) throws -> Void
+  var moveTab:
+    @MainActor @Sendable (
+      _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID,
+      _ inSpace: SpaceID, _ offset: Int
+    ) throws -> Void
 
   /// Sets every split node's ratio in the Tab's SplitTree to 0.5 so sibling
   /// panes render at equal sizes. Leaf-only trees are a silent no-op.
-  var equalizeTabSplits: @MainActor @Sendable (
-    _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID,
-    _ inSpace: SpaceID
-  ) throws -> Void
+  var equalizeTabSplits:
+    @MainActor @Sendable (
+      _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID,
+      _ inSpace: SpaceID
+    ) throws -> Void
 
   /// Resizes a Pane in the SplitTree along the given direction by `amount`.
   /// `amount` is interpreted as a ratio delta (clamped by SplitTree) — the
   /// ghostty RESIZE_SPLIT action carries pixel amounts but touch-code's
   /// tree only stores ratios.
-  var resizePane: @MainActor @Sendable (
-    _ paneID: PaneID, _ direction: ResizeDirection, _ amount: Double
-  ) throws -> Void
+  var resizePane:
+    @MainActor @Sendable (
+      _ paneID: PaneID, _ direction: ResizeDirection, _ amount: Double
+    ) throws -> Void
 
   /// Clears the Tab's zoomed-pane flag. Paired with `focusPane` (which
   /// sets the zoom) to service `PaneActionRequest.toggleSplitZoom`.
-  var unzoomTab: @MainActor @Sendable (
-    _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID,
-    _ inSpace: SpaceID
-  ) throws -> Void
+  var unzoomTab:
+    @MainActor @Sendable (
+      _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID,
+      _ inSpace: SpaceID
+    ) throws -> Void
 }
 
 /// Full hierarchy address a `PaneID` resolves to. Carries the IDs of every
@@ -440,8 +451,8 @@ extension HierarchyClient {
     gitWorktreeClient: GitWorktreeClient
   ) async {
     guard let space = manager.catalog.spaces.first(where: { $0.id == spaceID }),
-          let project = space.projects.first(where: { $0.id == projectID }),
-          let gitRoot = project.gitRoot
+      let project = space.projects.first(where: { $0.id == projectID }),
+      let gitRoot = project.gitRoot
     else { return }
     do {
       let entries = try await gitWorktreeClient.lsWorktrees(
@@ -486,9 +497,9 @@ extension HierarchyClient {
     gitWorktreeClient: GitWorktreeClient
   ) async throws {
     guard let space = manager.catalog.spaces.first(where: { $0.id == spaceID }),
-          let project = space.projects.first(where: { $0.id == projectID }),
-          let worktree = project.worktrees.first(where: { $0.id == worktreeID }),
-          let gitRoot = project.gitRoot
+      let project = space.projects.first(where: { $0.id == projectID }),
+      let worktree = project.worktrees.first(where: { $0.id == worktreeID }),
+      let gitRoot = project.gitRoot
     else {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
     }

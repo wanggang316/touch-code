@@ -35,7 +35,6 @@ struct GhCommandTests {
     #expect(result.expectedExitCodes == [0, 1])
   }
 
-
   @Test
   func runListLatestArgv() {
     let result = GhCommand.runListLatest(branch: "main")
@@ -52,12 +51,15 @@ struct GhCommandTests {
 
   @Test
   func pullRequestMergeArgvUsesStrategyCLIFlag() {
-    #expect(GhCommand.pullRequestMerge(number: 1, strategy: .mergeCommit).arguments
-            == ["pr", "merge", "1", "--merge"])
-    #expect(GhCommand.pullRequestMerge(number: 2, strategy: .squash).arguments
-            == ["pr", "merge", "2", "--squash"])
-    #expect(GhCommand.pullRequestMerge(number: 3, strategy: .rebase).arguments
-            == ["pr", "merge", "3", "--rebase"])
+    #expect(
+      GhCommand.pullRequestMerge(number: 1, strategy: .mergeCommit).arguments
+        == ["pr", "merge", "1", "--merge"])
+    #expect(
+      GhCommand.pullRequestMerge(number: 2, strategy: .squash).arguments
+        == ["pr", "merge", "2", "--squash"])
+    #expect(
+      GhCommand.pullRequestMerge(number: 3, strategy: .rebase).arguments
+        == ["pr", "merge", "3", "--rebase"])
   }
 
   @Test

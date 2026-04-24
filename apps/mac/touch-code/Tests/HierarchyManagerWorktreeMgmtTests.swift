@@ -1,7 +1,8 @@
 import Foundation
 import Testing
-@testable import touch_code
 import TouchCodeCore
+
+@testable import touch_code
 
 /// Covers the three new Worktree-Management-era additions on
 /// `HierarchyManager`: `setWorktreeArchived`,
@@ -156,7 +157,8 @@ struct HierarchyManagerWorktreeMgmtTests {
     // macOS (symlink prefix). The `/private/...` alias is a simple
     // string prefix transform.
     let varForm = dir.path
-    let privateForm = varForm.hasPrefix("/private")
+    let privateForm =
+      varForm.hasPrefix("/private")
       ? varForm
       : "/private" + varForm
     return (varForm, privateForm, dir)

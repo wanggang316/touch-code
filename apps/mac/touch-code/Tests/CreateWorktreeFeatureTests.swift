@@ -1,8 +1,9 @@
 import ComposableArchitecture
 import Foundation
 import Testing
-@testable import touch_code
 import TouchCodeCore
+
+@testable import touch_code
 
 /// Synchronous-branch coverage for `CreateWorktreeFeature`. The async
 /// option-load and streaming-create paths are exercised end-to-end by

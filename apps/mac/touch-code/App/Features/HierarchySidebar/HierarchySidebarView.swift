@@ -100,144 +100,144 @@ struct HierarchySidebarView: View {
       }
       .toolbar { sidebarToolbarContent }
       .sheet(
-      item: $store.scope(state: \.addProject, action: \.addProject)
-    ) { childStore in
-      AddProjectSheet(store: childStore)
-    }
-    .sheet(
-      isPresented: Binding(
-        get: { store.createWorktreeSheet != nil },
-        set: { isPresented in
-          if !isPresented {
-            store.send(.createWorktreeSheet(.cancelButtonTapped))
+        item: $store.scope(state: \.addProject, action: \.addProject)
+      ) { childStore in
+        AddProjectSheet(store: childStore)
+      }
+      .sheet(
+        isPresented: Binding(
+          get: { store.createWorktreeSheet != nil },
+          set: { isPresented in
+            if !isPresented {
+              store.send(.createWorktreeSheet(.cancelButtonTapped))
+            }
           }
+        )
+      ) {
+        if let childStore = store.scope(
+          state: \.createWorktreeSheet,
+          action: \.createWorktreeSheet
+        ) {
+          CreateWorktreeSheet(store: childStore)
         }
-      )
-    ) {
-      if let childStore = store.scope(
-        state: \.createWorktreeSheet,
-        action: \.createWorktreeSheet
+      }
+      .sheet(
+        item: $store.scope(state: \.projectOptions, action: \.projectOptions)
+      ) { childStore in
+        ProjectOptionsSheet(store: childStore)
+      }
+      .confirmationDialog(
+        worktreeRemovalTitle,
+        isPresented: Binding(
+          get: { store.pendingWorktreeRemoval != nil },
+          set: { if !$0 { store.send(.worktreeRemoveCancelled) } }
+        ),
+        titleVisibility: .visible
       ) {
-        CreateWorktreeSheet(store: childStore)
+        Button("Remove Worktree", role: .destructive) {
+          store.send(.worktreeRemoveConfirmed)
+        }
+        Button("Cancel", role: .cancel) {
+          store.send(.worktreeRemoveCancelled)
+        }
+      } message: {
+        Text("Removes the Worktree from the Project and closes all its panes. This cannot be undone.")
       }
-    }
-    .sheet(
-      item: $store.scope(state: \.projectOptions, action: \.projectOptions)
-    ) { childStore in
-      ProjectOptionsSheet(store: childStore)
-    }
-    .confirmationDialog(
-      worktreeRemovalTitle,
-      isPresented: Binding(
-        get: { store.pendingWorktreeRemoval != nil },
-        set: { if !$0 { store.send(.worktreeRemoveCancelled) } }
-      ),
-      titleVisibility: .visible
-    ) {
-      Button("Remove Worktree", role: .destructive) {
-        store.send(.worktreeRemoveConfirmed)
-      }
-      Button("Cancel", role: .cancel) {
-        store.send(.worktreeRemoveCancelled)
-      }
-    } message: {
-      Text("Removes the Worktree from the Project and closes all its panes. This cannot be undone.")
-    }
-    .confirmationDialog(
-      projectRemovalTitle,
-      isPresented: Binding(
-        get: { store.pendingProjectRemoval != nil },
-        set: { if !$0 { store.send(.projectRemoveCancelled) } }
-      ),
-      titleVisibility: .visible
-    ) {
-      Button("Remove Project", role: .destructive) {
-        store.send(.projectRemoveConfirmed)
-      }
-      Button("Cancel", role: .cancel) {
-        store.send(.projectRemoveCancelled)
-      }
-    } message: {
-      Text("Removes the Project and closes all its panes. Files on disk are not affected.")
-    }
-    // Archived Worktrees sheet (opened from Project ⋯ menu).
-    .sheet(
-      isPresented: Binding(
-        get: { store.archivedWorktreesSheet != nil },
-        set: { if !$0 { store.send(.archivedWorktreesSheetDismissed) } }
-      )
-    ) {
-      if let childStore = store.scope(
-        state: \.archivedWorktreesSheet,
-        action: \.archivedWorktreesSheet
+      .confirmationDialog(
+        projectRemovalTitle,
+        isPresented: Binding(
+          get: { store.pendingProjectRemoval != nil },
+          set: { if !$0 { store.send(.projectRemoveCancelled) } }
+        ),
+        titleVisibility: .visible
       ) {
-        ArchivedWorktreesSheet(store: childStore)
+        Button("Remove Project", role: .destructive) {
+          store.send(.projectRemoveConfirmed)
+        }
+        Button("Cancel", role: .cancel) {
+          store.send(.projectRemoveCancelled)
+        }
+      } message: {
+        Text("Removes the Project and closes all its panes. Files on disk are not affected.")
       }
-    }
-    // Force-remove upgrade alert (uncommittedChanges → Force Remove).
-    .alert(
-      forceRemoveTitle,
-      isPresented: Binding(
-        get: { store.pendingForceRemove != nil },
-        set: { if !$0 { store.send(.worktreeForceRemoveCancelled) } }
-      )
-    ) {
-      Button("Force Remove", role: .destructive) {
-        store.send(.worktreeForceRemoveConfirmed)
+      // Archived Worktrees sheet (opened from Project ⋯ menu).
+      .sheet(
+        isPresented: Binding(
+          get: { store.archivedWorktreesSheet != nil },
+          set: { if !$0 { store.send(.archivedWorktreesSheetDismissed) } }
+        )
+      ) {
+        if let childStore = store.scope(
+          state: \.archivedWorktreesSheet,
+          action: \.archivedWorktreesSheet
+        ) {
+          ArchivedWorktreesSheet(store: childStore)
+        }
       }
-      Button("Cancel", role: .cancel) {
-        store.send(.worktreeForceRemoveCancelled)
+      // Force-remove upgrade alert (uncommittedChanges → Force Remove).
+      .alert(
+        forceRemoveTitle,
+        isPresented: Binding(
+          get: { store.pendingForceRemove != nil },
+          set: { if !$0 { store.send(.worktreeForceRemoveCancelled) } }
+        )
+      ) {
+        Button("Force Remove", role: .destructive) {
+          store.send(.worktreeForceRemoveConfirmed)
+        }
+        Button("Cancel", role: .cancel) {
+          store.send(.worktreeForceRemoveCancelled)
+        }
+      } message: {
+        Text(forceRemoveMessage)
       }
-    } message: {
-      Text(forceRemoveMessage)
-    }
-    // W-Q3 ladder step 2: warn before hard-killing live terminals.
-    .alert(
-      runningTerminalTitle,
-      isPresented: Binding(
-        get: { store.pendingRunningTerminalWarning != nil },
-        set: { if !$0 { store.send(.worktreeRunningTerminalWarningCancelled) } }
-      )
-    ) {
-      Button("Terminate & Remove", role: .destructive) {
-        store.send(.worktreeRunningTerminalWarningConfirmed)
+      // W-Q3 ladder step 2: warn before hard-killing live terminals.
+      .alert(
+        runningTerminalTitle,
+        isPresented: Binding(
+          get: { store.pendingRunningTerminalWarning != nil },
+          set: { if !$0 { store.send(.worktreeRunningTerminalWarningCancelled) } }
+        )
+      ) {
+        Button("Terminate & Remove", role: .destructive) {
+          store.send(.worktreeRunningTerminalWarningConfirmed)
+        }
+        Button("Cancel", role: .cancel) {
+          store.send(.worktreeRunningTerminalWarningCancelled)
+        }
+      } message: {
+        Text(runningTerminalMessage)
       }
-      Button("Cancel", role: .cancel) {
-        store.send(.worktreeRunningTerminalWarningCancelled)
+      // First-archive explainer (once per session).
+      .confirmationDialog(
+        "Archive this Worktree?",
+        isPresented: Binding(
+          get: { store.pendingArchiveExplainer != nil },
+          set: { if !$0 { store.send(.worktreeArchiveCancelled) } }
+        ),
+        titleVisibility: .visible
+      ) {
+        Button("Archive") {
+          store.send(.worktreeArchiveConfirmed)
+        }
+        Button("Cancel", role: .cancel) {
+          store.send(.worktreeArchiveCancelled)
+        }
+      } message: {
+        Text("Files and branch are kept. Find it later under “Archived Worktrees” in the Project menu.")
       }
-    } message: {
-      Text(runningTerminalMessage)
-    }
-    // First-archive explainer (once per session).
-    .confirmationDialog(
-      "Archive this Worktree?",
-      isPresented: Binding(
-        get: { store.pendingArchiveExplainer != nil },
-        set: { if !$0 { store.send(.worktreeArchiveCancelled) } }
-      ),
-      titleVisibility: .visible
-    ) {
-      Button("Archive") {
-        store.send(.worktreeArchiveConfirmed)
+      // Prune toast.
+      .alert(
+        "Prune complete",
+        isPresented: Binding(
+          get: { store.pruneToast != nil },
+          set: { if !$0 { store.send(.pruneToastDismissed) } }
+        )
+      ) {
+        Button("OK") { store.send(.pruneToastDismissed) }
+      } message: {
+        Text(store.pruneToast ?? "")
       }
-      Button("Cancel", role: .cancel) {
-        store.send(.worktreeArchiveCancelled)
-      }
-    } message: {
-      Text("Files and branch are kept. Find it later under “Archived Worktrees” in the Project menu.")
-    }
-    // Prune toast.
-    .alert(
-      "Prune complete",
-      isPresented: Binding(
-        get: { store.pruneToast != nil },
-        set: { if !$0 { store.send(.pruneToastDismissed) } }
-      )
-    ) {
-      Button("OK") { store.send(.pruneToastDismissed) }
-    } message: {
-      Text(store.pruneToast ?? "")
-    }
   }
 
   // MARK: - Toolbar
@@ -384,11 +384,12 @@ struct HierarchySidebarView: View {
             store.send(.retryProjectTapped(projectID: project.id, inSpace: space.id))
           },
           remove: {
-            store.send(.projectRemoveTapped(
-              projectID: project.id,
-              inSpace: space.id,
-              name: project.name
-            ))
+            store.send(
+              .projectRemoveTapped(
+                projectID: project.id,
+                inSpace: space.id,
+                name: project.name
+              ))
           }
         )
       case .loading, .ready:
@@ -594,25 +595,28 @@ struct HierarchySidebarView: View {
       }
       if worktree.archived {
         Button {
-          store.send(.worktreeUnarchiveTapped(
-            worktreeID: worktree.id, inProject: project.id, inSpace: space.id
-          ))
+          store.send(
+            .worktreeUnarchiveTapped(
+              worktreeID: worktree.id, inProject: project.id, inSpace: space.id
+            ))
         } label: {
           Label("Unarchive Worktree", systemImage: "tray.and.arrow.up")
         }
       } else {
         Button {
-          store.send(.worktreeArchiveTapped(
-            worktreeID: worktree.id, inProject: project.id, inSpace: space.id, name: worktree.name
-          ))
+          store.send(
+            .worktreeArchiveTapped(
+              worktreeID: worktree.id, inProject: project.id, inSpace: space.id, name: worktree.name
+            ))
         } label: {
           Label("Archive Worktree", systemImage: "archivebox")
         }
       }
       Button(role: .destructive) {
-        store.send(.worktreeRemoveTapped(
-          worktreeID: worktree.id, inProject: project.id, inSpace: space.id, name: worktree.name
-        ))
+        store.send(
+          .worktreeRemoveTapped(
+            worktreeID: worktree.id, inProject: project.id, inSpace: space.id, name: worktree.name
+          ))
       } label: {
         Label("Remove Worktree", systemImage: "trash")
       }
@@ -623,9 +627,10 @@ struct HierarchySidebarView: View {
       Label("Reveal in Finder", systemImage: "folder")
     }
     Button {
-      store.send(.worktreeOpenInDefaultEditorTapped(
-        worktreeID: worktree.id, projectID: project.id, path: worktree.path
-      ))
+      store.send(
+        .worktreeOpenInDefaultEditorTapped(
+          worktreeID: worktree.id, projectID: project.id, path: worktree.path
+        ))
     } label: {
       Label("Open in Default Editor", systemImage: "square.and.pencil")
     }
@@ -765,10 +770,12 @@ struct HierarchySidebarView: View {
       return "Uncommitted changes will be discarded. This cannot be undone."
     }
     let shown = pending.uncommittedFiles.prefix(3).joined(separator: ", ")
-    let more = pending.uncommittedFiles.count > 3
+    let more =
+      pending.uncommittedFiles.count > 3
       ? " and \(pending.uncommittedFiles.count - 3) more"
       : ""
-    return "\(pending.uncommittedFiles.count) file(s) have uncommitted changes: \(shown)\(more). Force remove will discard them. This cannot be undone."
+    return
+      "\(pending.uncommittedFiles.count) file(s) have uncommitted changes: \(shown)\(more). Force remove will discard them. This cannot be undone."
   }
 
   private var runningTerminalTitle: String {
@@ -780,7 +787,8 @@ struct HierarchySidebarView: View {
 
   private var runningTerminalMessage: String {
     guard let pending = store.pendingRunningTerminalWarning else { return "" }
-    return "Force-removing “\(pending.displayName)” will terminate \(pending.count) running terminal process\(pending.count == 1 ? "" : "es") in that Worktree."
+    return
+      "Force-removing “\(pending.displayName)” will terminate \(pending.count) running terminal process\(pending.count == 1 ? "" : "es") in that Worktree."
   }
 
   // MARK: - GitHub badge + popover
@@ -953,9 +961,11 @@ private struct ProjectHeaderRow: View {
             )
           }
           let archivedCount = project.worktrees.filter { $0.archived }.count
-          Button(archivedCount > 0
-                 ? "Archived Worktrees (\(archivedCount))…"
-                 : "Archived Worktrees…") {
+          Button(
+            archivedCount > 0
+              ? "Archived Worktrees (\(archivedCount))…"
+              : "Archived Worktrees…"
+          ) {
             store.send(
               .projectShowArchivedTapped(projectID: project.id, inSpace: space.id)
             )
@@ -988,5 +998,3 @@ private struct ProjectHeaderRow: View {
     .onHover { isHovering = $0 }
   }
 }
-
-

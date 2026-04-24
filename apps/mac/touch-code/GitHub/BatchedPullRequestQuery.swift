@@ -103,47 +103,47 @@ nonisolated enum BatchedPullRequestQuery {
   /// - `statusCheckRollup.contexts(first: 100)` — CI result aggregation in one hop.
   private static func selection(alias: String, escapedBranch: String) -> String {
     """
-      \(alias): pullRequests(first: 5, states: [OPEN, MERGED], headRefName: \(escapedBranch), orderBy: {field: UPDATED_AT, direction: DESC}) {
-        nodes {
-          number
-          title
-          state
-          isDraft
-          additions
-          deletions
-          mergeable
-          mergeStateStatus
-          reviewDecision
-          url
-          updatedAt
-          headRefName
-          baseRefName
-          commits { totalCount }
-          author { login }
-          headRepository { name owner { login } }
-          statusCheckRollup {
-            contexts(first: 100) {
-              nodes {
-                ... on CheckRun {
-                  name
-                  status
-                  conclusion
-                  startedAt
-                  completedAt
-                  detailsUrl
-                }
-                ... on StatusContext {
-                  context
-                  state
-                  targetUrl
-                  createdAt
-                }
+    \(alias): pullRequests(first: 5, states: [OPEN, MERGED], headRefName: \(escapedBranch), orderBy: {field: UPDATED_AT, direction: DESC}) {
+      nodes {
+        number
+        title
+        state
+        isDraft
+        additions
+        deletions
+        mergeable
+        mergeStateStatus
+        reviewDecision
+        url
+        updatedAt
+        headRefName
+        baseRefName
+        commits { totalCount }
+        author { login }
+        headRepository { name owner { login } }
+        statusCheckRollup {
+          contexts(first: 100) {
+            nodes {
+              ... on CheckRun {
+                name
+                status
+                conclusion
+                startedAt
+                completedAt
+                detailsUrl
+              }
+              ... on StatusContext {
+                context
+                state
+                targetUrl
+                createdAt
               }
             }
           }
         }
       }
-      """
+    }
+    """
   }
 
   /// Escapes a branch name into a GraphQL double-quoted string literal. Rules per

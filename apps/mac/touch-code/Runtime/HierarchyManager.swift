@@ -184,7 +184,6 @@ final class HierarchyManager {
     store.scheduleSave(catalog)
   }
 
-
   /// Resolves a canonical path to its registered `(SpaceID, ProjectID)` if any
   /// Project's `rootPath` canonicalizes to the same form. Caller canonicalizes
   /// its input via `HierarchyManager.canonicalPath(_:)` before querying.
@@ -368,9 +367,11 @@ final class HierarchyManager {
     inSpace spaceID: SpaceID,
     entries: [(path: String, branch: String?)]
   ) -> Int {
-    guard let (spaceIndex, projectIndex) = findProjectIndices(
-      projectID: projectID, spaceID: spaceID
-    ) else { return 0 }
+    guard
+      let (spaceIndex, projectIndex) = findProjectIndices(
+        projectID: projectID, spaceID: spaceID
+      )
+    else { return 0 }
     let project = catalog.spaces[spaceIndex].projects[projectIndex]
     let existingPaths = Set(
       project.worktrees.map { Self.canonicalPath($0.path) }
@@ -379,7 +380,8 @@ final class HierarchyManager {
     for entry in entries {
       let canonical = Self.canonicalPath(entry.path)
       guard !existingPaths.contains(canonical) else { continue }
-      let name = (entry.branch?.isEmpty == false)
+      let name =
+        (entry.branch?.isEmpty == false)
         ? entry.branch!
         : (canonical as NSString).lastPathComponent
       let worktree = Worktree(
@@ -974,7 +976,8 @@ final class HierarchyManager {
           where worktree.tabs[tabIndex].splitTree.contains(paneID) {
             var tab = worktree.tabs[tabIndex]
             guard let leafPath = tab.splitTree.path(to: paneID) else { return }
-            let orientation: SplitTree<PaneID>.Direction = (direction == .left || direction == .right)
+            let orientation: SplitTree<PaneID>.Direction =
+              (direction == .left || direction == .right)
               ? .horizontal : .vertical
             guard
               let (ancestorPath, currentRatio, grewRight) = Self.findAncestorSplit(
@@ -1011,7 +1014,7 @@ final class HierarchyManager {
       let childBranch = components.removeLast()
       let ancestorPath = SplitTree<PaneID>.Path(components)
       guard case .split(let split) = root.node(at: ancestorPath),
-            split.direction == orientation
+        split.direction == orientation
       else { continue }
       return (ancestorPath, split.ratio, childBranch == .right)
     }

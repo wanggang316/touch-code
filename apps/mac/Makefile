@@ -44,7 +44,10 @@ format:
 lint:
 	mise exec -- swiftlint lint --quiet --config .swiftlint.yml
 
-check: format lint
+check-rename:
+	../../scripts/check-rename-residue.sh apps/mac
+
+check: format lint check-rename
 
 test:
 	@echo "no tests yet"

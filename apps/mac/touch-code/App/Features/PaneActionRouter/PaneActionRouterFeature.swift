@@ -74,17 +74,20 @@ struct PaneActionRouterFeature {
       // directory. Missing source (already closed?) falls back to the
       // worktree root via `findWorktreePath`.
       let catalog = hierarchyClient.snapshot()
-      let cwd = findPane(
-        paneID: paneID, tabID: address.tabID,
-        worktreeID: address.worktreeID, projectID: address.projectID,
-        spaceID: address.spaceID, in: catalog
-      )?.workingDirectory ?? findWorktree(
-        worktreeID: address.worktreeID, projectID: address.projectID,
-        spaceID: address.spaceID, in: catalog
-      )?.path ?? NSHomeDirectory()
-      guard let newTabID = try? hierarchyClient.createTab(
-        address.worktreeID, address.projectID, address.spaceID, nil
-      ) else { return .none }
+      let cwd =
+        findPane(
+          paneID: paneID, tabID: address.tabID,
+          worktreeID: address.worktreeID, projectID: address.projectID,
+          spaceID: address.spaceID, in: catalog
+        )?.workingDirectory ?? findWorktree(
+          worktreeID: address.worktreeID, projectID: address.projectID,
+          spaceID: address.spaceID, in: catalog
+        )?.path ?? NSHomeDirectory()
+      guard
+        let newTabID = try? hierarchyClient.createTab(
+          address.worktreeID, address.projectID, address.spaceID, nil
+        )
+      else { return .none }
       // Without this, HierarchyManager.createTab initialises an empty Tab
       // and the UI shows "No panes" until the user opens one manually —
       // a surprise for a keybind that asked for a working tab.
@@ -211,7 +214,7 @@ struct PaneActionRouterFeature {
     case .right:
       doomed = worktree.tabs.suffix(from: currentIndex + 1).map(\.id)
     case .this:
-      return // handled in dispatch.
+      return  // handled in dispatch.
     }
     for tabID in doomed {
       try? hierarchyClient.closeTab(
@@ -266,9 +269,9 @@ struct PaneActionRouterFeature {
   ) -> SplitTree<PaneID>.NewDirection {
     switch direction {
     case .right: return .right
-    case .left:  return .left
-    case .up:    return .up
-    case .down:  return .down
+    case .left: return .left
+    case .up: return .up
+    case .down: return .down
     }
   }
 

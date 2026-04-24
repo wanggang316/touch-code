@@ -1,8 +1,9 @@
 import ComposableArchitecture
 import Foundation
 import Testing
-@testable import touch_code
 import TouchCodeCore
+
+@testable import touch_code
 
 @MainActor
 struct ProjectOptionsFeatureTests {
