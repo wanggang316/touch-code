@@ -46,7 +46,7 @@ struct SettingsWindowFeatureTests {
   func projectsChangedPrunesStaleRepositoryGeneralSelection() async {
     let projectID = ProjectID()
     let store = TestStore(
-      initialState: SettingsWindowFeature.State(selection: .repositoryGeneral(projectID))
+      initialState: SettingsWindowFeature.State(selection: .projectGeneral(projectID))
     ) {
       SettingsWindowFeature()
     } withDependencies: {
@@ -62,7 +62,7 @@ struct SettingsWindowFeatureTests {
   func projectsChangedPrunesStaleRepositoryHooksSelection() async {
     let projectID = ProjectID()
     let store = TestStore(
-      initialState: SettingsWindowFeature.State(selection: .repositoryHooks(projectID))
+      initialState: SettingsWindowFeature.State(selection: .projectHooks(projectID))
     ) {
       SettingsWindowFeature()
     } withDependencies: {
@@ -77,7 +77,7 @@ struct SettingsWindowFeatureTests {
   func projectsChangedKeepsSelectionWhenProjectStillExists() async {
     let projectID = ProjectID()
     let store = TestStore(
-      initialState: SettingsWindowFeature.State(selection: .repositoryGeneral(projectID))
+      initialState: SettingsWindowFeature.State(selection: .projectGeneral(projectID))
     ) {
       SettingsWindowFeature()
     } withDependencies: {
@@ -90,7 +90,7 @@ struct SettingsWindowFeatureTests {
   }
 
   @Test
-  func selectingRepositoryGeneralLazilyInstantiatesPane() async {
+  func selectingProjectGeneralLazilyInstantiatesPane() async {
     let pid = ProjectID()
     let store = TestStore(initialState: SettingsWindowFeature.State()) {
       SettingsWindowFeature()
@@ -98,16 +98,18 @@ struct SettingsWindowFeatureTests {
       $0.editorClient = EditorClient.testValue
       $0.settingsWriter = SettingsWriter.testValue
       $0.hierarchyClient = HierarchyClient.testValue
+      $0.hierarchyClient.kind = { _ in .gitRepo }
     }
-    await store.send(.selectionChanged(.repositoryGeneral(pid))) {
-      $0.selection = .repositoryGeneral(pid)
-      $0.repositoryPanes.append(ProjectSettingsFeature.State(projectID: pid))
+    await store.send(.selectionChanged(.projectGeneral(pid))) {
+      $0.selection = .projectGeneral(pid)
+      $0.projectPanes.append(ProjectSettingsFeature.State(projectID: pid))
     }
-    #expect(store.state.repositoryPanes[id: pid] != nil)
+    #expect(store.state.projectPanes[id: pid] != nil)
+    #expect(store.state.projectPanes[id: pid]?.kind == .gitRepo)
   }
 
   @Test
-  func selectingRepositoryHooksLazilyInstantiatesPane() async {
+  func selectingProjectHooksLazilyInstantiatesPane() async {
     let pid = ProjectID()
     let store = TestStore(initialState: SettingsWindowFeature.State()) {
       SettingsWindowFeature()
@@ -115,30 +117,35 @@ struct SettingsWindowFeatureTests {
       $0.editorClient = EditorClient.testValue
       $0.settingsWriter = SettingsWriter.testValue
       $0.hierarchyClient = HierarchyClient.testValue
+      $0.hierarchyClient.kind = { _ in .plainDir }
     }
-    await store.send(.selectionChanged(.repositoryHooks(pid))) {
-      $0.selection = .repositoryHooks(pid)
-      $0.repositoryPanes.append(ProjectSettingsFeature.State(projectID: pid))
+    await store.send(.selectionChanged(.projectHooks(pid))) {
+      $0.selection = .projectHooks(pid)
+      var expected = ProjectSettingsFeature.State(projectID: pid)
+      expected.kind = .plainDir
+      $0.projectPanes.append(expected)
     }
-    #expect(store.state.repositoryPanes[id: pid] != nil)
+    #expect(store.state.projectPanes[id: pid] != nil)
+    #expect(store.state.projectPanes[id: pid]?.kind == .plainDir)
   }
 
   @Test
-  func reSelectingSameRepositoryPaneDoesNotDuplicateState() async {
+  func reSelectingSameProjectPaneDoesNotDuplicateState() async {
     let pid = ProjectID()
     var initial = SettingsWindowFeature.State()
-    initial.repositoryPanes.append(ProjectSettingsFeature.State(projectID: pid))
+    initial.projectPanes.append(ProjectSettingsFeature.State(projectID: pid))
     let store = TestStore(initialState: initial) {
       SettingsWindowFeature()
     } withDependencies: {
       $0.editorClient = EditorClient.testValue
       $0.settingsWriter = SettingsWriter.testValue
       $0.hierarchyClient = HierarchyClient.testValue
+      $0.hierarchyClient.kind = { _ in .gitRepo }
     }
-    await store.send(.selectionChanged(.repositoryGeneral(pid))) {
-      $0.selection = .repositoryGeneral(pid)
+    await store.send(.selectionChanged(.projectGeneral(pid))) {
+      $0.selection = .projectGeneral(pid)
     }
-    #expect(store.state.repositoryPanes.count == 1)
+    #expect(store.state.projectPanes.count == 1)
   }
 
   @Test
@@ -153,7 +160,7 @@ struct SettingsWindowFeatureTests {
     await store.send(.selectionChanged(.notifications)) {
       $0.selection = .notifications
     }
-    #expect(store.state.repositoryPanes.isEmpty)
+    #expect(store.state.projectPanes.isEmpty)
   }
 
   @Test

@@ -8,6 +8,11 @@ struct ProjectSettingsFeature {
   @ObservableState
   struct State: Equatable, Identifiable {
     let projectID: ProjectID
+    /// Derived from `Project.gitRoot` at pane-materialise time. Views consult this to
+    /// gate git-specific controls; the sidebar uses it to decide which sub-rows render.
+    /// Seeded from `HierarchyClient.kind(of:)` by `SettingsWindowFeature.ensureProjectPane`;
+    /// re-seeded when `.projectsChanged` delta reveals a kind flip on an existing pane.
+    var kind: ProjectKind = .gitRepo
     var hooksLoad: HooksLoad = .idle
     var lastWriteFailure: String?
 
