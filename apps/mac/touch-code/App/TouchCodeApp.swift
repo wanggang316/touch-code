@@ -51,6 +51,12 @@ struct TouchCodeApp: App {
       }
     }
     .windowStyle(.titleBar)
+    // Unified toolbar style lets the NavigationSplitView sidebar column's
+    // material extend up under the traffic lights, matching Finder / Xcode.
+    // Without this, the Ghostty-stained NSWindow background shows through
+    // the titlebar area and the first List row visually overlaps with the
+    // window controls.
+    .windowToolbarStyle(.unified)
     .commands {
       if let store = appState.store {
         MainWindowCommands(store: store)

@@ -99,12 +99,6 @@ struct HierarchySidebarView: View {
         .background(.bar)
       }
       .toolbar { sidebarToolbarContent }
-      // The window toolbar strip (traffic lights + "+ / ⋯" buttons) lives outside the
-      // `List(.sidebar)` material. Without an explicit background the Ghostty-stained
-      // NSWindow color bleeds through, matching the symptom 7c10cc2 fixed for the
-      // footer. `.toolbarBackground(.visible, for: .windowToolbar)` forces AppKit's
-      // standard toolbar material so the strip reads as proper sidebar chrome.
-      .toolbarBackground(.visible, for: .windowToolbar)
       .sheet(
       item: $store.scope(state: \.addProject, action: \.addProject)
     ) { childStore in
@@ -300,12 +294,12 @@ struct HierarchySidebarView: View {
           }
           return map
         }()
-        // List + .listStyle(.sidebar) + .scrollIndicators(.never) — this is the exact
-        // posture Prowl's sidebar uses. `.never` is load-bearing: `.hidden` hides the
-        // scroller but leaves the reserved gutter, whereas `.never` tells SwiftUI the
-        // indicator is structurally absent so the content view reclaims the full width.
-        // Flat sibling rows (header + worktrees) inside projectSection keep the row-
-        // height animation out of NSTableView's path when expanding.
+        // List + .listStyle(.sidebar) with NO `.scrollIndicators(.*)` modifier.
+        // On macOS 26 / NavigationSplitView sidebar columns, both `.hidden` and
+        // `.never` silently collapse the List's top titlebar safe area — the
+        // first row then draws at y=0, overlapping with the traffic lights.
+        // Accepting the scroller-when-needed trade-off; supacode + Prowl both
+        // tolerate the default indicator posture here.
         List {
           ForEach(activeSpace.projects) { project in
             projectSection(
@@ -318,7 +312,6 @@ struct HierarchySidebarView: View {
           }
         }
         .listStyle(.sidebar)
-        .scrollIndicators(.never)
       }
     } else {
       noSpacesState

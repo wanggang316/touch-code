@@ -211,7 +211,14 @@ private struct LeafView: View {
       state: \.paneHosts[id: paneID],
       action: \.paneHosts[id: paneID]
     ) {
+      // `.id(paneID)` forces SwiftUI to rebuild the LazyPaneHost subtree when
+      // the pane changes. Without it, two leaves at the same split-tree
+      // position across worktree switches diff as "same view, new props", and
+      // `PaneHostView.updateNSView` (intentionally a no-op — ghostty owns its
+      // own rendering) never swaps the underlying `GhosttySurfaceView`, so the
+      // terminal visually stays on the previously-shown worktree.
       LazyPaneHost(store: childStore)
+        .id(paneID)
     } else {
       // One-frame gap between pane entering the catalog and the sync
       // action landing `paneHosts[id: paneID]` in state. Render a
