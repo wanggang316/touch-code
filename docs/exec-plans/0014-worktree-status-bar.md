@@ -26,16 +26,20 @@ This is a living document. The Progress, Surprises & Discoveries, Decision Log, 
   - [x] M1.3 StatusBarView 最小实现 + 挂 toolbar
 - [x] **M2 Editor hook** (2026-04-24)
 - [x] **M3 GitHub hook** (2026-04-24)
-- [ ] M4 PR form
-  - [ ] M4.A ChecksRollupRing（可并行）
-  - [ ] M4.B CommandKeyObserver（可并行）
-  - [ ] M4.C PR 态接入 + viewmodel 扩展 + gitHubStore 贯穿
-- [ ] M5 Motivational
-  - [ ] M5.A CommandPaletteShortcut 常量（可并行，与 M4.A/B 同批）
-  - [ ] M5.B StatusMotivationalView
-- [ ] M6 Narrow-width fallback
-- [ ] M7 Polish（a11y + SharedBackgroundHidden modifier 抽取）
+- [x] **M4 PR form** (2026-04-24)
+  - [x] M4.A ChecksRollupRing（Breakdown struct + 5 unit tests）
+  - [x] M4.B CommandKeyObserver — 复用 HierarchySidebar 既有类 + 环境注入
+  - [x] M4.C PR 态接入 — click=openURL（popover 整合作为 OQ-7 后续）
+- [x] **M5 Motivational** (2026-04-24)
+  - [x] M5.A CommandPaletteShortcut 常量 + MainWindowCommands 改写
+  - [x] M5.B StatusMotivationalView + 8 个 timeStyle 单测
+- [x] **M6 Narrow-width fallback** (2026-04-24) — `ViewThatFits` + per-form `compact: Bool`
+- [x] **M7 Polish** (2026-04-24) — status-bar toolbar item 的 macOS 26+ `sharedBackgroundVisibility(.hidden)`；a11y labels 在 M1-M6 子视图里已就位
 - [ ] `/codex:review` 全量复查
+
+## Open Questions
+
+- **OQ-7** (added 2026-04-24, M4.C): 把既有 `PullRequestPopover` 的内容构建从 `HierarchySidebarView.gitHubPopoverContent` 抽成独立 helper（预计 60-80 行），以便状态栏 PR 按钮也能在点击后弹出相同的 PullRequestPopover。当前 M4.C 的 click=openURL 是 MVP；spec AC-PR-3 需要这个后续才能完全满足。
 
 ## Surprises & Discoveries
 
@@ -49,7 +53,32 @@ This is a living document. The Progress, Surprises & Discoveries, Decision Log, 
 
 ## Outcomes & Retrospective
 
-(To be filled at milestone completion)
+**2026-04-24 — M1-M7 complete, 13 commits, all green builds.**
+
+What shipped:
+
+- A new `StatusBarFeature` (TCA) owning a single `toast: StatusToast?` slot with 3 s / 8 s / never auto-clear windows and a `sequence`-token race guard.
+- Priority-driven SwiftUI `StatusBarView` with three forms — toast, PR, motivational — and a `ViewThatFits` three-tier narrow-width fallback.
+- Cross-feature toast routing in `RootFeature` translating `.editor(.openSucceeded/.openFailed)` and `.gitHub(...Completed)` into status-bar pushes.
+- Reusable `ChecksRollupRing` view with a pure `Breakdown` struct (5 tests) and shared `CommandPaletteShortcut` constant consumed by both the menu binding and the motivational hint (single-source-of-truth refactor).
+- `CommandKeyObserver` reused from the existing sidebar implementation via scene-level `.environment` injection — no duplicate class.
+
+Deviations from plan:
+
+- Popover reuse on the PR badge click (AC-PR-3) was deferred: `StatusPullRequestView` dispatches `.openURL` instead of hosting `PullRequestPopover`. Tracked as OQ-7; a follow-up plan is the appropriate home for the popover-content helper extraction.
+- `SharedBackgroundHidden` ViewModifier extraction dropped: `.sharedBackgroundVisibility` is a `ToolbarContent` modifier, not `View` modifier, so a single ViewModifier cannot capture both branch-label and status-bar call sites. Left as two inline `if #available` blocks.
+
+Tests:
+
+- `StatusBarFeatureTests` — 7 cases passing in isolation
+- `ChecksRollupRingBreakdownTests` — 5 cases passing
+- `StatusMotivationalTimeStyleTests` — 8 cases passing
+- `RootFeatureTests.shortToastMessage…` — 1 case passing
+- Aggregate suite runs are subject to a pre-existing host-app test-bootstrap race (see Surprises 2026-04-24 M1.2→M2.1); orthogonal to 0014.
+
+Commits (oldest first): `83a14be` (docs), `7e7610c` (M1.1), `c579d2f` (M1.2), `5d? ` M1.3 landed as `…m1.3` SHA, `008f934` (M2), `4d9cb79` (M3), `M4.A`, `2c7a237` (M4.B), `5ca1754` (M5.A), `6fbe8b8` (M4.C), `M5.B`, `1b3922e` (M6), M7 pending commit.
+
+Next: `/codex:review` over the branch.
 
 ## Context and Orientation
 

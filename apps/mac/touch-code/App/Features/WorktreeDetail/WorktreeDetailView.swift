@@ -180,13 +180,7 @@ struct WorktreeDetailView: View {
       // regardless of left / right group widths. Trailing `.fixed` spacer
       // keeps the cluster hugged against the right edge rather than drifting
       // into the center as other items resize.
-      ToolbarItem(placement: .principal) {
-        StatusBarView(
-          store: statusBarStore,
-          gitHubStore: gitHubStore,
-          worktreeID: address.worktree
-        )
-      }
+      statusBarToolbarItem(address: address)
       // Three independent trailing buttons. `ToolbarItemGroup` keeps the
       // relative order while preventing SwiftUI from collapsing them into a
       // single overflow menu on narrow widths. `.buttonStyle(.plain)` on each
@@ -229,6 +223,22 @@ struct WorktreeDetailView: View {
       .accessibilityElement(children: .ignore)
       .accessibilityLabel("Current branch: \(info.branchLabel)")
       .accessibilityAddTraits(.isStaticText)
+    }
+    if #available(macOS 26.0, *) {
+      item.sharedBackgroundVisibility(.hidden)
+    } else {
+      item
+    }
+  }
+
+  @ToolbarContentBuilder
+  private func statusBarToolbarItem(address: Address) -> some ToolbarContent {
+    let item = ToolbarItem(placement: .principal) {
+      StatusBarView(
+        store: statusBarStore,
+        gitHubStore: gitHubStore,
+        worktreeID: address.worktree
+      )
     }
     if #available(macOS 26.0, *) {
       item.sharedBackgroundVisibility(.hidden)
