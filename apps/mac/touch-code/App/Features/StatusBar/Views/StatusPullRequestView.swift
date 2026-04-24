@@ -16,6 +16,9 @@ import TouchCodeCore
 struct StatusPullRequestView: View {
   let snapshot: PullRequestSnapshot
   let store: StoreOf<GitHubFeature>
+  /// Collapses the trailing detail text when true. Ring + badge stay so
+  /// the slot still carries the CI health signal at a glance.
+  var compact: Bool = false
   @Environment(CommandKeyObserver.self) private var commandKeyObserver
 
   var body: some View {
@@ -25,8 +28,10 @@ struct StatusPullRequestView: View {
       HStack(spacing: 6) {
         badge
         ChecksRollupRing(checks: snapshot.checkRollup)
-        detailText
-          .foregroundStyle(.secondary)
+        if !compact {
+          detailText
+            .foregroundStyle(.secondary)
+        }
       }
       .font(.footnote)
     }

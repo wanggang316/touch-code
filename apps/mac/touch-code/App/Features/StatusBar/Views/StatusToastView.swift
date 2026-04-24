@@ -7,14 +7,20 @@ import TouchCodeCore
 /// is a pure projection of `toast`.
 struct StatusToastView: View {
   let toast: StatusToast
+  /// When true, renders glyph only. Driven by `ViewThatFits` in narrow
+  /// titlebars — the AX label still carries the message so VoiceOver
+  /// users don't lose the text.
+  var compact: Bool = false
 
   var body: some View {
     HStack(spacing: 6) {
       glyph
-      Text(toast.message)
-        .font(.footnote)
-        .foregroundStyle(.secondary)
-        .lineLimit(1)
+      if !compact {
+        Text(toast.message)
+          .font(.footnote)
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
+      }
     }
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(Self.accessibilityLabel(for: toast))

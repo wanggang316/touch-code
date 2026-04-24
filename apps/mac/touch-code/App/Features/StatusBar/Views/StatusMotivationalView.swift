@@ -10,6 +10,10 @@ import TouchCodeCore
 /// the 4-way time-of-day split (sunrise / noon / sunset / night) shifts
 /// across hour boundaries, not on every second.
 struct StatusMotivationalView: View {
+  /// Drops the Command Palette hint when true, keeping only
+  /// `icon + HH:mm`. Driven by `ViewThatFits` in narrow titlebars.
+  var compact: Bool = false
+
   var body: some View {
     TimelineView(.everyMinute) { context in
       row(for: context.date)
@@ -20,13 +24,14 @@ struct StatusMotivationalView: View {
   private func row(for date: Date) -> some View {
     let style = Self.timeStyle(for: Calendar.current.component(.hour, from: date))
     let displayTime = date.formatted(date: .omitted, time: .shortened)
-    let text = "\(displayTime) – Open Command Palette \(CommandPaletteShortcut.displayString)"
+    let fullText = "\(displayTime) – Open Command Palette \(CommandPaletteShortcut.displayString)"
+    let displayText = compact ? displayTime : fullText
     HStack(spacing: 8) {
       Image(systemName: style.icon)
         .foregroundStyle(style.color)
         .font(.callout)
         .accessibilityHidden(true)
-      Text(text)
+      Text(displayText)
         .font(.footnote)
         .monospaced()
         .foregroundStyle(.secondary)
@@ -34,7 +39,7 @@ struct StatusMotivationalView: View {
     }
     .accessibilityElement(children: .ignore)
     .accessibilityLabel("Status idle")
-    .accessibilityValue(text)
+    .accessibilityValue(fullText)
     .accessibilityIdentifier("status.motivational")
   }
 

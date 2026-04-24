@@ -17,22 +17,33 @@ struct StatusBarView: View {
   let worktreeID: WorktreeID?
 
   var body: some View {
-    Group {
-      switch form {
-      case .toast(let toast):
-        StatusToastView(toast: toast)
-          .transition(.opacity)
-      case .pullRequest(let snapshot):
-        StatusPullRequestView(snapshot: snapshot, store: gitHubStore)
-          .transition(.opacity)
-      case .motivational:
-        StatusMotivationalView()
-          .transition(.opacity)
-      }
+    ViewThatFits(in: .horizontal) {
+      formContent(compact: false)
+      formContent(compact: true)
+      Color.clear.frame(width: 0, height: 0)
     }
     .animation(.easeInOut(duration: 0.2), value: formIdentity)
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("status.bar")
+  }
+
+  /// Each form's two width budgets — full (preferred) and compact (when the
+  /// titlebar is narrower than the full rendering). `ViewThatFits` picks the
+  /// first subview that fits horizontally; if neither fits, the slot
+  /// collapses to `Color.clear` so left / right toolbar groups stay anchored.
+  @ViewBuilder
+  private func formContent(compact: Bool) -> some View {
+    switch form {
+    case .toast(let toast):
+      StatusToastView(toast: toast, compact: compact)
+        .transition(.opacity)
+    case .pullRequest(let snapshot):
+      StatusPullRequestView(snapshot: snapshot, store: gitHubStore, compact: compact)
+        .transition(.opacity)
+    case .motivational:
+      StatusMotivationalView(compact: compact)
+        .transition(.opacity)
+    }
   }
 
   /// Priority resolution. Toast always wins; otherwise a non-closed
