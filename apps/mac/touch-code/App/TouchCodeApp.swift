@@ -8,6 +8,12 @@ struct TouchCodeApp: App {
   /// Single long-lived runtime stack. `@State` keeps this alive across the
   /// scene lifecycle without re-creating on re-render.
   @State private var appState = AppState()
+  /// 0014: scene-wide ⌘ modifier observer, injected via `.environment`
+  /// so any view (currently: the status-bar PR form) can swap hints when
+  /// the user holds ⌘. The class self-installs its NSEvent monitor at
+  /// `init` and tears down in `deinit`, so no explicit lifecycle calls
+  /// are needed here.
+  @State private var commandKeyObserver = CommandKeyObserver()
   /// `SwiftUI.App` gives us no `applicationWillTerminate` hook on its own;
   /// the adaptor bridges AppKit's termination callback so we can flush
   /// debounced writes from `SettingsStore` and `InboxStore` before the
@@ -29,6 +35,7 @@ struct TouchCodeApp: App {
             worktreeStatusMonitor: appState.worktreeStatusMonitor
           )
           .frame(minWidth: 800, minHeight: 600)
+          .environment(commandKeyObserver)
         } else {
           // Initial loading state while appState.bringUp runs.
           VStack(spacing: 12) {

@@ -44,6 +44,7 @@ This is a living document. The Progress, Surprises & Discoveries, Decision Log, 
 ## Decision Log
 
 - **2026-04-24** 设计阶段已确认：状态归属 → 新建 `StatusBarFeature`；toast 发射 → RootFeature 路由既有 child actions；PR 数据 → 读 `GitHubFeature.State.snapshots`；快捷键 → 硬编码 + 共享常量；toast 节流 → sequence token + 后到覆盖；窄窗口 → `ViewThatFits` 三档；状态机 → TCA reducer + `TestClock`。详见 design doc §3-4。
+- **2026-04-24 (M4.B)** Reused the existing `CommandKeyObserver` from `App/Features/HierarchySidebar/` rather than adding a second class under `App/Features/StatusBar/`. The existing class already self-installs its NSEvent monitor at `init`, handles teardown via a `nonisolated` `MonitorStorage` helper, and exposes `isCommandHeld: Bool`. Its file location is incidental; wiring it through the scene's `.environment` at `TouchCodeApp` level makes it reachable from StatusPullRequestView without a file move. Diverges from Plan §Interfaces: `isPressed` is named `isCommandHeld` and there is no `start()` / `stop()` pair.
 
 ## Outcomes & Retrospective
 
