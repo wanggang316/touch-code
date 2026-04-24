@@ -25,7 +25,7 @@ This is a living document. The Progress, Surprises & Discoveries, Decision Log, 
   - [x] M1.2 StatusBarFeature reducer + 单测（7/7 绿） — commit `c579d2f`
   - [x] M1.3 StatusBarView 最小实现 + 挂 toolbar
 - [x] **M2 Editor hook** (2026-04-24)
-- [ ] M3 GitHub hook
+- [x] **M3 GitHub hook** (2026-04-24)
 - [ ] M4 PR form
   - [ ] M4.A ChecksRollupRing（可并行）
   - [ ] M4.B CommandKeyObserver（可并行）

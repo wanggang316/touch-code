@@ -533,6 +533,26 @@ struct RootFeature {
       case .worktreeHeader:
         return .none
 
+      // 0014 M3: surface gh mutation outcomes in the status bar. The child
+      // `Scope(state: \.gitHub, ...)` has already updated `mutating` / `lastError`;
+      // we only fan a toast out. Message format mirrors the sidebar popover's
+      // verb so cross-surface language stays consistent.
+      case .gitHub(.mergeCompleted(_, let prNumber, .success)):
+        return .send(.statusBar(.push(.success("PR #\(prNumber) merged"))))
+      case .gitHub(.closeCompleted(_, .success)):
+        return .send(.statusBar(.push(.success("PR closed"))))
+      case .gitHub(.markReadyCompleted(_, .success)):
+        return .send(.statusBar(.push(.success("PR marked ready"))))
+      case .gitHub(.rerunFailedJobsCompleted(_, .success)):
+        return .send(.statusBar(.push(.success("Re-ran failed jobs"))))
+
+      case .gitHub(.mergeCompleted(_, _, .failure(let error))),
+        .gitHub(.closeCompleted(_, .failure(let error))),
+        .gitHub(.markReadyCompleted(_, .failure(let error))),
+        .gitHub(.rerunFailedJobsCompleted(_, .failure(let error))):
+        let reason = Self.shortToastMessage(String(describing: error))
+        return .send(.statusBar(.push(.warning(reason))))
+
       // 0012: GitHub integration delegate actions. Detailed handling (openURL →
       // NSWorkspace.open, showSettingsGitHub → SettingsWindowPresenter, pullRequestMerged
       // → M7 post-merge Worktree action) moves into `GitHubRootBindings` stacked under the
