@@ -4,8 +4,9 @@ import TouchCodeCore
 
 /// Tab bar reducer. State-free controller: Worktree.tabs is read from the
 /// environment `HierarchyManager` at render time; actions dispatch create /
-/// select / close commands through `HierarchyClient`. Errors are swallowed
-/// (logged only) — tab-bar failures are rare and not worth modal UX today.
+/// select / close / rename / reorder / bulk-close commands through
+/// `HierarchyClient`. Errors are swallowed (logged via the client's own
+/// channels) — tab-bar failures are rare and not worth modal UX today.
 @Reducer
 struct TabBarFeature {
   @ObservableState
@@ -17,6 +18,22 @@ struct TabBarFeature {
     case tabButtonTapped(
       TabID, inWorktree: WorktreeID, inProject: ProjectID, inSpace: SpaceID)
     case closeButtonTapped(
+      TabID, inWorktree: WorktreeID, inProject: ProjectID, inSpace: SpaceID)
+
+    // Tab-bar uplift (M2-T2.2)
+    case renameSubmitted(
+      TabID, name: String?,
+      inWorktree: WorktreeID, inProject: ProjectID, inSpace: SpaceID)
+    case contextMenuCloseOthers(
+      TabID, inWorktree: WorktreeID, inProject: ProjectID, inSpace: SpaceID)
+    case contextMenuCloseToRight(
+      TabID, inWorktree: WorktreeID, inProject: ProjectID, inSpace: SpaceID)
+    case contextMenuCloseAll(
+      inWorktree: WorktreeID, inProject: ProjectID, inSpace: SpaceID)
+    case dragReorderEnded(
+      orderedIDs: [TabID],
+      inWorktree: WorktreeID, inProject: ProjectID, inSpace: SpaceID)
+    case middleClicked(
       TabID, inWorktree: WorktreeID, inProject: ProjectID, inSpace: SpaceID)
   }
 
@@ -47,6 +64,30 @@ struct TabBarFeature {
         return .none
 
       case .closeButtonTapped(let tabID, let worktreeID, let projectID, let spaceID):
+        try? hierarchyClient.closeTab(tabID, worktreeID, projectID, spaceID)
+        return .none
+
+      case .renameSubmitted(let tabID, let name, let worktreeID, let projectID, let spaceID):
+        try? hierarchyClient.renameTab(tabID, worktreeID, projectID, spaceID, name)
+        return .none
+
+      case .contextMenuCloseOthers(let tabID, let worktreeID, let projectID, let spaceID):
+        try? hierarchyClient.closeOtherTabs(tabID, worktreeID, projectID, spaceID)
+        return .none
+
+      case .contextMenuCloseToRight(let tabID, let worktreeID, let projectID, let spaceID):
+        try? hierarchyClient.closeTabsToRight(tabID, worktreeID, projectID, spaceID)
+        return .none
+
+      case .contextMenuCloseAll(let worktreeID, let projectID, let spaceID):
+        try? hierarchyClient.closeAllTabs(worktreeID, projectID, spaceID)
+        return .none
+
+      case .dragReorderEnded(let orderedIDs, let worktreeID, let projectID, let spaceID):
+        try? hierarchyClient.reorderTabs(worktreeID, projectID, spaceID, orderedIDs)
+        return .none
+
+      case .middleClicked(let tabID, let worktreeID, let projectID, let spaceID):
         try? hierarchyClient.closeTab(tabID, worktreeID, projectID, spaceID)
         return .none
       }
