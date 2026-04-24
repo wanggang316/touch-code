@@ -14,6 +14,21 @@ final class HierarchyManager {
   private let store: CatalogStore
   private let runtime: HierarchyRuntime
 
+  /// Runtime-only map of the pane the user most recently focused inside a
+  /// given tab. Read by `selectTab` to restore focus on tab switches;
+  /// cleared when the pane or the tab is closed. Never persisted — wall-
+  /// clock-live state that must be rebuilt each launch.
+  private var lastFocusedPaneByTab: [TabID: PaneID] = [:]
+
+  /// Runtime-only set of panes that are currently executing a tracked
+  /// command. Driven by C3 hooks in a future milestone; today the only
+  /// writers are the `markPaneRunning` / `markPaneIdle` methods, which no
+  /// caller invokes in production. Reads via `tabIsDirty(_:)` still work
+  /// — they return `false` uniformly until a writer wakes up. Stored as a
+  /// `Set` rather than `[PaneID: Bool]` so absence is the natural "idle"
+  /// signal and `contains` is the only read shape.
+  private var runningPanes: Set<PaneID> = []
+
   init(catalog: Catalog, store: CatalogStore, runtime: HierarchyRuntime) {
     self.catalog = catalog
     self.store = store
@@ -463,6 +478,10 @@ final class HierarchyManager {
         else { continue }
         for pane in worktree.tabs.flatMap({ $0.panes }) {
           runtime.closeSurface(for: pane.id)
+          runningPanes.remove(pane.id)
+        }
+        for tab in worktree.tabs {
+          lastFocusedPaneByTab.removeValue(forKey: tab.id)
         }
         return
       }
@@ -566,7 +585,9 @@ final class HierarchyManager {
     let tab = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex]
     for pane in tab.panes {
       runtime.closeSurface(for: pane.id)
+      runningPanes.remove(pane.id)
     }
+    lastFocusedPaneByTab.removeValue(forKey: id)
 
     catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.remove(at: tabIndex)
     if catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].selectedTabID == id {
@@ -593,6 +614,21 @@ final class HierarchyManager {
     }
     catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].selectedTabID = id
     store.scheduleSave(catalog)
+
+    // Focus the last-used pane in the target tab; fall back to the
+    // leftmost leaf of the split tree when no memory exists or the
+    // remembered pane has since been closed. Silent no-op when there is
+    // no active tab or the tab has no panes.
+    guard
+      let tabID = id,
+      let tab = catalog.spaces[spaceIndex].projects[projectIndex]
+        .worktrees[worktreeIndex].tabs.first(where: { $0.id == tabID })
+    else { return }
+    let flatPaneIDs = Set(tab.panes.map(\.id))
+    let remembered = lastFocusedPaneByTab[tabID].flatMap { flatPaneIDs.contains($0) ? $0 : nil }
+    if let focusID = remembered ?? tab.splitTree.leaves().first {
+      runtime.focusSurfaceView(for: focusID)
+    }
   }
 
   // MARK: - Tab mutations (tab-bar uplift)
@@ -794,6 +830,52 @@ final class HierarchyManager {
     return newID
   }
 
+  // MARK: - Runtime state (tab-bar uplift)
+
+  /// Records `paneID` as the tab's last-focused pane so a future
+  /// `selectTab` call can restore it. `nil` clears the entry. No catalog
+  /// mutation — the map is runtime-only.
+  func setLastFocusedPane(_ paneID: PaneID?, in tabID: TabID) {
+    if let paneID {
+      lastFocusedPaneByTab[tabID] = paneID
+    } else {
+      lastFocusedPaneByTab.removeValue(forKey: tabID)
+    }
+  }
+
+  /// Returns the last-focused pane for `tabID`, or `nil` if none was
+  /// recorded or the remembered pane has since been closed.
+  func lastFocusedPane(in tabID: TabID) -> PaneID? {
+    lastFocusedPaneByTab[tabID]
+  }
+
+  /// Marks `paneID` as running a tracked command. No caller wired today
+  /// — lands with C3 hooks. Idempotent.
+  func markPaneRunning(_ paneID: PaneID) {
+    runningPanes.insert(paneID)
+  }
+
+  /// Clears `paneID`'s running flag. Idempotent.
+  func markPaneIdle(_ paneID: PaneID) {
+    runningPanes.remove(paneID)
+  }
+
+  /// True when any pane inside `tabID` is currently marked running.
+  /// Reads a runtime set, never touches the catalog.
+  func tabIsDirty(_ tabID: TabID) -> Bool {
+    // Walk the catalog once to locate the tab; absent tabs read as idle.
+    for space in catalog.spaces {
+      for project in space.projects {
+        for worktree in project.worktrees {
+          guard let tab = worktree.tabs.first(where: { $0.id == tabID })
+          else { continue }
+          return tab.panes.contains { runningPanes.contains($0.id) }
+        }
+      }
+    }
+    return false
+  }
+
   // MARK: - Pane mutations
 
   func openPane(
@@ -924,6 +1006,10 @@ final class HierarchyManager {
     }
 
     runtime.closeSurface(for: paneID)
+    runningPanes.remove(paneID)
+    if lastFocusedPaneByTab[tabID] == paneID {
+      lastFocusedPaneByTab.removeValue(forKey: tabID)
+    }
 
     tab.panes.remove(at: paneIndex)
     tab.splitTree = tab.splitTree.removing(paneID)
@@ -976,6 +1062,9 @@ final class HierarchyManager {
 
     tab.splitTree = tab.splitTree.settingZoomed(paneID)
     catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex] = tab
+    // Remember this pane as the tab's last-focused so the next `selectTab`
+    // call restores it instead of snapping to the leftmost leaf.
+    lastFocusedPaneByTab[tabID] = paneID
 
     store.scheduleSave(catalog)
   }
