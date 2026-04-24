@@ -153,22 +153,29 @@ nonisolated func classifyHooks(
 /// Determine if a hook subscription's scope binds it to the given project.
 /// - `.anyPane`, `.paneID`, `.paneLabel`, `.tabID`, `.tabLabel` are never
 ///   project-specific; treat as Global.
+/// - `.projectID` matches when the id equals the project's id.
+/// - `.projectPathGlob` matches when the glob fires against `project.rootPath`.
 /// - `.worktreeID` matches when the id appears in `project.worktrees`.
-/// - `.worktreePathGlob` matches when the glob fires against the project's
-///   repo root **or** any of its worktree paths. Matching the repo root
-///   catches the "hooks that target the whole repository tree" case, which
-///   otherwise gets mis-tagged as Global when the project happens to have
-///   no worktrees or only descendant worktrees.
+/// - `.worktreePathGlob` is strictly worktree-scoped: fires when the glob
+///   matches any worktree path. Project-level scoping now belongs to
+///   `.projectID` / `.projectPathGlob`, so this case no longer probes
+///   `project.rootPath` — a user who wants "whole Project" writes it
+///   explicitly via a Project-scoped case.
 nonisolated private func isRepositoryScope(_ scope: HookSubscription.Scope, project: Project) -> Bool {
   switch scope {
   case .anyPane, .paneID, .paneLabel, .tabID, .tabLabel:
     return false
 
+  case .projectID(let pid):
+    return pid == project.id
+
+  case .projectPathGlob(let glob):
+    return doesPathMatchGlob(project.rootPath, glob: glob)
+
   case .worktreeID(let wtID):
     return project.worktrees.contains { $0.id == wtID }
 
   case .worktreePathGlob(let glob):
-    if doesPathMatchGlob(project.rootPath, glob: glob) { return true }
     return project.worktrees.contains { wtree in
       doesPathMatchGlob(wtree.path, glob: glob)
     }

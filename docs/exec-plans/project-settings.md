@@ -31,7 +31,7 @@ migrate transparently on first launch.
 - [x] Step 2 — `ProjectSettings` + `GitProjectSettings` types (additive) (2026-04-24)
 - [x] Step 3 — `settings.json` v3 codable + v2-fold decoder path (2026-04-24)
 - [x] Step 4 — `catalog.json` v2 (Project fields stripped from encoder) (2026-04-24)
-- [ ] Step 5 — `hooks.json` v2 (new Scope cases + fail-soft Kind)
+- [x] Step 5 — `hooks.json` v2 (new Scope cases + fail-soft Kind) (2026-04-24)
 - [ ] Step 6 — `SettingsStore.mutateProject` + `HierarchyClient` slim-down + "Open in" rewire
 - [ ] Step 7 — `RepositorySettingsFeature` → `ProjectSettingsFeature` rename + write-path switch
 - [ ] Step 8 — `SettingsWindowFeature` rename + sidebar kind-aware rendering + 4 new `SettingsSection` cases

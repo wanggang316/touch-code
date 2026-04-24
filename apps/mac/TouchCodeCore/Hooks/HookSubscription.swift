@@ -79,6 +79,15 @@ public nonisolated struct HookSubscription: Equatable, Sendable, Identifiable {
     case tabLabel(String)
     case worktreeID(WorktreeID)
     case worktreePathGlob(String)
+    /// Scopes a subscription to a specific Project by id. Fires for any pane / tab /
+    /// worktree descended from that Project. Available to both `git_repo` and
+    /// `plain_dir` kinds — the anchor is the Project itself, not a git worktree.
+    /// Introduced in hooks.json v2.
+    case projectID(ProjectID)
+    /// Scopes a subscription to Projects whose `rootPath` matches a glob pattern
+    /// (`*` = any segment). Useful for rules like "every Project under ~/dev/**".
+    /// Introduced in hooks.json v2.
+    case projectPathGlob(String)
   }
 }
 
@@ -130,13 +139,30 @@ extension HookSubscription: Codable {
 
 extension HookSubscription.Scope: Codable {
   private enum CodingKeys: String, CodingKey { case kind, value }
-  private enum Kind: String, Codable {
+
+  /// Decoder-side sentinel: `Scope.Kind(from:)` throws this when the raw string
+  /// is not a recognised case. The surrounding `HookSubscription` decoder catches
+  /// the typed error and skips the whole subscription with a log line — a single
+  /// unknown `kind` no longer aborts the entire `hooks.json` load.
+  public struct UnknownScopeKind: Error, Equatable, Sendable {
+    public let raw: String
+    public init(raw: String) { self.raw = raw }
+  }
+
+  /// On-wire discriminator for the `kind` key. Every case listed here maps to a
+  /// `Scope` variant; unknown raw values throw `UnknownScopeKind` rather than
+  /// failing the synthesised `init(from:)`.
+  private enum Kind: String {
     case anyPane, paneID, paneLabel, tabID, tabLabel, worktreeID, worktreePathGlob
+    case projectID, projectPathGlob
   }
 
   public init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
-    let kind = try c.decode(Kind.self, forKey: .kind)
+    let rawKind = try c.decode(String.self, forKey: .kind)
+    guard let kind = Kind(rawValue: rawKind) else {
+      throw UnknownScopeKind(raw: rawKind)
+    }
     switch kind {
     case .anyPane:
       self = .anyPane
@@ -152,6 +178,10 @@ extension HookSubscription.Scope: Codable {
       self = .worktreeID(try c.decode(WorktreeID.self, forKey: .value))
     case .worktreePathGlob:
       self = .worktreePathGlob(try c.decode(String.self, forKey: .value))
+    case .projectID:
+      self = .projectID(try c.decode(ProjectID.self, forKey: .value))
+    case .projectPathGlob:
+      self = .projectPathGlob(try c.decode(String.self, forKey: .value))
     }
   }
 
@@ -159,24 +189,30 @@ extension HookSubscription.Scope: Codable {
     var c = encoder.container(keyedBy: CodingKeys.self)
     switch self {
     case .anyPane:
-      try c.encode(Kind.anyPane, forKey: .kind)
+      try c.encode(Kind.anyPane.rawValue, forKey: .kind)
     case .paneID(let id):
-      try c.encode(Kind.paneID, forKey: .kind)
+      try c.encode(Kind.paneID.rawValue, forKey: .kind)
       try c.encode(id, forKey: .value)
     case .paneLabel(let label):
-      try c.encode(Kind.paneLabel, forKey: .kind)
+      try c.encode(Kind.paneLabel.rawValue, forKey: .kind)
       try c.encode(label, forKey: .value)
     case .tabID(let id):
-      try c.encode(Kind.tabID, forKey: .kind)
+      try c.encode(Kind.tabID.rawValue, forKey: .kind)
       try c.encode(id, forKey: .value)
     case .tabLabel(let label):
-      try c.encode(Kind.tabLabel, forKey: .kind)
+      try c.encode(Kind.tabLabel.rawValue, forKey: .kind)
       try c.encode(label, forKey: .value)
     case .worktreeID(let id):
-      try c.encode(Kind.worktreeID, forKey: .kind)
+      try c.encode(Kind.worktreeID.rawValue, forKey: .kind)
       try c.encode(id, forKey: .value)
     case .worktreePathGlob(let glob):
-      try c.encode(Kind.worktreePathGlob, forKey: .kind)
+      try c.encode(Kind.worktreePathGlob.rawValue, forKey: .kind)
+      try c.encode(glob, forKey: .value)
+    case .projectID(let id):
+      try c.encode(Kind.projectID.rawValue, forKey: .kind)
+      try c.encode(id, forKey: .value)
+    case .projectPathGlob(let glob):
+      try c.encode(Kind.projectPathGlob.rawValue, forKey: .kind)
       try c.encode(glob, forKey: .value)
     }
   }

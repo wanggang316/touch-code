@@ -247,6 +247,8 @@ public nonisolated enum HookRowBuilder {
     case .tabLabel: return "tabLabel"
     case .worktreeID: return "worktreeID"
     case .worktreePathGlob: return "worktreePathGlob"
+    case .projectID: return "projectID"
+    case .projectPathGlob: return "projectPathGlob"
     }
   }
 }

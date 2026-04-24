@@ -171,10 +171,11 @@ struct RepositorySettingsFeatureTests {
   }
 
   @Test
-  func onHooksAppearTagsWorktreePathGlobMatchingProjectRootAsRepository() async {
-    // B4 regression guard: worktreePathGlob targeting the repo root must tag as
-    // Repository even when no `worktrees` entry's path matches. Design's Data
-    // Storage § Hook classification requires project.rootPath to be checked too.
+  func onHooksAppearTagsProjectPathGlobMatchingRepoRootAsRepository() async {
+    // hooks.json v2 added `.projectPathGlob` so users can scope a subscription to the
+    // whole Project (any worktree / pane / tab / plain_dir root) directly. Match against
+    // `project.rootPath`. `worktreePathGlob` no longer probes the rootPath — users who
+    // want repo-wide scope pick `.projectPathGlob` explicitly.
     let projectID = ProjectID()
     let subID = UUID()
     let project = Project(
@@ -188,12 +189,11 @@ struct RepositorySettingsFeatureTests {
     )
     let space = Space(id: SpaceID(), name: "S", projects: [project])
     let catalog = Catalog(windows: [], spaces: [space], selectedSpaceID: space.id)
-    // Glob matches project.rootPath exactly but does NOT match /Users/me/wts/feat-a.
     let sub = HookSubscription(
       id: subID,
       event: .paneCreated,
       command: "echo test",
-      scope: .worktreePathGlob("/Users/me/proj")
+      scope: .projectPathGlob("/Users/me/proj")
     )
 
     let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: projectID)) {
@@ -210,6 +210,39 @@ struct RepositorySettingsFeatureTests {
     await store.send(.onHooksAppear) {
       $0.hooksLoad = .loading
     }
+    await store.receive(\.hooksLoaded.success) {
+      $0.hooksLoad = .loaded([expected])
+    }
+  }
+
+  @Test
+  func onHooksAppearTagsProjectIDScopeAsRepository() async {
+    // `.projectID` is the canonical way to scope to a single Project — matches regardless
+    // of kind, so `plain_dir` Projects get first-class coverage too.
+    let projectID = ProjectID()
+    let subID = UUID()
+    let project = Project(id: projectID, name: "P", rootPath: "/tmp/p", gitRoot: nil)
+    let space = Space(id: SpaceID(), name: "S", projects: [project])
+    let catalog = Catalog(windows: [], spaces: [space], selectedSpaceID: space.id)
+    let sub = HookSubscription(
+      id: subID,
+      event: .paneCreated,
+      command: "notify",
+      scope: .projectID(projectID)
+    )
+
+    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: projectID)) {
+      RepositorySettingsFeature()
+    } withDependencies: {
+      $0.hookConfigClient = .testValue
+      $0.hookConfigClient.load = { HookConfig(subscriptions: [sub]) }
+      $0.hierarchyClient = .testValue
+      $0.hierarchyClient.snapshot = { catalog }
+      $0.finderClient = .testValue
+    }
+
+    let expected = HookRowBuilder.make(from: sub, source: .repository)
+    await store.send(.onHooksAppear) { $0.hooksLoad = .loading }
     await store.receive(\.hooksLoaded.success) {
       $0.hooksLoad = .loaded([expected])
     }

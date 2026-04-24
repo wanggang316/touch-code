@@ -88,7 +88,9 @@ public final class HookHandlers {
           .tabID,
           .tabLabel,
           .worktreeID,
-          .worktreePathGlob:
+          .worktreePathGlob,
+          .projectID,
+          .projectPathGlob:
           return false
         }
       }
