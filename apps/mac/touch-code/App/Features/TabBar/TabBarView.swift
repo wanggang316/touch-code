@@ -43,6 +43,31 @@ struct TabBarView: View {
               .closeButtonTapped(
                 tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
               ))
+          },
+          onCloseOthers: { tabID in
+            store.send(
+              .contextMenuCloseOthers(
+                tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+              ))
+          },
+          onCloseToRight: { tabID in
+            store.send(
+              .contextMenuCloseToRight(
+                tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+              ))
+          },
+          onCloseAll: {
+            store.send(
+              .contextMenuCloseAll(
+                inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+              ))
+          },
+          onRenameCommit: { tabID, newName in
+            store.send(
+              .renameSubmitted(
+                tabID, name: newName,
+                inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+              ))
           }
         )
       }

@@ -8,11 +8,19 @@ import TouchCodeCore
 /// separator is stamped between any two adjacent non-active chips. The
 /// separator is suppressed on either side of the active chip so its
 /// accent underline visually carries the boundary.
+///
+/// Per-chip callbacks (select / close / rename / bulk-close) are supplied
+/// by the parent. The row's own knowledge stays limited to ordering and
+/// active-id tracking; feature dispatch is the parent's responsibility.
 struct TabBarRowView: View {
   let tabs: [TouchCodeCore.Tab]
   let activeTabID: TabID?
   let onSelect: (TabID) -> Void
   let onClose: (TabID) -> Void
+  let onCloseOthers: (TabID) -> Void
+  let onCloseToRight: (TabID) -> Void
+  let onCloseAll: () -> Void
+  let onRenameCommit: (TabID, String?) -> Void
 
   var body: some View {
     HStack(spacing: 0) {
@@ -20,8 +28,14 @@ struct TabBarRowView: View {
         TabChipView(
           title: tab.name ?? "Tab",
           isActive: activeTabID == tab.id,
+          isOnlyTab: tabs.count <= 1,
+          isLastTab: index == tabs.count - 1,
           onSelect: { onSelect(tab.id) },
-          onClose: { onClose(tab.id) }
+          onClose: { onClose(tab.id) },
+          onCloseOthers: { onCloseOthers(tab.id) },
+          onCloseToRight: { onCloseToRight(tab.id) },
+          onCloseAll: onCloseAll,
+          onRenameCommit: { newName in onRenameCommit(tab.id, newName) }
         )
         if shouldShowDivider(after: index) {
           Rectangle()
