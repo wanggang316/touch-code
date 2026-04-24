@@ -21,7 +21,13 @@ struct TabBarView: View {
   @Environment(HierarchyManager.self) private var hierarchyManager
 
   var body: some View {
-    HStack(spacing: 4) {
+    HStack(spacing: 4, content: barContent)
+      .frame(height: TabBarMetrics.barHeight, alignment: .bottom)
+  }
+
+  @ViewBuilder
+  private func barContent() -> some View {
+    Group {
       if let worktree = currentWorktree() {
         TabBarRowView(
           tabs: worktree.tabs,

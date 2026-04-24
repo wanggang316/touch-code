@@ -1,21 +1,29 @@
 import SwiftUI
 
 /// The `xmark` button on the trailing edge of a tab chip. A dedicated view
-/// so later milestones can add hover-reveal, keyboard shortcut hints, and
-/// middle-click semantics without widening `TabChipView`.
+/// so later milestones can add keyboard-shortcut hints and focus styling
+/// without widening `TabChipView`.
 ///
-/// Current behavior (M1-T1.2): always visible at 0.6 opacity, matching the
-/// pre-split chip. Hover-revealed + focus styling lands in M1-T1.3.
+/// Visible only while the chip is hovered or active; opacity transition is
+/// short (100 ms) so the button does not linger after the pointer leaves.
+/// Hit testing stays on so space kept for the glyph is never dead.
 struct TabChipCloseButton: View {
+  let isVisible: Bool
   let action: () -> Void
 
   var body: some View {
     Button(action: action) {
       Image(systemName: "xmark")
         .font(.caption2)
+        .foregroundStyle(TabBarColors.closeButtonForeground)
+        .frame(
+          width: TabBarMetrics.closeButtonSize,
+          height: TabBarMetrics.closeButtonSize
+        )
         .accessibilityLabel("Close Tab")
     }
     .buttonStyle(.borderless)
-    .opacity(0.6)
+    .opacity(isVisible ? 1 : 0)
+    .animation(.easeInOut(duration: 0.10), value: isVisible)
   }
 }
