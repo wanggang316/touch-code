@@ -22,18 +22,23 @@ struct TabChipView: View {
 
   @State private var isHovering = false
   @State private var isPressing = false
-  /// Non-nil while the user is editing the tab name inline. M2-T2.3 flips
-  /// this to `""` from the context menu; the TextField path and submit /
-  /// cancel wiring land in M2-T2.4.
+  /// Non-nil while the user is editing the tab name inline. Driven by the
+  /// context menu's Rename action. `Return` commits through
+  /// `onRenameCommit`; `Esc` discards.
   @State private var editingName: String?
+  @FocusState private var renameFieldFocused: Bool
 
   var body: some View {
     HStack(spacing: 4) {
-      Button(action: onSelect) {
-        TabChipLabel(title: title)
-          .frame(maxWidth: .infinity, alignment: .leading)
+      if editingName != nil {
+        renameField
+      } else {
+        Button(action: onSelect) {
+          TabChipLabel(title: title)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(ChipPressTrackingStyle(isPressing: $isPressing))
       }
-      .buttonStyle(ChipPressTrackingStyle(isPressing: $isPressing))
 
       TabChipCloseButton(
         isVisible: isHovering || isActive,
@@ -63,13 +68,53 @@ struct TabChipView: View {
       TabChipContextMenu(
         isOnlyTab: isOnlyTab,
         isLastTab: isLastTab,
-        onRename: { editingName = title },
+        onRename: startEditing,
         onClose: onClose,
         onCloseOthers: onCloseOthers,
         onCloseToRight: onCloseToRight,
         onCloseAll: onCloseAll
       )
     }
+  }
+
+  /// Inline `TextField` variant of the label. Trimmed empty input is
+  /// normalized to `nil` so the chip falls back on the default "Tab"
+  /// label. `.onKeyPress(.escape)` discards; `.onSubmit` commits.
+  @ViewBuilder
+  private var renameField: some View {
+    TextField("", text: renameBinding)
+      .textFieldStyle(.plain)
+      .focused($renameFieldFocused)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .onSubmit(commitRename)
+      .onKeyPress(.escape) {
+        cancelRename()
+        return .handled
+      }
+      .onAppear {
+        renameFieldFocused = true
+      }
+  }
+
+  private var renameBinding: Binding<String> {
+    Binding(
+      get: { editingName ?? "" },
+      set: { editingName = $0 }
+    )
+  }
+
+  private func startEditing() {
+    editingName = title
+  }
+
+  private func commitRename() {
+    let trimmed = (editingName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    editingName = nil
+    onRenameCommit(trimmed.isEmpty ? nil : trimmed)
+  }
+
+  private func cancelRename() {
+    editingName = nil
   }
 }
 
