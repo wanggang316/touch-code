@@ -25,9 +25,9 @@ struct StatusBarView: View {
       case .pullRequest(let snapshot):
         StatusPullRequestView(snapshot: snapshot, store: gitHubStore)
           .transition(.opacity)
-      case .empty:
-        // M1 skeleton placeholder — motivational form lands in M5.
-        Color.clear.frame(width: 1, height: 1)
+      case .motivational:
+        StatusMotivationalView()
+          .transition(.opacity)
       }
     }
     .animation(.easeInOut(duration: 0.2), value: formIdentity)
@@ -40,7 +40,7 @@ struct StatusBarView: View {
   enum Form: Equatable {
     case toast(StatusToast)
     case pullRequest(PullRequestSnapshot)
-    case empty
+    case motivational
   }
 
   private var form: Form {
@@ -51,7 +51,7 @@ struct StatusBarView: View {
     {
       return .pullRequest(snapshot)
     }
-    return .empty
+    return .motivational
   }
 
   /// Cheap equality-stable token for the form animation. The SwiftUI
@@ -62,7 +62,7 @@ struct StatusBarView: View {
     switch form {
     case .toast(let t): return "toast-\(t.message)"
     case .pullRequest(let pr): return "pr-\(pr.number)-\(pr.state.rawValue)"
-    case .empty: return "empty"
+    case .motivational: return "motivational"
     }
   }
 }
