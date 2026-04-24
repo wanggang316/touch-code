@@ -34,7 +34,7 @@ struct MainWindowCommands: Commands {
       Button("Quick Action…") {
         store.send(.commandPaletteToggle(nil))
       }
-      .keyboardShortcut("p", modifiers: .command)
+      .keyboardShortcut(KeyEquivalent(CommandPaletteShortcut.keyChar), modifiers: .command)
 
       Divider()
 
