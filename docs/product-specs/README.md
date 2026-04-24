@@ -16,3 +16,4 @@ Use [_template.md](_template.md) as a starting point.
 - [Space Management](space-management.md) — Space lifecycle: create, rename, reorder, delete, switch; single-window, git-free
 - [Project Management](project-management.md) — Register existing local repos, per-Project preferences, health state, reconcile
 - [Worktree Management](worktree-management.md) — Create via `git-wt`, auto-discover, switch, archive, safe/force remove, prune
+- [Worktree Status Bar](worktree-status-bar.md) — Titlebar 中段多态状态槽（inProgress / success / warning / PR / motivational）
