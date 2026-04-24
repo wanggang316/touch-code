@@ -173,13 +173,13 @@ _tc() {
     unset 'unparsed_words[0]'
     unparsed_words=("${unparsed_words[@]}")
     case "${subcommand}" in
-    system|space|project|worktree|tab|panel|send|broadcast|hook|skill|open|rpc|help)
+    system|space|project|worktree|tab|pane|send|broadcast|hook|open|rpc|help)
         # Offer subcommand argument completions
         "_tc_${subcommand}"
         ;;
     *)
         # Offer subcommand completions
-        COMPREPLY+=($(compgen -W 'system space project worktree tab panel send broadcast hook skill open rpc help' -- "${cur}"))
+        COMPREPLY+=($(compgen -W 'system space project worktree tab pane send broadcast hook open rpc help' -- "${cur}"))
         ;;
     esac
 }
@@ -718,7 +718,7 @@ _tc_tab_close() {
     esac
 }
 
-_tc_panel() {
+_tc_pane() {
     repeating_flags=()
     non_repeating_flags=(--version -h --help)
     repeating_options=()
@@ -732,7 +732,7 @@ _tc_panel() {
     case "${subcommand}" in
     label|list|close|focus)
         # Offer subcommand argument completions
-        "_tc_panel_${subcommand}"
+        "_tc_pane_${subcommand}"
         ;;
     *)
         # Offer subcommand completions
@@ -741,7 +741,7 @@ _tc_panel() {
     esac
 }
 
-_tc_panel_label() {
+_tc_pane_label() {
     repeating_flags=()
     non_repeating_flags=(--json --replace --version -h --help)
     repeating_options=()
@@ -759,7 +759,7 @@ _tc_panel_label() {
     esac
 }
 
-_tc_panel_list() {
+_tc_pane_list() {
     repeating_flags=()
     non_repeating_flags=(--json --version -h --help)
     repeating_options=()
@@ -789,7 +789,7 @@ _tc_panel_list() {
     esac
 }
 
-_tc_panel_close() {
+_tc_pane_close() {
     repeating_flags=()
     non_repeating_flags=(--json --version -h --help)
     repeating_options=()
@@ -819,7 +819,7 @@ _tc_panel_close() {
     esac
 }
 
-_tc_panel_focus() {
+_tc_pane_focus() {
     repeating_flags=()
     non_repeating_flags=(--json --version -h --help)
     repeating_options=()
@@ -1133,19 +1133,11 @@ _tc_hook_edit() {
     esac
 }
 
-_tc_skill() {
-    repeating_flags=()
-    non_repeating_flags=(--version -h --help)
-    repeating_options=()
-    non_repeating_options=()
-    __tc_offer_flags_options 0
-}
-
 _tc_open() {
     repeating_flags=()
     non_repeating_flags=(--json --version -h --help)
     repeating_options=()
-    non_repeating_options=(--socket --timeout --in --path)
+    non_repeating_options=(--socket --timeout --in)
     __tc_offer_flags_options 1
 
     # Offer option value completions
@@ -1157,9 +1149,6 @@ _tc_open() {
         return
         ;;
     '--in')
-        return
-        ;;
-    '--path')
         return
         ;;
     esac

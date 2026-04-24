@@ -39,7 +39,7 @@ mkdir -p "${HOME}/.cache/touch-code-tests"
 tmp="$(mktemp -d "${HOME}/.cache/touch-code-tests/pi-smoke.XXXXXX")"
 trap 'rm -rf "${tmp}"' EXIT
 
-# Shipped-only prompt for the v0.1.0 release gate. Broaden once tc panel * lands.
+# Shipped-only prompt for the v0.1.0 release gate. Broaden once tc pane * lands.
 PROMPT='Using the touch-code skill, what is the tc command to print the path to the bundled touch-code-skill directory? Respond with only the command.'
 
 # pi non-interactive: `pi -p "..."` as of 2026-Q2. Re-verify at release time.

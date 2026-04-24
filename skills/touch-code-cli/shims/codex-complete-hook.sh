@@ -7,5 +7,5 @@
 #
 # C6's Codex rule bundle matches this sentinel and routes it to the
 # NotificationCoordinator for a "Codex finished" banner on the originating
-# Panel. See c6 DEC-14 for the pty-sentinel bridge rationale.
+# Pane. See c6 DEC-14 for the pty-sentinel bridge rationale.
 printf '\n::touchcode:agent-complete %s\n' "${TOUCH_CODE_PANE_ID:-unknown}"

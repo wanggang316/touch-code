@@ -55,12 +55,11 @@ _tc() {
             'project:Project-level verbs.'
             'worktree:Worktree-level verbs.'
             'tab:Tab-level verbs.'
-            'panel:Panel-level verbs.'
-            'send:Send text input to a specific panel (by UUID, @label, or '\''current'\'').'
+            'pane:Pane-level verbs.'
+            'send:Send text input to a specific pane (by UUID, @label, or '\''current'\'').'
             'broadcast:Fan-out text to a tab, worktree, space, or label scope.'
             'hook:Install, list, fire, and tail lifecycle hooks.'
-            'skill:Install the touch-code Agent Skill (ships via exec-plan 0004).'
-            'open:Open a worktree (or arbitrary path) in an external editor.'
+            'open:Open a directory in an external editor (or terminal / git client / Finder).'
             'rpc:Low-level: invoke an arbitrary RPC method. Parses JSON params from argv.'
             'help:Show subcommand help information.'
         )
@@ -68,7 +67,7 @@ _tc() {
         ;;
     arg)
         case "${words[1]}" in
-        system|space|project|worktree|tab|panel|send|broadcast|hook|skill|open|rpc|help)
+        system|space|project|worktree|tab|pane|send|broadcast|hook|open|rpc|help)
             "_tc_${words[1]}" && ret=0
             ;;
         esac
@@ -554,7 +553,7 @@ _tc_tab_close() {
     return "${ret}"
 }
 
-_tc_panel() {
+_tc_pane() {
     local -i ret=1
     local -ar arg_specs=(
         '--version[Show the version.]'
@@ -566,17 +565,17 @@ _tc_panel() {
     case "${state}" in
     command)
         local -ar subcommands=(
-            'label:Apply labels to a panel (by UUID or @label alias).'
-            'list:List panels in a tab.'
-            'close:Close a panel.'
-            'focus:Focus a panel within its tab.'
+            'label:Apply labels to a pane (by UUID or @label alias).'
+            'list:List panes in a tab.'
+            'close:Close a pane.'
+            'focus:Focus a pane within its tab.'
         )
         _describe -V subcommand subcommands && ret=0
         ;;
     arg)
         case "${words[1]}" in
         label|list|close|focus)
-            "_tc_panel_${words[1]}" && ret=0
+            "_tc_pane_${words[1]}" && ret=0
             ;;
         esac
         ;;
@@ -585,15 +584,15 @@ _tc_panel() {
     return "${ret}"
 }
 
-_tc_panel_label() {
+_tc_pane_label() {
     local -i ret=1
     local -ar arg_specs=(
         '--json[Emit JSON on stdout instead of human-readable text.]'
         '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
         '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
-        ':panel:'
+        ':pane:'
         '*:labels:'
-        '--replace[Replace the panel'\''s label set instead of union-merging.]'
+        '--replace[Replace the pane'\''s label set instead of union-merging.]'
         '--version[Show the version.]'
         '(-h --help)'{-h,--help}'[Show help information.]'
     )
@@ -602,7 +601,7 @@ _tc_panel_label() {
     return "${ret}"
 }
 
-_tc_panel_list() {
+_tc_pane_list() {
     local -i ret=1
     local -ar arg_specs=(
         '--json[Emit JSON on stdout instead of human-readable text.]'
@@ -620,7 +619,7 @@ _tc_panel_list() {
     return "${ret}"
 }
 
-_tc_panel_close() {
+_tc_pane_close() {
     local -i ret=1
     local -ar arg_specs=(
         '--json[Emit JSON on stdout instead of human-readable text.]'
@@ -639,7 +638,7 @@ _tc_panel_close() {
     return "${ret}"
 }
 
-_tc_panel_focus() {
+_tc_pane_focus() {
     local -i ret=1
     local -ar arg_specs=(
         '--json[Emit JSON on stdout instead of human-readable text.]'
@@ -737,7 +736,7 @@ _tc_hook_list() {
         '--json[Emit JSON on stdout instead of human-readable text.]'
         '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
         '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
-        '--event[Filter by event name (e.g. panel.ready).]:event:'
+        '--event[Filter by event name (e.g. pane.ready).]:event:'
         '--version[Show the version.]'
         '(-h --help)'{-h,--help}'[Show help information.]'
     )
@@ -898,26 +897,14 @@ _tc_hook_edit() {
     return "${ret}"
 }
 
-_tc_skill() {
-    local -i ret=1
-    local -ar arg_specs=(
-        '--version[Show the version.]'
-        '(-h --help)'{-h,--help}'[Show help information.]'
-    )
-    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
-
-    return "${ret}"
-}
-
 _tc_open() {
     local -i ret=1
     local -ar arg_specs=(
         '--json[Emit JSON on stdout instead of human-readable text.]'
         '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
         '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
-        '--in[Editor id (built-in allowlist\: vscode, cursor, zed, xcode, sublime, finder). Omit to use Project/Settings defaults.]:in:'
-        '--path[Open an arbitrary path instead of a worktree.]:path:'
-        ':worktree:'
+        '--in[Editor id (e.g. cursor, zed, vscode, xcode, finder, ghostty). Omit to use per-Project / Settings defaults.]:in:'
+        ':path:'
         '--version[Show the version.]'
         '(-h --help)'{-h,--help}'[Show help information.]'
     )
