@@ -7,7 +7,7 @@ import TouchCodeCore
 /// whether its scope binds it to one of the project's worktrees (or its repo root).
 /// `store` is scoped by `SettingsWindowView` before construction and keyed by
 /// `projectID`.
-struct RepositoryHooksSettingsView: View {
+struct ProjectHooksSettingsView: View {
   let projectID: ProjectID
   let store: StoreOf<ProjectSettingsFeature>
 

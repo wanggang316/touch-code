@@ -8,7 +8,7 @@ import TouchCodeCore
 /// design D1. `store` is scoped by `SettingsWindowView` before construction and
 /// keyed by `projectID`; `descriptors` flows from the parent's `general` substate
 /// so the picker renders the same editor list the global Default Editor pane shows.
-struct RepositoryGeneralSettingsView: View {
+struct ProjectGeneralSettingsView: View {
   let projectID: ProjectID
   let store: StoreOf<ProjectSettingsFeature>
   let descriptors: [EditorDescriptor]

@@ -92,7 +92,7 @@ struct SettingsWindowView: View {
         state: \.projectPanes[id: projectID],
         action: \.projectPanes[id: projectID]
       ) {
-        RepositoryGeneralSettingsView(
+        ProjectGeneralSettingsView(
           projectID: projectID,
           store: paneStore,
           descriptors: store.state.general.descriptors
@@ -108,18 +108,46 @@ struct SettingsWindowView: View {
         state: \.projectPanes[id: projectID],
         action: \.projectPanes[id: projectID]
       ) {
-        RepositoryHooksSettingsView(projectID: projectID, store: paneStore)
+        ProjectHooksSettingsView(projectID: projectID, store: paneStore)
       } else {
         ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
       }
-    case .projectGit:
-      ComingSoonPane(title: "Git & Worktree")
-    case .projectGitHub:
-      ComingSoonPane(title: "GitHub")
-    case .projectScripts:
-      ComingSoonPane(title: "Scripts")
-    case .projectEnv:
-      ComingSoonPane(title: "Environment")
+    case .projectGit(let projectID):
+      if let paneStore = store.scope(
+        state: \.projectPanes[id: projectID],
+        action: \.projectPanes[id: projectID]
+      ) {
+        ProjectGitSettingsView(projectID: projectID, store: paneStore)
+      } else {
+        ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+      }
+    case .projectGitHub(let projectID):
+      if let paneStore = store.scope(
+        state: \.projectPanes[id: projectID],
+        action: \.projectPanes[id: projectID]
+      ) {
+        ProjectGitHubSettingsView(projectID: projectID, store: paneStore)
+      } else {
+        ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+      }
+    case .projectScripts(let projectID):
+      if let paneStore = store.scope(
+        state: \.projectPanes[id: projectID],
+        action: \.projectPanes[id: projectID]
+      ) {
+        ProjectScriptsSettingsView(projectID: projectID, store: paneStore)
+      } else {
+        ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+      }
+    case .projectEnv(let projectID):
+      if let paneStore = store.scope(
+        state: \.projectPanes[id: projectID],
+        action: \.projectPanes[id: projectID]
+      ) {
+        ProjectEnvSettingsView(projectID: projectID, store: paneStore)
+      } else {
+        ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+      }
     }
   }
 }
