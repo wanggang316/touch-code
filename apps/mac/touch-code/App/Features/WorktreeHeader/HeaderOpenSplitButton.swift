@@ -14,6 +14,7 @@ struct HeaderOpenSplitButton: View {
   let projectID: ProjectID
   let worktreePath: String
   @Environment(HierarchyManager.self) private var hierarchyManager
+  @Environment(SettingsStore.self) private var settingsStore
 
   var body: some View {
     HStack(spacing: 0) {
@@ -80,10 +81,8 @@ struct HeaderOpenSplitButton: View {
   }
 
   private var projectOverrideID: EditorID? {
-    hierarchyManager.catalog
-      .spaces.first(where: { $0.id == spaceID })?
-      .projects.first(where: { $0.id == projectID })?
-      .defaultEditor
+    // v3 reads per-Project editor override from settings.json.projects[pid].
+    settingsStore.settings.projects[projectID]?.defaultEditor
   }
 
   // MARK: - Caret menu

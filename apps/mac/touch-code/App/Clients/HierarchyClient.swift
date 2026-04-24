@@ -107,28 +107,11 @@ nonisolated struct HierarchyClient: Sendable {
       _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
     ) throws -> Void
 
-  /// Sets the per-Project default editor override. `nil` unsets the override so resolution
-  /// falls back to the global default (via `SettingsStore`). Added in 0005 M6a for C8's
-  /// Worktree-header "Open in ▾" + Settings override UI.
-  var setDefaultEditor:
-    @MainActor @Sendable (
-      _ projectID: ProjectID, _ inSpace: SpaceID, _ editorID: EditorID?
-    ) throws -> Void
-
-  /// Sibling of `setDefaultEditor` for Settings Repository pane; projects without a
-  /// known Space are resolved across all Spaces. `nil` clears the override. T4.
-  var setRepositoryDefaultEditor:
-    @MainActor @Sendable (
-      _ projectID: ProjectID, _ editorID: EditorID?
-    ) throws -> Void
-
-  /// Sets the per-Project worktree base directory override for Settings Repository pane.
-  /// `nil` clears so worktree creation falls back to the global default. Unused value is
-  /// a silent no-op. Resolves projectID across all Spaces. T4.
-  var setRepositoryWorktreeBaseDirectory:
-    @MainActor @Sendable (
-      _ projectID: ProjectID, _ path: String?
-    ) throws -> Void
+  // Per-Project editor / worktrees-directory writers were retired in v3: the values
+  // live on `Settings.projects[pid]` and every consumer routes through
+  // `SettingsStore.mutateProject` (`SettingsWriter.setProjectDefaultEditor` /
+  // `SettingsWriter.setProjectWorktreesDirectory`). HierarchyClient is read-only for
+  // per-Project preferences (see `snapshot` / `kind`).
 
   /// Flips `Worktree.gitViewerVisible` for the given Worktree. Silent no-op on
   /// unknown `worktreeID`; persists through the standard debounced
@@ -195,11 +178,6 @@ nonisolated struct HierarchyClient: Sendable {
   /// Reorder Projects inside a Space. Mirrors `ForEach.onMove`'s signature.
   var reorderProjects: @MainActor @Sendable (
     _ inSpace: SpaceID, _ from: IndexSet, _ to: Int
-  ) throws -> Void
-
-  /// Per-Project worktrees-directory override. Empty/whitespace clears.
-  var setProjectWorktreesDirectory: @MainActor @Sendable (
-    _ projectID: ProjectID, _ inSpace: SpaceID, _ path: String?
   ) throws -> Void
 
   /// Duplicate-add guard. Caller canonicalizes before querying.
@@ -355,15 +333,6 @@ extension HierarchyClient {
           in: tabID, in: worktreeID, in: projectID, in: spaceID
         )
       },
-      setDefaultEditor: { projectID, spaceID, editorID in
-        try manager.setDefaultEditor(editorID, for: projectID, in: spaceID)
-      },
-      setRepositoryDefaultEditor: { projectID, editorID in
-        try manager.setDefaultEditorAnySpace(editorID, for: projectID)
-      },
-      setRepositoryWorktreeBaseDirectory: { projectID, path in
-        try manager.setWorktreesDirectory(path, for: projectID)
-      },
       setWorktreeGitViewerVisible: { worktreeID, visible in
         manager.setWorktreeGitViewerVisible(worktreeID: worktreeID, visible: visible)
       },
@@ -407,9 +376,6 @@ extension HierarchyClient {
       },
       reorderProjects: { spaceID, from, to in
         try manager.reorderProjects(in: spaceID, from: from, to: to)
-      },
-      setProjectWorktreesDirectory: { projectID, spaceID, path in
-        try manager.setProjectWorktreesDirectory(path, projectID: projectID, spaceID: spaceID)
       },
       isPathRegistered: { canonicalPath in
         manager.isPathRegistered(canonical: canonicalPath)
@@ -619,9 +585,6 @@ extension HierarchyClient: DependencyKey {
     focusPane: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     focusSurfaceView: { _ in fatalError("HierarchyClient.liveValue not configured") },
     resizeSplit: { _, _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    setDefaultEditor: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    setRepositoryDefaultEditor: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    setRepositoryWorktreeBaseDirectory: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     setWorktreeGitViewerVisible: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     snapshot: { fatalError("HierarchyClient.liveValue not configured") },
     selectionChanges: { AsyncStream { $0.finish() } },
@@ -633,7 +596,6 @@ extension HierarchyClient: DependencyKey {
     runningPaneCount: { _ in fatalError("HierarchyClient.liveValue not configured") },
     setProjectLoadState: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     reorderProjects: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    setProjectWorktreesDirectory: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     isPathRegistered: { _ in fatalError("HierarchyClient.liveValue not configured") },
     projectContaining: { _ in fatalError("HierarchyClient.liveValue not configured") },
     kind: { _ in fatalError("HierarchyClient.liveValue not configured") },
@@ -667,9 +629,6 @@ extension HierarchyClient: DependencyKey {
     focusPane: unimplemented("HierarchyClient.focusPane"),
     focusSurfaceView: unimplemented("HierarchyClient.focusSurfaceView"),
     resizeSplit: unimplemented("HierarchyClient.resizeSplit"),
-    setDefaultEditor: unimplemented("HierarchyClient.setDefaultEditor"),
-    setRepositoryDefaultEditor: unimplemented("HierarchyClient.setRepositoryDefaultEditor"),
-    setRepositoryWorktreeBaseDirectory: unimplemented("HierarchyClient.setRepositoryWorktreeBaseDirectory"),
     setWorktreeGitViewerVisible: unimplemented("HierarchyClient.setWorktreeGitViewerVisible"),
     snapshot: unimplemented(
       "HierarchyClient.snapshot",
@@ -689,7 +648,6 @@ extension HierarchyClient: DependencyKey {
     runningPaneCount: unimplemented("HierarchyClient.runningPaneCount", placeholder: 0),
     setProjectLoadState: unimplemented("HierarchyClient.setProjectLoadState"),
     reorderProjects: unimplemented("HierarchyClient.reorderProjects"),
-    setProjectWorktreesDirectory: unimplemented("HierarchyClient.setProjectWorktreesDirectory"),
     isPathRegistered: unimplemented("HierarchyClient.isPathRegistered", placeholder: nil),
     projectContaining: unimplemented("HierarchyClient.projectContaining", placeholder: nil),
     kind: unimplemented("HierarchyClient.kind", placeholder: nil),

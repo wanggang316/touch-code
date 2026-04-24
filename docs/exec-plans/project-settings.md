@@ -32,7 +32,7 @@ migrate transparently on first launch.
 - [x] Step 3 — `settings.json` v3 codable + v2-fold decoder path (2026-04-24)
 - [x] Step 4 — `catalog.json` v2 (Project fields stripped from encoder) (2026-04-24)
 - [x] Step 5 — `hooks.json` v2 (new Scope cases + fail-soft Kind) (2026-04-24)
-- [ ] Step 6 — `SettingsStore.mutateProject` + `HierarchyClient` slim-down + "Open in" rewire
+- [x] Step 6 — `SettingsStore.mutateProject` + `HierarchyClient` slim-down + "Open in" rewire (2026-04-25)
 - [ ] Step 7 — `RepositorySettingsFeature` → `ProjectSettingsFeature` rename + write-path switch
 - [ ] Step 8 — `SettingsWindowFeature` rename + sidebar kind-aware rendering + 4 new `SettingsSection` cases
 - [ ] Step 9 — Pane view file renames + 4 scaffold pane views
@@ -55,6 +55,19 @@ RepositorySettings) -> Void)` closure type to change (value type is now `Project
 and the old `RepositorySettings` struct is deleted in Step 3). Keeping the old method name
 alive with a shim translating between two types would be noise. Consequence: Step 6's
 scope shrinks to HierarchyClient slim-down + "Open in" dropdown rewire only.
+
+### 2026-04-25 — Step 6 also rewired per-Project editor reads (not just writes)
+
+Plan described the rewire only for writes (`EditorFeature.setProjectOverride`,
+`ProjectOptionsFeature.saveTapped`, `RepositorySettingsFeature`). But several reader sites
+still pulled `Project.defaultEditor` / `Project.worktreesDirectory` from the Catalog
+snapshot: `EditorHandlers.projectOverride`, `RootFeature.projectOverrideEditorID`,
+`GitViewerFeature.openInEditor` fire path, `HeaderOpenSplitButton.projectOverrideID`,
+`HierarchySidebarFeature.projectAddWorktreeTapped` + `.projectOptionsTapped`. With v2
+catalog encoder no longer writing those fields, a read would return `nil` after the
+first drain. Rewired all six sites to read through `SettingsWriter.readSnapshotSync` /
+`settings.projects[pid]`. Added `readSnapshotSync` (MainActor-assumed) to SettingsWriter
+so reducers can read without an async hop.
 
 ### 2026-04-24 — Step 3 fixed two pre-existing flaky tests as a side effect
 

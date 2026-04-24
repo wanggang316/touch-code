@@ -38,28 +38,23 @@ struct RepositorySettingsFeature {
   @Dependency(HierarchyClient.self) var hierarchyClient
   @Dependency(HookConfigClient.self) var hookConfigClient
   @Dependency(FinderClient.self) var finderClient
+  @Dependency(SettingsWriter.self) var settingsWriter
 
   var body: some Reducer<State, Action> {
     Reduce { state, action in
       switch action {
       case .setDefaultEditorOverride(let editorID):
+        let writer = settingsWriter.setProjectDefaultEditor
         return .run { [projectID = state.projectID] send in
-          do {
-            try await hierarchyClient.setRepositoryDefaultEditor(projectID, editorID)
-            await send(.writeFailed(""))  // Clear the error on success
-          } catch {
-            await send(.writeFailed(String(describing: error)))
-          }
+          await writer(projectID, editorID)
+          await send(.writeFailed(""))  // Clear the error on success
         }
 
       case .setWorktreeBaseDirectory(let path):
+        let writer = settingsWriter.setProjectWorktreesDirectory
         return .run { [projectID = state.projectID] send in
-          do {
-            try await hierarchyClient.setRepositoryWorktreeBaseDirectory(projectID, path)
-            await send(.writeFailed(""))  // Clear the error on success
-          } catch {
-            await send(.writeFailed(String(describing: error)))
-          }
+          await writer(projectID, path)
+          await send(.writeFailed(""))  // Clear the error on success
         }
 
       case .writeFailed(let message):

@@ -279,6 +279,7 @@ struct HierarchySidebarFeature {
   }
 
   @Dependency(HierarchyClient.self) private var hierarchyClient
+  @Dependency(SettingsWriter.self) private var settingsWriter
 
   var body: some Reducer<State, Action> {
     Reduce { state, action in
@@ -397,17 +398,17 @@ struct HierarchySidebarFeature {
         return .send(.delegate(.reconcileProjectRequested(projectID, spaceID)))
 
       case .projectAddWorktreeTapped(let projectID, let spaceID):
-        // Resolve the Project from the catalog to feed repoRoot +
-        // worktreesDirectory into CreateWorktreeFeature. If the Project
-        // has no gitRoot the sheet wouldn't be useful — silently
-        // no-op in that case (the Add-Worktree "+" row is hidden for
-        // non-git Projects anyway).
+        // Resolve the Project from the catalog to feed repoRoot + worktreesDirectory
+        // into CreateWorktreeFeature. v3 moved worktreesDirectory off catalog into
+        // settings.json.projects[pid]. If the Project has no gitRoot the sheet wouldn't
+        // be useful — silently no-op (the Add-Worktree "+" row is hidden for non-git).
         let snapshot = hierarchyClient.snapshot()
         guard let space = snapshot.spaces.first(where: { $0.id == spaceID }),
               let project = space.projects.first(where: { $0.id == projectID }),
               let gitRoot = project.gitRoot
         else { return .none }
-        let defaultWtDir = URL(fileURLWithPath: project.worktreesDirectory
+        let wtDirOverride = settingsWriter.readSnapshotSync().projects[projectID]?.worktreesDirectory
+        let defaultWtDir = URL(fileURLWithPath: wtDirOverride
           ?? (NSHomeDirectory() + "/.touch-code/repos/\(project.name)"))
         state.createWorktreeSheet = CreateWorktreeFeature.State(
           projectID: projectID,
@@ -418,21 +419,23 @@ struct HierarchySidebarFeature {
         return .none
 
       case .projectOptionsTapped(let projectID, let spaceID):
-        // Snapshot the Project's current persisted values at open-time so the
-        // Options reducer can skip setters for unchanged drafts.
+        // Snapshot the Project's current persisted values at open-time so the Options
+        // reducer can skip setters for unchanged drafts. v3 reads defaultEditor /
+        // worktreesDirectory from settings.json.projects[pid].
         let snapshot = hierarchyClient.snapshot()
         guard let project = snapshot.spaces.first(where: { $0.id == spaceID })?
           .projects.first(where: { $0.id == projectID })
         else { return .none }
+        let prefs = settingsWriter.readSnapshotSync().projects[projectID]
         state.projectOptions = ProjectOptionsFeature.State(
           targetSpaceID: spaceID,
           targetProjectID: projectID,
           originalName: project.name,
-          originalDefaultEditor: project.defaultEditor,
-          originalWorktreesDirectory: project.worktreesDirectory,
+          originalDefaultEditor: prefs?.defaultEditor,
+          originalWorktreesDirectory: prefs?.worktreesDirectory,
           nameDraft: project.name,
-          defaultEditorDraft: project.defaultEditor,
-          worktreesDirectoryDraft: project.worktreesDirectory ?? ""
+          defaultEditorDraft: prefs?.defaultEditor,
+          worktreesDirectoryDraft: prefs?.worktreesDirectory ?? ""
         )
         return .none
 

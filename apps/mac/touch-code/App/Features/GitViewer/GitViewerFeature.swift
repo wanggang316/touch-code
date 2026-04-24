@@ -131,6 +131,7 @@ struct GitViewerFeature {
   @Dependency(GitServiceClient.self) var gitService
   @Dependency(HierarchyClient.self) var hierarchyClient
   @Dependency(EditorClient.self) var editorClient
+  @Dependency(SettingsWriter.self) var settingsWriter
 
   var body: some Reducer<State, Action> {
     Reduce { state, action in
@@ -363,17 +364,18 @@ struct GitViewerFeature {
   private func editorOpenRequest(worktreeID: WorktreeID, projectID: ProjectID?) -> Effect<Action> {
     let client = self.editorClient
     let hierarchy = self.hierarchyClient
+    let writer = self.settingsWriter
     return .run { send in
       let snapshot = await hierarchy.snapshot()
       guard let path = Self.worktreePath(in: snapshot, worktreeID: worktreeID) else {
         await send(.editorOpenFailed(reason: "Worktree path not found in catalog"))
         return
       }
-      // Honor the per-Project override on the Enter shortcut. `projectID` is in state so
-      // we can look it up directly rather than asking the IPC handler to re-derive it from
-      // the path. Filter through installed descriptors so a stale override silently falls
-      // through to the service's cascade (global default → priority walk).
-      let projectOverride = projectID.flatMap { id in Self.projectOverride(in: snapshot, projectID: id) }
+      // Honor the per-Project override on the Enter shortcut. v3 moved overrides to
+      // settings.json so read via SettingsWriter. Filter through installed descriptors
+      // so a stale override silently falls through to the service's cascade.
+      let settings = await writer.readSnapshot()
+      let projectOverride = projectID.flatMap { settings.projects[$0]?.defaultEditor }
       let descriptors = await client.describe()
       let preferred = EditorFeature.resolveInstalledPreference(
         projectOverride: projectOverride,
@@ -389,15 +391,6 @@ struct GitViewerFeature {
         await send(.editorOpenFailed(reason: String(describing: error)))
       }
     }
-  }
-
-  fileprivate nonisolated static func projectOverride(in catalog: Catalog, projectID: ProjectID) -> EditorID? {
-    for space in catalog.spaces {
-      if let project = space.projects.first(where: { $0.id == projectID }) {
-        return project.defaultEditor
-      }
-    }
-    return nil
   }
 
   /// Human-readable reason for an `EditorError`, surfaced as a toast subtitle by the view.

@@ -1,13 +1,15 @@
-# Mission complete — C7 + C8 design docs
+# Mission done: PR #4 REQUEST_CHANGES fixes (C7 + C8)
 
-Worktree: `design+c7-c8-viewer-editor` · Branch: `worktree-design+c7-c8-viewer-editor` · Date: 2026-04-20
+PR: https://github.com/wanggang316/touch-code/pull/7 (branch `worktree-fix+c7-c8-viewer-editor` → `main`).
 
-## Deliverables
+Four commits landed, each addressing one review deliverable:
 
-- `docs/design-docs/c7-git-viewer.md` (453 lines) — read-only git diff/history viewer.
-- `docs/design-docs/c8-editor-integration.md` (438 lines) — external editor handoff.
-- `docs/design-docs/README.md` index updated with both.
+1. **820e0ef** `feat(editor)`: unified `tc open` ↔ server wire on canonical `EditorOpenRequest`/`Response`; added `path` field with in-worktree validation in `EditorHandlers`; added missing `.editorDescribe`/`.editorSetDefault` to `IPC.Method`; round-trip + legacy-payload tests.
+2. **5f56940** `feat(editor)`: constructed `EditorHandlers` in `TouchCodeApp.startIPC` from the shared `EditorClient`, extended `MethodRouter` to dispatch `editor.*`, mapped `EditorIPCError` → `IPCError`. Unblocks `tc open --in` / `--path` end-to-end.
+3. **da39504** `fix(viewer)`: threaded originating `DiffScope` through `logSucceeded`/`diffSucceeded`/failed actions; reducer drops stale-scope deliveries (Option A). Added tests for the race.
+4. **2a2884b** `fix(git)`: XY/path separator guard in `GitOutputParser`; `rev-parse --is-inside-work-tree` stdout parse; stderr preferred over `outputTooLarge`; `LargeDiffCommand` SHA precondition; renamed duplicate `Tests/NotificationsTests/SettingsStoreTests.swift` (C6 leftover blocking `build-for-testing`).
 
+<<<<<<< Updated upstream
 ## C7 — key decisions
 
 - Shell out to `git` via `Process` (not libgit2). 16 MiB output cap, 10 s timeout, env stripped of `GIT_*` redirectors.
@@ -50,3 +52,6 @@ Worktree: `design+c7-c8-viewer-editor` · Branch: `worktree-design+c7-c8-viewer-
 
 - C8 mechanism diverges from supacode's Launch Services approach; rationale in Alternatives A1. Xcode is the one case where LS creeps back in because Xcode ships no CLI.
 - Both docs follow the `_template.md` structure plus the existing `0001` doc's idioms (Resolved Items section, Seams subsection).
+=======
+Verified: `xcodebuild -scheme touch-code build` and `-scheme tc build` succeed; `-scheme touch-code test` passes 454/454 (including new `EditorHandlers` path + `GitViewerFeature` stale-scope tests); `-scheme TouchCodeCore test` passes 184/184. Base was already post-C6 merge (`caba2bd`) — no rebase needed.
+>>>>>>> Stashed changes

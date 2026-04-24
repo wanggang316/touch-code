@@ -176,35 +176,32 @@ struct EditorHandlersTests {
   // MARK: - setProjectDefault
 
   @Test
-  func setProjectDefaultForwardsToHierarchyClient() throws {
-    let writtenProjectID = LockIsolated<ProjectID?>(nil)
-    let writtenEditorID = LockIsolated<EditorID?>(nil)
-
+  func setProjectDefaultWritesToSettingsStore() throws {
+    // v3 moved per-Project editor overrides from catalog.json to settings.json. The
+    // handler validates the ProjectID against the catalog via `HierarchyClient.kind`
+    // and then mutates `SettingsStore.projects[pid].defaultEditor`.
     var hierarchy = HierarchyClient.testValue
-    hierarchy.setRepositoryDefaultEditor = { projectID, editorID in
-      writtenProjectID.withValue { $0 = projectID }
-      writtenEditorID.withValue { $0 = editorID }
-    }
+    let raw = UUID()
+    let projectID = ProjectID(raw: raw)
+    hierarchy.kind = { pid in pid == projectID ? .gitRepo : nil }
 
+    let store = makeStore()
     let handlers = EditorHandlers(
       editor: EditorClient.testValue,
       hierarchy: hierarchy,
-      settings: makeStore()
+      settings: store
     )
 
-    let raw = UUID()
-    let request = EditorSetProjectDefaultRequest(projectID: raw, editorID: "zed")
-    _ = try handlers.setProjectDefault(request)
-    #expect(writtenProjectID.value?.raw == raw)
-    #expect(writtenEditorID.value == "zed")
+    _ = try handlers.setProjectDefault(
+      EditorSetProjectDefaultRequest(projectID: raw, editorID: "zed")
+    )
+    #expect(store.settings.projects[projectID]?.defaultEditor == "zed")
   }
 
   @Test
-  func setProjectDefaultMapsHierarchyErrorToUnknownProject() {
+  func setProjectDefaultMapsUnknownProjectToIPCError() {
     var hierarchy = HierarchyClient.testValue
-    hierarchy.setRepositoryDefaultEditor = { _, _ in
-      throw HierarchyError.notFound("Project <missing>")
-    }
+    hierarchy.kind = { _ in nil }  // every ProjectID is unknown
 
     let handlers = EditorHandlers(
       editor: EditorClient.testValue,

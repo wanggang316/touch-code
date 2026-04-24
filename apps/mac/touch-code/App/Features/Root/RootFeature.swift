@@ -168,6 +168,7 @@ struct RootFeature {
   @Dependency(TerminalClient.self) private var terminalClient
   @Dependency(HierarchyClient.self) private var hierarchyClient
   @Dependency(FinderClient.self) private var finderClient
+  @Dependency(SettingsWriter.self) private var settingsWriter
   @Dependency(ProjectReconciler.self) private var projectReconciler
   @Dependency(SettingsWindowPresenter.self) private var settingsWindowPresenter
   @Dependency(GitHubSnapshotCacheClient.self) private var gitHubSnapshotCache
@@ -771,16 +772,12 @@ struct RootFeature {
 
   /// Per-Project editor override, if any. Used to resolve the Header's
   /// default-editor dispatch through `EditorFeature.resolveDefault` without
-  /// the reducer needing to hold a second cache of the catalog.
+  /// the reducer needing to hold a second cache of the catalog. v3 moved
+  /// the override off catalog.json; read via `SettingsWriter`'s sync
+  /// snapshot closure (itself MainActor-assumed internally).
   private func projectOverrideEditorID(for projectID: ProjectID?) -> EditorID? {
     guard let projectID else { return nil }
-    let catalog = hierarchyClient.snapshot()
-    for space in catalog.spaces {
-      if let project = space.projects.first(where: { $0.id == projectID }) {
-        return project.defaultEditor
-      }
-    }
-    return nil
+    return settingsWriter.readSnapshotSync().projects[projectID]?.defaultEditor
   }
 
   /// Ensures the selected Worktree has at least one Tab, and the active
