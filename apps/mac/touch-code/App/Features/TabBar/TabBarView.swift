@@ -68,6 +68,13 @@ struct TabBarView: View {
                 tabID, name: newName,
                 inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
               ))
+          },
+          onReorder: { orderedIDs in
+            store.send(
+              .dragReorderEnded(
+                orderedIDs: orderedIDs,
+                inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+              ))
           }
         )
       }
