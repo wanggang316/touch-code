@@ -34,14 +34,40 @@ struct TabBarView: View {
         }
       }
       TabBarTrailingAccessories(
+        activeTabSplitTree: activeSplitTree(),
         onNewTab: {
           store.send(
             .newTabButtonTapped(
               inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
             ))
+        },
+        onSplitRight: {
+          store.send(
+            .trailingSplitRequested(
+              direction: .right,
+              inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+            ))
+        },
+        onSplitDown: {
+          store.send(
+            .trailingSplitRequested(
+              direction: .down,
+              inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+            ))
         }
       )
     }
+  }
+
+  /// Splits the active tab's tree for the trailing hover-preview popover.
+  /// Returns `nil` when there is no active tab or the tab has no panes.
+  private func activeSplitTree() -> SplitTree<PaneID>? {
+    guard
+      let worktree = currentWorktree(),
+      let activeTabID,
+      let tab = worktree.tabs.first(where: { $0.id == activeTabID })
+    else { return nil }
+    return tab.splitTree.isEmpty ? nil : tab.splitTree
   }
 
   @ViewBuilder

@@ -35,6 +35,13 @@ struct TabBarFeature {
       inWorktree: WorktreeID, inProject: ProjectID, inSpace: SpaceID)
     case middleClicked(
       TabID, inWorktree: WorktreeID, inProject: ProjectID, inSpace: SpaceID)
+    /// Trailing split button click. Resolves the active tab's leftmost
+    /// leaf as the anchor pane and splits it in `direction`. Silent no-op
+    /// if the worktree has no active tab or the tab has no panes. Upgrades
+    /// to the last-focused pane when M3 lands.
+    case trailingSplitRequested(
+      direction: SplitTree<PaneID>.NewDirection,
+      inWorktree: WorktreeID, inProject: ProjectID, inSpace: SpaceID)
   }
 
   @Dependency(HierarchyClient.self) private var hierarchyClient
@@ -89,6 +96,24 @@ struct TabBarFeature {
 
       case .middleClicked(let tabID, let worktreeID, let projectID, let spaceID):
         try? hierarchyClient.closeTab(tabID, worktreeID, projectID, spaceID)
+        return .none
+
+      case .trailingSplitRequested(let direction, let worktreeID, let projectID, let spaceID):
+        let catalog = hierarchyClient.snapshot()
+        guard
+          let worktree = catalog.spaces.first(where: { $0.id == spaceID })?
+            .projects.first(where: { $0.id == projectID })?
+            .worktrees.first(where: { $0.id == worktreeID }),
+          let activeTabID = worktree.selectedTabID,
+          let activeTab = worktree.tabs.first(where: { $0.id == activeTabID }),
+          let anchor = activeTab.splitTree.leaves().first,
+          let anchorPane = activeTab.panes.first(where: { $0.id == anchor })
+        else { return .none }
+        _ = try? hierarchyClient.splitPane(
+          anchor, direction,
+          activeTabID, worktreeID, projectID, spaceID,
+          anchorPane.workingDirectory, nil
+        )
         return .none
       }
     }
