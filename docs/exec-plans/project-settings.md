@@ -37,7 +37,7 @@ migrate transparently on first launch.
 - [x] Step 8 — `SettingsWindowFeature` rename + sidebar kind-aware rendering + 4 new `SettingsSection` cases (2026-04-25)
 - [x] Step 9 — Pane view file renames + 4 scaffold pane views (2026-04-25)
 - [x] Step 10 — CI grep gate for `Repository` rename residue (2026-04-25)
-- [ ] Step 11 — Manual QA walk + doc updates (`architecture.md`, `ui-settings-window.md`, deprecated exec-plan header)
+- [x] Step 11 — Doc updates (`architecture.md`, `ui-settings-window.md` amendment, deprecated exec-plan header); manual QA deferred (no running app) (2026-04-25)
 - [ ] Step 12 — `/codex:review` on the branch + fix findings
 - [ ] Final — push + `gh pr create --base main`
 
@@ -55,6 +55,16 @@ RepositorySettings) -> Void)` closure type to change (value type is now `Project
 and the old `RepositorySettings` struct is deleted in Step 3). Keeping the old method name
 alive with a shim translating between two types would be noise. Consequence: Step 6's
 scope shrinks to HierarchyClient slim-down + "Open in" dropdown rewire only.
+
+### 2026-04-25 — Step 11 manual QA deferred
+
+Step 11 of the plan asked for `make mac-run-app` + a manual walk of the Settings
+window with git_repo and plain_dir projects. The agent environment cannot interactively
+drive a SwiftUI app, so the run-app walk is deferred to the human. The automated
+verification that the agent *can* run — build + full test suite across the three
+schemes — is green (Steps 1–9 landed their own suites; Step 10 grep gate is clean).
+Doc updates (architecture.md v3 row + ui-settings-window.md amendment note +
+settings-repositories.md Superseded-by header) landed in this step.
 
 ### 2026-04-25 — Step 6 also rewired per-Project editor reads (not just writes)
 

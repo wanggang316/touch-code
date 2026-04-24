@@ -1,6 +1,6 @@
 # ExecPlan: Settings Window — Repositories Subtree (T4)
 
-**Status:** Draft
+**Status:** Superseded by [project-settings.md](./project-settings.md) (2026-04-25)
 **Author:** Gump (agent: feat/settings-repositories)
 **Date:** 2026-04-21
 
