@@ -38,6 +38,9 @@ struct RootFeature {
     var worktreeHeader: WorktreeHeaderFeature.State = .init()
     /// 0012: GitHub integration — per-Worktree PR snapshots + popover state.
     var gitHub: GitHubFeature.State = .init()
+    /// 0014: titlebar-center Worktree Status Bar — owns only the transient
+    /// toast slot; PR / motivational forms are view-level projections.
+    var statusBar: StatusBarFeature.State = .init()
     /// 0008: router for tab/split intents decoded from ghostty keybinds.
     var paneActionRouter: PaneActionRouterFeature.State = .init()
     /// 0008: router for window/app-level intents decoded from ghostty keybinds.
@@ -157,6 +160,7 @@ struct RootFeature {
     case editor(EditorFeature.Action)
     case worktreeHeader(WorktreeHeaderFeature.Action)
     case gitHub(GitHubFeature.Action)
+    case statusBar(StatusBarFeature.Action)
     case paneActionRouter(PaneActionRouterFeature.Action)
     case windowActionRouter(WindowActionRouterFeature.Action)
   }
@@ -191,6 +195,7 @@ struct RootFeature {
       GitHubFeature()
       GitHubRootBindings()
     }
+    Scope(state: \.statusBar, action: \.statusBar) { StatusBarFeature() }
   }
 
   @ReducerBuilder<State, Action>
@@ -524,6 +529,12 @@ struct RootFeature {
       // gitHub scope — leaving the inline case a no-op keeps this reducer's switch-body
       // small enough for Swift's type-inference budget.
       case .gitHub:
+        return .none
+
+      // 0014: status-bar child scope is self-contained (toast slot + timers).
+      // Cross-feature toast emission (editor open, gh mutation completion) lands
+      // in subsequent milestones as additional cases BEFORE this catch-all.
+      case .statusBar:
         return .none
 
       // 0008: pane-action router delegate actions.

@@ -20,10 +20,10 @@ This is a living document. The Progress, Surprises & Discoveries, Decision Log, 
 ## Progress
 
 - [x] 写 ExecPlan（本文件）
-- [ ] M1 Skeleton
-  - [ ] M1.1 StatusToast 值类型（TouchCodeCore/StatusBar/StatusToast.swift）
-  - [ ] M1.2 StatusBarFeature reducer + 单测
-  - [ ] M1.3 StatusBarView 最小实现 + 挂 toolbar
+- [x] **M1 Skeleton** (2026-04-24)
+  - [x] M1.1 StatusToast 值类型（TouchCodeCore/StatusBar/StatusToast.swift） — commit `7e7610c`
+  - [x] M1.2 StatusBarFeature reducer + 单测（7/7 绿） — commit `c579d2f`
+  - [x] M1.3 StatusBarView 最小实现 + 挂 toolbar
 - [ ] M2 Editor hook
 - [ ] M3 GitHub hook
 - [ ] M4 PR form
@@ -39,7 +39,7 @@ This is a living document. The Progress, Surprises & Discoveries, Decision Log, 
 
 ## Surprises & Discoveries
 
-(None yet)
+- **2026-04-24 (M1.2)** Running `xcodebuild test -only-testing:touch-codeTests/StatusBarFeatureTests` in the default parallel mode intermittently crashes with `Fatal error: Unimplemented: GitHubClient.batchPullRequests`. The issue is pre-existing and unrelated to StatusBarFeature — it's the host app's bootstrap effect racing with swift-testing's parallel dependency reset; another suite's unimplemented `testValue` fires before the test's `withDependencies` block takes effect. **Workaround**: add `-parallel-testing-enabled NO` when running this suite, or scope `-only-testing` down to a single test function. All 7 StatusBar tests pass under serial execution.
 
 ## Decision Log
 
