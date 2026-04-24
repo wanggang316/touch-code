@@ -211,6 +211,13 @@ nonisolated struct HierarchyClient: Sendable {
   /// resolves the parent Project's default editor. Caller canonicalizes.
   var projectContaining: @MainActor @Sendable (_ canonicalPath: String) -> (SpaceID, ProjectID)?
 
+  /// Derived `ProjectKind` lookup — scans every Space for the Project and
+  /// returns its kind, or `nil` if the Project is not in the catalog. The
+  /// Settings sidebar consults this to choose which sub-rows to render
+  /// under a Project. Read-only; the app never writes kind — it flows from
+  /// `gitRoot` set at project-discovery time.
+  var kind: @MainActor @Sendable (_ projectID: ProjectID) -> ProjectKind?
+
   // MARK: - Space Management additions (feat/space-mgmt)
 
   /// Reorder Spaces using the IndexSet (source) and destination offset from
@@ -409,6 +416,14 @@ extension HierarchyClient {
       },
       projectContaining: { canonicalPath in
         manager.project(containing: canonicalPath)
+      },
+      kind: { projectID in
+        for space in manager.catalog.spaces {
+          if let project = space.projects.first(where: { $0.id == projectID }) {
+            return project.kind
+          }
+        }
+        return nil
       },
       reorderSpaces: { source, destination in
         manager.reorderSpaces(fromOffsets: source, toOffset: destination)
@@ -621,6 +636,7 @@ extension HierarchyClient: DependencyKey {
     setProjectWorktreesDirectory: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     isPathRegistered: { _ in fatalError("HierarchyClient.liveValue not configured") },
     projectContaining: { _ in fatalError("HierarchyClient.liveValue not configured") },
+    kind: { _ in fatalError("HierarchyClient.liveValue not configured") },
     reorderSpaces: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     addressOf: { _ in fatalError("HierarchyClient.liveValue not configured") },
     moveTab: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
@@ -676,6 +692,7 @@ extension HierarchyClient: DependencyKey {
     setProjectWorktreesDirectory: unimplemented("HierarchyClient.setProjectWorktreesDirectory"),
     isPathRegistered: unimplemented("HierarchyClient.isPathRegistered", placeholder: nil),
     projectContaining: unimplemented("HierarchyClient.projectContaining", placeholder: nil),
+    kind: unimplemented("HierarchyClient.kind", placeholder: nil),
     reorderSpaces: unimplemented("HierarchyClient.reorderSpaces"),
     addressOf: unimplemented("HierarchyClient.addressOf", placeholder: nil),
     moveTab: unimplemented("HierarchyClient.moveTab"),

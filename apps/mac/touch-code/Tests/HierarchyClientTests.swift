@@ -40,6 +40,28 @@ struct HierarchyClientTests {
   }
 
   @Test
+  func kindReturnsGitRepoWhenProjectHasGitRoot() throws {
+    let (client, _) = makeLiveClient()
+    let spaceID = client.createSpace("s")
+    let projectID = try client.addProject(spaceID, "p", "/tmp/p", "/tmp/p")
+    #expect(client.kind(projectID) == .gitRepo)
+  }
+
+  @Test
+  func kindReturnsPlainDirWhenGitRootNil() throws {
+    let (client, _) = makeLiveClient()
+    let spaceID = client.createSpace("s")
+    let projectID = try client.addProject(spaceID, "p", "/tmp/p", nil)
+    #expect(client.kind(projectID) == .plainDir)
+  }
+
+  @Test
+  func kindReturnsNilForUnknownProject() {
+    let (client, _) = makeLiveClient()
+    #expect(client.kind(ProjectID()) == nil)
+  }
+
+  @Test
   func liveSetWorktreeGitViewerVisibleTogglesCatalog() throws {
     let (client, manager) = makeLiveClient()
     let spaceID = client.createSpace("s")
