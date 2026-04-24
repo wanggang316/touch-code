@@ -31,7 +31,12 @@ let project = Project(
       bundleId: "app.touch-code.core",
       deploymentTargets: .macOS("14.0"),
       infoPlist: .default,
-      buildableFolders: ["TouchCodeCore", "TouchCodeCore/Hooks", "TouchCodeCore/GitHub"],
+      buildableFolders: [
+        "TouchCodeCore",
+        "TouchCodeCore/Hooks",
+        "TouchCodeCore/GitHub",
+        "TouchCodeCore/StatusBar",
+      ],
       settings: .settings(
         base: ["SWIFT_DEFAULT_ACTOR_ISOLATION": "nonisolated"],
         defaultSettings: .essential
