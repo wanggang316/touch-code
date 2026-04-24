@@ -9,6 +9,7 @@ import SwiftUI
 struct TabChipView: View {
   let title: String
   let isActive: Bool
+  let isDirty: Bool
   let isOnlyTab: Bool
   let isLastTab: Bool
   let onSelect: () -> Void
@@ -35,7 +36,7 @@ struct TabChipView: View {
         renameField
       } else {
         Button(action: onSelect) {
-          TabChipLabel(title: title)
+          TabChipLabel(title: title, isDirty: isDirty)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(ChipPressTrackingStyle(isPressing: $isPressing))

@@ -75,6 +75,10 @@ struct TabBarView: View {
     TabBarRowView(
       tabs: worktree.tabs,
       activeTabID: activeTabID,
+      // Read through the @Observable HierarchyManager so any hook flip
+      // of runningPanes triggers a chip re-render. Works against the
+      // default-false stub on `.liveValue` / unconfigured clients.
+      isDirty: { tabID in hierarchyManager.tabIsDirty(tabID) },
       onSelect: { tabID in
         store.send(
           .tabButtonTapped(

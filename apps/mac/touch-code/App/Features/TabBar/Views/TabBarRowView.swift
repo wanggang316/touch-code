@@ -19,6 +19,12 @@ import UniformTypeIdentifiers
 struct TabBarRowView: View {
   let tabs: [TouchCodeCore.Tab]
   let activeTabID: TabID?
+  /// Per-tab dirty lookup. Typically backed by
+  /// `HierarchyManager.tabIsDirty(_:)` so SwiftUI observation re-renders
+  /// the row when a pane's running state flips. Default is a no-op
+  /// returning `false` for callers / previews that do not need dirty
+  /// coverage.
+  var isDirty: (TabID) -> Bool = { _ in false }
   let onSelect: (TabID) -> Void
   let onClose: (TabID) -> Void
   let onMiddleClick: (TabID) -> Void
@@ -34,6 +40,7 @@ struct TabBarRowView: View {
         TabChipView(
           title: tab.name ?? "Tab",
           isActive: activeTabID == tab.id,
+          isDirty: isDirty(tab.id),
           isOnlyTab: tabs.count <= 1,
           isLastTab: index == tabs.count - 1,
           onSelect: { onSelect(tab.id) },
