@@ -461,6 +461,44 @@ struct HierarchyManagerTests {
     #expect(match == nil)
   }
 
+  // MARK: - drainLegacyOverrides — v1 catalog migration bridge
+
+  @Test
+  func drainLegacyOverridesReturnsMapAndClearsFields() throws {
+    let spaceID = manager.createSpace(name: "s")
+    let projectID = try manager.addProject(to: spaceID, name: "p", rootPath: "/tmp", gitRoot: "/tmp")
+    try manager.setDefaultEditorAnySpace("vscode", for: projectID)
+    try manager.setWorktreesDirectory("/tmp/wt", for: projectID)
+
+    let overrides = manager.drainLegacyOverrides()
+    #expect(overrides.count == 1)
+    #expect(overrides[projectID]?.defaultEditor == "vscode")
+    #expect(overrides[projectID]?.worktreesDirectory == "/tmp/wt")
+    #expect(manager.catalog.spaces[0].projects[0].defaultEditor == nil)
+    #expect(manager.catalog.spaces[0].projects[0].worktreesDirectory == nil)
+  }
+
+  @Test
+  func drainLegacyOverridesOnCleanCatalogReturnsEmptyMap() throws {
+    let spaceID = manager.createSpace(name: "s")
+    _ = try manager.addProject(to: spaceID, name: "p", rootPath: "/tmp", gitRoot: "/tmp")
+
+    let overrides = manager.drainLegacyOverrides()
+    #expect(overrides.isEmpty)
+  }
+
+  @Test
+  func drainLegacyOverridesIsIdempotent() throws {
+    let spaceID = manager.createSpace(name: "s")
+    let projectID = try manager.addProject(to: spaceID, name: "p", rootPath: "/tmp", gitRoot: "/tmp")
+    try manager.setDefaultEditorAnySpace("vscode", for: projectID)
+
+    let first = manager.drainLegacyOverrides()
+    let second = manager.drainLegacyOverrides()
+    #expect(first.count == 1)
+    #expect(second.isEmpty, "Second drain must see empty fields")
+  }
+
   // MARK: - Settings Repository panes (T4) — project-only mutators
 
   @Test

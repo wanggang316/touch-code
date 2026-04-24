@@ -1122,6 +1122,40 @@ final class HierarchyManager {
     throw HierarchyError.notFound("Pane \(paneID)")
   }
 
+  // MARK: - Legacy v1 catalog fields
+
+  /// One-shot drain of the two per-Project preference fields that lived on v1
+  /// `catalog.json` (`defaultEditor`, `worktreesDirectory`). Returns the
+  /// current values keyed by `ProjectID`, then clears them in-memory so the
+  /// next save writes the v2 shape without those keys. Call sequence in
+  /// `AppState.init`: run this **before** constructing `SettingsStore` so the
+  /// drained map can be folded into `Settings.projects[pid]` during the v2 →
+  /// v3 `settings.json` migration via the injected `catalogOverrides` closure.
+  ///
+  /// Idempotent: a second call on an already-drained catalog returns an
+  /// empty map and schedules no save. Any Project whose two fields are both
+  /// nil is omitted from the returned map.
+  func drainLegacyOverrides() -> [ProjectID: (defaultEditor: EditorID?, worktreesDirectory: String?)] {
+    var overrides: [ProjectID: (defaultEditor: EditorID?, worktreesDirectory: String?)] = [:]
+    var mutated = false
+    for sIdx in catalog.spaces.indices {
+      for pIdx in catalog.spaces[sIdx].projects.indices {
+        let editor = catalog.spaces[sIdx].projects[pIdx].defaultEditor
+        let wtDir = catalog.spaces[sIdx].projects[pIdx].worktreesDirectory
+        guard editor != nil || wtDir != nil else { continue }
+        let pid = catalog.spaces[sIdx].projects[pIdx].id
+        overrides[pid] = (defaultEditor: editor, worktreesDirectory: wtDir)
+        catalog.spaces[sIdx].projects[pIdx].defaultEditor = nil
+        catalog.spaces[sIdx].projects[pIdx].worktreesDirectory = nil
+        mutated = true
+      }
+    }
+    if mutated {
+      store.scheduleSave(catalog)
+    }
+    return overrides
+  }
+
   // MARK: - Project-only mutators (Settings Repository panes)
 
   /// Sets or clears the per-Project worktree base directory override. `nil`

@@ -163,13 +163,6 @@ final class AppState {
     let runtime = GhosttyBackedHierarchyRuntime()
     var catalog = (try? catalogStore.load()) ?? .default
 
-    // C8a Phase 5 M2 — normalise any `Project.defaultEditor` that is not in the current
-    // built-in registry. Counterpart to `SettingsStore`'s M1 cleanup; both run at load
-    // before the decoded data reaches the runtime. `knownEditorIDs` is computed app-side
-    // so `TouchCodeCore` stays free of app-layer imports.
-    let knownEditorIDs = Set(EditorRegistry.registry.map(\.id))
-    let catalogDidNormalize = catalog.garbageCollectEditors(knownIDs: knownEditorIDs)
-
     // First-run seed: if catalog is empty, create a "Personal" Space
     let needsSeed = catalog.spaces.isEmpty
     if needsSeed {
@@ -184,10 +177,15 @@ final class AppState {
       runtime: runtime
     )
 
-    // Persist the seed or the editor-ID normalisation via the standard debounced save
-    // pipeline. Only fire when something actually changed — no spurious writes on clean
-    // catalogs.
-    if needsSeed || catalogDidNormalize {
+    // Drain legacy v1 Project overrides (`defaultEditor`, `worktreesDirectory`) before
+    // constructing SettingsStore — the drained map is folded into `Settings.projects[pid]`
+    // during the v2 → v3 `settings.json` migration. Empty map on a v2 catalog; mutative
+    // on a v1 catalog (clears the two fields in-memory so the next save writes v2 shape).
+    let legacyOverrides = manager.drainLegacyOverrides()
+
+    // Persist the seed or the legacy-drain via the standard debounced save pipeline.
+    // Only fire when something actually changed — no spurious writes on clean catalogs.
+    if needsSeed {
       catalogStore.scheduleSave(manager.catalog)
     }
     self.catalogStore = catalogStore
@@ -200,7 +198,13 @@ final class AppState {
     // surface is alive for the full app lifetime. Views observe it via
     // env injection; EditorClient closes over it in bringUp().
     self.inboxStore = InboxStore()
-    self.settingsStore = SettingsStore()
+    // Settings stores catalog-overrides as a closure so the v2 → v3
+    // migration can fold them into `projects[pid]` top-level fields.
+    // After migration the closure is never called again (subsequent
+    // launches hit the strict v3 branch).
+    self.settingsStore = SettingsStore(catalogOverrides: { pid in
+      legacyOverrides[pid]
+    })
     self.worktreeStatusMonitor = .live()
     // TerminalEngine is constructed in bringUp() once we know whether a
     // GhosttyRuntime is available — this avoids a throwaway engine.
