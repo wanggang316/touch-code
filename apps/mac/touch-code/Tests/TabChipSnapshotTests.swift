@@ -93,7 +93,13 @@ struct TabChipSnapshotTests {
       tabs: tabs,
       activeTabID: ids[1],
       onSelect: { _ in },
-      onClose: { _ in }
+      onClose: { _ in },
+      onMiddleClick: { _ in },
+      onCloseOthers: { _ in },
+      onCloseToRight: { _ in },
+      onCloseAll: {},
+      onRenameCommit: { _, _ in },
+      onReorder: { _ in }
     )
     .frame(width: Self.rowSize.width, height: Self.rowSize.height, alignment: .bottom)
     .background(Color(nsColor: .windowBackgroundColor))
