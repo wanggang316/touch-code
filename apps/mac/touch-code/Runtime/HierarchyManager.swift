@@ -595,6 +595,205 @@ final class HierarchyManager {
     store.scheduleSave(catalog)
   }
 
+  // MARK: - Tab mutations (tab-bar uplift)
+
+  /// Renames a Tab in place. `nil` clears the custom name so the UI falls
+  /// back to the default "Tab" label. Unchanged value is a silent no-op
+  /// (no save scheduled) so repeated calls are free.
+  func renameTab(
+    _ id: TabID,
+    in worktreeID: WorktreeID,
+    in projectID: ProjectID,
+    in spaceID: SpaceID,
+    name: String?
+  ) throws {
+    guard
+      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+        worktreeID: worktreeID,
+        projectID: projectID,
+        spaceID: spaceID
+      )
+    else {
+      throw HierarchyError.notFound("Worktree \(worktreeID)")
+    }
+    guard
+      let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex]
+        .worktrees[worktreeIndex].tabs.firstIndex(where: { $0.id == id })
+    else {
+      throw HierarchyError.notFound("Tab \(id)")
+    }
+    guard
+      catalog.spaces[spaceIndex].projects[projectIndex]
+        .worktrees[worktreeIndex].tabs[tabIndex].name != name
+    else { return }
+    catalog.spaces[spaceIndex].projects[projectIndex]
+      .worktrees[worktreeIndex].tabs[tabIndex].name = name
+    store.scheduleSave(catalog)
+  }
+
+  /// Replaces the Worktree's tab ordering in a single atomic write. The
+  /// incoming id set must match the current set exactly — mismatched input
+  /// throws `.invariantViolation` so upstream drag bugs surface immediately
+  /// instead of silently discarding tabs. Same-order input is a silent
+  /// no-op.
+  func reorderTabs(
+    in worktreeID: WorktreeID,
+    in projectID: ProjectID,
+    in spaceID: SpaceID,
+    orderedIDs: [TabID]
+  ) throws {
+    guard
+      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+        worktreeID: worktreeID,
+        projectID: projectID,
+        spaceID: spaceID
+      )
+    else {
+      throw HierarchyError.notFound("Worktree \(worktreeID)")
+    }
+    let existing = catalog.spaces[spaceIndex].projects[projectIndex]
+      .worktrees[worktreeIndex].tabs
+    let currentIDs = existing.map(\.id)
+    guard Set(currentIDs) == Set(orderedIDs) else {
+      throw HierarchyError.invariantViolation("tab reorder set mismatch")
+    }
+    guard currentIDs != orderedIDs else { return }
+    let byID = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
+    let reordered = orderedIDs.compactMap { byID[$0] }
+    catalog.spaces[spaceIndex].projects[projectIndex]
+      .worktrees[worktreeIndex].tabs = reordered
+    store.scheduleSave(catalog)
+  }
+
+  /// Closes every Tab in the Worktree except `id`. Reuses `closeTab` per
+  /// sibling so runtime surfaces are torn down the same way they are for
+  /// the single-close path. The pivot is re-selected at the end in case the
+  /// per-close auto-advance moved selection elsewhere during teardown.
+  func closeOtherTabs(
+    keeping id: TabID,
+    in worktreeID: WorktreeID,
+    in projectID: ProjectID,
+    in spaceID: SpaceID
+  ) throws {
+    guard
+      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+        worktreeID: worktreeID,
+        projectID: projectID,
+        spaceID: spaceID
+      )
+    else {
+      throw HierarchyError.notFound("Worktree \(worktreeID)")
+    }
+    let siblingIDs = catalog.spaces[spaceIndex].projects[projectIndex]
+      .worktrees[worktreeIndex].tabs
+      .map(\.id)
+      .filter { $0 != id }
+    for siblingID in siblingIDs {
+      try? closeTab(siblingID, in: worktreeID, in: projectID, in: spaceID)
+    }
+    catalog.spaces[spaceIndex].projects[projectIndex]
+      .worktrees[worktreeIndex].selectedTabID = id
+    store.scheduleSave(catalog)
+  }
+
+  /// Closes every Tab whose position is strictly after `id`'s. Reuses
+  /// `closeTab` per sibling for the same runtime-teardown reasoning as
+  /// `closeOtherTabs`. No-op when `id` is the last tab.
+  func closeTabsToRight(
+    of id: TabID,
+    in worktreeID: WorktreeID,
+    in projectID: ProjectID,
+    in spaceID: SpaceID
+  ) throws {
+    guard
+      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+        worktreeID: worktreeID,
+        projectID: projectID,
+        spaceID: spaceID
+      )
+    else {
+      throw HierarchyError.notFound("Worktree \(worktreeID)")
+    }
+    guard
+      let pivotIndex = catalog.spaces[spaceIndex].projects[projectIndex]
+        .worktrees[worktreeIndex].tabs.firstIndex(where: { $0.id == id })
+    else {
+      throw HierarchyError.notFound("Tab \(id)")
+    }
+    let doomedIDs = catalog.spaces[spaceIndex].projects[projectIndex]
+      .worktrees[worktreeIndex].tabs
+      .suffix(from: pivotIndex + 1)
+      .map(\.id)
+    for doomedID in doomedIDs {
+      try? closeTab(doomedID, in: worktreeID, in: projectID, in: spaceID)
+    }
+  }
+
+  /// Closes every Tab in the Worktree.
+  func closeAllTabs(
+    in worktreeID: WorktreeID,
+    in projectID: ProjectID,
+    in spaceID: SpaceID
+  ) throws {
+    guard
+      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+        worktreeID: worktreeID,
+        projectID: projectID,
+        spaceID: spaceID
+      )
+    else {
+      throw HierarchyError.notFound("Worktree \(worktreeID)")
+    }
+    let allIDs = catalog.spaces[spaceIndex].projects[projectIndex]
+      .worktrees[worktreeIndex].tabs.map(\.id)
+    for tabID in allIDs {
+      try? closeTab(tabID, in: worktreeID, in: projectID, in: spaceID)
+    }
+  }
+
+  /// Selects the tab before / after the current selection, wrapping at the
+  /// ends. Returns the newly selected id, or `nil` when the Worktree has no
+  /// tabs. If no tab is currently selected the jump is relative to the
+  /// first tab (so `.previous` lands on the last, `.next` on the second).
+  @discardableResult
+  func selectAdjacentTab(
+    direction: TabAdjacency,
+    in worktreeID: WorktreeID,
+    in projectID: ProjectID,
+    in spaceID: SpaceID
+  ) throws -> TabID? {
+    guard
+      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+        worktreeID: worktreeID,
+        projectID: projectID,
+        spaceID: spaceID
+      )
+    else {
+      throw HierarchyError.notFound("Worktree \(worktreeID)")
+    }
+    let tabs = catalog.spaces[spaceIndex].projects[projectIndex]
+      .worktrees[worktreeIndex].tabs
+    guard !tabs.isEmpty else { return nil }
+    let currentID = catalog.spaces[spaceIndex].projects[projectIndex]
+      .worktrees[worktreeIndex].selectedTabID
+    let currentIndex = currentID.flatMap { id in
+      tabs.firstIndex(where: { $0.id == id })
+    } ?? 0
+    let count = tabs.count
+    let newIndex: Int
+    switch direction {
+    case .previous:
+      newIndex = (currentIndex - 1 + count) % count
+    case .next:
+      newIndex = (currentIndex + 1) % count
+    }
+    let newID = tabs[newIndex].id
+    catalog.spaces[spaceIndex].projects[projectIndex]
+      .worktrees[worktreeIndex].selectedTabID = newID
+    store.scheduleSave(catalog)
+    return newID
+  }
+
   // MARK: - Pane mutations
 
   func openPane(
