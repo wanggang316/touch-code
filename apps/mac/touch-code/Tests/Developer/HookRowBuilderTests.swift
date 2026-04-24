@@ -112,9 +112,9 @@ struct HookRowBuilderTests {
     let sub = HookSubscription(event: .paneReady, command: "run")
 
     let global = HookRowBuilder.make(from: sub, source: .global)
-    let repo = HookRowBuilder.make(from: sub, source: .repository)
+    let repo = HookRowBuilder.make(from: sub, source: .project)
 
     #expect(global.source == .global)
-    #expect(repo.source == .repository)
+    #expect(repo.source == .project)
   }
 }

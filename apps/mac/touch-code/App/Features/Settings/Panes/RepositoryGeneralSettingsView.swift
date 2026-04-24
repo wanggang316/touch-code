@@ -10,7 +10,7 @@ import TouchCodeCore
 /// so the picker renders the same editor list the global Default Editor pane shows.
 struct RepositoryGeneralSettingsView: View {
   let projectID: ProjectID
-  let store: StoreOf<RepositorySettingsFeature>
+  let store: StoreOf<ProjectSettingsFeature>
   let descriptors: [EditorDescriptor]
 
   @Environment(HierarchyManager.self) private var hierarchyManager

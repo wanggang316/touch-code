@@ -33,7 +33,7 @@ migrate transparently on first launch.
 - [x] Step 4 — `catalog.json` v2 (Project fields stripped from encoder) (2026-04-24)
 - [x] Step 5 — `hooks.json` v2 (new Scope cases + fail-soft Kind) (2026-04-24)
 - [x] Step 6 — `SettingsStore.mutateProject` + `HierarchyClient` slim-down + "Open in" rewire (2026-04-25)
-- [ ] Step 7 — `RepositorySettingsFeature` → `ProjectSettingsFeature` rename + write-path switch
+- [x] Step 7 — `RepositorySettingsFeature` → `ProjectSettingsFeature` rename + `HookSource.project` (2026-04-25)
 - [ ] Step 8 — `SettingsWindowFeature` rename + sidebar kind-aware rendering + 4 new `SettingsSection` cases
 - [ ] Step 9 — Pane view file renames + 4 scaffold pane views
 - [ ] Step 10 — CI grep gate for `Repository` rename residue

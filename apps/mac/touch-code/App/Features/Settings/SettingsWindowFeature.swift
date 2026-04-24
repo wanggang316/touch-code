@@ -3,7 +3,7 @@ import Foundation
 import TouchCodeCore
 
 /// Reducer for the standalone Settings window. Holds sidebar selection + the General pane's
-/// `EditorFeature` state plus a per-`ProjectID` slice of `RepositorySettingsFeature.State`
+/// `EditorFeature` state plus a per-`ProjectID` slice of `ProjectSettingsFeature.State`
 /// for each Repository pane the user has visited (T4).
 ///
 /// Selection is *not* persisted. Spec M16 requires that closing the window drops the
@@ -16,13 +16,13 @@ struct SettingsWindowFeature {
     var selection: SettingsSection?
     var general: EditorFeature.State = .init()
     var terminal: SettingsTerminalFeature.State = .init()
-    var repositoryPanes: IdentifiedArrayOf<RepositorySettingsFeature.State> = []
+    var repositoryPanes: IdentifiedArrayOf<ProjectSettingsFeature.State> = []
 
     init(
       selection: SettingsSection? = nil,
       general: EditorFeature.State = .init(),
       terminal: SettingsTerminalFeature.State = .init(),
-      repositoryPanes: IdentifiedArrayOf<RepositorySettingsFeature.State> = []
+      repositoryPanes: IdentifiedArrayOf<ProjectSettingsFeature.State> = []
     ) {
       self.selection = selection
       self.general = general
@@ -40,7 +40,7 @@ struct SettingsWindowFeature {
     case selectionChanged(SettingsSection?)
     case general(EditorFeature.Action)
     case terminal(SettingsTerminalFeature.Action)
-    case repositoryPanes(IdentifiedActionOf<RepositorySettingsFeature>)
+    case repositoryPanes(IdentifiedActionOf<ProjectSettingsFeature>)
     /// Fired by `SettingsWindowView`'s `.onDisappear`. Clears sidebar selection per M16.
     case windowClosed
     /// Fired from the view on every `HierarchyManager.catalog` delta. Reducer prunes a
@@ -96,15 +96,15 @@ struct SettingsWindowFeature {
       }
     }
     .forEach(\.repositoryPanes, action: \.repositoryPanes) {
-      RepositorySettingsFeature()
+      ProjectSettingsFeature()
     }
   }
 
-  /// Insert a fresh `RepositorySettingsFeature.State(projectID:)` into
+  /// Insert a fresh `ProjectSettingsFeature.State(projectID:)` into
   /// `repositoryPanes` if no entry already exists for `pid`. Re-selection is a
   /// no-op — existing state (hook load result, last write failure) is preserved.
   private static func ensureRepositoryPane(_ state: inout State, for pid: ProjectID) {
     guard state.repositoryPanes[id: pid] == nil else { return }
-    state.repositoryPanes.append(RepositorySettingsFeature.State(projectID: pid))
+    state.repositoryPanes.append(ProjectSettingsFeature.State(projectID: pid))
   }
 }

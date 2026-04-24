@@ -6,15 +6,15 @@ import TouchCodeCore
 @testable import touch_code
 
 @MainActor
-struct RepositorySettingsFeatureTests {
+struct ProjectSettingsFeatureTests {
   // MARK: - setDefaultEditorOverride
 
   @Test
   func setDefaultEditorOverrideForwardsToSettingsWriter() async {
     let projectID = ProjectID()
     let captured = LockIsolated<(ProjectID, EditorID?)?>(nil)
-    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: projectID)) {
-      RepositorySettingsFeature()
+    let store = TestStore(initialState: ProjectSettingsFeature.State(projectID: projectID)) {
+      ProjectSettingsFeature()
     } withDependencies: {
       $0.hierarchyClient = .testValue
       $0.hookConfigClient = .testValue
@@ -34,8 +34,8 @@ struct RepositorySettingsFeatureTests {
   @Test
   func setDefaultEditorOverridePassesNilForClearRequest() async {
     let captured = LockIsolated<EditorID??>(nil)
-    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: ProjectID())) {
-      RepositorySettingsFeature()
+    let store = TestStore(initialState: ProjectSettingsFeature.State(projectID: ProjectID())) {
+      ProjectSettingsFeature()
     } withDependencies: {
       $0.hierarchyClient = .testValue
       $0.hookConfigClient = .testValue
@@ -53,10 +53,10 @@ struct RepositorySettingsFeatureTests {
 
   @Test
   func setDefaultEditorOverrideClearsLastWriteFailureOnSuccess() async {
-    var initial = RepositorySettingsFeature.State(projectID: ProjectID())
+    var initial = ProjectSettingsFeature.State(projectID: ProjectID())
     initial.lastWriteFailure = "previous error"
     let store = TestStore(initialState: initial) {
-      RepositorySettingsFeature()
+      ProjectSettingsFeature()
     } withDependencies: {
       $0.hierarchyClient = .testValue
       $0.hookConfigClient = .testValue
@@ -77,8 +77,8 @@ struct RepositorySettingsFeatureTests {
   func setWorktreeBaseDirectoryForwardsToSettingsWriter() async {
     let projectID = ProjectID()
     let captured = LockIsolated<(ProjectID, String?)?>(nil)
-    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: projectID)) {
-      RepositorySettingsFeature()
+    let store = TestStore(initialState: ProjectSettingsFeature.State(projectID: projectID)) {
+      ProjectSettingsFeature()
     } withDependencies: {
       $0.hierarchyClient = .testValue
       $0.hookConfigClient = .testValue
@@ -98,8 +98,8 @@ struct RepositorySettingsFeatureTests {
   @Test
   func setWorktreeBaseDirectoryPassesNilForClearRequest() async {
     let captured = LockIsolated<String??>(nil)
-    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: ProjectID())) {
-      RepositorySettingsFeature()
+    let store = TestStore(initialState: ProjectSettingsFeature.State(projectID: ProjectID())) {
+      ProjectSettingsFeature()
     } withDependencies: {
       $0.hierarchyClient = .testValue
       $0.hookConfigClient = .testValue
@@ -138,8 +138,8 @@ struct RepositorySettingsFeatureTests {
       scope: .worktreeID(wtID)
     )
 
-    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: projectID)) {
-      RepositorySettingsFeature()
+    let store = TestStore(initialState: ProjectSettingsFeature.State(projectID: projectID)) {
+      ProjectSettingsFeature()
     } withDependencies: {
       $0.hookConfigClient = .testValue
       $0.hookConfigClient.load = { HookConfig(subscriptions: [sub]) }
@@ -148,7 +148,7 @@ struct RepositorySettingsFeatureTests {
       $0.finderClient = .testValue
     }
 
-    let expected = HookRowBuilder.make(from: sub, source: .repository)
+    let expected = HookRowBuilder.make(from: sub, source: .project)
     await store.send(.onHooksAppear) {
       $0.hooksLoad = .loading
     }
@@ -183,8 +183,8 @@ struct RepositorySettingsFeatureTests {
       scope: .projectPathGlob("/Users/me/proj")
     )
 
-    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: projectID)) {
-      RepositorySettingsFeature()
+    let store = TestStore(initialState: ProjectSettingsFeature.State(projectID: projectID)) {
+      ProjectSettingsFeature()
     } withDependencies: {
       $0.hookConfigClient = .testValue
       $0.hookConfigClient.load = { HookConfig(subscriptions: [sub]) }
@@ -193,7 +193,7 @@ struct RepositorySettingsFeatureTests {
       $0.finderClient = .testValue
     }
 
-    let expected = HookRowBuilder.make(from: sub, source: .repository)
+    let expected = HookRowBuilder.make(from: sub, source: .project)
     await store.send(.onHooksAppear) {
       $0.hooksLoad = .loading
     }
@@ -218,8 +218,8 @@ struct RepositorySettingsFeatureTests {
       scope: .projectID(projectID)
     )
 
-    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: projectID)) {
-      RepositorySettingsFeature()
+    let store = TestStore(initialState: ProjectSettingsFeature.State(projectID: projectID)) {
+      ProjectSettingsFeature()
     } withDependencies: {
       $0.hookConfigClient = .testValue
       $0.hookConfigClient.load = { HookConfig(subscriptions: [sub]) }
@@ -228,7 +228,7 @@ struct RepositorySettingsFeatureTests {
       $0.finderClient = .testValue
     }
 
-    let expected = HookRowBuilder.make(from: sub, source: .repository)
+    let expected = HookRowBuilder.make(from: sub, source: .project)
     await store.send(.onHooksAppear) { $0.hooksLoad = .loading }
     await store.receive(\.hooksLoaded.success) {
       $0.hooksLoad = .loaded([expected])
@@ -249,8 +249,8 @@ struct RepositorySettingsFeatureTests {
       scope: .anyPane
     )
 
-    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: projectID)) {
-      RepositorySettingsFeature()
+    let store = TestStore(initialState: ProjectSettingsFeature.State(projectID: projectID)) {
+      ProjectSettingsFeature()
     } withDependencies: {
       $0.hookConfigClient = .testValue
       $0.hookConfigClient.load = { HookConfig(subscriptions: [sub]) }
@@ -274,8 +274,8 @@ struct RepositorySettingsFeatureTests {
   func revealHooksJSONRequestedCallsEnsureExistsThenReveal() async {
     let ensureCalled = LockIsolated(false)
     let revealed = LockIsolated<String?>(nil)
-    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: ProjectID())) {
-      RepositorySettingsFeature()
+    let store = TestStore(initialState: ProjectSettingsFeature.State(projectID: ProjectID())) {
+      ProjectSettingsFeature()
     } withDependencies: {
       $0.hookConfigClient = .testValue
       $0.hookConfigClient.ensureExists = { ensureCalled.setValue(true) }
@@ -293,8 +293,8 @@ struct RepositorySettingsFeatureTests {
   @Test
   func revealHooksJSONRequestedSurfacesEnsureExistsFailure() async {
     struct DummyError: Error, CustomStringConvertible { var description: String { "ensure boom" } }
-    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: ProjectID())) {
-      RepositorySettingsFeature()
+    let store = TestStore(initialState: ProjectSettingsFeature.State(projectID: ProjectID())) {
+      ProjectSettingsFeature()
     } withDependencies: {
       $0.hookConfigClient = .testValue
       $0.hookConfigClient.ensureExists = { throw DummyError() }
@@ -312,10 +312,10 @@ struct RepositorySettingsFeatureTests {
 
   @Test
   func writeFailedEmptyStringClearsError() async {
-    var initial = RepositorySettingsFeature.State(projectID: ProjectID())
+    var initial = ProjectSettingsFeature.State(projectID: ProjectID())
     initial.lastWriteFailure = "something"
     let store = TestStore(initialState: initial) {
-      RepositorySettingsFeature()
+      ProjectSettingsFeature()
     } withDependencies: {
       $0.hierarchyClient = .testValue
       $0.hookConfigClient = .testValue
@@ -329,8 +329,8 @@ struct RepositorySettingsFeatureTests {
 
   @Test
   func writeFailedNonEmptyRecordsMessage() async {
-    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: ProjectID())) {
-      RepositorySettingsFeature()
+    let store = TestStore(initialState: ProjectSettingsFeature.State(projectID: ProjectID())) {
+      ProjectSettingsFeature()
     } withDependencies: {
       $0.hierarchyClient = .testValue
       $0.hookConfigClient = .testValue
@@ -344,15 +344,15 @@ struct RepositorySettingsFeatureTests {
 
   @Test
   func hooksLoadedFailureSetsFailedState() async {
-    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: ProjectID())) {
-      RepositorySettingsFeature()
+    let store = TestStore(initialState: ProjectSettingsFeature.State(projectID: ProjectID())) {
+      ProjectSettingsFeature()
     } withDependencies: {
       $0.hierarchyClient = .testValue
       $0.hookConfigClient = .testValue
       $0.finderClient = .testValue
     }
 
-    let err = RepositorySettingsFeature.LoadError.loadFailed("disk gone")
+    let err = ProjectSettingsFeature.LoadError.loadFailed("disk gone")
     await store.send(.hooksLoaded(.failure(err))) {
       $0.hooksLoad = .failed(String(describing: err))
     }

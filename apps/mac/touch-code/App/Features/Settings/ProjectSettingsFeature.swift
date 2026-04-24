@@ -4,7 +4,7 @@ import SwiftUI
 import TouchCodeCore
 
 @Reducer
-struct RepositorySettingsFeature {
+struct ProjectSettingsFeature {
   @ObservableState
   struct State: Equatable, Identifiable {
     let projectID: ProjectID
@@ -131,15 +131,15 @@ nonisolated func classifyHooks(
   }
 
   guard let project else {
-    throw RepositorySettingsFeature.LoadError.classificationFailed(
+    throw ProjectSettingsFeature.LoadError.classificationFailed(
       "Project \(projectID) not found in catalog"
     )
   }
 
   return subscriptions.map { subscription in
     let source =
-      isRepositoryScope(subscription.scope, project: project)
-      ? HookSource.repository
+      isProjectScope(subscription.scope, project: project)
+      ? HookSource.project
       : HookSource.global
     return (subscription, source)
   }
@@ -156,7 +156,7 @@ nonisolated func classifyHooks(
 ///   `.projectID` / `.projectPathGlob`, so this case no longer probes
 ///   `project.rootPath` — a user who wants "whole Project" writes it
 ///   explicitly via a Project-scoped case.
-nonisolated private func isRepositoryScope(_ scope: HookSubscription.Scope, project: Project) -> Bool {
+nonisolated private func isProjectScope(_ scope: HookSubscription.Scope, project: Project) -> Bool {
   switch scope {
   case .anyPane, .paneID, .paneLabel, .tabID, .tabLabel:
     return false

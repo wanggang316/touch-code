@@ -9,7 +9,7 @@ import TouchCodeCore
 /// `projectID`.
 struct RepositoryHooksSettingsView: View {
   let projectID: ProjectID
-  let store: StoreOf<RepositorySettingsFeature>
+  let store: StoreOf<ProjectSettingsFeature>
 
   var body: some View {
     Form {

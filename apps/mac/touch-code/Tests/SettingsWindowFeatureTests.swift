@@ -101,7 +101,7 @@ struct SettingsWindowFeatureTests {
     }
     await store.send(.selectionChanged(.repositoryGeneral(pid))) {
       $0.selection = .repositoryGeneral(pid)
-      $0.repositoryPanes.append(RepositorySettingsFeature.State(projectID: pid))
+      $0.repositoryPanes.append(ProjectSettingsFeature.State(projectID: pid))
     }
     #expect(store.state.repositoryPanes[id: pid] != nil)
   }
@@ -118,7 +118,7 @@ struct SettingsWindowFeatureTests {
     }
     await store.send(.selectionChanged(.repositoryHooks(pid))) {
       $0.selection = .repositoryHooks(pid)
-      $0.repositoryPanes.append(RepositorySettingsFeature.State(projectID: pid))
+      $0.repositoryPanes.append(ProjectSettingsFeature.State(projectID: pid))
     }
     #expect(store.state.repositoryPanes[id: pid] != nil)
   }
@@ -127,7 +127,7 @@ struct SettingsWindowFeatureTests {
   func reSelectingSameRepositoryPaneDoesNotDuplicateState() async {
     let pid = ProjectID()
     var initial = SettingsWindowFeature.State()
-    initial.repositoryPanes.append(RepositorySettingsFeature.State(projectID: pid))
+    initial.repositoryPanes.append(ProjectSettingsFeature.State(projectID: pid))
     let store = TestStore(initialState: initial) {
       SettingsWindowFeature()
     } withDependencies: {
