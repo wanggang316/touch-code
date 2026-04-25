@@ -80,6 +80,28 @@ public nonisolated struct ProjectSettings: Equatable, Codable, Sendable {
     }
   }
 
+  /// Replace any duplicate `id` in `scripts` with a fresh UUID so the
+  /// per-script tab map and Command Palette item identity stay
+  /// well-defined. Returns the list of (oldID, newID) replacements so
+  /// callers can log them. `settings.json` is hand-editable; a user who
+  /// duplicates a script entry would otherwise break script→tab routing
+  /// silently. Idempotent.
+  public mutating func normalizeScriptIDs() -> [(old: UUID, new: UUID)] {
+    var seen: Set<UUID> = []
+    var replacements: [(old: UUID, new: UUID)] = []
+    for index in scripts.indices {
+      let id = scripts[index].id
+      if seen.insert(id).inserted {
+        continue
+      }
+      let fresh = UUID()
+      replacements.append((old: id, new: fresh))
+      scripts[index].id = fresh
+      seen.insert(fresh)
+    }
+    return replacements
+  }
+
   private enum CodingKeys: String, CodingKey {
     case defaultEditor
     case worktreesDirectory

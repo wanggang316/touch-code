@@ -125,7 +125,17 @@ extension Settings: Codable {
     let logger = Logger(subsystem: "com.touch-code.persistence", category: "settings")
     for (stringKey, value) in raw {
       if let uuid = UUID(uuidString: stringKey) {
-        mapped[ProjectID(raw: uuid)] = value
+        var entry = value
+        // Hand-edits to settings.json can introduce duplicate script IDs. Replace
+        // duplicates with fresh UUIDs at load so the per-script tab map and command
+        // palette item identity stay well-defined.
+        let replacements = entry.normalizeScriptIDs()
+        for (old, new) in replacements {
+          logger.warning(
+            "Replaced duplicate ScriptDefinition id \(old.uuidString, privacy: .public) → \(new.uuidString, privacy: .public)"
+          )
+        }
+        mapped[ProjectID(raw: uuid)] = entry
       } else {
         logger.warning("Dropping unparseable projects key: \(stringKey, privacy: .public)")
       }

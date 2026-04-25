@@ -17,13 +17,33 @@ public nonisolated struct GitProjectSettings: Equatable, Codable, Sendable {
   public var postMergeAction: MergedWorktreeAction?
   public var githubDisabled: Bool
 
+  /// Shell command run synchronously after a new worktree is created at
+  /// this Project's `worktreesDirectory`. Empty string skips. Non-zero
+  /// exit blocks worktree-create completion and surfaces the failure in
+  /// `LifecycleScriptToast`. cwd at execution = the new worktree path.
+  public var setupScript: String
+
+  /// Shell command run synchronously before a worktree is archived.
+  /// Empty string skips. Non-zero exit logs a warning but does not block
+  /// archive — the user already requested the action; the script's
+  /// output stays visible in `LifecycleScriptToast` for inspection.
+  public var archiveScript: String
+
+  /// Shell command run synchronously before a worktree is removed.
+  /// Empty string skips. Failure-warn semantics match `archiveScript`.
+  /// cwd at execution = the worktree path (files still on disk).
+  public var deleteScript: String
+
   public init(
     worktreeBaseRef: String? = nil,
     copyIgnoredOnWorktreeCreate: Bool? = nil,
     copyUntrackedOnWorktreeCreate: Bool? = nil,
     defaultMergeStrategy: MergeStrategy? = nil,
     postMergeAction: MergedWorktreeAction? = nil,
-    githubDisabled: Bool = false
+    githubDisabled: Bool = false,
+    setupScript: String = "",
+    archiveScript: String = "",
+    deleteScript: String = ""
   ) {
     self.worktreeBaseRef = worktreeBaseRef
     self.copyIgnoredOnWorktreeCreate = copyIgnoredOnWorktreeCreate
@@ -31,6 +51,9 @@ public nonisolated struct GitProjectSettings: Equatable, Codable, Sendable {
     self.defaultMergeStrategy = defaultMergeStrategy
     self.postMergeAction = postMergeAction
     self.githubDisabled = githubDisabled
+    self.setupScript = setupScript
+    self.archiveScript = archiveScript
+    self.deleteScript = deleteScript
   }
 
   /// True when every field is at its default. `ProjectSettings` clears
@@ -43,6 +66,9 @@ public nonisolated struct GitProjectSettings: Equatable, Codable, Sendable {
       && defaultMergeStrategy == nil
       && postMergeAction == nil
       && githubDisabled == false
+      && setupScript.isEmpty
+      && archiveScript.isEmpty
+      && deleteScript.isEmpty
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -52,6 +78,9 @@ public nonisolated struct GitProjectSettings: Equatable, Codable, Sendable {
     case defaultMergeStrategy
     case postMergeAction
     case githubDisabled
+    case setupScript
+    case archiveScript
+    case deleteScript
   }
 
   public init(from decoder: Decoder) throws {
@@ -62,6 +91,9 @@ public nonisolated struct GitProjectSettings: Equatable, Codable, Sendable {
     self.defaultMergeStrategy = try c.decodeIfPresent(MergeStrategy.self, forKey: .defaultMergeStrategy)
     self.postMergeAction = try c.decodeIfPresent(MergedWorktreeAction.self, forKey: .postMergeAction)
     self.githubDisabled = try c.decodeIfPresent(Bool.self, forKey: .githubDisabled) ?? false
+    self.setupScript = try c.decodeIfPresent(String.self, forKey: .setupScript) ?? ""
+    self.archiveScript = try c.decodeIfPresent(String.self, forKey: .archiveScript) ?? ""
+    self.deleteScript = try c.decodeIfPresent(String.self, forKey: .deleteScript) ?? ""
   }
 
   /// Omit-when-default encoding — matches `RepositorySettings`' existing
@@ -76,6 +108,15 @@ public nonisolated struct GitProjectSettings: Equatable, Codable, Sendable {
     try c.encodeIfPresent(postMergeAction, forKey: .postMergeAction)
     if githubDisabled {
       try c.encode(true, forKey: .githubDisabled)
+    }
+    if !setupScript.isEmpty {
+      try c.encode(setupScript, forKey: .setupScript)
+    }
+    if !archiveScript.isEmpty {
+      try c.encode(archiveScript, forKey: .archiveScript)
+    }
+    if !deleteScript.isEmpty {
+      try c.encode(deleteScript, forKey: .deleteScript)
     }
   }
 }
