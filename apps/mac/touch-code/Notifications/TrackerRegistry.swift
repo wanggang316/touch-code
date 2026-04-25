@@ -94,6 +94,20 @@ final class TrackerRegistry {
   /// isolation (e.g. in unit tests).
   var onDestroy: (@MainActor (PaneID) -> Void)?
 
+  /// Forward a user-keystroke signal to the matching tracker so the
+  /// 3-second user-interaction window opens (v2 D4). No-op if the Pane
+  /// has no tracker — keystrokes on non-agent panes are not relevant.
+  ///
+  /// TODO: the production call-site does not exist yet — Ghostty's
+  /// surface layer does not surface per-keystroke callbacks, and the
+  /// current C3 dispatcher does not emit `.paneInput` envelopes. This
+  /// API is the wire-up seam ready for the day either of those land;
+  /// until then the suppression behaviour is reachable only from tests
+  /// and from a future integration that calls this directly.
+  func recordKeyInput(paneID: PaneID, at: Date = Date()) {
+    trackers[paneID]?.recordUserInput(at: at)
+  }
+
   /// Tear down the tracker for the given Pane. Called when the Pane is
   /// removed from the hierarchy or loses its agent label. No-op if the
   /// Pane has no tracker.
