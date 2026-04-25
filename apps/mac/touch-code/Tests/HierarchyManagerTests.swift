@@ -615,6 +615,29 @@ struct HierarchyManagerTests {
   }
 
   @Test
+  func closeTabsToRightKeepsPivotSelectedWhenActiveWasDoomed() throws {
+    let (sp, pr, wt, tabs) = try makeFixtureWithThreeTabs()
+    // makeFixtureWithThreeTabs leaves the last tab selected; ask to
+    // close everything to the right of the first one. The user's
+    // active tab is in the doomed suffix, so without the explicit
+    // reseat the auto-advance would land on `tabs.first` regardless
+    // of which pivot was passed.
+    try manager.closeTabsToRight(of: tabs[0], in: wt, in: pr, in: sp)
+    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].selectedTabID == tabs[0])
+  }
+
+  @Test
+  func closeTabsToRightKeepsPivotSelectedWhenPivotIsMid() throws {
+    let (sp, pr, wt, tabs) = try makeFixtureWithThreeTabs()
+    // Pivot is the middle tab; auto-advance would otherwise land on
+    // tabs[0] when tabs[2] (the active tab) closes.
+    try manager.closeTabsToRight(of: tabs[1], in: wt, in: pr, in: sp)
+    let remaining = manager.catalog.spaces[0].projects[0].worktrees[0].tabs.map(\.id)
+    #expect(remaining == [tabs[0], tabs[1]])
+    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].selectedTabID == tabs[1])
+  }
+
+  @Test
   func closeAllTabsEmptiesWorktree() throws {
     let (sp, pr, wt, _) = try makeFixtureWithThreeTabs()
     try manager.closeAllTabs(in: wt, in: pr, in: sp)
@@ -737,6 +760,21 @@ struct HierarchyManagerTests {
     #expect(manager.lastFocusedPane(in: tabA) == nil)
     // Dirty read on a now-absent tab: the walk finds no tab → false.
     #expect(!manager.tabIsDirty(tabA))
+  }
+
+  @Test
+  func selectAdjacentTabRestoresLastFocusedPaneOnTarget() throws {
+    let (sp, pr, wt, tabA, tabB, _, tabAPane2, _) = try makeFixtureTwoTabsWithPanes()
+    // Remember tabA's second pane, then bounce to tabB so adjacency
+    // jumps land back on tabA.
+    try manager.focusPane(tabAPane2, in: tabA, in: wt, in: pr, in: sp)
+    try manager.selectTab(tabB, in: wt, in: pr, in: sp)
+    fakeRuntime.reset()
+    let landed = try manager.selectAdjacentTab(
+      direction: .previous, in: wt, in: pr, in: sp
+    )
+    #expect(landed == tabA)
+    #expect(fakeRuntime.focusSurfaceViewCalls.contains(tabAPane2))
   }
 
   @Test

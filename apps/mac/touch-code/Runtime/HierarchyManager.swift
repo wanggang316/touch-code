@@ -763,6 +763,12 @@ final class HierarchyManager {
     for doomedID in doomedIDs {
       try? closeTab(doomedID, in: worktreeID, in: projectID, in: spaceID)
     }
+    // Mirror `closeOtherTabs`: if the user's active tab was inside the
+    // doomed suffix, `closeTab`'s auto-advance lands on `tabs.first`, not
+    // the pivot. Reseat selection so the pivot stays the user's anchor.
+    catalog.spaces[spaceIndex].projects[projectIndex]
+      .worktrees[worktreeIndex].selectedTabID = id
+    store.scheduleSave(catalog)
   }
 
   /// Closes every Tab in the Worktree.
@@ -824,9 +830,11 @@ final class HierarchyManager {
       newIndex = (currentIndex + 1) % count
     }
     let newID = tabs[newIndex].id
-    catalog.spaces[spaceIndex].projects[projectIndex]
-      .worktrees[worktreeIndex].selectedTabID = newID
-    store.scheduleSave(catalog)
+    // Route through `selectTab` rather than writing `selectedTabID`
+    // directly so the M3 focus-restoration block fires for the keyboard
+    // shortcut path. Otherwise `⌘⇧[` / `⌘⇧]` would persist the new
+    // selection without ever asking AppKit to focus the remembered pane.
+    try selectTab(newID, in: worktreeID, in: projectID, in: spaceID)
     return newID
   }
 
