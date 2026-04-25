@@ -56,6 +56,11 @@ struct RootFeature {
     /// routes it to a feature action and nils this slot in the same tick).
     @Presents var commandPalette: CommandPaletteFeature.State?
 
+    /// M9: lifecycle-script toast presentation. `nil` = hidden; non-nil
+    /// shows the transient sheet with the running / completed script
+    /// output anchored to the main window.
+    @Presents var lifecycleScriptToast: LifecycleScriptToastFeature.State?
+
     /// T3: live read of the current Worktree's `gitViewerVisible` against
     /// a catalog snapshot. Not a cached field — views pass in
     /// `hierarchyManager.catalog` so SwiftUI's `@Observable` tracking
@@ -168,6 +173,18 @@ struct RootFeature {
     /// split).
     case commandPaletteToggle(PaneID?)
     case commandPalette(PresentationAction<CommandPaletteFeature.Action>)
+    /// M9: surfaces a lifecycle-script result on the main window.
+    /// Sources: Add Worktree (setup), sidebar Archive (archive),
+    /// sidebar Remove (delete). The originating feature already ran
+    /// the wrapper variant and got the `LifecycleScriptResult` back;
+    /// this action presents the toast in its terminal state. Skipped
+    /// results (empty script) are silent — the toast does not show.
+    case runWorktreeLifecycleResult(
+      phase: SettingsWriter.WorktreeLifecycle,
+      worktreeName: String,
+      result: LifecycleScriptResult
+    )
+    case lifecycleScriptToast(PresentationAction<LifecycleScriptToastFeature.Action>)
     case sidebar(HierarchySidebarFeature.Action)
     case detail(WorktreeDetailFeature.Action)
     case gitViewer(GitViewerFeature.Action)
@@ -693,6 +710,30 @@ struct RootFeature {
       case .commandPalette:
         return .none
 
+      case .runWorktreeLifecycleResult(let phase, let worktreeName, let result):
+        switch result {
+        case .skipped:
+          // Empty script — no toast needed.
+          return .none
+        case .success, .failure:
+          var toast = LifecycleScriptToastFeature.State(
+            phase: phase, worktreeName: worktreeName
+          )
+          state.lifecycleScriptToast = toast
+          // Forward the result so the feature flips into terminal state
+          // and (on success) schedules its 5s auto-dismiss.
+          _ = toast  // silence unused warning when assignment is rebuilt below
+          return .send(.lifecycleScriptToast(.presented(.finished(result))))
+        }
+
+      case .lifecycleScriptToast(.presented(.dismiss)),
+        .lifecycleScriptToast(.dismiss):
+        state.lifecycleScriptToast = nil
+        return .none
+
+      case .lifecycleScriptToast:
+        return .none
+
       case .switchToSpaceAtIndex(let index):
         let snapshot = hierarchyClient.snapshot()
         guard index >= 1 && index <= snapshot.spaces.count else { return .none }
@@ -811,6 +852,9 @@ struct RootFeature {
     }
     .ifLet(\.$commandPalette, action: \.commandPalette) {
       CommandPaletteFeature()
+    }
+    .ifLet(\.$lifecycleScriptToast, action: \.lifecycleScriptToast) {
+      LifecycleScriptToastFeature()
     }
   }
 

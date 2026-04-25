@@ -315,6 +315,31 @@ nonisolated struct HierarchyClient: Sendable {
     @MainActor @Sendable (
       _ scriptID: UUID, _ projectID: ProjectID, _ worktreeID: WorktreeID
     ) async throws -> Void
+
+  // MARK: - Worktree lifecycle wrappers (M9)
+
+  /// Catalog-append step plus setup-script execution. On script failure the
+  /// catalog row is rolled back; the on-disk directory is left for inspection.
+  /// Mirrors `createWorktree` plus the lifecycle wrapper.
+  var createWorktreeWithLifecycle:
+    @MainActor @Sendable (
+      _ projectID: ProjectID, _ inSpace: SpaceID,
+      _ name: String, _ path: String, _ branch: String?
+    ) async throws -> (WorktreeID, LifecycleScriptResult)
+
+  /// Sets `Worktree.archived` and (on `archived: true`) runs the archive
+  /// script first. Fail-warn: a non-zero exit does not block the flag flip.
+  var setWorktreeArchivedWithLifecycle:
+    @MainActor @Sendable (
+      _ worktreeID: WorktreeID, _ inProject: ProjectID, _ archived: Bool
+    ) async throws -> LifecycleScriptResult
+
+  /// Drops the catalog row and runs the delete script. Fail-warn: the row
+  /// is removed regardless of script exit.
+  var removeWorktreeWithLifecycle:
+    @MainActor @Sendable (
+      _ worktreeID: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
+    ) async throws -> LifecycleScriptResult
 }
 
 enum RunScriptError: Error, Equatable, Sendable {
@@ -549,6 +574,29 @@ extension HierarchyClient {
           worktreeID: worktreeID,
           manager: manager,
           settings: settings
+        )
+      },
+      createWorktreeWithLifecycle: { [weak settings] projectID, spaceID, name, path, branch in
+        let snapshot = settings?.settings ?? .default
+        return try await manager.createWorktreeWithLifecycle(
+          in: projectID, in: spaceID,
+          name: name, path: path, branch: branch,
+          settings: snapshot
+        )
+      },
+      setWorktreeArchivedWithLifecycle: { [weak settings] worktreeID, projectID, archived in
+        let snapshot = settings?.settings ?? .default
+        return try await manager.setWorktreeArchivedWithLifecycle(
+          worktreeID: worktreeID,
+          archived: archived,
+          in: projectID,
+          settings: snapshot
+        )
+      },
+      removeWorktreeWithLifecycle: { [weak settings] worktreeID, projectID, spaceID in
+        let snapshot = settings?.settings ?? .default
+        return try await manager.removeWorktreeWithLifecycle(
+          worktreeID, from: projectID, in: spaceID, settings: snapshot
         )
       }
     )
@@ -798,7 +846,16 @@ extension HierarchyClient: DependencyKey {
     equalizeTabSplits: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     resizePane: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     unzoomTab: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    runScript: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") }
+    runScript: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    createWorktreeWithLifecycle: { _, _, _, _, _ in
+      fatalError("HierarchyClient.liveValue not configured")
+    },
+    setWorktreeArchivedWithLifecycle: { _, _, _ in
+      fatalError("HierarchyClient.liveValue not configured")
+    },
+    removeWorktreeWithLifecycle: { _, _, _ in
+      fatalError("HierarchyClient.liveValue not configured")
+    }
   )
 
   static let testValue: HierarchyClient = HierarchyClient(
@@ -861,7 +918,19 @@ extension HierarchyClient: DependencyKey {
     equalizeTabSplits: unimplemented("HierarchyClient.equalizeTabSplits"),
     resizePane: unimplemented("HierarchyClient.resizePane"),
     unzoomTab: unimplemented("HierarchyClient.unzoomTab"),
-    runScript: unimplemented("HierarchyClient.runScript")
+    runScript: unimplemented("HierarchyClient.runScript"),
+    createWorktreeWithLifecycle: unimplemented(
+      "HierarchyClient.createWorktreeWithLifecycle",
+      placeholder: (WorktreeID(), .skipped)
+    ),
+    setWorktreeArchivedWithLifecycle: unimplemented(
+      "HierarchyClient.setWorktreeArchivedWithLifecycle",
+      placeholder: .skipped
+    ),
+    removeWorktreeWithLifecycle: unimplemented(
+      "HierarchyClient.removeWorktreeWithLifecycle",
+      placeholder: .skipped
+    )
   )
 }
 
