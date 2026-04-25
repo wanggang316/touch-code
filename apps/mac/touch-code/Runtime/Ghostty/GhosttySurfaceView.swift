@@ -28,6 +28,12 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
   /// against the previous modifier set to emit the correct press/release;
   /// the raw NSEvent always reads .press for the event kind.
   private var lastModifierFlags: NSEvent.ModifierFlags = []
+  /// Fires every time the view becomes AppKit's first responder — i.e.
+  /// the user clicked into this surface or the window was reactivated
+  /// with this pane focused. Wired by TerminalEngine to bridge AppKit
+  /// focus into HierarchyManager's per-tab focus map; without this hook
+  /// click-driven focus changes wouldn't propagate up the stack.
+  var onBecomeFirstResponder: (() -> Void)?
 
   init(paneID: PaneID) {
     self.paneID = paneID
@@ -69,6 +75,7 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
   override func becomeFirstResponder() -> Bool {
     let accepted = super.becomeFirstResponder()
     if accepted, let surface { ghostty_surface_set_focus(surface, true) }
+    if accepted { onBecomeFirstResponder?() }
     return accepted
   }
 

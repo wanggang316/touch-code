@@ -174,18 +174,23 @@ struct WorktreeDetailView: View {
       if info.project.supportsWorktrees {
         branchToolbarItem(info: info)
       }
-      // 0014 M1: center status-bar slot. `ToolbarSpacer(.flexible)` on the
-      // leading side claims the whole gap between the branch label and the
-      // trailing button cluster, so the principal item renders centered
-      // regardless of left / right group widths. Trailing `.fixed` spacer
-      // keeps the cluster hugged against the right edge rather than drifting
-      // into the center as other items resize.
+      // Center the status bar so it sits equidistant between the branch
+      // label and the trailing button cluster. `.principal` only honors
+      // the title-bar's geometric midpoint, which reads as off-center
+      // when the trailing group is much wider than the leading branch
+      // label. macOS 26's flexible spacers split leftover horizontal
+      // space evenly on either side of the status slot; older macOS
+      // falls back to `.principal` since `ToolbarSpacer` is 26+.
       //
       // The notification bell rides inside the status capsule on the
       // trailing edge, separated from the form by a vertical divider.
-      // Single capsule keeps the center cluster compact while still
-      // visually grouping bell + status as one chip.
-      statusBarToolbarItem(address: address)
+      if #available(macOS 26.0, *) {
+        ToolbarSpacer(.flexible)
+        centeredStatusBarToolbarItem(address: address)
+        ToolbarSpacer(.flexible)
+      } else {
+        statusBarToolbarItem(address: address)
+      }
       // Two independent trailing buttons. `ToolbarItemGroup` keeps the
       // relative order while preventing SwiftUI from collapsing them into a
       // single overflow menu on narrow widths. `.buttonStyle(.plain)` on each

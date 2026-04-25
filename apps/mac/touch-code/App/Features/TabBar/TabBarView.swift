@@ -19,7 +19,6 @@ struct TabBarView: View {
   let worktreeID: WorktreeID
   let activeTabID: TabID?
   @Environment(HierarchyManager.self) private var hierarchyManager
-  @Dependency(TerminalClient.self) private var terminalClient
   /// Drives the rename sheet. Non-nil while the user is editing a tab's
   /// name; `RenameTarget` carries the seed `currentName` so the sheet can
   /// pre-populate without re-reading the catalog after the user has typed.
@@ -103,7 +102,6 @@ struct TabBarView: View {
       // of runningPanes triggers a chip re-render. Works against the
       // default-false stub on `.liveValue` / unconfigured clients.
       isDirty: { tabID in hierarchyManager.tabIsDirty(tabID) },
-      displayName: { tab, index in displayName(for: tab, index: index) },
       onSelect: { tabID in
         store.send(
           .tabButtonTapped(
@@ -141,12 +139,8 @@ struct TabBarView: View {
           ))
       },
       onRenameRequested: { tabID in
-        guard let index = worktree.tabs.firstIndex(where: { $0.id == tabID }) else { return }
-        let tab = worktree.tabs[index]
-        renameTarget = RenameTarget(
-          id: tabID,
-          currentName: displayName(for: tab, index: index + 1)
-        )
+        guard let tab = worktree.tabs.first(where: { $0.id == tabID }) else { return }
+        renameTarget = RenameTarget(id: tabID, currentName: tab.name ?? "")
       },
       onReorder: { orderedIDs in
         store.send(
@@ -156,33 +150,6 @@ struct TabBarView: View {
           ))
       }
     )
-  }
-
-  /// Resolves the display title for a tab. Priority:
-  /// 1. `tab.name` — set only when the user has manually renamed the tab.
-  /// 2. The focused pane's OSC `tabTitle` / `title` (libghostty pushes
-  ///    these whenever the shell or a foreground program emits OSC 0/2).
-  /// 3. The focused pane's `pwd` basename — a useful default when the
-  ///    shell has not pushed a title yet.
-  /// 4. `"Tab N"` where N is the 1-based position inside the worktree.
-  ///
-  /// Reads through `SurfaceInfo` (which is `@Observable`) so SwiftUI
-  /// re-renders the chip when libghostty pushes a new title or the user
-  /// changes directory. The focused pane id is read from
-  /// `HierarchyManager.lastFocusedPane`; if the user has never focused a
-  /// pane in the tab we fall back to the first leaf.
-  private func displayName(for tab: TouchCodeCore.Tab, index: Int) -> String {
-    if let name = tab.name, !name.isEmpty { return name }
-    let paneID = hierarchyManager.lastFocusedPane(in: tab.id) ?? tab.panes.first?.id
-    if let paneID, let info = terminalClient.surface(paneID)?.info {
-      if let t = info.tabTitle, !t.isEmpty { return t }
-      if let t = info.title, !t.isEmpty { return t }
-      if let pwd = info.pwd {
-        let basename = (pwd as NSString).lastPathComponent
-        if !basename.isEmpty { return basename }
-      }
-    }
-    return "Tab \(index)"
   }
 
   private func currentWorktree() -> Worktree? {

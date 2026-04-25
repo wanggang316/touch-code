@@ -260,6 +260,7 @@ final class AppState {
       $0.editorClient = editor
       $0.hierarchyClient = hierarchy
       $0.settingsWriter = .live(settings)
+      $0.terminalClient = .live(engine: engine)
     }
     // `SettingsWindowPresenter.open` forwards to the `OpenWindowAction` captured by the
     // main-window scene body into `openSettingsWindowAction`. SwiftUI's `OpenWindowAction`

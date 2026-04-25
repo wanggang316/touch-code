@@ -115,6 +115,14 @@ final class TerminalEngine {
     surface.onClose = { [weak self] processAlive in
       self?.handleSurfaceClose(paneID: pane.id, processAlive: processAlive)
     }
+    // Bridge AppKit first-responder into HierarchyManager so the tab's
+    // last-focused pane tracks user clicks. Without this, click-driven
+    // focus changes only update libghostty + the responder chain — the
+    // catalog-level map never moves and consumers like the tab-bar
+    // chip's title resolver keep reading from the wrong pane.
+    surface.view.onBecomeFirstResponder = { [weak self] in
+      self?.hierarchy.setLastFocusedPane(pane.id, in: tabID)
+    }
     // C8a Phase 4d: forward `pane.initialCommand` to the freshly spawned shell so
     // `.shellEditor` launches ("$EDITOR\n") actually run. HierarchyManager.openPane stores
     // the command on the Pane; this is the one place it gets replayed when the surface

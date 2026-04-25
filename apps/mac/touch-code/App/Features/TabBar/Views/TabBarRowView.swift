@@ -1,3 +1,4 @@
+import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
 import UniformTypeIdentifiers
@@ -25,12 +26,6 @@ struct TabBarRowView: View {
   /// returning `false` for callers / previews that do not need dirty
   /// coverage.
   var isDirty: (TabID) -> Bool = { _ in false }
-  /// Resolves the chip title. The default mirrors the legacy behavior
-  /// (`tab.name` with a static fallback) so previews / call sites that
-  /// don't care about live OSC titles compile without changes.
-  var displayName: (TouchCodeCore.Tab, Int) -> String = { tab, index in
-    tab.name ?? "Tab \(index)"
-  }
   let onSelect: (TabID) -> Void
   let onClose: (TabID) -> Void
   let onMiddleClick: (TabID) -> Void
@@ -43,8 +38,9 @@ struct TabBarRowView: View {
   var body: some View {
     HStack(spacing: 0) {
       ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
-        TabChipView(
-          title: displayName(tab, index + 1),
+        ResolvingTabChipView(
+          tab: tab,
+          index: index + 1,
           isActive: activeTabID == tab.id,
           isDirty: isDirty(tab.id),
           isOnlyTab: tabs.count <= 1,
@@ -90,6 +86,78 @@ struct TabBarRowView: View {
     let currentID = tabs[index].id
     let nextID = tabs[index + 1].id
     return currentID != activeTabID && nextID != activeTabID
+  }
+}
+
+/// Per-chip wrapper that resolves the live display title and forwards
+/// everything else to `TabChipView`. The view exists for one reason:
+/// `SurfaceInfo` is `@Observable`, and SwiftUI registers an observer at
+/// the body that reads its properties. By making each chip its own view
+/// and reading `info.title` here, the observation lives on this view's
+/// body — so an OSC push only invalidates the affected chip rather than
+/// being dropped because the access happened inside a `ForEach` builder
+/// of an upstream view that didn't establish its own tracking context.
+///
+/// Title priority:
+/// 1. `tab.name` (manual rename — sticky, ignores OSC).
+/// 2. focused pane's `info.tabTitle` (OSC 2 / set_tab_title).
+/// 3. focused pane's `info.title` (OSC 0 / set_title).
+/// 4. focused pane's `info.pwd` basename.
+/// 5. `"Tab N"` fallback.
+private struct ResolvingTabChipView: View {
+  let tab: TouchCodeCore.Tab
+  let index: Int
+  let isActive: Bool
+  let isDirty: Bool
+  let isOnlyTab: Bool
+  let isLastTab: Bool
+  let onSelect: () -> Void
+  let onClose: () -> Void
+  let onMiddleClick: () -> Void
+  let onCloseOthers: () -> Void
+  let onCloseToRight: () -> Void
+  let onCloseAll: () -> Void
+  let onRenameRequested: () -> Void
+
+  @Environment(HierarchyManager.self) private var hierarchyManager
+  @Dependency(TerminalClient.self) private var terminalClient
+
+  var body: some View {
+    TabChipView(
+      title: resolvedTitle,
+      isActive: isActive,
+      isDirty: isDirty,
+      isOnlyTab: isOnlyTab,
+      isLastTab: isLastTab,
+      onSelect: onSelect,
+      onClose: onClose,
+      onMiddleClick: onMiddleClick,
+      onCloseOthers: onCloseOthers,
+      onCloseToRight: onCloseToRight,
+      onCloseAll: onCloseAll,
+      onRenameRequested: onRenameRequested
+    )
+  }
+
+  private var resolvedTitle: String {
+    if let name = tab.name, !name.isEmpty { return name }
+    let paneID = hierarchyManager.lastFocusedPane(in: tab.id) ?? tab.panes.first?.id
+    if let paneID, let surface = terminalClient.surface(paneID) {
+      let info = surface.info
+      // Read all observable properties up-front so SwiftUI registers
+      // observation on every one — `if let` short-circuits would skip
+      // subsequent reads and miss future updates on those keypaths.
+      let tabTitleValue = info.tabTitle
+      let titleValue = info.title
+      let pwdValue = info.pwd
+      if let t = tabTitleValue, !t.isEmpty { return t }
+      if let t = titleValue, !t.isEmpty { return t }
+      if let pwd = pwdValue {
+        let basename = (pwd as NSString).lastPathComponent
+        if !basename.isEmpty { return basename }
+      }
+    }
+    return "Tab \(index)"
   }
 }
 
