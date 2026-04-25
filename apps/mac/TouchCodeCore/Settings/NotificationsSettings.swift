@@ -6,6 +6,12 @@ import Foundation
 /// four UI-owned toggles (`inAppEnabled`, `systemEnabled`, `soundEnabled`, `dockBadgeEnabled`)
 /// are added for spec M5. `dockBadgeEnabled` tracks the v1 `mute.badgeEnabled` on migration.
 public nonisolated struct NotificationsSettings: Equatable, Codable, Sendable {
+  /// Top-level master kill switch (v2 D5 / DEC-V5). When `false` the coordinator
+  /// short-circuits before any sink — no inbox append, no OS post, no badge,
+  /// no sound. Distinct from `mute.enabled` which is the user-facing snooze:
+  /// snooze still appends to the inbox so users can review history; this
+  /// setting is "I don't want this feature right now."
+  public var enabled: Bool
   public var mute: MuteSettings
   public var authStatus: AuthorizationStatusCache
   public var neverPrompt: Bool
@@ -21,8 +27,14 @@ public nonisolated struct NotificationsSettings: Equatable, Codable, Sendable {
   public var soundEnabled: Bool
   /// Toggles the Dock badge (spec M5.4). Default reflects v1 `mute.badgeEnabled`.
   public var dockBadgeEnabled: Bool
+  /// Auto-promote a worktree to the top of its repository group on the
+  /// 0→N unread transition (v2 D11 / DEC-V10). Manual ordering is
+  /// preserved as fallback when no unread; promotion is reversible by
+  /// clearing unread.
+  public var moveNotifiedWorktreeToTop: Bool
 
   public init(
+    enabled: Bool = true,
     mute: MuteSettings = .defaults,
     authStatus: AuthorizationStatusCache = .notDetermined,
     neverPrompt: Bool = false,
@@ -30,8 +42,10 @@ public nonisolated struct NotificationsSettings: Equatable, Codable, Sendable {
     inAppEnabled: Bool = true,
     systemEnabled: Bool = true,
     soundEnabled: Bool = true,
-    dockBadgeEnabled: Bool = true
+    dockBadgeEnabled: Bool = true,
+    moveNotifiedWorktreeToTop: Bool = true
   ) {
+    self.enabled = enabled
     self.mute = mute
     self.authStatus = authStatus
     self.neverPrompt = neverPrompt
@@ -40,17 +54,20 @@ public nonisolated struct NotificationsSettings: Equatable, Codable, Sendable {
     self.systemEnabled = systemEnabled
     self.soundEnabled = soundEnabled
     self.dockBadgeEnabled = dockBadgeEnabled
+    self.moveNotifiedWorktreeToTop = moveNotifiedWorktreeToTop
   }
 
   public static let `default` = NotificationsSettings()
 
   private enum CodingKeys: String, CodingKey {
-    case mute, authStatus, neverPrompt, notNowUntil
+    case enabled, mute, authStatus, neverPrompt, notNowUntil
     case inAppEnabled, systemEnabled, soundEnabled, dockBadgeEnabled
+    case moveNotifiedWorktreeToTop
   }
 
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
+    self.enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
     self.mute = try container.decodeIfPresent(MuteSettings.self, forKey: .mute) ?? .defaults
     self.authStatus =
       try container.decodeIfPresent(AuthorizationStatusCache.self, forKey: .authStatus) ?? .notDetermined
@@ -60,6 +77,8 @@ public nonisolated struct NotificationsSettings: Equatable, Codable, Sendable {
     self.systemEnabled = try container.decodeIfPresent(Bool.self, forKey: .systemEnabled) ?? true
     self.soundEnabled = try container.decodeIfPresent(Bool.self, forKey: .soundEnabled) ?? true
     self.dockBadgeEnabled = try container.decodeIfPresent(Bool.self, forKey: .dockBadgeEnabled) ?? true
+    self.moveNotifiedWorktreeToTop =
+      try container.decodeIfPresent(Bool.self, forKey: .moveNotifiedWorktreeToTop) ?? true
   }
 }
 
