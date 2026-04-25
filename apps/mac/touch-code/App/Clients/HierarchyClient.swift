@@ -413,17 +413,32 @@ extension HierarchyClient {
       lastFocusedPane: { tabID in manager.lastFocusedPane(in: tabID) },
       markPaneRunning: { paneID in manager.markPaneRunning(paneID) },
       markPaneIdle: { paneID in manager.markPaneIdle(paneID) },
-      openPane: { tabID, worktreeID, projectID, spaceID, cwd, initial in
-        try manager.openPane(
+      openPane: { [weak settings] tabID, worktreeID, projectID, spaceID, cwd, initial in
+        // M8: resolve project envVars from the SettingsStore so every
+        // user-flow openPane (TabBar new-tab, SplitViewport new-tab,
+        // CreateWorktree, IPC openPane) inherits Project-defined env. When
+        // the live wiring omits a SettingsStore (legacy callers, headless
+        // tests) the env defaults to empty and the pane spawns with the
+        // raw process env — same behaviour as before M8.
+        let env: [String: String] =
+          settings.map { HierarchyManager.resolvedEnv(for: projectID, in: $0.settings) }
+          ?? [:]
+        return try manager.openPane(
           in: tabID, in: worktreeID, in: projectID, in: spaceID,
-          workingDirectory: cwd, initialCommand: initial
+          workingDirectory: cwd, initialCommand: initial, env: env
         )
       },
-      splitPane: { paneID, direction, tabID, worktreeID, projectID, spaceID, cwd, initial in
-        try manager.splitPane(
+      splitPane: { [weak settings] paneID, direction, tabID, worktreeID, projectID, spaceID, cwd, initial in
+        // Splits inherit the same Project envVars as the parent pane —
+        // the new pty is forked from a fresh shell, not the existing one,
+        // so the env hook still has to run.
+        let env: [String: String] =
+          settings.map { HierarchyManager.resolvedEnv(for: projectID, in: $0.settings) }
+          ?? [:]
+        return try manager.splitPane(
           paneID, direction: direction,
           in: tabID, in: worktreeID, in: projectID, in: spaceID,
-          workingDirectory: cwd, initialCommand: initial
+          workingDirectory: cwd, initialCommand: initial, env: env
         )
       },
       closePane: { paneID, tabID, worktreeID, projectID, spaceID in
@@ -573,9 +588,10 @@ extension HierarchyClient {
     guard let spaceID = foundSpaceID, let cwd = foundWorktreePath else {
       throw RunScriptError.missingWorktree(worktreeID)
     }
-    // Env passthrough is computed here for M8's eventual hook; the spawn path
-    // does not consume it yet (Pane has no env field today).
-    _ = HierarchyManager.resolvedEnv(for: projectID, in: snapshot)
+    // M8: forward the resolved env into the spawn path so the new pane's
+    // pty inherits Project-defined envVars (project keys win over process
+    // env). PaneSurface threads this into ghostty_surface_config_s.env_vars.
+    let env = HierarchyManager.resolvedEnv(for: projectID, in: snapshot)
 
     let tabID = try manager.createTab(
       in: worktreeID, in: projectID, in: spaceID,
@@ -584,7 +600,8 @@ extension HierarchyClient {
     _ = try manager.openPane(
       in: tabID, in: worktreeID, in: projectID, in: spaceID,
       workingDirectory: cwd,
-      initialCommand: script.command
+      initialCommand: script.command,
+      env: env
     )
   }
 
