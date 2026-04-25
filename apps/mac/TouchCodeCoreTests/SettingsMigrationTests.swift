@@ -39,7 +39,7 @@ struct SettingsMigrationTests {
     // C8a dropped `customEditors`; any legacy entries in the v1 file are ignored on migrate.
     #expect(settings.notifications == .default)
     #expect(settings.developer == .default)
-    #expect(settings.repositories.isEmpty)
+    #expect(settings.projects.isEmpty)
     #expect(backupURL.lastPathComponent.hasPrefix("settings.json.v1-"))
     #expect(FileManager.default.fileExists(atPath: backupURL.path))
     // Post PR #22 review B2: migration now commits the v2 tree atomically, so the canonical
@@ -196,7 +196,7 @@ struct SettingsMigrationTests {
   }
 
   @Test
-  func v2FilePassesThroughUnmodified() throws {
+  func v3FilePassesThroughUnmodified() throws {
     let harness = MigrationHarness()
     defer { harness.cleanup() }
 
@@ -205,17 +205,17 @@ struct SettingsMigrationTests {
       general: GeneralSettings(defaultEditorID: "cursor"),
       notifications: .default,
       developer: .default,
-      repositories: [:]
+      projects: [:]
     )
     try JSONEncoder.touchCodeDefault.encode(fixture).write(to: harness.fileURL)
 
     let outcome = try SettingsMigration.load(from: harness.fileURL, clock: harness.clock)
-    guard case .v2(let settings) = outcome else {
-      Issue.record("Expected .v2, got \(outcome)")
+    guard case .v3(let settings) = outcome else {
+      Issue.record("Expected .v3, got \(outcome)")
       return
     }
     #expect(settings == fixture)
-    // v2 passthrough must NOT move the original aside.
+    // v3 passthrough must NOT move the original aside.
     #expect(FileManager.default.fileExists(atPath: harness.fileURL.path))
   }
 }

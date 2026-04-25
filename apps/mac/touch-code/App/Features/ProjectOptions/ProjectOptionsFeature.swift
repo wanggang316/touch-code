@@ -60,6 +60,7 @@ struct ProjectOptionsFeature {
 
   @Dependency(HierarchyClient.self) private var hierarchyClient
   @Dependency(EditorClient.self) private var editorClient
+  @Dependency(SettingsWriter.self) private var settingsWriter
 
   var body: some Reducer<State, Action> {
     Reduce { state, action in
@@ -106,20 +107,32 @@ struct ProjectOptionsFeature {
           if nameChanged {
             try hierarchyClient.renameProject(projectID, spaceID, trimmedName)
           }
-          if editorChanged {
-            try hierarchyClient.setDefaultEditor(projectID, spaceID, state.defaultEditorDraft)
-          }
-          if worktreesChanged {
-            try hierarchyClient.setProjectWorktreesDirectory(
-              projectID, spaceID, state.worktreesDirectoryDraft
-            )
-          }
         } catch {
           state.isSaving = false
           state.validationError = "Failed to save: \(error)"
           return .none
         }
+        // Per-Project editor and worktree-directory writes live in settings.json v3.
+        // These closures are async-void (no throw path) — SettingsStore.mutateProject
+        // handles persistence failures internally via its log-and-continue policy.
+        let editorWriter = settingsWriter.setProjectDefaultEditor
+        let worktreeDirWriter = settingsWriter.setProjectWorktreesDirectory
+        let editorDraft = state.defaultEditorDraft
+        // Whitespace-only drafts clear the override — matches the pre-refactor
+        // `HierarchyManager.setProjectWorktreesDirectory` semantics so a user typing
+        // spaces into the field does not persist an invalid path that later breaks
+        // worktree creation (`projectAddWorktreeTapped` treats the stored value as
+        // an absolute filesystem base).
+        let worktreesTrimmed = state.worktreesDirectoryDraft
+          .trimmingCharacters(in: .whitespacesAndNewlines)
+        let worktreesValue: String? = worktreesTrimmed.isEmpty ? nil : worktreesTrimmed
         return .run { send in
+          if editorChanged {
+            await editorWriter(projectID, editorDraft)
+          }
+          if worktreesChanged {
+            await worktreeDirWriter(projectID, worktreesValue)
+          }
           await send(.delegate(.saved(projectID, spaceID)))
           await send(.delegate(.dismiss))
         }

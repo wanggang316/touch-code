@@ -11,40 +11,42 @@ struct SettingsCodableTests {
     let decoded = try JSONDecoder.touchCodeDefault.decode(Settings.self, from: data)
     #expect(decoded == original)
     #expect(decoded.version == Settings.currentVersion)
-    #expect(decoded.version == 2)
+    #expect(decoded.version == 3)
   }
 
-  /// Minimal `{"version":2}` must decode into a fully-populated default tree. Protects
+  /// Minimal `{"version":3}` must decode into a fully-populated default tree. Protects
   /// against future accidental removal of the `decodeIfPresent` fallbacks.
   @Test
   func minimalVersionOnlyDecodesToDefaults() throws {
-    let data = Data(#"{"version":2}"#.utf8)
+    let data = Data(#"{"version":3}"#.utf8)
     let decoded = try JSONDecoder.touchCodeDefault.decode(Settings.self, from: data)
     #expect(decoded.general == .default)
     #expect(decoded.notifications == .default)
     #expect(decoded.developer == .default)
-    #expect(decoded.repositories.isEmpty)
+    #expect(decoded.projects.isEmpty)
   }
 
-  /// A well-formed tree that carries a parseable and an unparseable `repositories` key.
+  /// A well-formed tree that carries a parseable and an unparseable `projects` key.
   /// The good key survives; the bad one is logged and dropped; the rest of the file decodes.
   @Test
-  func repositoriesKeyThatIsNotAUUIDIsDropped() throws {
+  func projectsKeyThatIsNotAUUIDIsDropped() throws {
     let uuid = UUID()
     let json = """
       {
-        "version": 2,
-        "repositories": {
+        "version": 3,
+        "projects": {
           "\(uuid.uuidString)": {},
           "not-a-uuid": {}
         }
       }
       """
     let decoded = try JSONDecoder.touchCodeDefault.decode(Settings.self, from: Data(json.utf8))
-    #expect(decoded.repositories.count == 1)
-    #expect(decoded.repositories[ProjectID(raw: uuid)] != nil)
+    #expect(decoded.projects.count == 1)
+    #expect(decoded.projects[ProjectID(raw: uuid)] != nil)
   }
 
+  /// Settings.init(from:) is strict and accepts only version 3; v2 is a supported input but
+  /// is handled by SettingsMigration.load, not by the decoder path. v99 is unsupported.
   @Test
   func rejectsUnsupportedVersion() {
     let data = Data(#"{"version":99}"#.utf8)
@@ -53,21 +55,29 @@ struct SettingsCodableTests {
     }
   }
 
-  /// Verifies `repositories` serialises as a JSON object keyed by UUID string, not as the
+  /// The Settings decoder itself rejects version 2 — the v2→v3 fold runs out-of-band
+  /// inside SettingsMigration.load, which handles the typed throw and routes through a
+  /// dedicated migration path.
+  @Test
+  func decoderItselfRejectsVersion2() {
+    let data = Data(#"{"version":2}"#.utf8)
+    #expect(throws: Settings.DecodingIssue.unsupportedVersion(2)) {
+      _ = try JSONDecoder.touchCodeDefault.decode(Settings.self, from: data)
+    }
+  }
+
+  /// Verifies `projects` serialises as a JSON object keyed by UUID string, not as the
   /// array-of-pairs layout JSONEncoder falls back to for non-String-keyed dictionaries. This
   /// is the on-disk invariant design §Data Storage relies on for hand-editability.
   @Test
-  func repositoriesSerialiseAsUUIDKeyedObject() throws {
+  func projectsSerialiseAsUUIDKeyedObject() throws {
     let id = ProjectID()
     var settings = Settings.default
-    settings.repositories[id] = RepositorySettings()
-    // Bypass garbageCollect so the entry survives for this assertion — the GC behaviour has
-    // its own coverage in SettingsStoreTests (Step 4).
+    // Populate with a non-empty entry so GC doesn't drop it and the encoder keeps the key.
+    settings.projects[id] = ProjectSettings(defaultEditor: "vscode")
     let data = try JSONEncoder.touchCodeDefault.encode(settings)
     let json = try #require(String(data: data, encoding: .utf8))
-    // Expect a `"repositories":{"<uuid>":{}}` substring; the sorted-keys encoder produces
-    // deterministic output so a direct contains() is safe.
-    let expected = "\"repositories\" : {\n    \"\(id.raw.uuidString)\" : {\n\n    }\n  }"
-    #expect(json.contains(expected), "Expected UUID-keyed repositories object; got:\n\(json)")
+    #expect(json.contains("\"\(id.raw.uuidString)\""), "Expected UUID-keyed projects object; got:\n\(json)")
+    #expect(json.contains("\"defaultEditor\" : \"vscode\""), "Expected nested defaultEditor; got:\n\(json)")
   }
 }

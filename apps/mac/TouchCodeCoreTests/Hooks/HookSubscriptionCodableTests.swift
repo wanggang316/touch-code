@@ -44,12 +44,30 @@ struct HookSubscriptionCodableTests {
       .tabLabel("tests"),
       .worktreeID(WorktreeID()),
       .worktreePathGlob("**/exp/*"),
+      .projectID(ProjectID()),
+      .projectPathGlob("/Users/x/dev/**"),
     ]
     for scope in variants {
       let sub = HookSubscription(event: .paneReady, command: "noop", scope: scope)
       let data = try JSONEncoder().encode(sub)
       let decoded = try JSONDecoder().decode(HookSubscription.self, from: data)
       #expect(decoded.scope == scope, "scope mismatch for \(scope)")
+    }
+  }
+
+  @Test
+  func unknownScopeKindThrowsTypedError() throws {
+    let pid = ProjectID().raw.uuidString
+    let json = #"""
+      {
+        "id": "\#(UUID().uuidString)",
+        "event": "pane.ready",
+        "command": "noop",
+        "scope": { "kind": "futureKind", "value": "\#(pid)" }
+      }
+      """#
+    #expect(throws: HookSubscription.Scope.UnknownScopeKind.self) {
+      _ = try JSONDecoder().decode(HookSubscription.self, from: Data(json.utf8))
     }
   }
 

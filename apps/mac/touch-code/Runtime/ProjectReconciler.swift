@@ -47,8 +47,9 @@ actor ProjectReconciler {
     defer { inFlight.remove(projectID) }
 
     let snapshot = await client.snapshot()
-    guard let project = snapshot.spaces.first(where: { $0.id == spaceID })?
-      .projects.first(where: { $0.id == projectID })
+    guard
+      let project = snapshot.spaces.first(where: { $0.id == spaceID })?
+        .projects.first(where: { $0.id == projectID })
     else {
       return
     }

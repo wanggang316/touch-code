@@ -130,4 +130,3 @@ struct WorktreeGitHubBadge<PopoverContent: View>: View {
     }
   }
 }
-

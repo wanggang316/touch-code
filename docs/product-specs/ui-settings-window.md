@@ -1,16 +1,28 @@
 # Product Spec: Settings Window
 
-**Status:** Draft
+**Status:** Draft — amended 2026-04-25 (Project Settings refactor)
 **Author:** Gump (with Claude)
 **Date:** 2026-04-21
 
+> **Amendment 2026-04-25** — 后续 `docs/design-docs/project-settings.md` 落地后，
+> 词汇与子分段做了重大调整：侧栏分段名由 "Repositories" 改为 "Projects"；每个
+> Project 下的子行按 `ProjectKind`（`git_repo` / `plain_dir`）动态裁剪；
+> Kind 本身不以任何图标、徽章或标签形式在 UI 暴露，唯一信号是可见子行集合本身。
+> v3 schema 将 `Project.defaultEditor` / `Project.worktreesDirectory` 从
+> `catalog.json` 迁到 `settings.json.projects[pid]`；GitHub 覆盖从
+> `repositories[pid].{defaultMergeStrategy, postMergeAction, githubDisabled}`
+> 迁到 `projects[pid].git.*` 子对象。下方原文中未对齐的部分以 design doc 为准。
+
 ## Summary
 
-touch-code 提供一个独立的「设置」窗口，承载全局偏好与按 Repository 的覆盖设置。
+touch-code 提供一个独立的「设置」窗口，承载全局偏好与按 Project 的覆盖设置。
 窗口使用左侧侧栏 + 右侧详情的双列布局：侧栏列出全局分段（General /
-Notifications / Developer / Shortcuts / Updates / About）与 Repositories 子树，
-详情区渲染当前选中分段的内容。窗口独立于主窗口存在，用户可以一边调整设置一边
-观察主窗口中终端、通知、侧栏等表现。
+Notifications / Developer / Shortcuts / Updates / About）与 Projects 子树，
+详情区渲染当前选中分段的内容。每个 Project 的子行按 kind 条件渲染：
+`git_repo` 暴露 6 个（General / Git & Worktree / GitHub / Scripts / Hooks /
+Environment），`plain_dir` 暴露 4 个（省略 Git & Worktree、GitHub）。
+窗口独立于主窗口存在，用户可以一边调整设置一边观察主窗口中终端、通知、
+侧栏等表现。
 
 本次交付的范围是「设置窗口的基础版本」：框架 + 骨架完整，已落地能力（外部编辑器、
 代理通知、CLI、Hooks 只读）对应的分段给出可用 UI；尚未落地的能力（Shortcuts

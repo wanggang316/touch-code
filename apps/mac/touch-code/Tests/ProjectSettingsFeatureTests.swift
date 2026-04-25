@@ -6,22 +6,23 @@ import TouchCodeCore
 @testable import touch_code
 
 @MainActor
-struct RepositorySettingsFeatureTests {
+struct ProjectSettingsFeatureTests {
   // MARK: - setDefaultEditorOverride
 
   @Test
-  func setDefaultEditorOverrideForwardsToHierarchyClient() async {
+  func setDefaultEditorOverrideForwardsToSettingsWriter() async {
     let projectID = ProjectID()
     let captured = LockIsolated<(ProjectID, EditorID?)?>(nil)
-    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: projectID)) {
-      RepositorySettingsFeature()
+    let store = TestStore(initialState: ProjectSettingsFeature.State(projectID: projectID)) {
+      ProjectSettingsFeature()
     } withDependencies: {
       $0.hierarchyClient = .testValue
-      $0.hierarchyClient.setRepositoryDefaultEditor = { pid, eid in
-        captured.setValue((pid, eid))
-      }
       $0.hookConfigClient = .testValue
       $0.finderClient = .testValue
+      $0.settingsWriter = .testValue
+      $0.settingsWriter.setProjectDefaultEditor = { pid, eid in
+        captured.setValue((pid, eid))
+      }
     }
 
     await store.send(.setDefaultEditorOverride("vscode"))
@@ -33,15 +34,16 @@ struct RepositorySettingsFeatureTests {
   @Test
   func setDefaultEditorOverridePassesNilForClearRequest() async {
     let captured = LockIsolated<EditorID??>(nil)
-    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: ProjectID())) {
-      RepositorySettingsFeature()
+    let store = TestStore(initialState: ProjectSettingsFeature.State(projectID: ProjectID())) {
+      ProjectSettingsFeature()
     } withDependencies: {
       $0.hierarchyClient = .testValue
-      $0.hierarchyClient.setRepositoryDefaultEditor = { _, eid in
-        captured.setValue(.some(eid))
-      }
       $0.hookConfigClient = .testValue
       $0.finderClient = .testValue
+      $0.settingsWriter = .testValue
+      $0.settingsWriter.setProjectDefaultEditor = { _, eid in
+        captured.setValue(.some(eid))
+      }
     }
 
     await store.send(.setDefaultEditorOverride(nil))
@@ -51,15 +53,16 @@ struct RepositorySettingsFeatureTests {
 
   @Test
   func setDefaultEditorOverrideClearsLastWriteFailureOnSuccess() async {
-    var initial = RepositorySettingsFeature.State(projectID: ProjectID())
+    var initial = ProjectSettingsFeature.State(projectID: ProjectID())
     initial.lastWriteFailure = "previous error"
     let store = TestStore(initialState: initial) {
-      RepositorySettingsFeature()
+      ProjectSettingsFeature()
     } withDependencies: {
       $0.hierarchyClient = .testValue
-      $0.hierarchyClient.setRepositoryDefaultEditor = { _, _ in }
       $0.hookConfigClient = .testValue
       $0.finderClient = .testValue
+      $0.settingsWriter = .testValue
+      $0.settingsWriter.setProjectDefaultEditor = { _, _ in }
     }
 
     await store.send(.setDefaultEditorOverride("xcode"))
@@ -68,39 +71,22 @@ struct RepositorySettingsFeatureTests {
     }
   }
 
-  @Test
-  func setDefaultEditorOverrideStoresErrorMessageOnThrow() async {
-    struct DummyError: Error, CustomStringConvertible { var description: String { "boom" } }
-    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: ProjectID())) {
-      RepositorySettingsFeature()
-    } withDependencies: {
-      $0.hierarchyClient = .testValue
-      $0.hierarchyClient.setRepositoryDefaultEditor = { _, _ in throw DummyError() }
-      $0.hookConfigClient = .testValue
-      $0.finderClient = .testValue
-    }
-
-    await store.send(.setDefaultEditorOverride("xcode"))
-    await store.receive(\.writeFailed) {
-      $0.lastWriteFailure = "boom"
-    }
-  }
-
   // MARK: - setWorktreeBaseDirectory
 
   @Test
-  func setWorktreeBaseDirectoryForwardsToHierarchyClient() async {
+  func setWorktreeBaseDirectoryForwardsToSettingsWriter() async {
     let projectID = ProjectID()
     let captured = LockIsolated<(ProjectID, String?)?>(nil)
-    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: projectID)) {
-      RepositorySettingsFeature()
+    let store = TestStore(initialState: ProjectSettingsFeature.State(projectID: projectID)) {
+      ProjectSettingsFeature()
     } withDependencies: {
       $0.hierarchyClient = .testValue
-      $0.hierarchyClient.setRepositoryWorktreeBaseDirectory = { pid, path in
-        captured.setValue((pid, path))
-      }
       $0.hookConfigClient = .testValue
       $0.finderClient = .testValue
+      $0.settingsWriter = .testValue
+      $0.settingsWriter.setProjectWorktreesDirectory = { pid, path in
+        captured.setValue((pid, path))
+      }
     }
 
     await store.send(.setWorktreeBaseDirectory("/Users/me/worktrees"))
@@ -112,15 +98,16 @@ struct RepositorySettingsFeatureTests {
   @Test
   func setWorktreeBaseDirectoryPassesNilForClearRequest() async {
     let captured = LockIsolated<String??>(nil)
-    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: ProjectID())) {
-      RepositorySettingsFeature()
+    let store = TestStore(initialState: ProjectSettingsFeature.State(projectID: ProjectID())) {
+      ProjectSettingsFeature()
     } withDependencies: {
       $0.hierarchyClient = .testValue
-      $0.hierarchyClient.setRepositoryWorktreeBaseDirectory = { _, path in
-        captured.setValue(.some(path))
-      }
       $0.hookConfigClient = .testValue
       $0.finderClient = .testValue
+      $0.settingsWriter = .testValue
+      $0.settingsWriter.setProjectWorktreesDirectory = { _, path in
+        captured.setValue(.some(path))
+      }
     }
 
     await store.send(.setWorktreeBaseDirectory(nil))
@@ -151,8 +138,8 @@ struct RepositorySettingsFeatureTests {
       scope: .worktreeID(wtID)
     )
 
-    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: projectID)) {
-      RepositorySettingsFeature()
+    let store = TestStore(initialState: ProjectSettingsFeature.State(projectID: projectID)) {
+      ProjectSettingsFeature()
     } withDependencies: {
       $0.hookConfigClient = .testValue
       $0.hookConfigClient.load = { HookConfig(subscriptions: [sub]) }
@@ -161,7 +148,7 @@ struct RepositorySettingsFeatureTests {
       $0.finderClient = .testValue
     }
 
-    let expected = HookRowBuilder.make(from: sub, source: .repository)
+    let expected = HookRowBuilder.make(from: sub, source: .project)
     await store.send(.onHooksAppear) {
       $0.hooksLoad = .loading
     }
@@ -171,10 +158,11 @@ struct RepositorySettingsFeatureTests {
   }
 
   @Test
-  func onHooksAppearTagsWorktreePathGlobMatchingProjectRootAsRepository() async {
-    // B4 regression guard: worktreePathGlob targeting the repo root must tag as
-    // Repository even when no `worktrees` entry's path matches. Design's Data
-    // Storage § Hook classification requires project.rootPath to be checked too.
+  func onHooksAppearTagsProjectPathGlobMatchingRepoRootAsRepository() async {
+    // hooks.json v2 added `.projectPathGlob` so users can scope a subscription to the
+    // whole Project (any worktree / pane / tab / plain_dir root) directly. Match against
+    // `project.rootPath`. `worktreePathGlob` no longer probes the rootPath — users who
+    // want repo-wide scope pick `.projectPathGlob` explicitly.
     let projectID = ProjectID()
     let subID = UUID()
     let project = Project(
@@ -188,16 +176,15 @@ struct RepositorySettingsFeatureTests {
     )
     let space = Space(id: SpaceID(), name: "S", projects: [project])
     let catalog = Catalog(windows: [], spaces: [space], selectedSpaceID: space.id)
-    // Glob matches project.rootPath exactly but does NOT match /Users/me/wts/feat-a.
     let sub = HookSubscription(
       id: subID,
       event: .paneCreated,
       command: "echo test",
-      scope: .worktreePathGlob("/Users/me/proj")
+      scope: .projectPathGlob("/Users/me/proj")
     )
 
-    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: projectID)) {
-      RepositorySettingsFeature()
+    let store = TestStore(initialState: ProjectSettingsFeature.State(projectID: projectID)) {
+      ProjectSettingsFeature()
     } withDependencies: {
       $0.hookConfigClient = .testValue
       $0.hookConfigClient.load = { HookConfig(subscriptions: [sub]) }
@@ -206,10 +193,43 @@ struct RepositorySettingsFeatureTests {
       $0.finderClient = .testValue
     }
 
-    let expected = HookRowBuilder.make(from: sub, source: .repository)
+    let expected = HookRowBuilder.make(from: sub, source: .project)
     await store.send(.onHooksAppear) {
       $0.hooksLoad = .loading
     }
+    await store.receive(\.hooksLoaded.success) {
+      $0.hooksLoad = .loaded([expected])
+    }
+  }
+
+  @Test
+  func onHooksAppearTagsProjectIDScopeAsRepository() async {
+    // `.projectID` is the canonical way to scope to a single Project — matches regardless
+    // of kind, so `plain_dir` Projects get first-class coverage too.
+    let projectID = ProjectID()
+    let subID = UUID()
+    let project = Project(id: projectID, name: "P", rootPath: "/tmp/p", gitRoot: nil)
+    let space = Space(id: SpaceID(), name: "S", projects: [project])
+    let catalog = Catalog(windows: [], spaces: [space], selectedSpaceID: space.id)
+    let sub = HookSubscription(
+      id: subID,
+      event: .paneCreated,
+      command: "notify",
+      scope: .projectID(projectID)
+    )
+
+    let store = TestStore(initialState: ProjectSettingsFeature.State(projectID: projectID)) {
+      ProjectSettingsFeature()
+    } withDependencies: {
+      $0.hookConfigClient = .testValue
+      $0.hookConfigClient.load = { HookConfig(subscriptions: [sub]) }
+      $0.hierarchyClient = .testValue
+      $0.hierarchyClient.snapshot = { catalog }
+      $0.finderClient = .testValue
+    }
+
+    let expected = HookRowBuilder.make(from: sub, source: .project)
+    await store.send(.onHooksAppear) { $0.hooksLoad = .loading }
     await store.receive(\.hooksLoaded.success) {
       $0.hooksLoad = .loaded([expected])
     }
@@ -229,8 +249,8 @@ struct RepositorySettingsFeatureTests {
       scope: .anyPane
     )
 
-    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: projectID)) {
-      RepositorySettingsFeature()
+    let store = TestStore(initialState: ProjectSettingsFeature.State(projectID: projectID)) {
+      ProjectSettingsFeature()
     } withDependencies: {
       $0.hookConfigClient = .testValue
       $0.hookConfigClient.load = { HookConfig(subscriptions: [sub]) }
@@ -254,8 +274,8 @@ struct RepositorySettingsFeatureTests {
   func revealHooksJSONRequestedCallsEnsureExistsThenReveal() async {
     let ensureCalled = LockIsolated(false)
     let revealed = LockIsolated<String?>(nil)
-    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: ProjectID())) {
-      RepositorySettingsFeature()
+    let store = TestStore(initialState: ProjectSettingsFeature.State(projectID: ProjectID())) {
+      ProjectSettingsFeature()
     } withDependencies: {
       $0.hookConfigClient = .testValue
       $0.hookConfigClient.ensureExists = { ensureCalled.setValue(true) }
@@ -273,8 +293,8 @@ struct RepositorySettingsFeatureTests {
   @Test
   func revealHooksJSONRequestedSurfacesEnsureExistsFailure() async {
     struct DummyError: Error, CustomStringConvertible { var description: String { "ensure boom" } }
-    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: ProjectID())) {
-      RepositorySettingsFeature()
+    let store = TestStore(initialState: ProjectSettingsFeature.State(projectID: ProjectID())) {
+      ProjectSettingsFeature()
     } withDependencies: {
       $0.hookConfigClient = .testValue
       $0.hookConfigClient.ensureExists = { throw DummyError() }
@@ -292,10 +312,10 @@ struct RepositorySettingsFeatureTests {
 
   @Test
   func writeFailedEmptyStringClearsError() async {
-    var initial = RepositorySettingsFeature.State(projectID: ProjectID())
+    var initial = ProjectSettingsFeature.State(projectID: ProjectID())
     initial.lastWriteFailure = "something"
     let store = TestStore(initialState: initial) {
-      RepositorySettingsFeature()
+      ProjectSettingsFeature()
     } withDependencies: {
       $0.hierarchyClient = .testValue
       $0.hookConfigClient = .testValue
@@ -309,8 +329,8 @@ struct RepositorySettingsFeatureTests {
 
   @Test
   func writeFailedNonEmptyRecordsMessage() async {
-    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: ProjectID())) {
-      RepositorySettingsFeature()
+    let store = TestStore(initialState: ProjectSettingsFeature.State(projectID: ProjectID())) {
+      ProjectSettingsFeature()
     } withDependencies: {
       $0.hierarchyClient = .testValue
       $0.hookConfigClient = .testValue
@@ -324,15 +344,15 @@ struct RepositorySettingsFeatureTests {
 
   @Test
   func hooksLoadedFailureSetsFailedState() async {
-    let store = TestStore(initialState: RepositorySettingsFeature.State(projectID: ProjectID())) {
-      RepositorySettingsFeature()
+    let store = TestStore(initialState: ProjectSettingsFeature.State(projectID: ProjectID())) {
+      ProjectSettingsFeature()
     } withDependencies: {
       $0.hierarchyClient = .testValue
       $0.hookConfigClient = .testValue
       $0.finderClient = .testValue
     }
 
-    let err = RepositorySettingsFeature.LoadError.loadFailed("disk gone")
+    let err = ProjectSettingsFeature.LoadError.loadFailed("disk gone")
     await store.send(.hooksLoaded(.failure(err))) {
       $0.hooksLoad = .failed(String(describing: err))
     }

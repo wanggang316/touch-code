@@ -3,14 +3,16 @@ import Testing
 
 @testable import TouchCodeCore
 
-/// C8a Phase 6.4 — editor-ID migration coverage. Exercises the two value-domain normalizers
-/// added in Phase 5: `Settings.garbageCollectEditors(knownIDs:)` and
-/// `Catalog.garbageCollectEditors(knownIDs:)`. Both:
+/// Editor-ID migration coverage. Exercises `Settings.garbageCollectEditors(knownIDs:)`
+/// which walks both `general.defaultEditorID` and `projects[pid].defaultEditor` (v3 schema
+/// absorbed per-Project editor overrides that used to live on Catalog):
 ///   - Reset IDs that are not in the caller-supplied registry to `nil`.
 ///   - Leave valid IDs untouched.
 ///   - Return `true` iff any field was mutated (so callers skip spurious writes).
 ///
-/// Neither helper imports the app-tier `EditorRegistry`, so `knownIDs` is passed explicitly.
+/// The helper does not import the app-tier `EditorRegistry`, so `knownIDs` is passed
+/// explicitly. `Catalog.garbageCollectEditors` is gone — the walk responsibility moved
+/// to `Settings.garbageCollectEditors` when v3 absorbed the per-Project editor field.
 struct EditorMigrationTests {
   private static let known: Set<EditorID> = ["vscode", "cursor", "zed", "finder", "editor"]
 
@@ -58,61 +60,39 @@ struct EditorMigrationTests {
     #expect(settings.general.defaultEditorID == nil)
   }
 
-  // MARK: - Catalog.garbageCollectEditors
+  // MARK: - Settings.garbageCollectEditors on projects[pid].defaultEditor
 
   @Test
-  func catalogGarbageCollectResetsStaleProjectDefaultEditor() {
-    var catalog = Self.makeCatalog(projectDefaults: ["unknownCustom"])
-    let mutated = catalog.garbageCollectEditors(knownIDs: Self.known)
+  func settingsGarbageCollectResetsStaleProjectDefaultEditor() {
+    var settings = Settings()
+    let pid = ProjectID()
+    settings.projects[pid] = ProjectSettings(defaultEditor: "unknownCustom")
+    let mutated = settings.garbageCollectEditors(knownIDs: Self.known)
     #expect(mutated == true)
-    #expect(catalog.spaces[0].projects[0].defaultEditor == nil)
+    #expect(settings.projects[pid]?.defaultEditor == nil)
   }
 
   @Test
-  func catalogGarbageCollectKeepsValidProjectDefaultEditor() {
-    var catalog = Self.makeCatalog(projectDefaults: ["vscode"])
-    let mutated = catalog.garbageCollectEditors(knownIDs: Self.known)
+  func settingsGarbageCollectKeepsValidProjectDefaultEditor() {
+    var settings = Settings()
+    let pid = ProjectID()
+    settings.projects[pid] = ProjectSettings(defaultEditor: "vscode")
+    let mutated = settings.garbageCollectEditors(knownIDs: Self.known)
     #expect(mutated == false)
-    #expect(catalog.spaces[0].projects[0].defaultEditor == "vscode")
+    #expect(settings.projects[pid]?.defaultEditor == "vscode")
   }
 
   @Test
-  func catalogGarbageCollectIsNoOpOnCleanCatalog() {
-    var catalog = Catalog()
-    let mutated = catalog.garbageCollectEditors(knownIDs: Self.known)
-    #expect(mutated == false)
-  }
-
-  @Test
-  func catalogGarbageCollectMixedStaleAndValidNormalisesOnlyStale() {
-    // Space A: one project with a stale ID. Space B: one project with a valid ID.
-    let staleProject = Project(
-      name: "stale",
-      rootPath: "/tmp/stale",
-      defaultEditor: "ghost-editor"
-    )
-    let validProject = Project(
-      name: "valid",
-      rootPath: "/tmp/valid",
-      defaultEditor: "cursor"
-    )
-    let spaceA = Space(name: "A", projects: [staleProject])
-    let spaceB = Space(name: "B", projects: [validProject])
-    var catalog = Catalog(spaces: [spaceA, spaceB])
-
-    let mutated = catalog.garbageCollectEditors(knownIDs: Self.known)
+  func settingsGarbageCollectMixedStaleAndValidNormalisesOnlyStale() {
+    var settings = Settings()
+    let stalePID = ProjectID()
+    let validPID = ProjectID()
+    settings.projects[stalePID] = ProjectSettings(defaultEditor: "ghost-editor")
+    settings.projects[validPID] = ProjectSettings(defaultEditor: "cursor")
+    let mutated = settings.garbageCollectEditors(knownIDs: Self.known)
     #expect(mutated == true)
-    #expect(catalog.spaces[0].projects[0].defaultEditor == nil)
-    #expect(catalog.spaces[1].projects[0].defaultEditor == "cursor")
-  }
-
-  @Test
-  func catalogGarbageCollectIsIdempotent() {
-    var catalog = Self.makeCatalog(projectDefaults: ["ghost"])
-    let first = catalog.garbageCollectEditors(knownIDs: Self.known)
-    let second = catalog.garbageCollectEditors(knownIDs: Self.known)
-    #expect(first == true)
-    #expect(second == false)
+    #expect(settings.projects[stalePID]?.defaultEditor == nil)
+    #expect(settings.projects[validPID]?.defaultEditor == "cursor")
   }
 
   // MARK: - Legacy tolerance
@@ -124,7 +104,7 @@ struct EditorMigrationTests {
     // and non-empty.
     let legacyJSON = #"""
       {
-        "version": 2,
+        "version": 3,
         "general": {
           "appearance": "system",
           "defaultEditorID": "vscode",
@@ -141,17 +121,4 @@ struct EditorMigrationTests {
     // No assertion on the dropped field — the point is that decode did not throw.
   }
 
-  // MARK: - Helpers
-
-  private static func makeCatalog(projectDefaults: [EditorID?]) -> Catalog {
-    let projects = projectDefaults.enumerated().map { index, editorID in
-      Project(
-        name: "p\(index)",
-        rootPath: "/tmp/p\(index)",
-        defaultEditor: editorID
-      )
-    }
-    let space = Space(name: "Default", projects: projects)
-    return Catalog(spaces: [space])
-  }
 }

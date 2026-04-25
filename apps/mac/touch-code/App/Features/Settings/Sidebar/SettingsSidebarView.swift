@@ -2,18 +2,21 @@ import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
 
-/// Settings window sidebar. Fixed-order global sections at the top (spec M3), then a
-/// "Repositories" `Section` containing one `DisclosureGroup` per open Project (sorted by
-/// name per spec M9). Each disclosure holds two rows — General and Hooks — that map to
-/// `.repositoryGeneral(projectID)` / `.repositoryHooks(projectID)`.
+/// Settings window sidebar. Fixed-order global sections at the top, then a "Projects"
+/// `Section` containing one `DisclosureGroup` per open Project (sorted by name). Each
+/// disclosure's sub-rows depend on the Project's `ProjectKind` (derived from `gitRoot`):
+/// `git_repo` renders six sub-rows (General, Git & Worktree, GitHub, Scripts, Hooks,
+/// Environment), `plain_dir` renders four (General, Scripts, Hooks, Environment). Kind
+/// itself is **never** surfaced in the UI — no icon, no badge. The available sub-rows are
+/// the only signal.
 ///
 /// The Project list comes from the live `HierarchyManager` catalog; adding or removing a
 /// Project in the main window reflects here without any explicit refresh (@Observable
-/// subscription), satisfying spec "sidebar immediately reflects Project add/remove".
+/// subscription).
 ///
 /// Disclosure open/close state lives in a local `@State` dictionary so Projects keep their
 /// expansion across sidebar selection changes. This state is intentionally *not* persisted —
-/// spec M16 asks that closing the window drop session state.
+/// closing the window drops session state.
 struct SettingsSidebarView: View {
   @Binding var selection: SettingsSection?
   @Environment(HierarchyManager.self) private var hierarchyManager
@@ -28,7 +31,7 @@ struct SettingsSidebarView: View {
         }
       }
 
-      Section("Repositories") {
+      Section("Projects") {
         let projects = sortedProjects(in: hierarchyManager.catalog)
         if projects.isEmpty {
           Text("No open projects")
@@ -36,7 +39,7 @@ struct SettingsSidebarView: View {
             .foregroundStyle(.tertiary)
         } else {
           ForEach(projects) { project in
-            repositoryDisclosure(project: project)
+            projectDisclosure(project: project)
           }
         }
       }
@@ -48,28 +51,29 @@ struct SettingsSidebarView: View {
   // MARK: - Rows
 
   @ViewBuilder
-  private func repositoryDisclosure(project: Project) -> some View {
+  private func projectDisclosure(project: Project) -> some View {
     let binding = Binding<Bool>(
       get: { expandedProjects[project.id] ?? false },
       set: { expandedProjects[project.id] = $0 }
     )
+    let subrows = SettingsSection.subrows(for: project.kind, projectID: project.id)
     DisclosureGroup(isExpanded: binding) {
-      Label("General", systemImage: "slider.horizontal.3")
-        .tag(Optional(SettingsSection.repositoryGeneral(project.id)))
-      Label("Hooks", systemImage: "link")
-        .tag(Optional(SettingsSection.repositoryHooks(project.id)))
+      ForEach(subrows, id: \.self) { subrow in
+        Label(subrow.projectSubrowTitle ?? "", systemImage: subrowIcon(for: subrow))
+          .tag(Optional(subrow))
+      }
     } label: {
-      // Spec M10: a tap on the Repository name should select its General pane when the
-      // disclosure is currently collapsed (and expand it to reveal the two child rows).
-      // `simultaneousGesture` runs alongside DisclosureGroup's built-in label tap so the
-      // expansion toggle still happens — we only add the selection write.
+      // A tap on the Project name selects its General pane when the disclosure is
+      // currently collapsed (and expand it to reveal the sub-rows). `simultaneousGesture`
+      // runs alongside DisclosureGroup's built-in label tap so the expansion toggle still
+      // happens — we only add the selection write.
       Label(project.name, systemImage: "folder")
         .contentShape(Rectangle())
         .accessibilityAddTraits(.isButton)
         .simultaneousGesture(
           TapGesture().onEnded {
             if !(expandedProjects[project.id] ?? false) {
-              selection = .repositoryGeneral(project.id)
+              selection = .projectGeneral(project.id)
             }
           }
         )
@@ -96,7 +100,23 @@ struct SettingsSidebarView: View {
     case .shortcuts: return "command"
     case .updates: return "arrow.down.circle"
     case .about: return "info.circle"
-    case .repositoryGeneral, .repositoryHooks: return ""
+    case .projectGeneral, .projectGit, .projectGitHub, .projectScripts, .projectHooks, .projectEnv:
+      return ""
+    }
+  }
+
+  /// Leading icon for Project sub-rows. Matches the global-section icon language where
+  /// intuitive (Scripts → terminal, Hooks → link) and drops to a blank for rows whose
+  /// icon would add noise rather than signal.
+  private func subrowIcon(for section: SettingsSection) -> String {
+    switch section {
+    case .projectGeneral: return "slider.horizontal.3"
+    case .projectGit: return "arrow.branch"
+    case .projectGitHub: return "arrow.triangle.pull"
+    case .projectScripts: return "terminal"
+    case .projectHooks: return "link"
+    case .projectEnv: return "leaf"
+    default: return ""
     }
   }
 }

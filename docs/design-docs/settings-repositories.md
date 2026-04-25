@@ -1,6 +1,6 @@
 # Design Doc: Settings Window — Repositories Subtree (T4)
 
-**Status:** Draft
+**Status:** Deprecated — superseded by [project-settings.md](./project-settings.md) (2026-04-24)
 **Author:** Gump (agent: feat/settings-repositories)
 **Date:** 2026-04-21
 **Product spec:** [ui-settings-window.md](../product-specs/ui-settings-window.md)

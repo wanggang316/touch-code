@@ -52,10 +52,10 @@ struct GhosttyConfigFileTests {
   @Test
   func existingThemeIsReplacedAtSamePosition() {
     let input = """
-    font-family = Menlo
-    theme = light:Old,dark:Old
-    font-size = 13
-    """
+      font-family = Menlo
+      theme = light:Old,dark:Old
+      font-size = 13
+      """
     let out = GhosttyConfigFile.updatedContents(
       from: input,
       draft: draft(light: "New", dark: "Newer")
@@ -64,10 +64,10 @@ struct GhosttyConfigFileTests {
     // same index so non-managed siblings keep their relative position.
     #expect(
       out == """
-      font-family = Menlo
-      theme = light:New,dark:Newer
-      font-size = 13
-      """
+        font-family = Menlo
+        theme = light:New,dark:Newer
+        font-size = 13
+        """
     )
   }
 
@@ -76,12 +76,12 @@ struct GhosttyConfigFileTests {
   @Test
   func multipleInterleavedManagedLinesCollapseToSingleCanonicalBlock() {
     let input = """
-    theme = light:A,dark:A
-    font-family = Menlo
-    theme = light:B,dark:B
-    font-size = 13
-    theme = light:C,dark:C
-    """
+      theme = light:A,dark:A
+      font-family = Menlo
+      theme = light:B,dark:B
+      font-size = 13
+      theme = light:C,dark:C
+      """
     let out = GhosttyConfigFile.updatedContents(
       from: input,
       draft: draft(light: "Final", dark: "Final")
@@ -90,10 +90,10 @@ struct GhosttyConfigFileTests {
     // two `theme = …` lines are removed.
     #expect(
       out == """
-      theme = light:Final,dark:Final
-      font-family = Menlo
-      font-size = 13
-      """
+        theme = light:Final,dark:Final
+        font-family = Menlo
+        font-size = 13
+        """
     )
   }
 
@@ -102,30 +102,30 @@ struct GhosttyConfigFileTests {
   @Test
   func commentsAndBlankLinesArePreservedAroundReplacement() {
     let input = """
-    # top comment
-    font-family = Menlo
+      # top comment
+      font-family = Menlo
 
-    # before theme
-    theme = light:Old,dark:Old
-    # after theme
+      # before theme
+      theme = light:Old,dark:Old
+      # after theme
 
-    font-size = 13
-    """
+      font-size = 13
+      """
     let out = GhosttyConfigFile.updatedContents(
       from: input,
       draft: draft(light: "New", dark: "New2")
     )
     #expect(
       out == """
-      # top comment
-      font-family = Menlo
+        # top comment
+        font-family = Menlo
 
-      # before theme
-      theme = light:New,dark:New2
-      # after theme
+        # before theme
+        theme = light:New,dark:New2
+        # after theme
 
-      font-size = 13
-      """
+        font-size = 13
+        """
     )
   }
 
@@ -156,25 +156,25 @@ struct GhosttyConfigFileTests {
   @Test
   func draftBothNilRemovesManagedBlockLeavingRest() {
     let input = """
-    font-family = Menlo
-    theme = light:X,dark:Y
-    font-size = 13
-    """
+      font-family = Menlo
+      theme = light:X,dark:Y
+      font-size = 13
+      """
     let out = GhosttyConfigFile.updatedContents(from: input, draft: draft())
     #expect(
       out == """
-      font-family = Menlo
-      font-size = 13
-      """
+        font-family = Menlo
+        font-size = 13
+        """
     )
   }
 
   @Test
   func draftBothNilOnFileWithNoManagedKeysIsIdentity() {
     let input = """
-    font-family = Menlo
-    font-size = 13
-    """
+      font-family = Menlo
+      font-size = 13
+      """
     let out = GhosttyConfigFile.updatedContents(from: input, draft: draft())
     #expect(out == input)
   }
@@ -216,9 +216,9 @@ struct GhosttyConfigFileTests {
   @Test
   func commentedThemeLineIsNotReplaced() {
     let input = """
-    # theme = light:X,dark:Y
-    font-family = Menlo
-    """
+      # theme = light:X,dark:Y
+      font-family = Menlo
+      """
     let out = GhosttyConfigFile.updatedContents(
       from: input,
       draft: draft(light: "A", dark: "B")
@@ -228,10 +228,10 @@ struct GhosttyConfigFileTests {
     // was present.
     #expect(
       out == """
-      # theme = light:X,dark:Y
-      font-family = Menlo
-      theme = light:A,dark:B
-      """
+        # theme = light:X,dark:Y
+        font-family = Menlo
+        theme = light:A,dark:B
+        """
     )
   }
 }

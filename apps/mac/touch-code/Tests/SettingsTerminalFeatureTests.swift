@@ -49,7 +49,10 @@ struct SettingsTerminalFeatureTests {
       SettingsTerminalFeature()
     } withDependencies: {
       $0[GhosttyTerminalSettingsClient.self] = GhosttyTerminalSettingsClient(
-        load: { Issue.record("load should not be called"); return preloaded },
+        load: {
+          Issue.record("load should not be called")
+          return preloaded
+        },
         apply: { _ in preloaded }
       )
     }

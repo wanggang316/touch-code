@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+
 @testable import touch_code
 
 /// End-to-end test against a real temp git repo + the bundled `wt`
@@ -94,9 +95,10 @@ struct WorktreeLifecycleIntegrationTests {
     // `wt ls --json`, not something parsed from stray stdout. The
     // diff-based picker guarantees this invariant; a regression
     // would trigger this #expect.
-    #expect(entries.contains(where: {
-      URL(fileURLWithPath: $0.path).standardizedFileURL == worktreePath
-    }))
+    #expect(
+      entries.contains(where: {
+        URL(fileURLWithPath: $0.path).standardizedFileURL == worktreePath
+      }))
 
     // Safe-remove the clean worktree.
     try await client.removeWorktree(repo, worktreePath, false)
@@ -172,10 +174,13 @@ struct WorktreeLifecycleIntegrationTests {
       private let lock = NSLock()
       weak var process: Process?
       func capture(_ p: Process) {
-        lock.lock(); process = p; lock.unlock()
+        lock.lock()
+        process = p
+        lock.unlock()
       }
       func isAlive() -> Bool {
-        lock.lock(); defer { lock.unlock() }
+        lock.lock()
+        defer { lock.unlock() }
         return process?.isRunning ?? false
       }
     }

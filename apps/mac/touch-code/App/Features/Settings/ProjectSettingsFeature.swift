@@ -4,10 +4,15 @@ import SwiftUI
 import TouchCodeCore
 
 @Reducer
-struct RepositorySettingsFeature {
+struct ProjectSettingsFeature {
   @ObservableState
   struct State: Equatable, Identifiable {
     let projectID: ProjectID
+    /// Derived from `Project.gitRoot` at pane-materialise time. Views consult this to
+    /// gate git-specific controls; the sidebar uses it to decide which sub-rows render.
+    /// Seeded from `HierarchyClient.kind(of:)` by `SettingsWindowFeature.ensureProjectPane`;
+    /// re-seeded when `.projectsChanged` delta reveals a kind flip on an existing pane.
+    var kind: ProjectKind = .gitRepo
     var hooksLoad: HooksLoad = .idle
     var lastWriteFailure: String?
 
@@ -38,28 +43,23 @@ struct RepositorySettingsFeature {
   @Dependency(HierarchyClient.self) var hierarchyClient
   @Dependency(HookConfigClient.self) var hookConfigClient
   @Dependency(FinderClient.self) var finderClient
+  @Dependency(SettingsWriter.self) var settingsWriter
 
   var body: some Reducer<State, Action> {
     Reduce { state, action in
       switch action {
       case .setDefaultEditorOverride(let editorID):
+        let writer = settingsWriter.setProjectDefaultEditor
         return .run { [projectID = state.projectID] send in
-          do {
-            try await hierarchyClient.setRepositoryDefaultEditor(projectID, editorID)
-            await send(.writeFailed(""))  // Clear the error on success
-          } catch {
-            await send(.writeFailed(String(describing: error)))
-          }
+          await writer(projectID, editorID)
+          await send(.writeFailed(""))  // Clear the error on success
         }
 
       case .setWorktreeBaseDirectory(let path):
+        let writer = settingsWriter.setProjectWorktreesDirectory
         return .run { [projectID = state.projectID] send in
-          do {
-            try await hierarchyClient.setRepositoryWorktreeBaseDirectory(projectID, path)
-            await send(.writeFailed(""))  // Clear the error on success
-          } catch {
-            await send(.writeFailed(String(describing: error)))
-          }
+          await writer(projectID, path)
+          await send(.writeFailed(""))  // Clear the error on success
         }
 
       case .writeFailed(let message):
@@ -136,15 +136,15 @@ nonisolated func classifyHooks(
   }
 
   guard let project else {
-    throw RepositorySettingsFeature.LoadError.classificationFailed(
+    throw ProjectSettingsFeature.LoadError.classificationFailed(
       "Project \(projectID) not found in catalog"
     )
   }
 
   return subscriptions.map { subscription in
     let source =
-      isRepositoryScope(subscription.scope, project: project)
-      ? HookSource.repository
+      isProjectScope(subscription.scope, project: project)
+      ? HookSource.project
       : HookSource.global
     return (subscription, source)
   }
@@ -153,22 +153,29 @@ nonisolated func classifyHooks(
 /// Determine if a hook subscription's scope binds it to the given project.
 /// - `.anyPane`, `.paneID`, `.paneLabel`, `.tabID`, `.tabLabel` are never
 ///   project-specific; treat as Global.
+/// - `.projectID` matches when the id equals the project's id.
+/// - `.projectPathGlob` matches when the glob fires against `project.rootPath`.
 /// - `.worktreeID` matches when the id appears in `project.worktrees`.
-/// - `.worktreePathGlob` matches when the glob fires against the project's
-///   repo root **or** any of its worktree paths. Matching the repo root
-///   catches the "hooks that target the whole repository tree" case, which
-///   otherwise gets mis-tagged as Global when the project happens to have
-///   no worktrees or only descendant worktrees.
-nonisolated private func isRepositoryScope(_ scope: HookSubscription.Scope, project: Project) -> Bool {
+/// - `.worktreePathGlob` is strictly worktree-scoped: fires when the glob
+///   matches any worktree path. Project-level scoping now belongs to
+///   `.projectID` / `.projectPathGlob`, so this case no longer probes
+///   `project.rootPath` — a user who wants "whole Project" writes it
+///   explicitly via a Project-scoped case.
+nonisolated private func isProjectScope(_ scope: HookSubscription.Scope, project: Project) -> Bool {
   switch scope {
   case .anyPane, .paneID, .paneLabel, .tabID, .tabLabel:
     return false
+
+  case .projectID(let pid):
+    return pid == project.id
+
+  case .projectPathGlob(let glob):
+    return doesPathMatchGlob(project.rootPath, glob: glob)
 
   case .worktreeID(let wtID):
     return project.worktrees.contains { $0.id == wtID }
 
   case .worktreePathGlob(let glob):
-    if doesPathMatchGlob(project.rootPath, glob: glob) { return true }
     return project.worktrees.contains { wtree in
       doesPathMatchGlob(wtree.path, glob: glob)
     }

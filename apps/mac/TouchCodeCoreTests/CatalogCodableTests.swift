@@ -49,6 +49,67 @@ struct CatalogCodableTests {
   }
 
   @Test
+  func decodingAcceptsLegacyV1AndUpgradesVersion() throws {
+    // v1 catalogs carried `defaultEditor` / `worktreesDirectory` on Project; the v2
+    // decoder still reads them (so HierarchyManager.drainLegacyOverrides can move them
+    // to settings.json) but the in-memory `version` field normalises to 2 so the next
+    // save writes v2 shape. Build the JSON via the encoder so every HierarchyID round-
+    // trips through its canonical `{ "raw": "<uuid>" }` form.
+    let project = Project(
+      name: "p",
+      rootPath: "/tmp/p",
+      gitRoot: nil,
+      worktreesDirectory: "/tmp/wt",
+      defaultEditor: "vscode"
+    )
+    let space = Space(name: "s", projects: [project])
+    let v2Catalog = Catalog(spaces: [space])
+
+    // Round-trip through the encoder to get a well-formed spaces[] array, then splice
+    // `version: 1` back in and rebuild.
+    let v2Data = try JSONEncoder().encode(v2Catalog)
+    var root = try #require(try JSONSerialization.jsonObject(with: v2Data) as? [String: Any])
+    // Put the legacy Project fields back on the encoded projects (v2 encoder stripped them).
+    if var spaces = root["spaces"] as? [[String: Any]],
+      var spaceDict = spaces.first,
+      var projects = spaceDict["projects"] as? [[String: Any]],
+      var projectDict = projects.first
+    {
+      projectDict["defaultEditor"] = "vscode"
+      projectDict["worktreesDirectory"] = "/tmp/wt"
+      projects[0] = projectDict
+      spaceDict["projects"] = projects
+      spaces[0] = spaceDict
+      root["spaces"] = spaces
+    }
+    root["version"] = 1
+    let v1Payload = try JSONSerialization.data(withJSONObject: root)
+
+    let catalog = try JSONDecoder().decode(Catalog.self, from: v1Payload)
+    #expect(catalog.version == 2, "decoder should normalise version to current")
+    let decodedProject = try #require(catalog.spaces.first?.projects.first)
+    #expect(decodedProject.defaultEditor == "vscode", "legacy v1 field still read into in-memory Project")
+    #expect(decodedProject.worktreesDirectory == "/tmp/wt")
+  }
+
+  @Test
+  func encoderStripsLegacyV1ProjectFields() throws {
+    var project = Project(name: "p", rootPath: "/tmp/p", gitRoot: nil)
+    project.defaultEditor = "vscode"
+    project.worktreesDirectory = "/tmp/wt"
+    let space = Space(name: "s", projects: [project])
+    let catalog = Catalog(spaces: [space])
+
+    let data = try JSONEncoder().encode(catalog)
+    let root = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    let encodedProject = try #require(
+      (((root["spaces"] as? [[String: Any]])?.first)?["projects"] as? [[String: Any]])?.first
+    )
+    #expect(encodedProject["defaultEditor"] == nil, "v2 encoder must not write defaultEditor")
+    #expect(encodedProject["worktreesDirectory"] == nil, "v2 encoder must not write worktreesDirectory")
+  }
+
+  @Test
   func decodingTolerantOfMissingOptionalFields() throws {
     let payload = Data(#"{"version": 1}"#.utf8)
     let catalog = try JSONDecoder().decode(Catalog.self, from: payload)

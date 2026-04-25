@@ -71,9 +71,12 @@ struct SpaceManagerView: View {
 
           // Non-blocking duplicate-name warning
           let trimmed = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
-          let isDuplicate = trimmed.isEmpty ? false : catalog.spaces.contains {
-            $0.id != space.id && $0.name == trimmed
-          }
+          let isDuplicate =
+            trimmed.isEmpty
+            ? false
+            : catalog.spaces.contains {
+              $0.id != space.id && $0.name == trimmed
+            }
           if isDuplicate {
             Text("A Space with this name already exists.")
               .font(.caption)
@@ -126,8 +129,8 @@ struct SpaceManagerView: View {
     let projects = pending.projectCount == 1 ? "Project" : "Projects"
     let worktrees = pending.worktreeCount == 1 ? "Worktree" : "Worktrees"
     return """
-    This will remove \(pending.projectCount) \(projects) and \(pending.worktreeCount) \(worktrees) from touch-code. \
-    Files on disk are not affected.
-    """
+      This will remove \(pending.projectCount) \(projects) and \(pending.worktreeCount) \(worktrees) from touch-code. \
+      Files on disk are not affected.
+      """
   }
 }

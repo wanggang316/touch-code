@@ -11,7 +11,7 @@ public nonisolated struct CatalogWindow: Equatable, Codable, Sendable, Identifia
 }
 
 public nonisolated struct Catalog: Equatable, Sendable {
-  public static let currentVersion = 1
+  public static let currentVersion = 2
 
   public var version: Int
   public var windows: [CatalogWindow]
@@ -51,8 +51,15 @@ extension Catalog: Codable {
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     let version = try container.decode(Int.self, forKey: .version)
-    guard version == Catalog.currentVersion else { throw DecodingIssue.unsupportedVersion(version) }
-    self.version = version
+    // Accepts v1 (legacy — carries per-Project defaultEditor / worktreesDirectory that
+    // moved to settings.json v3) and v2 (current — those fields omitted). The Project
+    // decoder reads the v1 fields via `decodeIfPresent` so in-memory state carries them
+    // until HierarchyManager.drainLegacyOverrides() transfers them to SettingsStore.
+    guard version == 1 || version == Catalog.currentVersion else {
+      throw DecodingIssue.unsupportedVersion(version)
+    }
+    // Normalise version in-memory to currentVersion; the next save writes v2.
+    self.version = Catalog.currentVersion
     self.windows = try container.decodeIfPresent([CatalogWindow].self, forKey: .windows) ?? []
     self.spaces = try container.decodeIfPresent([Space].self, forKey: .spaces) ?? []
     self.selectedSpaceID = try container.decodeIfPresent(SpaceID.self, forKey: .selectedSpaceID)
@@ -60,31 +67,6 @@ extension Catalog: Codable {
 }
 
 extension Catalog {
-  /// Resets any `Project.defaultEditor` that is not in the caller-provided built-in
-  /// registry to `nil`. Counterpart to `Settings.garbageCollectEditors` — run once at
-  /// catalog load so per-project overrides left over from the retired C8 `customEditors`
-  /// feature don't persist forever. `knownIDs` is a parameter so this helper stays in
-  /// `TouchCodeCore` without pulling in the app-tier `EditorRegistry`.
-  ///
-  /// Idempotent: a second call on an already-cleaned `Catalog` is a no-op and returns
-  /// `false`. Returns `true` if any Project was mutated so the caller can decide whether
-  /// to persist — avoids a spurious catalog write when nothing actually changed.
-  @discardableResult
-  public mutating func garbageCollectEditors(knownIDs: Set<EditorID>) -> Bool {
-    var mutated = false
-    for spaceIndex in spaces.indices {
-      for projectIndex in spaces[spaceIndex].projects.indices {
-        if let id = spaces[spaceIndex].projects[projectIndex].defaultEditor,
-          !knownIDs.contains(id)
-        {
-          spaces[spaceIndex].projects[projectIndex].defaultEditor = nil
-          mutated = true
-        }
-      }
-    }
-    return mutated
-  }
-
   /// Resolve a `PaneID` to the Worktree that currently hosts it, if any.
   /// Walks `spaces → projects → worktrees → tabs → panes` and returns the
   /// first match. Linear in the total pane count. Returns `nil` if the

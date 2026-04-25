@@ -162,7 +162,8 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     key.composing = !markedText.string.isEmpty
     key.unshifted_codepoint = 0
     if let chars = event.characters(byApplyingModifiers: []),
-      let codepoint = chars.unicodeScalars.first {
+      let codepoint = chars.unicodeScalars.first
+    {
       key.unshifted_codepoint = codepoint.value
     }
 
@@ -254,7 +255,8 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     keyEvent.unshifted_codepoint = 0
     if event.type == .keyDown || event.type == .keyUp,
       let chars = event.characters(byApplyingModifiers: []),
-      let codepoint = chars.unicodeScalars.first {
+      let codepoint = chars.unicodeScalars.first
+    {
       keyEvent.unshifted_codepoint = codepoint.value
     }
 

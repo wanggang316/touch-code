@@ -18,9 +18,10 @@ nonisolated struct GitHubClient: Sendable {
   var rerunFailedJobs: @Sendable (_ runID: Int64, _ worktreePath: URL) async throws -> Void
   /// Batched PR lookup for one repository, keyed by head branch name (0013 M3). One
   /// `gh api graphql` subprocess per chunk of up to 25 branches, up to 3 chunks concurrent.
-  var batchPullRequests: @Sendable (
-    _ host: String, _ owner: String, _ repo: String, _ branches: [String]
-  ) async throws -> [String: PullRequestSnapshot]
+  var batchPullRequests:
+    @Sendable (
+      _ host: String, _ owner: String, _ repo: String, _ branches: [String]
+    ) async throws -> [String: PullRequestSnapshot]
 }
 
 extension GitHubClient {

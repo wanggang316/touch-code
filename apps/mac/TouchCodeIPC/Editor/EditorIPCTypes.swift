@@ -105,8 +105,8 @@ public nonisolated struct EditorSetGlobalDefaultResponse: Equatable, Codable, Se
   public init() {}
 }
 
-/// `editor.setProjectDefault` — writes `Project.defaultEditor` via
-/// `HierarchyClient.setRepositoryDefaultEditor`. `nil` clears the override.
+/// `editor.setProjectDefault` — writes `Settings.projects[pid].defaultEditor` via
+/// `SettingsStore.mutateProject`. `nil` clears the override.
 public nonisolated struct EditorSetProjectDefaultRequest: Equatable, Codable, Sendable {
   public var projectID: UUID
   public var editorID: EditorID?

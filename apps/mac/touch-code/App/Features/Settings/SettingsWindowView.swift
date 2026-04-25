@@ -50,17 +50,13 @@ struct SettingsWindowView: View {
     if let globalTitle = section.globalTitle {
       return globalTitle
     }
-    switch section {
-    case .repositoryGeneral(let projectID):
-      return repositoryTitle(for: projectID, suffix: "General")
-    case .repositoryHooks(let projectID):
-      return repositoryTitle(for: projectID, suffix: "Hooks")
-    default:
-      return "Settings"
+    if let pid = section.projectID, let suffix = section.projectSubrowTitle {
+      return projectTitle(for: pid, suffix: suffix)
     }
+    return "Settings"
   }
 
-  private func repositoryTitle(for projectID: ProjectID, suffix: String) -> String {
+  private func projectTitle(for projectID: ProjectID, suffix: String) -> String {
     let project = hierarchyManager.catalog.spaces
       .lazy
       .flatMap(\.projects)
@@ -91,12 +87,12 @@ struct SettingsWindowView: View {
       ComingSoonPane(title: "Updates")
     case .about:
       AboutSettingsView()
-    case .repositoryGeneral(let projectID):
+    case .projectGeneral(let projectID):
       if let paneStore = store.scope(
-        state: \.repositoryPanes[id: projectID],
-        action: \.repositoryPanes[id: projectID]
+        state: \.projectPanes[id: projectID],
+        action: \.projectPanes[id: projectID]
       ) {
-        RepositoryGeneralSettingsView(
+        ProjectGeneralSettingsView(
           projectID: projectID,
           store: paneStore,
           descriptors: store.state.general.descriptors
@@ -107,12 +103,48 @@ struct SettingsWindowView: View {
         // landing and the reducer run finishing.
         ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
       }
-    case .repositoryHooks(let projectID):
+    case .projectHooks(let projectID):
       if let paneStore = store.scope(
-        state: \.repositoryPanes[id: projectID],
-        action: \.repositoryPanes[id: projectID]
+        state: \.projectPanes[id: projectID],
+        action: \.projectPanes[id: projectID]
       ) {
-        RepositoryHooksSettingsView(projectID: projectID, store: paneStore)
+        ProjectHooksSettingsView(projectID: projectID, store: paneStore)
+      } else {
+        ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+      }
+    case .projectGit(let projectID):
+      if let paneStore = store.scope(
+        state: \.projectPanes[id: projectID],
+        action: \.projectPanes[id: projectID]
+      ) {
+        ProjectGitSettingsView(projectID: projectID, store: paneStore)
+      } else {
+        ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+      }
+    case .projectGitHub(let projectID):
+      if let paneStore = store.scope(
+        state: \.projectPanes[id: projectID],
+        action: \.projectPanes[id: projectID]
+      ) {
+        ProjectGitHubSettingsView(projectID: projectID, store: paneStore)
+      } else {
+        ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+      }
+    case .projectScripts(let projectID):
+      if let paneStore = store.scope(
+        state: \.projectPanes[id: projectID],
+        action: \.projectPanes[id: projectID]
+      ) {
+        ProjectScriptsSettingsView(projectID: projectID, store: paneStore)
+      } else {
+        ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+      }
+    case .projectEnv(let projectID):
+      if let paneStore = store.scope(
+        state: \.projectPanes[id: projectID],
+        action: \.projectPanes[id: projectID]
+      ) {
+        ProjectEnvSettingsView(projectID: projectID, store: paneStore)
       } else {
         ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
       }

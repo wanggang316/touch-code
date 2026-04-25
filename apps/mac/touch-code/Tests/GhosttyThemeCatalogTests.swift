@@ -35,7 +35,8 @@ struct GhosttyThemeCatalogTests {
     /// directory. Mirrors the on-disk layout the reader expects when the
     /// parent dir is passed in via `XDG_CONFIG_HOME`.
     func writeThemeFile(named name: String, contents: String) throws -> URL {
-      let themesDir = url
+      let themesDir =
+        url
         .appendingPathComponent("ghostty", isDirectory: true)
         .appendingPathComponent("themes", isDirectory: true)
       try FileManager.default.createDirectory(
@@ -165,10 +166,10 @@ struct GhosttyThemeCatalogTests {
     _ = try xdg.writeThemeFile(
       named: "Commented",
       contents: """
-      # comment
-      # background = #FFFFFF   (not a real directive)
-      background = #000000
-      """
+        # comment
+        # background = #FFFFFF   (not a real directive)
+        background = #000000
+        """
     )
     let catalog = load(xdg: xdg, home: home)
     #expect(catalog.dark == ["Commented"])

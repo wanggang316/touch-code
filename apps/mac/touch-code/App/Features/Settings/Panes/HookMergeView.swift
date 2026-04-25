@@ -1,16 +1,18 @@
 import SwiftUI
 import TouchCodeCore
 
-/// Where a hook row originated. `.global` is the user's `hooks.json`; `.repository`
-/// is a per-Project override merged in by T4's Repository Hooks pane.
+/// Where a hook row originated. `.global` is the user's `hooks.json`; `.project`
+/// is a subscription whose scope binds it to the current Project (via `.projectID`,
+/// `.projectPathGlob`, or any worktree-level scope pointing at this Project's
+/// worktrees). Used by the Project Hooks pane to source-tag each row.
 public nonisolated enum HookSource: String, Hashable, Sendable {
   case global
-  case repository
+  case project
 
   var tagLabel: String {
     switch self {
     case .global: return "Global"
-    case .repository: return "Repository"
+    case .project: return "Project"
     }
   }
 }
@@ -68,9 +70,9 @@ extension TrailingAction: Equatable {
   }
 }
 
-/// Read-only renderer for a list of `HookRow`. Shared between T3 (Developer pane,
-/// Global-only) and T4 (Repository Hooks pane, Global + Repository merged —
-/// flips `showsSourceTag` on). Empty-state and trailing-action affordances are
+/// Read-only renderer for a list of `HookRow`. Shared between the Developer pane
+/// (Global-only) and the Project Hooks pane (Global + Project merged — flips
+/// `showsSourceTag` on). Empty-state and trailing-action affordances are
 /// configurable; the core rendering rules are fixed so hooks look identical in
 /// both surfaces.
 public struct HookMergeView: View {
@@ -247,6 +249,8 @@ public nonisolated enum HookRowBuilder {
     case .tabLabel: return "tabLabel"
     case .worktreeID: return "worktreeID"
     case .worktreePathGlob: return "worktreePathGlob"
+    case .projectID: return "projectID"
+    case .projectPathGlob: return "projectPathGlob"
     }
   }
 }
@@ -286,7 +290,7 @@ public nonisolated enum HookRowBuilder {
       ),
       HookRow(
         id: UUID(), displayName: "repo hook", eventLabel: "pane.output",
-        matchSummary: "scope: paneLabel", enabled: true, source: .repository
+        matchSummary: "scope: paneLabel", enabled: true, source: .project
       ),
     ],
     showsSourceTag: true

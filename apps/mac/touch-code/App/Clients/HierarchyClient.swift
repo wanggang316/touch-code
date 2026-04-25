@@ -1,7 +1,7 @@
 import ComposableArchitecture
 import Foundation
-import Observation
 import OSLog
+import Observation
 import TouchCodeCore
 
 /// Logger for the background reconcile path. Matches the project's
@@ -157,28 +157,11 @@ nonisolated struct HierarchyClient: Sendable {
       _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
     ) throws -> Void
 
-  /// Sets the per-Project default editor override. `nil` unsets the override so resolution
-  /// falls back to the global default (via `SettingsStore`). Added in 0005 M6a for C8's
-  /// Worktree-header "Open in ▾" + Settings override UI.
-  var setDefaultEditor:
-    @MainActor @Sendable (
-      _ projectID: ProjectID, _ inSpace: SpaceID, _ editorID: EditorID?
-    ) throws -> Void
-
-  /// Sibling of `setDefaultEditor` for Settings Repository pane; projects without a
-  /// known Space are resolved across all Spaces. `nil` clears the override. T4.
-  var setRepositoryDefaultEditor:
-    @MainActor @Sendable (
-      _ projectID: ProjectID, _ editorID: EditorID?
-    ) throws -> Void
-
-  /// Sets the per-Project worktree base directory override for Settings Repository pane.
-  /// `nil` clears so worktree creation falls back to the global default. Unused value is
-  /// a silent no-op. Resolves projectID across all Spaces. T4.
-  var setRepositoryWorktreeBaseDirectory:
-    @MainActor @Sendable (
-      _ projectID: ProjectID, _ path: String?
-    ) throws -> Void
+  // Per-Project editor / worktrees-directory writers were retired in v3: the values
+  // live on `Settings.projects[pid]` and every consumer routes through
+  // `SettingsStore.mutateProject` (`SettingsWriter.setProjectDefaultEditor` /
+  // `SettingsWriter.setProjectWorktreesDirectory`). HierarchyClient is read-only for
+  // per-Project preferences (see `snapshot` / `kind`).
 
   /// Flips `Worktree.gitViewerVisible` for the given Worktree. Silent no-op on
   /// unknown `worktreeID`; persists through the standard debounced
@@ -201,36 +184,41 @@ nonisolated struct HierarchyClient: Sendable {
   // MARK: - Worktree Management additions (feat/worktree-mgmt)
 
   /// Flips `Worktree.archived` for the given Worktree.
-  var setWorktreeArchived: @MainActor @Sendable (
-    _ worktreeID: WorktreeID, _ archived: Bool
-  ) throws -> Void
+  var setWorktreeArchived:
+    @MainActor @Sendable (
+      _ worktreeID: WorktreeID, _ archived: Bool
+    ) throws -> Void
 
   /// Flips `Worktree.isPinned` for the given Worktree. Silent for unknown ids / unchanged
   /// values. Persists via the standard debounced save pipeline.
-  var setWorktreePinned: @MainActor @Sendable (
-    _ worktreeID: WorktreeID, _ isPinned: Bool
-  ) -> Void
+  var setWorktreePinned:
+    @MainActor @Sendable (
+      _ worktreeID: WorktreeID, _ isPinned: Bool
+    ) -> Void
 
   /// Reads the Project's git root, calls `GitWorktreeClient.lsWorktrees`
   /// off the main actor, and merges on-disk worktrees into the catalog.
   /// Append-only — never removes catalog rows. Swallows errors. Consumed
   /// by `ProjectReconciler` on feat/project-mgmt.
-  var reconcileDiscoveredWorktrees: @MainActor @Sendable (
-    _ projectID: ProjectID, _ inSpace: SpaceID
-  ) async -> Void
+  var reconcileDiscoveredWorktrees:
+    @MainActor @Sendable (
+      _ projectID: ProjectID, _ inSpace: SpaceID
+    ) async -> Void
 
   /// Catalog-append step for Create Worktree.
-  var createWorktreeWithGit: @MainActor @Sendable (
-    _ projectID: ProjectID, _ inSpace: SpaceID,
-    _ branch: String, _ directoryName: String, _ path: String
-  ) throws -> WorktreeID
+  var createWorktreeWithGit:
+    @MainActor @Sendable (
+      _ projectID: ProjectID, _ inSpace: SpaceID,
+      _ branch: String, _ directoryName: String, _ path: String
+    ) throws -> WorktreeID
 
   /// End-to-end Remove Worktree. `GitWorktreeError.uncommittedChanges` is
   /// re-thrown so the sidebar can surface the specific files.
-  var removeWorktreeWithGit: @MainActor @Sendable (
-    _ worktreeID: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID,
-    _ force: Bool
-  ) async throws -> Void
+  var removeWorktreeWithGit:
+    @MainActor @Sendable (
+      _ worktreeID: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID,
+      _ force: Bool
+    ) async throws -> Void
 
   /// Forwards `HierarchyManager.runningPaneCount`.
   var runningPaneCount: @MainActor @Sendable (_ worktreeID: WorktreeID) -> Int
@@ -238,19 +226,16 @@ nonisolated struct HierarchyClient: Sendable {
   // MARK: - Project Management (pm) — added on feat/project-mgmt.
 
   /// Transient Project health signal. Written by `ProjectReconciler` only.
-  var setProjectLoadState: @MainActor @Sendable (
-    _ projectID: ProjectID, _ inSpace: SpaceID, _ state: ProjectLoadState
-  ) -> Void
+  var setProjectLoadState:
+    @MainActor @Sendable (
+      _ projectID: ProjectID, _ inSpace: SpaceID, _ state: ProjectLoadState
+    ) -> Void
 
   /// Reorder Projects inside a Space. Mirrors `ForEach.onMove`'s signature.
-  var reorderProjects: @MainActor @Sendable (
-    _ inSpace: SpaceID, _ from: IndexSet, _ to: Int
-  ) throws -> Void
-
-  /// Per-Project worktrees-directory override. Empty/whitespace clears.
-  var setProjectWorktreesDirectory: @MainActor @Sendable (
-    _ projectID: ProjectID, _ inSpace: SpaceID, _ path: String?
-  ) throws -> Void
+  var reorderProjects:
+    @MainActor @Sendable (
+      _ inSpace: SpaceID, _ from: IndexSet, _ to: Int
+    ) throws -> Void
 
   /// Duplicate-add guard. Caller canonicalizes before querying.
   var isPathRegistered: @MainActor @Sendable (_ canonicalPath: String) -> (SpaceID, ProjectID)?
@@ -260,6 +245,13 @@ nonisolated struct HierarchyClient: Sendable {
   /// Used by the `editor.open` IPC so `tc open` inside a subdirectory still
   /// resolves the parent Project's default editor. Caller canonicalizes.
   var projectContaining: @MainActor @Sendable (_ canonicalPath: String) -> (SpaceID, ProjectID)?
+
+  /// Derived `ProjectKind` lookup — scans every Space for the Project and
+  /// returns its kind, or `nil` if the Project is not in the catalog. The
+  /// Settings sidebar consults this to choose which sub-rows to render
+  /// under a Project. Read-only; the app never writes kind — it flows from
+  /// `gitRoot` set at project-discovery time.
+  var kind: @MainActor @Sendable (_ projectID: ProjectID) -> ProjectKind?
 
   // MARK: - Space Management additions (feat/space-mgmt)
 
@@ -279,32 +271,36 @@ nonisolated struct HierarchyClient: Sendable {
   /// Moves a Tab by a relative offset within its Worktree. Positive shifts
   /// right, negative shifts left. Clamped to the Worktree's tab-array
   /// bounds by `HierarchyManager.moveTab`.
-  var moveTab: @MainActor @Sendable (
-    _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID,
-    _ inSpace: SpaceID, _ offset: Int
-  ) throws -> Void
+  var moveTab:
+    @MainActor @Sendable (
+      _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID,
+      _ inSpace: SpaceID, _ offset: Int
+    ) throws -> Void
 
   /// Sets every split node's ratio in the Tab's SplitTree to 0.5 so sibling
   /// panes render at equal sizes. Leaf-only trees are a silent no-op.
-  var equalizeTabSplits: @MainActor @Sendable (
-    _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID,
-    _ inSpace: SpaceID
-  ) throws -> Void
+  var equalizeTabSplits:
+    @MainActor @Sendable (
+      _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID,
+      _ inSpace: SpaceID
+    ) throws -> Void
 
   /// Resizes a Pane in the SplitTree along the given direction by `amount`.
   /// `amount` is interpreted as a ratio delta (clamped by SplitTree) — the
   /// ghostty RESIZE_SPLIT action carries pixel amounts but touch-code's
   /// tree only stores ratios.
-  var resizePane: @MainActor @Sendable (
-    _ paneID: PaneID, _ direction: ResizeDirection, _ amount: Double
-  ) throws -> Void
+  var resizePane:
+    @MainActor @Sendable (
+      _ paneID: PaneID, _ direction: ResizeDirection, _ amount: Double
+    ) throws -> Void
 
   /// Clears the Tab's zoomed-pane flag. Paired with `focusPane` (which
   /// sets the zoom) to service `PaneActionRequest.toggleSplitZoom`.
-  var unzoomTab: @MainActor @Sendable (
-    _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID,
-    _ inSpace: SpaceID
-  ) throws -> Void
+  var unzoomTab:
+    @MainActor @Sendable (
+      _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID,
+      _ inSpace: SpaceID
+    ) throws -> Void
 }
 
 /// Full hierarchy address a `PaneID` resolves to. Carries the IDs of every
@@ -424,15 +420,6 @@ extension HierarchyClient {
           in: tabID, in: worktreeID, in: projectID, in: spaceID
         )
       },
-      setDefaultEditor: { projectID, spaceID, editorID in
-        try manager.setDefaultEditor(editorID, for: projectID, in: spaceID)
-      },
-      setRepositoryDefaultEditor: { projectID, editorID in
-        try manager.setDefaultEditorAnySpace(editorID, for: projectID)
-      },
-      setRepositoryWorktreeBaseDirectory: { projectID, path in
-        try manager.setWorktreesDirectory(path, for: projectID)
-      },
       setWorktreeGitViewerVisible: { worktreeID, visible in
         manager.setWorktreeGitViewerVisible(worktreeID: worktreeID, visible: visible)
       },
@@ -477,14 +464,19 @@ extension HierarchyClient {
       reorderProjects: { spaceID, from, to in
         try manager.reorderProjects(in: spaceID, from: from, to: to)
       },
-      setProjectWorktreesDirectory: { projectID, spaceID, path in
-        try manager.setProjectWorktreesDirectory(path, projectID: projectID, spaceID: spaceID)
-      },
       isPathRegistered: { canonicalPath in
         manager.isPathRegistered(canonical: canonicalPath)
       },
       projectContaining: { canonicalPath in
         manager.project(containing: canonicalPath)
+      },
+      kind: { projectID in
+        for space in manager.catalog.spaces {
+          if let project = space.projects.first(where: { $0.id == projectID }) {
+            return project.kind
+          }
+        }
+        return nil
       },
       reorderSpaces: { source, destination in
         manager.reorderSpaces(fromOffsets: source, toOffset: destination)
@@ -535,8 +527,8 @@ extension HierarchyClient {
     gitWorktreeClient: GitWorktreeClient
   ) async {
     guard let space = manager.catalog.spaces.first(where: { $0.id == spaceID }),
-          let project = space.projects.first(where: { $0.id == projectID }),
-          let gitRoot = project.gitRoot
+      let project = space.projects.first(where: { $0.id == projectID }),
+      let gitRoot = project.gitRoot
     else { return }
     do {
       let entries = try await gitWorktreeClient.lsWorktrees(
@@ -581,9 +573,9 @@ extension HierarchyClient {
     gitWorktreeClient: GitWorktreeClient
   ) async throws {
     guard let space = manager.catalog.spaces.first(where: { $0.id == spaceID }),
-          let project = space.projects.first(where: { $0.id == projectID }),
-          let worktree = project.worktrees.first(where: { $0.id == worktreeID }),
-          let gitRoot = project.gitRoot
+      let project = space.projects.first(where: { $0.id == projectID }),
+      let worktree = project.worktrees.first(where: { $0.id == worktreeID }),
+      let gitRoot = project.gitRoot
     else {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
     }
@@ -690,9 +682,6 @@ extension HierarchyClient: DependencyKey {
     focusPane: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     focusSurfaceView: { _ in fatalError("HierarchyClient.liveValue not configured") },
     resizeSplit: { _, _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    setDefaultEditor: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    setRepositoryDefaultEditor: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    setRepositoryWorktreeBaseDirectory: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     setWorktreeGitViewerVisible: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     snapshot: { fatalError("HierarchyClient.liveValue not configured") },
     selectionChanges: { AsyncStream { $0.finish() } },
@@ -704,9 +693,9 @@ extension HierarchyClient: DependencyKey {
     runningPaneCount: { _ in fatalError("HierarchyClient.liveValue not configured") },
     setProjectLoadState: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     reorderProjects: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    setProjectWorktreesDirectory: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     isPathRegistered: { _ in fatalError("HierarchyClient.liveValue not configured") },
     projectContaining: { _ in fatalError("HierarchyClient.liveValue not configured") },
+    kind: { _ in fatalError("HierarchyClient.liveValue not configured") },
     reorderSpaces: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     addressOf: { _ in fatalError("HierarchyClient.liveValue not configured") },
     moveTab: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
@@ -747,9 +736,6 @@ extension HierarchyClient: DependencyKey {
     focusPane: unimplemented("HierarchyClient.focusPane"),
     focusSurfaceView: unimplemented("HierarchyClient.focusSurfaceView"),
     resizeSplit: unimplemented("HierarchyClient.resizeSplit"),
-    setDefaultEditor: unimplemented("HierarchyClient.setDefaultEditor"),
-    setRepositoryDefaultEditor: unimplemented("HierarchyClient.setRepositoryDefaultEditor"),
-    setRepositoryWorktreeBaseDirectory: unimplemented("HierarchyClient.setRepositoryWorktreeBaseDirectory"),
     setWorktreeGitViewerVisible: unimplemented("HierarchyClient.setWorktreeGitViewerVisible"),
     snapshot: unimplemented(
       "HierarchyClient.snapshot",
@@ -769,9 +755,9 @@ extension HierarchyClient: DependencyKey {
     runningPaneCount: unimplemented("HierarchyClient.runningPaneCount", placeholder: 0),
     setProjectLoadState: unimplemented("HierarchyClient.setProjectLoadState"),
     reorderProjects: unimplemented("HierarchyClient.reorderProjects"),
-    setProjectWorktreesDirectory: unimplemented("HierarchyClient.setProjectWorktreesDirectory"),
     isPathRegistered: unimplemented("HierarchyClient.isPathRegistered", placeholder: nil),
     projectContaining: unimplemented("HierarchyClient.projectContaining", placeholder: nil),
+    kind: unimplemented("HierarchyClient.kind", placeholder: nil),
     reorderSpaces: unimplemented("HierarchyClient.reorderSpaces"),
     addressOf: unimplemented("HierarchyClient.addressOf", placeholder: nil),
     moveTab: unimplemented("HierarchyClient.moveTab"),

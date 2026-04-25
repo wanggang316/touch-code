@@ -53,9 +53,19 @@ public nonisolated struct Project: Equatable, Sendable, Identifiable {
 }
 
 extension Project: Codable {
+  /// On-disk coding keys. `defaultEditor` and `worktreesDirectory` remain decoded from
+  /// legacy v1 catalogs so `HierarchyManager.drainLegacyOverrides` can move them to
+  /// `Settings.projects[pid]` on first load, but they are **no longer encoded** — v2
+  /// Projects never carry those keys. `loadState` is transient.
   private enum CodingKeys: String, CodingKey {
-    case id, name, rootPath, gitRoot, worktreesDirectory, defaultEditor, worktrees, selectedWorktreeID
-    // loadState intentionally omitted — transient.
+    case id, name, rootPath, gitRoot, worktrees, selectedWorktreeID
+    // v1-only (decoded, never encoded): worktreesDirectory, defaultEditor
+  }
+
+  /// Legacy v1 keys. Separated from `CodingKeys` so the encoder cannot accidentally
+  /// write them — the decoder reads them through a distinct container.
+  private enum LegacyV1CodingKeys: String, CodingKey {
+    case worktreesDirectory, defaultEditor
   }
 
   public init(from decoder: Decoder) throws {
@@ -64,11 +74,15 @@ extension Project: Codable {
     self.name = try container.decode(String.self, forKey: .name)
     self.rootPath = try container.decode(String.self, forKey: .rootPath)
     self.gitRoot = try container.decodeIfPresent(String.self, forKey: .gitRoot)
-    self.worktreesDirectory = try container.decodeIfPresent(String.self, forKey: .worktreesDirectory)
-    self.defaultEditor = try container.decodeIfPresent(String.self, forKey: .defaultEditor)
     self.worktrees = try container.decodeIfPresent([Worktree].self, forKey: .worktrees) ?? []
     self.selectedWorktreeID = try container.decodeIfPresent(WorktreeID.self, forKey: .selectedWorktreeID)
     self.loadState = .loading
+
+    // Legacy v1 fields — present on v1 catalogs, absent on v2. Carried in-memory so
+    // `HierarchyManager.drainLegacyOverrides` can hand them to `SettingsStore`.
+    let legacy = try decoder.container(keyedBy: LegacyV1CodingKeys.self)
+    self.worktreesDirectory = try legacy.decodeIfPresent(String.self, forKey: .worktreesDirectory)
+    self.defaultEditor = try legacy.decodeIfPresent(String.self, forKey: .defaultEditor)
   }
 
   public func encode(to encoder: Encoder) throws {
@@ -77,10 +91,9 @@ extension Project: Codable {
     try container.encode(name, forKey: .name)
     try container.encode(rootPath, forKey: .rootPath)
     try container.encodeIfPresent(gitRoot, forKey: .gitRoot)
-    try container.encodeIfPresent(worktreesDirectory, forKey: .worktreesDirectory)
-    try container.encodeIfPresent(defaultEditor, forKey: .defaultEditor)
     try container.encode(worktrees, forKey: .worktrees)
     try container.encodeIfPresent(selectedWorktreeID, forKey: .selectedWorktreeID)
-    // loadState intentionally not encoded.
+    // `defaultEditor` and `worktreesDirectory` intentionally not encoded (v2 shape).
+    // `loadState` intentionally not encoded.
   }
 }

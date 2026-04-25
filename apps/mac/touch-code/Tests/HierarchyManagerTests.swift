@@ -231,27 +231,10 @@ struct HierarchyManagerTests {
     #expect(tab.splitTree.zoomed == paneID)
   }
 
-  @Test
-  func setDefaultEditorWritesPerProjectOverride() throws {
-    let spaceID = manager.createSpace(name: "test")
-    let projectID = try manager.addProject(to: spaceID, name: "project", rootPath: "/tmp", gitRoot: "/tmp")
-
-    try manager.setDefaultEditor("vscode", for: projectID, in: spaceID)
-    #expect(manager.catalog.spaces[0].projects[0].defaultEditor == "vscode")
-
-    // Nil clears the override.
-    try manager.setDefaultEditor(nil, for: projectID, in: spaceID)
-    #expect(manager.catalog.spaces[0].projects[0].defaultEditor == nil)
-  }
-
-  @Test
-  func setDefaultEditorThrowsForUnknownProject() {
-    let spaceID = manager.createSpace(name: "test")
-    let bogusProject = ProjectID()
-    #expect(throws: (any Error).self) {
-      try manager.setDefaultEditor("vscode", for: bogusProject, in: spaceID)
-    }
-  }
+  // Per-Project editor / worktrees-directory mutators moved off HierarchyManager in v3
+  // and now live on `SettingsStore.mutateProject`; see `SettingsStoreTests` for their
+  // coverage. The drain shim (`drainLegacyOverrides`) is tested below alongside
+  // the v1 → v2 catalog migration.
 
   @Test
   func setSpaceLastActiveWorktreePersists() throws {
@@ -345,23 +328,6 @@ struct HierarchyManagerTests {
     let bogusProject = ProjectID()
     manager.setProjectLoadState(.ready, projectID: bogusProject, spaceID: bogusSpace)
     #expect(manager.catalog.spaces.isEmpty)
-  }
-
-  @Test
-  func setProjectWorktreesDirectoryClearsOnBlank() throws {
-    let spaceID = manager.createSpace(name: "work")
-    let projectID = try manager.addProject(to: spaceID, name: "p", rootPath: "/tmp/p", gitRoot: "/tmp/p")
-
-    try manager.setProjectWorktreesDirectory("/custom/wt", projectID: projectID, spaceID: spaceID)
-    #expect(manager.catalog.spaces[0].projects[0].worktreesDirectory == "/custom/wt")
-
-    // Whitespace-only clears the override to nil (falls back to the default).
-    try manager.setProjectWorktreesDirectory("  ", projectID: projectID, spaceID: spaceID)
-    #expect(manager.catalog.spaces[0].projects[0].worktreesDirectory == nil)
-
-    try manager.setProjectWorktreesDirectory("/x", projectID: projectID, spaceID: spaceID)
-    try manager.setProjectWorktreesDirectory(nil, projectID: projectID, spaceID: spaceID)
-    #expect(manager.catalog.spaces[0].projects[0].worktreesDirectory == nil)
   }
 
   @Test
@@ -461,63 +427,81 @@ struct HierarchyManagerTests {
     #expect(match == nil)
   }
 
-  // MARK: - Settings Repository panes (T4) — project-only mutators
+  // MARK: - drainLegacyOverrides — v1 catalog migration bridge
+
+  /// Builds a fresh manager whose catalog was decoded from a v1 payload carrying the
+  /// two legacy-only Project fields. This is the closest approximation to production
+  /// ordering: the catalog is loaded first (v1 decoder populates `defaultEditor` /
+  /// `worktreesDirectory` into the in-memory Project), then `drainLegacyOverrides`
+  /// runs to hand those values off to SettingsStore.
+  private static func makeManagerFromV1Catalog(
+    projectUUID: UUID = UUID(),
+    spaceUUID: UUID = UUID(),
+    defaultEditor: EditorID? = nil,
+    worktreesDirectory: String? = nil
+  ) throws -> (HierarchyManager, ProjectID) {
+    let editorField = defaultEditor.map { "\"defaultEditor\": \"\($0)\"," } ?? ""
+    let wtField = worktreesDirectory.map { "\"worktreesDirectory\": \"\($0)\"," } ?? ""
+    let json = #"""
+      {
+        "version": 1,
+        "spaces": [
+          {
+            "id": "\#(spaceUUID.uuidString)",
+            "name": "s",
+            "projects": [
+              {
+                "id": { "raw": "\#(projectUUID.uuidString)" },
+                "name": "p",
+                "rootPath": "/tmp/p",
+                \#(editorField)
+                \#(wtField)
+                "worktrees": []
+              }
+            ]
+          }
+        ]
+      }
+      """#
+    let catalog = try JSONDecoder().decode(Catalog.self, from: Data(json.utf8))
+    let tempURL = FileManager.default.temporaryDirectory.appending(
+      component: UUID().uuidString + ".json"
+    )
+    let store = CatalogStore(fileURL: tempURL)
+    let runtime = FakeHierarchyRuntime()
+    let manager = HierarchyManager(catalog: catalog, store: store, runtime: runtime)
+    return (manager, ProjectID(raw: projectUUID))
+  }
 
   @Test
-  func setWorktreesDirectoryWritesAndClearsOverride() throws {
-    let spaceID = manager.createSpace(name: "test")
-    let projectID = try manager.addProject(to: spaceID, name: "project", rootPath: "/tmp", gitRoot: "/tmp")
+  func drainLegacyOverridesReturnsMapAndClearsFields() throws {
+    let (manager, projectID) = try Self.makeManagerFromV1Catalog(
+      defaultEditor: "vscode",
+      worktreesDirectory: "/tmp/wt"
+    )
 
-    try manager.setWorktreesDirectory("/Users/me/worktrees/a", for: projectID)
-    #expect(manager.catalog.spaces[0].projects[0].worktreesDirectory == "/Users/me/worktrees/a")
-
-    try manager.setWorktreesDirectory(nil, for: projectID)
+    let overrides = manager.drainLegacyOverrides()
+    #expect(overrides.count == 1)
+    #expect(overrides[projectID]?.defaultEditor == "vscode")
+    #expect(overrides[projectID]?.worktreesDirectory == "/tmp/wt")
+    #expect(manager.catalog.spaces[0].projects[0].defaultEditor == nil)
     #expect(manager.catalog.spaces[0].projects[0].worktreesDirectory == nil)
   }
 
   @Test
-  func setWorktreesDirectoryThrowsForUnknownProject() {
-    _ = manager.createSpace(name: "test")
-    let bogusProject = ProjectID()
-    #expect(throws: (any Error).self) {
-      try manager.setWorktreesDirectory("/somewhere", for: bogusProject)
-    }
+  func drainLegacyOverridesOnCleanCatalogReturnsEmptyMap() throws {
+    let (manager, _) = try Self.makeManagerFromV1Catalog()
+    let overrides = manager.drainLegacyOverrides()
+    #expect(overrides.isEmpty)
   }
 
   @Test
-  func setDefaultEditorAnySpaceWritesAndClearsOverride() throws {
-    let spaceID = manager.createSpace(name: "test")
-    let projectID = try manager.addProject(to: spaceID, name: "project", rootPath: "/tmp", gitRoot: "/tmp")
-
-    try manager.setDefaultEditorAnySpace("vscode", for: projectID)
-    #expect(manager.catalog.spaces[0].projects[0].defaultEditor == "vscode")
-
-    try manager.setDefaultEditorAnySpace(nil, for: projectID)
-    #expect(manager.catalog.spaces[0].projects[0].defaultEditor == nil)
-  }
-
-  @Test
-  func setDefaultEditorAnySpaceThrowsForUnknownProject() {
-    _ = manager.createSpace(name: "test")
-    let bogusProject = ProjectID()
-    #expect(throws: (any Error).self) {
-      try manager.setDefaultEditorAnySpace("vscode", for: bogusProject)
-    }
-  }
-
-  @Test
-  func projectOnlyMutatorsResolveProjectAcrossSpaces() throws {
-    let spaceA = manager.createSpace(name: "A")
-    let spaceB = manager.createSpace(name: "B")
-    _ = try manager.addProject(to: spaceA, name: "a1", rootPath: "/tmp/a1", gitRoot: "/tmp/a1")
-    let projectInB = try manager.addProject(to: spaceB, name: "b1", rootPath: "/tmp/b1", gitRoot: "/tmp/b1")
-
-    try manager.setDefaultEditorAnySpace("xcode", for: projectInB)
-    let bIdx = manager.catalog.spaces.firstIndex(where: { $0.id == spaceB })!
-    #expect(manager.catalog.spaces[bIdx].projects[0].defaultEditor == "xcode")
-
-    try manager.setWorktreesDirectory("/tmp/wts/b1", for: projectInB)
-    #expect(manager.catalog.spaces[bIdx].projects[0].worktreesDirectory == "/tmp/wts/b1")
+  func drainLegacyOverridesIsIdempotent() throws {
+    let (manager, _) = try Self.makeManagerFromV1Catalog(defaultEditor: "vscode")
+    let first = manager.drainLegacyOverrides()
+    let second = manager.drainLegacyOverrides()
+    #expect(first.count == 1)
+    #expect(second.isEmpty, "Second drain must see empty fields")
   }
 
   // MARK: - Tab-bar uplift (M2-T2.1)

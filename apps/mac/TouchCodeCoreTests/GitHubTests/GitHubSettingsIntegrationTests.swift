@@ -3,17 +3,18 @@ import Testing
 
 @testable import TouchCodeCore
 
-/// Verifies the GitHub-integration additions to `RepositorySettings` + `GeneralSettings`:
+/// Verifies the GitHub-integration surface that now lives under
+/// `ProjectSettings.git: GitProjectSettings?` (v3 schema):
 ///   - backward compatibility: an empty `{}` still decodes to an `isEffectivelyEmpty` entry
 ///   - additive fields flip `isEffectivelyEmpty` to false when set
-///   - settings.json round-trips with the new fields populated
-///   - global defaults encode + decode cleanly; empty file still produces default values
+///   - settings.json round-trips with the per-Project `git` overrides populated
+///   - global defaults on `GeneralSettings` encode + decode cleanly
 struct GitHubSettingsIntegrationTests {
-  // MARK: - RepositorySettings backward compatibility
+  // MARK: - GitProjectSettings backward compatibility
 
   @Test
   func emptyObjectStillDecodesToEffectivelyEmpty() throws {
-    let decoded = try JSONDecoder().decode(RepositorySettings.self, from: Data("{}".utf8))
+    let decoded = try JSONDecoder().decode(GitProjectSettings.self, from: Data("{}".utf8))
     #expect(decoded.defaultMergeStrategy == nil)
     #expect(decoded.postMergeAction == nil)
     #expect(decoded.githubDisabled == false)
@@ -22,48 +23,48 @@ struct GitHubSettingsIntegrationTests {
 
   @Test
   func emptyInstanceEncodesToEmptyObject() throws {
-    let encoded = try JSONEncoder().encode(RepositorySettings())
+    let encoded = try JSONEncoder().encode(GitProjectSettings())
     let roundTripped = try JSONSerialization.jsonObject(with: encoded) as? [String: Any]
     #expect(roundTripped?.isEmpty == true, "empty entry must round-trip as {} to match pre-integration files")
   }
 
-  // MARK: - Each new field flips isEffectivelyEmpty
+  // MARK: - Each GitHub-only field flips isEffectivelyEmpty
 
   @Test
   func defaultMergeStrategyFlipsEffectivelyEmpty() {
-    let settings = RepositorySettings(defaultMergeStrategy: .squash)
+    let settings = GitProjectSettings(defaultMergeStrategy: .squash)
     #expect(settings.isEffectivelyEmpty == false)
   }
 
   @Test
   func postMergeActionFlipsEffectivelyEmpty() {
-    let settings = RepositorySettings(postMergeAction: .archive)
+    let settings = GitProjectSettings(postMergeAction: .archive)
     #expect(settings.isEffectivelyEmpty == false)
   }
 
   @Test
   func githubDisabledFlipsEffectivelyEmpty() {
-    let settings = RepositorySettings(githubDisabled: true)
+    let settings = GitProjectSettings(githubDisabled: true)
     #expect(settings.isEffectivelyEmpty == false)
   }
 
-  // MARK: - RepositorySettings round-trip with all new fields
+  // MARK: - GitProjectSettings round-trip with all fields
 
   @Test
-  func repositorySettingsRoundTripAllFields() throws {
-    let original = RepositorySettings(
+  func gitProjectSettingsRoundTripAllFields() throws {
+    let original = GitProjectSettings(
       defaultMergeStrategy: .rebase,
       postMergeAction: .delete,
       githubDisabled: true
     )
     let data = try JSONEncoder().encode(original)
-    let decoded = try JSONDecoder().decode(RepositorySettings.self, from: data)
+    let decoded = try JSONDecoder().decode(GitProjectSettings.self, from: data)
     #expect(decoded == original)
   }
 
   @Test
   func githubDisabledFalseIsOmittedFromEncoding() throws {
-    let settings = RepositorySettings(defaultMergeStrategy: .squash, githubDisabled: false)
+    let settings = GitProjectSettings(defaultMergeStrategy: .squash, githubDisabled: false)
     let data = try JSONEncoder().encode(settings)
     let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any]
     #expect(dict?["defaultMergeStrategy"] as? String == "squash")
@@ -95,7 +96,7 @@ struct GitHubSettingsIntegrationTests {
     #expect(decoded.postMergeAction == .archive)
   }
 
-  // MARK: - Full settings tree round-trip with GitHub fields
+  // MARK: - Full settings tree round-trip with per-Project git overrides
 
   @Test
   func settingsTreeRoundTripWithGitHubFields() throws {
@@ -106,15 +107,17 @@ struct GitHubSettingsIntegrationTests {
         postMergeAction: .ask
       )
     )
-    settings.repositories[projectID] = RepositorySettings(
-      defaultMergeStrategy: .rebase,
-      postMergeAction: .archive,
-      githubDisabled: false
+    settings.projects[projectID] = ProjectSettings(
+      git: GitProjectSettings(
+        defaultMergeStrategy: .rebase,
+        postMergeAction: .archive,
+        githubDisabled: false
+      )
     )
     let data = try JSONEncoder.touchCodeDefault.encode(settings)
     let decoded = try JSONDecoder.touchCodeDefault.decode(Settings.self, from: data)
     #expect(decoded == settings)
     #expect(decoded.general.defaultMergeStrategy == .squash)
-    #expect(decoded.repositories[projectID]?.defaultMergeStrategy == .rebase)
+    #expect(decoded.projects[projectID]?.git?.defaultMergeStrategy == .rebase)
   }
 }

@@ -12,8 +12,8 @@ import TouchCodeIPC
 /// - `editor.open` — canonicalizes the caller's path, applies the per-Project override if the
 ///   caller did not supply `preferred`, and delegates to `EditorClient.open`.
 /// - `editor.setGlobalDefault` — writes `settings.general.defaultEditorID` via `SettingsStore`.
-/// - `editor.setProjectDefault` — writes `Project.defaultEditor` via
-///   `HierarchyClient.setRepositoryDefaultEditor`.
+/// - `editor.setProjectDefault` — writes `Settings.projects[pid].defaultEditor` via
+///   `SettingsStore.mutateProject`.
 ///
 /// The handler is the only place the IPC layer touches `HierarchyClient` + `SettingsStore`; the
 /// `EditorService` itself never sees a `ProjectID` (design doc §"Resolution chain — split across
@@ -62,11 +62,7 @@ final class EditorHandlers {
     // cascade — design doc §Resolution chain, "lenient" tier.
     var preferred = request.preferred
     if preferred == nil {
-      preferred = await Self.projectOverride(
-        for: canonical,
-        hierarchy: hierarchy,
-        editor: editor
-      )
+      preferred = await projectOverride(for: canonical)
     }
 
     let directory = URL(fileURLWithPath: canonical, isDirectory: true)
@@ -93,13 +89,13 @@ final class EditorHandlers {
     _ request: EditorSetProjectDefaultRequest
   ) throws -> EditorSetProjectDefaultResponse {
     let projectID = ProjectID(raw: request.projectID)
-    do {
-      try hierarchy.setRepositoryDefaultEditor(projectID, request.editorID)
-    } catch {
-      // `HierarchyError.notFound` for an unknown projectID is the only expected throw here; any
-      // other error still rolls up to `.internal` via the router's default mapping.
+    // v3 moved per-Project overrides to settings.json. SettingsStore.mutateProject
+    // would silently create an entry for a bogus projectID, so validate against the
+    // catalog snapshot before writing — preserves the `unknownProject` IPC error.
+    guard hierarchy.kind(projectID) != nil else {
       throw EditorIPCError.unknownProject
     }
+    settings.mutateProject(projectID) { $0.defaultEditor = request.editorID }
     return EditorSetProjectDefaultResponse()
   }
 
@@ -114,19 +110,15 @@ final class EditorHandlers {
   /// Uses `projectContaining` rather than `isPathRegistered` so `tc open` run from a
   /// subdirectory (e.g. `/repo/Sources/`) still honors the Project's override. Exact-match
   /// lookup would silently miss every subdirectory call site.
-  private static func projectOverride(
-    for canonicalPath: String,
-    hierarchy: HierarchyClient,
-    editor: EditorClient
+  private func projectOverride(
+    for canonicalPath: String
   ) async -> EditorID? {
     guard let (_, projectID) = hierarchy.projectContaining(canonicalPath) else {
       return nil
     }
-    let catalog = hierarchy.snapshot()
-    guard let project = Self.findProject(in: catalog, id: projectID) else {
-      return nil
-    }
-    guard let projectDefault = project.defaultEditor else {
+    // v3 reads per-Project editor override from settings.json.projects[pid].defaultEditor
+    // (migrated off catalog in Step 3-4). The lookup is a plain dict read on SettingsStore.
+    guard let projectDefault = settings.settings.projects[projectID]?.defaultEditor else {
       return nil
     }
     let installed = await editor.describe()
@@ -134,15 +126,6 @@ final class EditorHandlers {
       return nil
     }
     return projectDefault
-  }
-
-  private static func findProject(in catalog: Catalog, id projectID: ProjectID) -> Project? {
-    for space in catalog.spaces {
-      if let project = space.projects.first(where: { $0.id == projectID }) {
-        return project
-      }
-    }
-    return nil
   }
 
   // MARK: - DTO mapping

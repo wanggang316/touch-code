@@ -51,7 +51,7 @@ struct ArchivedWorktreesFeature {
   var body: some Reducer<State, Action> {
     Reduce { state, action in
       switch action {
-      case let .unarchiveTapped(worktreeID):
+      case .unarchiveTapped(let worktreeID):
         do {
           try hierarchyClient.setWorktreeArchived(worktreeID, false)
           state.banner = nil
@@ -60,7 +60,7 @@ struct ArchivedWorktreesFeature {
         }
         return .none
 
-      case let .removeTapped(worktreeID, displayName):
+      case .removeTapped(let worktreeID, let displayName):
         let projectID = state.projectID
         let spaceID = state.spaceID
         let client = hierarchyClient
@@ -70,11 +70,12 @@ struct ArchivedWorktreesFeature {
             await send(.removeFinished(worktreeID: worktreeID, error: nil))
           } catch let gitError as GitWorktreeError {
             if case .uncommittedChanges(let files) = gitError {
-              await send(.removeRequiresForce(
-                worktreeID: worktreeID,
-                displayName: displayName,
-                uncommittedFiles: files
-              ))
+              await send(
+                .removeRequiresForce(
+                  worktreeID: worktreeID,
+                  displayName: displayName,
+                  uncommittedFiles: files
+                ))
               return
             }
             await send(.removeFinished(worktreeID: worktreeID, error: humanReadable(gitError)))
@@ -83,12 +84,12 @@ struct ArchivedWorktreesFeature {
           }
         }
 
-      case let .removeFinished(_, error):
+      case .removeFinished(_, let error):
         state.pendingForceRemove = nil
         state.banner = error
         return .none
 
-      case let .removeRequiresForce(worktreeID, displayName, files):
+      case .removeRequiresForce(let worktreeID, let displayName, let files):
         state.pendingForceRemove = PendingForceRemove(
           worktreeID: worktreeID,
           worktreeName: displayName,

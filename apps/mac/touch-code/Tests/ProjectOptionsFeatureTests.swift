@@ -1,8 +1,9 @@
 import ComposableArchitecture
 import Foundation
 import Testing
-@testable import touch_code
 import TouchCodeCore
+
+@testable import touch_code
 
 @MainActor
 struct ProjectOptionsFeatureTests {
@@ -27,7 +28,7 @@ struct ProjectOptionsFeatureTests {
   func saveFansOutAllThreeSettersWhenEverythingChanged() async {
     let renameCalls = LockIsolated<[(ProjectID, SpaceID, String)]>([])
     let editorCalls = LockIsolated<[(ProjectID, SpaceID, EditorID?)]>([])
-    let worktreeDirCalls = LockIsolated<[(ProjectID, SpaceID, String?)]>([])
+    let worktreeDirCalls = LockIsolated<[(ProjectID, String?)]>([])
 
     var state = Self.makeState(name: "orig", editor: nil, worktreesDirectory: nil)
     state.nameDraft = "New Name"
@@ -40,11 +41,12 @@ struct ProjectOptionsFeatureTests {
       $0.hierarchyClient.renameProject = { pid, sid, name in
         renameCalls.withValue { $0.append((pid, sid, name)) }
       }
-      $0.hierarchyClient.setDefaultEditor = { pid, sid, editor in
-        editorCalls.withValue { $0.append((pid, sid, editor)) }
+      $0.settingsWriter = .testValue
+      $0.settingsWriter.setProjectDefaultEditor = { pid, editor in
+        editorCalls.withValue { $0.append((pid, SpaceID(), editor)) }
       }
-      $0.hierarchyClient.setProjectWorktreesDirectory = { pid, sid, path in
-        worktreeDirCalls.withValue { $0.append((pid, sid, path)) }
+      $0.settingsWriter.setProjectWorktreesDirectory = { pid, path in
+        worktreeDirCalls.withValue { $0.append((pid, path)) }
       }
     }
     store.exhaustivity = .off(showSkippedAssertions: false)
@@ -58,7 +60,7 @@ struct ProjectOptionsFeatureTests {
     #expect(editorCalls.value.count == 1)
     #expect(editorCalls.value.first?.2 == "cursor")
     #expect(worktreeDirCalls.value.count == 1)
-    #expect(worktreeDirCalls.value.first?.2 == "/custom/dir")
+    #expect(worktreeDirCalls.value.first?.1 == "/custom/dir")
   }
 
   @Test
@@ -73,8 +75,9 @@ struct ProjectOptionsFeatureTests {
       $0.hierarchyClient.renameProject = { _, _, _ in
         renameCallCount.withValue { $0 += 1 }
       }
-      $0.hierarchyClient.setDefaultEditor = { _, _, _ in }
-      $0.hierarchyClient.setProjectWorktreesDirectory = { _, _, _ in }
+      $0.settingsWriter = .testValue
+      $0.settingsWriter.setProjectDefaultEditor = { _, _ in }
+      $0.settingsWriter.setProjectWorktreesDirectory = { _, _ in }
     }
     store.exhaustivity = .off(showSkippedAssertions: false)
 
@@ -128,16 +131,21 @@ struct ProjectOptionsFeatureTests {
   }
 
   @Test
-  func emptyWorktreesDirectoryClearsOverride() async {
+  func whitespaceOnlyWorktreesDirectoryClearsOverride() async {
+    // Regression guard: a whitespace-only draft (`"   "`) must map to `nil` (clear),
+    // not to the literal whitespace string. Persisting the literal would break
+    // `projectAddWorktreeTapped` which treats the stored value as an absolute filesystem
+    // base; worktree creation would point at an invalid path.
     let worktreeDirCalls = LockIsolated<[String?]>([])
     var state = Self.makeState(name: "p", worktreesDirectory: "/custom/dir")
-    state.worktreesDirectoryDraft = ""
+    state.worktreesDirectoryDraft = "   "
 
     let store = TestStore(initialState: state) {
       ProjectOptionsFeature()
     } withDependencies: {
-      $0.hierarchyClient.setDefaultEditor = { _, _, _ in }
-      $0.hierarchyClient.setProjectWorktreesDirectory = { _, _, path in
+      $0.settingsWriter = .testValue
+      $0.settingsWriter.setProjectDefaultEditor = { _, _ in }
+      $0.settingsWriter.setProjectWorktreesDirectory = { _, path in
         worktreeDirCalls.withValue { $0.append(path) }
       }
     }
@@ -147,10 +155,34 @@ struct ProjectOptionsFeatureTests {
     await store.receive(\.delegate.saved)
     await store.receive(\.delegate.dismiss)
 
-    // The HierarchyManager mutation handles whitespace-as-clear; the reducer
-    // forwards the empty string through for the same effect.
     #expect(worktreeDirCalls.value.count == 1)
-    #expect(worktreeDirCalls.value.first == "")
+    #expect(worktreeDirCalls.value.first == .some(nil))
+  }
+
+  @Test
+  func emptyWorktreesDirectoryClearsOverride() async {
+    let worktreeDirCalls = LockIsolated<[String?]>([])
+    var state = Self.makeState(name: "p", worktreesDirectory: "/custom/dir")
+    state.worktreesDirectoryDraft = ""
+
+    let store = TestStore(initialState: state) {
+      ProjectOptionsFeature()
+    } withDependencies: {
+      $0.settingsWriter = .testValue
+      $0.settingsWriter.setProjectDefaultEditor = { _, _ in }
+      $0.settingsWriter.setProjectWorktreesDirectory = { _, path in
+        worktreeDirCalls.withValue { $0.append(path) }
+      }
+    }
+    store.exhaustivity = .off(showSkippedAssertions: false)
+
+    await store.send(.saveTapped)
+    await store.receive(\.delegate.saved)
+    await store.receive(\.delegate.dismiss)
+
+    // Empty-string draft normalises to nil in the reducer so the writer sees "clear".
+    #expect(worktreeDirCalls.value.count == 1)
+    #expect(worktreeDirCalls.value.first == .some(nil))
   }
 
   @Test
@@ -161,10 +193,11 @@ struct ProjectOptionsFeatureTests {
     let store = TestStore(initialState: state) {
       ProjectOptionsFeature()
     } withDependencies: {
-      $0.hierarchyClient.setDefaultEditor = { _, _, _ in
+      $0.settingsWriter = .testValue
+      $0.settingsWriter.setProjectDefaultEditor = { _, _ in
         editorCallCount.withValue { $0 += 1 }
       }
-      $0.hierarchyClient.setProjectWorktreesDirectory = { _, _, _ in }
+      $0.settingsWriter.setProjectWorktreesDirectory = { _, _ in }
     }
     store.exhaustivity = .off(showSkippedAssertions: false)
 

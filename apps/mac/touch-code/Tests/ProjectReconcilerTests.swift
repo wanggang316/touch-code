@@ -1,7 +1,8 @@
 import Foundation
 import Testing
-@testable import touch_code
 import TouchCodeCore
+
+@testable import touch_code
 
 /// Recorder-driven tests for `ProjectReconciler`. The `HierarchyClient`
 /// closures this actor calls are replaced with a `LockIsolated` recorder;
@@ -25,12 +26,15 @@ struct ProjectReconcilerTests {
     private var _events: [Event] = []
 
     var events: [Event] {
-      lock.lock(); defer { lock.unlock() }
+      lock.lock()
+      defer { lock.unlock() }
       return _events
     }
 
     func append(_ event: Event) {
-      lock.lock(); _events.append(event); lock.unlock()
+      lock.lock()
+      _events.append(event)
+      lock.unlock()
     }
 
     func reconcileDiscoveredCount() -> Int {
@@ -98,11 +102,12 @@ struct ProjectReconcilerTests {
 
       await reconciler.reconcile(projectID: projectID, spaceID: spaceID)
 
-      #expect(recorder.events == [
-        .setLoadState(projectID, spaceID, .loading),
-        .reconcileDiscovered(projectID, spaceID),
-        .setLoadState(projectID, spaceID, .ready),
-      ])
+      #expect(
+        recorder.events == [
+          .setLoadState(projectID, spaceID, .loading),
+          .reconcileDiscovered(projectID, spaceID),
+          .setLoadState(projectID, spaceID, .ready),
+        ])
     }
   }
 
@@ -119,8 +124,8 @@ struct ProjectReconcilerTests {
 
     // Exactly two events: .loading → .failed. No reconcileDiscovered call.
     #expect(recorder.events.count == 2)
-    if case let .setLoadState(_, _, state) = recorder.events.last {
-      if case let .failed(reason) = state {
+    if case .setLoadState(_, _, let state) = recorder.events.last {
+      if case .failed(let reason) = state {
         #expect(reason.contains("Folder no longer exists"))
         #expect(reason.contains(missingPath))
       } else {
@@ -154,7 +159,7 @@ struct ProjectReconcilerTests {
       let client = await Self.makeClient(
         catalog: { catalog },
         recorder: recorder,
-        reconcileDelayNanos: 50_000_000   // 50ms — long enough to overlap.
+        reconcileDelayNanos: 50_000_000  // 50ms — long enough to overlap.
       )
       let reconciler = ProjectReconciler(client: client)
 
@@ -217,7 +222,7 @@ struct ProjectReconcilerTests {
 
         #expect(recorder.reconcileDiscoveredCount() == 2)
         let pids = recorder.events.compactMap { event -> ProjectID? in
-          if case let .reconcileDiscovered(pid, _) = event { return pid }
+          if case .reconcileDiscovered(let pid, _) = event { return pid }
           return nil
         }
         #expect(Set(pids) == Set([a.id, b.id]))
@@ -234,11 +239,14 @@ private final class LockedDate: @unchecked Sendable {
   init(date: Date) { self.date = date }
 
   func current() -> Date {
-    lock.lock(); defer { lock.unlock() }
+    lock.lock()
+    defer { lock.unlock() }
     return date
   }
 
   func advance(_ seconds: TimeInterval) {
-    lock.lock(); date = date.addingTimeInterval(seconds); lock.unlock()
+    lock.lock()
+    date = date.addingTimeInterval(seconds)
+    lock.unlock()
   }
 }

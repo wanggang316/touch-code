@@ -465,7 +465,11 @@ final class GhosttyRuntime {
   /// confirmation dialog itself is deferred — we trust the OSC52 sender
   /// by default.
   private static let confirmReadClipboardCallback:
-    (@convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?, UnsafeMutableRawPointer?, ghostty_clipboard_request_e) -> Void) = {
+    (
+      @convention(c) (
+        UnsafeMutableRawPointer?, UnsafePointer<CChar>?, UnsafeMutableRawPointer?, ghostty_clipboard_request_e
+      ) -> Void
+    ) = {
       userdata, cString, state, _ in
       guard let userdata, let cString else { return }
       let value = String(cString: cString)
@@ -488,7 +492,11 @@ final class GhosttyRuntime {
   /// Write `content` (array of {mime, data}) to the requested pasteboard.
   /// Called when the user invokes `copy_to_clipboard` via keybind or menu.
   private static let writeClipboardCallback:
-    (@convention(c) (UnsafeMutableRawPointer?, ghostty_clipboard_e, UnsafePointer<ghostty_clipboard_content_s>?, Int, Bool) -> Void) = {
+    (
+      @convention(c) (
+        UnsafeMutableRawPointer?, ghostty_clipboard_e, UnsafePointer<ghostty_clipboard_content_s>?, Int, Bool
+      ) -> Void
+    ) = {
       _, location, content, len, _ in
       guard let content, len > 0 else { return }
       // Copy items out of borrowed pointers into Swift strings before the

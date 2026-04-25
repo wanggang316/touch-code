@@ -36,14 +36,16 @@ public enum HomeScope {
     }
 
     if isSymbolicLink(atPath: dest.path, fileSystem: fileSystem),
-       !targetStaysWithinHome(dest, homePath: homePath, fileSystem: fileSystem) {
+      !targetStaysWithinHome(dest, homePath: homePath, fileSystem: fileSystem)
+    {
       return false
     }
 
     var current = dest.deletingLastPathComponent()
     while current.path != homePath && current.path != "/" {
       if isSymbolicLink(atPath: current.path, fileSystem: fileSystem),
-         !targetStaysWithinHome(current, homePath: homePath, fileSystem: fileSystem) {
+        !targetStaysWithinHome(current, homePath: homePath, fileSystem: fileSystem)
+      {
         return false
       }
       let parent = current.deletingLastPathComponent()

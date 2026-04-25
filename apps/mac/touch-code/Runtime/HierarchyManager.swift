@@ -168,15 +168,6 @@ final class HierarchyManager {
 
   /// Sets or unsets the per-Project default editor. `nil` clears the override so editor
   /// resolution falls back to the global default (managed by `SettingsStore`) and ultimately
-  /// to Finder. Added in 0005 M6a for C8's UI.
-  func setDefaultEditor(_ editorID: EditorID?, for projectID: ProjectID, in spaceID: SpaceID) throws {
-    guard let (spaceIndex, projectIndex) = findProjectIndices(projectID: projectID, spaceID: spaceID) else {
-      throw HierarchyError.notFound("Project \(projectID)")
-    }
-    catalog.spaces[spaceIndex].projects[projectIndex].defaultEditor = editorID
-    store.scheduleSave(catalog)
-  }
-
   /// Transient Project-level health state owned by `ProjectReconciler`. Never
   /// persisted (`Project.loadState` is a transient field); equal-value writes
   /// are dropped so repeated reconciliations don't churn the catalog graph.
@@ -205,24 +196,6 @@ final class HierarchyManager {
       throw HierarchyError.notFound("Space \(spaceID)")
     }
     catalog.spaces[spaceIndex].projects.move(fromOffsets: source, toOffset: destination)
-    store.scheduleSave(catalog)
-  }
-
-  /// Per-Project override for the `worktreesDirectory`. `nil` or whitespace
-  /// clears the override so the default (`~/.touch-code/repos/<name>/`) takes
-  /// effect. Equal-value writes are dropped.
-  func setProjectWorktreesDirectory(
-    _ path: String?,
-    projectID: ProjectID,
-    spaceID: SpaceID
-  ) throws {
-    guard let (spaceIndex, projectIndex) = findProjectIndices(projectID: projectID, spaceID: spaceID) else {
-      throw HierarchyError.notFound("Project \(projectID)")
-    }
-    let normalized = path?.trimmingCharacters(in: .whitespacesAndNewlines)
-    let value: String? = (normalized?.isEmpty ?? true) ? nil : normalized
-    guard catalog.spaces[spaceIndex].projects[projectIndex].worktreesDirectory != value else { return }
-    catalog.spaces[spaceIndex].projects[projectIndex].worktreesDirectory = value
     store.scheduleSave(catalog)
   }
 
@@ -409,9 +382,11 @@ final class HierarchyManager {
     inSpace spaceID: SpaceID,
     entries: [(path: String, branch: String?)]
   ) -> Int {
-    guard let (spaceIndex, projectIndex) = findProjectIndices(
-      projectID: projectID, spaceID: spaceID
-    ) else { return 0 }
+    guard
+      let (spaceIndex, projectIndex) = findProjectIndices(
+        projectID: projectID, spaceID: spaceID
+      )
+    else { return 0 }
     let project = catalog.spaces[spaceIndex].projects[projectIndex]
     let existingPaths = Set(
       project.worktrees.map { Self.canonicalPath($0.path) }
@@ -420,7 +395,8 @@ final class HierarchyManager {
     for entry in entries {
       let canonical = Self.canonicalPath(entry.path)
       guard !existingPaths.contains(canonical) else { continue }
-      let name = (entry.branch?.isEmpty == false)
+      let name =
+        (entry.branch?.isEmpty == false)
         ? entry.branch!
         : (canonical as NSString).lastPathComponent
       let worktree = Worktree(
@@ -1301,7 +1277,8 @@ final class HierarchyManager {
           where worktree.tabs[tabIndex].splitTree.contains(paneID) {
             var tab = worktree.tabs[tabIndex]
             guard let leafPath = tab.splitTree.path(to: paneID) else { return }
-            let orientation: SplitTree<PaneID>.Direction = (direction == .left || direction == .right)
+            let orientation: SplitTree<PaneID>.Direction =
+              (direction == .left || direction == .right)
               ? .horizontal : .vertical
             guard
               let (ancestorPath, currentRatio, grewRight) = Self.findAncestorSplit(
@@ -1338,7 +1315,7 @@ final class HierarchyManager {
       let childBranch = components.removeLast()
       let ancestorPath = SplitTree<PaneID>.Path(components)
       guard case .split(let split) = root.node(at: ancestorPath),
-            split.direction == orientation
+        split.direction == orientation
       else { continue }
       return (ancestorPath, split.ratio, childBranch == .right)
     }
@@ -1423,31 +1400,38 @@ final class HierarchyManager {
     throw HierarchyError.notFound("Pane \(paneID)")
   }
 
-  // MARK: - Project-only mutators (Settings Repository panes)
+  // MARK: - Legacy v1 catalog fields
 
-  /// Sets or clears the per-Project worktree base directory override. `nil`
-  /// clears so worktree creation falls back to the global default. Unchanged
-  /// value is a silent no-op. `.notFound` when no space owns the Project.
-  func setWorktreesDirectory(_ path: String?, for projectID: ProjectID) throws {
-    guard let (sIdx, pIdx) = findProjectAnySpace(projectID) else {
-      throw HierarchyError.notFound("Project \(projectID)")
+  /// One-shot drain of the two per-Project preference fields that lived on v1
+  /// `catalog.json` (`defaultEditor`, `worktreesDirectory`). Returns the
+  /// current values keyed by `ProjectID`, then clears them in-memory so the
+  /// next save writes the v2 shape without those keys. Call sequence in
+  /// `AppState.init`: run this **before** constructing `SettingsStore` so the
+  /// drained map can be folded into `Settings.projects[pid]` during the v2 →
+  /// v3 `settings.json` migration via the injected `catalogOverrides` closure.
+  ///
+  /// Idempotent: a second call on an already-drained catalog returns an
+  /// empty map and schedules no save. Any Project whose two fields are both
+  /// nil is omitted from the returned map.
+  func drainLegacyOverrides() -> [ProjectID: (defaultEditor: EditorID?, worktreesDirectory: String?)] {
+    var overrides: [ProjectID: (defaultEditor: EditorID?, worktreesDirectory: String?)] = [:]
+    var mutated = false
+    for sIdx in catalog.spaces.indices {
+      for pIdx in catalog.spaces[sIdx].projects.indices {
+        let editor = catalog.spaces[sIdx].projects[pIdx].defaultEditor
+        let wtDir = catalog.spaces[sIdx].projects[pIdx].worktreesDirectory
+        guard editor != nil || wtDir != nil else { continue }
+        let pid = catalog.spaces[sIdx].projects[pIdx].id
+        overrides[pid] = (defaultEditor: editor, worktreesDirectory: wtDir)
+        catalog.spaces[sIdx].projects[pIdx].defaultEditor = nil
+        catalog.spaces[sIdx].projects[pIdx].worktreesDirectory = nil
+        mutated = true
+      }
     }
-    guard catalog.spaces[sIdx].projects[pIdx].worktreesDirectory != path else { return }
-    catalog.spaces[sIdx].projects[pIdx].worktreesDirectory = path
-    store.scheduleSave(catalog)
-  }
-
-  /// Sibling of `setDefaultEditor(_:for:in:)` that takes only a `ProjectID`.
-  /// Used by the Settings Repository General pane, which has no `SpaceID` in
-  /// scope. `nil` clears. Unchanged value is a silent no-op. `.notFound` when
-  /// no space owns the Project.
-  func setDefaultEditorAnySpace(_ editorID: EditorID?, for projectID: ProjectID) throws {
-    guard let (sIdx, pIdx) = findProjectAnySpace(projectID) else {
-      throw HierarchyError.notFound("Project \(projectID)")
+    if mutated {
+      store.scheduleSave(catalog)
     }
-    guard catalog.spaces[sIdx].projects[pIdx].defaultEditor != editorID else { return }
-    catalog.spaces[sIdx].projects[pIdx].defaultEditor = editorID
-    store.scheduleSave(catalog)
+    return overrides
   }
 
   // MARK: - Helpers
@@ -1458,21 +1442,6 @@ final class HierarchyManager {
       return nil
     }
     return (spaceIndex, projectIndex)
-  }
-
-  /// Locates the Project across all Spaces. Returns the first match —
-  /// `ProjectID`s are UUIDs so collisions are effectively zero, but in debug
-  /// builds assert at most one Space owns the id. Used by the Settings
-  /// Repository panes which carry only a `ProjectID`.
-  private func findProjectAnySpace(_ projectID: ProjectID) -> (Int, Int)? {
-    var found: (Int, Int)?
-    for (sIdx, space) in catalog.spaces.enumerated() {
-      if let pIdx = space.projects.firstIndex(where: { $0.id == projectID }) {
-        assert(found == nil, "Project \(projectID) appears in multiple spaces")
-        found = (sIdx, pIdx)
-      }
-    }
-    return found
   }
 
   private func findWorktreeIndices(

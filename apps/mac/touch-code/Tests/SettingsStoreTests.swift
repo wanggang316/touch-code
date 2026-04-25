@@ -23,7 +23,31 @@ struct SettingsStoreTests {
     #expect(store.settings == .default)
     #expect(store.settings.version == Settings.currentVersion)
     #expect(store.settings.general.defaultEditorID == nil)
-    #expect(store.settings.repositories.isEmpty)
+    #expect(store.settings.projects.isEmpty)
+  }
+
+  @Test
+  func freshStoreSeededWithCatalogOverridesPersists() throws {
+    // Regression guard: first-launch path where settings.json does not exist yet but
+    // catalog.json still carries legacy v1 overrides (drained into the map before
+    // SettingsStore init). Without the seed-and-persist branch the next launch would
+    // see settings.json-still-missing + catalog.json-already-v2 → data lost forever.
+    let url = FileManager.default.temporaryDirectory.appending(
+      component: "settings-fresh-seed-\(UUID().uuidString).json"
+    )
+    defer { try? FileManager.default.removeItem(at: url) }
+    let pid = ProjectID()
+    let overrides: SettingsMigration.CatalogOverrides = [
+      pid: (defaultEditor: "vscode", worktreesDirectory: "/Users/x/wt")
+    ]
+    let store = SettingsStore(fileURL: url, catalogOverrides: overrides)
+    #expect(store.settings.projects[pid]?.defaultEditor == "vscode")
+    #expect(store.settings.projects[pid]?.worktreesDirectory == "/Users/x/wt")
+
+    store.flush()
+    let reloaded = SettingsStore(fileURL: url)  // no overrides this round
+    #expect(reloaded.settings.projects[pid]?.defaultEditor == "vscode")
+    #expect(reloaded.settings.projects[pid]?.worktreesDirectory == "/Users/x/wt")
   }
 
   @Test
@@ -95,7 +119,9 @@ struct SettingsStoreTests {
     // Wait comfortably past the debounce window so any surviving task has fired.
     try await Task.sleep(for: .milliseconds(200))
 
-    let reloaded = SettingsStore(fileURL: url)
+    // Inject `"SENTINEL"` + `"A"` into `knownEditorIDs` so garbageCollectEditors doesn't
+    // wipe either value on load — the test is about save-cancellation, not editor GC.
+    let reloaded = SettingsStore(fileURL: url, knownEditorIDs: ["A", "SENTINEL"])
     #expect(
       reloaded.settings.general.defaultEditorID == "SENTINEL",
       "saveNow must cancel pendingSaveTask; surviving task would have written 'A' on top of SENTINEL")
@@ -131,20 +157,60 @@ struct SettingsStoreTests {
   }
 
   @Test
-  func mutateRepositoryCreatesThenGCsEmptyEntryOnSave() throws {
-    // RepositorySettings is reserved-empty in T1 (design D1), so any entry the caller touches
-    // is effectively empty and must be dropped on the next save. Verifies the gc path wired
-    // into scheduleSave + saveNow.
+  func mutateProjectCreatesThenGCsEmptyEntryOnSave() throws {
+    // An unchanged `ProjectSettings` entry is effectively empty and must be dropped on the
+    // next save. Verifies the garbage-collect path wired into scheduleSave + saveNow.
     let (store, url) = makeStore()
     defer { try? FileManager.default.removeItem(at: url) }
 
     let projectID = ProjectID()
-    store.mutateRepository(projectID) { _ in }
-    #expect(store.settings.repositories[projectID] != nil, "in-memory state holds the entry pre-save")
+    store.mutateProject(projectID) { _ in }
+    #expect(store.settings.projects[projectID] != nil, "in-memory state holds the entry pre-save")
     store.flush()
 
     let reloaded = SettingsStore(fileURL: url)
-    #expect(reloaded.settings.repositories[projectID] == nil, "empty entry should be GC'd on save")
+    #expect(reloaded.settings.projects[projectID] == nil, "empty entry should be GC'd on save")
+  }
+
+  @Test
+  func mutateProjectPersistsNonEmptyEntry() throws {
+    // A populated entry must round-trip through the save pipeline — including the nested
+    // `git` subtree. Uses `defaultEditor` + a GitHub override to exercise both top-level
+    // and nested fields.
+    let (store, url) = makeStore()
+    defer { try? FileManager.default.removeItem(at: url) }
+
+    let projectID = ProjectID()
+    store.mutateProject(projectID) {
+      $0.defaultEditor = "vscode"
+      $0.git = GitProjectSettings(defaultMergeStrategy: .squash)
+    }
+    store.flush()
+
+    let reloaded = SettingsStore(fileURL: url)
+    let entry = try #require(reloaded.settings.projects[projectID])
+    #expect(entry.defaultEditor == "vscode")
+    #expect(entry.git?.defaultMergeStrategy == .squash)
+  }
+
+  @Test
+  func mutateProjectCollapsesEmptyGitChildBeforeSave() throws {
+    // Setting then clearing the only git-field should collapse `git` to nil on save,
+    // matching the omit-when-default encoding contract.
+    let (store, url) = makeStore()
+    defer { try? FileManager.default.removeItem(at: url) }
+
+    let projectID = ProjectID()
+    store.mutateProject(projectID) {
+      $0.defaultEditor = "vscode"
+      $0.git = GitProjectSettings()  // effectively empty
+    }
+    store.flush()
+
+    let reloaded = SettingsStore(fileURL: url)
+    let entry = try #require(reloaded.settings.projects[projectID])
+    #expect(entry.defaultEditor == "vscode")
+    #expect(entry.git == nil, "empty git subtree should collapse to nil on save")
   }
 
   @Test
@@ -212,7 +278,13 @@ struct SettingsStoreTests {
       to: url
     )
 
-    let store = SettingsStore(fileURL: url, debounceWindow: .milliseconds(1))
+    // Inject `"initial"` into `knownEditorIDs` so `garbageCollectEditors` does not wipe the
+    // sentinel — the test isolates write-failure behaviour, not editor-ID normalisation.
+    let store = SettingsStore(
+      fileURL: url,
+      debounceWindow: .milliseconds(1),
+      knownEditorIDs: ["initial"]
+    )
     #expect(store.settings.general.defaultEditorID == "initial")
 
     // Swap the target for a non-empty directory so subsequent rename(temp, url) fails.

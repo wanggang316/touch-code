@@ -19,7 +19,8 @@ struct LiveGitHubServiceTests {
     let resolver = GhExecutableResolver(prober: { nil })
     let service = LiveGitHubService(runner: runner, resolver: resolver)
     let result = await service.availability()
-    if case .unavailable = result { /* expected */ } else {
+    if case .unavailable = result { /* expected */
+    } else {
       Issue.record("expected .unavailable, got \(result)")
     }
   }
@@ -50,7 +51,8 @@ struct LiveGitHubServiceTests {
     ])
     let service = Self.makeService(runner: runner)
     let result = await service.availability()
-    if case .unavailable = result { /* ok */ } else {
+    if case .unavailable = result { /* ok */
+    } else {
       Issue.record("expected .unavailable, got \(result)")
     }
   }
@@ -227,8 +229,9 @@ struct LiveGitHubServiceTests {
     // Exercises the env-filter via any `runExpecting` call — pullRequest is convenient
     // because gh-pr-view-open is already a first-class fixture.
     let runner = RecordingCommandRunner(outcomes: [
-      .exited(code: 0, stdout: try Self.loadFixture("gh-pr-view-open"),
-              stderr: Data(), stdoutOverflow: false)
+      .exited(
+        code: 0, stdout: try Self.loadFixture("gh-pr-view-open"),
+        stderr: Data(), stdoutOverflow: false)
     ])
     let service = Self.makeService(runner: runner)
     _ = try await service.pullRequest(branch: "feature/github01", worktreePath: Self.worktreePath)

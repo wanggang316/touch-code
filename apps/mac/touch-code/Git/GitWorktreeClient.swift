@@ -72,12 +72,14 @@ nonisolated struct GitWorktreeClient: Sendable {
   var defaultRemoteBranchRef: @Sendable (_ repoRoot: URL) async throws -> String?
   var isValidBranchName: @Sendable (_ repoRoot: URL, _ name: String) async -> Bool
 
-  var createWorktreeStream: @Sendable (_ spec: CreateWorktreeSpec)
-    -> AsyncThrowingStream<CreateWorktreeEvent, Error>
+  var createWorktreeStream:
+    @Sendable (_ spec: CreateWorktreeSpec)
+      -> AsyncThrowingStream<CreateWorktreeEvent, Error>
 
-  var removeWorktree: @Sendable (
-    _ repoRoot: URL, _ path: URL, _ force: Bool
-  ) async throws -> Void
+  var removeWorktree:
+    @Sendable (
+      _ repoRoot: URL, _ path: URL, _ force: Bool
+    ) async throws -> Void
   var pruneWorktrees: @Sendable (_ repoRoot: URL) async throws -> Int
 
   var fetchRemote: @Sendable (_ repoRoot: URL, _ remote: String) async throws -> Void
@@ -250,7 +252,8 @@ nonisolated extension GitWorktreeClient {
       let utf8 = rawLine.utf8
       let start = utf8.index(utf8.startIndex, offsetBy: 3)
       guard let trimmed = String(utf8[start...])?.trimmingCharacters(in: .whitespaces),
-            !trimmed.isEmpty else { continue }
+        !trimmed.isEmpty
+      else { continue }
       paths.append(trimmed)
     }
     return paths
@@ -288,9 +291,11 @@ nonisolated final class CreateWorktreeProcessBox: @unchecked Sendable {
 /// folder. Debug and Release builds alike embed the script via Tuist's
 /// post-build `embed-git-wt.sh` (see `apps/mac/scripts/`).
 nonisolated func wtScriptURL() throws -> URL {
-  guard let url = Bundle.main.url(
-    forResource: "wt", withExtension: nil, subdirectory: "git-wt"
-  ) else {
+  guard
+    let url = Bundle.main.url(
+      forResource: "wt", withExtension: nil, subdirectory: "git-wt"
+    )
+  else {
     throw GitWorktreeError.executableMissing
   }
   return url
@@ -430,12 +435,13 @@ nonisolated enum GitWorktreeShell {
         stderrLock.lock()
         let finalStderr = stderrState.buffer
         stderrLock.unlock()
-        cont.resume(returning: (
-          exitCode: proc.terminationStatus,
-          stdoutLast: finalLastNonEmpty,
-          stderrCollected: finalStderr,
-          spawnFailedReason: nil
-        ))
+        cont.resume(
+          returning: (
+            exitCode: proc.terminationStatus,
+            stdoutLast: finalLastNonEmpty,
+            stderrCollected: finalStderr,
+            spawnFailedReason: nil
+          ))
       }
 
       // Hand the Process to the caller before run() so a
@@ -446,12 +452,13 @@ nonisolated enum GitWorktreeShell {
       do {
         try process.run()
       } catch {
-        cont.resume(returning: (
-          exitCode: -1,
-          stdoutLast: "",
-          stderrCollected: "",
-          spawnFailedReason: error.localizedDescription
-        ))
+        cont.resume(
+          returning: (
+            exitCode: -1,
+            stdoutLast: "",
+            stderrCollected: "",
+            spawnFailedReason: error.localizedDescription
+          ))
       }
     }
   }
@@ -562,7 +569,8 @@ nonisolated extension GitWorktreeClient {
           for line in text.components(separatedBy: "\n") {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.hasPrefix("HEAD branch:") {
-              let branch = trimmed
+              let branch =
+                trimmed
                 .dropFirst("HEAD branch:".count)
                 .trimmingCharacters(in: .whitespaces)
               if !branch.isEmpty && branch != "(unknown)" {
@@ -612,10 +620,11 @@ nonisolated extension GitWorktreeClient {
                   cwd: spec.repoRoot
                 )
                 if case .exited(let code, _, let err, _) = fetch, code != 0 {
-                  continuation.finish(throwing: GitWorktreeError.fetchFailed(
-                    GitWorktreeShell.decodeUTF8(err)
-                      .trimmingCharacters(in: .whitespacesAndNewlines)
-                  ))
+                  continuation.finish(
+                    throwing: GitWorktreeError.fetchFailed(
+                      GitWorktreeShell.decodeUTF8(err)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    ))
                   return
                 }
               }
@@ -643,18 +652,20 @@ nonisolated extension GitWorktreeClient {
                 onStderr: { line in continuation.yield(.progressLine(line)) }
               )
               if let reason = outcome.spawnFailedReason {
-                continuation.finish(throwing: GitWorktreeError.commandFailed(
-                  command: "wt \(args.joined(separator: " "))",
-                  stderr: reason
-                ))
+                continuation.finish(
+                  throwing: GitWorktreeError.commandFailed(
+                    command: "wt \(args.joined(separator: " "))",
+                    stderr: reason
+                  ))
                 return
               }
               guard outcome.exitCode == 0 else {
                 let command = "wt \(args.joined(separator: " "))"
-                continuation.finish(throwing: mapGitStderr(
-                  command: command,
-                  stderr: outcome.stderrCollected
-                ))
+                continuation.finish(
+                  throwing: mapGitStderr(
+                    command: command,
+                    stderr: outcome.stderrCollected
+                  ))
                 return
               }
 
@@ -662,15 +673,18 @@ nonisolated extension GitWorktreeClient {
               // be non-empty anymore — it's a tiebreaker, not the
               // primary source.
               let postEntries = await liveLsEntries(wt: wt, repoRoot: spec.repoRoot)
-              guard let worktreeURL = pickNewWorktreePath(
-                preEntries: preEntries,
-                postEntries: postEntries,
-                fallbackStdoutLast: outcome.stdoutLast
-              ) else {
-                continuation.finish(throwing: GitWorktreeError.commandFailed(
-                  command: "wt \(args.joined(separator: " "))",
-                  stderr: "wt exited 0 but no new worktree appeared in wt ls"
-                ))
+              guard
+                let worktreeURL = pickNewWorktreePath(
+                  preEntries: preEntries,
+                  postEntries: postEntries,
+                  fallbackStdoutLast: outcome.stdoutLast
+                )
+              else {
+                continuation.finish(
+                  throwing: GitWorktreeError.commandFailed(
+                    command: "wt \(args.joined(separator: " "))",
+                    stderr: "wt exited 0 but no new worktree appeared in wt ls"
+                  ))
                 return
               }
               continuation.yield(.finished(worktreePath: worktreeURL))
@@ -808,7 +822,7 @@ nonisolated extension GitWorktreeClient {
     guard case .exited(let code, let data, _, _) = outcome, code == 0 else { return [] }
     let text = GitWorktreeShell.decodeUTF8(data).trimmingCharacters(in: .whitespacesAndNewlines)
     guard !text.isEmpty,
-          let entries = try? JSONDecoder().decode([GitWtEntry].self, from: Data(text.utf8))
+      let entries = try? JSONDecoder().decode([GitWtEntry].self, from: Data(text.utf8))
     else { return [] }
     return entries.filter { !$0.isBare }
   }

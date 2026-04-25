@@ -317,8 +317,9 @@ nonisolated struct LiveGitHubService: GitHubService {
     }().lowercased()
 
     if text.contains("not logged") || text.contains("auth required")
-      || text.contains("authentication required") || text.contains("token")
-      && text.contains("expired")
+      || text.contains("authentication required")
+      || text.contains("token")
+        && text.contains("expired")
     {
       return .notAuthenticated(host: Self.parseHostHint(text))
     }

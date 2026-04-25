@@ -152,18 +152,18 @@ Rationale: agent-heavy panes produce thousands of output events per second; rout
 
 Files under `~/.config/touch-code/` (JSON, UTF-8, pretty-printed with sorted keys for determinism):
 
-| File | Contents |
-|---|---|
-| `catalog.json` | Space → Project → Worktree → Tab → Pane tree with UUIDs, split geometry, current selection at every level |
-| `settings.json` | User preferences (default external editor per Project, hook paths, feature toggles) |
-| `hooks.json` | User-configured hook subscriptions (event → shell command + options) |
+| File | Version | Contents |
+|---|---|---|
+| `catalog.json` | v2 | Space → Project → Worktree → Tab → Pane tree with UUIDs, split geometry, current selection at every level. Per-Project `defaultEditor` and `worktreesDirectory` moved to `settings.json` in v2 (one-shot read of v1 values through `HierarchyManager.drainLegacyOverrides`). |
+| `settings.json` | v3 | User preferences — global (`general`, `notifications`, `developer`) plus per-Project (`projects[ProjectID]: ProjectSettings`). v3 renamed `repositories` → `projects` and widened the value type to `ProjectSettings` with an optional `git: GitProjectSettings?` subtree for `git_repo`-kind overrides. |
+| `hooks.json` | v2 | User-configured hook subscriptions (event → shell command + options). v2 added `.projectID` / `.projectPathGlob` scope cases and made Scope decoding fail-soft on unknown kinds. |
 
-Writers always go through `TouchCodeCore/Persistence.swift`:
+Writers always go through atomic-rename JSON persistence:
 1. Encode to temp file in the same directory
 2. `fsync` temp file
 3. `rename(2)` over original
 
-Readers abort on unknown `version` field.
+Readers abort or migrate on version mismatch: `settings.json` accepts v1/v2/v3 (migrating v1/v2 to v3 in place with a backup); `catalog.json` accepts v1/v2; `hooks.json` accepts v1/v2. Unknown `version` values route the file aside as `*.broken-<ts>` and start from defaults.
 
 ### Logging
 

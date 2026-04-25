@@ -64,11 +64,13 @@ enum GhosttyThemeCatalogReader {
     var seen: Set<String> = []
 
     for root in searchRoots {
-      guard let entries = try? fileManager.contentsOfDirectory(
-        at: root,
-        includingPropertiesForKeys: [.isRegularFileKey],
-        options: [.skipsHiddenFiles]
-      ) else { continue }
+      guard
+        let entries = try? fileManager.contentsOfDirectory(
+          at: root,
+          includingPropertiesForKeys: [.isRegularFileKey],
+          options: [.skipsHiddenFiles]
+        )
+      else { continue }
 
       for entry in entries {
         let name = entry.lastPathComponent
@@ -167,12 +169,14 @@ enum GhosttyThemeCatalogReader {
     // #filePath → .../apps/mac/touch-code/Runtime/Ghostty/GhosttyThemeCatalog.swift
     // Ascend four levels to land at apps/mac, then descend into the build tree.
     let file = URL(fileURLWithPath: #filePath)
-    let appsMac = file
+    let appsMac =
+      file
       .deletingLastPathComponent()  // Ghostty
       .deletingLastPathComponent()  // Runtime
       .deletingLastPathComponent()  // touch-code
       .deletingLastPathComponent()  // mac
-    let candidate = appsMac
+    let candidate =
+      appsMac
       .appendingPathComponent(".build/ghostty/share/ghostty/themes", isDirectory: true)
     return candidate
   }
@@ -217,15 +221,15 @@ enum GhosttyThemeCatalogReader {
     if trimmed.contains(":") {
       let parts = trimmed.split(separator: ":", omittingEmptySubsequences: false)
       guard parts.count == 3,
-            let r = UInt8(parts[0].trimmingCharacters(in: .whitespaces)),
-            let g = UInt8(parts[1].trimmingCharacters(in: .whitespaces)),
-            let b = UInt8(parts[2].trimmingCharacters(in: .whitespaces))
+        let r = UInt8(parts[0].trimmingCharacters(in: .whitespaces)),
+        let g = UInt8(parts[1].trimmingCharacters(in: .whitespaces)),
+        let b = UInt8(parts[2].trimmingCharacters(in: .whitespaces))
       else { return nil }
       return (Double(r) / 255.0, Double(g) / 255.0, Double(b) / 255.0)
     }
     let hex = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
     guard hex.count == 6,
-          let value = UInt32(hex, radix: 16)
+      let value = UInt32(hex, radix: 16)
     else { return nil }
     let r = Double((value >> 16) & 0xFF) / 255.0
     let g = Double((value >> 8) & 0xFF) / 255.0

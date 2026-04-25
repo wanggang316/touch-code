@@ -125,10 +125,10 @@ public enum EventMapper {
       )
 
     case .hierarchyMutated,
-         .paneInfoChanged,
-         .paneActionRequested,
-         .windowActionRequested,
-         .configChanged:
+      .paneInfoChanged,
+      .paneActionRequested,
+      .windowActionRequested,
+      .configChanged:
       return nil
     }
   }

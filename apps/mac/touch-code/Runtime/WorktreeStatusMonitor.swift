@@ -53,7 +53,8 @@ final class WorktreeStatusMonitor {
   func refresh(worktreeID: WorktreeID, path: URL) async {
     if inFlight.contains(worktreeID) { return }
     if let fetchedAt = lastFetchedAt[worktreeID],
-      Date().timeIntervalSince(fetchedAt) < Self.freshness {
+      Date().timeIntervalSince(fetchedAt) < Self.freshness
+    {
       return
     }
     inFlight.insert(worktreeID)

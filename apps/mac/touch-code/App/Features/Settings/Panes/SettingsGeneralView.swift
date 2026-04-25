@@ -83,14 +83,14 @@ struct SettingsGeneralView: View {
 }
 
 #if DEBUG
-#Preview("SettingsGeneralView") {
-  SettingsGeneralView(
-    store: Store(initialState: EditorFeature.State()) { EditorFeature() },
-    settingsStore: SettingsStore(
-      fileURL: FileManager.default.temporaryDirectory.appending(component: "\(UUID()).json"),
-      debounceWindow: .seconds(3600)
+  #Preview("SettingsGeneralView") {
+    SettingsGeneralView(
+      store: Store(initialState: EditorFeature.State()) { EditorFeature() },
+      settingsStore: SettingsStore(
+        fileURL: FileManager.default.temporaryDirectory.appending(component: "\(UUID()).json"),
+        debounceWindow: .seconds(3600)
+      )
     )
-  )
-  .frame(width: 520, height: 320)
-}
+    .frame(width: 520, height: 320)
+  }
 #endif

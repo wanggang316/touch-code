@@ -279,6 +279,7 @@ struct HierarchySidebarFeature {
   }
 
   @Dependency(HierarchyClient.self) private var hierarchyClient
+  @Dependency(SettingsWriter.self) private var settingsWriter
 
   var body: some Reducer<State, Action> {
     Reduce { state, action in
@@ -290,7 +291,7 @@ struct HierarchySidebarFeature {
       // effect.
       switch action {
       case .createWorktreeSheet(.delegate(.dismissed)),
-           .createWorktreeSheet(.delegate(.submitted)):
+        .createWorktreeSheet(.delegate(.submitted)):
         state.createWorktreeSheet = nil
         return .none
       case .createWorktreeSheet:
@@ -323,398 +324,405 @@ struct HierarchySidebarFeature {
   // swiftlint:disable:next cyclomatic_complexity function_body_length
   private func coreReduce(into state: inout State, action: Action) -> Effect<Action> {
     switch action {
-      // MARK: Row taps
+    // MARK: Row taps
 
-      case .spaceRowTapped(let spaceID):
-        return handleSpaceSwitch(to: spaceID)
+    case .spaceRowTapped(let spaceID):
+      return handleSpaceSwitch(to: spaceID)
 
-      case .projectRowTapped(let projectID, let spaceID):
-        try? hierarchyClient.selectProject(projectID, spaceID)
-        return .none
+    case .projectRowTapped(let projectID, let spaceID):
+      try? hierarchyClient.selectProject(projectID, spaceID)
+      return .none
 
-      case .worktreeRowTapped(let worktreeID, let projectID, let spaceID):
-        // Switching worktrees across Projects must also flip
-        // `space.selectedProjectID` — otherwise `currentSelection()` keeps
-        // reading the previous Project's `selectedWorktreeID` and the
-        // detail column never refreshes.
-        try? hierarchyClient.selectProject(projectID, spaceID)
-        try? hierarchyClient.selectWorktree(worktreeID, projectID, spaceID)
-        // Update Space.lastActiveWorktreeID so returning to this Space later
-        // restores this specific Worktree. Skip the write if the current
-        // value already equals `worktreeID` — avoids waking the debounced
-        // save for a no-op and keeps TestStore traces clean (don't rely
-        // solely on T0's manager-side dedup).
-        let snapshot = hierarchyClient.snapshot()
-        if let space = snapshot.spaces.first(where: { $0.id == spaceID }),
-          space.lastActiveWorktreeID != worktreeID
-        {
-          hierarchyClient.setSpaceLastActiveWorktree(spaceID, worktreeID)
-        }
-        return .none
+    case .worktreeRowTapped(let worktreeID, let projectID, let spaceID):
+      // Switching worktrees across Projects must also flip
+      // `space.selectedProjectID` — otherwise `currentSelection()` keeps
+      // reading the previous Project's `selectedWorktreeID` and the
+      // detail column never refreshes.
+      try? hierarchyClient.selectProject(projectID, spaceID)
+      try? hierarchyClient.selectWorktree(worktreeID, projectID, spaceID)
+      // Update Space.lastActiveWorktreeID so returning to this Space later
+      // restores this specific Worktree. Skip the write if the current
+      // value already equals `worktreeID` — avoids waking the debounced
+      // save for a no-op and keeps TestStore traces clean (don't rely
+      // solely on T0's manager-side dedup).
+      let snapshot = hierarchyClient.snapshot()
+      if let space = snapshot.spaces.first(where: { $0.id == spaceID }),
+        space.lastActiveWorktreeID != worktreeID
+      {
+        hierarchyClient.setSpaceLastActiveWorktree(spaceID, worktreeID)
+      }
+      return .none
 
-      // MARK: Expansion
+    // MARK: Expansion
 
-      case .toggleSpaceExpansion(let spaceID):
-        if state.expandedSpaceIDs.contains(spaceID) {
-          state.expandedSpaceIDs.remove(spaceID)
-        } else {
-          state.expandedSpaceIDs.insert(spaceID)
-        }
-        return .none
+    case .toggleSpaceExpansion(let spaceID):
+      if state.expandedSpaceIDs.contains(spaceID) {
+        state.expandedSpaceIDs.remove(spaceID)
+      } else {
+        state.expandedSpaceIDs.insert(spaceID)
+      }
+      return .none
 
-      case .toggleProjectExpansion(let projectID):
-        if state.expandedProjectIDs.contains(projectID) {
-          state.expandedProjectIDs.remove(projectID)
-        } else {
-          state.expandedProjectIDs.insert(projectID)
-        }
-        return .none
+    case .toggleProjectExpansion(let projectID):
+      if state.expandedProjectIDs.contains(projectID) {
+        state.expandedProjectIDs.remove(projectID)
+      } else {
+        state.expandedProjectIDs.insert(projectID)
+      }
+      return .none
 
-      case .pruneExpansionSets(let currentSpaceIDs, let currentProjectIDs):
-        state.expandedSpaceIDs.formIntersection(currentSpaceIDs)
-        state.expandedProjectIDs.formIntersection(currentProjectIDs)
-        return .none
+    case .pruneExpansionSets(let currentSpaceIDs, let currentProjectIDs):
+      state.expandedSpaceIDs.formIntersection(currentSpaceIDs)
+      state.expandedProjectIDs.formIntersection(currentProjectIDs)
+      return .none
 
-      // MARK: Toolbar
+    // MARK: Toolbar
 
-      case .toolbarAddProjectTapped:
-        if let spaceID = hierarchyClient.snapshot().selectedSpaceID {
-          state.addProject = AddProjectFeature.State(targetSpaceID: spaceID)
-        }
-        return .none
+    case .toolbarAddProjectTapped:
+      if let spaceID = hierarchyClient.snapshot().selectedSpaceID {
+        state.addProject = AddProjectFeature.State(targetSpaceID: spaceID)
+      }
+      return .none
 
-      case .toolbarMenuTapped:
-        // Placeholder — future toolbar "⋯" menu items hang here.
-        return .none
+    case .toolbarMenuTapped:
+      // Placeholder — future toolbar "⋯" menu items hang here.
+      return .none
 
-      // MARK: Project hover chrome
+    // MARK: Project hover chrome
 
-      case .reorderProjects(let source, let destination, let spaceID):
-        try? hierarchyClient.reorderProjects(spaceID, source, destination)
-        return .none
+    case .reorderProjects(let source, let destination, let spaceID):
+      try? hierarchyClient.reorderProjects(spaceID, source, destination)
+      return .none
 
-      case .retryProjectTapped(let projectID, let spaceID):
-        return .send(.delegate(.reconcileProjectRequested(projectID, spaceID)))
+    case .retryProjectTapped(let projectID, let spaceID):
+      return .send(.delegate(.reconcileProjectRequested(projectID, spaceID)))
 
-      case .projectAddWorktreeTapped(let projectID, let spaceID):
-        // Resolve the Project from the catalog to feed repoRoot +
-        // worktreesDirectory into CreateWorktreeFeature. If the Project
-        // has no gitRoot the sheet wouldn't be useful — silently
-        // no-op in that case (the Add-Worktree "+" row is hidden for
-        // non-git Projects anyway).
-        let snapshot = hierarchyClient.snapshot()
-        guard let space = snapshot.spaces.first(where: { $0.id == spaceID }),
-              let project = space.projects.first(where: { $0.id == projectID }),
-              let gitRoot = project.gitRoot
-        else { return .none }
-        let defaultWtDir = URL(fileURLWithPath: project.worktreesDirectory
+    case .projectAddWorktreeTapped(let projectID, let spaceID):
+      // Resolve the Project from the catalog to feed repoRoot + worktreesDirectory
+      // into CreateWorktreeFeature. v3 moved worktreesDirectory off catalog into
+      // settings.json.projects[pid]. If the Project has no gitRoot the sheet wouldn't
+      // be useful — silently no-op (the Add-Worktree "+" row is hidden for non-git).
+      let snapshot = hierarchyClient.snapshot()
+      guard let space = snapshot.spaces.first(where: { $0.id == spaceID }),
+        let project = space.projects.first(where: { $0.id == projectID }),
+        let gitRoot = project.gitRoot
+      else { return .none }
+      let wtDirOverride = settingsWriter.readSnapshotSync().projects[projectID]?.worktreesDirectory
+      let defaultWtDir = URL(
+        fileURLWithPath: wtDirOverride
           ?? (NSHomeDirectory() + "/.touch-code/repos/\(project.name)"))
-        state.createWorktreeSheet = CreateWorktreeFeature.State(
-          projectID: projectID,
-          spaceID: spaceID,
-          repoRoot: URL(fileURLWithPath: gitRoot),
-          worktreesDirectory: defaultWtDir
-        )
-        return .none
+      state.createWorktreeSheet = CreateWorktreeFeature.State(
+        projectID: projectID,
+        spaceID: spaceID,
+        repoRoot: URL(fileURLWithPath: gitRoot),
+        worktreesDirectory: defaultWtDir
+      )
+      return .none
 
-      case .projectOptionsTapped(let projectID, let spaceID):
-        // Snapshot the Project's current persisted values at open-time so the
-        // Options reducer can skip setters for unchanged drafts.
-        let snapshot = hierarchyClient.snapshot()
-        guard let project = snapshot.spaces.first(where: { $0.id == spaceID })?
+    case .projectOptionsTapped(let projectID, let spaceID):
+      // Snapshot the Project's current persisted values at open-time so the Options
+      // reducer can skip setters for unchanged drafts. v3 reads defaultEditor /
+      // worktreesDirectory from settings.json.projects[pid].
+      let snapshot = hierarchyClient.snapshot()
+      guard
+        let project = snapshot.spaces.first(where: { $0.id == spaceID })?
           .projects.first(where: { $0.id == projectID })
-        else { return .none }
-        state.projectOptions = ProjectOptionsFeature.State(
-          targetSpaceID: spaceID,
-          targetProjectID: projectID,
-          originalName: project.name,
-          originalDefaultEditor: project.defaultEditor,
-          originalWorktreesDirectory: project.worktreesDirectory,
-          nameDraft: project.name,
-          defaultEditorDraft: project.defaultEditor,
-          worktreesDirectoryDraft: project.worktreesDirectory ?? ""
-        )
-        return .none
+      else { return .none }
+      let prefs = settingsWriter.readSnapshotSync().projects[projectID]
+      state.projectOptions = ProjectOptionsFeature.State(
+        targetSpaceID: spaceID,
+        targetProjectID: projectID,
+        originalName: project.name,
+        originalDefaultEditor: prefs?.defaultEditor,
+        originalWorktreesDirectory: prefs?.worktreesDirectory,
+        nameDraft: project.name,
+        defaultEditorDraft: prefs?.defaultEditor,
+        worktreesDirectoryDraft: prefs?.worktreesDirectory ?? ""
+      )
+      return .none
 
-      case .projectRemoveTapped(let projectID, let spaceID, let name):
-        state.pendingProjectRemoval = PendingProjectRemoval(
-          projectID: projectID,
-          spaceID: spaceID,
-          displayName: name
-        )
-        return .none
+    case .projectRemoveTapped(let projectID, let spaceID, let name):
+      state.pendingProjectRemoval = PendingProjectRemoval(
+        projectID: projectID,
+        spaceID: spaceID,
+        displayName: name
+      )
+      return .none
 
-      case .projectRemoveConfirmed:
-        guard let pending = state.pendingProjectRemoval else { return .none }
-        try? hierarchyClient.removeProject(pending.projectID, pending.spaceID)
-        state.pendingProjectRemoval = nil
-        return .none
+    case .projectRemoveConfirmed:
+      guard let pending = state.pendingProjectRemoval else { return .none }
+      try? hierarchyClient.removeProject(pending.projectID, pending.spaceID)
+      state.pendingProjectRemoval = nil
+      return .none
 
-      case .projectRemoveCancelled:
-        state.pendingProjectRemoval = nil
-        return .none
+    case .projectRemoveCancelled:
+      state.pendingProjectRemoval = nil
+      return .none
 
-      // MARK: Worktree context menu
+    // MARK: Worktree context menu
 
-      case .worktreeRemoveTapped(let worktreeID, let projectID, let spaceID, let name):
-        state.pendingWorktreeRemoval = PendingWorktreeRemoval(
-          worktreeID: worktreeID,
-          projectID: projectID,
-          spaceID: spaceID,
-          displayName: name
-        )
-        return .none
+    case .worktreeRemoveTapped(let worktreeID, let projectID, let spaceID, let name):
+      state.pendingWorktreeRemoval = PendingWorktreeRemoval(
+        worktreeID: worktreeID,
+        projectID: projectID,
+        spaceID: spaceID,
+        displayName: name
+      )
+      return .none
 
-      case .worktreeRemoveConfirmed:
-        guard let pending = state.pendingWorktreeRemoval else { return .none }
-        state.pendingWorktreeRemoval = nil
-        let client = hierarchyClient
-        let wid = pending.worktreeID
-        let pid = pending.projectID
-        let sid = pending.spaceID
-        let name = pending.displayName
-        return .run { send in
-          do {
-            try await client.removeWorktreeWithGit(wid, pid, sid, false)
-          } catch let error as GitWorktreeError {
-            await send(.worktreeRemoveFailed(
+    case .worktreeRemoveConfirmed:
+      guard let pending = state.pendingWorktreeRemoval else { return .none }
+      state.pendingWorktreeRemoval = nil
+      let client = hierarchyClient
+      let wid = pending.worktreeID
+      let pid = pending.projectID
+      let sid = pending.spaceID
+      let name = pending.displayName
+      return .run { send in
+        do {
+          try await client.removeWorktreeWithGit(wid, pid, sid, false)
+        } catch let error as GitWorktreeError {
+          await send(
+            .worktreeRemoveFailed(
               worktreeID: wid, inProject: pid, inSpace: sid, name: name, error: error
             ))
-          } catch {
-            await send(.worktreeRemoveFailed(
+        } catch {
+          await send(
+            .worktreeRemoveFailed(
               worktreeID: wid, inProject: pid, inSpace: sid, name: name,
               error: .commandFailed(command: "remove", stderr: error.localizedDescription)
             ))
-          }
         }
+      }
 
-      case .worktreeRemoveCancelled:
-        state.pendingWorktreeRemoval = nil
-        return .none
+    case .worktreeRemoveCancelled:
+      state.pendingWorktreeRemoval = nil
+      return .none
 
-      case let .worktreeRemoveFailed(wid, pid, sid, name, error):
-        // Uncommitted changes → offer Force Remove. Anything else →
-        // sit the error on the root-feature delegate path as a banner
-        // caller might surface; for now log silently.
-        if case .uncommittedChanges(let files) = error {
-          state.pendingForceRemove = PendingForceRemoval(
-            worktreeID: wid,
-            projectID: pid,
-            spaceID: sid,
-            displayName: name,
-            uncommittedFiles: files
-          )
-        }
-        return .none
-
-      case .worktreeForceRemoveConfirmed:
-        guard let pending = state.pendingForceRemove else { return .none }
-        // W-Q3 ladder step 2: if live terminals, warn before hard-kill.
-        let runningCount = hierarchyClient.runningPaneCount(pending.worktreeID)
-        if runningCount > 0 {
-          state.pendingRunningTerminalWarning = PendingRunningTerminalWarning(
-            worktreeID: pending.worktreeID,
-            projectID: pending.projectID,
-            spaceID: pending.spaceID,
-            displayName: pending.displayName,
-            count: runningCount
-          )
-          state.pendingForceRemove = nil
-          return .none
-        }
-        // No terminals — proceed directly.
-        let client = hierarchyClient
-        let wid = pending.worktreeID
-        let pid = pending.projectID
-        let sid = pending.spaceID
-        state.pendingForceRemove = nil
-        return .run { _ in
-          try? await client.removeWorktreeWithGit(wid, pid, sid, true)
-        }
-
-      case .worktreeForceRemoveCancelled:
-        state.pendingForceRemove = nil
-        return .none
-
-      case .worktreeRunningTerminalWarningConfirmed:
-        guard let pending = state.pendingRunningTerminalWarning else { return .none }
-        let client = hierarchyClient
-        let wid = pending.worktreeID
-        let pid = pending.projectID
-        let sid = pending.spaceID
-        state.pendingRunningTerminalWarning = nil
-        return .run { _ in
-          try? await client.removeWorktreeWithGit(wid, pid, sid, true)
-        }
-
-      case .worktreeRunningTerminalWarningCancelled:
-        state.pendingRunningTerminalWarning = nil
-        return .none
-
-      case let .worktreeArchiveTapped(wid, _, _, _):
-        if state.hasShownArchiveExplainer {
-          try? hierarchyClient.setWorktreeArchived(wid, true)
-        } else {
-          state.pendingArchiveExplainer = wid
-        }
-        return .none
-
-      case .worktreeArchiveConfirmed:
-        guard let wid = state.pendingArchiveExplainer else { return .none }
-        state.hasShownArchiveExplainer = true
-        state.pendingArchiveExplainer = nil
-        try? hierarchyClient.setWorktreeArchived(wid, true)
-        return .none
-
-      case .worktreeArchiveCancelled:
-        state.pendingArchiveExplainer = nil
-        return .none
-
-      case let .worktreeUnarchiveTapped(wid, _, _):
-        try? hierarchyClient.setWorktreeArchived(wid, false)
-        return .none
-
-      case let .worktreePinToggleTapped(wid, current):
-        hierarchyClient.setWorktreePinned(wid, !current)
-        return .none
-
-      case let .projectShowArchivedTapped(projectID, spaceID):
-        state.archivedWorktreesSheet = ArchivedWorktreesFeature.State(
-          projectID: projectID,
-          spaceID: spaceID
+    case .worktreeRemoveFailed(let wid, let pid, let sid, let name, let error):
+      // Uncommitted changes → offer Force Remove. Anything else →
+      // sit the error on the root-feature delegate path as a banner
+      // caller might surface; for now log silently.
+      if case .uncommittedChanges(let files) = error {
+        state.pendingForceRemove = PendingForceRemoval(
+          worktreeID: wid,
+          projectID: pid,
+          spaceID: sid,
+          displayName: name,
+          uncommittedFiles: files
         )
-        return .none
+      }
+      return .none
 
-      case .archivedWorktreesSheetDismissed:
-        state.archivedWorktreesSheet = nil
-        return .none
-
-      case let .projectPruneTapped(projectID, spaceID):
-        let snapshot = hierarchyClient.snapshot()
-        guard let space = snapshot.spaces.first(where: { $0.id == spaceID }),
-              let project = space.projects.first(where: { $0.id == projectID }),
-              let gitRoot = project.gitRoot
-        else { return .none }
-        let gitRootURL = URL(fileURLWithPath: gitRoot)
-        @Dependency(GitWorktreeClient.self) var gitClient
-        let client = gitClient
-        return .run { send in
-          do {
-            let pruned = try await client.pruneWorktrees(gitRootURL)
-            await send(.projectPruneCompleted(pruned: pruned, error: nil))
-          } catch let error as GitWorktreeError {
-            let msg: String
-            if case .commandFailed(_, let stderr) = error {
-              msg = stderr
-            } else {
-              msg = "\(error)"
-            }
-            await send(.projectPruneCompleted(pruned: 0, error: msg))
-          } catch {
-            await send(.projectPruneCompleted(pruned: 0, error: error.localizedDescription))
-          }
-        }
-
-      case let .projectPruneCompleted(pruned, error):
-        if let error {
-          state.pruneToast = "Prune failed: \(error)"
-        } else {
-          state.pruneToast = pruned == 1
-            ? "Pruned 1 stale worktree"
-            : "Pruned \(pruned) stale worktrees"
-        }
-        return .none
-
-      case .pruneToastDismissed:
-        state.pruneToast = nil
-        return .none
-
-      case .archivedWorktreesSheet:
-        // Routed through the top-level Reducer; unreachable here.
-        return .none
-
-      case .worktreeRevealInFinderTapped(let path):
-        return .send(.delegate(.revealInFinder(path: path)))
-
-      case .worktreeOpenInDefaultEditorTapped(_, let projectID, let path):
-        return .send(.delegate(.openInDefaultEditor(worktreePath: path, projectID: projectID)))
-
-      // MARK: Add Project — scoped child
-
-      case .addProject(.presented(.delegate(.projectAdded(let projectID, let spaceID)))):
-        state.addProject = nil
-        return .send(.delegate(.reconcileProjectRequested(projectID, spaceID)))
-
-      case .addProject(.presented(.delegate(.revealExisting(let spaceID, let projectID)))):
-        state.addProject = nil
-        return .send(.delegate(.revealExistingProject(spaceID, projectID)))
-
-      case .addProject(.presented(.delegate(.dismiss))), .addProject(.dismiss):
-        state.addProject = nil
-        return .none
-
-      case .addProject:
-        return .none
-
-      // MARK: Project Options — scoped child
-
-      case .projectOptions(.presented(.delegate(.dismiss))), .projectOptions(.dismiss):
-        state.projectOptions = nil
-        return .none
-
-      case .projectOptions(.presented(.delegate(.saved))):
-        state.projectOptions = nil
-        return .none
-
-      case .projectOptions:
-        return .none
-
-      // MARK: Sheet stubs
-
-      case .addWorktreeSheetDismissed:
-        state.addWorktreeSheet = nil
-        return .none
-
-      // MARK: Space footer + popover
-
-      case .spaceFooterTapped:
-        state.isSpacePopoverPresented.toggle()
-        return .none
-
-      case .externalSpacePopoverOpenRequested:
-        state.isSpacePopoverPresented = true
-        return .none
-
-      case .spacePopoverDismissed:
-        state.isSpacePopoverPresented = false
-        return .none
-
-      case .spacePopoverSpaceSelected(let spaceID):
-        state.isSpacePopoverPresented = false
-        return .send(.spaceRowTapped(spaceID))
-
-      case .spacePopoverNewSpaceTapped:
-        let snapshot = hierarchyClient.snapshot()
-        let name = nextUntitledSpaceName(in: snapshot.spaces)
-        let newID = hierarchyClient.createSpace(name)
-        hierarchyClient.selectSpace(newID)
-        state.isSpacePopoverPresented = false
-        return .none
-
-      case .spacePopoverManageSpacesTapped:
-        state.isSpacePopoverPresented = false
-        return .send(.delegate(.openSpaceManager))
-
-      // MARK: Delegate
-
-      case .delegate:
-        // Handled by the parent reducer.
-        return .none
-
-      case .createWorktreeSheet:
-        // Routed through the top-level Reducer; unreachable here.
+    case .worktreeForceRemoveConfirmed:
+      guard let pending = state.pendingForceRemove else { return .none }
+      // W-Q3 ladder step 2: if live terminals, warn before hard-kill.
+      let runningCount = hierarchyClient.runningPaneCount(pending.worktreeID)
+      if runningCount > 0 {
+        state.pendingRunningTerminalWarning = PendingRunningTerminalWarning(
+          worktreeID: pending.worktreeID,
+          projectID: pending.projectID,
+          spaceID: pending.spaceID,
+          displayName: pending.displayName,
+          count: runningCount
+        )
+        state.pendingForceRemove = nil
         return .none
       }
+      // No terminals — proceed directly.
+      let client = hierarchyClient
+      let wid = pending.worktreeID
+      let pid = pending.projectID
+      let sid = pending.spaceID
+      state.pendingForceRemove = nil
+      return .run { _ in
+        try? await client.removeWorktreeWithGit(wid, pid, sid, true)
+      }
+
+    case .worktreeForceRemoveCancelled:
+      state.pendingForceRemove = nil
+      return .none
+
+    case .worktreeRunningTerminalWarningConfirmed:
+      guard let pending = state.pendingRunningTerminalWarning else { return .none }
+      let client = hierarchyClient
+      let wid = pending.worktreeID
+      let pid = pending.projectID
+      let sid = pending.spaceID
+      state.pendingRunningTerminalWarning = nil
+      return .run { _ in
+        try? await client.removeWorktreeWithGit(wid, pid, sid, true)
+      }
+
+    case .worktreeRunningTerminalWarningCancelled:
+      state.pendingRunningTerminalWarning = nil
+      return .none
+
+    case .worktreeArchiveTapped(let wid, _, _, _):
+      if state.hasShownArchiveExplainer {
+        try? hierarchyClient.setWorktreeArchived(wid, true)
+      } else {
+        state.pendingArchiveExplainer = wid
+      }
+      return .none
+
+    case .worktreeArchiveConfirmed:
+      guard let wid = state.pendingArchiveExplainer else { return .none }
+      state.hasShownArchiveExplainer = true
+      state.pendingArchiveExplainer = nil
+      try? hierarchyClient.setWorktreeArchived(wid, true)
+      return .none
+
+    case .worktreeArchiveCancelled:
+      state.pendingArchiveExplainer = nil
+      return .none
+
+    case .worktreeUnarchiveTapped(let wid, _, _):
+      try? hierarchyClient.setWorktreeArchived(wid, false)
+      return .none
+
+    case .worktreePinToggleTapped(let wid, let current):
+      hierarchyClient.setWorktreePinned(wid, !current)
+      return .none
+
+    case .projectShowArchivedTapped(let projectID, let spaceID):
+      state.archivedWorktreesSheet = ArchivedWorktreesFeature.State(
+        projectID: projectID,
+        spaceID: spaceID
+      )
+      return .none
+
+    case .archivedWorktreesSheetDismissed:
+      state.archivedWorktreesSheet = nil
+      return .none
+
+    case .projectPruneTapped(let projectID, let spaceID):
+      let snapshot = hierarchyClient.snapshot()
+      guard let space = snapshot.spaces.first(where: { $0.id == spaceID }),
+        let project = space.projects.first(where: { $0.id == projectID }),
+        let gitRoot = project.gitRoot
+      else { return .none }
+      let gitRootURL = URL(fileURLWithPath: gitRoot)
+      @Dependency(GitWorktreeClient.self) var gitClient
+      let client = gitClient
+      return .run { send in
+        do {
+          let pruned = try await client.pruneWorktrees(gitRootURL)
+          await send(.projectPruneCompleted(pruned: pruned, error: nil))
+        } catch let error as GitWorktreeError {
+          let msg: String
+          if case .commandFailed(_, let stderr) = error {
+            msg = stderr
+          } else {
+            msg = "\(error)"
+          }
+          await send(.projectPruneCompleted(pruned: 0, error: msg))
+        } catch {
+          await send(.projectPruneCompleted(pruned: 0, error: error.localizedDescription))
+        }
+      }
+
+    case .projectPruneCompleted(let pruned, let error):
+      if let error {
+        state.pruneToast = "Prune failed: \(error)"
+      } else {
+        state.pruneToast =
+          pruned == 1
+          ? "Pruned 1 stale worktree"
+          : "Pruned \(pruned) stale worktrees"
+      }
+      return .none
+
+    case .pruneToastDismissed:
+      state.pruneToast = nil
+      return .none
+
+    case .archivedWorktreesSheet:
+      // Routed through the top-level Reducer; unreachable here.
+      return .none
+
+    case .worktreeRevealInFinderTapped(let path):
+      return .send(.delegate(.revealInFinder(path: path)))
+
+    case .worktreeOpenInDefaultEditorTapped(_, let projectID, let path):
+      return .send(.delegate(.openInDefaultEditor(worktreePath: path, projectID: projectID)))
+
+    // MARK: Add Project — scoped child
+
+    case .addProject(.presented(.delegate(.projectAdded(let projectID, let spaceID)))):
+      state.addProject = nil
+      return .send(.delegate(.reconcileProjectRequested(projectID, spaceID)))
+
+    case .addProject(.presented(.delegate(.revealExisting(let spaceID, let projectID)))):
+      state.addProject = nil
+      return .send(.delegate(.revealExistingProject(spaceID, projectID)))
+
+    case .addProject(.presented(.delegate(.dismiss))), .addProject(.dismiss):
+      state.addProject = nil
+      return .none
+
+    case .addProject:
+      return .none
+
+    // MARK: Project Options — scoped child
+
+    case .projectOptions(.presented(.delegate(.dismiss))), .projectOptions(.dismiss):
+      state.projectOptions = nil
+      return .none
+
+    case .projectOptions(.presented(.delegate(.saved))):
+      state.projectOptions = nil
+      return .none
+
+    case .projectOptions:
+      return .none
+
+    // MARK: Sheet stubs
+
+    case .addWorktreeSheetDismissed:
+      state.addWorktreeSheet = nil
+      return .none
+
+    // MARK: Space footer + popover
+
+    case .spaceFooterTapped:
+      state.isSpacePopoverPresented.toggle()
+      return .none
+
+    case .externalSpacePopoverOpenRequested:
+      state.isSpacePopoverPresented = true
+      return .none
+
+    case .spacePopoverDismissed:
+      state.isSpacePopoverPresented = false
+      return .none
+
+    case .spacePopoverSpaceSelected(let spaceID):
+      state.isSpacePopoverPresented = false
+      return .send(.spaceRowTapped(spaceID))
+
+    case .spacePopoverNewSpaceTapped:
+      let snapshot = hierarchyClient.snapshot()
+      let name = nextUntitledSpaceName(in: snapshot.spaces)
+      let newID = hierarchyClient.createSpace(name)
+      hierarchyClient.selectSpace(newID)
+      state.isSpacePopoverPresented = false
+      return .none
+
+    case .spacePopoverManageSpacesTapped:
+      state.isSpacePopoverPresented = false
+      return .send(.delegate(.openSpaceManager))
+
+    // MARK: Delegate
+
+    case .delegate:
+      // Handled by the parent reducer.
+      return .none
+
+    case .createWorktreeSheet:
+      // Routed through the top-level Reducer; unreachable here.
+      return .none
+    }
   }
 
   /// Space-switch choreography. See design doc §Alternatives A — lives in the

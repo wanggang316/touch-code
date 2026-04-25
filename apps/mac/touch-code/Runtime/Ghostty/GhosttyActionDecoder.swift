@@ -200,26 +200,26 @@ extension GhosttyActionDecoder {
       return .toggleCommandPalette
 
     // Bucket 2 — Window intent
-    case GHOSTTY_ACTION_NEW_WINDOW:             return .newWindow
-    case GHOSTTY_ACTION_CLOSE_WINDOW:           return .closeWindow
-    case GHOSTTY_ACTION_CLOSE_ALL_WINDOWS:      return .closeAllWindows
+    case GHOSTTY_ACTION_NEW_WINDOW: return .newWindow
+    case GHOSTTY_ACTION_CLOSE_WINDOW: return .closeWindow
+    case GHOSTTY_ACTION_CLOSE_ALL_WINDOWS: return .closeAllWindows
     case GHOSTTY_ACTION_GOTO_WINDOW:
       guard let target = decodeGotoWindowTarget(action.action.goto_window) else {
         return .unsupported(rawTag: action.tag.rawValue, reason: "goto_window: unknown target")
       }
       return .gotoWindow(target: target)
-    case GHOSTTY_ACTION_TOGGLE_FULLSCREEN:      return .toggleFullscreen
-    case GHOSTTY_ACTION_TOGGLE_MAXIMIZE:        return .toggleMaximize
-    case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW:    return .toggleTabOverview
+    case GHOSTTY_ACTION_TOGGLE_FULLSCREEN: return .toggleFullscreen
+    case GHOSTTY_ACTION_TOGGLE_MAXIMIZE: return .toggleMaximize
+    case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW: return .toggleTabOverview
     case GHOSTTY_ACTION_TOGGLE_WINDOW_DECORATIONS:
       return .unsupported(rawTag: action.tag.rawValue, reason: "no macOS analog")
     case GHOSTTY_ACTION_TOGGLE_QUICK_TERMINAL:
       return .unsupported(rawTag: action.tag.rawValue, reason: "no touch-code analog")
-    case GHOSTTY_ACTION_TOGGLE_VISIBILITY:      return .toggleVisibility
+    case GHOSTTY_ACTION_TOGGLE_VISIBILITY: return .toggleVisibility
     case GHOSTTY_ACTION_TOGGLE_BACKGROUND_OPACITY: return .toggleBackgroundOpacity
-    case GHOSTTY_ACTION_QUIT:                   return .quit
-    case GHOSTTY_ACTION_CHECK_FOR_UPDATES:      return .checkForUpdates
-    case GHOSTTY_ACTION_OPEN_CONFIG:            return .openConfig
+    case GHOSTTY_ACTION_QUIT: return .quit
+    case GHOSTTY_ACTION_CHECK_FOR_UPDATES: return .checkForUpdates
+    case GHOSTTY_ACTION_OPEN_CONFIG: return .openConfig
 
     // Bucket 3 — Surface info: title family (C strings — copy now)
     case GHOSTTY_ACTION_SET_TITLE:
@@ -318,17 +318,17 @@ extension GhosttyActionDecoder {
     case GHOSTTY_ACTION_SHOW_CHILD_EXITED:
       let ex = action.action.child_exited
       return .showChildExited(code: Int32(bitPattern: ex.exit_code))
-    case GHOSTTY_ACTION_UNDO:   return .undo
-    case GHOSTTY_ACTION_REDO:   return .redo
+    case GHOSTTY_ACTION_UNDO: return .undo
+    case GHOSTTY_ACTION_REDO: return .redo
     case GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD:
       return .copyTitleToClipboard
 
     // Bucket 5 — Explicitly unsupported on macOS / internal to libghostty
     case GHOSTTY_ACTION_RENDER,
-         GHOSTTY_ACTION_INSPECTOR,
-         GHOSTTY_ACTION_SHOW_GTK_INSPECTOR,
-         GHOSTTY_ACTION_RENDER_INSPECTOR,
-         GHOSTTY_ACTION_SHOW_ON_SCREEN_KEYBOARD:
+      GHOSTTY_ACTION_INSPECTOR,
+      GHOSTTY_ACTION_SHOW_GTK_INSPECTOR,
+      GHOSTTY_ACTION_RENDER_INSPECTOR,
+      GHOSTTY_ACTION_SHOW_ON_SCREEN_KEYBOARD:
       return .unsupported(rawTag: action.tag.rawValue, reason: "non-macOS / internal")
 
     // Config lifecycle: surface-target reload_config fires per surface after
@@ -355,7 +355,7 @@ extension GhosttyActionDecoder {
     switch action.tag {
     case GHOSTTY_ACTION_CONFIG_CHANGE:
       guard let source = action.action.config_change.config,
-            let cloned = ghostty_config_clone(source)
+        let cloned = ghostty_config_clone(source)
       else {
         return .unsupported(rawTag: action.tag.rawValue, reason: "config_clone returned nil")
       }
@@ -624,7 +624,7 @@ extension GhosttyActionDecoder {
     _ mode: ghostty_action_close_tab_mode_e
   ) -> CloseTabMode? {
     switch mode {
-    case GHOSTTY_ACTION_CLOSE_TAB_MODE_THIS:  return .this
+    case GHOSTTY_ACTION_CLOSE_TAB_MODE_THIS: return .this
     case GHOSTTY_ACTION_CLOSE_TAB_MODE_OTHER: return .other
     case GHOSTTY_ACTION_CLOSE_TAB_MODE_RIGHT: return .right
     default: return nil
@@ -636,9 +636,9 @@ extension GhosttyActionDecoder {
   ) -> GotoTabTarget {
     switch tab {
     case GHOSTTY_GOTO_TAB_PREVIOUS: return .previous
-    case GHOSTTY_GOTO_TAB_NEXT:     return .next
-    case GHOSTTY_GOTO_TAB_LAST:     return .last
-    default:                        return .index(Int(tab.rawValue))
+    case GHOSTTY_GOTO_TAB_NEXT: return .next
+    case GHOSTTY_GOTO_TAB_LAST: return .last
+    default: return .index(Int(tab.rawValue))
     }
   }
 
@@ -647,9 +647,9 @@ extension GhosttyActionDecoder {
   ) -> NewSplitDirection? {
     switch dir {
     case GHOSTTY_SPLIT_DIRECTION_RIGHT: return .right
-    case GHOSTTY_SPLIT_DIRECTION_LEFT:  return .left
-    case GHOSTTY_SPLIT_DIRECTION_UP:    return .up
-    case GHOSTTY_SPLIT_DIRECTION_DOWN:  return .down
+    case GHOSTTY_SPLIT_DIRECTION_LEFT: return .left
+    case GHOSTTY_SPLIT_DIRECTION_UP: return .up
+    case GHOSTTY_SPLIT_DIRECTION_DOWN: return .down
     default: return nil
     }
   }
@@ -659,11 +659,11 @@ extension GhosttyActionDecoder {
   ) -> FocusDirection? {
     switch dir {
     case GHOSTTY_GOTO_SPLIT_PREVIOUS: return .previous
-    case GHOSTTY_GOTO_SPLIT_NEXT:     return .next
-    case GHOSTTY_GOTO_SPLIT_UP:       return .up
-    case GHOSTTY_GOTO_SPLIT_DOWN:     return .down
-    case GHOSTTY_GOTO_SPLIT_LEFT:     return .left
-    case GHOSTTY_GOTO_SPLIT_RIGHT:    return .right
+    case GHOSTTY_GOTO_SPLIT_NEXT: return .next
+    case GHOSTTY_GOTO_SPLIT_UP: return .up
+    case GHOSTTY_GOTO_SPLIT_DOWN: return .down
+    case GHOSTTY_GOTO_SPLIT_LEFT: return .left
+    case GHOSTTY_GOTO_SPLIT_RIGHT: return .right
     default: return nil
     }
   }
@@ -672,9 +672,9 @@ extension GhosttyActionDecoder {
     _ dir: ghostty_action_resize_split_direction_e
   ) -> ResizeDirection? {
     switch dir {
-    case GHOSTTY_RESIZE_SPLIT_UP:    return .up
-    case GHOSTTY_RESIZE_SPLIT_DOWN:  return .down
-    case GHOSTTY_RESIZE_SPLIT_LEFT:  return .left
+    case GHOSTTY_RESIZE_SPLIT_UP: return .up
+    case GHOSTTY_RESIZE_SPLIT_DOWN: return .down
+    case GHOSTTY_RESIZE_SPLIT_LEFT: return .left
     case GHOSTTY_RESIZE_SPLIT_RIGHT: return .right
     default: return nil
     }
@@ -685,7 +685,7 @@ extension GhosttyActionDecoder {
   ) -> GotoWindowTarget? {
     switch target {
     case GHOSTTY_GOTO_WINDOW_PREVIOUS: return .previous
-    case GHOSTTY_GOTO_WINDOW_NEXT:     return .next
+    case GHOSTTY_GOTO_WINDOW_NEXT: return .next
     default: return nil
     }
   }

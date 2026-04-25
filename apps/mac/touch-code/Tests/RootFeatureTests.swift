@@ -506,7 +506,8 @@ struct RootFeatureTests {
     } withDependencies: {
       $0.terminalClient.events = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
-      $0.hierarchyClient.setDefaultEditor = { _, _, _ in }
+      // v3: per-Project editor overrides go through SettingsWriter, not HierarchyClient.
+      $0.settingsWriter.setProjectDefaultEditor = { _, _ in }
     }
     store.exhaustivity = .off
 

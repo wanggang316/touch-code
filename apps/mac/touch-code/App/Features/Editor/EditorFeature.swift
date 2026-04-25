@@ -96,18 +96,14 @@ struct EditorFeature {
         let writer = settingsWriter.setDefaultEditorID
         return .run { _ in await writer(editorID) }
 
-      case .setProjectOverride(let projectID, let spaceID, let editorID):
-        let client = hierarchyClient
+      case .setProjectOverride(let projectID, _, let editorID):
+        // `spaceID` is ignored — per-Project editor overrides moved from catalog.json
+        // to settings.json.projects[pid].defaultEditor (v3), and ProjectID alone keys
+        // that slot. The signature keeps the SpaceID for callers that still hold one
+        // (WorktreeHeader dropdown) but the write no longer needs it.
         state.lastProjectOverrideFailure = nil
-        return .run { send in
-          do {
-            try await MainActor.run {
-              try client.setDefaultEditor(projectID, spaceID, editorID)
-            }
-          } catch {
-            await send(.setProjectOverrideFailed(reason: String(describing: error)))
-          }
-        }
+        let writer = settingsWriter.setProjectDefaultEditor
+        return .run { _ in await writer(projectID, editorID) }
 
       case .setProjectOverrideFailed(let reason):
         state.lastProjectOverrideFailure = reason
@@ -143,11 +139,9 @@ struct EditorFeature {
         // than short-circuiting on Finder — otherwise a clean install with no stored
         // default would always land in Finder even if higher-priority editors are
         // installed.
-        let catalog = hierarchyClient.snapshot()
-        let projectOverride = catalog
-          .spaces.first(where: { $0.id == spaceID })?
-          .projects.first(where: { $0.id == projectID })?
-          .defaultEditor
+        // v3 reads per-Project editor override from settings.json.projects[pid] via
+        // SettingsWriter; catalog.json no longer carries Project.defaultEditor.
+        let projectOverride = settingsWriter.readSnapshotSync().projects[projectID]?.defaultEditor
         let preferred = Self.resolveInstalledPreference(
           projectOverride: projectOverride,
           globalDefault: state.globalDefault,
@@ -245,11 +239,23 @@ struct EditorFeature {
 
 // MARK: - SettingsWriter dependency
 
-/// Narrow dependency over `SettingsStore`. C8a removes the custom-editor surface; only the
-/// snapshot read + default-ID writer remain.
+/// Narrow dependency over `SettingsStore`. Carries the global editor-default writer plus
+/// per-Project writers for the two fields that v3 settings.json absorbed from catalog.json
+/// (`defaultEditor`, `worktreesDirectory`). Features call these closures instead of
+/// reaching into `SettingsStore` directly so tests can override writes without a
+/// `@MainActor` ceremony.
 nonisolated struct SettingsWriter: Sendable {
   var readSnapshot: @Sendable () async -> Settings
+  /// Synchronous snapshot read. Implementation walks the `@MainActor` `SettingsStore`
+  /// under `MainActor.assumeIsolated` so reducers already on the main queue can read
+  /// without an async hop. Safe for the TCA reducers in this app (they all run on
+  /// MainActor); crashes in debug if called off the main actor.
+  var readSnapshotSync: @Sendable () -> Settings
   var setDefaultEditorID: @Sendable (EditorID?) async -> Void
+  /// Per-Project editor override. `nil` clears.
+  var setProjectDefaultEditor: @Sendable (_ projectID: ProjectID, _ editorID: EditorID?) async -> Void
+  /// Per-Project worktree base directory override. `nil` clears.
+  var setProjectWorktreesDirectory: @Sendable (_ projectID: ProjectID, _ path: String?) async -> Void
 }
 
 extension SettingsWriter {
@@ -259,8 +265,21 @@ extension SettingsWriter {
       readSnapshot: { [weak store] in
         await MainActor.run { store?.settings ?? .default }
       },
+      readSnapshotSync: { [weak store] in
+        MainActor.assumeIsolated { store?.settings ?? .default }
+      },
       setDefaultEditorID: { [weak store] id in
         await MainActor.run { store?.setDefaultEditorID(id) }
+      },
+      setProjectDefaultEditor: { [weak store] pid, id in
+        await MainActor.run {
+          store?.mutateProject(pid) { $0.defaultEditor = id }
+        }
+      },
+      setProjectWorktreesDirectory: { [weak store] pid, path in
+        await MainActor.run {
+          store?.mutateProject(pid) { $0.worktreesDirectory = path }
+        }
       }
     )
   }
@@ -271,12 +290,18 @@ extension SettingsWriter: DependencyKey {
     readSnapshot: {
       fatalError("SettingsWriter.liveValue not configured; wire via `.withDependencies` at app startup")
     },
-    setDefaultEditorID: { _ in fatalError("SettingsWriter.liveValue not configured") }
+    readSnapshotSync: { fatalError("SettingsWriter.liveValue not configured") },
+    setDefaultEditorID: { _ in fatalError("SettingsWriter.liveValue not configured") },
+    setProjectDefaultEditor: { _, _ in fatalError("SettingsWriter.liveValue not configured") },
+    setProjectWorktreesDirectory: { _, _ in fatalError("SettingsWriter.liveValue not configured") }
   )
 
   static let testValue: SettingsWriter = SettingsWriter(
     readSnapshot: unimplemented("SettingsWriter.readSnapshot", placeholder: .default),
-    setDefaultEditorID: unimplemented("SettingsWriter.setDefaultEditorID")
+    readSnapshotSync: unimplemented("SettingsWriter.readSnapshotSync", placeholder: .default),
+    setDefaultEditorID: unimplemented("SettingsWriter.setDefaultEditorID"),
+    setProjectDefaultEditor: unimplemented("SettingsWriter.setProjectDefaultEditor"),
+    setProjectWorktreesDirectory: unimplemented("SettingsWriter.setProjectWorktreesDirectory")
   )
 }
 

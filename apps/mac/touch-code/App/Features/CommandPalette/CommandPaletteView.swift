@@ -52,7 +52,10 @@ struct CommandPaletteView: View {
       .textFieldStyle(.plain)
       .font(.system(size: 15))
       .focused($queryFocused)
-      .onKeyPress(.escape) { onDismiss(); return .handled }
+      .onKeyPress(.escape) {
+        onDismiss()
+        return .handled
+      }
       .onKeyPress(.upArrow) {
         store.send(.selectionMoved(.up))
         return .handled
