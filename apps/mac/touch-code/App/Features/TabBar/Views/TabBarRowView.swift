@@ -122,6 +122,13 @@ private struct ChipDropDelegate: DropDelegate {
       else { return }
       var reordered = ids
       reordered.remove(at: sourceIdx)
+      // After removing the source, the original target index still
+      // points at the same chip (shifted left by one if source < target).
+      // Inserting `sourceID` at that index yields "drop into target's
+      // current slot" semantics — the dropped chip lands where the
+      // target was and pushes the target one step toward the source's
+      // old side. This matches macOS Finder / Safari tab drag behavior.
+      // Clamp defensively in case the array shrinks unexpectedly.
       reordered.insert(sourceID, at: min(targetIdx, reordered.count))
       // NSItemProvider invokes this callback off the main actor; hop back
       // onto MainActor so the non-Sendable TCA-store closure fires on the

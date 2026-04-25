@@ -30,13 +30,13 @@ struct TabBarOverflowScroll<Content: View>: View {
                     key: TabBarOverflowGeometryKey.self,
                     value: TabBarOverflowGeometry(
                       contentWidth: contentGeo.size.width,
-                      offset: -contentGeo.frame(in: .named(TabBarOverflowCoordinateSpace)).origin.x
+                      offset: -contentGeo.frame(in: .named(tabBarOverflowCoordinateSpace)).origin.x
                     )
                   )
               }
             )
         }
-        .coordinateSpace(name: TabBarOverflowCoordinateSpace)
+        .coordinateSpace(name: tabBarOverflowCoordinateSpace)
         .onPreferenceChange(TabBarOverflowGeometryKey.self) { geo in
           let maxOffset = max(0, geo.contentWidth - container.size.width)
           atLeadingEdge = geo.offset <= 0.5
@@ -83,7 +83,10 @@ struct TabBarOverflowScroll<Content: View>: View {
 
 }
 
-private let TabBarOverflowCoordinateSpace = "TabBarOverflowScroll"
+// File-private so the coordinate-space sentinel does not leak into the
+// rest of the module. Lives at top level rather than `static let` because
+// generic types cannot host static stored properties.
+private let tabBarOverflowCoordinateSpace = "TabBarOverflowScroll"
 
 /// Preference payload carrying the chip-row content width + its current
 /// horizontal offset inside the scroll. Combined with the outer container

@@ -871,6 +871,11 @@ final class HierarchyManager {
   /// True when any pane inside `tabID` is currently marked running.
   /// Reads a runtime set, never touches the catalog.
   func tabIsDirty(_ tabID: TabID) -> Bool {
+    // Fast-path: no pane is running anywhere in the app, so the catalog
+    // walk is pointless. Until the C3 hooks plan starts populating
+    // `runningPanes`, this short-circuit means the chip's per-render
+    // call is a single set-emptiness check rather than a hierarchy walk.
+    guard !runningPanes.isEmpty else { return false }
     // Walk the catalog once to locate the tab; absent tabs read as idle.
     for space in catalog.spaces {
       for project in space.projects {
