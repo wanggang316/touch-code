@@ -873,7 +873,8 @@ final class HierarchyManager {
     in projectID: ProjectID,
     in spaceID: SpaceID,
     workingDirectory: String,
-    initialCommand: String?
+    initialCommand: String?,
+    env: [String: String] = [:]
   ) throws -> PaneID {
     guard
       let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
@@ -913,7 +914,7 @@ final class HierarchyManager {
     try tab.validateInvariants()
 
     let worktree = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex]
-    try runtime.ensureSurface(for: pane, in: worktree)
+    try runtime.ensureSurface(for: pane, in: worktree, env: env)
 
     store.scheduleSave(catalog)
     return paneID
@@ -927,7 +928,8 @@ final class HierarchyManager {
     in projectID: ProjectID,
     in spaceID: SpaceID,
     workingDirectory: String,
-    initialCommand: String?
+    initialCommand: String?,
+    env: [String: String] = [:]
   ) throws -> PaneID {
     guard
       let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
@@ -958,7 +960,7 @@ final class HierarchyManager {
     try tab.validateInvariants()
 
     let worktree = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex]
-    try runtime.ensureSurface(for: newPane, in: worktree)
+    try runtime.ensureSurface(for: newPane, in: worktree, env: env)
 
     store.scheduleSave(catalog)
     return newPaneID
@@ -1432,6 +1434,26 @@ final class HierarchyManager {
       store.scheduleSave(catalog)
     }
     return overrides
+  }
+
+  // MARK: - Phase 2: env resolution
+
+  /// Resolves the merged environment for a Project's spawned subprocesses.
+  /// Combines `ProcessInfo.processInfo.environment` with
+  /// `Settings.projects[pid].envVars`; project-defined keys win on collision.
+  /// Pure / nonisolated so M8 (PaneSurface env injection) and M9 (lifecycle
+  /// script execution) can call it from off the main actor when convenient.
+  nonisolated static func resolvedEnv(
+    for projectID: ProjectID,
+    in settings: Settings
+  ) -> [String: String] {
+    var env = ProcessInfo.processInfo.environment
+    if let overrides = settings.projects[projectID]?.envVars {
+      for (key, value) in overrides {
+        env[key] = value
+      }
+    }
+    return env
   }
 
   // MARK: - Helpers

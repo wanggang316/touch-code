@@ -301,6 +301,62 @@ nonisolated struct HierarchyClient: Sendable {
       _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID,
       _ inSpace: SpaceID
     ) throws -> Void
+
+  // MARK: - Project Settings Phase 2
+
+  /// Runs a user-defined `ScriptDefinition` from `Settings.projects[pid].scripts`.
+  /// Looks up the script + worktree, opens a fresh tab whose name is the
+  /// script's `displayName`, and types the script's `command` into the new
+  /// pane's PTY. Project envVars get injected through the M8 spawn-path env
+  /// hook. Throws `RunScriptError.unknownScript` when the id is not in the
+  /// project's scripts (deleted between user click and effect dispatch);
+  /// throws `RunScriptError.missingWorktree` when the worktree disappears.
+  var runScript:
+    @MainActor @Sendable (
+      _ scriptID: UUID, _ projectID: ProjectID, _ worktreeID: WorktreeID
+    ) async throws -> Void
+
+  // MARK: - Worktree lifecycle wrappers (M9)
+
+  /// Script-only entry for cases where the catalog row already exists —
+  /// notably the Create Worktree flow, where `wt sw` creates the
+  /// directory before the sidebar attaches the catalog row. Returns
+  /// `.skipped` when the configured `git.<phase>Script` is empty.
+  var runWorktreeLifecycleScript:
+    @MainActor @Sendable (
+      _ phase: SettingsWriter.WorktreeLifecycle,
+      _ worktreeID: WorktreeID,
+      _ projectID: ProjectID
+    ) async -> LifecycleScriptResult
+
+  /// Catalog-append step plus setup-script execution. On script failure the
+  /// catalog row is rolled back; the on-disk directory is left for inspection.
+  /// Mirrors `createWorktree` plus the lifecycle wrapper.
+  var createWorktreeWithLifecycle:
+    @MainActor @Sendable (
+      _ projectID: ProjectID, _ inSpace: SpaceID,
+      _ name: String, _ path: String, _ branch: String?
+    ) async throws -> (WorktreeID, LifecycleScriptResult)
+
+  /// Sets `Worktree.archived` and (on `archived: true`) runs the archive
+  /// script first. Fail-warn: a non-zero exit does not block the flag flip.
+  var setWorktreeArchivedWithLifecycle:
+    @MainActor @Sendable (
+      _ worktreeID: WorktreeID, _ inProject: ProjectID, _ archived: Bool
+    ) async throws -> LifecycleScriptResult
+
+  /// Drops the catalog row and runs the delete script. Fail-warn: the row
+  /// is removed regardless of script exit.
+  var removeWorktreeWithLifecycle:
+    @MainActor @Sendable (
+      _ worktreeID: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
+    ) async throws -> LifecycleScriptResult
+}
+
+enum RunScriptError: Error, Equatable, Sendable {
+  case unknownScript(UUID)
+  case missingWorktree(WorktreeID)
+  case missingProject(ProjectID)
 }
 
 /// Full hierarchy address a `PaneID` resolves to. Carries the IDs of every
@@ -332,6 +388,7 @@ extension HierarchyClient {
   // swiftlint:disable:next function_body_length
   static func live(
     manager: HierarchyManager,
+    settings: SettingsStore? = nil,
     gitWorktreeClient: GitWorktreeClient = .makeLive()
   ) -> HierarchyClient {
     HierarchyClient(
@@ -392,17 +449,32 @@ extension HierarchyClient {
       lastFocusedPane: { tabID in manager.lastFocusedPane(in: tabID) },
       markPaneRunning: { paneID in manager.markPaneRunning(paneID) },
       markPaneIdle: { paneID in manager.markPaneIdle(paneID) },
-      openPane: { tabID, worktreeID, projectID, spaceID, cwd, initial in
-        try manager.openPane(
+      openPane: { [weak settings] tabID, worktreeID, projectID, spaceID, cwd, initial in
+        // M8: resolve project envVars from the SettingsStore so every
+        // user-flow openPane (TabBar new-tab, SplitViewport new-tab,
+        // CreateWorktree, IPC openPane) inherits Project-defined env. When
+        // the live wiring omits a SettingsStore (legacy callers, headless
+        // tests) the env defaults to empty and the pane spawns with the
+        // raw process env — same behaviour as before M8.
+        let env: [String: String] =
+          settings.map { HierarchyManager.resolvedEnv(for: projectID, in: $0.settings) }
+          ?? [:]
+        return try manager.openPane(
           in: tabID, in: worktreeID, in: projectID, in: spaceID,
-          workingDirectory: cwd, initialCommand: initial
+          workingDirectory: cwd, initialCommand: initial, env: env
         )
       },
-      splitPane: { paneID, direction, tabID, worktreeID, projectID, spaceID, cwd, initial in
-        try manager.splitPane(
+      splitPane: { [weak settings] paneID, direction, tabID, worktreeID, projectID, spaceID, cwd, initial in
+        // Splits inherit the same Project envVars as the parent pane —
+        // the new pty is forked from a fresh shell, not the existing one,
+        // so the env hook still has to run.
+        let env: [String: String] =
+          settings.map { HierarchyManager.resolvedEnv(for: projectID, in: $0.settings) }
+          ?? [:]
+        return try manager.splitPane(
           paneID, direction: direction,
           in: tabID, in: worktreeID, in: projectID, in: spaceID,
-          workingDirectory: cwd, initialCommand: initial
+          workingDirectory: cwd, initialCommand: initial, env: env
         )
       },
       closePane: { paneID, tabID, worktreeID, projectID, spaceID in
@@ -505,7 +577,96 @@ extension HierarchyClient {
       },
       unzoomTab: { tabID, worktreeID, projectID, spaceID in
         try manager.unfocusPane(in: tabID, in: worktreeID, in: projectID, in: spaceID)
+      },
+      runScript: { [weak settings] scriptID, projectID, worktreeID in
+        try await runScript(
+          scriptID: scriptID,
+          projectID: projectID,
+          worktreeID: worktreeID,
+          manager: manager,
+          settings: settings
+        )
+      },
+      runWorktreeLifecycleScript: { [weak settings] phase, worktreeID, projectID in
+        let snapshot = settings?.settings ?? .default
+        return await manager.runWorktreeLifecycleScript(
+          phase, for: worktreeID, in: projectID, settings: snapshot
+        )
+      },
+      createWorktreeWithLifecycle: { [weak settings] projectID, spaceID, name, path, branch in
+        let snapshot = settings?.settings ?? .default
+        return try await manager.createWorktreeWithLifecycle(
+          in: projectID, in: spaceID,
+          name: name, path: path, branch: branch,
+          settings: snapshot
+        )
+      },
+      setWorktreeArchivedWithLifecycle: { [weak settings] worktreeID, projectID, archived in
+        let snapshot = settings?.settings ?? .default
+        return try await manager.setWorktreeArchivedWithLifecycle(
+          worktreeID: worktreeID,
+          archived: archived,
+          in: projectID,
+          settings: snapshot
+        )
+      },
+      removeWorktreeWithLifecycle: { [weak settings] worktreeID, projectID, spaceID in
+        let snapshot = settings?.settings ?? .default
+        return try await manager.removeWorktreeWithLifecycle(
+          worktreeID, from: projectID, in: spaceID, settings: snapshot
+        )
       }
+    )
+  }
+
+  /// Looks up the script + worktree, opens a fresh tab named after the script,
+  /// and types the script's command into the new pane. Throws when the script
+  /// id was deleted between click and effect or the worktree is gone.
+  /// Project envVars injection lands in M8 (PaneSurface env hook); this
+  /// implementation already routes through `resolvedEnv` so the value is
+  /// computed once the runtime path consumes it.
+  @MainActor
+  private static func runScript(
+    scriptID: UUID,
+    projectID: ProjectID,
+    worktreeID: WorktreeID,
+    manager: HierarchyManager,
+    settings: SettingsStore?
+  ) async throws {
+    let snapshot = settings?.settings ?? .default
+    guard let project = snapshot.projects[projectID],
+      let script = project.scripts.first(where: { $0.id == scriptID })
+    else {
+      throw RunScriptError.unknownScript(scriptID)
+    }
+    var foundSpaceID: SpaceID?
+    var foundWorktreePath: String?
+    outer: for space in manager.catalog.spaces {
+      for project in space.projects where project.id == projectID {
+        for worktree in project.worktrees where worktree.id == worktreeID {
+          foundSpaceID = space.id
+          foundWorktreePath = worktree.path
+          break outer
+        }
+      }
+    }
+    guard let spaceID = foundSpaceID, let cwd = foundWorktreePath else {
+      throw RunScriptError.missingWorktree(worktreeID)
+    }
+    // M8: forward the resolved env into the spawn path so the new pane's
+    // pty inherits Project-defined envVars (project keys win over process
+    // env). PaneSurface threads this into ghostty_surface_config_s.env_vars.
+    let env = HierarchyManager.resolvedEnv(for: projectID, in: snapshot)
+
+    let tabID = try manager.createTab(
+      in: worktreeID, in: projectID, in: spaceID,
+      name: script.displayName
+    )
+    _ = try manager.openPane(
+      in: tabID, in: worktreeID, in: projectID, in: spaceID,
+      workingDirectory: cwd,
+      initialCommand: script.command,
+      env: env
     )
   }
 
@@ -701,7 +862,20 @@ extension HierarchyClient: DependencyKey {
     moveTab: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     equalizeTabSplits: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     resizePane: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    unzoomTab: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") }
+    unzoomTab: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    runScript: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    runWorktreeLifecycleScript: { _, _, _ in
+      fatalError("HierarchyClient.liveValue not configured")
+    },
+    createWorktreeWithLifecycle: { _, _, _, _, _ in
+      fatalError("HierarchyClient.liveValue not configured")
+    },
+    setWorktreeArchivedWithLifecycle: { _, _, _ in
+      fatalError("HierarchyClient.liveValue not configured")
+    },
+    removeWorktreeWithLifecycle: { _, _, _ in
+      fatalError("HierarchyClient.liveValue not configured")
+    }
   )
 
   static let testValue: HierarchyClient = HierarchyClient(
@@ -763,7 +937,24 @@ extension HierarchyClient: DependencyKey {
     moveTab: unimplemented("HierarchyClient.moveTab"),
     equalizeTabSplits: unimplemented("HierarchyClient.equalizeTabSplits"),
     resizePane: unimplemented("HierarchyClient.resizePane"),
-    unzoomTab: unimplemented("HierarchyClient.unzoomTab")
+    unzoomTab: unimplemented("HierarchyClient.unzoomTab"),
+    runScript: unimplemented("HierarchyClient.runScript"),
+    runWorktreeLifecycleScript: unimplemented(
+      "HierarchyClient.runWorktreeLifecycleScript",
+      placeholder: .skipped
+    ),
+    createWorktreeWithLifecycle: unimplemented(
+      "HierarchyClient.createWorktreeWithLifecycle",
+      placeholder: (WorktreeID(), .skipped)
+    ),
+    setWorktreeArchivedWithLifecycle: unimplemented(
+      "HierarchyClient.setWorktreeArchivedWithLifecycle",
+      placeholder: .skipped
+    ),
+    removeWorktreeWithLifecycle: unimplemented(
+      "HierarchyClient.removeWorktreeWithLifecycle",
+      placeholder: .skipped
+    )
   )
 }
 

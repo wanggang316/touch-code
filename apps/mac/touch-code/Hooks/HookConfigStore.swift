@@ -132,6 +132,42 @@ public final class HookConfigStore {
     try save(config)
   }
 
+  // MARK: - User-facing API (Project Settings Phase 2)
+
+  /// Insert-or-replace a user-authored subscription. Match-by-id semantics:
+  /// an existing subscription with the same `id` is replaced; otherwise the
+  /// new subscription is appended. Refuses subscriptions whose `command`
+  /// starts with the reserved internal namespace — that path is reserved
+  /// for `upsertInternal(_:)`.
+  ///
+  /// Saves through `scheduleSave(_:)` so multiple rapid edits coalesce.
+  /// Validates the subscription once before persistence so an invalid regex
+  /// or reserved env key surfaces synchronously to the caller.
+  public func upsert(_ subscription: HookSubscription) throws {
+    if subscription.command.hasPrefix(touchCodeInternalPrefix) {
+      throw HookConfigError.reservedPrefix(id: subscription.id, command: subscription.command)
+    }
+    try validate(subscription, allowInternalNamespace: false)
+
+    var config = (try? loadRaw()) ?? .empty
+    if let index = config.subscriptions.firstIndex(where: { $0.id == subscription.id }) {
+      config.subscriptions[index] = subscription
+    } else {
+      config.subscriptions.append(subscription)
+    }
+    scheduleSave(config)
+  }
+
+  /// Delete a subscription by id. Silent no-op when the id is absent — matches
+  /// "best-effort delete on a stale ID" semantics.
+  public func remove(id: UUID) throws {
+    var config = (try? loadRaw()) ?? .empty
+    let countBefore = config.subscriptions.count
+    config.subscriptions.removeAll { $0.id == id }
+    guard config.subscriptions.count != countBefore else { return }
+    scheduleSave(config)
+  }
+
   // MARK: - Helpers
 
   /// Raw load: decodes, but accepts internal-namespace subscriptions. Used

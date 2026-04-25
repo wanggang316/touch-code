@@ -120,9 +120,19 @@ struct HierarchySidebarFeature {
     /// for the main list; Archived sheet handles its own flow).
     var hasShownArchiveExplainer: Bool = false
     /// Pending archive awaiting the first-archive explainer dialog.
-    var pendingArchiveExplainer: WorktreeID?
+    var pendingArchiveExplainer: PendingArchiveExplainer?
     /// Transient toast after Prune completes.
     var pruneToast: String?
+  }
+
+  /// Payload for the first-archive explainer dialog. Carries the
+  /// originating `(spaceID, projectID, name)` so the post-confirm path
+  /// can run the archive-script wrapper without re-walking the catalog.
+  struct PendingArchiveExplainer: Equatable {
+    var worktreeID: WorktreeID
+    var projectID: ProjectID
+    var spaceID: SpaceID
+    var name: String
   }
 
   /// Payload for the safe-remove → force-remove escalation on the main
@@ -275,6 +285,15 @@ struct HierarchySidebarFeature {
       /// the Space + Project so the user lands on the existing row.
       case revealExistingProject(SpaceID, ProjectID)
       case openSpaceManager
+      /// M9: surfaces a lifecycle-script result on the main window. The
+      /// sidebar emits this after the Archive button drives the
+      /// `setWorktreeArchivedWithLifecycle` wrapper. RootFeature
+      /// presents the toast.
+      case lifecycleScriptResult(
+        phase: SettingsWriter.WorktreeLifecycle,
+        worktreeName: String,
+        result: LifecycleScriptResult
+      )
     }
   }
 
@@ -294,6 +313,12 @@ struct HierarchySidebarFeature {
         .createWorktreeSheet(.delegate(.submitted)):
         state.createWorktreeSheet = nil
         return .none
+      case .createWorktreeSheet(.delegate(.lifecycleScriptResult(let phase, let name, let result))):
+        // Forward the setup-script outcome up to RootFeature so the
+        // toast surfaces on the main window after the sheet closes.
+        return .send(
+          .delegate(
+            .lifecycleScriptResult(phase: phase, worktreeName: name, result: result)))
       case .createWorktreeSheet:
         // Other child actions are handled by the ifLet-scoped
         // reducer; no-op at the parent level.
@@ -478,22 +503,13 @@ struct HierarchySidebarFeature {
       let pid = pending.projectID
       let sid = pending.spaceID
       let name = pending.displayName
-      return .run { send in
-        do {
-          try await client.removeWorktreeWithGit(wid, pid, sid, false)
-        } catch let error as GitWorktreeError {
-          await send(
-            .worktreeRemoveFailed(
-              worktreeID: wid, inProject: pid, inSpace: sid, name: name, error: error
-            ))
-        } catch {
-          await send(
-            .worktreeRemoveFailed(
-              worktreeID: wid, inProject: pid, inSpace: sid, name: name,
-              error: .commandFailed(command: "remove", stderr: error.localizedDescription)
-            ))
-        }
-      }
+      return runRemoveWithDeleteScript(
+        client: client, wid: wid, pid: pid, sid: sid, name: name, force: false,
+        onFailure: { error in
+          .worktreeRemoveFailed(
+            worktreeID: wid, inProject: pid, inSpace: sid, name: name, error: error
+          )
+        })
 
     case .worktreeRemoveCancelled:
       state.pendingWorktreeRemoval = nil
@@ -534,10 +550,11 @@ struct HierarchySidebarFeature {
       let wid = pending.worktreeID
       let pid = pending.projectID
       let sid = pending.spaceID
+      let name = pending.displayName
       state.pendingForceRemove = nil
-      return .run { _ in
-        try? await client.removeWorktreeWithGit(wid, pid, sid, true)
-      }
+      return runRemoveWithDeleteScript(
+        client: client, wid: wid, pid: pid, sid: sid, name: name, force: true,
+        onFailure: nil)
 
     case .worktreeForceRemoveCancelled:
       state.pendingForceRemove = nil
@@ -549,29 +566,33 @@ struct HierarchySidebarFeature {
       let wid = pending.worktreeID
       let pid = pending.projectID
       let sid = pending.spaceID
+      let name = pending.displayName
       state.pendingRunningTerminalWarning = nil
-      return .run { _ in
-        try? await client.removeWorktreeWithGit(wid, pid, sid, true)
-      }
+      return runRemoveWithDeleteScript(
+        client: client, wid: wid, pid: pid, sid: sid, name: name, force: true,
+        onFailure: nil)
 
     case .worktreeRunningTerminalWarningCancelled:
       state.pendingRunningTerminalWarning = nil
       return .none
 
-    case .worktreeArchiveTapped(let wid, _, _, _):
+    case .worktreeArchiveTapped(let wid, let pid, let sid, let name):
       if state.hasShownArchiveExplainer {
-        try? hierarchyClient.setWorktreeArchived(wid, true)
-      } else {
-        state.pendingArchiveExplainer = wid
+        return runArchiveWithLifecycle(wid: wid, pid: pid, sid: sid, name: name)
       }
+      state.pendingArchiveExplainer = PendingArchiveExplainer(
+        worktreeID: wid, projectID: pid, spaceID: sid, name: name
+      )
       return .none
 
     case .worktreeArchiveConfirmed:
-      guard let wid = state.pendingArchiveExplainer else { return .none }
+      guard let pending = state.pendingArchiveExplainer else { return .none }
       state.hasShownArchiveExplainer = true
       state.pendingArchiveExplainer = nil
-      try? hierarchyClient.setWorktreeArchived(wid, true)
-      return .none
+      return runArchiveWithLifecycle(
+        wid: pending.worktreeID, pid: pending.projectID,
+        sid: pending.spaceID, name: pending.name
+      )
 
     case .worktreeArchiveCancelled:
       state.pendingArchiveExplainer = nil
@@ -771,5 +792,58 @@ struct HierarchySidebarFeature {
     // Stale — clear the pointer and let Project.selectedWorktreeID fallback take over.
     hierarchyClient.setSpaceLastActiveWorktree(spaceID, nil)
     return .none
+  }
+
+  /// M9: Archive button → wrapper variant. The wrapper runs the archive
+  /// script (fail-warn) and flips `Worktree.archived = true` regardless
+  /// of script exit. Surfaces the result as a delegate event so
+  /// `RootFeature` can present the toast.
+  private func runArchiveWithLifecycle(
+    wid: WorktreeID, pid: ProjectID, sid: SpaceID, name: String
+  ) -> Effect<Action> {
+    let client = hierarchyClient
+    return .run { send in
+      let result =
+        (try? await client.setWorktreeArchivedWithLifecycle(wid, pid, true)) ?? .skipped
+      await send(
+        .delegate(
+          .lifecycleScriptResult(phase: .archive, worktreeName: name, result: result))
+      )
+    }
+  }
+
+  /// M9: Remove button → script-only delete-script execution before the
+  /// gh-aware `removeWorktreeWithGit` call. Mirrors `CreateWorktreeFeature`'s
+  /// setup-script pattern: the lifecycle wrapper is bypassed because the
+  /// remove path needs the gh-aware variant (`git worktree remove`), not
+  /// the catalog-only `removeWorktree`. Fail-warn semantics — script
+  /// failure does not block the remove. `onFailure` is non-nil for the
+  /// safe path (so uncommitted-changes errors can ladder into the
+  /// force-remove flow); the force paths swallow remove errors directly.
+  private func runRemoveWithDeleteScript(
+    client: HierarchyClient,
+    wid: WorktreeID, pid: ProjectID, sid: SpaceID, name: String, force: Bool,
+    onFailure: (@Sendable (GitWorktreeError) -> Action)?
+  ) -> Effect<Action> {
+    .run { send in
+      let result = await client.runWorktreeLifecycleScript(.delete, wid, pid)
+      await send(
+        .delegate(
+          .lifecycleScriptResult(phase: .delete, worktreeName: name, result: result))
+      )
+      do {
+        try await client.removeWorktreeWithGit(wid, pid, sid, force)
+      } catch let error as GitWorktreeError {
+        if let onFailure {
+          await send(onFailure(error))
+        }
+      } catch {
+        if let onFailure {
+          await send(
+            onFailure(
+              .commandFailed(command: "remove", stderr: error.localizedDescription)))
+        }
+      }
+    }
   }
 }

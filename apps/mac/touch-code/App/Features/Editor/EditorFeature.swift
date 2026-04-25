@@ -245,6 +245,26 @@ struct EditorFeature {
 /// reaching into `SettingsStore` directly so tests can override writes without a
 /// `@MainActor` ceremony.
 nonisolated struct SettingsWriter: Sendable {
+  /// Worktree-lifecycle phase identifying which `GitProjectSettings.*Script`
+  /// to mutate.
+  enum WorktreeLifecycle: Sendable, Equatable, Hashable {
+    case setup
+    case archive
+    case delete
+  }
+
+  /// Identifies a single mutable field under `ProjectSettings.git`. Carrying
+  /// the new value inline keeps the closure count manageable while still
+  /// letting tests assert specific writes.
+  enum GitFieldUpdate: Sendable, Equatable {
+    case worktreeBaseRef(String?)
+    case copyIgnoredOnWorktreeCreate(Bool?)
+    case copyUntrackedOnWorktreeCreate(Bool?)
+    case defaultMergeStrategy(MergeStrategy?)
+    case postMergeAction(MergedWorktreeAction?)
+    case githubDisabled(Bool)
+  }
+
   var readSnapshot: @Sendable () async -> Settings
   /// Synchronous snapshot read. Implementation walks the `@MainActor` `SettingsStore`
   /// under `MainActor.assumeIsolated` so reducers already on the main queue can read
@@ -256,6 +276,32 @@ nonisolated struct SettingsWriter: Sendable {
   var setProjectDefaultEditor: @Sendable (_ projectID: ProjectID, _ editorID: EditorID?) async -> Void
   /// Per-Project worktree base directory override. `nil` clears.
   var setProjectWorktreesDirectory: @Sendable (_ projectID: ProjectID, _ path: String?) async -> Void
+
+  // MARK: - Phase 2 closures
+
+  /// Per-Project default shell override. `nil` clears.
+  var setProjectDefaultShell: @Sendable (_ projectID: ProjectID, _ shell: String?) async -> Void
+
+  /// Per-Project mutation of a specific git-subtree field. The closure
+  /// ensures `git` is non-nil before applying the field write and runs
+  /// `collapseEmptyGit()` after so an all-default git child collapses
+  /// to nil before persistence.
+  var setProjectGitField: @Sendable (_ projectID: ProjectID, _ update: GitFieldUpdate) async -> Void
+
+  /// Per-Project envVars mutation. `value: nil` removes the key; `""` stores
+  /// an empty-string value.
+  var setProjectEnvVar:
+    @Sendable (_ projectID: ProjectID, _ key: String, _ value: String?) async -> Void
+
+  /// Per-Project scripts replace. The Scripts pane writes the full array
+  /// after every edit / reorder / delete; this is simpler than per-script
+  /// upsert closures and matches `ForEach.onMove`'s array-back semantics.
+  var setProjectScripts:
+    @Sendable (_ projectID: ProjectID, _ scripts: [ScriptDefinition]) async -> Void
+
+  /// Per-Project worktree-lifecycle script. Empty string clears.
+  var setProjectLifecycleScript:
+    @Sendable (_ projectID: ProjectID, _ phase: WorktreeLifecycle, _ command: String) async -> Void
 }
 
 extension SettingsWriter {
@@ -280,6 +326,67 @@ extension SettingsWriter {
         await MainActor.run {
           store?.mutateProject(pid) { $0.worktreesDirectory = path }
         }
+      },
+      setProjectDefaultShell: { [weak store] pid, shell in
+        await MainActor.run {
+          store?.mutateProject(pid) { $0.defaultShell = shell }
+        }
+      },
+      setProjectGitField: { [weak store] pid, update in
+        await MainActor.run {
+          store?.mutateProject(pid) { project in
+            var git = project.git ?? GitProjectSettings()
+            switch update {
+            case .worktreeBaseRef(let value):
+              git.worktreeBaseRef = value
+            case .copyIgnoredOnWorktreeCreate(let value):
+              git.copyIgnoredOnWorktreeCreate = value
+            case .copyUntrackedOnWorktreeCreate(let value):
+              git.copyUntrackedOnWorktreeCreate = value
+            case .defaultMergeStrategy(let value):
+              git.defaultMergeStrategy = value
+            case .postMergeAction(let value):
+              git.postMergeAction = value
+            case .githubDisabled(let value):
+              git.githubDisabled = value
+            }
+            project.git = git
+            project.collapseEmptyGit()
+          }
+        }
+      },
+      setProjectEnvVar: { [weak store] pid, key, value in
+        await MainActor.run {
+          store?.mutateProject(pid) { project in
+            if let value {
+              project.envVars[key] = value
+            } else {
+              project.envVars.removeValue(forKey: key)
+            }
+          }
+        }
+      },
+      setProjectScripts: { [weak store] pid, scripts in
+        await MainActor.run {
+          store?.mutateProject(pid) { $0.scripts = scripts }
+        }
+      },
+      setProjectLifecycleScript: { [weak store] pid, phase, command in
+        await MainActor.run {
+          store?.mutateProject(pid) { project in
+            var git = project.git ?? GitProjectSettings()
+            switch phase {
+            case .setup:
+              git.setupScript = command
+            case .archive:
+              git.archiveScript = command
+            case .delete:
+              git.deleteScript = command
+            }
+            project.git = git
+            project.collapseEmptyGit()
+          }
+        }
       }
     )
   }
@@ -293,7 +400,12 @@ extension SettingsWriter: DependencyKey {
     readSnapshotSync: { fatalError("SettingsWriter.liveValue not configured") },
     setDefaultEditorID: { _ in fatalError("SettingsWriter.liveValue not configured") },
     setProjectDefaultEditor: { _, _ in fatalError("SettingsWriter.liveValue not configured") },
-    setProjectWorktreesDirectory: { _, _ in fatalError("SettingsWriter.liveValue not configured") }
+    setProjectWorktreesDirectory: { _, _ in fatalError("SettingsWriter.liveValue not configured") },
+    setProjectDefaultShell: { _, _ in fatalError("SettingsWriter.liveValue not configured") },
+    setProjectGitField: { _, _ in fatalError("SettingsWriter.liveValue not configured") },
+    setProjectEnvVar: { _, _, _ in fatalError("SettingsWriter.liveValue not configured") },
+    setProjectScripts: { _, _ in fatalError("SettingsWriter.liveValue not configured") },
+    setProjectLifecycleScript: { _, _, _ in fatalError("SettingsWriter.liveValue not configured") }
   )
 
   static let testValue: SettingsWriter = SettingsWriter(
@@ -301,7 +413,12 @@ extension SettingsWriter: DependencyKey {
     readSnapshotSync: unimplemented("SettingsWriter.readSnapshotSync", placeholder: .default),
     setDefaultEditorID: unimplemented("SettingsWriter.setDefaultEditorID"),
     setProjectDefaultEditor: unimplemented("SettingsWriter.setProjectDefaultEditor"),
-    setProjectWorktreesDirectory: unimplemented("SettingsWriter.setProjectWorktreesDirectory")
+    setProjectWorktreesDirectory: unimplemented("SettingsWriter.setProjectWorktreesDirectory"),
+    setProjectDefaultShell: unimplemented("SettingsWriter.setProjectDefaultShell"),
+    setProjectGitField: unimplemented("SettingsWriter.setProjectGitField"),
+    setProjectEnvVar: unimplemented("SettingsWriter.setProjectEnvVar"),
+    setProjectScripts: unimplemented("SettingsWriter.setProjectScripts"),
+    setProjectLifecycleScript: unimplemented("SettingsWriter.setProjectLifecycleScript")
   )
 }
 

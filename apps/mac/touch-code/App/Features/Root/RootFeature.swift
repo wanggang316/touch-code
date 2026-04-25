@@ -56,6 +56,11 @@ struct RootFeature {
     /// routes it to a feature action and nils this slot in the same tick).
     @Presents var commandPalette: CommandPaletteFeature.State?
 
+    /// M9: lifecycle-script toast presentation. `nil` = hidden; non-nil
+    /// shows the transient sheet with the running / completed script
+    /// output anchored to the main window.
+    @Presents var lifecycleScriptToast: LifecycleScriptToastFeature.State?
+
     /// T3: live read of the current Worktree's `gitViewerVisible` against
     /// a catalog snapshot. Not a cached field — views pass in
     /// `hierarchyManager.catalog` so SwiftUI's `@Observable` tracking
@@ -168,6 +173,18 @@ struct RootFeature {
     /// split).
     case commandPaletteToggle(PaneID?)
     case commandPalette(PresentationAction<CommandPaletteFeature.Action>)
+    /// M9: surfaces a lifecycle-script result on the main window.
+    /// Sources: Add Worktree (setup), sidebar Archive (archive),
+    /// sidebar Remove (delete). The originating feature already ran
+    /// the wrapper variant and got the `LifecycleScriptResult` back;
+    /// this action presents the toast in its terminal state. Skipped
+    /// results (empty script) are silent — the toast does not show.
+    case runWorktreeLifecycleResult(
+      phase: SettingsWriter.WorktreeLifecycle,
+      worktreeName: String,
+      result: LifecycleScriptResult
+    )
+    case lifecycleScriptToast(PresentationAction<LifecycleScriptToastFeature.Action>)
     case sidebar(HierarchySidebarFeature.Action)
     case detail(WorktreeDetailFeature.Action)
     case gitViewer(GitViewerFeature.Action)
@@ -485,6 +502,9 @@ struct RootFeature {
       case .sidebar(.delegate(.openSpaceManager)):
         return .send(.spaceManagerSheetShown)
 
+      case .sidebar(.delegate(.lifecycleScriptResult(let phase, let name, let result))):
+        return .send(.runWorktreeLifecycleResult(phase: phase, worktreeName: name, result: result))
+
       case .sidebar:
         return .none
 
@@ -546,6 +566,24 @@ struct RootFeature {
           // points share one write path (reads current visibility from the
           // catalog, writes the flipped value).
           return .send(.gitViewerToggledForCurrentWorktree)
+
+        case .runScriptRequested(let scriptID, let projectID, let worktreeID):
+          let client = hierarchyClient
+          let presenter = settingsWindowPresenter
+          return .run { send in
+            do {
+              try await client.runScript(scriptID, projectID, worktreeID)
+            } catch let error as RunScriptError {
+              await send(.statusBar(.push(.warning(Self.runScriptErrorMessage(error)))))
+              _ = presenter  // Settings is not auto-opened on failure; user can navigate themselves.
+            } catch {
+              await send(.statusBar(.push(.warning("Run script failed: \(error.localizedDescription)"))))
+            }
+          }
+
+        case .manageScriptsRequested:
+          let presenter = settingsWindowPresenter
+          return .run { _ in await MainActor.run { presenter.open() } }
         }
 
       case .worktreeHeader:
@@ -675,6 +713,33 @@ struct RootFeature {
       case .commandPalette:
         return .none
 
+      case .runWorktreeLifecycleResult(let phase, let worktreeName, let result):
+        switch result {
+        case .skipped:
+          // Empty script — no toast needed.
+          return .none
+        case .success, .failure:
+          // "Latest wins" replacement: a fresh result while a toast is
+          // presenting overwrites the previous state. The auto-dismiss
+          // task on a previous .success uses `cancelInFlight: true`, so
+          // the prior timer is cancelled when the new .finished arm
+          // re-arms it. A failure toast carries no timer, so a new
+          // success toast simply schedules its own dismiss against the
+          // new presentation.
+          state.lifecycleScriptToast = LifecycleScriptToastFeature.State(
+            phase: phase, worktreeName: worktreeName
+          )
+          return .send(.lifecycleScriptToast(.presented(.finished(result))))
+        }
+
+      case .lifecycleScriptToast(.presented(.dismiss)),
+        .lifecycleScriptToast(.dismiss):
+        state.lifecycleScriptToast = nil
+        return .none
+
+      case .lifecycleScriptToast:
+        return .none
+
       case .switchToSpaceAtIndex(let index):
         let snapshot = hierarchyClient.snapshot()
         guard index >= 1 && index <= snapshot.spaces.count else { return .none }
@@ -794,6 +859,9 @@ struct RootFeature {
     .ifLet(\.$commandPalette, action: \.commandPalette) {
       CommandPaletteFeature()
     }
+    .ifLet(\.$lifecycleScriptToast, action: \.lifecycleScriptToast) {
+      LifecycleScriptToastFeature()
+    }
   }
 
   // swiftlint:disable cyclomatic_complexity
@@ -893,6 +961,22 @@ struct RootFeature {
       else { return .none }
       let client = finderClient
       return .run { _ in await MainActor.run { client.reveal(path) } }
+
+    // Project scripts (Phase 2 / M10) — palette item carries the
+    // (projectID, worktreeID, scriptID) triple, fan out into the same
+    // run-script effect the WorktreeHeader split-button and the Scripts
+    // pane Run button use, so failure handling stays in one place.
+    case .runProjectScript(let projectID, let worktreeID, let scriptID):
+      let client = hierarchyClient
+      return .run { send in
+        do {
+          try await client.runScript(scriptID, projectID, worktreeID)
+        } catch let error as RunScriptError {
+          await send(.statusBar(.push(.warning(Self.runScriptErrorMessage(error)))))
+        } catch {
+          await send(.statusBar(.push(.warning("Run script failed: \(error.localizedDescription)"))))
+        }
+      }
 
     // Pane / Window — thin wrappers over the routers
     case .paneAction(let req):
@@ -1024,6 +1108,17 @@ struct RootFeature {
     guard trimmed.count > 80 else { return trimmed }
     let cutoff = trimmed.index(trimmed.startIndex, offsetBy: 79)
     return String(trimmed[..<cutoff]) + "…"
+  }
+
+  static func runScriptErrorMessage(_ error: RunScriptError) -> String {
+    switch error {
+    case .unknownScript:
+      return "Run script failed: script no longer exists"
+    case .missingWorktree:
+      return "Run script failed: worktree not available"
+    case .missingProject:
+      return "Run script failed: project not available"
+    }
   }
 
   /// Resolve the active tab for a selection using the snapshot from the

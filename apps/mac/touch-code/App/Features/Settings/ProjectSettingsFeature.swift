@@ -14,7 +14,18 @@ struct ProjectSettingsFeature {
     /// re-seeded when `.projectsChanged` delta reveals a kind flip on an existing pane.
     var kind: ProjectKind = .gitRepo
     var hooksLoad: HooksLoad = .idle
+    /// Underlying subscriptions paired with the rows in `hooksLoad`. The
+    /// Hooks pane edits these (`HookEditorRow` needs the full model, not
+    /// the display-only `HookRow` projection). Refreshed every time
+    /// `.onHooksAppear` succeeds.
+    var hookSubscriptions: [HookSubscription] = []
     var lastWriteFailure: String?
+    /// Worktree the Scripts pane targets when the user clicks Run. The
+    /// parent feature (`SettingsWindowFeature`) populates this from the
+    /// most-recently focused worktree of the selected Project; when nil
+    /// the pane falls back to the catalog's first worktree, and disables
+    /// Run when neither resolves.
+    var lastFocusedWorktreeID: WorktreeID?
 
     var id: ProjectID { projectID }
 
@@ -31,13 +42,39 @@ struct ProjectSettingsFeature {
     case setWorktreeBaseDirectory(String?)
     case writeFailed(String)
     case onHooksAppear
-    case hooksLoaded(Result<[HookRow], LoadError>)
+    case hooksLoaded(Result<HooksLoadPayload, LoadError>)
     case revealHooksJSONRequested
+    /// Replace the entire `scripts` array. The Scripts pane writes
+    /// after every edit / reorder / delete; full-array semantics match
+    /// `ForEach.onMove` and `SettingsWriter.setProjectScripts`.
+    case setProjectScripts([ScriptDefinition])
+    /// Write a single worktree-lifecycle script (setup/archive/delete).
+    case setLifecycleScript(SettingsWriter.WorktreeLifecycle, String)
+    /// Run a script in the resolved worktree. On `RunScriptError` the
+    /// reducer surfaces the message via `.writeFailed` so the pane's
+    /// existing failure banner displays it.
+    case runScriptTapped(scriptID: UUID, worktreeID: WorktreeID)
+    /// Insert-or-replace a HookSubscription via `HookConfigClient.upsert`.
+    /// On success re-loads via `.onHooksAppear` so the merged list refreshes.
+    /// On failure dispatches `.writeFailed` with the underlying error.
+    case upsertHook(HookSubscription)
+    /// Delete a HookSubscription by id via `HookConfigClient.delete`. On
+    /// success re-loads the merged list; on failure dispatches `.writeFailed`.
+    case deleteHook(UUID)
   }
 
   enum LoadError: Error, Equatable {
     case loadFailed(String)
     case classificationFailed(String)
+  }
+
+  /// Combined payload returned to `.hooksLoaded`. Carries both the
+  /// display-only `HookRow` projections and the editable
+  /// `HookSubscription` models the Hooks pane needs to seed
+  /// `HookEditorRow` drafts.
+  struct HooksLoadPayload: Equatable {
+    var rows: [HookRow]
+    var subscriptions: [HookSubscription]
   }
 
   @Dependency(HierarchyClient.self) var hierarchyClient
@@ -80,7 +117,11 @@ struct ProjectSettingsFeature {
             let rows = classified.map { subscription, source in
               HookRowBuilder.make(from: subscription, source: source)
             }
-            await send(.hooksLoaded(.success(rows)))
+            let payload = HooksLoadPayload(
+              rows: rows,
+              subscriptions: classified.map(\.0)
+            )
+            await send(.hooksLoaded(.success(payload)))
           } catch {
             let errorMessage = String(describing: error)
             await send(.hooksLoaded(.failure(.loadFailed(errorMessage))))
@@ -89,10 +130,12 @@ struct ProjectSettingsFeature {
 
       case .hooksLoaded(let result):
         switch result {
-        case .success(let rows):
-          state.hooksLoad = .loaded(rows)
+        case .success(let payload):
+          state.hooksLoad = .loaded(payload.rows)
+          state.hookSubscriptions = payload.subscriptions
         case .failure(let error):
           state.hooksLoad = .failed(String(describing: error))
+          state.hookSubscriptions = []
         }
         return .none
 
@@ -107,7 +150,69 @@ struct ProjectSettingsFeature {
             await send(.writeFailed(errorMessage))
           }
         }
+
+      case .setProjectScripts(let scripts):
+        let writer = settingsWriter.setProjectScripts
+        return .run { [projectID = state.projectID] send in
+          await writer(projectID, scripts)
+          await send(.writeFailed(""))
+        }
+
+      case .setLifecycleScript(let phase, let command):
+        let writer = settingsWriter.setProjectLifecycleScript
+        return .run { [projectID = state.projectID] send in
+          await writer(projectID, phase, command)
+          await send(.writeFailed(""))
+        }
+
+      case .upsertHook(let subscription):
+        let upsert = hookConfigClient.upsert
+        return .run { send in
+          do {
+            try await upsert(subscription)
+            await send(.onHooksAppear)
+          } catch {
+            await send(.writeFailed("Hook save failed: \(error.localizedDescription)"))
+          }
+        }
+
+      case .deleteHook(let subscriptionID):
+        let deleter = hookConfigClient.delete
+        return .run { send in
+          do {
+            try await deleter(subscriptionID)
+            await send(.onHooksAppear)
+          } catch {
+            await send(.writeFailed("Hook delete failed: \(error.localizedDescription)"))
+          }
+        }
+
+      case .runScriptTapped(let scriptID, let worktreeID):
+        let runner = hierarchyClient.runScript
+        return .run { [projectID = state.projectID] send in
+          do {
+            try await runner(scriptID, projectID, worktreeID)
+          } catch let error as RunScriptError {
+            await send(.writeFailed(Self.runScriptErrorMessage(error)))
+          } catch {
+            await send(.writeFailed("Run script failed: \(error.localizedDescription)"))
+          }
+        }
       }
+    }
+  }
+
+  /// Human-friendly mapping for the failure banner. Mirrors
+  /// `RootFeature.runScriptErrorMessage` so both surfaces phrase
+  /// identical errors identically.
+  static func runScriptErrorMessage(_ error: RunScriptError) -> String {
+    switch error {
+    case .unknownScript:
+      return "That script no longer exists."
+    case .missingWorktree:
+      return "The worktree for this script is no longer available."
+    case .missingProject:
+      return "The Project for this script is no longer available."
     }
   }
 }

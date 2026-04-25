@@ -17,6 +17,16 @@ nonisolated struct HookConfigClient: Sendable {
   /// always opens something (spec Acceptance Criteria). Throws the underlying
   /// AtomicFileStore error on write failure.
   var ensureExists: @MainActor @Sendable () async throws -> Void
+
+  /// Insert-or-replace a user-authored subscription. Forwards to
+  /// `HookConfigStore.upsert`, which refuses commands in the reserved
+  /// internal namespace (`__touch-code/internal:`) — those go through
+  /// `HookConfigStore.upsertInternal` directly and are not user-editable.
+  /// Persists through `HookConfigStore.scheduleSave`.
+  var upsert: @MainActor @Sendable (_ subscription: HookSubscription) async throws -> Void
+
+  /// Delete a subscription by id. Silent no-op when missing.
+  var delete: @MainActor @Sendable (_ subscriptionID: UUID) async throws -> Void
 }
 
 // MARK: - Live bridge
@@ -31,6 +41,12 @@ extension HookConfigClient {
       ensureExists: {
         guard !FileManager.default.fileExists(atPath: store.fileURL.path) else { return }
         try store.save(.empty)
+      },
+      upsert: { subscription in
+        try store.upsert(subscription)
+      },
+      delete: { id in
+        try store.remove(id: id)
       }
     )
   }
@@ -45,12 +61,20 @@ extension HookConfigClient: DependencyKey {
     },
     ensureExists: {
       fatalError("HookConfigClient.liveValue not configured")
+    },
+    upsert: { _ in
+      fatalError("HookConfigClient.liveValue not configured")
+    },
+    delete: { _ in
+      fatalError("HookConfigClient.liveValue not configured")
     }
   )
 
   static let testValue: HookConfigClient = HookConfigClient(
     load: unimplemented("HookConfigClient.load"),
-    ensureExists: unimplemented("HookConfigClient.ensureExists")
+    ensureExists: unimplemented("HookConfigClient.ensureExists"),
+    upsert: unimplemented("HookConfigClient.upsert"),
+    delete: unimplemented("HookConfigClient.delete")
   )
 }
 

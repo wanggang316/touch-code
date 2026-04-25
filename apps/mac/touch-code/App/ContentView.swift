@@ -85,6 +85,11 @@ struct ContentView: View {
       .sheet(item: $store.scope(state: \.spaceManagerSheet, action: \.spaceManagerSheet)) { sheetStore in
         SpaceManagerView(store: sheetStore)
       }
+      .sheet(
+        item: $store.scope(state: \.lifecycleScriptToast, action: \.lifecycleScriptToast)
+      ) { toastStore in
+        LifecycleScriptToast(store: toastStore)
+      }
     }
     .environment(hierarchyManager)
     .environment(settingsStore)

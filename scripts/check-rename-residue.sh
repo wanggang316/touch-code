@@ -38,6 +38,12 @@ DENYLIST=(
   '\brepositoryGeneral\b'
   '\brepositoryHooks\b'
   '\bmutateRepository\b'
+  # Phase 2 retired the per-Project sub-pane scaffolds; re-introduction must
+  # not regress through a stray rebase. The General pane absorbs their content
+  # via Section-level conditional rendering.
+  '\bProjectGitSettingsView\b'
+  '\bProjectGitHubSettingsView\b'
+  '\bProjectEnvSettingsView\b'
 )
 
 PATTERN="$(IFS='|'; echo "${DENYLIST[*]}")"

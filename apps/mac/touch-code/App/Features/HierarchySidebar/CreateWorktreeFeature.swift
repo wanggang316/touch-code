@@ -74,6 +74,14 @@ struct CreateWorktreeFeature {
       /// dismiss the sheet. The new WorktreeID is not threaded back —
       /// the parent re-reads from `HierarchyManager.catalog`.
       case submitted
+      /// M9: setup-script outcome surfaces here after the catalog +
+      /// pane wiring completes. The parent forwards to RootFeature so
+      /// `LifecycleScriptToast` can surface the output.
+      case lifecycleScriptResult(
+        phase: SettingsWriter.WorktreeLifecycle,
+        worktreeName: String,
+        result: LifecycleScriptResult
+      )
     }
   }
 
@@ -227,8 +235,9 @@ struct CreateWorktreeFeature {
         let branch = state.branchNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         let directoryName = GitWorktreeClient.sanitizeBranchName(branch)
         let pathString = path.standardizedFileURL.path(percentEncoded: false)
+        let worktreeID: WorktreeID
         do {
-          let worktreeID = try hierarchyClient.createWorktreeWithGit(
+          worktreeID = try hierarchyClient.createWorktreeWithGit(
             projectID, spaceID, branch, directoryName, pathString
           )
           try hierarchyClient.selectWorktree(worktreeID, projectID, spaceID)
@@ -241,7 +250,28 @@ struct CreateWorktreeFeature {
             "Worktree created on disk, but failed to attach in the sidebar: \(error.localizedDescription)"
           return .none
         }
-        return .send(.delegate(.submitted))
+        // M9: dismiss the sheet immediately, then run the setup script
+        // via the script-only path (the catalog row + on-disk
+        // directory both already exist — `wt sw` made the directory,
+        // `createWorktreeWithGit` registered the row). The toast
+        // surfaces the result on the main window. Setup deviates from
+        // the create-with-lifecycle wrapper here: rollback would
+        // require an extra `git worktree remove` we deliberately
+        // don't risk in the create-only path.
+        let client = hierarchyClient
+        return .merge(
+          .send(.delegate(.submitted)),
+          .run { send in
+            let result = await client.runWorktreeLifecycleScript(
+              .setup, worktreeID, projectID
+            )
+            await send(
+              .delegate(
+                .lifecycleScriptResult(
+                  phase: .setup, worktreeName: branch, result: result))
+            )
+          }
+        )
 
       case .cancelButtonTapped:
         return .send(.delegate(.dismissed))

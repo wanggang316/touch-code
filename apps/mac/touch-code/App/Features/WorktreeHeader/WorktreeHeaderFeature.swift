@@ -56,6 +56,10 @@ struct WorktreeHeaderFeature {
     /// drifting from the catalog snapshot the reducer reads.
     case gitViewerToggleTapped
     case setProjectDefaultEditorTapped(spaceID: SpaceID, projectID: ProjectID, editorID: EditorID?)
+    /// Run script split-button — primary or menu activation. Phase 2.
+    case runScriptTapped(scriptID: UUID, projectID: ProjectID, worktreeID: WorktreeID)
+    /// "Manage Scripts…" menu footer or primary click on an empty script list.
+    case manageScriptsTapped
     case delegate(Delegate)
 
     /// Parent-consumed delegate. `RootFeature` routes these into the existing
@@ -72,6 +76,14 @@ struct WorktreeHeaderFeature {
       /// GV button tapped. Parent flips the current Worktree's visibility
       /// via `.gitViewerToggledForCurrentWorktree` (shared with ⌘⇧G).
       case gitViewerToggleRequested
+      /// Run a user-defined Project script. RootFeature dispatches to
+      /// `HierarchyClient.runScript`.
+      case runScriptRequested(scriptID: UUID, projectID: ProjectID, worktreeID: WorktreeID)
+      /// User asked to manage scripts — open the Settings window. The Scripts
+      /// pane is one click away in the Project's sub-rows; pane-level
+      /// deep-link is intentionally out of scope for Phase 2 (see
+      /// docs/exec-plans/project-settings-phase2.md Decision Log).
+      case manageScriptsRequested
     }
   }
 
@@ -141,6 +153,18 @@ struct WorktreeHeaderFeature {
               spaceID: spaceID,
               editorID: editorID
             )))
+
+      case .runScriptTapped(let scriptID, let projectID, let worktreeID):
+        return .send(
+          .delegate(
+            .runScriptRequested(
+              scriptID: scriptID,
+              projectID: projectID,
+              worktreeID: worktreeID
+            )))
+
+      case .manageScriptsTapped:
+        return .send(.delegate(.manageScriptsRequested))
 
       case .delegate:
         // Consumed by the parent; reducer has no local state change.

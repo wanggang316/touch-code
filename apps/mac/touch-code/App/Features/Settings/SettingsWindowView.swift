@@ -112,39 +112,12 @@ struct SettingsWindowView: View {
       } else {
         ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
       }
-    case .projectGit(let projectID):
-      if let paneStore = store.scope(
-        state: \.projectPanes[id: projectID],
-        action: \.projectPanes[id: projectID]
-      ) {
-        ProjectGitSettingsView(projectID: projectID, store: paneStore)
-      } else {
-        ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-      }
-    case .projectGitHub(let projectID):
-      if let paneStore = store.scope(
-        state: \.projectPanes[id: projectID],
-        action: \.projectPanes[id: projectID]
-      ) {
-        ProjectGitHubSettingsView(projectID: projectID, store: paneStore)
-      } else {
-        ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-      }
     case .projectScripts(let projectID):
       if let paneStore = store.scope(
         state: \.projectPanes[id: projectID],
         action: \.projectPanes[id: projectID]
       ) {
         ProjectScriptsSettingsView(projectID: projectID, store: paneStore)
-      } else {
-        ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-      }
-    case .projectEnv(let projectID):
-      if let paneStore = store.scope(
-        state: \.projectPanes[id: projectID],
-        action: \.projectPanes[id: projectID]
-      ) {
-        ProjectEnvSettingsView(projectID: projectID, store: paneStore)
       } else {
         ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
       }
