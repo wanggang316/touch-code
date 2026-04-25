@@ -63,8 +63,9 @@ expands additively (existing reserved-empty Phase 1 entries decode with
 - [x] M4 — General pane rewrite (5-Section Form + OptionalOverridePicker
        + ShellRegistry + EnvironmentEditorView) — 28 tests across 5 files
        (2026-04-25)
-- [ ] M5 — Scripts pane (Lifecycle Section + user-defined list with inline
-       edit / drag-to-reorder + Run/edit/delete buttons)
+- [x] M5 — Scripts pane (Lifecycle Section + user-defined list with inline
+       edit / drag-to-reorder + Run/edit/delete buttons) — 10 tests across
+       4 files (2026-04-25)
 - [ ] M6 — Hooks pane inline edit (HookEditorRow + ScopePickerView +
        Add Hook button)
 - [ ] M7 — HeaderRunScriptSplitButton (WorktreeHeader, primary script
@@ -100,6 +101,35 @@ with a stubbed `SettingsWriter.testValue` and verify each route in
 isolation, mirroring `ProjectOptionsFeatureTests`' shape.
 
 ## Decision Log
+
+### 2026-04-25 — M5: lifecycle TextEditor commits on focus loss, not every keystroke
+
+The plan asked for "debounced binding or onChange / onSubmit" to avoid
+write-on-every-keystroke. TextEditor has no native commit-on-blur, so
+`ProjectScriptsSettingsView` carries a private `LifecycleEditor`
+wrapper that owns a local `@State draft` and writes through
+`SettingsWriter.setProjectLifecycleScript` only when the field's
+`@FocusState` flips to false. Upstream changes while the field is
+unfocused adopt into `draft` so the displayed value tracks persisted
+state. The wrapper is in the same file (private) since no other view
+needs it.
+
+### 2026-04-25 — M5: tint helper duplicated rather than promoted
+
+The plan permitted duplicating `HeaderRunScriptSplitButton.color(for:)`
+into `ScriptDefinitionRow` so neither file's helper has to be made
+module-public. Took that path — both call sites carry an identical
+five-line switch keyed by `ScriptTintColor`. Promotion stays available
+if a third caller appears.
+
+### 2026-04-25 — M5: ProjectScriptsSettingsView uses `List`, not `Form`
+
+`.onMove` requires a List-shaped container; mixing it inside a
+`.formStyle(.grouped) Form` does not work cleanly on macOS 14. The
+pane uses `List { ... } .listStyle(.inset)` with two `Section`
+children to keep the visual rhythm matching `Form`-styled panes while
+allowing drag-to-reorder. Form-vs-List is purely a SwiftUI container
+choice; the binding fan-out shape is unchanged.
 
 ### 2026-04-25 — M2: scope `createTab` widening down
 
