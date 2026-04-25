@@ -242,18 +242,16 @@ struct WorktreeDetailView: View {
 
   @ToolbarContentBuilder
   private func statusBarToolbarItem(address: Address) -> some ToolbarContent {
-    let item = ToolbarItem(placement: .principal) {
+    // No `.sharedBackgroundVisibility(.hidden)` — let macOS 26's toolbar
+    // provide the standard glass capsule so the status slot reads as a
+    // peer of the trailing button cluster instead of a hand-rolled chip.
+    ToolbarItem(placement: .principal) {
       StatusBarView(
         store: statusBarStore,
         gitHubStore: gitHubStore,
         headerStore: headerStore,
         worktreeID: address.worktree
       )
-    }
-    if #available(macOS 26.0, *) {
-      item.sharedBackgroundVisibility(.hidden)
-    } else {
-      item
     }
   }
 

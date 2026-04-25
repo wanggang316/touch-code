@@ -10,11 +10,12 @@ import TouchCodeCore
 /// Mounted via `ToolbarItem(placement: .principal)` in `WorktreeDetailView`
 /// with `ToolbarSpacer(.flexible)` on either side to keep the slot centered.
 ///
-/// Rendered as a capsule-styled container (subtle fill + hairline border)
-/// so the slot has a visible affordance even when the titlebar's own
-/// background is suppressed. A leading `HeaderBellView` lives inside the
-/// capsule — keeps notifications reachable from the center without
-/// doubling up next to the trailing button cluster.
+/// Background is intentionally not drawn here — macOS 26 wraps every
+/// `ToolbarItem` in the standard glass capsule, which gives this slot
+/// the same texture as the trailing button cluster. A leading
+/// `HeaderBellView` lives inside the slot so notifications stay
+/// reachable from the center without doubling up next to the trailing
+/// buttons.
 struct StatusBarView: View {
   @Bindable var store: StoreOf<StatusBarFeature>
   let gitHubStore: StoreOf<GitHubFeature>
@@ -37,16 +38,7 @@ struct StatusBarView: View {
       }
       .animation(.easeInOut(duration: 0.2), value: formIdentity)
     }
-    .padding(.horizontal, 10)
-    .padding(.vertical, 3)
-    .background(
-      Capsule(style: .continuous)
-        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.6))
-    )
-    .overlay(
-      Capsule(style: .continuous)
-        .strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5)
-    )
+    .padding(.horizontal, 4)
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("status.bar")
   }
