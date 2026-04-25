@@ -18,8 +18,9 @@ nonisolated struct HookConfigClient: Sendable {
   /// AtomicFileStore error on write failure.
   var ensureExists: @MainActor @Sendable () async throws -> Void
 
-  /// Insert-or-replace a user-authored subscription. Refuses commands in the
-  /// reserved internal namespace (`__touch-code/internal:`) — those go through
+  /// Insert-or-replace a user-authored subscription. Forwards to
+  /// `HookConfigStore.upsert`, which refuses commands in the reserved
+  /// internal namespace (`__touch-code/internal:`) — those go through
   /// `HookConfigStore.upsertInternal` directly and are not user-editable.
   /// Persists through `HookConfigStore.scheduleSave`.
   var upsert: @MainActor @Sendable (_ subscription: HookSubscription) async throws -> Void

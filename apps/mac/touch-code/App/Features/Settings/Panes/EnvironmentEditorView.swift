@@ -212,30 +212,23 @@ nonisolated enum EnvVarValidator {
     return nil
   }
 
-  /// `true` iff `key` matches `^[A-Za-z_][A-Za-z0-9_]*$`.
+  /// `true` iff `key` matches `^[A-Za-z_][A-Za-z0-9_]*$`. POSIX env-var
+  /// keys are strictly ASCII; Foundation's `CharacterSet.letters` includes
+  /// Unicode letters and would over-accept, so we use raw scalar ranges.
   static func keyIsValidPOSIX(_ key: String) -> Bool {
-    guard let first = key.unicodeScalars.first else { return false }
-    if !(CharacterSet.letters.contains(first) || first == "_") {
-      return false
-    }
-    for scalar in key.unicodeScalars.dropFirst() {
-      let ok =
-        CharacterSet.letters.contains(scalar)
-        || CharacterSet.decimalDigits.contains(scalar)
-        || scalar == "_"
-      if !ok { return false }
-    }
-    // Restrict to ASCII letters/digits to match POSIX exactly — Foundation's
-    // CharacterSet.letters includes Unicode letters which the POSIX rule
-    // explicitly excludes.
-    for scalar in key.unicodeScalars {
+    guard !key.isEmpty else { return false }
+    for (index, scalar) in key.unicodeScalars.enumerated() {
       let isAsciiAlpha =
         (scalar.value >= 0x41 && scalar.value <= 0x5A)
         || (scalar.value >= 0x61 && scalar.value <= 0x7A)
       let isAsciiDigit = scalar.value >= 0x30 && scalar.value <= 0x39
       let isUnderscore = scalar == "_"
-      if !(isAsciiAlpha || isAsciiDigit || isUnderscore) {
-        return false
+      if index == 0 {
+        // First scalar: letter or underscore only — digits are not allowed
+        // as the first character.
+        if !(isAsciiAlpha || isUnderscore) { return false }
+      } else {
+        if !(isAsciiAlpha || isAsciiDigit || isUnderscore) { return false }
       }
     }
     return true

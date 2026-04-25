@@ -719,13 +719,16 @@ struct RootFeature {
           // Empty script — no toast needed.
           return .none
         case .success, .failure:
-          var toast = LifecycleScriptToastFeature.State(
+          // "Latest wins" replacement: a fresh result while a toast is
+          // presenting overwrites the previous state. The auto-dismiss
+          // task on a previous .success uses `cancelInFlight: true`, so
+          // the prior timer is cancelled when the new .finished arm
+          // re-arms it. A failure toast carries no timer, so a new
+          // success toast simply schedules its own dismiss against the
+          // new presentation.
+          state.lifecycleScriptToast = LifecycleScriptToastFeature.State(
             phase: phase, worktreeName: worktreeName
           )
-          state.lifecycleScriptToast = toast
-          // Forward the result so the feature flips into terminal state
-          // and (on success) schedules its 5s auto-dismiss.
-          _ = toast  // silence unused warning when assignment is rebuilt below
           return .send(.lifecycleScriptToast(.presented(.finished(result))))
         }
 
