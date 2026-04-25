@@ -171,104 +171,54 @@ struct WorktreeDetailView: View {
     info: WorktreeInfo?
   ) -> some ToolbarContent {
     if let info {
-      // macOS 26 lays everything out in default placement and relies on
-      // `ToolbarSpacer(.flexible)` to split leftover horizontal space —
-      // that is the only way to make the status slot visually
-      // equidistant from the branch label and the trailing button
-      // cluster. Pre-26 keeps the older `.navigation` / `.principal` /
-      // `.primaryAction` zoning since `ToolbarSpacer` is macOS 26+.
+      if info.project.supportsWorktrees {
+        branchToolbarItem(info: info)
+      }
+      // Center the status bar so it sits equidistant between the branch
+      // label and the trailing button cluster. `.principal` only honors
+      // the title-bar's geometric midpoint, which reads as off-center
+      // when the trailing group is much wider than the leading branch
+      // label. macOS 26's flexible spacers split leftover horizontal
+      // space evenly on either side of the status slot; older macOS
+      // falls back to `.principal` since `ToolbarSpacer` is 26+.
+      //
+      // The notification bell rides inside the status capsule on the
+      // trailing edge, separated from the form by a vertical divider.
       if #available(macOS 26.0, *) {
-        if info.project.supportsWorktrees {
-          branchToolbarItemDefault(info: info)
-        }
         ToolbarSpacer(.flexible)
         centeredStatusBarToolbarItem(address: address)
         ToolbarSpacer(.flexible)
-        trailingButtonsDefault(address: address, info: info)
       } else {
-        if info.project.supportsWorktrees {
-          branchToolbarItem(info: info)
-        }
         statusBarToolbarItem(address: address)
-        ToolbarItemGroup(placement: .primaryAction) {
-          HeaderOpenSplitButton(
-            store: headerStore,
-            editorStore: editorStore,
-            spaceID: address.space,
-            projectID: address.project,
-            worktreePath: info.worktree.path
-          )
-          .buttonStyle(.plain)
-          HeaderRunScriptSplitButton(
-            store: headerStore,
-            projectID: address.project,
-            worktreeID: info.worktree.id
-          )
-          .buttonStyle(.plain)
-          if info.project.supportsWorktrees {
-            HeaderGitViewerToggle(
-              store: headerStore,
-              visible: info.worktree.gitViewerVisible
-            )
-            .buttonStyle(.plain)
-          }
-        }
       }
-    }
-  }
-
-  /// macOS 26 leading-cluster variant of `branchToolbarItem`. Uses
-  /// default placement so the next `ToolbarSpacer(.flexible)` can push
-  /// it against the leading edge while leaving slack for the centered
-  /// status slot.
-  @available(macOS 26.0, *)
-  @ToolbarContentBuilder
-  private func branchToolbarItemDefault(info: WorktreeInfo) -> some ToolbarContent {
-    ToolbarItem {
-      HStack(spacing: 6) {
-        Image(systemName: "arrow.trianglehead.branch")
-          .foregroundStyle(.secondary)
-          .accessibilityHidden(true)
-        Text(info.branchLabel)
-          .lineLimit(1)
-      }
-      .font(.headline)
-      .accessibilityElement(children: .ignore)
-      .accessibilityLabel("Current branch: \(info.branchLabel)")
-      .accessibilityAddTraits(.isStaticText)
-    }
-    .sharedBackgroundVisibility(.hidden)
-  }
-
-  /// macOS 26 trailing button cluster. Default placement so it sits
-  /// after the trailing flexible spacer, trailing-edge anchored by the
-  /// toolbar's natural ordering.
-  @available(macOS 26.0, *)
-  @ToolbarContentBuilder
-  private func trailingButtonsDefault(
-    address: Address, info: WorktreeInfo
-  ) -> some ToolbarContent {
-    ToolbarItemGroup {
-      HeaderOpenSplitButton(
-        store: headerStore,
-        editorStore: editorStore,
-        spaceID: address.space,
-        projectID: address.project,
-        worktreePath: info.worktree.path
-      )
-      .buttonStyle(.plain)
-      HeaderRunScriptSplitButton(
-        store: headerStore,
-        projectID: address.project,
-        worktreeID: info.worktree.id
-      )
-      .buttonStyle(.plain)
-      if info.project.supportsWorktrees {
-        HeaderGitViewerToggle(
+      // Two independent trailing buttons. `ToolbarItemGroup` keeps the
+      // relative order while preventing SwiftUI from collapsing them into a
+      // single overflow menu on narrow widths. `.buttonStyle(.plain)` on each
+      // child disables the toolbar's default rounded-rect container so the
+      // open / git-viewer toggle read as distinct icon buttons with their
+      // own hit areas.
+      ToolbarItemGroup(placement: .primaryAction) {
+        HeaderOpenSplitButton(
           store: headerStore,
-          visible: info.worktree.gitViewerVisible
+          editorStore: editorStore,
+          spaceID: address.space,
+          projectID: address.project,
+          worktreePath: info.worktree.path
         )
         .buttonStyle(.plain)
+        HeaderRunScriptSplitButton(
+          store: headerStore,
+          projectID: address.project,
+          worktreeID: info.worktree.id
+        )
+        .buttonStyle(.plain)
+        if info.project.supportsWorktrees {
+          HeaderGitViewerToggle(
+            store: headerStore,
+            visible: info.worktree.gitViewerVisible
+          )
+          .buttonStyle(.plain)
+        }
       }
     }
   }
