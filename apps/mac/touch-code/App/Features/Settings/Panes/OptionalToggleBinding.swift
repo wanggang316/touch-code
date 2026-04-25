@@ -51,7 +51,7 @@ struct TriStateOverrideToggle: View {
   }
 
   /// Pure helper exposed for tests.
-  static func inheritLabel(inheritedValue: Bool) -> String {
+  nonisolated static func inheritLabel(inheritedValue: Bool) -> String {
     "Use global default — \(inheritedValue ? "yes" : "no")"
   }
 }

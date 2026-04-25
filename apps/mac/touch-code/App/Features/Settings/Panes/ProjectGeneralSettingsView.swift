@@ -37,13 +37,74 @@ struct ProjectGeneralSettingsView: View {
 
   /// Pure visibility logic. Worktree / GitHub gate on `kind == .gitRepo`;
   /// everything else is always visible.
-  static func visibleSections(for kind: ProjectKind) -> Set<SectionID> {
+  nonisolated static func visibleSections(for kind: ProjectKind) -> Set<SectionID> {
     switch kind {
     case .plainDir:
       return [.editor, .defaultShell, .environment]
     case .gitRepo:
       return Set(SectionID.allCases)
     }
+  }
+
+  /// Captures the per-control write fan-out as plain `@Sendable` closures so
+  /// the binding bodies stay short and tests can hit each route without
+  /// instantiating the SwiftUI view. Each method below mirrors the body of
+  /// the corresponding `Binding(set:)` in the rendered view; the bindings
+  /// delegate here so the routing logic has a single home.
+  struct WriteRoutes: Sendable {
+    let projectID: ProjectID
+    let writer: SettingsWriter
+
+    func writeDefaultEditor(_ value: EditorID?) {
+      let setter = writer.setProjectDefaultEditor
+      Task { await setter(projectID, value) }
+    }
+
+    func writeDefaultShell(_ value: String?) {
+      let setter = writer.setProjectDefaultShell
+      Task { await setter(projectID, value) }
+    }
+
+    func writeWorktreeBaseRef(_ rawValue: String) {
+      let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+      let payload: String? = trimmed.isEmpty ? nil : trimmed
+      let setter = writer.setProjectGitField
+      Task { await setter(projectID, .worktreeBaseRef(payload)) }
+    }
+
+    func writeCopyIgnored(_ value: Bool?) {
+      let setter = writer.setProjectGitField
+      Task { await setter(projectID, .copyIgnoredOnWorktreeCreate(value)) }
+    }
+
+    func writeCopyUntracked(_ value: Bool?) {
+      let setter = writer.setProjectGitField
+      Task { await setter(projectID, .copyUntrackedOnWorktreeCreate(value)) }
+    }
+
+    func writeMergeStrategy(_ value: MergeStrategy?) {
+      let setter = writer.setProjectGitField
+      Task { await setter(projectID, .defaultMergeStrategy(value)) }
+    }
+
+    func writePostMergeAction(_ value: MergedWorktreeAction?) {
+      let setter = writer.setProjectGitField
+      Task { await setter(projectID, .postMergeAction(value)) }
+    }
+
+    func writeGithubDisabled(_ value: Bool) {
+      let setter = writer.setProjectGitField
+      Task { await setter(projectID, .githubDisabled(value)) }
+    }
+
+    func writeEnvVar(key: String, value: String?) {
+      let setter = writer.setProjectEnvVar
+      Task { await setter(projectID, key, value) }
+    }
+  }
+
+  private var routes: WriteRoutes {
+    WriteRoutes(projectID: projectID, writer: settingsWriter)
   }
 
   private var visible: Set<SectionID> {
@@ -113,10 +174,7 @@ struct ProjectGeneralSettingsView: View {
   private var editorBinding: Binding<EditorID?> {
     Binding(
       get: { entry?.defaultEditor },
-      set: { newValue in
-        let writer = settingsWriter.setProjectDefaultEditor
-        Task { await writer(projectID, newValue) }
-      }
+      set: { routes.writeDefaultEditor($0) }
     )
   }
 
@@ -148,10 +206,7 @@ struct ProjectGeneralSettingsView: View {
   private var shellBinding: Binding<String?> {
     Binding(
       get: { entry?.defaultShell },
-      set: { newValue in
-        let writer = settingsWriter.setProjectDefaultShell
-        Task { await writer(projectID, newValue) }
-      }
+      set: { routes.writeDefaultShell($0) }
     )
   }
 
@@ -194,32 +249,21 @@ struct ProjectGeneralSettingsView: View {
   private var worktreeBaseRefBinding: Binding<String> {
     Binding(
       get: { entry?.git?.worktreeBaseRef ?? "" },
-      set: { newValue in
-        let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        let payload: String? = trimmed.isEmpty ? nil : trimmed
-        let writer = settingsWriter.setProjectGitField
-        Task { await writer(projectID, .worktreeBaseRef(payload)) }
-      }
+      set: { routes.writeWorktreeBaseRef($0) }
     )
   }
 
   private var copyIgnoredBinding: Binding<Bool?> {
     Binding(
       get: { entry?.git?.copyIgnoredOnWorktreeCreate },
-      set: { newValue in
-        let writer = settingsWriter.setProjectGitField
-        Task { await writer(projectID, .copyIgnoredOnWorktreeCreate(newValue)) }
-      }
+      set: { routes.writeCopyIgnored($0) }
     )
   }
 
   private var copyUntrackedBinding: Binding<Bool?> {
     Binding(
       get: { entry?.git?.copyUntrackedOnWorktreeCreate },
-      set: { newValue in
-        let writer = settingsWriter.setProjectGitField
-        Task { await writer(projectID, .copyUntrackedOnWorktreeCreate(newValue)) }
-      }
+      set: { routes.writeCopyUntracked($0) }
     )
   }
 
@@ -259,30 +303,21 @@ struct ProjectGeneralSettingsView: View {
   private var mergeStrategyBinding: Binding<MergeStrategy?> {
     Binding(
       get: { entry?.git?.defaultMergeStrategy },
-      set: { newValue in
-        let writer = settingsWriter.setProjectGitField
-        Task { await writer(projectID, .defaultMergeStrategy(newValue)) }
-      }
+      set: { routes.writeMergeStrategy($0) }
     )
   }
 
   private var postMergeActionBinding: Binding<MergedWorktreeAction?> {
     Binding(
       get: { entry?.git?.postMergeAction },
-      set: { newValue in
-        let writer = settingsWriter.setProjectGitField
-        Task { await writer(projectID, .postMergeAction(newValue)) }
-      }
+      set: { routes.writePostMergeAction($0) }
     )
   }
 
   private var githubDisabledBinding: Binding<Bool> {
     Binding(
       get: { entry?.git?.githubDisabled ?? false },
-      set: { newValue in
-        let writer = settingsWriter.setProjectGitField
-        Task { await writer(projectID, .githubDisabled(newValue)) }
-      }
+      set: { routes.writeGithubDisabled($0) }
     )
   }
 
@@ -294,8 +329,7 @@ struct ProjectGeneralSettingsView: View {
       EnvironmentEditorView(
         envVars: envVarsBinding,
         onChange: { key, newValue in
-          let writer = settingsWriter.setProjectEnvVar
-          Task { await writer(projectID, key, newValue) }
+          routes.writeEnvVar(key: key, value: newValue)
         },
         footer:
           "Values are stored in plain text in settings.json. Do not paste credentials "

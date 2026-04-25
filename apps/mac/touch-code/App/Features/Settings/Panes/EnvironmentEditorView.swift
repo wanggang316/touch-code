@@ -187,8 +187,10 @@ struct EnvironmentEditorView: View {
 }
 
 /// Pure validator — kept as a free enum so tests can hit the rules
-/// without spinning up SwiftUI state.
-enum EnvVarValidator {
+/// without spinning up SwiftUI state. `nonisolated` because the rules
+/// are static and pure; SwiftUI's main-actor inference would otherwise
+/// pin them to the MainActor and force every test to be `@MainActor`.
+nonisolated enum EnvVarValidator {
   /// Returns the user-visible error string when `(key, value)` cannot be
   /// committed against `existing`. Returns nil for a valid pair (and for
   /// the empty-KEY initial state, which is "incomplete" rather than

@@ -42,7 +42,7 @@ struct OptionalOverridePicker<Value: Hashable & Sendable>: View {
   /// without rendering. The inherited label may itself be empty (no
   /// resolved global default); we still produce a sane string in that
   /// case rather than a dangling em-dash.
-  static func inheritRowText(
+  nonisolated static func inheritRowText(
     inheritedLabel: (Value?) -> String,
     inheritedValue: Value?
   ) -> String {
