@@ -314,8 +314,9 @@ struct HookEditorRow: View {
 
   /// Mutable buffer mirroring the editable fields of `HookSubscription`.
   /// `Equatable` so unit tests can compare drafts; SwiftUI re-binds on
-  /// every render anyway.
-  struct Draft: Equatable {
+  /// every render anyway. `nonisolated` because the validator and the
+  /// `makeSubscription` builder are pure helpers driven from tests.
+  nonisolated struct Draft: Equatable {
     var event: HookEvent
     var scope: HookSubscription.Scope
     var command: String
@@ -341,7 +342,7 @@ struct HookEditorRow: View {
     }
   }
 
-  struct ValidationErrors: Equatable {
+  nonisolated struct ValidationErrors: Equatable {
     var command: String?
     var scope: String?
     var timeout: String?
