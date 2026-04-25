@@ -70,7 +70,14 @@ expands additively (existing reserved-empty Phase 1 entries decode with
        Add Hook button)
 - [ ] M7 — HeaderRunScriptSplitButton (WorktreeHeader, primary script
        entry point)
-- [ ] M8 — Runtime: env injection through PaneSurface / TerminalEngine
+- [x] M8 — Runtime: env injection through PaneSurface / TerminalEngine —
+       PaneSurface widened to take `env` and emit
+       `ghostty_surface_config_s.env_vars` + `env_var_count`; TerminalEngine
+       and HierarchyManager (openPane / splitPane) forward the map;
+       HierarchyClient's live wiring resolves project envVars from the
+       captured SettingsStore so every user-flow openPane / splitPane
+       inherits Project env (closure shape unchanged so RootFeature/M10
+       callsites compile untouched). 9 tests, build green (2026-04-25)
 - [ ] M9 — Runtime: Worktree lifecycle script execution + LifecycleScriptToast
 - [x] M10 — Command Palette: `.runProjectScript` Kind + build path
 - [ ] M11 — Tests (≥50 net new across all changed surfaces)
@@ -167,6 +174,28 @@ Plan section update: M2 task 4 ("createTab widening") replaced with
 "add `runScript(_:in:)` to HierarchyManager"; task 1 ("openPane gains
 env arg") moves from M8 to M2 since both M5 (Scripts pane Run) and M9
 (lifecycle execution) consume it.
+
+### 2026-04-25 — M8: env C-string ownership lives on PaneSurface; HierarchyClient closure shape unchanged
+
+PaneSurface holds onto every `strdup`'d `(key, value)` pair plus the
+backing `UnsafeMutableBufferPointer<ghostty_env_var_s>` for its full
+lifetime, freeing both in `isolated deinit`. libghostty does not document
+whether `ghostty_surface_new` copies the env_vars buffer, so we
+conservatively assume it does not and mirror the existing
+`workingDirectoryCString` lifecycle. Empty env map renders
+`env_vars = nil, env_var_count = 0` (no allocations).
+
+The plan asked to widen `HierarchyClient.openPane` /  `splitPane`
+closures with an `env` parameter. Closures cannot have default arguments
+in Swift, so growing the arity would force every callsite (including
+RootFeature.swift, owned by parallel M10 work that we cannot touch) to
+update. Instead the live wiring keeps the closure shape unchanged and
+resolves the project's envVars internally via the captured SettingsStore
+(weak capture, mirroring the runScript closure). Result: existing
+callers (TabBar / SplitViewport / CreateWorktree / IPC openPane /
+RootFeature) auto-inherit Project envVars without any signature change;
+runScript still passes the resolved env explicitly through
+`manager.openPane(..., env:)`.
 
 ### 2026-04-25 — M0: libghostty per-surface env supported
 
