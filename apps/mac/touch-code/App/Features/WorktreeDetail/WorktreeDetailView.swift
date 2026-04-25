@@ -181,11 +181,11 @@ struct WorktreeDetailView: View {
       // keeps the cluster hugged against the right edge rather than drifting
       // into the center as other items resize.
       //
-      // The notification bell sits in its own ToolbarItem to the right
-      // of the status slot so each renders inside its own glass capsule
-      // — two visually distinct chips, with the bell trailing the status.
+      // The notification bell rides inside the status capsule on the
+      // trailing edge, separated from the form by a vertical divider.
+      // Single capsule keeps the center cluster compact while still
+      // visually grouping bell + status as one chip.
       statusBarToolbarItem(address: address)
-      bellToolbarItem()
       // Two independent trailing buttons. `ToolbarItemGroup` keeps the
       // relative order while preventing SwiftUI from collapsing them into a
       // single overflow menu on narrow widths. `.buttonStyle(.plain)` on each
@@ -249,19 +249,9 @@ struct WorktreeDetailView: View {
       StatusBarView(
         store: statusBarStore,
         gitHubStore: gitHubStore,
+        headerStore: headerStore,
         worktreeID: address.worktree
       )
-    }
-  }
-
-  /// Notification bell as a sibling `ToolbarItem` immediately after the
-  /// status slot. macOS 26 wraps it in its own glass capsule so the bell
-  /// reads as a separate chip rather than a leading adornment of the
-  /// status form.
-  @ToolbarContentBuilder
-  private func bellToolbarItem() -> some ToolbarContent {
-    ToolbarItem(placement: .principal) {
-      HeaderBellView(store: headerStore)
     }
   }
 

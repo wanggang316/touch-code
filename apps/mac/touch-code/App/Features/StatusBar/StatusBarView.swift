@@ -10,26 +10,33 @@ import TouchCodeCore
 /// Mounted via `ToolbarItem(placement: .principal)` in `WorktreeDetailView`
 /// with `ToolbarSpacer(.flexible)` on either side to keep the slot centered.
 ///
-/// Background is intentionally not drawn here — macOS 26 wraps every
-/// `ToolbarItem` in the standard glass capsule, which gives this slot
-/// the same texture as the trailing button cluster. The notification
-/// bell is mounted as its own sibling `ToolbarItem` next to the status
-/// slot so the two read as separate capsules.
+/// Background is intentionally not drawn here — macOS 26 wraps the
+/// `ToolbarItem` in the standard glass capsule. Layout is form on the
+/// left, vertical hairline divider, and the notification bell on the
+/// right; horizontal padding is widened so the form and bell each get
+/// breathing room from the capsule edge.
 struct StatusBarView: View {
   @Bindable var store: StoreOf<StatusBarFeature>
   let gitHubStore: StoreOf<GitHubFeature>
+  /// Header feature store. Owns the trailing notification bell.
+  let headerStore: StoreOf<WorktreeHeaderFeature>
   /// Active Worktree identifier, nil when selection doesn't resolve one
   /// (sidebar placeholder state). Drives the PR form's snapshot lookup.
   let worktreeID: WorktreeID?
 
   var body: some View {
-    ViewThatFits(in: .horizontal) {
-      formContent(compact: false)
-      formContent(compact: true)
-      Color.clear.frame(width: 0, height: 0)
+    HStack(spacing: 10) {
+      ViewThatFits(in: .horizontal) {
+        formContent(compact: false)
+        formContent(compact: true)
+        Color.clear.frame(width: 0, height: 0)
+      }
+      .animation(.easeInOut(duration: 0.2), value: formIdentity)
+      Divider()
+        .frame(height: 14)
+      HeaderBellView(store: headerStore)
     }
-    .animation(.easeInOut(duration: 0.2), value: formIdentity)
-    .padding(.horizontal, 4)
+    .padding(.horizontal, 12)
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("status.bar")
   }
