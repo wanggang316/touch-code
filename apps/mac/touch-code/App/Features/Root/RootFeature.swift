@@ -502,6 +502,9 @@ struct RootFeature {
       case .sidebar(.delegate(.openSpaceManager)):
         return .send(.spaceManagerSheetShown)
 
+      case .sidebar(.delegate(.lifecycleScriptResult(let phase, let name, let result))):
+        return .send(.runWorktreeLifecycleResult(phase: phase, worktreeName: name, result: result))
+
       case .sidebar:
         return .none
 

@@ -318,6 +318,17 @@ nonisolated struct HierarchyClient: Sendable {
 
   // MARK: - Worktree lifecycle wrappers (M9)
 
+  /// Script-only entry for cases where the catalog row already exists —
+  /// notably the Create Worktree flow, where `wt sw` creates the
+  /// directory before the sidebar attaches the catalog row. Returns
+  /// `.skipped` when the configured `git.<phase>Script` is empty.
+  var runWorktreeLifecycleScript:
+    @MainActor @Sendable (
+      _ phase: SettingsWriter.WorktreeLifecycle,
+      _ worktreeID: WorktreeID,
+      _ projectID: ProjectID
+    ) async -> LifecycleScriptResult
+
   /// Catalog-append step plus setup-script execution. On script failure the
   /// catalog row is rolled back; the on-disk directory is left for inspection.
   /// Mirrors `createWorktree` plus the lifecycle wrapper.
@@ -574,6 +585,12 @@ extension HierarchyClient {
           worktreeID: worktreeID,
           manager: manager,
           settings: settings
+        )
+      },
+      runWorktreeLifecycleScript: { [weak settings] phase, worktreeID, projectID in
+        let snapshot = settings?.settings ?? .default
+        return await manager.runWorktreeLifecycleScript(
+          phase, for: worktreeID, in: projectID, settings: snapshot
         )
       },
       createWorktreeWithLifecycle: { [weak settings] projectID, spaceID, name, path, branch in
@@ -847,6 +864,9 @@ extension HierarchyClient: DependencyKey {
     resizePane: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     unzoomTab: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     runScript: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    runWorktreeLifecycleScript: { _, _, _ in
+      fatalError("HierarchyClient.liveValue not configured")
+    },
     createWorktreeWithLifecycle: { _, _, _, _, _ in
       fatalError("HierarchyClient.liveValue not configured")
     },
@@ -919,6 +939,10 @@ extension HierarchyClient: DependencyKey {
     resizePane: unimplemented("HierarchyClient.resizePane"),
     unzoomTab: unimplemented("HierarchyClient.unzoomTab"),
     runScript: unimplemented("HierarchyClient.runScript"),
+    runWorktreeLifecycleScript: unimplemented(
+      "HierarchyClient.runWorktreeLifecycleScript",
+      placeholder: .skipped
+    ),
     createWorktreeWithLifecycle: unimplemented(
       "HierarchyClient.createWorktreeWithLifecycle",
       placeholder: (WorktreeID(), .skipped)
