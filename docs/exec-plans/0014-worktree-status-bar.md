@@ -40,6 +40,7 @@ This is a living document. The Progress, Surprises & Discoveries, Decision Log, 
 ## Open Questions
 
 - **OQ-7** (added 2026-04-24, M4.C): 把既有 `PullRequestPopover` 的内容构建从 `HierarchySidebarView.gitHubPopoverContent` 抽成独立 helper（预计 60-80 行），以便状态栏 PR 按钮也能在点击后弹出相同的 PullRequestPopover。当前 M4.C 的 click=openURL 是 MVP；spec AC-PR-3 需要这个后续才能完全满足。
+- **OQ-8** (added 2026-04-24, post-review B2): `ViewThatFits(in: .horizontal)` placed inside `ToolbarItem(placement: .principal)` may not reliably engage the compact / hidden tiers because the toolbar's `ToolbarSpacer(.flexible)` offers an unbounded width to its principal item. Needs interactive verification: drag the main window from ~1400pt down to ~700pt and ~500pt and confirm the PR / motivational rows actually degrade. If they do not, replace `ViewThatFits` with a `GeometryReader`-driven width threshold (design doc §3.8 calls out 520pt as the fallback constant). Recorded after the post-execution code review (2026-04-24).
 
 ## Surprises & Discoveries
 

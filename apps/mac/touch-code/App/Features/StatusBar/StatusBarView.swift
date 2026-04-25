@@ -66,14 +66,30 @@ struct StatusBarView: View {
   }
 
   /// Cheap equality-stable token for the form animation. The SwiftUI
-  /// `.animation(_:value:)` trigger compares this, so we don't attempt to
-  /// compare the whole `PullRequestSnapshot` (which has a `Date` field
-  /// that can change every refresh without visually changing the form).
+  /// `.animation(_:value:)` trigger compares this, so we don't compare
+  /// the whole `PullRequestSnapshot` (it carries a `Date` that ticks on
+  /// every refresh without changing rendered content).
+  ///
+  /// Includes every field that visibly affects the rendered PR row —
+  /// number, state, draft, mergeStateStatus, and the breakdown signature
+  /// — so transitions like "checks failing → all passing" or
+  /// "blocked → clean" do animate instead of snapping.
   private var formIdentity: String {
     switch form {
-    case .toast(let t): return "toast-\(t.message)"
-    case .pullRequest(let pr): return "pr-\(pr.number)-\(pr.state.rawValue)"
-    case .motivational: return "motivational"
+    case .toast(let t):
+      return "toast-\(t.message)"
+    case .pullRequest(let pr):
+      let breakdown = ChecksRollupRing.Breakdown(checks: pr.checkRollup)
+      return [
+        "pr",
+        "\(pr.number)",
+        pr.state.rawValue,
+        pr.isDraft ? "draft" : "ready",
+        pr.mergeStateStatus.rawValue,
+        "\(breakdown.passing)/\(breakdown.failing)/\(breakdown.pending)/\(breakdown.neutral)",
+      ].joined(separator: "-")
+    case .motivational:
+      return "motivational"
     }
   }
 }

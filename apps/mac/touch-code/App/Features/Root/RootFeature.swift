@@ -546,12 +546,20 @@ struct RootFeature {
       case .gitHub(.rerunFailedJobsCompleted(_, .success)):
         return .send(.statusBar(.push(.success("Re-ran failed jobs"))))
 
-      case .gitHub(.mergeCompleted(_, _, .failure(let error))),
-        .gitHub(.closeCompleted(_, .failure(let error))),
-        .gitHub(.markReadyCompleted(_, .failure(let error))),
-        .gitHub(.rerunFailedJobsCompleted(_, .failure(let error))):
+      // Failure cases keep the verb prefix so the user can tell merge / close /
+      // mark-ready / rerun-failed-jobs apart in the warning toast.
+      case .gitHub(.mergeCompleted(_, _, .failure(let error))):
         let reason = Self.shortToastMessage(String(describing: error))
-        return .send(.statusBar(.push(.warning(reason))))
+        return .send(.statusBar(.push(.warning("Merge failed: \(reason)"))))
+      case .gitHub(.closeCompleted(_, .failure(let error))):
+        let reason = Self.shortToastMessage(String(describing: error))
+        return .send(.statusBar(.push(.warning("Close failed: \(reason)"))))
+      case .gitHub(.markReadyCompleted(_, .failure(let error))):
+        let reason = Self.shortToastMessage(String(describing: error))
+        return .send(.statusBar(.push(.warning("Mark ready failed: \(reason)"))))
+      case .gitHub(.rerunFailedJobsCompleted(_, .failure(let error))):
+        let reason = Self.shortToastMessage(String(describing: error))
+        return .send(.statusBar(.push(.warning("Rerun failed: \(reason)"))))
 
       // 0012: GitHub integration delegate actions. Detailed handling (openURL →
       // NSWorkspace.open, showSettingsGitHub → SettingsWindowPresenter, pullRequestMerged
