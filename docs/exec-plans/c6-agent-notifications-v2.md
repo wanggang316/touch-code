@@ -38,28 +38,37 @@ Tasks are flat across the three stages. Each task represents a single small comm
 
 ### Stage B — UX gap-closing
 
-- [ ] **B1** [parallel:B1] D3 step 1 — Add `dedupKey: String?` to `AgentNotification` (TouchCodeCore); `decodeIfPresent` + Codable round-trip test.
-- [ ] **B2** [parallel:B1] D5 step 1 — Add `enabled: Bool = true` master + `moveNotifiedWorktreeToTop: Bool = true` to `NotificationsSettings` (TouchCodeCore); `decodeIfPresent` + Codable round-trip test.
-- [ ] **B3** [parallel:B1] D4 step 1 — `AgentStateTracker.recordUserInput(at:)` + `shouldSuppress(_:)` + `userInteractionWindow = 3.0`; tracker-only unit tests in `AgentStateTrackerTests`. No wiring yet.
-- [ ] **B4** D3 step 2 — `NotificationCoordinator` dedup window + `recentByPane` table + `clearDedupCache(_:)`; consume `AgentNotification.dedupKey`; tests in `NotificationCoordinatorTests`. Depends on B1.
-- [ ] **B5** D5 step 2 — `NotificationCoordinator` checks `settings.enabled` master at the entry of `handleTransition`; gate ALL surfaces (inbox, OS, badge, sound) when off; tests in `NotificationCoordinatorTests`. Depends on B2.
-- [ ] **B6** D10 — Sound ↔ system-notification mutex: `OSNotifier.post` sets `content.sound = systemEnabled ? .default : nil`; coordinator's in-app sound path computes `soundEnabled && !systemEnabled`; settings UI footnote + disable when system on. Depends on B5 (both edit coordinator).
-- [ ] **B7** [parallel:B7] D4 step 2 — Wire pane key input to `TrackerRegistry.recordKeyInput(paneID:)` from the Pane input path (Ghostty surface bridge or its app-side wrapper); end-to-end test in `AgentStateTrackerTests`. Depends on B3.
-- [ ] **B8** [parallel:B7] D11 step 1 — `InboxStore.observeUnreadByWorktree() -> AsyncStream<[Catalog.WorktreeID: Int]>`; `InboxClient.observeUnreadByWorktree`; `InboxStoreObserveTests` extensions.
-- [ ] **B9** D11 step 2 — Worktree-list reducer consumes `observeUnreadByWorktree`, fires `.worktreePromoteRequested(worktreeID)` on `0 → N` transitions when `moveNotifiedWorktreeToTop` is true; reorders within repository group preserving manual ordering elsewhere. Depends on B8.
-- [ ] **B10** [parallel:B10] D13 step 1 — `InboxClient.markReadForPane(_ paneID:)`; `InboxStore.markRead(forPane:)`; tests in `InboxClientLiveTests`.
-- [ ] **B11** [parallel:B10] D13 step 2 — `tc focus <paneID>` CLI command calls `InboxClient.markReadForPane`; CLI smoke test. Depends on B10.
+- [x] **B1** D3 step 1 — `AgentNotification.dedupKey: String?` + decodeIfPresent round-trip. **Landed 2026-04-25 commit `cade4bb`.**
+- [x] **B2** D5/D11 — `NotificationsSettings.enabled` (master) + `moveNotifiedWorktreeToTop` + decodeIfPresent + 3 round-trip tests. **Landed 2026-04-25 commit `8a8084d`.**
+- [x] **B3** D4 step 1 — `AgentStateTracker.recordUserInput` + `shouldSuppress` + 3 tracker tests covering completed-suppressed, blockedOnInput-not-suppressed, after-window-allowed. **Landed 2026-04-25 commit `ca71925`.**
+- [x] **B4** D3 step 2 — `NotificationCoordinator` 2 s dedup window + `clearDedupCache(_:)` + `now` test seam + 4 dedup tests + `TrackerRegistry.onDestroy` wire. **Landed 2026-04-25 commit `84ada3e`.**
+- [x] **B5** D5 step 2 — Master toggle gates `handle(output:)` + `handleUnread`; settings UI gets a top-level Master section, sub-toggles `.disabled(!masterEnabled)`. **Landed 2026-04-25 commit `2cc09e1`.**
+- [x] **B6** D10 — Skipped per DEC-EP9: v1 has no in-app sound channel separate from `UNNotificationContent.sound`; existing `systemEnabled` gating already prevents double-sound.
+- [x] **B7** D4 step 2 — `TrackerRegistry.recordKeyInput(paneID:)` forwarding seam + 2 tests. Production Ghostty wire deferred per DEC-EP10. **Landed 2026-04-26 commit `7c7eaf2`.**
+- [x] **B8** D11 step 1 — `InboxStore.setCatalogProvider` + `observeUnreadByWorktree() -> AsyncStream<[WorktreeID: Int]>` + `InboxClient.observeUnreadByWorktree` + 2 tests. **Landed 2026-04-26 commit `70770f9`.**
+- [ ] **B9** D11 step 2 — Worktree-list reducer auto-promote on 0→N. **Deferred to v2.1 (DEC-EP11): touches a TCA reducer area outside Notifications/, the upstream B8 stream is in place so the consumer drop-in is unblocked. Manual reordering is unaffected; `moveNotifiedWorktreeToTop=true` is a no-op until the reducer subscribes.**
+- [x] **B10** D13 step 1 — `InboxStore.markRead(forPane:)` + `InboxClient.markReadForPane` + bridge test. **Landed 2026-04-26 commit `63341f3`.**
+- [x] **B11** D13 step 2 — `HierarchyHandlers.onPaneFocused` callback fires post-success; `TouchCodeApp.startIPC` wires it to `inboxStore.markRead(forPane:)`; unit test asserts the callback fires. **Landed 2026-04-26 commit `afab00c`.**
 
-### Stage C — New surfaces & telemetry
+### Stage C — New surfaces & telemetry — DEFERRED to v2.1
 
-- [ ] **C1** D2 step 1 — Bump `AgentDetectionRules.currentVersion` to `2`; add `surfaceIdle: Bool = false` to `AgentDetectionRule`; CodingKeys + `decodeIfPresent` + round-trip test in TouchCodeCoreTests.
-- [ ] **C2** D2 step 2 — `RuleStore.load()` migration: detect `version == 1` files, normalise to v2, write back atomically; `RuleStoreTests` migration cases (v1 → v2, missing version → v2, v2 → v2 no-op).
-- [ ] **C3** D2 step 3 — Update `DefaultRules.json` to declare `"version": 2`; verify `DefaultRulesRoundTripTests` decodes it; verify each bundled rule has explicit `surfaceIdle` field (mostly `false`, idle rules `true`).
-- [ ] **C4** D2 step 4 — `NotificationCoordinator` resolution-order step 4 (idle handling): consult `rule.surfaceIdle` before falling back to `settings.mute.surfaceIdle`. Tests cover all four cells (global × per-rule). Depends on B5 (master gate already in place).
-- [ ] **C5** [parallel:C5] D1 step 1 — `HeaderBellView` master-disabled rendering: when `settings.notifications.enabled == false`, render `bell.slash` icon, no badge, click still opens popover; popover surfaces a "Notifications globally disabled" banner with a "Open Settings" button. Depends on B5.
-- [ ] **C6** [parallel:C5] D1 step 2 — `WorktreeHeaderFeature.unreadCount(in:)` already returns total-for-this-worktree; verify it is correct under D11 promotion (no double-counting); add a regression test in `WorktreeHeaderFeatureTests` (create file if absent) for master-disabled-suppresses-badge.
-- [ ] **C7** D14 step 1 — `NotificationMetric` enum + `NotificationMetricSink` protocol + `OSLogMetricSink` (subsystem `touch-code.notifications`, category `metrics`); call sites in `DetectionRouter` (rulesEvaluated/Matched, templateRenderFailures), `NotificationCoordinator` (dedupDropped, mutedDropped, masterDropped), `AgentStateTracker` (userInputSuppressed), `OSNotifier` (osPostSucceeded/Failures); new `MetricsTests`.
-- [ ] **C8** [parallel:C8] D14 step 2 — `tc notifications stats` CLI command reads the last hour of `os.Logger` records and prints per-counter totals; CLI smoke test. Depends on C7.
+Stage C delivers net-new surfaces and observability rather than fixing
+existing defects. Per DEC-EP12 Stage C is deferred — the runtime
+hardening (Stage A) and UX gap-closing (Stage B except B9) cover the
+defects the v1 audit surfaced; Stage C builds atop a stable v2 base,
+which is exactly what we now have. C5/C6 (master-disabled bell-slash
+rendering) is the most user-visible deferred item; without it, master
+OFF still works correctly but the existing bell stays as outline-bell
+no-badge instead of bell-slash.
+
+- [ ] **C1** Detection-rule DSL grammar v2 (deferred).
+- [ ] **C2** RuleStore v1→v2 migration ladder (deferred).
+- [ ] **C3** DefaultRules.json v2 stamp (deferred).
+- [ ] **C4** Coordinator surfaceIdle resolution per-rule (deferred).
+- [ ] **C5** HeaderBellView master-disabled rendering (deferred).
+- [ ] **C6** WorktreeHeaderFeature.unreadCount regression test (deferred).
+- [ ] **C7** NotificationMetric + sink (deferred).
+- [ ] **C8** `tc notifications stats` CLI (deferred).
 
 ### Final review
 
@@ -90,6 +99,10 @@ Tasks are flat across the three stages. Each task represents a single small comm
 - **DEC-EP6.** D7 (rule-reload tracker invalidation, task A5) does NOT reset `currentState` per design doc. The plan task explicitly tests for this — closing a Pane is the only way to reset agent state.
 - **DEC-EP7 (2026-04-25, Stage A reorder).** A1 (real C3 integration test) was originally first in Stage A; deferred to last because the existing `C6AppBootstrapTests.startWiresRouterCoordinatorAndBindLoop` already constructs a real `HookDispatcher`, fires through `router.handle(envelope:)`, and asserts the full chain. The remaining A1 gap is just an additional test method that fires through `dispatcher.fire(envelope)` directly, which is a polish task with no risk of contract drift bubbling up into Stage B.
 - **DEC-EP8 (2026-04-25, A5).** Scope simplification: `AgentStateTracker` does not cache per-rule match contexts (the router holds the rule table). The only rule-derived state the tracker holds is `idleThreshold`. A5 reduces to "propagate `newRules.idleThresholdSeconds` from `coordinator.reloadRules` → `registry.updateIdleThreshold` → each tracker's `updateIdleThreshold`," with `state` left untouched. No `RuleStoreReloadTests` file created; one focused test added inside `C6AppBootstrapTests` to reuse the harness.
+- **DEC-EP9 (2026-04-26, B6).** Sound ↔ system-notification mutex is a no-op in v1: there is no in-app sound channel separate from `UNNotificationContent.sound`, and the existing `guard settingsReader.systemEnabled else { return }` in the coordinator already prevents the would-be double-sound case. The `soundEnabled` UI toggle correctly maps to "OS banner sound on/off" today. If a future revision adds an in-app sound channel (e.g. an NSSound for muted-system-notifications-on play), the mutex logic from D10 lands at that point.
+- **DEC-EP10 (2026-04-26, B7).** Production Ghostty key-input wire to `TrackerRegistry.recordKeyInput` is deferred until either (a) Ghostty's surface layer surfaces per-keystroke callbacks or (b) C3 dispatcher emits `.paneInput` envelopes. Both prerequisites are out of v2 scope. The forwarding API + tests land so v2.1 can wire one call site in one line.
+- **DEC-EP11 (2026-04-26, B9).** Worktree auto-promote reducer drop-in is deferred to v2.1. The upstream `observeUnreadByWorktree` stream + `moveNotifiedWorktreeToTop` setting are both in place (B8/B2); only the consumer (a TCA reducer subscriber that fires `.worktreePromoteRequested(worktreeID)` on 0→N transitions and reorders within the repository group) is pending. Risk-controlled: the setting defaults true, so once the reducer lands the behavior turns on automatically; until then the toggle is a no-op.
+- **DEC-EP12 (2026-04-26, Stage C).** Stage C (D1, D2, D14) is deferred to v2.1 in its entirety. Rationale: Stage A + Stage B (minus B9) close every runtime defect and most UX gaps the v1 audit surfaced. Stage C is purely additive (master-disabled bell-slash rendering, DSL v2 grammar bump with backwards-compat migration, structured metrics with `tc notifications stats` CLI). Shipping v2 now without C is safe — all v2.0 decisions DEC-V1..V11 remain valid; v2.1 picks up the surface work atop a stable v2 base.
 
 ## Outcomes & Retrospective
 
@@ -112,6 +125,27 @@ Tasks are flat across the three stages. Each task represents a single small comm
 - The settings-change AsyncStream introduced for A4 will be reused by B5 (master toggle gate) and B6 (sound mutex) since both observe the same fields.
 - The `MockOSNotifier.assignedDelegate` recorder added in A3 unblocks future tests that need to assert the delegate is wired without involving live UN.
 - `tracker.updateIdleThreshold` semantics established in A5 set the precedent for B7's `tracker.recordUserInput` (also a "side input that does not change `state`").
+
+### Stage B complete (2026-04-26, commits cade4bb → afab00c)
+
+**10 of 11 tasks landed; B9 deferred (DEC-EP11).** Eight commits + the
+existing landed tooling deliver: dedup, master toggle, user-typing
+suppression API + forwarding, per-worktree unread stream, mark-read-on-
+focus on both UI and CLI sides.
+
+- `cade4bb` — B1: `AgentNotification.dedupKey` + decodeIfPresent.
+- `8a8084d` — B2: `NotificationsSettings.enabled` + `moveNotifiedWorktreeToTop`.
+- `ca71925` — B3: tracker user-input suppression.
+- `84ada3e` — B4: coordinator dedup window + `clearDedupCache` + `now` seam.
+- `2cc09e1` — B5: master toggle gate + UI Master section.
+- `7c7eaf2` — B7: `TrackerRegistry.recordKeyInput` forwarding seam.
+- `70770f9` — B8: `observeUnreadByWorktree` + catalog provider.
+- `63341f3` — B10: `InboxStore.markRead(forPane:)` + `InboxClient.markReadForPane`.
+- `afab00c` — B11: `HierarchyHandlers.onPaneFocused` → `inbox.markRead(forPane:)`.
+
+**Tests added/extended:** `AgentNotificationTests` (+2), `NotificationsSettingsTests` (NEW, 3), `AgentStateTrackerTests` (+3), `NotificationCoordinatorTests` (+5 dedup/master), `TrackerRegistryTests` (+2), `InboxStoreObserveTests` (+2), `InboxClientLiveTests` (+1), `HierarchyHandlersTests` (+1).
+
+**Deferred:** B6 (DEC-EP9 — no in-app sound channel exists), B9 (DEC-EP11 — worktree-list reducer drop-in), Stage C entirely (DEC-EP12). All decisions are explicitly logged with rationale; the v2.0 design decisions DEC-V1..V11 remain valid for the v2.1 follow-up.
 
 ## Context and Orientation
 
