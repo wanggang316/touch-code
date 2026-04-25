@@ -98,7 +98,7 @@ struct TabChipSnapshotTests {
       onCloseOthers: { _ in },
       onCloseToRight: { _ in },
       onCloseAll: {},
-      onRenameCommit: { _, _ in },
+      onRenameRequested: { _ in },
       onReorder: { _ in }
     )
     .frame(width: Self.rowSize.width, height: Self.rowSize.height, alignment: .bottom)
