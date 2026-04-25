@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import TouchCodeCore
+@preconcurrency import UserNotifications
 
 @testable import touch_code
 
@@ -517,6 +518,14 @@ final class MockOSNotifier: OSNotifier {
     await withCheckedContinuation { cont in
       postWaiters.append((target, cont))
     }
+  }
+
+  // The mock retains the assigned delegate so unit tests that exercise
+  // the delegate routing can assert it was wired without involving the
+  // live `UNUserNotificationCenter`.
+  private(set) var assignedDelegate: (any UNUserNotificationCenterDelegate)?
+  func setDelegate(_ delegate: any UNUserNotificationCenterDelegate) {
+    assignedDelegate = delegate
   }
 }
 

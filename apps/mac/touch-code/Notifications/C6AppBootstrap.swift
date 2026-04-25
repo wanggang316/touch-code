@@ -35,6 +35,11 @@ final class C6AppBootstrap {
 
   private var bindTask: Task<Void, Never>?
   private var lifecycleObserver: NSObjectProtocol?
+  /// Strong reference to the delegate that routes banner-tapped actions
+  /// back to the inbox. `UNUserNotificationCenter.delegate` is itself
+  /// weak, so the bootstrap owns the only strong reference; releasing it
+  /// in `shutdown()` lets ARC reclaim.
+  private var notificationDelegate: UserNotificationDelegate?
 
   /// Build the full C6 stack from the supplied dependencies and run the
   /// 11-step wiring sequence. The caller is expected to retain the
@@ -129,6 +134,18 @@ final class C6AppBootstrap {
       await coordinator.bind(to: router.transitions)
     }
 
+    // Wire the OS-banner action delegate. Focus and the body-tap default
+    // mark the inbox row read; Dismiss removes it. Without this, the OS
+    // surface and the in-app sidebar diverge on the same notification.
+    // Deeplink-to-pane on focus is deferred until the resolvePanel chain
+    // lands; today the focus action only marks read.
+    let delegate = UserNotificationDelegate(
+      onFocus: { [weak inbox] id in inbox?.markRead([id]) },
+      onDismiss: { [weak inbox] id in inbox?.dismiss([id]) }
+    )
+    bootstrap.notificationDelegate = delegate
+    osNotifier.setDelegate(delegate)
+
     // Refresh cached macOS notification permission on every app
     // activation. The cache is otherwise read once at boot, so a user
     // who grants permission in System Settings while the app is in the
@@ -191,6 +208,7 @@ final class C6AppBootstrap {
       NotificationCenter.default.removeObserver(lifecycleObserver)
       self.lifecycleObserver = nil
     }
+    notificationDelegate = nil
     hookDispatcher.unregister(prefix: RuleStore.sentinelPrefix)
   }
 

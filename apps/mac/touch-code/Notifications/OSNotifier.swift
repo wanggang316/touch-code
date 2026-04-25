@@ -21,6 +21,11 @@ protocol OSNotifier: AnyObject {
   func currentAuthorizationStatus() async -> AuthorizationStatus
   func requestAuthorization() async -> AuthorizationStatus
   func post(_ notification: AgentNotification, playSound: Bool) async
+  /// Install a delegate that handles user-tapped actions on banners. The
+  /// adapter retains the delegate for the lifetime of the wiring; callers
+  /// must hold a strong reference of their own because UN's `delegate`
+  /// property is itself weak.
+  func setDelegate(_ delegate: any UNUserNotificationCenterDelegate)
 }
 
 /// Production adapter over `UNUserNotificationCenter.current()`.
@@ -51,6 +56,10 @@ final class UserNotificationsOSNotifier: OSNotifier {
       // below — the refetch is the source of truth for the final state.
     }
     return await currentAuthorizationStatus()
+  }
+
+  func setDelegate(_ delegate: any UNUserNotificationCenterDelegate) {
+    center.delegate = delegate
   }
 
   func post(_ notification: AgentNotification, playSound: Bool) async {
