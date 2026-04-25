@@ -178,6 +178,61 @@ struct C6AppBootstrapTests {
     harness.bootstrap.hookDispatcher.unregister(prefix: RuleStore.sentinelPrefix)
   }
 
+  /// End-to-end through a real `HookDispatcher.fire(envelope:)` rather
+  /// than the explicit `router.handle(envelope:ruleID:)` seam. Exercises
+  /// the C3-side wire — `register(subscriber:for:)` + sentinel-prefix
+  /// matching + `InternalHookSubscriber.handle(envelope:)` — so a future
+  /// drift in C3's protocol surface fails this test rather than silently
+  /// breaking the live notification path. Uses `.paneExited` because
+  /// `.paneOutputMatch` cannot carry a rule id through the current
+  /// dispatcher protocol (router drops them by design — see
+  /// DetectionRouter.handle(envelope:) doc-comment).
+  @Test
+  func dispatcherFireDeliversLifecycleEnvelopeThroughC6Stack() async throws {
+    let harness = try await Self.startHarness(
+      authStatus: .authorized,
+      agentPaneCount: 1
+    )
+    defer { harness.bootstrap.shutdown() }
+
+    // Default rules subscribe on .paneOutputMatch only; lifecycle
+    // routing through the dispatcher needs an explicit subscription
+    // whose command starts with the sentinel prefix.
+    var config = harness.bootstrap.hookDispatcher.loadedConfig
+    config.subscriptions.append(
+      HookSubscription(
+        event: .paneExited,
+        command: "\(RuleStore.sentinelPrefix)lifecycle.exited"
+      )
+    )
+    harness.bootstrap.hookDispatcher.setConfig(config)
+
+    let tracker = harness.bootstrap.registry.allTrackers[0]
+    let envelope = HookEnvelope(
+      version: HookEnvelope.currentVersion,
+      event: .paneExited,
+      timestamp: Date(),
+      space: nil,
+      project: nil,
+      worktree: nil,
+      tab: nil,
+      pane: HookEnvelope.PaneRef(
+        id: tracker.paneID,
+        workingDirectory: "/tmp",
+        initialCommand: nil,
+        labels: ["agent:claude"]
+      ),
+      data: .paneExited(exitCode: 0)
+    )
+
+    await harness.bootstrap.hookDispatcher.fire(envelope)
+    await harness.mockNotifier.waitForPostCount(1)
+
+    #expect(harness.bootstrap.inboxStore.inbox.notifications.count == 1)
+    #expect(harness.bootstrap.inboxStore.inbox.notifications.first?.kind == .completed)
+    #expect(tracker.state == .completed)
+  }
+
   /// `applicationDidBecomeActive` must drive `refreshAuthorizationStatus`
   /// so a user who grants (or revokes) permission in System Settings
   /// while the app was inactive sees the cached status update on their
