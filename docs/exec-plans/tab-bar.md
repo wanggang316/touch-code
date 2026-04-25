@@ -78,6 +78,8 @@ Timestamp format: `YYYY-MM-DD`. Update as each item closes.
 - **D8** (M3-T3.1, 2026-04-24): `runningPanes` is a **`Set<PaneID>`** rather than the plan's `[PaneID: Bool]`. Absence is the natural "idle" signal and `contains` is the only read shape; a dictionary would force a `.filter { $0.value }` walk on every `tabIsDirty` call for no upside.
 - **D9** (M3-T3.3, 2026-04-24): `HierarchyClient.liveValue` uses **safe default-false / nil returns** for `tabIsDirty` / `lastFocusedPane` (plus no-op writers for `markPaneRunning` / `markPaneIdle`), instead of the project-wide `fatalError("HierarchyClient.liveValue not configured")` pattern. Reason: these are dormant read paths. An uncontrolled production caller (e.g. a background-rendered chip during shutdown) should stay inert rather than trap; wrong DI wiring is already caught by `testValue`'s unimplemented stubs.
 - **D10** (M3-T3.4, 2026-04-24): Chip-dirty observation hangs off the **`@Observable HierarchyManager` via `TabBarView`**, not the `HierarchyClient` closure. Reason: clients are plain closures — SwiftUI cannot track observation through them. Binding the `(TabID) -> Bool` lookup at the TabBarView layer (which already owns an `@Environment(HierarchyManager.self)`) preserves observation so a future hook writer flipping `runningPanes` re-renders the chip automatically.
+- **D11** (post-review, 2026-04-25): `closeTabsToRight(of:)` now explicitly reseats `selectedTabID = id` after the doomed-suffix loop. Reason: when the user's active tab was inside the doomed range, `closeTab`'s auto-advance landed on `tabs.first` rather than the pivot — surprising UX. Mirrors `closeOtherTabs`. Two regression cases on `HierarchyManagerTests`.
+- **D12** (post-review, 2026-04-25): `selectAdjacentTab(direction:...)` now routes through `selectTab(...)` after computing the new id, instead of writing `selectedTabID` directly. Reason: writing the field bypassed the M3 focus-restoration block, so `⌘⇧[` / `⌘⇧]` switched tabs without restoring the remembered pane. Test: `selectAdjacentTabRestoresLastFocusedPaneOnTarget`.
 
 ## Outcomes & Retrospective
 
@@ -153,6 +155,25 @@ Timestamp format: `YYYY-MM-DD`. Update as each item closes.
 - `@Observable` tracking only fires for properties read through the observed instance in a view body. Reading through a plain closure (e.g. a TCA client) bypasses observation, so dirty-signal UI has to dereference the manager directly.
 - Runtime-state teardown is easy to miss — `closePane`, `closeTab`, and `tearDownWorktreeSurfaces` all needed bookkeeping updates. Centralizing the "clear-on-teardown" pass in dedicated helpers would cut the diff but add indirection; the inline updates are shorter in the happy path.
 - `Set` beats `[Key: Bool]` for "membership is the state" patterns — one less `.filter { $0.value }` per read and no "stored false" edge case to reason about.
+
+### Post-review fixes — 2026-04-25 — `3a3263d` + `06e6a20`
+
+Code-reviewer pass surfaced one Important behavioral bug and a handful of polish items. Resolved in two commits and folded into the Decision Log as D11 + D12.
+
+**Important fix:**
+- `closeTabsToRight` now reseats `selectedTabID = id` after the doomed-suffix loop (D11). Without this the auto-advance lands on `tabs.first` when the active tab was inside the suffix. Two new regression cases.
+
+**Notable fix:**
+- `selectAdjacentTab` routes through `selectTab` so the M3 focus-restoration block fires for the keyboard shortcut path (D12). One new regression case.
+
+**Polish (commit `06e6a20`):**
+- `TabBarOverflowScroll`'s coordinate-space sentinel marked `private` and renamed lowerCamel.
+- `tabIsDirty(_:)` early-returns when `runningPanes.isEmpty` so chip renders skip the catalog walk in steady state (which is everything until C3 hooks ship a writer).
+- `ChipDropDelegate.performDrop` gains a comment locking in "drop into target's slot" semantics.
+
+**Acknowledged but not fixed** (out of scope or already documented):
+- `⌘T` / `⌘W` collide with Ghostty's terminal-internal bindings. Menu binding wins on the responder chain — confirmed by review. Documented as a follow-up issue (Ghostty config note for users), not a code change.
+- `liveValue` safe defaults for the four new read closures stand (Decision D9). Review concurred this is appropriate — DI failures still trap on the next mutation closure.
 
 ## Context and Orientation
 
