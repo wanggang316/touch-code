@@ -83,12 +83,60 @@ expands additively (existing reserved-empty Phase 1 entries decode with
        captured SettingsStore so every user-flow openPane / splitPane
        inherits Project env (closure shape unchanged so RootFeature/M10
        callsites compile untouched). 9 tests, build green (2026-04-25)
-- [ ] M9 — Runtime: Worktree lifecycle script execution + LifecycleScriptToast
+- [x] M9 — Runtime: Worktree lifecycle script execution + LifecycleScriptToast.
+       `runWorktreeLifecycleScript` runs `$SHELL -c <command>` on a detached
+       Task with cwd = worktree path and env = `resolvedEnv(for:in:)`;
+       combined stdout+stderr is captured on a single Pipe. Three wrapper
+       variants `createWorktreeWithLifecycle` / `setWorktreeArchivedWithLifecycle`
+       / `removeWorktreeWithLifecycle` exist alongside the pre-existing
+       lifecycle-free signatures (IPC keeps the originals untouched).
+       Setup is fail-stop with catalog rollback (see Decision Log);
+       archive and delete are fail-warn. Toast is a TCA `@Reducer` with
+       a TestClock-driven 5s auto-dismiss on success; failure stays open
+       until the user dismisses. SIGTERM Cancel is wired but no-op
+       (deferred Risk R2 mitigation). 18 tests, build green (2026-04-25)
 - [x] M10 — Command Palette: `.runProjectScript` Kind + build path
 - [ ] M11 — Tests (≥50 net new across all changed surfaces)
 - [ ] M12 — Docs, rename gate, manual QA, /codex:review, push + PR
 
 ## Surprises & Discoveries
+
+### 2026-04-25 — M9: catalog rollback on setup failure (deviation from design doc)
+
+Design doc §"Worktree lifecycle execution" specified that on setup
+failure "the worktree directory is left on disk… but the catalog row
+is not added." Implementation deviates: `createWorktreeWithLifecycle`
+runs `createWorktree` (catalog append) FIRST so the script can read
+the row's path during the spawn, then on failure rolls the catalog
+row back via `removeWorktree`. The on-disk directory is still left
+for inspection. Rationale: the wrapper takes a `path` argument (caller
+already created the directory), and the catalog row is the cheap
+artifact to clean up; leaving a stale row would confuse the sidebar
+without giving the user an action surface. The Create Worktree UI
+flow does NOT use the wrapper variant — it uses the script-only path
+through `HierarchyClient.runWorktreeLifecycleScript` because `wt sw`
+already created the directory and the catalog row was attached
+through `createWorktreeWithGit` before the setup script runs. Setup
+failures from that path therefore leave both directory + row in
+place; the toast's failure message is the user's signal to clean up.
+The wrapper variant exists for future callers (IPC, scripted
+provisioning) where the rollback semantics are appropriate.
+
+### 2026-04-25 — M9: toast presents in terminal state, not running state
+
+Design doc described the toast as showing a running spinner during
+script execution. The implementation presents the toast only after
+the script's terminal state (success / failure) is known; the
+`.running` exit state still exists on the feature for completeness
+but no current callsite passes through it. Rationale: the wrapper
+variants and the script-only path both run synchronously from the
+caller's perspective (`async let result = await client.…`), and
+the catalog mutation needs to be observable before the toast
+finishes anyway. Showing a transient running spinner would require
+threading the toast presentation through a separate request before
+the await resumes, which is racy with TCA's effect ordering. The
+.running state remains for a future SIGTERM-capable iteration where
+the toast holds open through cancellation (Risk R2 mitigation).
 
 ### 2026-04-25 — M6: hooksLoaded payload widened to carry the full subscription model
 
