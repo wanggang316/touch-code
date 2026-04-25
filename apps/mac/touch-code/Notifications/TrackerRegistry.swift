@@ -87,12 +87,20 @@ final class TrackerRegistry {
     return tracker
   }
 
+  /// Hook fired after a tracker is torn down. The bootstrap wires this
+  /// to `NotificationCoordinator.clearDedupCache(_:)` so per-pane dedup
+  /// state does not leak across pane reuse. nil means "no listener
+  /// installed" — the registry can still create / destroy trackers in
+  /// isolation (e.g. in unit tests).
+  var onDestroy: (@MainActor (PaneID) -> Void)?
+
   /// Tear down the tracker for the given Pane. Called when the Pane is
   /// removed from the hierarchy or loses its agent label. No-op if the
   /// Pane has no tracker.
   func destroy(for paneID: PaneID) {
     guard let tracker = trackers.removeValue(forKey: paneID) else { return }
     tracker.teardown()
+    onDestroy?(paneID)
   }
 
   /// Adopt a new idle threshold from a rule reload. Stores the value so

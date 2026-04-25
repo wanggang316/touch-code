@@ -278,6 +278,26 @@ final class DetectionRouter: InternalHookSubscriber {
     let title: String
     let body: String
     let kind: AgentNotification.Kind
+    /// Optional explicit dedup identity (v2 D3). When set, the coordinator
+    /// keys its 2-second cross-source dedup window on this string instead
+    /// of the content hash. `nil` falls back to `(paneID, title, body)`.
+    let dedupKey: String?
+
+    init(
+      transition: AgentStateTransition,
+      agent: String,
+      title: String,
+      body: String,
+      kind: AgentNotification.Kind,
+      dedupKey: String? = nil
+    ) {
+      self.transition = transition
+      self.agent = agent
+      self.title = title
+      self.body = body
+      self.kind = kind
+      self.dedupKey = dedupKey
+    }
   }
 
   static func resolveKind(

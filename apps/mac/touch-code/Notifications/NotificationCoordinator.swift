@@ -49,6 +49,19 @@ final class NotificationCoordinator {
   /// the next inbox mutation (D8 — synchronous badge re-evaluation).
   private var lastUnreadCount: Int = 0
 
+  /// Per-pane dedup window (v2 D3 / DEC-V3). Two arrivals describing
+  /// the same event within the window get collapsed to one — the inbox
+  /// is the source of truth and we never coalesce existing rows.
+  private struct DedupRecord {
+    let key: String
+    let postedAt: Date
+  }
+  private var recentByPane: [PaneID: DedupRecord] = [:]
+  private let dedupWindow: TimeInterval = 2.0
+  /// Test seam — production uses `Date.init`. Tests inject a closure to
+  /// fast-forward across the dedup window without `Task.sleep`.
+  private let now: @MainActor @Sendable () -> Date
+
   init(
     inbox: InboxStore,
     badger: any DockBadger,
@@ -58,7 +71,8 @@ final class NotificationCoordinator {
     registry: TrackerRegistry,
     permissionDelegate: any NotificationPermissionDelegate,
     ruleStore: RuleStore? = nil,
-    router: DetectionRouter? = nil
+    router: DetectionRouter? = nil,
+    now: @escaping @MainActor @Sendable () -> Date = Date.init
   ) {
     self.inbox = inbox
     self.badger = badger
@@ -69,6 +83,7 @@ final class NotificationCoordinator {
     self.permissionDelegate = permissionDelegate
     self.ruleStore = ruleStore
     self.router = router
+    self.now = now
   }
 
   /// Wire the rule-reload dependencies after construction. `C6AppBootstrap`
@@ -140,6 +155,18 @@ final class NotificationCoordinator {
     handleUnread(lastUnreadCount)
   }
 
+  /// Drop the dedup record for a Pane that is going away. `TrackerRegistry`
+  /// calls this from `destroy(for:)` so a Pane reusing an old PaneID
+  /// (e.g. across a session restore) does not see a false-positive
+  /// duplicate from the previous lifetime.
+  func clearDedupCache(_ paneID: PaneID) {
+    recentByPane.removeValue(forKey: paneID)
+  }
+
+  private static func contentHash(paneID: PaneID, title: String, body: String) -> String {
+    "\(paneID.raw.uuidString)|\(title)|\(body)"
+  }
+
   // MARK: - Per-transition fan-out
 
   /// Process a single router output — inboxes, posts, badges. Exposed so
@@ -159,8 +186,27 @@ final class NotificationCoordinator {
       agent: output.agent,
       kind: output.kind,
       title: output.title,
-      body: body
+      body: body,
+      dedupKey: output.dedupKey
     )
+
+    // v2 D3 — cross-source dedup. Drop a duplicate within the window;
+    // do not append, do not post, do not bump unread. Inbox stays the
+    // source of truth (DEC-5) so we never mutate an existing row.
+    let key = notification.dedupKey ?? Self.contentHash(
+      paneID: notification.paneID,
+      title: notification.title,
+      body: notification.body
+    )
+    let nowDate = now()
+    if let recent = recentByPane[notification.paneID],
+      recent.key == key,
+      nowDate.timeIntervalSince(recent.postedAt) < dedupWindow
+    {
+      logger.debug("Duplicate within dedup window; dropping.")
+      return
+    }
+    recentByPane[notification.paneID] = DedupRecord(key: key, postedAt: nowDate)
     if settingsReader.inAppEnabled {
       inbox.append(notification)
     } else {

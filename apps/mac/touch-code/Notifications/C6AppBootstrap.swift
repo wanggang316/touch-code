@@ -146,6 +146,13 @@ final class C6AppBootstrap {
     bootstrap.notificationDelegate = delegate
     osNotifier.setDelegate(delegate)
 
+    // Per-pane dedup eviction on tracker teardown (v2 D3). Without this
+    // a pane reusing an old PaneID (session restore) could see a stale
+    // dedup record from the prior lifetime.
+    registry.onDestroy = { [weak coordinator] paneID in
+      coordinator?.clearDedupCache(paneID)
+    }
+
     // Refresh cached macOS notification permission on every app
     // activation. The cache is otherwise read once at boot, so a user
     // who grants permission in System Settings while the app is in the
