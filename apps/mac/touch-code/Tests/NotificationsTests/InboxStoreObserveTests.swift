@@ -80,7 +80,93 @@ struct InboxStoreObserveTests {
     #expect(update?.notifications.count == 1)
   }
 
+  // MARK: - Per-worktree unread (v2 D11 / B8)
+
+  /// `observeUnreadByWorktree` joins the inbox against a catalog
+  /// snapshot and returns one entry per worktree with unread items.
+  @Test
+  func observeUnreadByWorktreeEmitsPerGroup() async throws {
+    let url = Self.tempURL()
+    defer { try? FileManager.default.removeItem(at: url) }
+    let store = InboxStore(fileURL: url, debounce: .seconds(3600))
+
+    // Build a catalog with two worktrees, each owning one pane.
+    let paneA = Pane(workingDirectory: "/a", initialCommand: nil)
+    let paneB = Pane(workingDirectory: "/b", initialCommand: nil)
+    let catalog = Self.catalog(panes: [paneA, paneB])
+    let worktreeIDs = catalog.spaces[0].projects[0].worktrees.map(\.id)
+    store.setCatalogProvider { catalog }
+
+    var iterator = store.observeUnreadByWorktree().makeAsyncIterator()
+    let initial = await iterator.next()
+    #expect(initial == [:])
+
+    store.append(
+      AgentNotification(
+        paneID: paneA.id, agent: "claude", kind: .completed, title: "t", body: "b",
+        createdAt: Date()
+      )
+    )
+    store.append(
+      AgentNotification(
+        paneID: paneB.id, agent: "claude", kind: .completed, title: "t", body: "b",
+        createdAt: Date()
+      )
+    )
+    store.append(
+      AgentNotification(
+        paneID: paneA.id, agent: "claude", kind: .completed, title: "t2", body: "b",
+        createdAt: Date()
+      )
+    )
+
+    // Drain — multiple appends, multiple yields.
+    var latest: [WorktreeID: Int] = [:]
+    for _ in 0..<3 {
+      if let next = await iterator.next() {
+        latest = next
+      }
+    }
+    // 2 unread on worktree[0] (paneA), 1 unread on worktree[1] (paneB).
+    #expect(latest[worktreeIDs[0]] == 2)
+    #expect(latest[worktreeIDs[1]] == 1)
+  }
+
+  /// Without a catalog provider the per-worktree map is empty — keeps
+  /// the store usable in catalog-free unit tests.
+  @Test
+  func observeUnreadByWorktreeWithoutProviderYieldsEmpty() async throws {
+    let url = Self.tempURL()
+    defer { try? FileManager.default.removeItem(at: url) }
+    let store = InboxStore(fileURL: url, debounce: .seconds(3600))
+
+    var iterator = store.observeUnreadByWorktree().makeAsyncIterator()
+    let initial = await iterator.next()
+    #expect(initial == [:])
+  }
+
   // MARK: - Helpers
+
+  private static func catalog(panes: [Pane]) -> Catalog {
+    let worktrees = panes.map { pane in
+      let tab = Tab(splitTree: SplitTree(leaf: pane.id), panes: [pane])
+      return Worktree(
+        name: "wt", path: "/repo", branch: "main", tabs: [tab], selectedTabID: tab.id
+      )
+    }
+    let project = Project(
+      name: "p", rootPath: "/p", gitRoot: "/p",
+      worktrees: worktrees,
+      selectedWorktreeID: worktrees.first?.id
+    )
+    let space = Space(name: "s", projects: [project], selectedProjectID: project.id)
+    return Catalog(
+      version: Catalog.currentVersion,
+      windows: [],
+      spaces: [space],
+      selectedSpaceID: space.id
+    )
+  }
 
   private static func makeNotification(agent: String) -> AgentNotification {
     AgentNotification(

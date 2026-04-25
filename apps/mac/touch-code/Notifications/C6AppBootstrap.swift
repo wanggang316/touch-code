@@ -60,13 +60,18 @@ final class C6AppBootstrap {
     // Step 1 — settings is now the single-writer SettingsStore shared across the app shell.
     let settings = settingsStore
 
-    // Step 2 — inbox.
+    // Step 2 — inbox. Wire the catalog provider so observeUnreadByWorktree
+    // can map paneID → worktreeID against the live catalog at each tick
+    // (v2 D11 / B8).
     let inbox: InboxStore
     if let inboxStore {
       inbox = inboxStore
     } else {
       inbox = InboxStore(fileURL: inboxURL, clock: clock)
       _ = try inbox.load()
+    }
+    inbox.setCatalogProvider { [weak hierarchy] in
+      hierarchy?.catalog ?? .default
     }
 
     // Ensure the defaults are present so step 3 always finds something to load.

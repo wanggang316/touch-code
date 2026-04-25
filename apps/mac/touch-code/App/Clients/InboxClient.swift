@@ -46,6 +46,11 @@ nonisolated struct InboxClient: Sendable {
   /// `InboxStore.unreadPublisher`; the client exposes it for views that
   /// only need the count.
   var observeUnread: @MainActor @Sendable () -> AsyncStream<Int>
+
+  /// Stream of per-worktree unread maps (v2 D11 / B8). Drives both the
+  /// worktree-promotion reducer (`moveNotifiedWorktreeToTop`) and the
+  /// future status-bar bell from the same source of truth.
+  var observeUnreadByWorktree: @MainActor @Sendable () -> AsyncStream<[WorktreeID: Int]>
 }
 
 // MARK: - Live bridge
@@ -64,7 +69,8 @@ extension InboxClient {
         settings.mutateNotifications { $0.mute.mutedRuleIDs.insert(ruleID) }
       },
       observe: { inbox.observeInbox() },
-      observeUnread: { inbox.unreadPublisher }
+      observeUnread: { inbox.unreadPublisher },
+      observeUnreadByWorktree: { inbox.observeUnreadByWorktree() }
     )
   }
 }
@@ -84,7 +90,8 @@ extension InboxClient: DependencyKey {
     clearAll: {},
     muteRule: { _ in },
     observe: { AsyncStream { $0.finish() } },
-    observeUnread: { AsyncStream { $0.finish() } }
+    observeUnread: { AsyncStream { $0.finish() } },
+    observeUnreadByWorktree: { AsyncStream { $0.finish() } }
   )
 
   static let testValue: InboxClient = InboxClient(
@@ -99,6 +106,10 @@ extension InboxClient: DependencyKey {
     ),
     observeUnread: unimplemented(
       "InboxClient.observeUnread",
+      placeholder: AsyncStream { $0.finish() }
+    ),
+    observeUnreadByWorktree: unimplemented(
+      "InboxClient.observeUnreadByWorktree",
       placeholder: AsyncStream { $0.finish() }
     )
   )
