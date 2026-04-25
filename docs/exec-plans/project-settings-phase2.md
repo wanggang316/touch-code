@@ -60,8 +60,9 @@ expands additively (existing reserved-empty Phase 1 entries decode with
 - [x] M3 — Sidebar restructure: SettingsSection drops 3 cases, retired pane
        files deleted, deny-list grows; existing fallback retained
        (2026-04-25)
-- [ ] M4 — General pane rewrite (5-Section Form + OptionalOverridePicker
-       + ShellRegistry + EnvironmentEditorView)
+- [x] M4 — General pane rewrite (5-Section Form + OptionalOverridePicker
+       + ShellRegistry + EnvironmentEditorView) — 28 tests across 5 files
+       (2026-04-25)
 - [ ] M5 — Scripts pane (Lifecycle Section + user-defined list with inline
        edit / drag-to-reorder + Run/edit/delete buttons)
 - [ ] M6 — Hooks pane inline edit (HookEditorRow + ScopePickerView +
@@ -76,7 +77,27 @@ expands additively (existing reserved-empty Phase 1 entries decode with
 
 ## Surprises & Discoveries
 
-(None yet — populated during execution.)
+### 2026-04-25 — M4: SwiftUI MainActor inference forces nonisolated annotations on pure helpers
+
+`OptionalOverridePicker.inheritRowText`, `TriStateOverrideToggle.inheritLabel`,
+`EnvVarValidator`, and `ProjectGeneralSettingsView.visibleSections(for:)`
+are all pure deterministic functions with no mutable state. Because they
+sit inside SwiftUI `View` structs (or alongside one in the same file),
+the project's strict-concurrency settings infer MainActor isolation on
+them, which then forces every test to be `@MainActor`. Adding
+`nonisolated` to each is the right fix — it documents that the helpers
+are pure and lets test files stay `struct` (no actor ceremony).
+
+### 2026-04-25 — M4: WriteRoutes extraction to dodge SwiftUI binding-test friction
+
+The original draft of `ProjectGeneralSettingsView` inlined the
+SettingsWriter calls inside each `Binding(set:)`. Tests that wanted to
+assert "control X writes through closure Y" would have had to
+instantiate the SwiftUI view, surface the private bindings, and exercise
+them — heavy and brittle. Extracted the routing fan-out into a
+`WriteRoutes` struct on the view. Tests construct `WriteRoutes` directly
+with a stubbed `SettingsWriter.testValue` and verify each route in
+isolation, mirroring `ProjectOptionsFeatureTests`' shape.
 
 ## Decision Log
 
