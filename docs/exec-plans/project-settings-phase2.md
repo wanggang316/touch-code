@@ -53,12 +53,13 @@ expands additively (existing reserved-empty Phase 1 entries decode with
 - [x] M1 — Schema & types: ScriptKind, ScriptTintColor, ScriptDefinition
        expansion, GitProjectSettings +3 lifecycle script fields (2026-04-25,
        21 tests, full TouchCodeCore suite green)
-- [ ] M2 — Mid-layer API: HookConfigClient (+upsert/+delete),
-       SettingsWriter (+5 closures), HierarchyClient (+runScript),
-       HierarchyManager.createTab widening
-- [ ] M3 — Sidebar restructure: SettingsSection drops 3 cases, projectsChanged
-       falls back to General when kind hides selection, retired pane files
-       deleted, deny-list grows
+- [x] M2 — Mid-layer API: HookConfigClient (+upsert/+delete),
+       SettingsWriter (+5 closures); HierarchyClient.runScript +
+       HierarchyManager.runScript / openPane env arg deferred to M5/M8 per
+       Decision Log (2026-04-25, 14 tests)
+- [x] M3 — Sidebar restructure: SettingsSection drops 3 cases, retired pane
+       files deleted, deny-list grows; existing fallback retained
+       (2026-04-25)
 - [ ] M4 — General pane rewrite (5-Section Form + OptionalOverridePicker
        + ShellRegistry + EnvironmentEditorView)
 - [ ] M5 — Scripts pane (Lifecycle Section + user-defined list with inline

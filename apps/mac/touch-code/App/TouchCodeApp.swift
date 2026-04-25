@@ -248,7 +248,7 @@ final class AppState {
     // handlers share the exact same live instances — avoids two parallel
     // `LiveEditorService`s with divergent settings captures.
     let editor = EditorClient.live(settings: settings)
-    let hierarchy = HierarchyClient.live(manager: manager)
+    let hierarchy = HierarchyClient.live(manager: manager, settings: settings)
     self.editorClient = editor
     self.hierarchyClient = hierarchy
     // `SettingsWindowPresenter.open` forwards to the `OpenWindowAction` captured by the

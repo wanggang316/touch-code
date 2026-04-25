@@ -1434,6 +1434,26 @@ final class HierarchyManager {
     return overrides
   }
 
+  // MARK: - Phase 2: env resolution
+
+  /// Resolves the merged environment for a Project's spawned subprocesses.
+  /// Combines `ProcessInfo.processInfo.environment` with
+  /// `Settings.projects[pid].envVars`; project-defined keys win on collision.
+  /// Pure / nonisolated so M8 (PaneSurface env injection) and M9 (lifecycle
+  /// script execution) can call it from off the main actor when convenient.
+  nonisolated static func resolvedEnv(
+    for projectID: ProjectID,
+    in settings: Settings
+  ) -> [String: String] {
+    var env = ProcessInfo.processInfo.environment
+    if let overrides = settings.projects[projectID]?.envVars {
+      for (key, value) in overrides {
+        env[key] = value
+      }
+    }
+    return env
+  }
+
   // MARK: - Helpers
 
   private func findProjectIndices(projectID: ProjectID, spaceID: SpaceID) -> (Int, Int)? {
