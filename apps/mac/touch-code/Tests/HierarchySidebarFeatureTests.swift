@@ -239,6 +239,11 @@ struct HierarchySidebarFeatureTests {
     deps.hierarchyClient.reorderProjects = { space, from, to in
       calls.withValue { $0.reorderProjects.append((space, from, to)) }
     }
+    // M9 Phase 2: the Remove flow now runs the deleteScript before
+    // `removeWorktreeWithGit`. Stub the lifecycle closure as a silent
+    // skip so suite tests that don't care about the script can keep
+    // their existing recorder shape.
+    deps.hierarchyClient.runWorktreeLifecycleScript = { _, _, _ in .skipped }
   }
 
   @Test
