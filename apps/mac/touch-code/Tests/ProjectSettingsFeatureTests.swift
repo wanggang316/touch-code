@@ -154,6 +154,7 @@ struct ProjectSettingsFeatureTests {
     }
     await store.receive(\.hooksLoaded.success) {
       $0.hooksLoad = .loaded([expected])
+      $0.hookSubscriptions = [sub]
     }
   }
 
@@ -199,6 +200,7 @@ struct ProjectSettingsFeatureTests {
     }
     await store.receive(\.hooksLoaded.success) {
       $0.hooksLoad = .loaded([expected])
+      $0.hookSubscriptions = [sub]
     }
   }
 
@@ -232,6 +234,7 @@ struct ProjectSettingsFeatureTests {
     await store.send(.onHooksAppear) { $0.hooksLoad = .loading }
     await store.receive(\.hooksLoaded.success) {
       $0.hooksLoad = .loaded([expected])
+      $0.hookSubscriptions = [sub]
     }
   }
 
@@ -265,6 +268,7 @@ struct ProjectSettingsFeatureTests {
     }
     await store.receive(\.hooksLoaded.success) {
       $0.hooksLoad = .loaded([expected])
+      $0.hookSubscriptions = [sub]
     }
   }
 
