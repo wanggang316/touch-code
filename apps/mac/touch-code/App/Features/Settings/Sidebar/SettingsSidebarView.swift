@@ -100,7 +100,7 @@ struct SettingsSidebarView: View {
     case .shortcuts: return "command"
     case .updates: return "arrow.down.circle"
     case .about: return "info.circle"
-    case .projectGeneral, .projectGit, .projectGitHub, .projectScripts, .projectHooks, .projectEnv:
+    case .projectGeneral, .projectScripts, .projectHooks:
       return ""
     }
   }
@@ -111,11 +111,8 @@ struct SettingsSidebarView: View {
   private func subrowIcon(for section: SettingsSection) -> String {
     switch section {
     case .projectGeneral: return "slider.horizontal.3"
-    case .projectGit: return "arrow.branch"
-    case .projectGitHub: return "arrow.triangle.pull"
     case .projectScripts: return "terminal"
     case .projectHooks: return "link"
-    case .projectEnv: return "leaf"
     default: return ""
     }
   }

@@ -149,15 +149,16 @@ struct SettingsWindowFeatureTests {
   }
 
   @Test
-  func projectsChangedFallsBackToGeneralWhenKindHidesCurrentSelection() async {
-    // A Project on `.projectGit` that flips to `plain_dir` (e.g. user ran `rm -rf .git`)
-    // must bounce the selection to `.projectGeneral` — the sidebar no longer exposes the
-    // Git rows and the detail pane would otherwise render a pane the user can't navigate
-    // away from.
+  func projectsChangedKeepsSelectionAcrossKindFlipUnderPhase2Subrows() async {
+    // Phase 2 returns the same three sub-rows for both `gitRepo` and `plainDir`,
+    // so a project flipping its kind never hides the user's current selection.
+    // This regression-guard keeps the historical fallback wired (so future kind-
+    // gated sub-rows still get the bounce) but verifies the no-op outcome
+    // under today's row policy.
     let pid = ProjectID()
     var pane = ProjectSettingsFeature.State(projectID: pid)
     pane.kind = .gitRepo
-    var initial = SettingsWindowFeature.State(selection: .projectGit(pid))
+    var initial = SettingsWindowFeature.State(selection: .projectScripts(pid))
     initial.projectPanes.append(pane)
     let store = TestStore(initialState: initial) {
       SettingsWindowFeature()
@@ -169,7 +170,7 @@ struct SettingsWindowFeatureTests {
     }
     await store.send(.projectsChanged([pid])) {
       $0.projectPanes[id: pid]?.kind = .plainDir
-      $0.selection = .projectGeneral(pid)
+      // Selection unchanged — Scripts is still in the subrows for plainDir.
     }
   }
 
