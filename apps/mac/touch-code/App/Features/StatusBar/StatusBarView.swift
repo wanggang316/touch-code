@@ -9,20 +9,44 @@ import TouchCodeCore
 ///
 /// Mounted via `ToolbarItem(placement: .principal)` in `WorktreeDetailView`
 /// with `ToolbarSpacer(.flexible)` on either side to keep the slot centered.
+///
+/// Rendered as a capsule-styled container (subtle fill + hairline border)
+/// so the slot has a visible affordance even when the titlebar's own
+/// background is suppressed. A leading `HeaderBellView` lives inside the
+/// capsule — keeps notifications reachable from the center without
+/// doubling up next to the trailing button cluster.
 struct StatusBarView: View {
   @Bindable var store: StoreOf<StatusBarFeature>
   let gitHubStore: StoreOf<GitHubFeature>
+  /// Header feature store. Owns the notification bell that renders inside
+  /// the status bar's leading adornment slot.
+  let headerStore: StoreOf<WorktreeHeaderFeature>
   /// Active Worktree identifier, nil when selection doesn't resolve one
   /// (sidebar placeholder state). Drives the PR form's snapshot lookup.
   let worktreeID: WorktreeID?
 
   var body: some View {
-    ViewThatFits(in: .horizontal) {
-      formContent(compact: false)
-      formContent(compact: true)
-      Color.clear.frame(width: 0, height: 0)
+    HStack(spacing: 8) {
+      HeaderBellView(store: headerStore)
+      Divider()
+        .frame(height: 14)
+      ViewThatFits(in: .horizontal) {
+        formContent(compact: false)
+        formContent(compact: true)
+        Color.clear.frame(width: 0, height: 0)
+      }
+      .animation(.easeInOut(duration: 0.2), value: formIdentity)
     }
-    .animation(.easeInOut(duration: 0.2), value: formIdentity)
+    .padding(.horizontal, 10)
+    .padding(.vertical, 3)
+    .background(
+      Capsule(style: .continuous)
+        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.6))
+    )
+    .overlay(
+      Capsule(style: .continuous)
+        .strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5)
+    )
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("status.bar")
   }
