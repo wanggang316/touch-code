@@ -312,6 +312,7 @@ struct HierarchySidebarView: View {
           }
         }
         .listStyle(.sidebar)
+        .background(SidebarIndentZeroer())
       }
     } else {
       noSpacesState
@@ -410,11 +411,12 @@ struct HierarchySidebarView: View {
             space: space,
             hasUnread: projectHasUnread,
             isLoading: project.loadState == .loading,
+            isExpanded: isExpanded,
             store: store
           )
         }
         .buttonStyle(.plain)
-        .listRowInsets(EdgeInsets(top: 10, leading: 12, bottom: 4, trailing: 12))
+        .listRowInsets(EdgeInsets(top: 10, leading: 0, bottom: 4, trailing: 0))
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
         if isExpanded {
@@ -921,11 +923,20 @@ private struct ProjectHeaderRow: View {
   /// the user can see a reconcile pass is in flight without blocking the
   /// window (P-Q3: inline spinner, never modal).
   var isLoading: Bool = false
+  /// Drives the leading disclosure chevron (`chevron.right` collapsed, `chevron.down`
+  /// expanded). The parent Button still owns the tap, so this is display-only.
+  var isExpanded: Bool = false
   @Bindable var store: StoreOf<HierarchySidebarFeature>
   @State private var isHovering = false
 
   var body: some View {
     HStack(spacing: 6) {
+      Image(systemName: "chevron.right")
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+        .frame(width: 10, alignment: .center)
+        .accessibilityHidden(true)
       Text(project.name)
       Spacer()
       if isLoading {
@@ -941,7 +952,7 @@ private struct ProjectHeaderRow: View {
       }
       // Keep the hover chrome from collapsing row width when hidden —
       // use opacity, not conditional rendering.
-      HStack(spacing: 4) {
+      HStack(spacing: 10) {
         // Non-git Projects (P-Q4 = a): suppress the Add Worktree affordance.
         // Worktrees are a git-only concept; a scratch folder renders with a
         // single synthetic Worktree and nothing to add.
@@ -989,12 +1000,79 @@ private struct ProjectHeaderRow: View {
           Image(systemName: "ellipsis")
             .accessibilityLabel("Project options")
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .foregroundStyle(.primary)
         .fixedSize()
       }
       .opacity(isHovering ? 1 : 0)
     }
     .contentShape(Rectangle())
     .onHover { isHovering = $0 }
+  }
+}
+
+/// Transparent helper that hunts down the AppKit `NSOutlineView` that `List(.sidebar)`
+/// mounts under the hood and zeroes its group-row indentation. `.sidebar` style reserves
+/// a ~20pt leading gutter from `indentationPerLevel` + the disclosure column; SwiftUI
+/// exposes no knob for either, so we BFS the view tree from `window.contentView`
+/// (same shape commit 1948530 used to hide the scroller) and patch them directly.
+/// Retries a few times because the List may not be attached when `viewDidMoveToWindow`
+/// first fires.
+private struct SidebarIndentZeroer: NSViewRepresentable {
+  func makeNSView(context: Context) -> NSView { _IndentZeroerView() }
+  func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+private final class _IndentZeroerView: NSView {
+  private var attempts = 0
+
+  override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    attempts = 0
+    patch()
+  }
+
+  private func patch() {
+    guard let root = window?.contentView else { return }
+    let outlines = findOutlineViews(in: root)
+    if outlines.isEmpty, attempts < 20 {
+      attempts += 1
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+        self?.patch()
+      }
+      return
+    }
+    for outline in outlines {
+      outline.indentationPerLevel = 0
+      outline.intercellSpacing = NSSize(width: 0, height: outline.intercellSpacing.height)
+      if let col = outline.outlineTableColumn {
+        col.minWidth = 0
+        // NSOutlineView reserves a disclosure column even when rows have no children;
+        // shrinking its width pulls every row's leading edge flush to the scroll gutter.
+      }
+      // Sidebar NSScrollView adds a small leading contentInset (≈6pt) for the
+      // section-header gutter; zero it so rows sit flush to the window's edge.
+      // Disable auto-adjustment so the system doesn't put the inset back on
+      // layout changes (window resize, safe-area updates, etc.).
+      if let scrollView = outline.enclosingScrollView {
+        scrollView.automaticallyAdjustsContentInsets = false
+        var insets = scrollView.contentInsets
+        insets.left = 0
+        scrollView.contentInsets = insets
+      }
+    }
+  }
+
+  private func findOutlineViews(in root: NSView) -> [NSOutlineView] {
+    var result: [NSOutlineView] = []
+    var queue: [NSView] = [root]
+    while let v = queue.first {
+      queue.removeFirst()
+      if let outline = v as? NSOutlineView { result.append(outline) }
+      queue.append(contentsOf: v.subviews)
+    }
+    return result
   }
 }
