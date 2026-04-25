@@ -28,6 +28,16 @@ final class PaneSurface {
 
   private let runtime: GhosttyRuntime
   private let workingDirectoryCString: UnsafeMutablePointer<CChar>?
+  /// Heap-allocated key/value C strings backing the env_vars array passed
+  /// to libghostty. `strdup`'d in init, every entry `free`'d in deinit.
+  /// Held on the instance because libghostty does NOT documented-copy the
+  /// `env_vars` buffer; keeping the strings alive matches the
+  /// `working_directory` lifecycle.
+  private let envCStrings: [(key: UnsafeMutablePointer<CChar>, value: UnsafeMutablePointer<CChar>)]
+  /// Backing storage for the `ghostty_env_var_s` array. Allocated only
+  /// when the env map is non-empty; a `nil` buffer means the surface
+  /// config receives `env_vars = nil, env_var_count = 0`.
+  private let envVarsBuffer: UnsafeMutableBufferPointer<ghostty_env_var_s>?
   /// Heap-allocated uuid_t bytes passed to libghostty as the surface
   /// userdata. close_surface_cb reads these bytes to recover the owning
   /// PaneID without casting to a Swift object pointer (UAF-safe across
@@ -49,6 +59,7 @@ final class PaneSurface {
     runtime: GhosttyRuntime,
     paneID: PaneID,
     workingDirectory: String,
+    env: [String: String] = [:],
     fontSize: Float32 = 13.0
   ) throws {
     guard let app = runtime.app else {
@@ -58,6 +69,26 @@ final class PaneSurface {
     self.paneID = paneID
     self.workingDirectoryCString = strdup(workingDirectory)
     self.view = GhosttySurfaceView(paneID: paneID)
+
+    // Stable C-string ownership for env: each (key, value) is `strdup`'d,
+    // referenced from a `ghostty_env_var_s` in `envVarsBuffer`, and freed
+    // in `deinit`. Empty map → nil buffer → config.env_vars stays nil.
+    let strdupped = Self.makeEnvCStrings(env)
+    self.envCStrings = strdupped
+    if strdupped.isEmpty {
+      self.envVarsBuffer = nil
+    } else {
+      let buffer = UnsafeMutableBufferPointer<ghostty_env_var_s>.allocate(
+        capacity: strdupped.count
+      )
+      for (index, pair) in strdupped.enumerated() {
+        buffer[index] = ghostty_env_var_s(
+          key: UnsafePointer(pair.key),
+          value: UnsafePointer(pair.value)
+        )
+      }
+      self.envVarsBuffer = buffer
+    }
 
     // Allocate 16 bytes to hold the PaneID's uuid bytes as surface userdata.
     self.paneIDUserdata = UnsafeMutablePointer<UInt8>.allocate(capacity: 16)
@@ -78,6 +109,10 @@ final class PaneSurface {
     config.scale_factor = view.backingScaleFactor()
     config.font_size = fontSize
     config.working_directory = workingDirectoryCString.map { UnsafePointer($0) }
+    if let envBuffer = envVarsBuffer {
+      config.env_vars = envBuffer.baseAddress
+      config.env_var_count = envBuffer.count
+    }
     config.context = GHOSTTY_SURFACE_CONTEXT_SPLIT
     // Per-surface userdata: opaque pointer to the 16 uuid-bytes of the
     // owning PaneID. The close_surface_cb copies these bytes into a local
@@ -108,7 +143,32 @@ final class PaneSurface {
     if let ptr = workingDirectoryCString {
       free(UnsafeMutableRawPointer(ptr))
     }
+    for pair in envCStrings {
+      free(UnsafeMutableRawPointer(pair.key))
+      free(UnsafeMutableRawPointer(pair.value))
+    }
+    if let buffer = envVarsBuffer {
+      buffer.deallocate()
+    }
     paneIDUserdata.deallocate()
+  }
+
+  // MARK: - Env helpers
+
+  /// Allocate a stable `(key, value)` C-string pair for each entry in
+  /// `env`. Returned pointers must be freed with `free`. Pure / nonisolated
+  /// so unit tests can exercise the conversion without spinning a real
+  /// `GhosttyRuntime`.
+  static func makeEnvCStrings(
+    _ env: [String: String]
+  ) -> [(key: UnsafeMutablePointer<CChar>, value: UnsafeMutablePointer<CChar>)] {
+    guard !env.isEmpty else { return [] }
+    // Sort for deterministic ordering — libghostty does not require any
+    // particular order, but stable iteration makes the test surface
+    // predictable and avoids spurious flakiness on dictionary reorderings.
+    return env.sorted(by: { $0.key < $1.key }).map { entry in
+      (key: strdup(entry.key)!, value: strdup(entry.value)!)
+    }
   }
 
   /// Explicit teardown. Idempotent. After `close()`, the surface handle is
