@@ -180,16 +180,19 @@ struct WorktreeDetailView: View {
       // regardless of left / right group widths. Trailing `.fixed` spacer
       // keeps the cluster hugged against the right edge rather than drifting
       // into the center as other items resize.
+      //
+      // Follow-up: the HeaderBellView moved into StatusBarView as a
+      // leading adornment — the center capsule carries the bell so
+      // notifications stay next to the PR / toast / motivational forms
+      // rather than doubling up in the trailing cluster.
       statusBarToolbarItem(address: address)
-      // Three independent trailing buttons. `ToolbarItemGroup` keeps the
+      // Two independent trailing buttons. `ToolbarItemGroup` keeps the
       // relative order while preventing SwiftUI from collapsing them into a
       // single overflow menu on narrow widths. `.buttonStyle(.plain)` on each
       // child disables the toolbar's default rounded-rect container so the
-      // bell / open / git-viewer toggle read as three separate icon buttons
-      // with their own hit areas.
+      // open / git-viewer toggle read as distinct icon buttons with their
+      // own hit areas.
       ToolbarItemGroup(placement: .primaryAction) {
-        HeaderBellView(store: headerStore)
-          .buttonStyle(.plain)
         HeaderOpenSplitButton(
           store: headerStore,
           editorStore: editorStore,
@@ -237,6 +240,7 @@ struct WorktreeDetailView: View {
       StatusBarView(
         store: statusBarStore,
         gitHubStore: gitHubStore,
+        headerStore: headerStore,
         worktreeID: address.worktree
       )
     }

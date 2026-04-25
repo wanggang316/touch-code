@@ -18,29 +18,27 @@ struct TabChipView: View {
   let onCloseOthers: () -> Void
   let onCloseToRight: () -> Void
   let onCloseAll: () -> Void
-  /// Called on `Return` from the inline rename field. Empty input is
-  /// normalized to `nil` so the chip falls back on the default label.
+  /// Called on `Return` from the rename popover. Empty-after-trim input
+  /// is normalized to `nil` so the chip falls back on the default label.
   let onRenameCommit: (String?) -> Void
 
   @State private var isHovering = false
   @State private var isPressing = false
-  /// Non-nil while the user is editing the tab name inline. Driven by the
-  /// context menu's Rename action. `Return` commits through
-  /// `onRenameCommit`; `Esc` discards.
+  /// Non-nil while the rename popover is presented. The context menu's
+  /// Rename action seeds this with the current title; the popover edits
+  /// its value and `commitRename` / `cancelRename` clear it. A dismissal
+  /// via outside-click is routed through the popover binding setter and
+  /// treated as a discard so no half-typed name ever commits.
   @State private var editingName: String?
   @FocusState private var renameFieldFocused: Bool
 
   var body: some View {
     HStack(spacing: 4) {
-      if editingName != nil {
-        renameField
-      } else {
-        Button(action: onSelect) {
-          TabChipLabel(title: title, isDirty: isDirty)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .buttonStyle(ChipPressTrackingStyle(isPressing: $isPressing))
+      Button(action: onSelect) {
+        TabChipLabel(title: title, isDirty: isDirty)
+          .frame(maxWidth: .infinity, alignment: .leading)
       }
+      .buttonStyle(ChipPressTrackingStyle(isPressing: $isPressing))
 
       TabChipCloseButton(
         isVisible: isHovering || isActive,
@@ -78,25 +76,58 @@ struct TabChipView: View {
         onCloseAll: onCloseAll
       )
     }
+    .popover(
+      isPresented: renamePopoverBinding,
+      arrowEdge: .bottom
+    ) {
+      renameCard
+    }
   }
 
-  /// Inline `TextField` variant of the label. Trimmed empty input is
-  /// normalized to `nil` so the chip falls back on the default "Tab"
-  /// label. `.onKeyPress(.escape)` discards; `.onSubmit` commits.
+  /// Small rename card shown inside the popover. Pre-populates with the
+  /// current title, commits on Return (default action), discards on Esc
+  /// / Cancel / outside-click. TextField style is `.roundedBorder` so
+  /// the card reads as a native macOS rename dialog rather than bare
+  /// text-entry chrome.
   @ViewBuilder
-  private var renameField: some View {
-    TextField("", text: renameBinding)
-      .textFieldStyle(.plain)
-      .focused($renameFieldFocused)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .onSubmit(commitRename)
-      .onKeyPress(.escape) {
-        cancelRename()
-        return .handled
+  private var renameCard: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Text("Rename Tab")
+        .font(.headline)
+      TextField("Tab name", text: renameBinding)
+        .textFieldStyle(.roundedBorder)
+        .focused($renameFieldFocused)
+        .frame(width: 220)
+        .onSubmit(commitRename)
+        .onKeyPress(.escape) {
+          cancelRename()
+          return .handled
+        }
+      HStack(spacing: 8) {
+        Spacer()
+        Button("Cancel", action: cancelRename)
+          .keyboardShortcut(.cancelAction)
+        Button("Save", action: commitRename)
+          .keyboardShortcut(.defaultAction)
+          .buttonStyle(.borderedProminent)
       }
-      .onAppear {
-        renameFieldFocused = true
+    }
+    .padding(14)
+    .onAppear {
+      renameFieldFocused = true
+    }
+  }
+
+  /// Two-way binding for the popover presentation flag. Opening the
+  /// popover is driven by `startEditing()`; closing it via outside-click
+  /// funnels through `cancelRename()` so no half-typed name commits.
+  private var renamePopoverBinding: Binding<Bool> {
+    Binding(
+      get: { editingName != nil },
+      set: { presented in
+        if !presented { cancelRename() }
       }
+    )
   }
 
   private var renameBinding: Binding<String> {
