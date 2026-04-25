@@ -3,26 +3,31 @@ import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
 
-/// Repository General detail pane (spec M11): per-Project editor override and
-/// worktree base directory override. Reads/writes through `HierarchyClient` per
-/// design D1. `store` is scoped by `SettingsWindowView` before construction and
-/// keyed by `projectID`; `descriptors` flows from the parent's `general` substate
-/// so the picker renders the same editor list the global Default Editor pane shows.
+/// Project General detail pane: per-Project editor override and worktree base
+/// directory override. v3 moved both fields from `Project` in `catalog.json` to
+/// `Settings.projects[pid]` in `settings.json`; reads go through
+/// `@Environment(SettingsStore.self)` (observes the live store) and writes route
+/// through `store.send(.setDefaultEditorOverride / .setWorktreeBaseDirectory)`
+/// which internally calls `SettingsStore.mutateProject`. The catalog is still
+/// consulted for identity (Project name / kind), never for the two preference
+/// fields — post-drain those fields are always nil on the catalog side.
 struct ProjectGeneralSettingsView: View {
   let projectID: ProjectID
   let store: StoreOf<ProjectSettingsFeature>
   let descriptors: [EditorDescriptor]
 
   @Environment(HierarchyManager.self) private var hierarchyManager
+  @Environment(SettingsStore.self) private var settingsStore
 
   var body: some View {
     Form {
-      if let project = projectInCatalog() {
+      if projectInCatalog() != nil {
+        let entry = settingsStore.settings.projects[projectID]
         Section("Default Editor") {
           Picker(
             "Editor",
             selection: Binding<EditorID?>(
-              get: { project.defaultEditor },
+              get: { entry?.defaultEditor },
               set: { store.send(.setDefaultEditorOverride($0)) }
             )
           ) {
@@ -36,14 +41,14 @@ struct ProjectGeneralSettingsView: View {
 
         Section("Worktree Base Directory") {
           LabeledContent("Path") {
-            Text(project.worktreesDirectory ?? "—")
-              .foregroundStyle(project.worktreesDirectory == nil ? .secondary : .primary)
+            Text(entry?.worktreesDirectory ?? "—")
+              .foregroundStyle(entry?.worktreesDirectory == nil ? .secondary : .primary)
               .textSelection(.enabled)
               .frame(maxWidth: .infinity, alignment: .leading)
           }
           HStack {
             Button("Choose…") { chooseWorktreeDirectory() }
-            if project.worktreesDirectory != nil {
+            if entry?.worktreesDirectory != nil {
               Button("Clear") {
                 store.send(.setWorktreeBaseDirectory(nil))
               }
@@ -63,6 +68,9 @@ struct ProjectGeneralSettingsView: View {
     .formStyle(.grouped)
   }
 
+  /// Identity lookup only — used to confirm the Project still exists in the catalog
+  /// before rendering. The two preference fields (`defaultEditor`, `worktreesDirectory`)
+  /// live in `Settings.projects[pid]` in v3 and are NOT read from `project` here.
   private func projectInCatalog() -> Project? {
     for space in hierarchyManager.catalog.spaces {
       if let project = space.projects.first(where: { $0.id == projectID }) {

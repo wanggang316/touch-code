@@ -43,7 +43,7 @@ struct SettingsWindowFeatureTests {
   }
 
   @Test
-  func projectsChangedPrunesStaleRepositoryGeneralSelection() async {
+  func projectsChangedPrunesStaleProjectGeneralSelection() async {
     let projectID = ProjectID()
     let store = TestStore(
       initialState: SettingsWindowFeature.State(selection: .projectGeneral(projectID))
@@ -59,7 +59,7 @@ struct SettingsWindowFeatureTests {
   }
 
   @Test
-  func projectsChangedPrunesStaleRepositoryHooksSelection() async {
+  func projectsChangedPrunesStaleProjectHooksSelection() async {
     let projectID = ProjectID()
     let store = TestStore(
       initialState: SettingsWindowFeature.State(selection: .projectHooks(projectID))
@@ -149,7 +149,7 @@ struct SettingsWindowFeatureTests {
   }
 
   @Test
-  func selectingGlobalSectionDoesNotTouchRepositoryPanes() async {
+  func selectingGlobalSectionDoesNotTouchProjectPanes() async {
     let store = TestStore(initialState: SettingsWindowFeature.State()) {
       SettingsWindowFeature()
     } withDependencies: {

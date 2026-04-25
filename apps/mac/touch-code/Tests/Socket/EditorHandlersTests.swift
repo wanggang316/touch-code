@@ -14,8 +14,9 @@ import TouchCodeIPC
 ///   omits `preferred`, delegates to `EditorClient.open`, and maps `EditorError` →
 ///   `EditorIPCError`.
 /// - `setGlobalDefault`: writes `settings.general.defaultEditorID` through `SettingsStore`.
-/// - `setProjectDefault`: forwards to `HierarchyClient.setRepositoryDefaultEditor` and maps
-///   `HierarchyError.notFound` → `.unknownProject`.
+/// - `setProjectDefault`: writes `Settings.projects[pid].defaultEditor` via
+///   `SettingsStore.mutateProject`; guards unknown ProjectID via `HierarchyClient.kind(of:)`
+///   and maps a nil kind → `.unknownProject`.
 @MainActor
 struct EditorHandlersTests {
   // MARK: - Fixtures

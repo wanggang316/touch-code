@@ -120,10 +120,18 @@ public nonisolated enum SettingsMigration {
 
     // Legacy v1 shape — permissive. Historical writers both wrote `version: 1`; the helper
     // accepts even a missing `version` field so a crash mid-write during the pre-v2 era
-    // still decodes.
+    // still decodes. Catalog overrides are folded into `projects` — users on the double-
+    // legacy path (v1 settings + v1 catalog) must not lose per-Project editor /
+    // worktrees-directory overrides.
     do {
       let legacy = try JSONDecoder.touchCodeDefault.decode(LegacyV1Settings.self, from: data)
-      let migrated = migrate(legacy)
+      var migrated = migrate(legacy)
+      for (pid, overrides) in catalogOverrides {
+        migrated.projects[pid] = ProjectSettings(
+          defaultEditor: overrides.defaultEditor,
+          worktreesDirectory: overrides.worktreesDirectory
+        )
+      }
       return performV1Migration(
         url: url,
         migrated: migrated,
@@ -215,12 +223,14 @@ public nonisolated enum SettingsMigration {
         continue
       }
       let pid = ProjectID(raw: uuid)
-      let git = GitProjectSettings(
-        defaultMergeStrategy: legacyRepo.defaultMergeStrategy,
-        postMergeAction: legacyRepo.postMergeAction,
-        githubDisabled: legacyRepo.githubDisabled
+      var entry = ProjectSettings(
+        git: GitProjectSettings(
+          defaultMergeStrategy: legacyRepo.defaultMergeStrategy,
+          postMergeAction: legacyRepo.postMergeAction,
+          githubDisabled: legacyRepo.githubDisabled
+        )
       )
-      var entry = ProjectSettings(git: git.isEffectivelyEmpty ? nil : git)
+      entry.collapseEmptyGit()
       if let overrides = catalogOverrides[pid] {
         entry.defaultEditor = overrides.defaultEditor
         entry.worktreesDirectory = overrides.worktreesDirectory

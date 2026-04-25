@@ -14,7 +14,7 @@ import tcKit
 ///
 /// Editor precedence (handled server-side by EditorService):
 ///  1. `--in` explicit flag on this command (strict: throws if uninstalled).
-///  2. `Project.defaultEditor` if the path is inside a registered Project (lenient).
+///  2. `Settings.projects[pid].defaultEditor` if the path is inside a registered Project (lenient).
 ///  3. `Settings.defaultEditorID` (lenient).
 ///  4. Priority walk through the built-in registry (Cursor → Zed → VSCode → …).
 ///  5. Finder fallback (always available).

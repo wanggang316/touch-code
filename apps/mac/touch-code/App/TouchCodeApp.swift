@@ -183,9 +183,15 @@ final class AppState {
     // on a v1 catalog (clears the two fields in-memory so the next save writes v2 shape).
     let legacyOverrides = manager.drainLegacyOverrides()
 
-    // Persist the seed or the legacy-drain via the standard debounced save pipeline.
-    // Only fire when something actually changed — no spurious writes on clean catalogs.
-    if needsSeed {
+    // When drain captured any override, flush the v2 catalog synchronously BEFORE
+    // SettingsStore's atomic v2→v3 rename commits: otherwise a crash between the two
+    // writes would leave a v3 settings.json (no further migration) paired with a v1
+    // catalog (re-decoded on next launch → drain emits the same overrides → migration
+    // no longer consulted → data silently lost). Seed-only change still goes through
+    // the debounced path since no migration depends on it.
+    if !legacyOverrides.isEmpty {
+      try? catalogStore.saveNow(manager.catalog)
+    } else if needsSeed {
       catalogStore.scheduleSave(manager.catalog)
     }
     self.catalogStore = catalogStore

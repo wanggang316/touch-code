@@ -81,6 +81,74 @@ struct HookConfigCodableTests {
   }
 
   @Test
+  func unknownScopeKindDroppedWhenItAppearsFirst() throws {
+    // Cursor-advance regression guard: a bad entry in the first slot must not leak into
+    // the next decode. Foundation's UnkeyedDecodingContainer does not advance on throw,
+    // so the fail-soft loop consumes the slot via AnyCodableShim before retrying.
+    let badID = UUID().uuidString
+    let goodID = UUID().uuidString
+    let payload = Data(#"""
+      {
+        "version": 2,
+        "subscriptions": [
+          {
+            "id": "\#(badID)",
+            "event": "pane.ready",
+            "command": "boom",
+            "scope": { "kind": "futureKind", "value": "abc" }
+          },
+          {
+            "id": "\#(goodID)",
+            "event": "pane.ready",
+            "command": "noop",
+            "scope": { "kind": "anyPane" }
+          }
+        ]
+      }
+      """#.utf8)
+    let config = try JSONDecoder().decode(HookConfig.self, from: payload)
+    #expect(config.subscriptions.count == 1)
+    #expect(config.subscriptions.first?.id.uuidString == goodID)
+  }
+
+  @Test
+  func twoConsecutiveUnknownScopeKindsAreBothDropped() throws {
+    // Double-bad-entry guard: two UnknownScopeKind throws in a row must each consume
+    // their slot before the next good entry is reached.
+    let bad1 = UUID().uuidString
+    let bad2 = UUID().uuidString
+    let goodID = UUID().uuidString
+    let payload = Data(#"""
+      {
+        "version": 2,
+        "subscriptions": [
+          {
+            "id": "\#(bad1)",
+            "event": "pane.ready",
+            "command": "b1",
+            "scope": { "kind": "futureKindA", "value": "abc" }
+          },
+          {
+            "id": "\#(bad2)",
+            "event": "pane.ready",
+            "command": "b2",
+            "scope": { "kind": "futureKindB" }
+          },
+          {
+            "id": "\#(goodID)",
+            "event": "pane.ready",
+            "command": "noop",
+            "scope": { "kind": "anyPane" }
+          }
+        ]
+      }
+      """#.utf8)
+    let config = try JSONDecoder().decode(HookConfig.self, from: payload)
+    #expect(config.subscriptions.count == 1)
+    #expect(config.subscriptions.first?.id.uuidString == goodID)
+  }
+
+  @Test
   func v2PayloadWithNewProjectScopeRoundTrips() throws {
     let pid = ProjectID()
     let sub = HookSubscription(

@@ -56,6 +56,53 @@ and the old `RepositorySettings` struct is deleted in Step 3). Keeping the old m
 alive with a shim translating between two types would be noise. Consequence: Step 6's
 scope shrinks to HierarchyClient slim-down + "Open in" dropdown rewire only.
 
+### 2026-04-25 — Step 12 code-reviewer agent round (post self-review)
+
+`agent-skills:code-reviewer` ran after the self-review fixes landed. Findings
+acted on in a single follow-up commit:
+
+1. **Blocker — `ProjectGeneralSettingsView` read from the post-drain catalog.**
+   The pane's Picker + LabeledContent bound to `project.defaultEditor` /
+   `project.worktreesDirectory` on the `Project` struct. After
+   `HierarchyManager.drainLegacyOverrides()` runs at startup, both fields are
+   guaranteed nil for the rest of the process lifetime; the pane silently showed
+   "Use global default" / "—" no matter what the user had saved. Writes already
+   routed through `SettingsStore.mutateProject` correctly, so flipping the
+   picker persisted, but on next open the UI displayed stale-empty. Fix: add
+   `@Environment(SettingsStore.self)` to the view and bind to
+   `settingsStore.settings.projects[projectID]?.{defaultEditor, worktreesDirectory}`.
+   Catalog `Project` lookup is retained only for identity (name/kind).
+2. **Major — `performV1Migration` ignored `catalogOverrides`.** A double-legacy
+   user (v1 settings + v1 catalog) would lose per-Project editor / worktree-dir
+   overrides on first v3 launch: `drainLegacyOverrides` extracts them, the v1→v3
+   migration discards them, and the catalog v2 save then strips the fields.
+   Fix: fold the map into `migrated.projects` before calling `performV1Migration`,
+   mirroring the Pass 2 union loop in `performV2Migration`.
+3. **Major — fail-soft hook decoder test coverage.** Previous test only checked
+   "bad entry after good"; the cursor-advance contract needs pinning for
+   "bad entry first" and "two consecutive bad entries" cases too. Added two
+   `HookConfigCodableTests` cases.
+4. **Major — mid-migration crash window in `AppState.init`.** Sequence was:
+   drain catalog (debounced save scheduled) → build SettingsStore (synchronous
+   atomic v2→v3 commit). A crash between the settings write and the catalog
+   debounce flush would leave v3 settings.json on disk without overrides paired
+   with a v1 catalog that still carries them, and since settings.json is now
+   v3 the migration no longer runs on next launch — the drained map is
+   silently dropped. Fix: call `catalogStore.saveNow(manager.catalog)`
+   synchronously when `legacyOverrides` is non-empty, before constructing
+   SettingsStore.
+
+Nits cleaned up in the same commit: stale doc-comments referencing
+`HierarchyClient.setRepositoryDefaultEditor` / `Project.defaultEditor` (3
+sites), SettingsWindowFeatureTests method names ending in `…RepositoryPanes`
+(renamed to `…ProjectPanes`), `performV2Migration` Pass 1 uses
+`collapseEmptyGit()` instead of hand-rolling the isEffectivelyEmpty guard.
+
+Reviewer-deferred suggestions (kept for follow-up): grep-gate trailing-comment
+false-positive, deny-list could add `RepositorySettingsView`, `kind` closure
+linear scan is fine at realistic project counts. `extra scheduleSave` on
+launch from `garbageCollectEditors` is known and accepted.
+
 ### 2026-04-25 — Step 12 self-review uncovered two correctness issues
 
 Codex rate-limited; agent did the review itself. Two issues fixed before the
