@@ -38,6 +38,9 @@ struct RootFeature {
     var worktreeHeader: WorktreeHeaderFeature.State = .init()
     /// 0012: GitHub integration — per-Worktree PR snapshots + popover state.
     var gitHub: GitHubFeature.State = .init()
+    /// 0014: titlebar-center Worktree Status Bar — owns only the transient
+    /// toast slot; PR / motivational forms are view-level projections.
+    var statusBar: StatusBarFeature.State = .init()
     /// 0008: router for tab/split intents decoded from ghostty keybinds.
     var paneActionRouter: PaneActionRouterFeature.State = .init()
     /// 0008: router for window/app-level intents decoded from ghostty keybinds.
@@ -171,6 +174,7 @@ struct RootFeature {
     case editor(EditorFeature.Action)
     case worktreeHeader(WorktreeHeaderFeature.Action)
     case gitHub(GitHubFeature.Action)
+    case statusBar(StatusBarFeature.Action)
     case paneActionRouter(PaneActionRouterFeature.Action)
     case windowActionRouter(WindowActionRouterFeature.Action)
   }
@@ -205,6 +209,7 @@ struct RootFeature {
       GitHubFeature()
       GitHubRootBindings()
     }
+    Scope(state: \.statusBar, action: \.statusBar) { StatusBarFeature() }
   }
 
   @ReducerBuilder<State, Action>
@@ -487,6 +492,16 @@ struct RootFeature {
       case .gitViewer:
         return .none
 
+      // 0014 M2: surface editor-open outcomes in the titlebar status bar.
+      // The child `Scope(state: \.editor, ...)` has already mutated
+      // `lastOpenResult`; we only fan a toast out. Success shows the chosen
+      // editor's display name; failure shows a scrubbed one-line reason.
+      case .editor(.openSucceeded(_, let displayName)):
+        return .send(.statusBar(.push(.success("Opened in \(displayName)"))))
+
+      case .editor(.openFailed(let reason)):
+        return .send(.statusBar(.push(.warning(Self.shortToastMessage(reason)))))
+
       case .editor:
         return .none
 
@@ -532,12 +547,46 @@ struct RootFeature {
       case .worktreeHeader:
         return .none
 
+      // 0014 M3: surface gh mutation outcomes in the status bar. The child
+      // `Scope(state: \.gitHub, ...)` has already updated `mutating` / `lastError`;
+      // we only fan a toast out. Message format mirrors the sidebar popover's
+      // verb so cross-surface language stays consistent.
+      case .gitHub(.mergeCompleted(_, let prNumber, .success)):
+        return .send(.statusBar(.push(.success("PR #\(prNumber) merged"))))
+      case .gitHub(.closeCompleted(_, .success)):
+        return .send(.statusBar(.push(.success("PR closed"))))
+      case .gitHub(.markReadyCompleted(_, .success)):
+        return .send(.statusBar(.push(.success("PR marked ready"))))
+      case .gitHub(.rerunFailedJobsCompleted(_, .success)):
+        return .send(.statusBar(.push(.success("Re-ran failed jobs"))))
+
+      // Failure cases keep the verb prefix so the user can tell merge / close /
+      // mark-ready / rerun-failed-jobs apart in the warning toast.
+      case .gitHub(.mergeCompleted(_, _, .failure(let error))):
+        let reason = Self.shortToastMessage(String(describing: error))
+        return .send(.statusBar(.push(.warning("Merge failed: \(reason)"))))
+      case .gitHub(.closeCompleted(_, .failure(let error))):
+        let reason = Self.shortToastMessage(String(describing: error))
+        return .send(.statusBar(.push(.warning("Close failed: \(reason)"))))
+      case .gitHub(.markReadyCompleted(_, .failure(let error))):
+        let reason = Self.shortToastMessage(String(describing: error))
+        return .send(.statusBar(.push(.warning("Mark ready failed: \(reason)"))))
+      case .gitHub(.rerunFailedJobsCompleted(_, .failure(let error))):
+        let reason = Self.shortToastMessage(String(describing: error))
+        return .send(.statusBar(.push(.warning("Rerun failed: \(reason)"))))
+
       // 0012: GitHub integration delegate actions. Detailed handling (openURL →
       // NSWorkspace.open, showSettingsGitHub → SettingsWindowPresenter, pullRequestMerged
       // → M7 post-merge Worktree action) moves into `GitHubRootBindings` stacked under the
       // gitHub scope — leaving the inline case a no-op keeps this reducer's switch-body
       // small enough for Swift's type-inference budget.
       case .gitHub:
+        return .none
+
+      // 0014: status-bar child scope is self-contained (toast slot + timers).
+      // Cross-feature toast emission (editor open, gh mutation completion) lands
+      // in subsequent milestones as additional cases BEFORE this catch-all.
+      case .statusBar:
         return .none
 
       // 0008: pane-action router delegate actions.
@@ -953,6 +1002,23 @@ struct RootFeature {
         return seeded
       }
     )
+  }
+
+  /// Collapses a potentially multi-line error / warning string into a single
+  /// status-bar-sized line. Keeps the first line (trimmed) and caps at 80
+  /// characters so paths, tokens, and shell noise inside an `EditorError`
+  /// don't bleed into the titlebar.
+  ///
+  /// The 80-char limit is not PII scrubbing per se — it's UX width. Upstream
+  /// callers are responsible for not stuffing secrets into error messages;
+  /// `EditorFeature.editorErrorDescription` already emits short friendly
+  /// strings, so the truncation here is usually a no-op.
+  static func shortToastMessage(_ raw: String) -> String {
+    let firstLine = raw.split(separator: "\n", maxSplits: 1).first.map(String.init) ?? raw
+    let trimmed = firstLine.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard trimmed.count > 80 else { return trimmed }
+    let cutoff = trimmed.index(trimmed.startIndex, offsetBy: 79)
+    return String(trimmed[..<cutoff]) + "…"
   }
 
   /// Resolve the active tab for a selection using the snapshot from the

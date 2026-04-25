@@ -32,7 +32,7 @@ struct HierarchySidebarView: View {
 
   /// Tracks whether the `.command` modifier is currently pressed. When held the sidebar
   /// reveals per-row `⌃⌘N` hotkey hints (and the matching `⌃⌘1`–`⌃⌘9` bindings).
-  @State private var commandKeyObserver = CommandKeyObserver()
+  @Environment(CommandKeyObserver.self) private var commandKeyObserver
 
   /// Modifier set for the per-row worktree hotkey. `⌘1`–`⌘9` is already bound to Space
   /// switching (see `MainWindowCommands`), so worktree jumps get `⌃⌘N` instead.

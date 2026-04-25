@@ -25,3 +25,4 @@ Use [_template.md](_template.md) as a starting point.
 - [C7 — Read-Only Git Diff / History Viewer](c7-git-viewer.md) — shell-out-to-`git` data layer, TCA feature, unified-diff parser, keyboard-first rendering
 - [C8 — External Editor Integration](c8-editor-integration.md) — built-in allowlist (VSCode/Cursor/Zed/Xcode/Sublime/Finder) via CLI wrappers, `$PATH` discovery, per-Project default, `tc open`
 - [Command Palette (Quick Action)](command-palette.md) — `⌘P` fuzzy launcher over Space/Worktree/Pane/Window/Editor commands; procedural item generation + TCA delegate routing; ghostty `toggle_command_palette` hook reused
+- [Worktree Status Bar](worktree-status-bar.md) — Titlebar 中段多态状态槽；新 `StatusBarFeature` + RootFeature 路由 `.editor / .gitHub.*Completed` 转 toast；PR / motivational 纯视图派生；`ViewThatFits` 做窄窗口退化
