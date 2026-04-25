@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 import TouchCodeCore
@@ -134,6 +135,33 @@ struct C6AppBootstrapTests {
     harness.bootstrap.shutdown()
     // After shutdown, calling unregister again is a no-op (idempotent).
     harness.bootstrap.hookDispatcher.unregister(prefix: RuleStore.sentinelPrefix)
+  }
+
+  /// `applicationDidBecomeActive` must drive `refreshAuthorizationStatus`
+  /// so a user who grants (or revokes) permission in System Settings
+  /// while the app was inactive sees the cached status update on their
+  /// next focus, without an app restart.
+  @Test
+  func applicationDidBecomeActiveRefreshesAuthorizationStatus() async throws {
+    let harness = try await Self.startHarness(authStatus: .notDetermined)
+    defer { harness.bootstrap.shutdown() }
+
+    // Mirror "user flipped the OS-level state while we were inactive."
+    harness.mockNotifier.currentStatus = .denied
+
+    NotificationCenter.default.post(
+      name: NSApplication.didBecomeActiveNotification, object: nil
+    )
+
+    // The observer awaits the notification AsyncSequence on the main
+    // actor; yield until the cache catches up or we hit the bound.
+    for _ in 0..<50 {
+      if harness.bootstrap.settingsStore.settings.notifications.authStatus == .denied {
+        break
+      }
+      await Task.yield()
+    }
+    #expect(harness.bootstrap.settingsStore.settings.notifications.authStatus == .denied)
   }
 
   // MARK: - Harness

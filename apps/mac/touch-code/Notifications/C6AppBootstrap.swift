@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import TouchCodeCore
 
@@ -33,6 +34,7 @@ final class C6AppBootstrap {
   let rules: AgentDetectionRules
 
   private var bindTask: Task<Void, Never>?
+  private var lifecycleObserver: NSObjectProtocol?
 
   /// Build the full C6 stack from the supplied dependencies and run the
   /// 11-step wiring sequence. The caller is expected to retain the
@@ -127,6 +129,23 @@ final class C6AppBootstrap {
       await coordinator.bind(to: router.transitions)
     }
 
+    // Refresh cached macOS notification permission on every app
+    // activation. The cache is otherwise read once at boot, so a user
+    // who grants permission in System Settings while the app is in the
+    // background only sees the change after a full relaunch. Synchronous
+    // registration is load-bearing — an `AsyncSequence` subscription
+    // would race the first `didBecomeActive` post-bootstrap.
+    bootstrap.lifecycleObserver = NotificationCenter.default.addObserver(
+      forName: NSApplication.didBecomeActiveNotification,
+      object: nil,
+      queue: .main
+    ) { [weak coordinator] _ in
+      guard let coordinator else { return }
+      Task { @MainActor in
+        await coordinator.refreshAuthorizationStatus()
+      }
+    }
+
     return bootstrap
   }
 
@@ -168,6 +187,10 @@ final class C6AppBootstrap {
   func shutdown() {
     bindTask?.cancel()
     bindTask = nil
+    if let lifecycleObserver {
+      NotificationCenter.default.removeObserver(lifecycleObserver)
+      self.lifecycleObserver = nil
+    }
     hookDispatcher.unregister(prefix: RuleStore.sentinelPrefix)
   }
 
