@@ -5,13 +5,26 @@ import TouchCodeCore
 @testable import touch_code
 
 struct HierarchyManagerResolvedEnvTests {
+  /// Keys stripped from inherited process env so libghostty's own TERM
+  /// injection wins (parent `TERM=dumb` from non-interactive launches would
+  /// otherwise break TUIs like starship).
+  private static let strippedKeys: Set<String> = [
+    "TERM", "TERMCAP", "TERMINFO", "COLORTERM",
+  ]
+
+  private static func expectedInheritedEnv() -> [String: String] {
+    var env = ProcessInfo.processInfo.environment
+    for key in strippedKeys { env.removeValue(forKey: key) }
+    return env
+  }
+
   @Test
-  func emptyProjectEnvVarsReturnsProcessEnvUnchanged() {
+  func emptyProjectEnvVarsReturnsProcessEnvMinusTerminalVars() {
     let pid = ProjectID()
     var settings = Settings.default
     settings.projects[pid] = ProjectSettings()
     let resolved = HierarchyManager.resolvedEnv(for: pid, in: settings)
-    #expect(resolved == ProcessInfo.processInfo.environment)
+    #expect(resolved == Self.expectedInheritedEnv())
   }
 
   @Test
@@ -28,7 +41,8 @@ struct HierarchyManagerResolvedEnvTests {
   @Test
   func projectEnvVarsOverrideProcessEnvOnCollision() {
     let pid = ProjectID()
-    let collidingKey = ProcessInfo.processInfo.environment.keys.first ?? "HOME"
+    let collidingKey = ProcessInfo.processInfo.environment.keys
+      .first { !Self.strippedKeys.contains($0) } ?? "HOME"
     var settings = Settings.default
     settings.projects[pid] = ProjectSettings(envVars: [collidingKey: "PROJECT_WINS"])
     let resolved = HierarchyManager.resolvedEnv(for: pid, in: settings)
@@ -36,9 +50,27 @@ struct HierarchyManagerResolvedEnvTests {
   }
 
   @Test
-  func unknownProjectIDReturnsProcessEnvOnly() {
+  func projectEnvVarsCanReintroduceStrippedTerminalVar() {
+    let pid = ProjectID()
+    var settings = Settings.default
+    settings.projects[pid] = ProjectSettings(envVars: ["TERM": "screen-256color"])
+    let resolved = HierarchyManager.resolvedEnv(for: pid, in: settings)
+    #expect(resolved["TERM"] == "screen-256color")
+  }
+
+  @Test
+  func terminalVarsStrippedFromInheritedEnv() {
+    let pid = ProjectID()
+    let resolved = HierarchyManager.resolvedEnv(for: pid, in: .default)
+    for key in Self.strippedKeys {
+      #expect(resolved[key] == nil)
+    }
+  }
+
+  @Test
+  func unknownProjectIDReturnsProcessEnvMinusTerminalVars() {
     let pid = ProjectID()  // not in settings.projects
     let resolved = HierarchyManager.resolvedEnv(for: pid, in: .default)
-    #expect(resolved == ProcessInfo.processInfo.environment)
+    #expect(resolved == Self.expectedInheritedEnv())
   }
 }

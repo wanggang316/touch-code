@@ -1448,6 +1448,15 @@ final class HierarchyManager {
     in settings: Settings
   ) -> [String: String] {
     var env = ProcessInfo.processInfo.environment
+    // Strip terminal-describing variables inherited from the parent process so
+    // libghostty's own PTY-spawn TERM injection (`xterm-ghostty`) is what the
+    // child shell sees. When touch-code.app is launched from a non-interactive
+    // context (e.g. `make` → `open`, an IDE compile shell) parent `TERM=dumb`
+    // would otherwise flow through `ghostty_surface_config.env_vars` and
+    // override ghostty's value, breaking starship and other TUIs.
+    for key in Self.inheritedTerminalEnvVarsToStrip {
+      env.removeValue(forKey: key)
+    }
     if let overrides = settings.projects[projectID]?.envVars {
       for (key, value) in overrides {
         env[key] = value
@@ -1455,6 +1464,10 @@ final class HierarchyManager {
     }
     return env
   }
+
+  nonisolated private static let inheritedTerminalEnvVarsToStrip: [String] = [
+    "TERM", "TERMCAP", "TERMINFO", "COLORTERM",
+  ]
 
   // MARK: - Helpers
 
