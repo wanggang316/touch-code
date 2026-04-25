@@ -31,7 +31,7 @@ struct TabBarRowView: View {
   let onCloseOthers: (TabID) -> Void
   let onCloseToRight: (TabID) -> Void
   let onCloseAll: () -> Void
-  let onRenameCommit: (TabID, String?) -> Void
+  let onRenameRequested: (TabID) -> Void
   let onReorder: @MainActor @Sendable ([TabID]) -> Void
 
   var body: some View {
@@ -49,7 +49,7 @@ struct TabBarRowView: View {
           onCloseOthers: { onCloseOthers(tab.id) },
           onCloseToRight: { onCloseToRight(tab.id) },
           onCloseAll: onCloseAll,
-          onRenameCommit: { newName in onRenameCommit(tab.id, newName) }
+          onRenameRequested: { onRenameRequested(tab.id) }
         )
         .id(tab.id)
         .onDrag {
