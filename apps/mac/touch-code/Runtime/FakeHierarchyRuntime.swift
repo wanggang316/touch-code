@@ -9,6 +9,10 @@ final class FakeHierarchyRuntime: HierarchyRuntime {
 
   private(set) var ensureSurfaceCalls: [SurfaceCall] = []
   private(set) var closeSurfaceCalls: [PaneID] = []
+  /// Recorded `focusSurfaceView` calls. The manager's tab-switch path
+  /// invokes this on the restored last-focused (or leftmost-leaf) pane
+  /// id; tests assert the right pane was requested.
+  private(set) var focusSurfaceViewCalls: [PaneID] = []
   /// Test-controlled liveness set. Tests assign `livePaneIDs` before
   /// calling the System Under Test; `hasSurface(for:)` returns `true`
   /// iff the pane is present.
@@ -28,9 +32,14 @@ final class FakeHierarchyRuntime: HierarchyRuntime {
     livePaneIDs.contains(paneID)
   }
 
+  func focusSurfaceView(for paneID: PaneID) {
+    focusSurfaceViewCalls.append(paneID)
+  }
+
   func reset() {
     ensureSurfaceCalls.removeAll()
     closeSurfaceCalls.removeAll()
+    focusSurfaceViewCalls.removeAll()
     livePaneIDs.removeAll()
   }
 }

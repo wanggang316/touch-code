@@ -2,6 +2,8 @@ import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
 
+
+
 /// T3 main-window shortcuts. Attached to the single `WindowGroup` in
 /// `TouchCodeApp`. Binds three chords requested by the main-window redesign spec:
 ///
@@ -62,6 +64,53 @@ struct MainWindowCommands: Commands {
           store.send(.switchToSpaceAtIndex(n))
         }
         .keyboardShortcut(KeyEquivalent(Character("\(n)")), modifiers: .command)
+      }
+    }
+
+    // Tab-bar uplift (M2-T2.9). Lands in its own CommandGroup — placed
+    // after the existing block so it reads as a second top-level group in
+    // the menu bar rather than inflating the first group's fan-out. The
+    // `⌘1..⌘9` namespace is already Space switching (above) and
+    // `⌃⌘1..⌃⌘9` is Worktree jumping (HierarchySidebarView); tabs take
+    // the next-free modifier stack, `⌥⌘1..⌥⌘9`.
+    CommandGroup(after: .newItem) {
+      Button("New Tab") {
+        store.send(.newTabForCurrentWorktree)
+      }
+      .keyboardShortcut("t", modifiers: .command)
+      .disabled(!hasActiveWorktree)
+
+      Button("Close Tab") {
+        store.send(.closeActiveTabForCurrentWorktree)
+      }
+      .keyboardShortcut("w", modifiers: .command)
+      .disabled(!hasActiveWorktree)
+
+      Divider()
+
+      Button("Previous Tab") {
+        store.send(.selectAdjacentTabForCurrentWorktree(.previous))
+      }
+      .keyboardShortcut("[", modifiers: [.command, .shift])
+      .disabled(!hasActiveWorktree)
+
+      Button("Next Tab") {
+        store.send(.selectAdjacentTabForCurrentWorktree(.next))
+      }
+      .keyboardShortcut("]", modifiers: [.command, .shift])
+      .disabled(!hasActiveWorktree)
+
+      Divider()
+
+      ForEach(1...9, id: \.self) { n in
+        Button("Switch to Tab \(n)") {
+          store.send(.selectTabAtIndexForCurrentWorktree(n))
+        }
+        .keyboardShortcut(
+          KeyEquivalent(Character("\(n)")),
+          modifiers: [.command, .option]
+        )
+        .disabled(!hasActiveWorktree)
       }
     }
   }
