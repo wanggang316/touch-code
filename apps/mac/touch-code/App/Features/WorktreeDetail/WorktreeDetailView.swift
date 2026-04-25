@@ -198,6 +198,12 @@ struct WorktreeDetailView: View {
           worktreePath: info.worktree.path
         )
         .buttonStyle(.plain)
+        HeaderRunScriptSplitButton(
+          store: headerStore,
+          projectID: address.project,
+          worktreeID: info.worktree.id
+        )
+        .buttonStyle(.plain)
         if info.project.supportsWorktrees {
           HeaderGitViewerToggle(
             store: headerStore,

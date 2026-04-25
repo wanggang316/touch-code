@@ -546,6 +546,24 @@ struct RootFeature {
           // points share one write path (reads current visibility from the
           // catalog, writes the flipped value).
           return .send(.gitViewerToggledForCurrentWorktree)
+
+        case .runScriptRequested(let scriptID, let projectID, let worktreeID):
+          let client = hierarchyClient
+          let presenter = settingsWindowPresenter
+          return .run { send in
+            do {
+              try await client.runScript(scriptID, projectID, worktreeID)
+            } catch let error as RunScriptError {
+              await send(.statusBar(.push(.warning(Self.runScriptErrorMessage(error)))))
+              _ = presenter  // Settings is not auto-opened on failure; user can navigate themselves.
+            } catch {
+              await send(.statusBar(.push(.warning("Run script failed: \(error.localizedDescription)"))))
+            }
+          }
+
+        case .manageScriptsRequested:
+          let presenter = settingsWindowPresenter
+          return .run { _ in await MainActor.run { presenter.open() } }
         }
 
       case .worktreeHeader:
@@ -1024,6 +1042,17 @@ struct RootFeature {
     guard trimmed.count > 80 else { return trimmed }
     let cutoff = trimmed.index(trimmed.startIndex, offsetBy: 79)
     return String(trimmed[..<cutoff]) + "…"
+  }
+
+  static func runScriptErrorMessage(_ error: RunScriptError) -> String {
+    switch error {
+    case .unknownScript:
+      return "Run script failed: script no longer exists"
+    case .missingWorktree:
+      return "Run script failed: worktree not available"
+    case .missingProject:
+      return "Run script failed: project not available"
+    }
   }
 
   /// Resolve the active tab for a selection using the snapshot from the
