@@ -72,7 +72,7 @@ expands additively (existing reserved-empty Phase 1 entries decode with
        entry point)
 - [ ] M8 — Runtime: env injection through PaneSurface / TerminalEngine
 - [ ] M9 — Runtime: Worktree lifecycle script execution + LifecycleScriptToast
-- [ ] M10 — Command Palette: `.runProjectScript` Kind + build path
+- [x] M10 — Command Palette: `.runProjectScript` Kind + build path
 - [ ] M11 — Tests (≥50 net new across all changed surfaces)
 - [ ] M12 — Docs, rename gate, manual QA, /codex:review, push + PR
 
@@ -99,6 +99,20 @@ them — heavy and brittle. Extracted the routing fan-out into a
 `WriteRoutes` struct on the view. Tests construct `WriteRoutes` directly
 with a stubbed `SettingsWriter.testValue` and verify each route in
 isolation, mirroring `ProjectOptionsFeatureTests`' shape.
+
+### 2026-04-25 — M10: CommandPaletteItems.build reads SettingsWriter via @Dependency
+
+`CommandPaletteFeature.swift` is owned by other in-flight branches
+(M6/M8), so the M10 build path could not change `appeared`'s payload to
+plumb `Settings`. Instead the static `CommandPaletteItems.build`
+function reads `@Dependency(SettingsWriter.self)` directly inside the
+new `projectScriptItems(...)` helper. `swift-dependencies`' docs sanction
+local `@Dependency` use inside helper functions, so the production path
+runs through the same writer the rest of the app already uses without
+forcing CommandPaletteFeature's signature to grow. Existing
+`CommandPaletteItemsTests` cases that build with an active project now
+wrap their calls in `withDependencies { ... readSnapshotSync = { Settings() } }`
+to silence the unimplemented testValue.
 
 ## Decision Log
 
