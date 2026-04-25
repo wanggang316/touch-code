@@ -292,7 +292,11 @@ final class InboxStore {
   /// Fresh inbox-change stream — yields the current inbox on subscribe,
   /// then on every mutation. See field doc on `inboxSubscribers`.
   func observeInbox() -> AsyncStream<NotificationInbox> {
-    AsyncStream { [self] continuation in
+    AsyncStream { [weak self] continuation in
+      guard let self else {
+        continuation.finish()
+        return
+      }
       let id = UUID()
       inboxSubscribers[id] = continuation
       continuation.yield(inbox)

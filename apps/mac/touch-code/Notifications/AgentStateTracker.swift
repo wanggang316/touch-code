@@ -202,6 +202,18 @@ final class AgentStateTracker {
       at: now,
       trigger: trigger
     )
+    // State advances even when the transition is suppressed for the
+    // user-interaction window. Two consequences worth knowing:
+    // - A `.completed` suppressed inside the window leaves the FSM at
+    //   `.completed` — a subsequent rule-driven `.completed` is a
+    //   self-transition and `transitionIfChanged` will drop it. This is
+    //   intended: the user was actively typing in the pane the moment
+    //   the agent finished, so they already know; skipping the would-be
+    //   second banner avoids re-notifying for the same event.
+    // - A `.idle` suppressed inside the window self-corrects on the
+    //   next byte: `applyActivityIfNeeded` flips `.idle → .running`,
+    //   re-arming the timer, so the next quiet stretch fires a fresh
+    //   `.idle` outside the suppression window.
     state = newState
     if !shouldSuppress(transition, now: now) {
       continuation.yield(transition)
