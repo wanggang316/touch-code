@@ -12,32 +12,23 @@ import TouchCodeCore
 ///
 /// Background is intentionally not drawn here — macOS 26 wraps every
 /// `ToolbarItem` in the standard glass capsule, which gives this slot
-/// the same texture as the trailing button cluster. A leading
-/// `HeaderBellView` lives inside the slot so notifications stay
-/// reachable from the center without doubling up next to the trailing
-/// buttons.
+/// the same texture as the trailing button cluster. The notification
+/// bell is mounted as its own sibling `ToolbarItem` next to the status
+/// slot so the two read as separate capsules.
 struct StatusBarView: View {
   @Bindable var store: StoreOf<StatusBarFeature>
   let gitHubStore: StoreOf<GitHubFeature>
-  /// Header feature store. Owns the notification bell that renders inside
-  /// the status bar's leading adornment slot.
-  let headerStore: StoreOf<WorktreeHeaderFeature>
   /// Active Worktree identifier, nil when selection doesn't resolve one
   /// (sidebar placeholder state). Drives the PR form's snapshot lookup.
   let worktreeID: WorktreeID?
 
   var body: some View {
-    HStack(spacing: 8) {
-      HeaderBellView(store: headerStore)
-      Divider()
-        .frame(height: 14)
-      ViewThatFits(in: .horizontal) {
-        formContent(compact: false)
-        formContent(compact: true)
-        Color.clear.frame(width: 0, height: 0)
-      }
-      .animation(.easeInOut(duration: 0.2), value: formIdentity)
+    ViewThatFits(in: .horizontal) {
+      formContent(compact: false)
+      formContent(compact: true)
+      Color.clear.frame(width: 0, height: 0)
     }
+    .animation(.easeInOut(duration: 0.2), value: formIdentity)
     .padding(.horizontal, 4)
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("status.bar")
