@@ -30,11 +30,11 @@ Tasks are flat across the three stages. Each task represents a single small comm
 
 ### Stage A — Runtime hardening
 
-- [ ] **A1** [parallel:A1] D12 — Real C3 integration test: `apps/mac/touch-code/Tests/NotificationsTests/C6C3IntegrationTests.swift` against a live `HookDispatcher` (no `inboxStore`/`coordinator` mocks).
-- [ ] **A2** [parallel:A1] D6 — `applicationDidBecomeActive` permission refresh in `apps/mac/touch-code/App/touchcodeApp.swift` (or AppDelegate equivalent in `Notifications/C6AppBootstrap.swift`); smoke test in `NotificationCoordinatorTests`.
-- [ ] **A3** [parallel:A1] D9 — `OSNotifier` registers `focus` / `dismiss` `UNNotificationAction`s; `UNUserNotificationCenterDelegate` routes Dismiss → `InboxClient.dismiss([id])`; new `OSNotifierTests`.
-- [ ] **A4** D8 — `NotificationCoordinator` observes `inAppEnabled` / `dockBadgeEnabled` and synchronously recomputes the dock badge; new `NotificationCoordinatorTests.inAppDisabledClearsBadgeImmediately`. Sequential after A2/A3 because all three edit `NotificationCoordinator.swift`.
-- [ ] **A5** D7 — `RuleStore.reloadAndRematerialise()` broadcasts a `RulesReloaded` payload; `DetectionRouter` swaps lookup tables atomically; `TrackerRegistry.invalidateAll(_:)` calls each tracker's new `refreshRuleBindings(_:)` method; new `RuleStoreReloadTests`. Sequential because it edits three coordinated modules.
+- [x] **A2** D6 — `applicationDidBecomeActive` permission refresh wired in `C6AppBootstrap` via synchronous `addObserver`; smoke test `applicationDidBecomeActiveRefreshesAuthorizationStatus` in `C6AppBootstrapTests`. **Landed 2026-04-25 commit `c814fa4`.**
+- [x] **A3** D9 — `UserNotificationDelegate` routes focus/dismiss/default-tap to `InboxStore.markRead` / `.dismiss`; `OSNotifier.setDelegate` extends the protocol; `MockOSNotifier.assignedDelegate` records the wiring; 5 new `OSNotifierTests`. **Landed 2026-04-25 commit `c772357`.**
+- [x] **A4** D8 — `NotificationsSettingsReader.notificationsSettingsChanges()`; coordinator caches `lastUnreadCount` and recomputes badge on each settings tick; `inAppDisabledClearsBadgeImmediately` test. **Landed 2026-04-25 commit `c8a99fe`.**
+- [x] **A5** D7 — `AgentStateTracker.updateIdleThreshold` + `TrackerRegistry.updateIdleThreshold` + `coordinator.reloadRules` propagation; `reloadAdoptsNewIdleThresholdAcrossLiveTrackers` test asserts state preservation. **Landed 2026-04-25 commit `a1d46b8`.**
+- [x] **A1** D12 — `dispatcherFireDeliversLifecycleEnvelopeThroughC6Stack` exercises real `HookDispatcher.fire` → `InternalHookSubscriber.handle` → tracker → coordinator → inbox path. **Landed 2026-04-26 commit `bdd8704`.**
 
 ### Stage B — UX gap-closing
 
@@ -72,6 +72,13 @@ Tasks are flat across the three stages. Each task represents a single small comm
 - **2026-04-25 (planning):** `AgentDetectionRules.version` already exists and is enforced as `currentVersion = 1`; `version != currentVersion` throws `DecodingIssue.unsupportedVersion`. v2 needs to convert that into a migration ladder, not introduce versioning. Captured as task C2.
 - **2026-04-25 (planning):** `InboxClient.markReadForWorktree` already exists. D13's "Sidebar worktree row tap → markReadForWorktree (new)" is therefore not new — the only D13 net-new method is `markReadForPane`. Captured as B10.
 - **2026-04-25 (planning):** `InboxClient.observeUnread() -> AsyncStream<Int>` exists for total unread; `observeUnreadByWorktree` is genuinely new. Captured as B8.
+- **2026-04-25 (Stage A start):** `make mac-test` is a placeholder ("no tests yet"). The real path is `xcodebuild -workspace apps/mac/touch-code.xcworkspace -scheme touch-code [-only-testing:...] test`. Per-suite filter `-only-testing:touch-codeTests/<SuiteName>` works for Swift Testing suites; per-test filter does not (silently runs zero tests).
+- **2026-04-25 (Stage A start):** Worktree onboarding required `mise trust <toml>` (per CLAUDE.md note) and a `git restore` inside `apps/mac/ThirdParty/git-wt` because the submodule's working tree had been emptied by the prior `submodule update --recursive` call. Build-baseline only goes green after the working-tree restore.
+- **2026-04-25 (A2):** `AsyncSequence`-based notification observation (`NotificationCenter.default.notifications(named:)`) loses races against `post()` calls fired immediately after the observer task is created — the `for await` hadn't subscribed yet. Switched to synchronous `addObserver(forName:queue:using:)` which registers before `start()` returns. The closure body launches a `Task { @MainActor in ... }` to do the actor work.
+- **2026-04-25 (A3):** Capturing the UN `completionHandler` inside a `Task { @MainActor in defer { completionHandler() } }` triggers Swift-6 "sending closure risks data races." Acking synchronously *before* launching the actor task is the clean fix — UN only requires timely completion, not that the work finishes first.
+- **2026-04-25 (A4):** `bind(to:)`'s `async let settingsLoop = consumeSettingsChanges(settingsReader.notificationsSettingsChanges())` failed with "non-Sendable type 'any NotificationSettingsReader' cannot exit main actor-isolated context." Pre-evaluating the stream into a local `let settingsStream = settingsReader.notificationsSettingsChanges()` keeps the non-Sendable reader inside the parent actor while only `AsyncStream<Void>` (Sendable) crosses the child-task boundary.
+- **2026-04-25 (A5):** Trackers do not cache rule lookups (the router holds the rule table; trackers only know `idleThreshold`). The "tracker invalidation" the design doc anticipated reduces to "propagate the new `idleThresholdSeconds` to existing trackers" — see DEC-EP8.
+- **2026-04-25 (Stage A):** Baseline `make mac-lint` already fails on multiple pre-existing files (PullRequestPopover, MergeSplitButton, RootFeature, MainWindowCommands, PaneSurface, GhosttyActionDecoder, several test type-name violations). My touched files lint clean, but the make target is unusable as a green-bar gate; per-file `swiftlint --quiet` is the working alternative.
 
 ## Decision Log
 
@@ -81,10 +88,30 @@ Tasks are flat across the three stages. Each task represents a single small comm
 - **DEC-EP4.** Stage C task C5 (D1 master-disabled rendering) is gated on B5 (master toggle wired into `NotificationsSettings` + coordinator) — without B5 there is nothing to render against.
 - **DEC-EP5.** `surfaceIdle` migration (C2) writes back the v2-stamped file on first load. Reason: the current behaviour already throws on version mismatch; converting it to a write-back is the minimum-impact change that lets v1 files survive a single launch. The user's `~/.config/touch-code/detection-rules.json` is rewritten exactly once with explicit `surfaceIdle: false` on every rule.
 - **DEC-EP6.** D7 (rule-reload tracker invalidation, task A5) does NOT reset `currentState` per design doc. The plan task explicitly tests for this — closing a Pane is the only way to reset agent state.
+- **DEC-EP7 (2026-04-25, Stage A reorder).** A1 (real C3 integration test) was originally first in Stage A; deferred to last because the existing `C6AppBootstrapTests.startWiresRouterCoordinatorAndBindLoop` already constructs a real `HookDispatcher`, fires through `router.handle(envelope:)`, and asserts the full chain. The remaining A1 gap is just an additional test method that fires through `dispatcher.fire(envelope)` directly, which is a polish task with no risk of contract drift bubbling up into Stage B.
+- **DEC-EP8 (2026-04-25, A5).** Scope simplification: `AgentStateTracker` does not cache per-rule match contexts (the router holds the rule table). The only rule-derived state the tracker holds is `idleThreshold`. A5 reduces to "propagate `newRules.idleThresholdSeconds` from `coordinator.reloadRules` → `registry.updateIdleThreshold` → each tracker's `updateIdleThreshold`," with `state` left untouched. No `RuleStoreReloadTests` file created; one focused test added inside `C6AppBootstrapTests` to reuse the harness.
 
 ## Outcomes & Retrospective
 
-(To be filled per stage.)
+### Stage A complete (2026-04-26, commits e6b35c4 → bdd8704)
+
+**Five fixes + plan + retro doc landed in 6 small commits.** Each commit is a single behaviour change with a focused test; bisecting across the series stays useful.
+
+- `e6b35c4` — v2 design doc + exec plan (this file).
+- `c814fa4` — A2: synchronous `addObserver` for `applicationDidBecomeActive` permission refresh.
+- `c772357` — A3: `UserNotificationDelegate` routes OS Dismiss/Focus/body-tap to `InboxStore`.
+- `c8a99fe` — A4: `notificationsSettingsChanges` AsyncStream + cached `lastUnreadCount` + `recomputeDockBadge`.
+- `a1d46b8` — A5: tracker `updateIdleThreshold` propagation on rule reload (state preserved).
+- `bdd8704` — A1: `dispatcherFireDeliversLifecycleEnvelopeThroughC6Stack` integration test.
+
+**Tests added/extended:** `OSNotifierTests` (5 new), `C6AppBootstrapTests` (3 new — A1/A2/A5), `NotificationCoordinatorTests` (1 new — A4).
+
+**Verification:** `xcodebuild ... -only-testing:touch-codeTests/<Suite> test` green per suite. Full per-file `swiftlint --quiet` clean on touched files (baseline `make mac-lint` is dirty for unrelated files — see Surprises).
+
+**Carry-forward into Stage B:**
+- The settings-change AsyncStream introduced for A4 will be reused by B5 (master toggle gate) and B6 (sound mutex) since both observe the same fields.
+- The `MockOSNotifier.assignedDelegate` recorder added in A3 unblocks future tests that need to assert the delegate is wired without involving live UN.
+- `tracker.updateIdleThreshold` semantics established in A5 set the precedent for B7's `tracker.recordUserInput` (also a "side input that does not change `state`").
 
 ## Context and Orientation
 
