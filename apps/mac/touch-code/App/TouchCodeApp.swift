@@ -251,6 +251,16 @@ final class AppState {
     let hierarchy = HierarchyClient.live(manager: manager, settings: settings)
     self.editorClient = editor
     self.hierarchyClient = hierarchy
+    // SwiftUI views (e.g. `ProjectGeneralSettingsView`) read `@Dependency(SettingsWriter.self)`
+    // directly; that resolution bypasses the per-store `withDependencies` overrides below and
+    // would otherwise hit the `liveValue` `fatalError` placeholders. Install the live
+    // implementations as the global defaults before any view body runs so View-side reads
+    // find the wired instances. Reducer-side overrides on the Store layer on top of these.
+    prepareDependencies {
+      $0.editorClient = editor
+      $0.hierarchyClient = hierarchy
+      $0.settingsWriter = .live(settings)
+    }
     // `SettingsWindowPresenter.open` forwards to the `OpenWindowAction` captured by the
     // main-window scene body into `openSettingsWindowAction`. SwiftUI's `OpenWindowAction`
     // must be read from a `View`'s environment so the reducer cannot hold it directly —
