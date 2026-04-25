@@ -66,8 +66,13 @@ expands additively (existing reserved-empty Phase 1 entries decode with
 - [x] M5 — Scripts pane (Lifecycle Section + user-defined list with inline
        edit / drag-to-reorder + Run/edit/delete buttons) — 10 tests across
        4 files (2026-04-25)
-- [ ] M6 — Hooks pane inline edit (HookEditorRow + ScopePickerView +
-       Add Hook button)
+- [x] M6 — Hooks pane inline edit (HookEditorRow + ScopePickerView +
+       Add Hook button) — ProjectHooksSettingsView rewritten for inline
+       editing of every HookSubscription field, ProjectSettingsFeature
+       extended with `.upsertHook` / `.deleteHook` actions plus a
+       `hookSubscriptions` state field so the editor row can edit the
+       full model (HookRow remains a display-only projection); 24 tests
+       across 5 files (2026-04-25)
 - [ ] M7 — HeaderRunScriptSplitButton (WorktreeHeader, primary script
        entry point)
 - [x] M8 — Runtime: env injection through PaneSurface / TerminalEngine —
@@ -84,6 +89,20 @@ expands additively (existing reserved-empty Phase 1 entries decode with
 - [ ] M12 — Docs, rename gate, manual QA, /codex:review, push + PR
 
 ## Surprises & Discoveries
+
+### 2026-04-25 — M6: hooksLoaded payload widened to carry the full subscription model
+
+`HooksLoad.loaded` keeps `[HookRow]` as a display-only projection
+(callers like the Developer pane still want the trimmed shape). The
+M6 editor needs the underlying `HookSubscription` to seed
+`HookEditorRow.Draft`, so the load action now returns a
+`HooksLoadPayload` carrying both the rows and the raw subscriptions,
+and `ProjectSettingsFeature.State` parks the latter on a new
+`hookSubscriptions` field. Existing `ProjectSettingsFeatureTests`
+updated to assert the new field on every successful load. The
+`HierarchyManager.hookSubscriptions` shortcut I considered first does
+not exist — keeping the read path through the reducer matches the
+rest of the pane's tested write paths.
 
 ### 2026-04-25 — M4: SwiftUI MainActor inference forces nonisolated annotations on pure helpers
 
