@@ -96,10 +96,34 @@ expands additively (existing reserved-empty Phase 1 entries decode with
        until the user dismisses. SIGTERM Cancel is wired but no-op
        (deferred Risk R2 mitigation). 18 tests, build green (2026-04-25)
 - [x] M10 — Command Palette: `.runProjectScript` Kind + build path
-- [ ] M11 — Tests (≥50 net new across all changed surfaces)
-- [ ] M12 — Docs, rename gate, manual QA, /codex:review, push + PR
+- [x] M11 — Tests sweep: ≥50 net new (actual ≈ 130 across all milestones).
+       Build green, rename gate green. 6 pre-existing test failures
+       documented in Surprises (autoSeedTabAndPaneIfNeeded reaches
+       unimplemented closures; not a Phase 2 regression). (2026-04-25)
+- [ ] M12 — Docs, manual QA deferred (no live app session in this run),
+       /codex:review pending
 
 ## Surprises & Discoveries
+
+### 2026-04-25 — M11: pre-existing RootFeatureTests / WorktreeDetailFeatureTests flake
+
+Six tests fail in the full suite under Swift Testing (`selectionChangedMirrorsActiveTabFromSnapshot`,
+`gitViewerOverlayVisibleTracksSelectionAgainstCatalog`, three
+`headerOpenEditor*` cases, plus `tabBarActionRoutesViaScope`). All
+issues are recorded as `Issue.record(...)` from `unimplemented` test
+dependencies — specifically `hierarchyClient.createTab` /
+`hierarchyClient.openPane`, which `RootFeature.autoSeedTabAndPaneIfNeeded`
+calls on every `selectionChanged` when the target Worktree has empty
+tabs. The failing tests don't stub those closures.
+
+`autoSeedTabAndPaneIfNeeded` predates this branch (present on `main`
+before Phase 2). The tests were authored before that auto-seed landed
+and have been silently recording issues since. Fixing them is out of
+scope for Phase 2 — flagged for a follow-up cleanup commit.
+
+The Phase 2 milestones' own test suites (M1 / M2 / M4 / M5 / M6 / M7 /
+M8 / M9 / M10) all pass when run individually. `make mac-build` is
+green. `bash scripts/check-rename-residue.sh` is clean.
 
 ### 2026-04-25 — M9: catalog rollback on setup failure (deviation from design doc)
 
