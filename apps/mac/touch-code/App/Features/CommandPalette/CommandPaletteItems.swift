@@ -1,3 +1,4 @@
+import Dependencies
 import Foundation
 import TouchCodeCore
 
@@ -29,6 +30,15 @@ enum CommandPaletteItems {
     if let worktree = resolveWorktree(selection: selection, catalog: catalog) {
       items.append(contentsOf: worktreeItems(worktreeName: worktree.name))
       items.append(contentsOf: editorItems(worktreeName: worktree.name, descriptors: editorDescriptors))
+      // M10: surface user-defined `ProjectSettings.scripts` for the active
+      // Project. Reads through the SettingsWriter dependency so the palette
+      // tracks the live `settings.json` snapshot — switching to a different
+      // Project rebuilds and surfaces that Project's scripts instead.
+      if let projectID = selection.projectID, let worktreeID = selection.worktreeID {
+        items.append(
+          contentsOf: projectScriptItems(projectID: projectID, worktreeID: worktreeID)
+        )
+      }
     }
     if let focusedPaneID {
       // Window actions only need any leaf in the current tab to resolve
@@ -199,6 +209,29 @@ enum CommandPaletteItems {
       )
     }
     return items
+  }
+
+  /// Project-scoped items, one per `ProjectSettings.scripts` entry under the
+  /// active Project. Pulls the script list through `SettingsWriter` so the
+  /// palette mirrors live `settings.json` state without a separate cache.
+  /// Subtitle uses the kind's `defaultName` ("Test", "Deploy", "Custom", …)
+  /// so a user who renames a `.test` script to "Run integration suite" can
+  /// still tell at a glance which kind it is.
+  private static func projectScriptItems(
+    projectID: ProjectID,
+    worktreeID: WorktreeID
+  ) -> [CommandPaletteItem] {
+    @Dependency(SettingsWriter.self) var settingsWriter
+    let scripts = settingsWriter.readSnapshotSync().projects[projectID]?.scripts ?? []
+    return scripts.map { script in
+      CommandPaletteItem(
+        id: "project.script.\(projectID.raw.uuidString).\(script.id.uuidString)",
+        title: script.displayName,
+        subtitle: script.kind.defaultName,
+        icon: script.resolvedSystemImage,
+        kind: .runProjectScript(projectID, worktreeID, script.id)
+      )
+    }
   }
 
   /// Walks the catalog from the selection down to a representative

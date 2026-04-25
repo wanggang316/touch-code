@@ -1,3 +1,4 @@
+import Dependencies
 import Foundation
 import Testing
 import TouchCodeCore
@@ -10,6 +11,18 @@ import TouchCodeCore
 struct CommandPaletteItemsTests {
   private static let emptyCatalog = Catalog()
   private static let emptySelection = HierarchySelection.empty
+
+  /// `CommandPaletteItems.build` reads `SettingsWriter.readSnapshotSync` to
+  /// surface per-Project scripts. Tests that don't care about scripts wrap
+  /// build calls with this empty-settings override so the underlying
+  /// `unimplemented` placeholder doesn't trip XCTFail.
+  private static func withEmptySettings<R>(_ work: () throws -> R) rethrows -> R {
+    try withDependencies {
+      $0[SettingsWriter.self].readSnapshotSync = { Settings() }
+    } operation: {
+      try work()
+    }
+  }
 
   // MARK: - App-scope only
 
@@ -64,7 +77,9 @@ struct CommandPaletteItemsTests {
     let selection = HierarchySelection(
       spaceID: space.id, projectID: project.id, worktreeID: worktree.id
     )
-    let items = CommandPaletteItems.build(selection: selection, catalog: catalog)
+    let items = Self.withEmptySettings {
+      CommandPaletteItems.build(selection: selection, catalog: catalog)
+    }
     let ids = Set(items.map(\.id))
     #expect(ids.contains("git.toggle-viewer"))
     #expect(ids.contains("editor.open-default"))
@@ -106,9 +121,11 @@ struct CommandPaletteItemsTests {
         alternateBundleIdentifiers: []
       ),
     ]
-    let items = CommandPaletteItems.build(
-      selection: selection, catalog: catalog, editorDescriptors: descriptors
-    )
+    let items = Self.withEmptySettings {
+      CommandPaletteItems.build(
+        selection: selection, catalog: catalog, editorDescriptors: descriptors
+      )
+    }
     let ids = Set(items.map(\.id))
     #expect(ids.contains("editor.open.vscode"))
     #expect(ids.contains("editor.open.zed"))
