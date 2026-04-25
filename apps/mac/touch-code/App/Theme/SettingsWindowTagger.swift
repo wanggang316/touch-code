@@ -34,6 +34,12 @@ struct SettingsWindowTag: NSViewRepresentable {
       super.viewDidMoveToWindow()
       if let window {
         SettingsWindowTagger.register(window)
+        // Opt this specific window out of macOS scene restoration — Settings is
+        // a transient utility surface, so the next launch should not reopen it
+        // just because the user quit with it open. `Window(id:)` participates
+        // in restoration by default; `restorationBehavior(.disabled)` is
+        // macOS 15-only, hence this AppKit-level toggle for our 14 target.
+        window.isRestorable = false
       }
     }
   }
