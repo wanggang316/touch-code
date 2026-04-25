@@ -27,6 +27,30 @@ struct SettingsStoreTests {
   }
 
   @Test
+  func freshStoreSeededWithCatalogOverridesPersists() throws {
+    // Regression guard: first-launch path where settings.json does not exist yet but
+    // catalog.json still carries legacy v1 overrides (drained into the map before
+    // SettingsStore init). Without the seed-and-persist branch the next launch would
+    // see settings.json-still-missing + catalog.json-already-v2 → data lost forever.
+    let url = FileManager.default.temporaryDirectory.appending(
+      component: "settings-fresh-seed-\(UUID().uuidString).json"
+    )
+    defer { try? FileManager.default.removeItem(at: url) }
+    let pid = ProjectID()
+    let overrides: SettingsMigration.CatalogOverrides = [
+      pid: (defaultEditor: "vscode", worktreesDirectory: "/Users/x/wt")
+    ]
+    let store = SettingsStore(fileURL: url, catalogOverrides: overrides)
+    #expect(store.settings.projects[pid]?.defaultEditor == "vscode")
+    #expect(store.settings.projects[pid]?.worktreesDirectory == "/Users/x/wt")
+
+    store.flush()
+    let reloaded = SettingsStore(fileURL: url)  // no overrides this round
+    #expect(reloaded.settings.projects[pid]?.defaultEditor == "vscode")
+    #expect(reloaded.settings.projects[pid]?.worktreesDirectory == "/Users/x/wt")
+  }
+
+  @Test
   func setDefaultEditorIDRoundTrips() throws {
     let (store, url) = makeStore()
     defer { try? FileManager.default.removeItem(at: url) }

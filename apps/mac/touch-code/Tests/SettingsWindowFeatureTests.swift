@@ -149,6 +149,31 @@ struct SettingsWindowFeatureTests {
   }
 
   @Test
+  func projectsChangedFallsBackToGeneralWhenKindHidesCurrentSelection() async {
+    // A Project on `.projectGit` that flips to `plain_dir` (e.g. user ran `rm -rf .git`)
+    // must bounce the selection to `.projectGeneral` — the sidebar no longer exposes the
+    // Git rows and the detail pane would otherwise render a pane the user can't navigate
+    // away from.
+    let pid = ProjectID()
+    var pane = ProjectSettingsFeature.State(projectID: pid)
+    pane.kind = .gitRepo
+    var initial = SettingsWindowFeature.State(selection: .projectGit(pid))
+    initial.projectPanes.append(pane)
+    let store = TestStore(initialState: initial) {
+      SettingsWindowFeature()
+    } withDependencies: {
+      $0.editorClient = EditorClient.testValue
+      $0.settingsWriter = SettingsWriter.testValue
+      $0.hierarchyClient = HierarchyClient.testValue
+      $0.hierarchyClient.kind = { _ in .plainDir }
+    }
+    await store.send(.projectsChanged([pid])) {
+      $0.projectPanes[id: pid]?.kind = .plainDir
+      $0.selection = .projectGeneral(pid)
+    }
+  }
+
+  @Test
   func selectingGlobalSectionDoesNotTouchProjectPanes() async {
     let store = TestStore(initialState: SettingsWindowFeature.State()) {
       SettingsWindowFeature()

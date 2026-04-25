@@ -45,11 +45,25 @@ final class SettingsStore {
     // at the canonical URL — writing on top of it would destroy the user's historical data.
     // Setting the flag to false puts the store into a read-only / in-memory-only mode.
     var safeToPersist = true
+    var needsSeedPersist = false
 
     do {
       switch try SettingsMigration.load(from: fileURL, catalogOverrides: catalogOverrides) {
       case .fresh:
-        self.settings = .default
+        // First launch with no settings.json yet. When the catalog side has legacy v1
+        // overrides (drained from catalog.json before this init), we must seed the
+        // fresh settings tree with those values — otherwise the catalog v2 save that
+        // follows has already stripped the only copy and the user's editor /
+        // worktree-dir overrides vanish silently. Empty map = nothing to do.
+        var fresh = Settings.default
+        for (pid, overrides) in catalogOverrides {
+          fresh.projects[pid] = ProjectSettings(
+            defaultEditor: overrides.defaultEditor,
+            worktreesDirectory: overrides.worktreesDirectory
+          )
+        }
+        self.settings = fresh
+        needsSeedPersist = !catalogOverrides.isEmpty
       case .v3(let existing):
         self.settings = existing
       case .migratedFromV1(_, let backupURL), .migratedFromV2(_, let backupURL):
@@ -95,6 +109,13 @@ final class SettingsStore {
       safeToPersist = false
     }
     self.persistenceEnabled = safeToPersist
+
+    // When we seeded `.fresh` from catalog overrides, persist immediately — the next
+    // launch would find a v2 catalog already on disk (drain empty) and settings.json
+    // still missing (.fresh again with no seed), permanently losing the overrides.
+    if needsSeedPersist {
+      scheduleSave()
+    }
 
     // C8a Phase 5 M1 — reset any stored `general.defaultEditorID` that is not in the
     // current built-in registry. Stale IDs come from the retired C8 `customEditors`

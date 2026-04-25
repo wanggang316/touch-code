@@ -131,6 +131,35 @@ struct ProjectOptionsFeatureTests {
   }
 
   @Test
+  func whitespaceOnlyWorktreesDirectoryClearsOverride() async {
+    // Regression guard: a whitespace-only draft (`"   "`) must map to `nil` (clear),
+    // not to the literal whitespace string. Persisting the literal would break
+    // `projectAddWorktreeTapped` which treats the stored value as an absolute filesystem
+    // base; worktree creation would point at an invalid path.
+    let worktreeDirCalls = LockIsolated<[String?]>([])
+    var state = Self.makeState(name: "p", worktreesDirectory: "/custom/dir")
+    state.worktreesDirectoryDraft = "   "
+
+    let store = TestStore(initialState: state) {
+      ProjectOptionsFeature()
+    } withDependencies: {
+      $0.settingsWriter = .testValue
+      $0.settingsWriter.setProjectDefaultEditor = { _, _ in }
+      $0.settingsWriter.setProjectWorktreesDirectory = { _, path in
+        worktreeDirCalls.withValue { $0.append(path) }
+      }
+    }
+    store.exhaustivity = .off(showSkippedAssertions: false)
+
+    await store.send(.saveTapped)
+    await store.receive(\.delegate.saved)
+    await store.receive(\.delegate.dismiss)
+
+    #expect(worktreeDirCalls.value.count == 1)
+    #expect(worktreeDirCalls.value.first == .some(nil))
+  }
+
+  @Test
   func emptyWorktreesDirectoryClearsOverride() async {
     let worktreeDirCalls = LockIsolated<[String?]>([])
     var state = Self.makeState(name: "p", worktreesDirectory: "/custom/dir")

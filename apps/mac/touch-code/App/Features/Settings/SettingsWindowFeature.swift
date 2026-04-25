@@ -91,9 +91,18 @@ struct SettingsWindowFeature {
             state.projectPanes[index].kind = freshKind
           }
         }
-        // Clear selection if it points to a disappeared project.
-        if let pid = state.selection?.projectID, !currentIDs.contains(pid) {
-          state.selection = nil
+        // Clear selection if it points to a disappeared project OR to a sub-pane that the
+        // project's current kind no longer exposes (e.g. the user was on Git & Worktree when
+        // `.git` was removed and the Project flipped to plain_dir). Falling back to
+        // General keeps the pane consistent with the sidebar's kind-conditional row set.
+        if let selection = state.selection, let pid = selection.projectID {
+          if !currentIDs.contains(pid) {
+            state.selection = nil
+          } else if let pane = state.projectPanes[id: pid],
+            !SettingsSection.subrows(for: pane.kind, projectID: pid).contains(selection)
+          {
+            state.selection = .projectGeneral(pid)
+          }
         }
         return .none
       }

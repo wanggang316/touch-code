@@ -149,6 +149,31 @@ struct HookConfigCodableTests {
   }
 
   @Test
+  func malformedSubscriptionsContainerPropagatesError() {
+    // `subscriptions` present but not an array should NOT silently default to [] —
+    // that would clear every hook on the next save. The decoder propagates the typed
+    // error so the outer loader can back the file aside.
+    let payload = Data(#"""
+      {
+        "version": 2,
+        "subscriptions": { "not": "an array" }
+      }
+      """#.utf8)
+    #expect(throws: (any Error).self) {
+      _ = try JSONDecoder().decode(HookConfig.self, from: payload)
+    }
+  }
+
+  @Test
+  func missingSubscriptionsKeyDefaultsToEmpty() throws {
+    // A key that is absent (not present-but-wrong-type) is the intentional legitimate
+    // shape for a brand-new hooks.json. Defaults to empty; decode succeeds.
+    let payload = Data(#"{"version": 2}"#.utf8)
+    let config = try JSONDecoder().decode(HookConfig.self, from: payload)
+    #expect(config.subscriptions.isEmpty)
+  }
+
+  @Test
   func v2PayloadWithNewProjectScopeRoundTrips() throws {
     let pid = ProjectID()
     let sub = HookSubscription(

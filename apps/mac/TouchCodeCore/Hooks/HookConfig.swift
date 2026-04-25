@@ -66,7 +66,13 @@ extension HookConfig: Codable {
     // `HookSubscription.Scope.UnknownScopeKind` error (new v2 case the running
     // binary doesn't understand, typo in the `kind` string, etc.) skips that
     // entry with a log line rather than aborting the whole file.
-    if var array = try? c.nestedUnkeyedContainer(forKey: .subscriptions) {
+    //
+    // The key-exists check is deliberate: only a missing `subscriptions` key defaults
+    // to an empty array. A key that exists but holds the wrong type (e.g. an object
+    // instead of an array) propagates the DecodingError upward so the outer loader
+    // can back the malformed file aside instead of silently clearing the user's hooks.
+    if c.contains(.subscriptions) {
+      var array = try c.nestedUnkeyedContainer(forKey: .subscriptions)
       var kept: [HookSubscription] = []
       kept.reserveCapacity(array.count ?? 0)
       while !array.isAtEnd {

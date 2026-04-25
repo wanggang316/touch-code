@@ -118,8 +118,14 @@ struct ProjectOptionsFeature {
         let editorWriter = settingsWriter.setProjectDefaultEditor
         let worktreeDirWriter = settingsWriter.setProjectWorktreesDirectory
         let editorDraft = state.defaultEditorDraft
-        let worktreesDraft = state.worktreesDirectoryDraft
-        let worktreesValue: String? = worktreesDraft.isEmpty ? nil : worktreesDraft
+        // Whitespace-only drafts clear the override — matches the pre-refactor
+        // `HierarchyManager.setProjectWorktreesDirectory` semantics so a user typing
+        // spaces into the field does not persist an invalid path that later breaks
+        // worktree creation (`projectAddWorktreeTapped` treats the stored value as
+        // an absolute filesystem base).
+        let worktreesTrimmed = state.worktreesDirectoryDraft
+          .trimmingCharacters(in: .whitespacesAndNewlines)
+        let worktreesValue: String? = worktreesTrimmed.isEmpty ? nil : worktreesTrimmed
         return .run { send in
           if editorChanged {
             await editorWriter(projectID, editorDraft)
