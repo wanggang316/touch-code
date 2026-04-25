@@ -25,6 +25,12 @@ struct TabBarRowView: View {
   /// returning `false` for callers / previews that do not need dirty
   /// coverage.
   var isDirty: (TabID) -> Bool = { _ in false }
+  /// Resolves the chip title. The default mirrors the legacy behavior
+  /// (`tab.name` with a static fallback) so previews / call sites that
+  /// don't care about live OSC titles compile without changes.
+  var displayName: (TouchCodeCore.Tab, Int) -> String = { tab, index in
+    tab.name ?? "Tab \(index)"
+  }
   let onSelect: (TabID) -> Void
   let onClose: (TabID) -> Void
   let onMiddleClick: (TabID) -> Void
@@ -38,7 +44,7 @@ struct TabBarRowView: View {
     HStack(spacing: 0) {
       ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
         TabChipView(
-          title: tab.name ?? "Tab",
+          title: displayName(tab, index + 1),
           isActive: activeTabID == tab.id,
           isDirty: isDirty(tab.id),
           isOnlyTab: tabs.count <= 1,
