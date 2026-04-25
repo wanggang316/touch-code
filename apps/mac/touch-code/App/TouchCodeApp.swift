@@ -402,6 +402,10 @@ final class AppState {
       )
     )
     let hierarchyHandlers = HierarchyHandlers(manager: hierarchy)
+    // v2 D13 / B11: tc focus acknowledges unread for the focused pane.
+    hierarchyHandlers.onPaneFocused = { [weak inbox = inboxStore] paneID in
+      inbox?.markRead(forPane: paneID)
+    }
     // TerminalHandlers has no input sink until a real GhosttyRuntime is
     // bound — terminal.sendInput / broadcastInput return .unsupported
     // until then, which is the right behavior for the M6 scripted flow.
