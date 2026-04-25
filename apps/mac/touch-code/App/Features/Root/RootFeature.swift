@@ -912,6 +912,22 @@ struct RootFeature {
       let client = finderClient
       return .run { _ in await MainActor.run { client.reveal(path) } }
 
+    // Project scripts (Phase 2 / M10) — palette item carries the
+    // (projectID, worktreeID, scriptID) triple, fan out into the same
+    // run-script effect the WorktreeHeader split-button and the Scripts
+    // pane Run button use, so failure handling stays in one place.
+    case .runProjectScript(let projectID, let worktreeID, let scriptID):
+      let client = hierarchyClient
+      return .run { send in
+        do {
+          try await client.runScript(scriptID, projectID, worktreeID)
+        } catch let error as RunScriptError {
+          await send(.statusBar(.push(.warning(Self.runScriptErrorMessage(error)))))
+        } catch {
+          await send(.statusBar(.push(.warning("Run script failed: \(error.localizedDescription)"))))
+        }
+      }
+
     // Pane / Window — thin wrappers over the routers
     case .paneAction(let req):
       guard
