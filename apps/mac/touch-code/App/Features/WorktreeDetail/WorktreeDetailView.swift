@@ -24,6 +24,13 @@ struct WorktreeDetailView: View {
   /// when `overlayVisible == true` AND the terminal has enough width to keep the
   /// overlay + the minimum terminal gutter side-by-side.
   let gitViewerStore: StoreOf<GitViewerFeature>
+  /// 0014: titlebar-center Worktree Status Bar store. Owns the toast slot; PR /
+  /// motivational forms are view-level projections of other scopes (added in M4/M5).
+  let statusBarStore: StoreOf<StatusBarFeature>
+  /// 0014 M4: scoped GitHub feature store; read for the PR form's
+  /// `snapshots[worktreeID]` lookup. Same store the sidebar badge reads so
+  /// the two surfaces stay in sync by construction.
+  let gitHubStore: StoreOf<GitHubFeature>
   /// T3: derived from `RootFeature.State.gitViewerOverlayVisible`; never assigned locally.
   let overlayVisible: Bool
   @Environment(HierarchyManager.self) private var hierarchyManager
@@ -167,6 +174,13 @@ struct WorktreeDetailView: View {
       if info.project.supportsWorktrees {
         branchToolbarItem(info: info)
       }
+      // 0014 M1: center status-bar slot. `ToolbarSpacer(.flexible)` on the
+      // leading side claims the whole gap between the branch label and the
+      // trailing button cluster, so the principal item renders centered
+      // regardless of left / right group widths. Trailing `.fixed` spacer
+      // keeps the cluster hugged against the right edge rather than drifting
+      // into the center as other items resize.
+      statusBarToolbarItem(address: address)
       // Three independent trailing buttons. `ToolbarItemGroup` keeps the
       // relative order while preventing SwiftUI from collapsing them into a
       // single overflow menu on narrow widths. `.buttonStyle(.plain)` on each
@@ -209,6 +223,22 @@ struct WorktreeDetailView: View {
       .accessibilityElement(children: .ignore)
       .accessibilityLabel("Current branch: \(info.branchLabel)")
       .accessibilityAddTraits(.isStaticText)
+    }
+    if #available(macOS 26.0, *) {
+      item.sharedBackgroundVisibility(.hidden)
+    } else {
+      item
+    }
+  }
+
+  @ToolbarContentBuilder
+  private func statusBarToolbarItem(address: Address) -> some ToolbarContent {
+    let item = ToolbarItem(placement: .principal) {
+      StatusBarView(
+        store: statusBarStore,
+        gitHubStore: gitHubStore,
+        worktreeID: address.worktree
+      )
     }
     if #available(macOS 26.0, *) {
       item.sharedBackgroundVisibility(.hidden)

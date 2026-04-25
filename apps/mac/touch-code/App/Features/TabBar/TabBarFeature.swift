@@ -4,8 +4,9 @@ import TouchCodeCore
 
 /// Tab bar reducer. State-free controller: Worktree.tabs is read from the
 /// environment `HierarchyManager` at render time; actions dispatch create /
-/// select / close commands through `HierarchyClient`. Errors are swallowed
-/// (logged only) — tab-bar failures are rare and not worth modal UX today.
+/// select / close / rename / reorder / bulk-close commands through
+/// `HierarchyClient`. Errors are swallowed (logged via the client's own
+/// channels) — tab-bar failures are rare and not worth modal UX today.
 @Reducer
 struct TabBarFeature {
   @ObservableState
@@ -18,6 +19,29 @@ struct TabBarFeature {
       TabID, inWorktree: WorktreeID, inProject: ProjectID, inSpace: SpaceID)
     case closeButtonTapped(
       TabID, inWorktree: WorktreeID, inProject: ProjectID, inSpace: SpaceID)
+
+    // Tab-bar uplift (M2-T2.2)
+    case renameSubmitted(
+      TabID, name: String?,
+      inWorktree: WorktreeID, inProject: ProjectID, inSpace: SpaceID)
+    case contextMenuCloseOthers(
+      TabID, inWorktree: WorktreeID, inProject: ProjectID, inSpace: SpaceID)
+    case contextMenuCloseToRight(
+      TabID, inWorktree: WorktreeID, inProject: ProjectID, inSpace: SpaceID)
+    case contextMenuCloseAll(
+      inWorktree: WorktreeID, inProject: ProjectID, inSpace: SpaceID)
+    case dragReorderEnded(
+      orderedIDs: [TabID],
+      inWorktree: WorktreeID, inProject: ProjectID, inSpace: SpaceID)
+    case middleClicked(
+      TabID, inWorktree: WorktreeID, inProject: ProjectID, inSpace: SpaceID)
+    /// Trailing split button click. Resolves the active tab's leftmost
+    /// leaf as the anchor pane and splits it in `direction`. Silent no-op
+    /// if the worktree has no active tab or the tab has no panes. Upgrades
+    /// to the last-focused pane when M3 lands.
+    case trailingSplitRequested(
+      direction: SplitTree<PaneID>.NewDirection,
+      inWorktree: WorktreeID, inProject: ProjectID, inSpace: SpaceID)
   }
 
   @Dependency(HierarchyClient.self) private var hierarchyClient
@@ -48,6 +72,48 @@ struct TabBarFeature {
 
       case .closeButtonTapped(let tabID, let worktreeID, let projectID, let spaceID):
         try? hierarchyClient.closeTab(tabID, worktreeID, projectID, spaceID)
+        return .none
+
+      case .renameSubmitted(let tabID, let name, let worktreeID, let projectID, let spaceID):
+        try? hierarchyClient.renameTab(tabID, worktreeID, projectID, spaceID, name)
+        return .none
+
+      case .contextMenuCloseOthers(let tabID, let worktreeID, let projectID, let spaceID):
+        try? hierarchyClient.closeOtherTabs(tabID, worktreeID, projectID, spaceID)
+        return .none
+
+      case .contextMenuCloseToRight(let tabID, let worktreeID, let projectID, let spaceID):
+        try? hierarchyClient.closeTabsToRight(tabID, worktreeID, projectID, spaceID)
+        return .none
+
+      case .contextMenuCloseAll(let worktreeID, let projectID, let spaceID):
+        try? hierarchyClient.closeAllTabs(worktreeID, projectID, spaceID)
+        return .none
+
+      case .dragReorderEnded(let orderedIDs, let worktreeID, let projectID, let spaceID):
+        try? hierarchyClient.reorderTabs(worktreeID, projectID, spaceID, orderedIDs)
+        return .none
+
+      case .middleClicked(let tabID, let worktreeID, let projectID, let spaceID):
+        try? hierarchyClient.closeTab(tabID, worktreeID, projectID, spaceID)
+        return .none
+
+      case .trailingSplitRequested(let direction, let worktreeID, let projectID, let spaceID):
+        let catalog = hierarchyClient.snapshot()
+        guard
+          let worktree = catalog.spaces.first(where: { $0.id == spaceID })?
+            .projects.first(where: { $0.id == projectID })?
+            .worktrees.first(where: { $0.id == worktreeID }),
+          let activeTabID = worktree.selectedTabID,
+          let activeTab = worktree.tabs.first(where: { $0.id == activeTabID }),
+          let anchor = activeTab.splitTree.leaves().first,
+          let anchorPane = activeTab.panes.first(where: { $0.id == anchor })
+        else { return .none }
+        _ = try? hierarchyClient.splitPane(
+          anchor, direction,
+          activeTabID, worktreeID, projectID, spaceID,
+          anchorPane.workingDirectory, nil
+        )
         return .none
       }
     }

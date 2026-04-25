@@ -74,6 +74,56 @@ nonisolated struct HierarchyClient: Sendable {
       _ id: TabID?, _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
     ) throws -> Void
 
+  // MARK: - Tab mutations (tab-bar uplift)
+
+  var renameTab:
+    @MainActor @Sendable (
+      _ id: TabID,
+      _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID,
+      _ name: String?
+    ) throws -> Void
+  var reorderTabs:
+    @MainActor @Sendable (
+      _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID,
+      _ orderedIDs: [TabID]
+    ) throws -> Void
+  var closeOtherTabs:
+    @MainActor @Sendable (
+      _ keeping: TabID,
+      _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
+    ) throws -> Void
+  var closeTabsToRight:
+    @MainActor @Sendable (
+      _ of: TabID,
+      _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
+    ) throws -> Void
+  var closeAllTabs:
+    @MainActor @Sendable (
+      _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
+    ) throws -> Void
+  var selectAdjacentTab:
+    @MainActor @Sendable (
+      _ direction: TabAdjacency,
+      _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
+    ) throws -> TabID?
+
+  // MARK: - Runtime state (tab-bar uplift, M3)
+
+  /// Read path for the chip's dirty (running-command) spinner. Always
+  /// returns `false` until a writer — likely a C3 hook — starts calling
+  /// `markPaneRunning` / `markPaneIdle`. The reader is exposed now so
+  /// `TabChipLabel` can bind to it without another feature sweep.
+  var tabIsDirty: @MainActor @Sendable (_ tabID: TabID) -> Bool
+  /// Returns the Pane the user most recently focused in `tabID`, or nil.
+  /// Mirrors `HierarchyManager.lastFocusedPane(in:)`.
+  var lastFocusedPane: @MainActor @Sendable (_ tabID: TabID) -> PaneID?
+  /// Dormant writer — calls `HierarchyManager.markPaneRunning`. No caller
+  /// today; lands a real writer with the C3 hooks plan.
+  var markPaneRunning: @MainActor @Sendable (_ paneID: PaneID) -> Void
+  /// Dormant writer — calls `HierarchyManager.markPaneIdle`. No caller
+  /// today; lands a real writer with the C3 hooks plan.
+  var markPaneIdle: @MainActor @Sendable (_ paneID: PaneID) -> Void
+
   var openPane:
     @MainActor @Sendable (
       _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID,
@@ -316,6 +366,32 @@ extension HierarchyClient {
       selectTab: { tabID, worktreeID, projectID, spaceID in
         try manager.selectTab(tabID, in: worktreeID, in: projectID, in: spaceID)
       },
+      renameTab: { tabID, worktreeID, projectID, spaceID, name in
+        try manager.renameTab(tabID, in: worktreeID, in: projectID, in: spaceID, name: name)
+      },
+      reorderTabs: { worktreeID, projectID, spaceID, orderedIDs in
+        try manager.reorderTabs(
+          in: worktreeID, in: projectID, in: spaceID, orderedIDs: orderedIDs)
+      },
+      closeOtherTabs: { keepID, worktreeID, projectID, spaceID in
+        try manager.closeOtherTabs(
+          keeping: keepID, in: worktreeID, in: projectID, in: spaceID)
+      },
+      closeTabsToRight: { pivotID, worktreeID, projectID, spaceID in
+        try manager.closeTabsToRight(
+          of: pivotID, in: worktreeID, in: projectID, in: spaceID)
+      },
+      closeAllTabs: { worktreeID, projectID, spaceID in
+        try manager.closeAllTabs(in: worktreeID, in: projectID, in: spaceID)
+      },
+      selectAdjacentTab: { direction, worktreeID, projectID, spaceID in
+        try manager.selectAdjacentTab(
+          direction: direction, in: worktreeID, in: projectID, in: spaceID)
+      },
+      tabIsDirty: { tabID in manager.tabIsDirty(tabID) },
+      lastFocusedPane: { tabID in manager.lastFocusedPane(in: tabID) },
+      markPaneRunning: { paneID in manager.markPaneRunning(paneID) },
+      markPaneIdle: { paneID in manager.markPaneIdle(paneID) },
       openPane: { tabID, worktreeID, projectID, spaceID, cwd, initial in
         try manager.openPane(
           in: tabID, in: worktreeID, in: projectID, in: spaceID,
@@ -590,6 +666,16 @@ extension HierarchyClient: DependencyKey {
     createTab: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     closeTab: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     selectTab: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    renameTab: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    reorderTabs: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    closeOtherTabs: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    closeTabsToRight: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    closeAllTabs: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    selectAdjacentTab: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    tabIsDirty: { _ in false },
+    lastFocusedPane: { _ in nil },
+    markPaneRunning: { _ in },
+    markPaneIdle: { _ in },
     openPane: { _, _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     splitPane: { _, _, _, _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     closePane: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
@@ -634,6 +720,16 @@ extension HierarchyClient: DependencyKey {
     createTab: unimplemented("HierarchyClient.createTab", placeholder: TabID()),
     closeTab: unimplemented("HierarchyClient.closeTab"),
     selectTab: unimplemented("HierarchyClient.selectTab"),
+    renameTab: unimplemented("HierarchyClient.renameTab"),
+    reorderTabs: unimplemented("HierarchyClient.reorderTabs"),
+    closeOtherTabs: unimplemented("HierarchyClient.closeOtherTabs"),
+    closeTabsToRight: unimplemented("HierarchyClient.closeTabsToRight"),
+    closeAllTabs: unimplemented("HierarchyClient.closeAllTabs"),
+    selectAdjacentTab: unimplemented("HierarchyClient.selectAdjacentTab", placeholder: nil),
+    tabIsDirty: unimplemented("HierarchyClient.tabIsDirty", placeholder: false),
+    lastFocusedPane: unimplemented("HierarchyClient.lastFocusedPane", placeholder: nil),
+    markPaneRunning: unimplemented("HierarchyClient.markPaneRunning"),
+    markPaneIdle: unimplemented("HierarchyClient.markPaneIdle"),
     openPane: unimplemented("HierarchyClient.openPane", placeholder: PaneID()),
     splitPane: unimplemented("HierarchyClient.splitPane", placeholder: PaneID()),
     closePane: unimplemented("HierarchyClient.closePane"),

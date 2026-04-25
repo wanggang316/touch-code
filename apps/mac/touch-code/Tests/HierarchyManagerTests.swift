@@ -503,4 +503,273 @@ struct HierarchyManagerTests {
     #expect(first.count == 1)
     #expect(second.isEmpty, "Second drain must see empty fields")
   }
+
+  // MARK: - Tab-bar uplift (M2-T2.1)
+
+  /// Seeds a worktree with three tabs and returns (space, project, worktree, tabIDs).
+  /// Every tab gets one pane so `closeTab`'s runtime-teardown path is exercised
+  /// the same way the real UI drives it.
+  @MainActor
+  private func makeFixtureWithThreeTabs() throws -> (SpaceID, ProjectID, WorktreeID, [TabID]) {
+    let spaceID = manager.createSpace(name: "test")
+    let projectID = try manager.addProject(
+      to: spaceID, name: "project", rootPath: "/tmp", gitRoot: "/tmp"
+    )
+    let worktreeID = try manager.createWorktree(
+      in: projectID, in: spaceID, name: "main", path: "/repo", branch: "main"
+    )
+    var tabIDs: [TabID] = []
+    for name in ["one", "two", "three"] {
+      let tid = try manager.createTab(in: worktreeID, in: projectID, in: spaceID, name: name)
+      _ = try manager.openPane(
+        in: tid, in: worktreeID, in: projectID, in: spaceID,
+        workingDirectory: "/tmp", initialCommand: nil
+      )
+      tabIDs.append(tid)
+    }
+    return (spaceID, projectID, worktreeID, tabIDs)
+  }
+
+  @Test
+  func renameTabWritesName() throws {
+    let (sp, pr, wt, tabs) = try makeFixtureWithThreeTabs()
+    try manager.renameTab(tabs[1], in: wt, in: pr, in: sp, name: "renamed")
+    let stored = manager.catalog.spaces[0].projects[0].worktrees[0].tabs[1].name
+    #expect(stored == "renamed")
+  }
+
+  @Test
+  func renameTabWithUnchangedNameIsNoOp() throws {
+    let (sp, pr, wt, tabs) = try makeFixtureWithThreeTabs()
+    // Same value → no throw, still equals the original.
+    try manager.renameTab(tabs[0], in: wt, in: pr, in: sp, name: "one")
+    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].tabs[0].name == "one")
+  }
+
+  @Test
+  func renameTabThrowsOnMissingID() throws {
+    let (sp, pr, wt, _) = try makeFixtureWithThreeTabs()
+    #expect(throws: HierarchyError.self) {
+      try manager.renameTab(TabID(), in: wt, in: pr, in: sp, name: "nope")
+    }
+  }
+
+  @Test
+  func reorderTabsAcceptsPermutation() throws {
+    let (sp, pr, wt, tabs) = try makeFixtureWithThreeTabs()
+    let permuted = [tabs[2], tabs[0], tabs[1]]
+    try manager.reorderTabs(in: wt, in: pr, in: sp, orderedIDs: permuted)
+    let stored = manager.catalog.spaces[0].projects[0].worktrees[0].tabs.map(\.id)
+    #expect(stored == permuted)
+  }
+
+  @Test
+  func reorderTabsRejectsMismatchedSet() throws {
+    let (sp, pr, wt, tabs) = try makeFixtureWithThreeTabs()
+    // Drop the last id → set mismatch → invariantViolation.
+    let shortened = Array(tabs.dropLast())
+    #expect(throws: HierarchyError.self) {
+      try manager.reorderTabs(in: wt, in: pr, in: sp, orderedIDs: shortened)
+    }
+  }
+
+  @Test
+  func closeOtherTabsKeepsPivotSelected() throws {
+    let (sp, pr, wt, tabs) = try makeFixtureWithThreeTabs()
+    try manager.closeOtherTabs(keeping: tabs[1], in: wt, in: pr, in: sp)
+    let remaining = manager.catalog.spaces[0].projects[0].worktrees[0].tabs.map(\.id)
+    #expect(remaining == [tabs[1]])
+    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].selectedTabID == tabs[1])
+  }
+
+  @Test
+  func closeTabsToRightTrimsSuffix() throws {
+    let (sp, pr, wt, tabs) = try makeFixtureWithThreeTabs()
+    try manager.closeTabsToRight(of: tabs[0], in: wt, in: pr, in: sp)
+    let remaining = manager.catalog.spaces[0].projects[0].worktrees[0].tabs.map(\.id)
+    #expect(remaining == [tabs[0]])
+  }
+
+  @Test
+  func closeTabsToRightNoOpForLastTab() throws {
+    let (sp, pr, wt, tabs) = try makeFixtureWithThreeTabs()
+    try manager.closeTabsToRight(of: tabs.last!, in: wt, in: pr, in: sp)
+    let remaining = manager.catalog.spaces[0].projects[0].worktrees[0].tabs.map(\.id)
+    #expect(remaining == tabs)
+  }
+
+  @Test
+  func closeTabsToRightKeepsPivotSelectedWhenActiveWasDoomed() throws {
+    let (sp, pr, wt, tabs) = try makeFixtureWithThreeTabs()
+    // makeFixtureWithThreeTabs leaves the last tab selected; ask to
+    // close everything to the right of the first one. The user's
+    // active tab is in the doomed suffix, so without the explicit
+    // reseat the auto-advance would land on `tabs.first` regardless
+    // of which pivot was passed.
+    try manager.closeTabsToRight(of: tabs[0], in: wt, in: pr, in: sp)
+    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].selectedTabID == tabs[0])
+  }
+
+  @Test
+  func closeTabsToRightKeepsPivotSelectedWhenPivotIsMid() throws {
+    let (sp, pr, wt, tabs) = try makeFixtureWithThreeTabs()
+    // Pivot is the middle tab; auto-advance would otherwise land on
+    // tabs[0] when tabs[2] (the active tab) closes.
+    try manager.closeTabsToRight(of: tabs[1], in: wt, in: pr, in: sp)
+    let remaining = manager.catalog.spaces[0].projects[0].worktrees[0].tabs.map(\.id)
+    #expect(remaining == [tabs[0], tabs[1]])
+    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].selectedTabID == tabs[1])
+  }
+
+  @Test
+  func closeAllTabsEmptiesWorktree() throws {
+    let (sp, pr, wt, _) = try makeFixtureWithThreeTabs()
+    try manager.closeAllTabs(in: wt, in: pr, in: sp)
+    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].tabs.isEmpty)
+    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].selectedTabID == nil)
+  }
+
+  @Test
+  func selectAdjacentTabWrapsForward() throws {
+    let (sp, pr, wt, tabs) = try makeFixtureWithThreeTabs()
+    // After makeFixtureWithThreeTabs the last-created tab is selected.
+    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].selectedTabID == tabs[2])
+    let next = try manager.selectAdjacentTab(direction: .next, in: wt, in: pr, in: sp)
+    #expect(next == tabs[0])
+    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].selectedTabID == tabs[0])
+  }
+
+  @Test
+  func selectAdjacentTabWrapsBackward() throws {
+    let (sp, pr, wt, tabs) = try makeFixtureWithThreeTabs()
+    // Selected is tabs[2]; previous from 2 is 1, from 0 is 2 (wrap). Check both.
+    _ = try manager.selectTab(tabs[0], in: wt, in: pr, in: sp)
+    let previous = try manager.selectAdjacentTab(direction: .previous, in: wt, in: pr, in: sp)
+    #expect(previous == tabs[2])
+    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].selectedTabID == tabs[2])
+  }
+
+  @Test
+  func selectAdjacentTabReturnsNilOnEmptyWorktree() throws {
+    let spaceID = manager.createSpace(name: "test")
+    let projectID = try manager.addProject(
+      to: spaceID, name: "project", rootPath: "/tmp", gitRoot: "/tmp"
+    )
+    let worktreeID = try manager.createWorktree(
+      in: projectID, in: spaceID, name: "main", path: "/repo", branch: "main"
+    )
+    let result = try manager.selectAdjacentTab(
+      direction: .next, in: worktreeID, in: projectID, in: spaceID
+    )
+    #expect(result == nil)
+  }
+
+  // MARK: - Runtime state: focus memory + dirty (M3-T3.5)
+
+  /// Seeds a worktree with two tabs. Tab A has two panes (so we can
+  /// remember "the second pane"), tab B has one pane (so selectTab has
+  /// a fallback leaf on the other side).
+  @MainActor
+  private func makeFixtureTwoTabsWithPanes() throws -> (
+    SpaceID, ProjectID, WorktreeID, TabID, TabID, PaneID, PaneID, PaneID
+  ) {
+    let spaceID = manager.createSpace(name: "test")
+    let projectID = try manager.addProject(
+      to: spaceID, name: "project", rootPath: "/tmp", gitRoot: "/tmp"
+    )
+    let worktreeID = try manager.createWorktree(
+      in: projectID, in: spaceID, name: "main", path: "/repo", branch: "main"
+    )
+    let tabA = try manager.createTab(in: worktreeID, in: projectID, in: spaceID, name: "A")
+    let tabAPane1 = try manager.openPane(
+      in: tabA, in: worktreeID, in: projectID, in: spaceID,
+      workingDirectory: "/tmp", initialCommand: nil
+    )
+    let tabAPane2 = try manager.splitPane(
+      tabAPane1, direction: .right,
+      in: tabA, in: worktreeID, in: projectID, in: spaceID,
+      workingDirectory: "/tmp", initialCommand: nil
+    )
+    let tabB = try manager.createTab(in: worktreeID, in: projectID, in: spaceID, name: "B")
+    let tabBPane = try manager.openPane(
+      in: tabB, in: worktreeID, in: projectID, in: spaceID,
+      workingDirectory: "/tmp", initialCommand: nil
+    )
+    return (spaceID, projectID, worktreeID, tabA, tabB, tabAPane1, tabAPane2, tabBPane)
+  }
+
+  @Test
+  func selectTabRestoresLastFocusedPane() throws {
+    let (sp, pr, wt, tabA, tabB, _, tabAPane2, _) = try makeFixtureTwoTabsWithPanes()
+    // Remember tabA's second pane, then bounce through tabB and back.
+    try manager.focusPane(tabAPane2, in: tabA, in: wt, in: pr, in: sp)
+    fakeRuntime.reset()
+    try manager.selectTab(tabB, in: wt, in: pr, in: sp)
+    try manager.selectTab(tabA, in: wt, in: pr, in: sp)
+    // Selecting tabA restores tabAPane2 (focusSurfaceView called with it).
+    #expect(fakeRuntime.focusSurfaceViewCalls.contains(tabAPane2))
+  }
+
+  @Test
+  func selectTabFallsBackToLeftmostLeafWhenRememberedPaneClosed() throws {
+    let (sp, pr, wt, tabA, tabB, tabAPane1, tabAPane2, _) = try makeFixtureTwoTabsWithPanes()
+    try manager.focusPane(tabAPane2, in: tabA, in: wt, in: pr, in: sp)
+    // The remembered pane disappears out from under us.
+    try manager.closePane(tabAPane2, in: tabA, in: wt, in: pr, in: sp)
+    fakeRuntime.reset()
+    try manager.selectTab(tabB, in: wt, in: pr, in: sp)
+    try manager.selectTab(tabA, in: wt, in: pr, in: sp)
+    // Fallback: leftmost leaf of tabA's tree = tabAPane1.
+    #expect(fakeRuntime.focusSurfaceViewCalls.contains(tabAPane1))
+  }
+
+  @Test
+  func closePaneClearsLastFocusedAndRunningEntries() throws {
+    let (sp, pr, wt, tabA, _, _, tabAPane2, _) = try makeFixtureTwoTabsWithPanes()
+    try manager.focusPane(tabAPane2, in: tabA, in: wt, in: pr, in: sp)
+    manager.markPaneRunning(tabAPane2)
+    #expect(manager.lastFocusedPane(in: tabA) == tabAPane2)
+    #expect(manager.tabIsDirty(tabA))
+    try manager.closePane(tabAPane2, in: tabA, in: wt, in: pr, in: sp)
+    #expect(manager.lastFocusedPane(in: tabA) == nil)
+    #expect(!manager.tabIsDirty(tabA))
+  }
+
+  @Test
+  func closeTabClearsRuntimeMapsForAllPanes() throws {
+    let (sp, pr, wt, tabA, _, tabAPane1, tabAPane2, _) = try makeFixtureTwoTabsWithPanes()
+    try manager.focusPane(tabAPane1, in: tabA, in: wt, in: pr, in: sp)
+    manager.markPaneRunning(tabAPane2)
+    try manager.closeTab(tabA, in: wt, in: pr, in: sp)
+    #expect(manager.lastFocusedPane(in: tabA) == nil)
+    // Dirty read on a now-absent tab: the walk finds no tab → false.
+    #expect(!manager.tabIsDirty(tabA))
+  }
+
+  @Test
+  func selectAdjacentTabRestoresLastFocusedPaneOnTarget() throws {
+    let (sp, pr, wt, tabA, tabB, _, tabAPane2, _) = try makeFixtureTwoTabsWithPanes()
+    // Remember tabA's second pane, then bounce to tabB so adjacency
+    // jumps land back on tabA.
+    try manager.focusPane(tabAPane2, in: tabA, in: wt, in: pr, in: sp)
+    try manager.selectTab(tabB, in: wt, in: pr, in: sp)
+    fakeRuntime.reset()
+    let landed = try manager.selectAdjacentTab(
+      direction: .previous, in: wt, in: pr, in: sp
+    )
+    #expect(landed == tabA)
+    #expect(fakeRuntime.focusSurfaceViewCalls.contains(tabAPane2))
+  }
+
+  @Test
+  func tabIsDirtyReflectsAnyRunningPane() throws {
+    let (_, _, _, tabA, _, tabAPane1, tabAPane2, _) = try makeFixtureTwoTabsWithPanes()
+    #expect(!manager.tabIsDirty(tabA))
+    manager.markPaneRunning(tabAPane1)
+    #expect(manager.tabIsDirty(tabA))
+    manager.markPaneIdle(tabAPane1)
+    #expect(!manager.tabIsDirty(tabA))
+    manager.markPaneRunning(tabAPane2)
+    #expect(manager.tabIsDirty(tabA))
+  }
 }

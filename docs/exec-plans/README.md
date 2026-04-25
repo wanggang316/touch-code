@@ -41,3 +41,5 @@ Every exec plan MUST contain:
 
 - [0003 — Lifecycle Hooks and `tc` CLI (C3 + C4)](0003-hooks-and-cli.md) — TouchCodeCore hook types, HookDispatcher + HookEventMulticaster + ProcessHookExecutor surface, SocketServer + MethodRouter + in-app handlers (hook/hierarchy/terminal/system), `tc` CLI over tcKit static framework with pipelined handshake + AliasResolver + streaming `hook.events`, router-backed end-to-end integration tests (2026-04-20; M2.1 hot-path internals, M3.1 per-connection backpressure queue + SocketPeerAuth, M8.1 completion scripts + man page deferred; `editor.*` handler + EditorService owned by exec-plan 0005 per DEC-15)
 
+- [0014 — Worktree Status Bar](0014-worktree-status-bar.md) — Titlebar 中段多态状态槽（inProgress / success / warning / PR / motivational）；新 `StatusBarFeature` + RootFeature 路由 `.editor/.gitHub.*Completed` 转 toast；PR / motivational 视图派生；`ViewThatFits` 做窄窗口退化；M1-M7 七个独立 merge 的 milestone
+
