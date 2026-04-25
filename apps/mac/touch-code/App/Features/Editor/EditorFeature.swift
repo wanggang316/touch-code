@@ -139,11 +139,9 @@ struct EditorFeature {
         // than short-circuiting on Finder — otherwise a clean install with no stored
         // default would always land in Finder even if higher-priority editors are
         // installed.
-        let catalog = hierarchyClient.snapshot()
-        let projectOverride = catalog
-          .spaces.first(where: { $0.id == spaceID })?
-          .projects.first(where: { $0.id == projectID })?
-          .defaultEditor
+        // v3 reads per-Project editor override from settings.json.projects[pid] via
+        // SettingsWriter; catalog.json no longer carries Project.defaultEditor.
+        let projectOverride = settingsWriter.readSnapshotSync().projects[projectID]?.defaultEditor
         let preferred = Self.resolveInstalledPreference(
           projectOverride: projectOverride,
           globalDefault: state.globalDefault,

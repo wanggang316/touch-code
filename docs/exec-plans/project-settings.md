@@ -38,7 +38,7 @@ migrate transparently on first launch.
 - [x] Step 9 — Pane view file renames + 4 scaffold pane views (2026-04-25)
 - [x] Step 10 — CI grep gate for `Repository` rename residue (2026-04-25)
 - [x] Step 11 — Doc updates (`architecture.md`, `ui-settings-window.md` amendment, deprecated exec-plan header); manual QA deferred (no running app) (2026-04-25)
-- [ ] Step 12 — `/codex:review` on the branch + fix findings
+- [x] Step 12 — Self-review fixes (migration map shape, EditorFeature read-site) (2026-04-25); codex review deferred (rate limit)
 - [ ] Final — push + `gh pr create --base main`
 
 ## Surprises & Discoveries
@@ -55,6 +55,23 @@ RepositorySettings) -> Void)` closure type to change (value type is now `Project
 and the old `RepositorySettings` struct is deleted in Step 3). Keeping the old method name
 alive with a shim translating between two types would be noise. Consequence: Step 6's
 scope shrinks to HierarchyClient slim-down + "Open in" dropdown rewire only.
+
+### 2026-04-25 — Step 12 self-review uncovered two correctness issues
+
+Codex rate-limited; agent did the review itself. Two issues fixed before the
+code-reviewer agent re-run:
+
+1. **Migration dropped catalog-only pids.** `performV2Migration` iterated only
+   `legacy.repositories`, so a Project whose v1 catalog carried an editor or
+   worktree-dir override but had no GitHub override would lose its override on
+   first v3 launch. Fix: changed `catalogOverrides` from a pid-keyed closure to
+   a `[ProjectID: ...]` map so the migration can iterate both dimensions
+   (intersection loop + union catch-up loop). Added
+   `v2FoldsCatalogOnlyPidsIntoProjects` test case pinning the union behaviour.
+2. **`EditorFeature.openDefaultInCurrentWorktreeRequested` still read
+   `project.defaultEditor` from the catalog snapshot.** Post-Step-4 drain, that
+   field is always nil; the ⌘E shortcut would silently ignore the user's
+   Project editor override. Fix: rewire through `settingsWriter.readSnapshotSync()`.
 
 ### 2026-04-25 — Step 11 manual QA deferred
 

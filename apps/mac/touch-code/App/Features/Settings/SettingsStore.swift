@@ -36,7 +36,7 @@ final class SettingsStore {
     fileURL: URL = Settings.defaultURL(),
     debounceWindow: Duration = SettingsStore.debounceWindow,
     knownEditorIDs: Set<EditorID> = Set(EditorRegistry.registry.map(\.id)),
-    catalogOverrides: @Sendable (ProjectID) -> (defaultEditor: EditorID?, worktreesDirectory: String?)? = { _ in nil }
+    catalogOverrides: SettingsMigration.CatalogOverrides = [:]
   ) {
     self.fileURL = fileURL
     self.debounceWindow = debounceWindow

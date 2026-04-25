@@ -66,10 +66,9 @@ struct SettingsMigrationV2ToV3Tests {
     try Data(json.utf8).write(to: harness.fileURL)
 
     let pid = ProjectID(raw: projectUUID)
-    let overrides: @Sendable (ProjectID) -> (defaultEditor: EditorID?, worktreesDirectory: String?)? = { id in
-      guard id == pid else { return nil }
-      return (defaultEditor: "vscode", worktreesDirectory: "/Users/x/wt/a")
-    }
+    let overrides: SettingsMigration.CatalogOverrides = [
+      pid: (defaultEditor: "vscode", worktreesDirectory: "/Users/x/wt/a")
+    ]
 
     let outcome = try SettingsMigration.load(
       from: harness.fileURL,
@@ -85,6 +84,39 @@ struct SettingsMigrationV2ToV3Tests {
     #expect(entry.defaultEditor == "vscode")
     #expect(entry.worktreesDirectory == "/Users/x/wt/a")
     #expect(entry.git?.defaultMergeStrategy == .rebase)
+  }
+
+  @Test
+  func v2FoldsCatalogOnlyPidsIntoProjects() throws {
+    // Pids that have catalog overrides but NO entry in v2 `repositories` must still
+    // surface in v3 `projects` — otherwise a Project that only ever set an editor
+    // override (and never used GitHub) would lose the override on first launch.
+    let harness = MigrationHarness()
+    defer { harness.cleanup() }
+
+    // v2 settings.json has no `repositories` entry for the catalog-only pid.
+    let json = #"{"version": 2}"#
+    try Data(json.utf8).write(to: harness.fileURL)
+
+    let pid = ProjectID()
+    let overrides: SettingsMigration.CatalogOverrides = [
+      pid: (defaultEditor: "vscode", worktreesDirectory: nil)
+    ]
+
+    let outcome = try SettingsMigration.load(
+      from: harness.fileURL,
+      clock: harness.clock,
+      catalogOverrides: overrides
+    )
+    guard case .migratedFromV2(let settings, _) = outcome else {
+      Issue.record("Expected .migratedFromV2, got \(outcome)")
+      return
+    }
+
+    let entry = try #require(settings.projects[pid])
+    #expect(entry.defaultEditor == "vscode")
+    #expect(entry.worktreesDirectory == nil)
+    #expect(entry.git == nil, "no GitHub override → no git subtree")
   }
 
   @Test

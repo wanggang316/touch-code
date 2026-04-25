@@ -66,18 +66,24 @@ public nonisolated enum SettingsMigration {
   /// filtered — `log stream --predicate 'subsystem == "com.touch-code.persistence" && category == "migration"'`.
   public static let logger = Logger(subsystem: "com.touch-code.persistence", category: "migration")
 
+  /// Per-Project override map handed in by the caller during the v2→v3 migration. Keys
+  /// are the ProjectIDs the catalog still carries `defaultEditor` / `worktreesDirectory`
+  /// values for at first-launch time; values are the captured fields. Empty by default
+  /// (tests + post-migration launches that hit the v3 fast path).
+  public typealias CatalogOverrides = [ProjectID: (defaultEditor: EditorID?, worktreesDirectory: String?)]
+
   /// Load the settings file at `url` and return how it was handled. Side effects: if a
   /// backup is produced OR a migrated v3 file is installed, disk state is updated before
   /// the function returns. `clock` supplies the timestamp used in backup filenames —
   /// injected for test determinism. `catalogOverrides` is consulted during the v2→v3
   /// migration branch to fold `Project.defaultEditor` / `Project.worktreesDirectory`
-  /// stripped from the companion catalog.json into `projects[pid]`; the default closure
-  /// returns `nil` for every pid (tests and any call site outside `bringUp`).
+  /// stripped from the companion catalog.json into `projects[pid]`. Empty map by default
+  /// (tests + post-migration launches).
   public static func load(
     from url: URL,
     fileManager: FileManager = .default,
     clock: @Sendable () -> Date = { Date() },
-    catalogOverrides: @Sendable (ProjectID) -> (defaultEditor: EditorID?, worktreesDirectory: String?)? = { _ in nil }
+    catalogOverrides: CatalogOverrides = [:]
   ) throws -> LoadOutcome {
     guard fileManager.fileExists(atPath: url.path) else { return .fresh }
 
@@ -171,12 +177,14 @@ public nonisolated enum SettingsMigration {
   /// the upgraded shape to disk with the same atomic rename sequence used for v1→v2.
   /// Catalog-side per-Project overrides (the `defaultEditor` and `worktreesDirectory`
   /// fields that lived on `Project` in catalog.json v1) are folded in via the injected
-  /// closure. Unparseable `repositories` keys are dropped with a log line so a hand-edit
-  /// typo does not abort the whole migration.
+  /// map. Both the intersection (pids in v2 `repositories` ∩ catalog) AND pids only in
+  /// the catalog are written out — a user whose Project never had a GitHub override but
+  /// did have an editor override would otherwise lose the editor on first launch under
+  /// v3. Unparseable `repositories` keys are dropped with a log line.
   private static func performV2Migration(
     url: URL,
     data: Data,
-    catalogOverrides: @Sendable (ProjectID) -> (defaultEditor: EditorID?, worktreesDirectory: String?)?,
+    catalogOverrides: CatalogOverrides,
     now: Date,
     fileManager: FileManager
   ) -> LoadOutcome {
@@ -197,7 +205,9 @@ public nonisolated enum SettingsMigration {
       }
     }
 
-    // Map v2 repositories + catalog overrides → v3 projects.
+    // Pass 1: every v2 repositories[pid] → projects[pid] with the three GitHub fields
+    // folded into `git`. Catalog overrides for the same pid (if any) populate the
+    // top-level `defaultEditor` / `worktreesDirectory` fields.
     var projects: [ProjectID: ProjectSettings] = [:]
     for (stringKey, legacyRepo) in legacy.repositories {
       guard let uuid = UUID(uuidString: stringKey) else {
@@ -211,22 +221,21 @@ public nonisolated enum SettingsMigration {
         githubDisabled: legacyRepo.githubDisabled
       )
       var entry = ProjectSettings(git: git.isEffectivelyEmpty ? nil : git)
-      if let overrides = catalogOverrides(pid) {
+      if let overrides = catalogOverrides[pid] {
         entry.defaultEditor = overrides.defaultEditor
         entry.worktreesDirectory = overrides.worktreesDirectory
       }
       projects[pid] = entry
     }
-    // Catalog may carry overrides for pids that had no entry in v2 `repositories`; create
-    // those too so no user data is lost.
-    //
-    // We can't enumerate all pids the catalog knows about without inspecting the catalog
-    // directly — the closure is pid-keyed by design (so its implementation can short-circuit
-    // per-pid). Any catalog pid not present in `legacy.repositories` is picked up when the
-    // app later selects its Settings pane; `HierarchyManager.drainLegacyOverrides` (Step 4)
-    // hands this migration the full set, not only the ones settings.json already knows.
-    // The loop above handles the intersection; the caller's closure naturally covers the
-    // union by being asked about every pid in the catalog snapshot via the bringUp sequence.
+    // Pass 2: catalog overrides for pids that had no v2 settings entry. Without this
+    // pass an editor-only override on a Project that never used GitHub would be
+    // dropped silently.
+    for (pid, overrides) in catalogOverrides where projects[pid] == nil {
+      projects[pid] = ProjectSettings(
+        defaultEditor: overrides.defaultEditor,
+        worktreesDirectory: overrides.worktreesDirectory
+      )
+    }
 
     let migrated = Settings(
       version: Settings.currentVersion,

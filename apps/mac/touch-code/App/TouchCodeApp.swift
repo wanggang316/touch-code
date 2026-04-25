@@ -202,9 +202,7 @@ final class AppState {
     // migration can fold them into `projects[pid]` top-level fields.
     // After migration the closure is never called again (subsequent
     // launches hit the strict v3 branch).
-    self.settingsStore = SettingsStore(catalogOverrides: { pid in
-      legacyOverrides[pid]
-    })
+    self.settingsStore = SettingsStore(catalogOverrides: legacyOverrides)
     self.worktreeStatusMonitor = .live()
     // TerminalEngine is constructed in bringUp() once we know whether a
     // GhosttyRuntime is available — this avoids a throwaway engine.
