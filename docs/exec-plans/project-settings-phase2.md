@@ -49,7 +49,7 @@ expands additively (existing reserved-empty Phase 1 entries decode with
 
 ## Progress
 
-- [ ] M0 — libghostty per-surface env capability spike (Risk R1)
+- [x] M0 — libghostty per-surface env capability spike — **supported** via `ghostty_surface_config_s.env_vars` (2026-04-25)
 - [ ] M1 — Schema & types: ScriptKind, ScriptTintColor, ScriptDefinition
        expansion, GitProjectSettings +3 lifecycle script fields
 - [ ] M2 — Mid-layer API: HookConfigClient (+upsert/+delete),
@@ -78,7 +78,23 @@ expands additively (existing reserved-empty Phase 1 entries decode with
 
 ## Decision Log
 
-(None yet — populated during execution.)
+### 2026-04-25 — M0: libghostty per-surface env supported
+
+The vendored ghostty SDK exposes per-surface env via
+`ghostty_surface_config_s.env_vars: ghostty_env_var_s*` plus
+`env_var_count: size_t`
+(`apps/mac/.build/ghostty/GhosttyKit.xcframework/macos-arm64_x86_64/Headers/ghostty.h:444-481`).
+`ghostty_env_var_s` carries `const char* key` / `const char* value`. M8
+will populate this array directly when constructing the surface config;
+the typed-export fallback designed in the design doc is not needed for
+production. PaneSurface currently uses
+`ghostty_surface_config_new()` (line 71) and we extend the existing
+config with `env_vars` / `env_var_count` before handing it to ghostty.
+
+Risk R1's mitigation framing ("if libghostty cannot, types `export`
+statements …") is dropped from M8's scope. The Environment Section
+caption no longer needs the `HISTCONTROL=ignorespace` warning. The
+spike confirms the design's preferred path is live.
 
 ## Outcomes & Retrospective
 
