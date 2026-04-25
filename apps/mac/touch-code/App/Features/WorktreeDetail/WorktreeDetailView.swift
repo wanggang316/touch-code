@@ -250,7 +250,26 @@ struct WorktreeDetailView: View {
     // No `.sharedBackgroundVisibility(.hidden)` — let macOS 26's toolbar
     // provide the standard glass capsule so the status slot reads as a
     // peer of the trailing button cluster instead of a hand-rolled chip.
+    // Used as the pre-26 fallback when `ToolbarSpacer` is unavailable.
     ToolbarItem(placement: .principal) {
+      StatusBarView(
+        store: statusBarStore,
+        gitHubStore: gitHubStore,
+        headerStore: headerStore,
+        worktreeID: address.worktree
+      )
+    }
+  }
+
+  /// macOS 26+ variant. Uses default placement so the surrounding
+  /// `ToolbarSpacer(.flexible)` pair distributes free horizontal space
+  /// equally on both sides — making the status capsule visually
+  /// equidistant from the branch label and the trailing button cluster
+  /// (instead of pinned to the title-bar's geometric center).
+  @available(macOS 26.0, *)
+  @ToolbarContentBuilder
+  private func centeredStatusBarToolbarItem(address: Address) -> some ToolbarContent {
+    ToolbarItem {
       StatusBarView(
         store: statusBarStore,
         gitHubStore: gitHubStore,
