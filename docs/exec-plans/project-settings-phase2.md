@@ -50,8 +50,9 @@ expands additively (existing reserved-empty Phase 1 entries decode with
 ## Progress
 
 - [x] M0 — libghostty per-surface env capability spike — **supported** via `ghostty_surface_config_s.env_vars` (2026-04-25)
-- [ ] M1 — Schema & types: ScriptKind, ScriptTintColor, ScriptDefinition
-       expansion, GitProjectSettings +3 lifecycle script fields
+- [x] M1 — Schema & types: ScriptKind, ScriptTintColor, ScriptDefinition
+       expansion, GitProjectSettings +3 lifecycle script fields (2026-04-25,
+       21 tests, full TouchCodeCore suite green)
 - [ ] M2 — Mid-layer API: HookConfigClient (+upsert/+delete),
        SettingsWriter (+5 closures), HierarchyClient (+runScript),
        HierarchyManager.createTab widening
@@ -77,6 +78,29 @@ expands additively (existing reserved-empty Phase 1 entries decode with
 (None yet — populated during execution.)
 
 ## Decision Log
+
+### 2026-04-25 — M2: scope `createTab` widening down
+
+The design doc proposed widening `HierarchyManager.createTab` to accept
+`name / icon / tint / env / cwd / command`. On reading the runtime path
+the simpler shape is:
+
+- `createTab` keeps its current signature (only `name`).
+- `openPane` gains an `env: [String: String] = [:]` arg.
+- A new `HierarchyManager.runScript(_:in:)` composes `createTab` +
+  `openPane(env:initialCommand:)` for the script-spawn flow.
+
+Why: Tab does not store icon/tint today, the tab-bar does not render
+icons, and the script's env/cwd are pane-level (not tab-level) data.
+Widening `createTab` for arguments that do not flow into Tab is YAGNI
+under CLAUDE.md ("Don't add features not in the plan / future-proof
+APIs"). If a future revision teaches the tab-bar to render per-tab
+icons, `createTab` can grow then.
+
+Plan section update: M2 task 4 ("createTab widening") replaced with
+"add `runScript(_:in:)` to HierarchyManager"; task 1 ("openPane gains
+env arg") moves from M8 to M2 since both M5 (Scripts pane Run) and M9
+(lifecycle execution) consume it.
 
 ### 2026-04-25 — M0: libghostty per-surface env supported
 
