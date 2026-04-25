@@ -219,6 +219,26 @@ struct NotificationCoordinatorTests {
     #expect(off.badger.calls.last == 0)
   }
 
+  // MARK: - Master enabled (v2 D5)
+
+  /// Master toggle off must skip ALL surfaces — inbox, OS post, sound,
+  /// dock badge — distinct from `mute.enabled` (which still appends
+  /// to the inbox so users can review history).
+  @Test
+  func masterEnabledFalseDropsAll() async throws {
+    let harness = Self.make()
+    harness.settings.mutateNotifications { $0.enabled = false }
+
+    await harness.feed(Self.dedupRouterOutput(paneID: PaneID(), title: "t", body: "b"))
+
+    #expect(harness.inbox.inbox.notifications.isEmpty)
+    #expect(harness.mockNotifier.postedNotifications.isEmpty)
+
+    // Badge also clears even with prior unread; recompute to assert.
+    harness.coordinator.handleUnread(7)
+    #expect(harness.badger.calls.last == 0)
+  }
+
   // MARK: - Dedup window (v2 D3)
 
   @Test

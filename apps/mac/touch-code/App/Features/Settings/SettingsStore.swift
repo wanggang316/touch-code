@@ -247,6 +247,7 @@ final class SettingsStore {
 // MARK: - NotificationSettingsReader
 
 extension SettingsStore: NotificationSettingsReader {
+  var enabled: Bool { settings.notifications.enabled }
   var mute: MuteSettings { settings.notifications.mute }
   var authStatus: AuthorizationStatusCache { settings.notifications.authStatus }
   var neverPrompt: Bool { settings.notifications.neverPrompt }
@@ -255,6 +256,7 @@ extension SettingsStore: NotificationSettingsReader {
   var systemEnabled: Bool { settings.notifications.systemEnabled }
   var soundEnabled: Bool { settings.notifications.soundEnabled }
   var dockBadgeEnabled: Bool { settings.notifications.dockBadgeEnabled }
+  var moveNotifiedWorktreeToTop: Bool { settings.notifications.moveNotifiedWorktreeToTop }
 
   func notificationsSettingsChanges() -> AsyncStream<Void> {
     AsyncStream { continuation in

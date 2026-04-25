@@ -141,7 +141,10 @@ final class NotificationCoordinator {
   /// NotificationsSettingsView caption that says in-app also gates the badge.
   func handleUnread(_ count: Int) {
     lastUnreadCount = count
-    let shouldShow = settingsReader.dockBadgeEnabled && settingsReader.inAppEnabled
+    let shouldShow =
+      settingsReader.enabled
+      && settingsReader.dockBadgeEnabled
+      && settingsReader.inAppEnabled
     badger.setUnreadCount(shouldShow ? count : 0)
   }
 
@@ -174,6 +177,10 @@ final class NotificationCoordinator {
   /// (whose `unreadPublisher` consumer never terminates while the inbox
   /// is live).
   func handle(output: DetectionRouter.RouterOutput) async {
+    guard settingsReader.enabled else {
+      logger.debug("Master toggle off; dropping output.")
+      return
+    }
     guard settingsReader.mute.enabled else {
       logger.debug("Global notifications disabled; dropping output.")
       return

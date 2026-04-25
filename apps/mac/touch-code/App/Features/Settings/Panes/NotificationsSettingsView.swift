@@ -13,6 +13,7 @@ struct NotificationsSettingsView: View {
 
   var body: some View {
     Form {
+      masterSection
       inAppSection
       systemSection
       soundSection
@@ -31,6 +32,34 @@ struct NotificationsSettingsView: View {
     }
   }
 
+  // MARK: - Master toggle (v2 D5)
+
+  private var masterSection: some View {
+    let binding = Binding<Bool>(
+      get: { settingsStore.settings.notifications.enabled },
+      set: { newValue in
+        settingsStore.mutateNotifications { $0.enabled = newValue }
+      }
+    )
+    return Section {
+      Toggle("Notifications enabled", isOn: binding)
+    } header: {
+      Text("Master")
+    } footer: {
+      Text(
+        "When off, no notifications are produced — no inbox row, no banner, no Dock badge. "
+          + "Distinct from Mute rules, which still record notifications for later review."
+      )
+    }
+  }
+
+  /// Master master kill switch is the source of truth for whether the
+  /// rest of the controls have any effect. Disabling them visually when
+  /// off makes the relationship obvious without hiding rows.
+  private var masterEnabled: Bool {
+    settingsStore.settings.notifications.enabled
+  }
+
   // MARK: - In-app notifications
 
   private var inAppSection: some View {
@@ -42,6 +71,7 @@ struct NotificationsSettingsView: View {
     )
     return Section {
       Toggle("Show notifications inside touch-code", isOn: binding)
+        .disabled(!masterEnabled)
     } header: {
       Text("In-app notifications")
     } footer: {
@@ -65,6 +95,7 @@ struct NotificationsSettingsView: View {
     )
     return Section {
       Toggle("Show macOS banners", isOn: binding)
+        .disabled(!masterEnabled)
     } header: {
       Text("System notifications")
     } footer: {
@@ -84,7 +115,7 @@ struct NotificationsSettingsView: View {
     let systemOn = settingsStore.settings.notifications.systemEnabled
     return Section {
       Toggle("Play the default notification sound", isOn: binding)
-        .disabled(!systemOn)
+        .disabled(!masterEnabled || !systemOn)
         .help(systemOn ? "" : "Enable System notifications to play a sound.")
     } header: {
       Text("Sound")
@@ -105,7 +136,7 @@ struct NotificationsSettingsView: View {
     let inAppOn = settingsStore.settings.notifications.inAppEnabled
     return Section {
       Toggle("Show the unread count on the app icon", isOn: binding)
-        .disabled(!inAppOn)
+        .disabled(!masterEnabled || !inAppOn)
         .help(inAppOn ? "" : "No unread count available while in-app notifications are off.")
     } header: {
       Text("Dock badge")
