@@ -18,4 +18,10 @@ protocol NotificationSettingsReader: AnyObject {
   var systemEnabled: Bool { get }
   var soundEnabled: Bool { get }
   var dockBadgeEnabled: Bool { get }
+
+  /// Fires once per `mutateNotifications` call. The coordinator's bind
+  /// loop subscribes so toggling `inAppEnabled` / `dockBadgeEnabled`
+  /// re-evaluates the Dock badge in the same UI tick. Without this, the
+  /// badge would lag by one inbox-mutation cycle (D8).
+  func notificationsSettingsChanges() -> AsyncStream<Void>
 }

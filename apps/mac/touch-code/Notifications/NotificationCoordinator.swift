@@ -43,6 +43,12 @@ final class NotificationCoordinator {
   /// restart-time sweep and live creation fire for the same PaneID.
   private var alreadyPrompted: Set<PaneID> = []
 
+  /// Most recent unread count observed from the inbox publisher. Cached
+  /// so `recomputeDockBadge()` can re-apply the gate when the user
+  /// toggles `inAppEnabled` / `dockBadgeEnabled` without waiting for
+  /// the next inbox mutation (D8 — synchronous badge re-evaluation).
+  private var lastUnreadCount: Int = 0
+
   init(
     inbox: InboxStore,
     badger: any DockBadger,
@@ -76,13 +82,18 @@ final class NotificationCoordinator {
 
   // MARK: - Binding
 
-  /// Subscribe to the router's output stream + the inbox unread publisher.
-  /// Spawns two concurrent loops under `async let`; returns once either
-  /// stream finishes (normally never, for the app's lifetime).
+  /// Subscribe to the router's output stream + the inbox unread publisher
+  /// + the settings-change stream. Spawns three concurrent loops under
+  /// `async let`; returns once any stream finishes (normally never, for
+  /// the app's lifetime). The settings stream is captured into a local
+  /// before the `async let` so `settingsReader` (a class-bound
+  /// non-Sendable protocol) does not cross the child-task boundary.
   func bind(to outputs: AsyncStream<DetectionRouter.RouterOutput>) async {
+    let settingsStream = settingsReader.notificationsSettingsChanges()
     async let outputLoop: Void = consumeRouterOutputs(outputs)
     async let unreadLoop: Void = consumeUnreadPublisher()
-    _ = await (outputLoop, unreadLoop)
+    async let settingsLoop: Void = consumeSettingsChanges(settingsStream)
+    _ = await (outputLoop, unreadLoop, settingsLoop)
   }
 
   private func consumeRouterOutputs(_ stream: AsyncStream<DetectionRouter.RouterOutput>) async {
@@ -93,7 +104,14 @@ final class NotificationCoordinator {
 
   private func consumeUnreadPublisher() async {
     for await count in inbox.unreadPublisher {
+      lastUnreadCount = count
       handleUnread(count)
+    }
+  }
+
+  private func consumeSettingsChanges(_ stream: AsyncStream<Void>) async {
+    for await _ in stream {
+      recomputeDockBadge()
     }
   }
 
@@ -107,8 +125,19 @@ final class NotificationCoordinator {
   /// badge to zero on the next tick — keeping the UI consistent with the
   /// NotificationsSettingsView caption that says in-app also gates the badge.
   func handleUnread(_ count: Int) {
+    lastUnreadCount = count
     let shouldShow = settingsReader.dockBadgeEnabled && settingsReader.inAppEnabled
     badger.setUnreadCount(shouldShow ? count : 0)
+  }
+
+  /// Re-apply the Dock-badge gate against the most recent unread count.
+  /// Called from the settings-change stream so toggling
+  /// `inAppEnabled` / `dockBadgeEnabled` clears (or restores) the badge
+  /// in the same UI tick instead of lagging until the next inbox
+  /// mutation. Also exposed so tests can drive the recompute without
+  /// starting `bind()`.
+  func recomputeDockBadge() {
+    handleUnread(lastUnreadCount)
   }
 
   // MARK: - Per-transition fan-out

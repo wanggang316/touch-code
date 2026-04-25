@@ -219,6 +219,26 @@ struct NotificationCoordinatorTests {
     #expect(off.badger.calls.last == 0)
   }
 
+  /// Toggling `inAppEnabled` mid-session must clear the Dock badge in
+  /// the same UI tick — D8 in v2. `recomputeDockBadge()` simulates the
+  /// settings-change-stream tick that `bind()` consumes in production;
+  /// with the never-terminating bind loop disabled in tests, we drive
+  /// the recompute directly.
+  @Test
+  func inAppDisabledClearsBadgeImmediately() {
+    let harness = Self.make(inAppEnabled: true, dockBadgeEnabled: true)
+    harness.coordinator.handleUnread(5)
+    #expect(harness.badger.calls.last == 5)
+
+    harness.settings.mutateNotifications { $0.inAppEnabled = false }
+    harness.coordinator.recomputeDockBadge()
+    #expect(harness.badger.calls.last == 0)
+
+    harness.settings.mutateNotifications { $0.inAppEnabled = true }
+    harness.coordinator.recomputeDockBadge()
+    #expect(harness.badger.calls.last == 5)
+  }
+
   // MARK: - Permission prompt
 
   @Test

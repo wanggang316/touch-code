@@ -141,7 +141,17 @@ final class SettingsStore {
   func mutateNotifications(_ transform: (inout NotificationsSettings) -> Void) {
     transform(&settings.notifications)
     scheduleSave()
+    for cont in notificationsListeners {
+      cont.yield()
+    }
   }
+
+  // Listeners on the notifications sub-tree. We never explicitly remove
+  // continuations: subscribers in production are app-lifetime (the
+  // C6 coordinator), and `yield()` on a finished stream is a documented
+  // no-op, so a leaked entry stays harmless at process scope.
+  @ObservationIgnored
+  private var notificationsListeners: [AsyncStream<Void>.Continuation] = []
 
   func mutateDeveloper(_ transform: (inout DeveloperSettings) -> Void) {
     transform(&settings.developer)
@@ -245,4 +255,10 @@ extension SettingsStore: NotificationSettingsReader {
   var systemEnabled: Bool { settings.notifications.systemEnabled }
   var soundEnabled: Bool { settings.notifications.soundEnabled }
   var dockBadgeEnabled: Bool { settings.notifications.dockBadgeEnabled }
+
+  func notificationsSettingsChanges() -> AsyncStream<Void> {
+    AsyncStream { continuation in
+      notificationsListeners.append(continuation)
+    }
+  }
 }
