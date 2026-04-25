@@ -116,6 +116,25 @@ final class InboxStore {
     publishMutation()
   }
 
+  /// Mark every notification belonging to the given Pane as read.
+  /// Sibling of `markRead(forWorktree:in:)`; used by `tc focus` and any
+  /// other path that wants "focus → acknowledge unread for this pane
+  /// only" semantics (v2 D13 / B10).
+  func markRead(forPane paneID: PaneID, now: Date = Date()) {
+    var mutated = false
+    for index in inbox.notifications.indices
+    where inbox.notifications[index].paneID == paneID
+      && inbox.notifications[index].readAt == nil
+    {
+      inbox.notifications[index].readAt = now
+      mutated = true
+    }
+    if mutated {
+      scheduleSave()
+      publishMutation()
+    }
+  }
+
   /// Mark each matching entry as read (sets `readAt = now` if not already read).
   func markRead(_ ids: [UUID], now: Date = Date()) {
     let idSet = Set(ids)

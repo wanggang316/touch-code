@@ -44,4 +44,46 @@ struct InboxClientLiveTests {
     #expect(inbox.unreadCount == 0)
     #expect(inbox.inbox.notifications.first?.readAt != nil)
   }
+
+  /// `markReadForPane` closure must forward into
+  /// `InboxStore.markRead(forPane:)` so `tc focus` and other "focus →
+  /// acknowledge" paths flow through the same source of truth.
+  @Test
+  func markReadForPaneForwardsToStore() throws {
+    let url = FileManager.default.temporaryDirectory
+      .appending(component: UUID().uuidString + ".json")
+    defer { try? FileManager.default.removeItem(at: url) }
+    let inbox = InboxStore(fileURL: url, clock: ContinuousClock(), debounce: .milliseconds(1))
+    let settings = SettingsStore(
+      fileURL: FileManager.default.temporaryDirectory
+        .appending(component: UUID().uuidString + ".json"),
+      debounceWindow: .milliseconds(1)
+    )
+    let client = InboxClient.live(inbox: inbox, settings: settings)
+
+    let paneA = PaneID()
+    let paneB = PaneID()
+    inbox.append(
+      AgentNotification(
+        paneID: paneA, agent: "claude", kind: .completed,
+        title: "A1", body: "", createdAt: Date()
+      )
+    )
+    inbox.append(
+      AgentNotification(
+        paneID: paneA, agent: "claude", kind: .completed,
+        title: "A2", body: "", createdAt: Date()
+      )
+    )
+    inbox.append(
+      AgentNotification(
+        paneID: paneB, agent: "claude", kind: .completed,
+        title: "B1", body: "", createdAt: Date()
+      )
+    )
+    #expect(inbox.unreadCount == 3)
+
+    client.markReadForPane(paneA)
+    #expect(inbox.unreadCount == 1)  // only paneB remains unread
+  }
 }
