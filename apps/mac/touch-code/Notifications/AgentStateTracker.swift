@@ -23,7 +23,7 @@ final class AgentStateTracker {
   private(set) var state: AgentState = .running
   private(set) var lastActivityAt: Date
 
-  private let idleThreshold: TimeInterval
+  private(set) var idleThreshold: TimeInterval
   private let clock: any Clock<Duration>
   private let (continuation, stream):
     (AsyncStream<AgentStateTransition>.Continuation, AsyncStream<AgentStateTransition>)
@@ -138,6 +138,18 @@ final class AgentStateTracker {
   /// Manual override from CLI/UI. Changes state but never emits a transition.
   func override(to newState: AgentState) {
     state = newState
+  }
+
+  /// Adopt a new idle threshold without resetting the FSM. Driven by
+  /// `RuleStore.reloadAndRematerialise()` so a user who edits
+  /// `detection-rules.json` and runs reload sees the change reflected
+  /// in still-running Panes; the timer re-arms against the new value.
+  /// Does NOT change `state` — current agent state is a property of the
+  /// agent, not of the rules.
+  func updateIdleThreshold(_ seconds: TimeInterval) {
+    guard seconds != idleThreshold else { return }
+    idleThreshold = seconds
+    armIdleTimer()
   }
 
   /// Tear down the tracker: cancel the idle timer and finish the stream.

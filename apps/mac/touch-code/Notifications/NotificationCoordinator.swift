@@ -292,6 +292,11 @@ final class NotificationCoordinator {
     let newRules = try ruleStore.reloadAndRematerialise()
     let newRenderer = try TemplateRenderer(rules: newRules)
     router.setRules(newRules, renderer: newRenderer)
+    // Propagate the (possibly changed) idle threshold to every live
+    // tracker so already-running Panes pick up the new value without
+    // restart. State machine itself is untouched — `state` is a
+    // property of the agent, not of the rules (D7).
+    registry.updateIdleThreshold(newRules.idleThresholdSeconds)
     logger.info("Reloaded \(newRules.rules.count) detection rule(s).")
   }
 

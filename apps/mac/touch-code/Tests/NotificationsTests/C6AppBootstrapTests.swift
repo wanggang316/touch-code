@@ -128,6 +128,47 @@ struct C6AppBootstrapTests {
     #expect(sentinelSubs.first?.command == "\(RuleStore.sentinelPrefix)custom.done")
   }
 
+  /// On reload, every live tracker must adopt the new idleThreshold so
+  /// long-running Panes pick up rule edits without a restart. State is
+  /// untouched (D7 — `state` belongs to the agent, not to the rules).
+  @Test
+  func reloadAdoptsNewIdleThresholdAcrossLiveTrackers() async throws {
+    let harness = try await Self.startHarness(
+      authStatus: .authorized,
+      agentPaneCount: 1
+    )
+    defer { harness.bootstrap.shutdown() }
+
+    #expect(harness.bootstrap.registry.allTrackers.count == 1)
+    let tracker = harness.bootstrap.registry.allTrackers[0]
+    let oldThreshold = harness.bootstrap.registry.idleThreshold
+    let newThreshold = oldThreshold + 17  // any distinct value
+
+    let rulesURL = harness.tempDirectory.appendingPathComponent("detection-rules.json")
+    let newRules = AgentDetectionRules(
+      idleThresholdSeconds: newThreshold,
+      rules: [
+        AgentDetectionRules.Rule(
+          id: "custom.done",
+          agent: "custom",
+          appliesWhen: .init(paneLabelledAgent: "custom", hookEvent: .paneOutputMatch),
+          match: .containsAny(["done"]),
+          transitionTo: .completed,
+          title: "Custom finished",
+          body: "ok"
+        )
+      ]
+    )
+    try AtomicFileStore.write(newRules, to: rulesURL)
+
+    let priorState = tracker.state
+    try harness.bootstrap.coordinator.reloadRules()
+
+    #expect(harness.bootstrap.registry.idleThreshold == newThreshold)
+    #expect(tracker.idleThreshold == newThreshold)
+    #expect(tracker.state == priorState)  // state preserved across reload
+  }
+
   @Test
   func shutdownUnregistersDispatcher() async throws {
     let harness = try await Self.startHarness(authStatus: .authorized)

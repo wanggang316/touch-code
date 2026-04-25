@@ -19,7 +19,7 @@ final class TrackerRegistry {
   /// `HookDispatcher.attach(to:catalog:)` without re-plumbing the
   /// manager through C6AppBootstrap.
   let hierarchy: HierarchyManager
-  private let idleThreshold: TimeInterval
+  private(set) var idleThreshold: TimeInterval
   private let clock: any Clock<Duration>
   private var trackers: [PaneID: AgentStateTracker] = [:]
   private let (creationStream, creationContinuation): (AsyncStream<PaneID>, AsyncStream<PaneID>.Continuation)
@@ -93,6 +93,17 @@ final class TrackerRegistry {
   func destroy(for paneID: PaneID) {
     guard let tracker = trackers.removeValue(forKey: paneID) else { return }
     tracker.teardown()
+  }
+
+  /// Adopt a new idle threshold from a rule reload. Stores the value so
+  /// future `create(for:)` calls receive the new threshold, and
+  /// propagates to every live tracker so already-running Panes pick up
+  /// the change without a restart.
+  func updateIdleThreshold(_ seconds: TimeInterval) {
+    idleThreshold = seconds
+    for tracker in trackers.values {
+      tracker.updateIdleThreshold(seconds)
+    }
   }
 
   // MARK: - Catalog walk
