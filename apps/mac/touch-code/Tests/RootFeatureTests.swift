@@ -600,4 +600,156 @@ struct RootFeatureTests {
       #expect(RootFeature.LastEventMarker(event) == expected)
     }
   }
+
+  // MARK: - Tab-bar shortcut resolvers (M2-T2.10)
+
+  /// Builds a catalog with a single worktree carrying `tabCount` tabs;
+  /// the `selectedIndex`-th tab is the active one. Each tab has a single
+  /// pane so `trailingSplitRequested` paths (and closes in general) find
+  /// the runtime surface teardown they expect.
+  private static func tabBarFixture(
+    tabCount: Int, selectedIndex: Int
+  ) -> (SpaceID, ProjectID, WorktreeID, [TabID], Catalog) {
+    let spaceID = SpaceID()
+    let projectID = ProjectID()
+    let worktreeID = WorktreeID()
+    var tabs: [Tab] = []
+    var ids: [TabID] = []
+    for i in 0..<tabCount {
+      let tabID = TabID()
+      let paneID = PaneID()
+      let pane = Pane(id: paneID, workingDirectory: "/tmp", initialCommand: nil)
+      tabs.append(
+        Tab(id: tabID, name: "t\(i)", splitTree: SplitTree(leaf: paneID), panes: [pane])
+      )
+      ids.append(tabID)
+    }
+    let worktree = Worktree(
+      id: worktreeID, name: "main", path: "/tmp", branch: "main",
+      tabs: tabs, selectedTabID: ids[selectedIndex]
+    )
+    let project = Project(
+      id: projectID, name: "p", rootPath: "/tmp",
+      worktrees: [worktree], selectedWorktreeID: worktreeID
+    )
+    let space = Space(
+      id: spaceID, name: "s", projects: [project], selectedProjectID: projectID
+    )
+    let catalog = Catalog(windows: [], spaces: [space], selectedSpaceID: spaceID)
+    return (spaceID, projectID, worktreeID, ids, catalog)
+  }
+
+  @Test
+  func newTabForCurrentWorktreeForwardsToTabBar() async {
+    let (sp, pr, wt, _, catalog) = Self.tabBarFixture(tabCount: 2, selectedIndex: 0)
+    var initial = RootFeature.State()
+    initial.selection = HierarchySelection(spaceID: sp, projectID: pr, worktreeID: wt)
+
+    let store = TestStore(initialState: initial) {
+      RootFeature()
+    } withDependencies: {
+      $0.hierarchyClient.snapshot = { catalog }
+      $0.hierarchyClient.createTab = { _, _, _, _ in TabID() }
+      // The new-tab reducer auto-spawns a pane in the worktree cwd;
+      // stub the call so the unimplemented closure does not record.
+      $0.hierarchyClient.openPane = { _, _, _, _, _, _ in PaneID() }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.newTabForCurrentWorktree)
+    await store.receive(\.detail.tabBar)
+  }
+
+  @Test
+  func newTabForCurrentWorktreeIsNoOpWithoutSelection() async {
+    let store = TestStore(initialState: RootFeature.State()) {
+      RootFeature()
+    }
+    // No snapshot stub needed — guard short-circuits before any client call.
+    await store.send(.newTabForCurrentWorktree)
+    await store.finish()
+  }
+
+  @Test
+  func closeActiveTabForCurrentWorktreeForwardsActiveTab() async {
+    let (sp, pr, wt, ids, catalog) = Self.tabBarFixture(tabCount: 3, selectedIndex: 1)
+    var initial = RootFeature.State()
+    initial.selection = HierarchySelection(spaceID: sp, projectID: pr, worktreeID: wt)
+
+    let captured = LockIsolated<TabID?>(nil)
+    let store = TestStore(initialState: initial) {
+      RootFeature()
+    } withDependencies: {
+      $0.hierarchyClient.snapshot = { catalog }
+      $0.hierarchyClient.closeTab = { id, _, _, _ in
+        captured.withValue { $0 = id }
+      }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.closeActiveTabForCurrentWorktree)
+    await store.receive(\.detail.tabBar)
+    #expect(captured.value == ids[1])
+  }
+
+  @Test
+  func selectTabAtIndexPicksNthTab() async {
+    let (sp, pr, wt, ids, catalog) = Self.tabBarFixture(tabCount: 3, selectedIndex: 0)
+    var initial = RootFeature.State()
+    initial.selection = HierarchySelection(spaceID: sp, projectID: pr, worktreeID: wt)
+
+    let captured = LockIsolated<TabID?>(nil)
+    let store = TestStore(initialState: initial) {
+      RootFeature()
+    } withDependencies: {
+      $0.hierarchyClient.snapshot = { catalog }
+      $0.hierarchyClient.selectTab = { id, _, _, _ in
+        captured.withValue { $0 = id }
+      }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.selectTabAtIndexForCurrentWorktree(3))
+    await store.receive(\.detail.tabBar)
+    #expect(captured.value == ids[2])
+  }
+
+  @Test
+  func selectTabAtIndexOutOfRangeIsNoOp() async {
+    let (sp, pr, wt, _, catalog) = Self.tabBarFixture(tabCount: 2, selectedIndex: 0)
+    var initial = RootFeature.State()
+    initial.selection = HierarchySelection(spaceID: sp, projectID: pr, worktreeID: wt)
+    let store = TestStore(initialState: initial) {
+      RootFeature()
+    } withDependencies: {
+      $0.hierarchyClient.snapshot = { catalog }
+    }
+
+    // Tab count is 2; asking for the 5th is out of range.
+    await store.send(.selectTabAtIndexForCurrentWorktree(5))
+    await store.finish()
+  }
+
+  @Test
+  func selectAdjacentTabCallsClient() async {
+    let sp = SpaceID()
+    let pr = ProjectID()
+    let wt = WorktreeID()
+    var initial = RootFeature.State()
+    initial.selection = HierarchySelection(spaceID: sp, projectID: pr, worktreeID: wt)
+
+    let captured = LockIsolated<TabAdjacency?>(nil)
+    let store = TestStore(initialState: initial) {
+      RootFeature()
+    } withDependencies: {
+      $0.hierarchyClient.selectAdjacentTab = { dir, _, _, _ in
+        captured.withValue { $0 = dir }
+        return nil
+      }
+    }
+
+    await store.send(.selectAdjacentTabForCurrentWorktree(.next))
+    await store.finish()
+    #expect(captured.value == .next)
+  }
 }

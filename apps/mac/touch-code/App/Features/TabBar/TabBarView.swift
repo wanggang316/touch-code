@@ -3,8 +3,13 @@ import SwiftUI
 import TouchCodeCore
 
 /// Horizontal tab bar for the active Worktree. Reads `Worktree.tabs` from
-/// the environment `HierarchyManager`; dispatches create/select/close
-/// actions through `TabBarFeature`.
+/// the environment `HierarchyManager`; dispatches create / select / close
+/// / rename / reorder / bulk-close actions through `TabBarFeature`.
+///
+/// Post M2-T2.7 the chip row lives inside `TabBarOverflowScroll`, which
+/// owns horizontal scrolling, edge-gradient shadows, and auto-scroll-to-
+/// selected; the trailing accessory cluster is pinned outside the scroll
+/// region so `+` is always visible regardless of chip count.
 struct TabBarView: View {
   let store: StoreOf<TabBarFeature>
   /// Resolved address of the active worktree whose tabs we render. If any
@@ -16,63 +21,120 @@ struct TabBarView: View {
   @Environment(HierarchyManager.self) private var hierarchyManager
 
   var body: some View {
-    HStack(spacing: 4) {
+    HStack(spacing: 4, content: barContent)
+      .frame(height: TabBarMetrics.barHeight, alignment: .bottom)
+  }
+
+  @ViewBuilder
+  private func barContent() -> some View {
+    Group {
       if let worktree = currentWorktree() {
-        ForEach(worktree.tabs) { tab in
-          tabButton(tab)
+        TabBarOverflowScroll(activeTabID: activeTabID) {
+          rowView(for: worktree)
         }
       }
-      Button {
+      TabBarTrailingAccessories(
+        activeTabSplitTree: activeSplitTree(),
+        onNewTab: {
+          store.send(
+            .newTabButtonTapped(
+              inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+            ))
+        },
+        onSplitRight: {
+          store.send(
+            .trailingSplitRequested(
+              direction: .right,
+              inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+            ))
+        },
+        onSplitDown: {
+          store.send(
+            .trailingSplitRequested(
+              direction: .down,
+              inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+            ))
+        }
+      )
+    }
+  }
+
+  /// Splits the active tab's tree for the trailing hover-preview popover.
+  /// Returns `nil` when there is no active tab or the tab has no panes.
+  private func activeSplitTree() -> SplitTree<PaneID>? {
+    guard
+      let worktree = currentWorktree(),
+      let activeTabID,
+      let tab = worktree.tabs.first(where: { $0.id == activeTabID })
+    else { return nil }
+    return tab.splitTree.isEmpty ? nil : tab.splitTree
+  }
+
+  @ViewBuilder
+  private func rowView(for worktree: Worktree) -> some View {
+    TabBarRowView(
+      tabs: worktree.tabs,
+      activeTabID: activeTabID,
+      // Read through the @Observable HierarchyManager so any hook flip
+      // of runningPanes triggers a chip re-render. Works against the
+      // default-false stub on `.liveValue` / unconfigured clients.
+      isDirty: { tabID in hierarchyManager.tabIsDirty(tabID) },
+      onSelect: { tabID in
         store.send(
-          .newTabButtonTapped(
+          .tabButtonTapped(
+            tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+          ))
+      },
+      onClose: { tabID in
+        store.send(
+          .closeButtonTapped(
+            tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+          ))
+      },
+      onMiddleClick: { tabID in
+        store.send(
+          .middleClicked(
+            tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+          ))
+      },
+      onCloseOthers: { tabID in
+        store.send(
+          .contextMenuCloseOthers(
+            tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+          ))
+      },
+      onCloseToRight: { tabID in
+        store.send(
+          .contextMenuCloseToRight(
+            tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+          ))
+      },
+      onCloseAll: {
+        store.send(
+          .contextMenuCloseAll(
             inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
           ))
-      } label: {
-        Image(systemName: "plus")
-          .accessibilityLabel("New Tab")
+      },
+      onRenameCommit: { tabID, newName in
+        store.send(
+          .renameSubmitted(
+            tabID, name: newName,
+            inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+          ))
+      },
+      onReorder: { orderedIDs in
+        store.send(
+          .dragReorderEnded(
+            orderedIDs: orderedIDs,
+            inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+          ))
       }
-      .buttonStyle(.borderless)
-      .padding(.horizontal, 6)
-    }
+    )
   }
 
   private func currentWorktree() -> Worktree? {
     hierarchyManager.catalog.spaces.first(where: { $0.id == spaceID })?
       .projects.first(where: { $0.id == projectID })?
       .worktrees.first(where: { $0.id == worktreeID })
-  }
-
-  private func tabButton(_ tab: TouchCodeCore.Tab) -> some View {
-    HStack(spacing: 4) {
-      Button {
-        store.send(
-          .tabButtonTapped(
-            tab.id, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
-          ))
-      } label: {
-        Text(tab.name ?? "Tab")
-          .lineLimit(1)
-          .padding(.horizontal, 8)
-      }
-      .buttonStyle(.plain)
-      Button {
-        store.send(
-          .closeButtonTapped(
-            tab.id, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
-          ))
-      } label: {
-        Image(systemName: "xmark")
-          .font(.caption2)
-          .accessibilityLabel("Close Tab")
-      }
-      .buttonStyle(.borderless)
-      .opacity(0.6)
-    }
-    .padding(.vertical, 3)
-    .padding(.horizontal, 4)
-    .background(
-      RoundedRectangle(cornerRadius: 4)
-        .fill(activeTabID == tab.id ? Color.accentColor.opacity(0.2) : Color.clear)
-    )
   }
 }

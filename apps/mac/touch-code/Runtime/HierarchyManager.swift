@@ -14,6 +14,21 @@ final class HierarchyManager {
   private let store: CatalogStore
   private let runtime: HierarchyRuntime
 
+  /// Runtime-only map of the pane the user most recently focused inside a
+  /// given tab. Read by `selectTab` to restore focus on tab switches;
+  /// cleared when the pane or the tab is closed. Never persisted — wall-
+  /// clock-live state that must be rebuilt each launch.
+  private var lastFocusedPaneByTab: [TabID: PaneID] = [:]
+
+  /// Runtime-only set of panes that are currently executing a tracked
+  /// command. Driven by C3 hooks in a future milestone; today the only
+  /// writers are the `markPaneRunning` / `markPaneIdle` methods, which no
+  /// caller invokes in production. Reads via `tabIsDirty(_:)` still work
+  /// — they return `false` uniformly until a writer wakes up. Stored as a
+  /// `Set` rather than `[PaneID: Bool]` so absence is the natural "idle"
+  /// signal and `contains` is the only read shape.
+  private var runningPanes: Set<PaneID> = []
+
   init(catalog: Catalog, store: CatalogStore, runtime: HierarchyRuntime) {
     self.catalog = catalog
     self.store = store
@@ -463,6 +478,10 @@ final class HierarchyManager {
         else { continue }
         for pane in worktree.tabs.flatMap({ $0.panes }) {
           runtime.closeSurface(for: pane.id)
+          runningPanes.remove(pane.id)
+        }
+        for tab in worktree.tabs {
+          lastFocusedPaneByTab.removeValue(forKey: tab.id)
         }
         return
       }
@@ -566,7 +585,9 @@ final class HierarchyManager {
     let tab = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex]
     for pane in tab.panes {
       runtime.closeSurface(for: pane.id)
+      runningPanes.remove(pane.id)
     }
+    lastFocusedPaneByTab.removeValue(forKey: id)
 
     catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.remove(at: tabIndex)
     if catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].selectedTabID == id {
@@ -593,6 +614,279 @@ final class HierarchyManager {
     }
     catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].selectedTabID = id
     store.scheduleSave(catalog)
+
+    // Focus the last-used pane in the target tab; fall back to the
+    // leftmost leaf of the split tree when no memory exists or the
+    // remembered pane has since been closed. Silent no-op when there is
+    // no active tab or the tab has no panes.
+    guard
+      let tabID = id,
+      let tab = catalog.spaces[spaceIndex].projects[projectIndex]
+        .worktrees[worktreeIndex].tabs.first(where: { $0.id == tabID })
+    else { return }
+    let flatPaneIDs = Set(tab.panes.map(\.id))
+    let remembered = lastFocusedPaneByTab[tabID].flatMap { flatPaneIDs.contains($0) ? $0 : nil }
+    if let focusID = remembered ?? tab.splitTree.leaves().first {
+      runtime.focusSurfaceView(for: focusID)
+    }
+  }
+
+  // MARK: - Tab mutations (tab-bar uplift)
+
+  /// Renames a Tab in place. `nil` clears the custom name so the UI falls
+  /// back to the default "Tab" label. Unchanged value is a silent no-op
+  /// (no save scheduled) so repeated calls are free.
+  func renameTab(
+    _ id: TabID,
+    in worktreeID: WorktreeID,
+    in projectID: ProjectID,
+    in spaceID: SpaceID,
+    name: String?
+  ) throws {
+    guard
+      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+        worktreeID: worktreeID,
+        projectID: projectID,
+        spaceID: spaceID
+      )
+    else {
+      throw HierarchyError.notFound("Worktree \(worktreeID)")
+    }
+    guard
+      let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex]
+        .worktrees[worktreeIndex].tabs.firstIndex(where: { $0.id == id })
+    else {
+      throw HierarchyError.notFound("Tab \(id)")
+    }
+    guard
+      catalog.spaces[spaceIndex].projects[projectIndex]
+        .worktrees[worktreeIndex].tabs[tabIndex].name != name
+    else { return }
+    catalog.spaces[spaceIndex].projects[projectIndex]
+      .worktrees[worktreeIndex].tabs[tabIndex].name = name
+    store.scheduleSave(catalog)
+  }
+
+  /// Replaces the Worktree's tab ordering in a single atomic write. The
+  /// incoming id set must match the current set exactly — mismatched input
+  /// throws `.invariantViolation` so upstream drag bugs surface immediately
+  /// instead of silently discarding tabs. Same-order input is a silent
+  /// no-op.
+  func reorderTabs(
+    in worktreeID: WorktreeID,
+    in projectID: ProjectID,
+    in spaceID: SpaceID,
+    orderedIDs: [TabID]
+  ) throws {
+    guard
+      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+        worktreeID: worktreeID,
+        projectID: projectID,
+        spaceID: spaceID
+      )
+    else {
+      throw HierarchyError.notFound("Worktree \(worktreeID)")
+    }
+    let existing = catalog.spaces[spaceIndex].projects[projectIndex]
+      .worktrees[worktreeIndex].tabs
+    let currentIDs = existing.map(\.id)
+    guard Set(currentIDs) == Set(orderedIDs) else {
+      throw HierarchyError.invariantViolation("tab reorder set mismatch")
+    }
+    guard currentIDs != orderedIDs else { return }
+    let byID = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
+    let reordered = orderedIDs.compactMap { byID[$0] }
+    catalog.spaces[spaceIndex].projects[projectIndex]
+      .worktrees[worktreeIndex].tabs = reordered
+    store.scheduleSave(catalog)
+  }
+
+  /// Closes every Tab in the Worktree except `id`. Reuses `closeTab` per
+  /// sibling so runtime surfaces are torn down the same way they are for
+  /// the single-close path. The pivot is re-selected at the end in case the
+  /// per-close auto-advance moved selection elsewhere during teardown.
+  func closeOtherTabs(
+    keeping id: TabID,
+    in worktreeID: WorktreeID,
+    in projectID: ProjectID,
+    in spaceID: SpaceID
+  ) throws {
+    guard
+      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+        worktreeID: worktreeID,
+        projectID: projectID,
+        spaceID: spaceID
+      )
+    else {
+      throw HierarchyError.notFound("Worktree \(worktreeID)")
+    }
+    let siblingIDs = catalog.spaces[spaceIndex].projects[projectIndex]
+      .worktrees[worktreeIndex].tabs
+      .map(\.id)
+      .filter { $0 != id }
+    for siblingID in siblingIDs {
+      try? closeTab(siblingID, in: worktreeID, in: projectID, in: spaceID)
+    }
+    catalog.spaces[spaceIndex].projects[projectIndex]
+      .worktrees[worktreeIndex].selectedTabID = id
+    store.scheduleSave(catalog)
+  }
+
+  /// Closes every Tab whose position is strictly after `id`'s. Reuses
+  /// `closeTab` per sibling for the same runtime-teardown reasoning as
+  /// `closeOtherTabs`. No-op when `id` is the last tab.
+  func closeTabsToRight(
+    of id: TabID,
+    in worktreeID: WorktreeID,
+    in projectID: ProjectID,
+    in spaceID: SpaceID
+  ) throws {
+    guard
+      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+        worktreeID: worktreeID,
+        projectID: projectID,
+        spaceID: spaceID
+      )
+    else {
+      throw HierarchyError.notFound("Worktree \(worktreeID)")
+    }
+    guard
+      let pivotIndex = catalog.spaces[spaceIndex].projects[projectIndex]
+        .worktrees[worktreeIndex].tabs.firstIndex(where: { $0.id == id })
+    else {
+      throw HierarchyError.notFound("Tab \(id)")
+    }
+    let doomedIDs = catalog.spaces[spaceIndex].projects[projectIndex]
+      .worktrees[worktreeIndex].tabs
+      .suffix(from: pivotIndex + 1)
+      .map(\.id)
+    for doomedID in doomedIDs {
+      try? closeTab(doomedID, in: worktreeID, in: projectID, in: spaceID)
+    }
+    // Mirror `closeOtherTabs`: if the user's active tab was inside the
+    // doomed suffix, `closeTab`'s auto-advance lands on `tabs.first`, not
+    // the pivot. Reseat selection so the pivot stays the user's anchor.
+    catalog.spaces[spaceIndex].projects[projectIndex]
+      .worktrees[worktreeIndex].selectedTabID = id
+    store.scheduleSave(catalog)
+  }
+
+  /// Closes every Tab in the Worktree.
+  func closeAllTabs(
+    in worktreeID: WorktreeID,
+    in projectID: ProjectID,
+    in spaceID: SpaceID
+  ) throws {
+    guard
+      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+        worktreeID: worktreeID,
+        projectID: projectID,
+        spaceID: spaceID
+      )
+    else {
+      throw HierarchyError.notFound("Worktree \(worktreeID)")
+    }
+    let allIDs = catalog.spaces[spaceIndex].projects[projectIndex]
+      .worktrees[worktreeIndex].tabs.map(\.id)
+    for tabID in allIDs {
+      try? closeTab(tabID, in: worktreeID, in: projectID, in: spaceID)
+    }
+  }
+
+  /// Selects the tab before / after the current selection, wrapping at the
+  /// ends. Returns the newly selected id, or `nil` when the Worktree has no
+  /// tabs. If no tab is currently selected the jump is relative to the
+  /// first tab (so `.previous` lands on the last, `.next` on the second).
+  @discardableResult
+  func selectAdjacentTab(
+    direction: TabAdjacency,
+    in worktreeID: WorktreeID,
+    in projectID: ProjectID,
+    in spaceID: SpaceID
+  ) throws -> TabID? {
+    guard
+      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+        worktreeID: worktreeID,
+        projectID: projectID,
+        spaceID: spaceID
+      )
+    else {
+      throw HierarchyError.notFound("Worktree \(worktreeID)")
+    }
+    let tabs = catalog.spaces[spaceIndex].projects[projectIndex]
+      .worktrees[worktreeIndex].tabs
+    guard !tabs.isEmpty else { return nil }
+    let currentID = catalog.spaces[spaceIndex].projects[projectIndex]
+      .worktrees[worktreeIndex].selectedTabID
+    let currentIndex = currentID.flatMap { id in
+      tabs.firstIndex(where: { $0.id == id })
+    } ?? 0
+    let count = tabs.count
+    let newIndex: Int
+    switch direction {
+    case .previous:
+      newIndex = (currentIndex - 1 + count) % count
+    case .next:
+      newIndex = (currentIndex + 1) % count
+    }
+    let newID = tabs[newIndex].id
+    // Route through `selectTab` rather than writing `selectedTabID`
+    // directly so the M3 focus-restoration block fires for the keyboard
+    // shortcut path. Otherwise `⌘⇧[` / `⌘⇧]` would persist the new
+    // selection without ever asking AppKit to focus the remembered pane.
+    try selectTab(newID, in: worktreeID, in: projectID, in: spaceID)
+    return newID
+  }
+
+  // MARK: - Runtime state (tab-bar uplift)
+
+  /// Records `paneID` as the tab's last-focused pane so a future
+  /// `selectTab` call can restore it. `nil` clears the entry. No catalog
+  /// mutation — the map is runtime-only.
+  func setLastFocusedPane(_ paneID: PaneID?, in tabID: TabID) {
+    if let paneID {
+      lastFocusedPaneByTab[tabID] = paneID
+    } else {
+      lastFocusedPaneByTab.removeValue(forKey: tabID)
+    }
+  }
+
+  /// Returns the last-focused pane for `tabID`, or `nil` if none was
+  /// recorded or the remembered pane has since been closed.
+  func lastFocusedPane(in tabID: TabID) -> PaneID? {
+    lastFocusedPaneByTab[tabID]
+  }
+
+  /// Marks `paneID` as running a tracked command. No caller wired today
+  /// — lands with C3 hooks. Idempotent.
+  func markPaneRunning(_ paneID: PaneID) {
+    runningPanes.insert(paneID)
+  }
+
+  /// Clears `paneID`'s running flag. Idempotent.
+  func markPaneIdle(_ paneID: PaneID) {
+    runningPanes.remove(paneID)
+  }
+
+  /// True when any pane inside `tabID` is currently marked running.
+  /// Reads a runtime set, never touches the catalog.
+  func tabIsDirty(_ tabID: TabID) -> Bool {
+    // Fast-path: no pane is running anywhere in the app, so the catalog
+    // walk is pointless. Until the C3 hooks plan starts populating
+    // `runningPanes`, this short-circuit means the chip's per-render
+    // call is a single set-emptiness check rather than a hierarchy walk.
+    guard !runningPanes.isEmpty else { return false }
+    // Walk the catalog once to locate the tab; absent tabs read as idle.
+    for space in catalog.spaces {
+      for project in space.projects {
+        for worktree in project.worktrees {
+          guard let tab = worktree.tabs.first(where: { $0.id == tabID })
+          else { continue }
+          return tab.panes.contains { runningPanes.contains($0.id) }
+        }
+      }
+    }
+    return false
   }
 
   // MARK: - Pane mutations
@@ -725,6 +1019,10 @@ final class HierarchyManager {
     }
 
     runtime.closeSurface(for: paneID)
+    runningPanes.remove(paneID)
+    if lastFocusedPaneByTab[tabID] == paneID {
+      lastFocusedPaneByTab.removeValue(forKey: tabID)
+    }
 
     tab.panes.remove(at: paneIndex)
     tab.splitTree = tab.splitTree.removing(paneID)
@@ -777,6 +1075,9 @@ final class HierarchyManager {
 
     tab.splitTree = tab.splitTree.settingZoomed(paneID)
     catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex] = tab
+    // Remember this pane as the tab's last-focused so the next `selectTab`
+    // call restores it instead of snapping to the leftmost leaf.
+    lastFocusedPaneByTab[tabID] = paneID
 
     store.scheduleSave(catalog)
   }
