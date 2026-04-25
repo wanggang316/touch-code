@@ -93,7 +93,11 @@ final class TerminalEngine {
   /// callers must add the Pane to a Tab via `HierarchyManager.openPane`
   /// (or `splitPane`) before calling this.
   @discardableResult
-  func ensureSurface(for pane: Pane, in worktree: Worktree) throws -> PaneSurface {
+  func ensureSurface(
+    for pane: Pane,
+    in worktree: Worktree,
+    env: [String: String] = [:]
+  ) throws -> PaneSurface {
     guard let runtime = ghosttyRuntime else { throw SurfaceError.runtimeUnavailable }
     if let existing = runtime.surface(for: pane.id) {
       return existing
@@ -104,7 +108,8 @@ final class TerminalEngine {
     let surface = try PaneSurface(
       runtime: runtime,
       paneID: pane.id,
-      workingDirectory: pane.workingDirectory
+      workingDirectory: pane.workingDirectory,
+      env: env
     )
     runtime.register(pane: surface)
     surface.onClose = { [weak self] processAlive in

@@ -5,6 +5,7 @@ final class FakeHierarchyRuntime: HierarchyRuntime {
   struct SurfaceCall: Equatable {
     let paneID: PaneID
     let worktreeID: WorktreeID
+    let env: [String: String]
   }
 
   private(set) var ensureSurfaceCalls: [SurfaceCall] = []
@@ -18,8 +19,10 @@ final class FakeHierarchyRuntime: HierarchyRuntime {
   /// iff the pane is present.
   var livePaneIDs: Set<PaneID> = []
 
-  func ensureSurface(for pane: Pane, in worktree: Worktree) throws {
-    ensureSurfaceCalls.append(SurfaceCall(paneID: pane.id, worktreeID: worktree.id))
+  func ensureSurface(for pane: Pane, in worktree: Worktree, env: [String: String]) throws {
+    ensureSurfaceCalls.append(
+      SurfaceCall(paneID: pane.id, worktreeID: worktree.id, env: env)
+    )
     livePaneIDs.insert(pane.id)
   }
 

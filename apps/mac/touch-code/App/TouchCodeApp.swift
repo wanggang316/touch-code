@@ -447,8 +447,8 @@ final class GhosttyBackedHierarchyRuntime: HierarchyRuntime {
     self.engine = engine
   }
 
-  func ensureSurface(for pane: Pane, in worktree: Worktree) throws {
-    _ = try engine?.ensureSurface(for: pane, in: worktree)
+  func ensureSurface(for pane: Pane, in worktree: Worktree, env: [String: String]) throws {
+    _ = try engine?.ensureSurface(for: pane, in: worktree, env: env)
   }
 
   func closeSurface(for paneID: PaneID) {

@@ -2,7 +2,7 @@ import Foundation
 import TouchCodeCore
 
 protocol HierarchyRuntime: AnyObject {
-  func ensureSurface(for pane: Pane, in worktree: Worktree) throws
+  func ensureSurface(for pane: Pane, in worktree: Worktree, env: [String: String]) throws
   func closeSurface(for paneID: PaneID)
   /// Reports whether a live terminal surface is currently registered for
   /// the given pane. Used by force-remove to size the

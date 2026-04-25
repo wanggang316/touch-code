@@ -873,7 +873,8 @@ final class HierarchyManager {
     in projectID: ProjectID,
     in spaceID: SpaceID,
     workingDirectory: String,
-    initialCommand: String?
+    initialCommand: String?,
+    env: [String: String] = [:]
   ) throws -> PaneID {
     guard
       let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
@@ -913,7 +914,7 @@ final class HierarchyManager {
     try tab.validateInvariants()
 
     let worktree = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex]
-    try runtime.ensureSurface(for: pane, in: worktree)
+    try runtime.ensureSurface(for: pane, in: worktree, env: env)
 
     store.scheduleSave(catalog)
     return paneID
@@ -927,7 +928,8 @@ final class HierarchyManager {
     in projectID: ProjectID,
     in spaceID: SpaceID,
     workingDirectory: String,
-    initialCommand: String?
+    initialCommand: String?,
+    env: [String: String] = [:]
   ) throws -> PaneID {
     guard
       let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
@@ -958,7 +960,7 @@ final class HierarchyManager {
     try tab.validateInvariants()
 
     let worktree = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex]
-    try runtime.ensureSurface(for: newPane, in: worktree)
+    try runtime.ensureSurface(for: newPane, in: worktree, env: env)
 
     store.scheduleSave(catalog)
     return newPaneID
