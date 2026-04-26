@@ -50,8 +50,7 @@ struct HeaderRunScriptSplitButton: View {
         Text(primaryLabel)
           .lineLimit(1)
       }
-      .padding(.horizontal, 6)
-      .padding(.vertical, 3)
+      .padding(5)
     }
     .buttonStyle(.borderless)
     .accessibilityLabel(primaryLabel)
