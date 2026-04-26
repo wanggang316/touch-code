@@ -123,6 +123,14 @@ final class TerminalEngine {
     surface.view.onBecomeFirstResponder = { [weak self] in
       self?.hierarchy.setLastFocusedPane(pane.id, in: tabID)
     }
+    // Right-click menu items raise PaneActionRequest values directly on the
+    // view; lift them onto the engine's event stream so they reach
+    // PaneActionRouterFeature through the same path as libghostty-decoded
+    // intents (new_split / reset / etc.). Same shape as
+    // emitPaneIntent in GhosttyActionDecoder.
+    surface.view.onPaneAction = { [weak self] request in
+      self?.emit(.paneActionRequested(pane.id, request))
+    }
     // C8a Phase 4d: forward `pane.initialCommand` to the freshly spawned shell so
     // `.shellEditor` launches ("$EDITOR\n") actually run. HierarchyManager.openPane stores
     // the command on the Pane; this is the one place it gets replayed when the surface
