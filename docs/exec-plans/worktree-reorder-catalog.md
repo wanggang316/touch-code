@@ -19,7 +19,7 @@ The design rationale, segment semantics, alternatives considered, and the reject
 - [x] Add `WorktreeSegment` enum (in `HierarchyManager.swift`, alongside `HierarchyError`) — 2026-04-26
 - [x] Add `unpinnedBoundary(in:rootPath:)` private static helper — 2026-04-26
 - [x] Change `HierarchyManager.createWorktree` insertion point to the unpinned-segment boundary — 2026-04-26
-- [ ] Change `HierarchyManager.setWorktreePinned` to carry pin/unpin positioning
+- [x] Change `HierarchyManager.setWorktreePinned` to carry pin/unpin positioning — 2026-04-26
 - [ ] Implement `HierarchyManager.reorderWorktrees(in:inSpace:segment:from:to:)` with all-or-nothing validation
 - [ ] Append `reorderWorktrees` closure to `HierarchyClient` (live, liveValue, testValue)
 - [ ] Tests: reorder happy path within each segment

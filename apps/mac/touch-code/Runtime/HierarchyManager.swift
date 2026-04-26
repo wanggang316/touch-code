@@ -376,10 +376,13 @@ final class HierarchyManager {
     }
   }
 
-  /// Flips the Worktree's pinned flag. Pinned rows render in a dedicated section at the
-  /// top of the project's row group so the user's "current work" set stays visible even
-  /// as the Worktree list grows. Silent no-op for unchanged values and for unknown ids.
-  /// Persists via the standard debounced save pipeline.
+  /// Flips the Worktree's pinned flag and repositions the row in the catalog
+  /// array so segment-internal order matches the sidebar. Pin moves the row to
+  /// the end of the pinned segment (last visible pinned); Unpin moves it to
+  /// the top of the unpinned segment (first visible unpinned). Silent no-op
+  /// for unchanged values (no flag flip, no move, no save) and for unknown
+  /// ids. Persists via the standard debounced save pipeline. See
+  /// `docs/design-docs/worktree-sidebar-ordering.md` §pinned 段 / §unpinned 段.
   func setWorktreePinned(worktreeID: WorktreeID, isPinned: Bool) {
     for spaceIndex in catalog.spaces.indices {
       for projectIndex in catalog.spaces[spaceIndex].projects.indices {
@@ -389,6 +392,19 @@ final class HierarchyManager {
         guard project.worktrees[worktreeIndex].isPinned != isPinned else { return }
         catalog.spaces[spaceIndex].projects[projectIndex]
           .worktrees[worktreeIndex].isPinned = isPinned
+        // Recompute the boundary on the post-flip array so the destination
+        // offset reflects the new flag. Pin → boundary lands the row right
+        // after the last existing pinned row (it becomes the new last
+        // pinned). Unpin → the just-flipped row itself is the first match
+        // (or some earlier unpinned row is), and `move(toOffset:)` is a
+        // no-op when the row already sits at the boundary, otherwise it
+        // pulls the row up to the unpinned-segment top.
+        let boundary = Self.unpinnedBoundary(
+          in: catalog.spaces[spaceIndex].projects[projectIndex].worktrees,
+          rootPath: catalog.spaces[spaceIndex].projects[projectIndex].rootPath
+        )
+        catalog.spaces[spaceIndex].projects[projectIndex].worktrees
+          .move(fromOffsets: IndexSet(integer: worktreeIndex), toOffset: boundary)
         store.scheduleSave(catalog)
         return
       }
