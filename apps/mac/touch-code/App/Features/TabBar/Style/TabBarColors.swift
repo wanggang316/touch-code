@@ -29,4 +29,12 @@ enum TabBarColors {
 
   /// Foreground tint for the close-button glyph.
   static let closeButtonForeground: Color = Color.primary.opacity(0.7)
+
+  /// Title color for the active chip — full primary strength so the
+  /// selected tab reads first when the bar holds many idle ones.
+  static let activeText: Color = Color.primary
+
+  /// Title color for idle / hovered chips — softened to keep visual
+  /// weight on the active chip rather than competing with it.
+  static let inactiveText: Color = Color.secondary
 }

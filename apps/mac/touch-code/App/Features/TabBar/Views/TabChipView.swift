@@ -39,7 +39,7 @@ struct TabChipView: View {
     // glyph, and on either chip-padding strip) that swallowed clicks.
     ZStack(alignment: .trailing) {
       Button(action: onSelect) {
-        TabChipLabel(title: title, isDirty: isDirty)
+        TabChipLabel(title: title, isActive: isActive, isDirty: isDirty)
           // `maxHeight: .infinity` is the load-bearing piece — without
           // it the label collapses to its intrinsic text height (~16pt)
           // and the Button's hit region only covers that strip,

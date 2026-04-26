@@ -13,6 +13,7 @@ import SwiftUI
 /// long path's filename stays readable even as it's clipped.
 struct TabChipLabel: View {
   let title: String
+  var isActive: Bool = false
   var isDirty: Bool = false
 
   var body: some View {
@@ -25,7 +26,8 @@ struct TabChipLabel: View {
       Text(title)
         .lineLimit(1)
         .truncationMode(.middle)
-        .font(.system(size: 12))
+        .font(.caption)
+        .foregroundStyle(isActive ? TabBarColors.activeText : TabBarColors.inactiveText)
     }
   }
 }
