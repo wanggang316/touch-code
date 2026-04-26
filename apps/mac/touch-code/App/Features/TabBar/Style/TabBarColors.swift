@@ -13,10 +13,12 @@ enum TabBarColors {
   /// is up. Subtle so it reads as affordance, not selection.
   static let hoverBackground: Color = Color.primary.opacity(0.06)
 
-  /// Chip background for the selected tab and for any chip with its mouse
-  /// button held down. Matches the native-control fill so active chips
-  /// feel rooted in the window chrome.
-  static let activeBackground: Color = Color(nsColor: .controlBackgroundColor)
+  /// Chip background for the selected tab and for any chip with its
+  /// mouse button held down. Shares the hover fill — the top accent
+  /// stripe + the missing baseline are what disambiguate "selected" vs
+  /// "hovered" rather than the fill color, keeping the bar visually
+  /// quiet.
+  static let activeBackground: Color = hoverBackground
 
   /// Accent-tinted underline sitting on the top edge of the active chip.
   static let activeUnderline: Color = .accentColor
