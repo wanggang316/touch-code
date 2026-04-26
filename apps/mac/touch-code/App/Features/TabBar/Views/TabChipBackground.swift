@@ -43,11 +43,13 @@ struct TabChipBackground: View {
     }
   }
 
-  /// Pressed chips fall back on the active fill so the chip feels rooted
-  /// under the pointer even before the selection commits.
+  /// Active chips show no fill — selection is communicated by the top
+  /// accent stripe plus the missing baseline (see `body`). Pressing on
+  /// an idle chip borrows the hover fill so the click still has visual
+  /// feedback before selection commits.
   private var backgroundFill: Color {
-    if isActive || isPressing { return TabBarColors.activeBackground }
-    if isHovering { return TabBarColors.hoverBackground }
+    if isActive { return TabBarColors.idleBackground }
+    if isHovering || isPressing { return TabBarColors.hoverBackground }
     return TabBarColors.idleBackground
   }
 }
