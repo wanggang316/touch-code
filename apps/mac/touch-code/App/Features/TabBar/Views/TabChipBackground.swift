@@ -28,6 +28,17 @@ struct TabChipBackground: View {
         Rectangle()
           .fill(TabBarColors.activeUnderline)
           .frame(height: TabBarMetrics.activeUnderlineHeight)
+      } else {
+        // Idle / hover chips ride along a 1-pt baseline that doubles as
+        // the row's bottom border — supacode's pattern. The active chip
+        // omits this so the top accent + filled background read as the
+        // selection, not as "still part of the row".
+        VStack(spacing: 0) {
+          Spacer(minLength: 0)
+          Rectangle()
+            .fill(TabBarColors.divider)
+            .frame(height: 1)
+        }
       }
     }
   }

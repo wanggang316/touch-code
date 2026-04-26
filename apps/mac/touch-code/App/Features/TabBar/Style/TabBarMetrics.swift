@@ -37,8 +37,10 @@ enum TabBarMetrics {
   static let chipCornerRadius: CGFloat = 0
 
   /// Thin vertical separator drawn between adjacent non-active chips.
+  /// Spans the full bar height (supacode-style) so the row reads as a
+  /// table of cells rather than centered tick marks.
   static let dividerWidth: CGFloat = 1
-  static let dividerHeight: CGFloat = 16
+  static let dividerHeight: CGFloat = barHeight
 
   /// Delay before the trailing split buttons show their pane-tree preview
   /// popover, matching the design doc interaction table.
