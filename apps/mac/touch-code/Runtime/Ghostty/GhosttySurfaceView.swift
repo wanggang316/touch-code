@@ -34,6 +34,12 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
   /// focus into HierarchyManager's per-tab focus map; without this hook
   /// click-driven focus changes wouldn't propagate up the stack.
   var onBecomeFirstResponder: (() -> Void)?
+  /// Out-of-band intent the view raises on behalf of the user — currently
+  /// only the right-click menu's split items. TerminalEngine wires this to
+  /// `runtime.emit(.paneActionRequested(paneID, …))` so menu-driven splits
+  /// flow through the same `PaneActionRouterFeature` that handles libghostty
+  /// keybinding-driven splits.
+  var onPaneAction: ((PaneActionRequest) -> Void)?
 
   init(paneID: PaneID) {
     self.paneID = paneID
@@ -306,22 +312,33 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     if window?.firstResponder !== self {
       window?.makeFirstResponder(self)
     }
-    sendMouseButton(event: event, button: GHOSTTY_MOUSE_LEFT, action: GHOSTTY_MOUSE_PRESS)
+    _ = sendMouseButton(event: event, button: GHOSTTY_MOUSE_LEFT, action: GHOSTTY_MOUSE_PRESS)
   }
   override func mouseUp(with event: NSEvent) {
-    sendMouseButton(event: event, button: GHOSTTY_MOUSE_LEFT, action: GHOSTTY_MOUSE_RELEASE)
+    _ = sendMouseButton(event: event, button: GHOSTTY_MOUSE_LEFT, action: GHOSTTY_MOUSE_RELEASE)
   }
   override func rightMouseDown(with event: NSEvent) {
-    sendMouseButton(event: event, button: GHOSTTY_MOUSE_RIGHT, action: GHOSTTY_MOUSE_PRESS)
+    // Offer the right-click to ghostty first (vim mouse mode, captured
+    // applications, configured `super+...` bindings). If ghostty consumed
+    // it, swallow the event so AppKit doesn't open the local context menu.
+    // Otherwise fall through to super, which lets AppKit's default chain
+    // call `menu(for:)` and present our menu.
+    if sendMouseButton(event: event, button: GHOSTTY_MOUSE_RIGHT, action: GHOSTTY_MOUSE_PRESS) {
+      return
+    }
+    super.rightMouseDown(with: event)
   }
   override func rightMouseUp(with event: NSEvent) {
-    sendMouseButton(event: event, button: GHOSTTY_MOUSE_RIGHT, action: GHOSTTY_MOUSE_RELEASE)
+    if sendMouseButton(event: event, button: GHOSTTY_MOUSE_RIGHT, action: GHOSTTY_MOUSE_RELEASE) {
+      return
+    }
+    super.rightMouseUp(with: event)
   }
   override func otherMouseDown(with event: NSEvent) {
-    sendMouseButton(event: event, button: GHOSTTY_MOUSE_MIDDLE, action: GHOSTTY_MOUSE_PRESS)
+    _ = sendMouseButton(event: event, button: GHOSTTY_MOUSE_MIDDLE, action: GHOSTTY_MOUSE_PRESS)
   }
   override func otherMouseUp(with event: NSEvent) {
-    sendMouseButton(event: event, button: GHOSTTY_MOUSE_MIDDLE, action: GHOSTTY_MOUSE_RELEASE)
+    _ = sendMouseButton(event: event, button: GHOSTTY_MOUSE_MIDDLE, action: GHOSTTY_MOUSE_RELEASE)
   }
 
   override func mouseDragged(with event: NSEvent) { sendMouseMoved(event) }
@@ -352,17 +369,70 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     ghostty_surface_mouse_pos(surface, pos.x, y, mods(from: event.modifierFlags))
   }
 
+  /// Returns whether libghostty consumed this button event. Right-click
+  /// uses the result to decide whether to fall through to AppKit's default
+  /// right-click handling (which opens the context menu via `menu(for:)`);
+  /// other callers ignore it.
+  @discardableResult
   private func sendMouseButton(
     event: NSEvent,
     button: ghostty_input_mouse_button_e,
     action: ghostty_input_mouse_state_e
-  ) {
-    guard let surface else { return }
+  ) -> Bool {
+    guard let surface else { return false }
     let pos = convert(event.locationInWindow, from: nil)
     let y = bounds.height - pos.y
     ghostty_surface_mouse_pos(surface, pos.x, y, mods(from: event.modifierFlags))
-    _ = ghostty_surface_mouse_button(surface, action, button, mods(from: event.modifierFlags))
+    return ghostty_surface_mouse_button(surface, action, button, mods(from: event.modifierFlags))
   }
+
+  // MARK: - Context menu
+
+  override func menu(for event: NSEvent) -> NSMenu? {
+    // Only build a menu for the actual right-click. Trackpad two-finger
+    // taps reach here as `.rightMouseDown` too — same path.
+    guard event.type == .rightMouseDown else { return nil }
+    guard let surface, !ghostty_surface_mouse_captured(surface) else { return nil }
+
+    let menu = NSMenu()
+    if ghostty_surface_has_selection(surface) {
+      menu.addItem(NSMenuItem(title: "Copy", action: #selector(copy(_:)), keyEquivalent: ""))
+    }
+    menu.addItem(NSMenuItem(title: "Paste", action: #selector(paste(_:)), keyEquivalent: ""))
+    menu.addItem(.separator())
+    menu.addItem(menuItem("Split Right", #selector(splitRight(_:)), symbol: "rectangle.righthalf.inset.filled"))
+    menu.addItem(menuItem("Split Down", #selector(splitDown(_:)), symbol: "rectangle.bottomhalf.inset.filled"))
+    menu.addItem(menuItem("Split Left", #selector(splitLeft(_:)), symbol: "rectangle.leadinghalf.inset.filled"))
+    menu.addItem(menuItem("Split Up", #selector(splitUp(_:)), symbol: "rectangle.tophalf.inset.filled"))
+    menu.addItem(.separator())
+    menu.addItem(menuItem("Reset Terminal", #selector(resetTerminal(_:)), symbol: "arrow.trianglehead.2.clockwise"))
+    return menu
+  }
+
+  private func menuItem(_ title: String, _ action: Selector, symbol: String) -> NSMenuItem {
+    let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+    item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+    return item
+  }
+
+  /// Route a binding action string (the same syntax used in Ghostty's
+  /// keybindings config) through libghostty so menu items reuse the
+  /// surface's own copy / paste / reset implementations rather than
+  /// hand-rolling NSPasteboard logic that would diverge over time.
+  private func performBindingAction(_ action: String) {
+    guard let surface else { return }
+    action.withCString { ptr in
+      _ = ghostty_surface_binding_action(surface, ptr, UInt(action.utf8.count))
+    }
+  }
+
+  @IBAction func copy(_ sender: Any?) { performBindingAction("copy_to_clipboard") }
+  @IBAction func paste(_ sender: Any?) { performBindingAction("paste_from_clipboard") }
+  @IBAction func resetTerminal(_ sender: Any?) { performBindingAction("reset") }
+  @IBAction func splitRight(_ sender: Any?) { onPaneAction?(.newSplit(direction: .right)) }
+  @IBAction func splitLeft(_ sender: Any?) { onPaneAction?(.newSplit(direction: .left)) }
+  @IBAction func splitDown(_ sender: Any?) { onPaneAction?(.newSplit(direction: .down)) }
+  @IBAction func splitUp(_ sender: Any?) { onPaneAction?(.newSplit(direction: .up)) }
 
   // MARK: - NSTextInputClient
 
