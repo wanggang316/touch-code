@@ -240,16 +240,18 @@ struct WorktreeDetailView: View {
     .sharedBackgroundVisibility(.hidden)
   }
 
-  /// macOS 26 trailing button cluster. Default placement so it sits
-  /// after the trailing `ToolbarSpacer(.flexible)` — the cluster's
-  /// rightmost position falls out of source order rather than being
-  /// pinned by `.primaryAction`.
+  /// macOS 26 trailing buttons. Each lives in its own `ToolbarItem` so
+  /// the system wraps it in a separate glass capsule — three discrete
+  /// chips instead of one shared cluster background. `ToolbarSpacer(.fixed)`
+  /// between siblings keeps them visually distinct without collapsing
+  /// the gap. Default placement; ordering after the trailing flexible
+  /// spacer pins the row to the right edge.
   @available(macOS 26.0, *)
   @ToolbarContentBuilder
   private func trailingButtonsDefault(
     address: Address, info: WorktreeInfo
   ) -> some ToolbarContent {
-    ToolbarItemGroup {
+    ToolbarItem {
       HeaderOpenSplitButton(
         store: headerStore,
         editorStore: editorStore,
@@ -258,13 +260,19 @@ struct WorktreeDetailView: View {
         worktreePath: info.worktree.path
       )
       .buttonStyle(.plain)
+    }
+    ToolbarSpacer(.fixed)
+    ToolbarItem {
       HeaderRunScriptSplitButton(
         store: headerStore,
         projectID: address.project,
         worktreeID: info.worktree.id
       )
       .buttonStyle(.plain)
-      if info.project.supportsWorktrees {
+    }
+    if info.project.supportsWorktrees {
+      ToolbarSpacer(.fixed)
+      ToolbarItem {
         HeaderGitViewerToggle(
           store: headerStore,
           visible: info.worktree.gitViewerVisible
