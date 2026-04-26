@@ -282,12 +282,13 @@ struct WorktreeDetailView: View {
     }
   }
 
-  /// Horizontal breathing room inside each trailing capsule. Matches the
-  /// look of the status capsule — content sits 8pt off each edge of the
-  /// glass background instead of hugging it. Hover backgrounds live on
-  /// each clickable region inside the button views (`HeaderChipHover`),
-  /// so split buttons highlight per-half rather than as one blob.
-  private static let trailingCapsuleInset: CGFloat = 8
+  /// Horizontal breathing room inside each trailing capsule. The macOS
+  /// 26 toolbar already pads its glass capsule, so we add only a small
+  /// nudge to keep content from hugging the edge — too much here makes
+  /// the chip look chunky next to the status capsule. Hover backgrounds
+  /// live on each clickable region inside the button views
+  /// (`HeaderChipHover`), so split buttons highlight per-half.
+  private static let trailingCapsuleInset: CGFloat = 4
 
   @ToolbarContentBuilder
   private func branchToolbarItem(info: WorktreeInfo) -> some ToolbarContent {

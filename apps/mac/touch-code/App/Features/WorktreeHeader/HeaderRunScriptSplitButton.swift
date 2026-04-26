@@ -24,12 +24,6 @@ struct HeaderRunScriptSplitButton: View {
     }
   }
 
-  /// Shared height for the split button's two halves so the caret is a
-  /// 1:1 square matching the primary chip height. Mirrors the constant
-  /// in `HeaderOpenSplitButton` — kept duplicated rather than centralized
-  /// since the two split buttons are independent surfaces.
-  private static let chipHeight: CGFloat = 22
-
   // MARK: - State derivation
 
   /// Scripts attached to this Project, in array order.
@@ -56,8 +50,8 @@ struct HeaderRunScriptSplitButton: View {
         Text(primaryLabel)
           .lineLimit(1)
       }
-      .padding(.horizontal, 8)
-      .frame(height: Self.chipHeight)
+      .padding(.horizontal, 6)
+      .padding(.vertical, 3)
     }
     .buttonStyle(.borderless)
     .accessibilityLabel(primaryLabel)
@@ -95,10 +89,13 @@ struct HeaderRunScriptSplitButton: View {
     Menu {
       caretMenu
     } label: {
+      // Content-driven 1:1 square — see `HeaderOpenSplitButton.caret`
+      // for the rationale on padding + .aspectRatio.
       Image(systemName: "chevron.down")
         .font(.caption.bold())
         .accessibilityHidden(true)
-        .frame(width: Self.chipHeight, height: Self.chipHeight)
+        .padding(5)
+        .aspectRatio(1, contentMode: .fill)
     }
     .menuStyle(.borderlessButton)
     .menuIndicator(.hidden)

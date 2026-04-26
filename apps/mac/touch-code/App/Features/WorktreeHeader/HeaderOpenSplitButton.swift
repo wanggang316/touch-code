@@ -24,11 +24,6 @@ struct HeaderOpenSplitButton: View {
     .task { editorStore.send(.onAppear) }
   }
 
-  /// Shared height for the split button's two halves so the caret is a
-  /// 1:1 square the same height as the primary chip — keeps the hover
-  /// capsule consistent across both halves.
-  private static let chipHeight: CGFloat = 22
-
   // MARK: - Primary
 
   private var primary: some View {
@@ -46,8 +41,8 @@ struct HeaderOpenSplitButton: View {
         Text(primaryLabel)
           .lineLimit(1)
       }
-      .padding(.horizontal, 8)
-      .frame(height: Self.chipHeight)
+      .padding(.horizontal, 6)
+      .padding(.vertical, 3)
     }
     .buttonStyle(.borderless)
     .accessibilityLabel(primaryDescription)
@@ -108,10 +103,16 @@ struct HeaderOpenSplitButton: View {
     Menu {
       openInMenu
     } label: {
+      // Square hit-target driven entirely by content (chevron + uniform
+      // padding). `.aspectRatio(1, contentMode: .fill)` expands the
+      // smaller axis to match the larger so the box reads as 1:1
+      // without hard-coding a frame size — width grows with chevron
+      // glyph metrics rather than being pinned.
       Image(systemName: "chevron.down")
         .font(.caption.bold())
         .accessibilityHidden(true)
-        .frame(width: Self.chipHeight, height: Self.chipHeight)
+        .padding(5)
+        .aspectRatio(1, contentMode: .fill)
     }
     .menuStyle(.borderlessButton)
     .menuIndicator(.hidden)
