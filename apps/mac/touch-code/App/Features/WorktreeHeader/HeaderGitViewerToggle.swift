@@ -16,10 +16,12 @@ struct HeaderGitViewerToggle: View {
   @Bindable var store: StoreOf<WorktreeHeaderFeature>
   let visible: Bool
 
-  /// Same locked side length as the caret chips on the sibling split
-  /// buttons — keeps the trailing cluster reading as three uniformly
-  /// sized icon targets.
-  private static let chipSide: CGFloat = 28
+  /// Same `chipSide` + `edgeInset` invariants as the sibling split
+  /// buttons (see `HeaderOpenSplitButton` for the rationale). Single
+  /// 1:1 button, inset uniformly on every side from the outer toolbar
+  /// capsule.
+  private static let chipSide: CGFloat = 22
+  private static let edgeInset: CGFloat = 4
 
   var body: some View {
     Button {
@@ -33,5 +35,6 @@ struct HeaderGitViewerToggle: View {
     .accessibilityLabel(visible ? "Hide Git Viewer" : "Show Git Viewer")
     .help(visible ? "Hide Git Viewer" : "Show Git Viewer")
     .modifier(HeaderChipHover())
+    .padding(Self.edgeInset)
   }
 }

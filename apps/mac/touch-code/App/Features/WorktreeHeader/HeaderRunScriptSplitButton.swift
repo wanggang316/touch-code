@@ -17,16 +17,18 @@ struct HeaderRunScriptSplitButton: View {
   let worktreeID: WorktreeID
   @Environment(SettingsStore.self) private var settingsStore
 
-  /// Locked vertical extent. Mirrors `HeaderOpenSplitButton.chipHeight`
-  /// — kept duplicated rather than extracted to a shared constant since
-  /// the two split buttons remain independent surfaces.
-  private static let chipHeight: CGFloat = 28
+  /// Layout invariants — see `HeaderOpenSplitButton` for the rationale.
+  /// The two split buttons stay structurally identical so the toolbar
+  /// reads as one cohesive cluster.
+  private static let chipSide: CGFloat = 22
+  private static let edgeInset: CGFloat = 4
 
   var body: some View {
     HStack(spacing: 4) {
       primary
       caret
     }
+    .padding(Self.edgeInset)
   }
 
   // MARK: - State derivation
@@ -55,7 +57,8 @@ struct HeaderRunScriptSplitButton: View {
         Text(primaryLabel)
           .lineLimit(1)
       }
-      .padding(6)
+      .padding(.horizontal, 6)
+      .frame(height: Self.chipSide)
     }
     .buttonStyle(.plain)
     .accessibilityLabel(primaryLabel)
@@ -96,7 +99,7 @@ struct HeaderRunScriptSplitButton: View {
       Image(systemName: "chevron.down")
         .font(.caption.bold())
         .accessibilityHidden(true)
-        .frame(width: Self.chipHeight, height: Self.chipHeight)
+        .frame(width: Self.chipSide, height: Self.chipSide)
     }
     .menuStyle(.button)
     .buttonStyle(.plain)

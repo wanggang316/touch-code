@@ -20,17 +20,26 @@ struct HeaderOpenSplitButton: View {
   @Environment(HierarchyManager.self) private var hierarchyManager
   @Environment(SettingsStore.self) private var settingsStore
 
-  /// Locked vertical extent for both halves: 16pt icon + 2 × 6pt
-  /// padding so vertical breathing room equals the horizontal padding
-  /// (`.padding(6)` on the primary). Caret reuses this on width AND
-  /// height to read as a 1:1 square the same height as the primary.
-  private static let chipHeight: CGFloat = 28
+  /// Layout invariants:
+  /// 1. The outer toolbar capsule has a fixed total height (computed
+  ///    here as `chipSide + 2 × edgeInset` plus the toolbar's own glass
+  ///    padding).
+  /// 2. The outer width is dynamic — primary text varies as the user
+  ///    picks a different default editor.
+  /// 3. The caret is a hard 1:1 square (`chipSide × chipSide`).
+  /// 4. The two inner halves (primary, caret) sit inside the outer
+  ///    capsule with the same `edgeInset` on every side.
+  private static let chipSide: CGFloat = 22
+  private static let edgeInset: CGFloat = 4
 
   var body: some View {
     HStack(spacing: 4) {
       primary
       caret
     }
+    // The same inset on every side gives equal breathing room between
+    // the two inner halves and the outer toolbar capsule.
+    .padding(Self.edgeInset)
     .task { editorStore.send(.onAppear) }
   }
 
@@ -51,7 +60,12 @@ struct HeaderOpenSplitButton: View {
         Text(primaryLabel)
           .lineLimit(1)
       }
-      .padding(6)
+      // Horizontal padding gives the icon + text breathing room inside
+      // the primary hover capsule. Vertical sizing comes from the
+      // shared `.frame(height: chipSide)` so this half is flush with
+      // the caret square.
+      .padding(.horizontal, 6)
+      .frame(height: Self.chipSide)
     }
     .buttonStyle(.plain)
     .accessibilityLabel(primaryDescription)
@@ -115,7 +129,7 @@ struct HeaderOpenSplitButton: View {
       Image(systemName: "chevron.down")
         .font(.caption.bold())
         .accessibilityHidden(true)
-        .frame(width: Self.chipHeight, height: Self.chipHeight)
+        .frame(width: Self.chipSide, height: Self.chipSide)
     }
     .menuStyle(.button)
     .buttonStyle(.plain)
