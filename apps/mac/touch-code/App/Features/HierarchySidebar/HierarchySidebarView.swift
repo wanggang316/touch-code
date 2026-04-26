@@ -373,7 +373,7 @@ struct HierarchySidebarView: View {
       return project.worktrees.contains(where: { $0.id == worktreeID })
     }
 
-    let isExpanded = store.expandedProjectIDs.contains(project.id)
+    let isExpanded = project.isExpanded
     return Group {
       switch project.loadState {
       case .failed(let reason):

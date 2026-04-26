@@ -340,6 +340,25 @@ final class HierarchyManager {
     }
   }
 
+  /// Flips the Project's sidebar disclosure flag. Persists so the user's
+  /// open / closed choice survives restart. Silent no-op for unchanged values
+  /// and for unknown ids. Goes through the standard debounced save pipeline.
+  func setProjectExpanded(projectID: ProjectID, isExpanded: Bool) {
+    for spaceIndex in catalog.spaces.indices {
+      guard
+        let projectIndex = catalog.spaces[spaceIndex].projects.firstIndex(where: {
+          $0.id == projectID
+        })
+      else { continue }
+      guard catalog.spaces[spaceIndex].projects[projectIndex].isExpanded != isExpanded else {
+        return
+      }
+      catalog.spaces[spaceIndex].projects[projectIndex].isExpanded = isExpanded
+      store.scheduleSave(catalog)
+      return
+    }
+  }
+
   /// Flips the Worktree's pinned flag. Pinned rows render in a dedicated section at the
   /// top of the project's row group so the user's "current work" set stays visible even
   /// as the Worktree list grows. Silent no-op for unchanged values and for unknown ids.

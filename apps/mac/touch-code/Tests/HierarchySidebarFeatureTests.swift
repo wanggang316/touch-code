@@ -23,18 +23,31 @@ struct HierarchySidebarFeatureTests {
   }
 
   @Test
-  func toggleProjectExpansionFlipsSet() async {
+  func toggleProjectExpansionFlipsCatalogFlag() async {
+    // Project expansion lives on `Project.isExpanded` (persisted) — the
+    // reducer reads the current catalog value and forwards the flipped
+    // value to `setProjectExpanded`. No reducer-state mutation expected.
+    let spaceID = SpaceID()
     let projectID = ProjectID()
+    let project = Project(id: projectID, name: "p", rootPath: "/p", isExpanded: true)
+    let space = Space(id: spaceID, name: "s", projects: [project])
+    let received = LockIsolated<[(ProjectID, Bool)]>([])
+
     let store = TestStore(initialState: HierarchySidebarFeature.State()) {
       HierarchySidebarFeature()
+    } withDependencies: {
+      $0.hierarchyClient.snapshot = {
+        Catalog(windows: [], spaces: [space], selectedSpaceID: spaceID)
+      }
+      $0.hierarchyClient.setProjectExpanded = { id, expanded in
+        received.withValue { $0.append((id, expanded)) }
+      }
     }
 
-    await store.send(.toggleProjectExpansion(projectID)) {
-      $0.expandedProjectIDs.insert(projectID)
-    }
-    await store.send(.toggleProjectExpansion(projectID)) {
-      $0.expandedProjectIDs.remove(projectID)
-    }
+    await store.send(.toggleProjectExpansion(projectID))
+    #expect(received.value.count == 1)
+    #expect(received.value[0].0 == projectID)
+    #expect(received.value[0].1 == false)
   }
 
   @Test
@@ -723,28 +736,17 @@ struct HierarchySidebarFeatureTests {
   }
 
   @Test
-  func pruneExpansionSetsDropsStaleIDs() async {
+  func pruneExpansionSetsDropsStaleSpaceIDs() async {
     let live = SpaceID()
     let stale = SpaceID()
-    let staleProject = ProjectID()
-    let liveProject = ProjectID()
 
-    let initial = HierarchySidebarFeature.State(
-      expandedSpaceIDs: [live, stale],
-      expandedProjectIDs: [liveProject, staleProject]
-    )
+    let initial = HierarchySidebarFeature.State(expandedSpaceIDs: [live, stale])
     let store = TestStore(initialState: initial) {
       HierarchySidebarFeature()
     }
 
-    await store.send(
-      .pruneExpansionSets(
-        currentSpaceIDs: [live],
-        currentProjectIDs: [liveProject]
-      )
-    ) {
+    await store.send(.pruneExpansionSets(currentSpaceIDs: [live])) {
       $0.expandedSpaceIDs = [live]
-      $0.expandedProjectIDs = [liveProject]
     }
   }
 }

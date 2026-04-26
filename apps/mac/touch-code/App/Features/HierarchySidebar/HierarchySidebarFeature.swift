@@ -88,7 +88,10 @@ struct HierarchySidebarFeature {
     /// passing and a future iteration can reintroduce space-level grouping
     /// without re-plumbing state.
     var expandedSpaceIDs: Set<SpaceID> = []
-    var expandedProjectIDs: Set<ProjectID> = []
+    // Project disclosure state used to live here as `expandedProjectIDs`. It
+    // now persists on `Project.isExpanded` so the open / closed choice
+    // survives restart — the view reads `project.isExpanded` directly from
+    // the catalog, mirroring how `Worktree.isPinned` is consumed.
 
     var isSpacePopoverPresented: Bool = false
 
@@ -165,9 +168,11 @@ struct HierarchySidebarFeature {
     // Expansion
     case toggleSpaceExpansion(SpaceID)
     case toggleProjectExpansion(ProjectID)
-    /// Invoked by the parent reducer when the catalog mutation stream
-    /// fires — prunes stale IDs that no longer exist in the catalog.
-    case pruneExpansionSets(currentSpaceIDs: Set<SpaceID>, currentProjectIDs: Set<ProjectID>)
+    /// Invoked by the parent reducer when the catalog mutation stream fires
+    /// — prunes stale Space IDs from `expandedSpaceIDs`. Project expansion
+    /// lives on `Project.isExpanded` and is pruned automatically when the
+    /// Project itself disappears from the catalog, so it is not threaded here.
+    case pruneExpansionSets(currentSpaceIDs: Set<SpaceID>)
 
     // Toolbar
     case toolbarAddProjectTapped
@@ -389,16 +394,22 @@ struct HierarchySidebarFeature {
       return .none
 
     case .toggleProjectExpansion(let projectID):
-      if state.expandedProjectIDs.contains(projectID) {
-        state.expandedProjectIDs.remove(projectID)
-      } else {
-        state.expandedProjectIDs.insert(projectID)
-      }
+      // Single source of truth lives on the catalog (`Project.isExpanded`),
+      // so flip via the client and let the SwiftUI catalog observation
+      // re-render the row. Unknown ids are a silent no-op inside the
+      // manager.
+      let snapshot = hierarchyClient.snapshot()
+      let current =
+        snapshot.spaces
+        .lazy
+        .flatMap(\.projects)
+        .first(where: { $0.id == projectID })?
+        .isExpanded ?? true
+      hierarchyClient.setProjectExpanded(projectID, !current)
       return .none
 
-    case .pruneExpansionSets(let currentSpaceIDs, let currentProjectIDs):
+    case .pruneExpansionSets(let currentSpaceIDs):
       state.expandedSpaceIDs.formIntersection(currentSpaceIDs)
-      state.expandedProjectIDs.formIntersection(currentProjectIDs)
       return .none
 
     // MARK: Toolbar
