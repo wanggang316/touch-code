@@ -44,15 +44,20 @@ enum EditorPickerRow {
     }
   }
 
-  /// Standard row content for every editor dropdown — a compact `icon + displayName`
-  /// HStack. Used as the tag-bearing body inside `Picker` items and as the Button
-  /// label inside `Menu` items, so all surfaces render editors identically.
+  /// Standard row content for every editor dropdown — a SwiftUI `Label`
+  /// whose `Text` + `Image` slots AppKit recognizes when the row is
+  /// hosted inside a native `Menu` (i.e. the Worktree-header Open-in
+  /// caret). A plain `HStack { icon; Text }` would be rendered as a
+  /// custom `NSView` per row, making the menu rows much taller than
+  /// the standard Settings → Default Editor dropdown.
   @ViewBuilder
   static func row(for descriptor: EditorDescriptor) -> some View {
-    HStack(spacing: 6) {
-      icon(for: descriptor)
+    Label {
       Text(descriptor.displayName)
+    } icon: {
+      icon(for: descriptor)
     }
+    .labelStyle(.titleAndIcon)
   }
 
   /// Flat priority-ordered list of installed descriptors, following
