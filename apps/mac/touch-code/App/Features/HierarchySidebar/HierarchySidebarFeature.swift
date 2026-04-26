@@ -176,8 +176,6 @@ struct HierarchySidebarFeature {
 
     // Toolbar
     case toolbarAddProjectTapped
-    /// Placeholder for future sidebar-toolbar "⋯" menu items. No-op today.
-    case toolbarMenuTapped
 
     // Reorder Projects within a Space (ForEach.onMove forwarder).
     case reorderProjects(from: IndexSet, to: Int, inSpace: SpaceID)
@@ -418,10 +416,6 @@ struct HierarchySidebarFeature {
       if let spaceID = hierarchyClient.snapshot().selectedSpaceID {
         state.addProject = AddProjectFeature.State(targetSpaceID: spaceID)
       }
-      return .none
-
-    case .toolbarMenuTapped:
-      // Placeholder — future toolbar "⋯" menu items hang here.
       return .none
 
     // MARK: Project hover chrome

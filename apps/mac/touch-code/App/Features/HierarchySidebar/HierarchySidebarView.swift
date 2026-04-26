@@ -252,18 +252,6 @@ struct HierarchySidebarView: View {
       }
       .help("Add Project to the active Space")
     }
-    ToolbarItem(placement: .primaryAction) {
-      Menu {
-        // Placeholder for future sidebar-level actions. Empty Menu still
-        // renders as a disabled dropdown, which is the spec-approved
-        // "stub entry point".
-        Text("(No actions yet)")
-      } label: {
-        Image(systemName: "ellipsis")
-          .accessibilityLabel("Sidebar options")
-      }
-      .help("Sidebar options")
-    }
   }
 
   // MARK: - Tree
