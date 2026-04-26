@@ -7,6 +7,15 @@ enum HierarchyError: Error, Equatable, Sendable {
   case invariantViolation(String)
 }
 
+/// Identifies a reorderable sidebar section under a Project. The full sidebar
+/// taxonomy has four sections (main / pinned / pending / unpinned, see
+/// `docs/design-docs/worktree-sidebar-ordering.md`); only `pinned` and
+/// `unpinned` admit user-initiated reordering, so this enum names just those.
+enum WorktreeSegment: Sendable, Equatable {
+  case pinned
+  case unpinned
+}
+
 @MainActor
 @Observable
 final class HierarchyManager {
@@ -268,7 +277,15 @@ final class HierarchyManager {
       tabs: [],
       selectedTabID: nil
     )
-    catalog.spaces[spaceIndex].projects[projectIndex].worktrees.append(worktree)
+    // Insert at the top of the unpinned segment (after the last main/pinned row,
+    // before the first unpinned row) so newly created worktrees are visible
+    // without scrolling. Empty / main-only / all-pinned cases naturally fall to
+    // the array tail because `unpinnedBoundary` returns `worktrees.count`.
+    let boundary = Self.unpinnedBoundary(
+      in: catalog.spaces[spaceIndex].projects[projectIndex].worktrees,
+      rootPath: catalog.spaces[spaceIndex].projects[projectIndex].rootPath
+    )
+    catalog.spaces[spaceIndex].projects[projectIndex].worktrees.insert(worktree, at: boundary)
     catalog.spaces[spaceIndex].projects[projectIndex].selectedWorktreeID = worktreeID
     store.scheduleSave(catalog)
     return worktreeID
@@ -1569,6 +1586,22 @@ final class HierarchyManager {
   ]
 
   // MARK: - Helpers
+
+  /// Index in `worktrees` where the unpinned segment begins — the first row
+  /// that would render in the unpinned section of the sidebar (non-archived,
+  /// not the main checkout, not pinned). Archived and pinned rows that happen
+  /// to sit later in the array do not pull the boundary back. Returns
+  /// `worktrees.count` when no unpinned row exists, so callers can use the
+  /// value directly as an `insert(at:)` or `move(toOffset:)` target.
+  private static func unpinnedBoundary(
+    in worktrees: [Worktree],
+    rootPath: String
+  ) -> Int {
+    for (i, w) in worktrees.enumerated() {
+      if !w.archived && !w.isPinned && w.path != rootPath { return i }
+    }
+    return worktrees.count
+  }
 
   private func findProjectIndices(projectID: ProjectID, spaceID: SpaceID) -> (Int, Int)? {
     guard let spaceIndex = catalog.spaces.firstIndex(where: { $0.id == spaceID }) else { return nil }
