@@ -43,16 +43,36 @@ struct HierarchySidebarView: View {
   /// (x=0) frames the AppKit introspection retries paper over.
   @State private var sidebarIndentReady = false
 
-  /// Non-archived worktrees in sidebar render order: main checkout first (the row whose
-  /// path matches the Project's rootPath), then user-pinned rows (catalog order), then
-  /// the rest (catalog order). Main checkout is kept first regardless of `isPinned` so
-  /// it never drops below another pin — mirrors supacode's "default" slot.
-  static func orderedVisibleWorktrees(in project: Project) -> [Worktree] {
+  /// Heterogeneous sidebar rows in render order: main → pinned → pending →
+  /// unpinned. Per-segment rules and rationale live in
+  /// docs/design-docs/worktree-sidebar-ordering.md §渲染合并. `pendings`
+  /// is filtered to the given project (caller passes the full sidebar-wide
+  /// list). task02 ships this with `pendings` always empty at the call
+  /// site; task03 will plumb the live `pendingWorktrees` collection in.
+  static func orderedSidebarRows(
+    project: Project,
+    pendings: [PendingWorktree]
+  ) -> [SidebarRow] {
     let visible = project.worktrees.filter { !$0.archived }
     let main = visible.filter { $0.path == project.rootPath }
     let pinned = visible.filter { $0.isPinned && $0.path != project.rootPath }
     let rest = visible.filter { !$0.isPinned && $0.path != project.rootPath }
-    return main + pinned + rest
+    let projectPending = pendings.filter { $0.projectID == project.id }
+    return main.map(SidebarRow.worktree)
+      + pinned.map(SidebarRow.worktree)
+      + projectPending.map(SidebarRow.pending)
+      + rest.map(SidebarRow.worktree)
+  }
+
+  /// Compat shim for the hotkey-enumeration path (`treeBody.hotkeyIndex`),
+  /// which only assigns slots to real worktrees. Derived from
+  /// `orderedSidebarRows` so the segment ordering stays in one place; the
+  /// `pendings: []` argument is correct for hotkey purposes — pending rows
+  /// never claim a `⌃⌘N` slot per design doc §pending 段 用户操作.
+  static func orderedVisibleWorktrees(in project: Project) -> [Worktree] {
+    orderedSidebarRows(project: project, pendings: []).compactMap { row in
+      if case .worktree(let w) = row { return w } else { return nil }
+    }
   }
 
   var body: some View {
@@ -414,19 +434,67 @@ struct HierarchySidebarView: View {
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
         if isExpanded {
-          ForEach(Self.orderedVisibleWorktrees(in: project)) { worktree in
+          // Render the segments individually so pinned and unpinned each
+          // own their own ForEach + .onMove (per design doc §渲染合并 /
+          // 拖拽). pending rows render here in source order between pinned
+          // and unpinned; task02 ships an empty pendings list, so the
+          // pending ForEach is a no-op until task03 plumbs the live
+          // collection in.
+          let visible = project.worktrees.filter { !$0.archived }
+          let mainRows = visible.filter { $0.path == project.rootPath }
+          let pinnedRows = visible.filter { $0.isPinned && $0.path != project.rootPath }
+          let unpinnedRows = visible.filter { !$0.isPinned && $0.path != project.rootPath }
+          let pendingRows: [PendingWorktree] = []
+          ForEach(mainRows) { worktree in
             worktreeRow(
-              worktree,
-              in: project,
-              space: space,
-              paneIndex: paneIndex,
-              inbox: inbox,
+              worktree, in: project, space: space, paneIndex: paneIndex, inbox: inbox,
               hotkeySlot: hotkeyIndex[worktree.id]
             )
           }
+          ForEach(pinnedRows) { worktree in
+            worktreeRow(
+              worktree, in: project, space: space, paneIndex: paneIndex, inbox: inbox,
+              hotkeySlot: hotkeyIndex[worktree.id]
+            )
+          }
+          // task01 will wire pinned-segment .onMove → reorderWorktrees
+          // forwarder once HierarchyClient exposes the closure;
+          // SidebarRow + per-segment ForEach already in place.
+          //   .onMove { source, destination in
+          //     store.send(.reorderWorktrees(
+          //       projectID: project.id, inSpace: space.id,
+          //       segment: .pinned, from: source, to: destination
+          //     ))
+          //   }
+          ForEach(pendingRows) { pending in
+            pendingRowPlaceholder(pending)
+          }
+          ForEach(unpinnedRows) { worktree in
+            worktreeRow(
+              worktree, in: project, space: space, paneIndex: paneIndex, inbox: inbox,
+              hotkeySlot: hotkeyIndex[worktree.id]
+            )
+          }
+          // task01 will wire unpinned-segment .onMove the same way.
         }
       }
     }
+  }
+
+  // MARK: - Pending row placeholder
+
+  /// Minimal placeholder for a `PendingWorktree` row. task02 ships the
+  /// shape only — `pendingRows` is always empty until task03 plumbs the
+  /// live `pendingWorktreeStore` through. task03 will replace this with
+  /// `PendingWorktreeRow.swift` (see design doc §Component Boundaries).
+  @ViewBuilder
+  private func pendingRowPlaceholder(_ pending: PendingWorktree) -> some View {
+    // task03 will replace this body with PendingWorktreeRow (full row
+    // chrome, Cancel / Retry / Discard menu, status icon, progress line).
+    Text(pending.displayName)
+      .font(.callout)
+      .foregroundStyle(.secondary)
+      .listRowSeparator(.hidden)
   }
 
   // MARK: - Worktree row
