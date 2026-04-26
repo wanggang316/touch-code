@@ -251,7 +251,116 @@ struct HierarchyManagerWorktreeMgmtTests {
   }
 
   @Test
-  func reconcileNeverDeletesExistingRows() throws {
+  func reconcileAutoArchivesStaleRows() throws {
+    // Worktrees deleted outside the app (`git worktree remove`) drop out
+    // of `wt ls --json`; reconcile soft-archives them so the sidebar's
+    // non-archived filter hides them and clicks no longer reach a stale
+    // cwd. Rows are kept in the catalog so Archived menu can restore.
+    let spaceID = manager.createSpace(name: "s")
+    let projectID = try manager.addProject(
+      to: spaceID, name: "p", rootPath: "/repo", gitRoot: "/repo"
+    )
+    _ = try manager.createWorktree(
+      in: projectID, in: spaceID, name: "main", path: "/repo", branch: "main"
+    )
+    let staleID = try manager.createWorktree(
+      in: projectID, in: spaceID, name: "stale", path: "/repo/stale", branch: "stale"
+    )
+    _ = manager.reconcileDiscoveredWorktrees(
+      projectID: projectID,
+      inSpace: spaceID,
+      entries: [(path: "/repo", branch: "main")]
+    )
+    let worktrees = manager.catalog.spaces[0].projects[0].worktrees
+    #expect(worktrees.count == 2)
+    let stale = worktrees.first { $0.id == staleID }
+    #expect(stale?.archived == true)
+  }
+
+  @Test
+  func reconcileNeverArchivesMainCheckout() throws {
+    // The main checkout (path == project.rootPath) cannot be archived
+    // (setWorktreeArchived throws). Reconcile must skip it even when
+    // `entries` is empty (e.g. transient git error) so the user is
+    // never locked out of their primary worktree.
+    let spaceID = manager.createSpace(name: "s")
+    let projectID = try manager.addProject(
+      to: spaceID, name: "p", rootPath: "/repo", gitRoot: "/repo"
+    )
+    let mainID = try manager.createWorktree(
+      in: projectID, in: spaceID, name: "main", path: "/repo", branch: "main"
+    )
+    _ = manager.reconcileDiscoveredWorktrees(
+      projectID: projectID, inSpace: spaceID, entries: []
+    )
+    let main = manager.catalog.spaces[0].projects[0].worktrees
+      .first { $0.id == mainID }
+    #expect(main?.archived == false)
+  }
+
+  @Test
+  func reconcilePreservesPinnedStaleRows() throws {
+    // Pinned rows encode explicit user intent; reconcile leaves them
+    // alone even when stale. The openPane defensive guard handles the
+    // click-on-stale case without losing the pin.
+    let spaceID = manager.createSpace(name: "s")
+    let projectID = try manager.addProject(
+      to: spaceID, name: "p", rootPath: "/repo", gitRoot: "/repo"
+    )
+    _ = try manager.createWorktree(
+      in: projectID, in: spaceID, name: "main", path: "/repo", branch: "main"
+    )
+    let pinnedID = try manager.createWorktree(
+      in: projectID, in: spaceID, name: "pinned", path: "/repo/pinned", branch: "pinned"
+    )
+    manager.setWorktreePinned(worktreeID: pinnedID, isPinned: true)
+    _ = manager.reconcileDiscoveredWorktrees(
+      projectID: projectID,
+      inSpace: spaceID,
+      entries: [(path: "/repo", branch: "main")]
+    )
+    let pinned = manager.catalog.spaces[0].projects[0].worktrees
+      .first { $0.id == pinnedID }
+    #expect(pinned?.archived == false)
+    #expect(pinned?.isPinned == true)
+  }
+
+  @Test
+  func reconcileTearsDownPanesOnAutoArchive() throws {
+    // Stale-archive must release pty surfaces — same contract as the
+    // user-invoked archive path. Without this, libghostty would hold
+    // a working dir that no longer exists and fail on the next read.
+    let spaceID = manager.createSpace(name: "s")
+    let projectID = try manager.addProject(
+      to: spaceID, name: "p", rootPath: "/repo", gitRoot: "/repo"
+    )
+    _ = try manager.createWorktree(
+      in: projectID, in: spaceID, name: "main", path: "/repo", branch: "main"
+    )
+    let staleID = try manager.createWorktree(
+      in: projectID, in: spaceID, name: "stale", path: "/repo/stale", branch: "stale"
+    )
+    let tabID = try manager.createTab(
+      in: staleID, in: projectID, in: spaceID, name: nil
+    )
+    let paneID = try manager.openPane(
+      in: tabID, in: staleID, in: projectID, in: spaceID,
+      workingDirectory: "/repo/stale", initialCommand: nil
+    )
+    fakeRuntime.reset()
+    fakeRuntime.livePaneIDs.insert(paneID)
+    _ = manager.reconcileDiscoveredWorktrees(
+      projectID: projectID,
+      inSpace: spaceID,
+      entries: [(path: "/repo", branch: "main")]
+    )
+    #expect(fakeRuntime.closeSurfaceCalls == [paneID])
+  }
+
+  @Test
+  func reconcileAutoArchiveIsIdempotent() throws {
+    // A second reconcile pass with the same stale set must not flip
+    // anything (already-archived guard) and must not schedule a save.
     let spaceID = manager.createSpace(name: "s")
     let projectID = try manager.addProject(
       to: spaceID, name: "p", rootPath: "/repo", gitRoot: "/repo"
@@ -262,14 +371,19 @@ struct HierarchyManagerWorktreeMgmtTests {
     _ = try manager.createWorktree(
       in: projectID, in: spaceID, name: "stale", path: "/repo/stale", branch: "stale"
     )
-    // `stale` is no longer in the on-disk entries — reconcile must
-    // still keep it in the catalog (only user-invoked Prune deletes).
+    let entries: [(path: String, branch: String?)] = [(path: "/repo", branch: "main")]
     _ = manager.reconcileDiscoveredWorktrees(
-      projectID: projectID,
-      inSpace: spaceID,
-      entries: [(path: "/repo", branch: "main")]
+      projectID: projectID, inSpace: spaceID, entries: entries
     )
-    #expect(manager.catalog.spaces[0].projects[0].worktrees.count == 2)
+    let archivedAfterFirst = manager.catalog.spaces[0].projects[0].worktrees
+      .filter(\.archived).count
+    _ = manager.reconcileDiscoveredWorktrees(
+      projectID: projectID, inSpace: spaceID, entries: entries
+    )
+    let archivedAfterSecond = manager.catalog.spaces[0].projects[0].worktrees
+      .filter(\.archived).count
+    #expect(archivedAfterFirst == 1)
+    #expect(archivedAfterSecond == 1)
   }
 
   // MARK: - runningPaneCount

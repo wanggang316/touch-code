@@ -391,6 +391,8 @@ final class HierarchyManager {
     let existingPaths = Set(
       project.worktrees.map { Self.canonicalPath($0.path) }
     )
+    let discoveredPaths = Set(entries.map { Self.canonicalPath($0.path) })
+    let rootCanonical = Self.canonicalPath(project.rootPath)
     var appended = 0
     for entry in entries {
       let canonical = Self.canonicalPath(entry.path)
@@ -410,7 +412,36 @@ final class HierarchyManager {
       catalog.spaces[spaceIndex].projects[projectIndex].worktrees.append(worktree)
       appended += 1
     }
-    if appended > 0 {
+    // Bidirectional sync: rows whose canonical path is no longer in the
+    // discovered set are stale (the worktree was deleted via `git worktree
+    // remove` or `git worktree prune` outside the app). Soft-archive them
+    // so they vanish from the sidebar but the user can still inspect or
+    // restore via the Archived menu. Skip the main checkout (cannot be
+    // archived per setWorktreeArchived's invariant) and pinned rows
+    // (preserve user intent — `openPane` still guards the click path).
+    var archivedCount = 0
+    let snapshot = catalog.spaces[spaceIndex].projects[projectIndex].worktrees
+    for worktree in snapshot {
+      let canonical = Self.canonicalPath(worktree.path)
+      guard
+        !discoveredPaths.contains(canonical),
+        canonical != rootCanonical,
+        !worktree.isPinned,
+        !worktree.archived
+      else { continue }
+      for pane in worktree.tabs.flatMap({ $0.panes }) {
+        runtime.closeSurface(for: pane.id)
+        runningPanes.remove(pane.id)
+      }
+      if let idx = catalog.spaces[spaceIndex].projects[projectIndex]
+        .worktrees.firstIndex(where: { $0.id == worktree.id })
+      {
+        catalog.spaces[spaceIndex].projects[projectIndex]
+          .worktrees[idx].archived = true
+        archivedCount += 1
+      }
+    }
+    if appended > 0 || archivedCount > 0 {
       store.scheduleSave(catalog)
     }
     return appended

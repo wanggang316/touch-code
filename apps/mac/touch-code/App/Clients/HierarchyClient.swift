@@ -450,6 +450,18 @@ extension HierarchyClient {
       markPaneRunning: { paneID in manager.markPaneRunning(paneID) },
       markPaneIdle: { paneID in manager.markPaneIdle(paneID) },
       openPane: { [weak settings] tabID, worktreeID, projectID, spaceID, cwd, initial in
+        // Defensive guard against stale catalog state: when a worktree
+        // is deleted outside the app (`git worktree remove`) before
+        // reconcile catches up, libghostty crashes if it tries to spawn
+        // a shell in a non-existent cwd. Reject here so callers'
+        // `try?` swallows the error instead of bringing down the app.
+        var isDir: ObjCBool = false
+        guard
+          FileManager.default.fileExists(atPath: cwd, isDirectory: &isDir),
+          isDir.boolValue
+        else {
+          throw HierarchyError.notFound("Worktree path missing: \(cwd)")
+        }
         // M8: resolve project envVars from the SettingsStore so every
         // user-flow openPane (TabBar new-tab, SplitViewport new-tab,
         // CreateWorktree, IPC openPane) inherits Project-defined env. When
