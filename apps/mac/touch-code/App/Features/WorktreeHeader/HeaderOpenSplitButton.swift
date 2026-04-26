@@ -47,6 +47,7 @@ struct HeaderOpenSplitButton: View {
     .buttonStyle(.borderless)
     .accessibilityLabel(primaryDescription)
     .help(primaryDescription)
+    .modifier(HeaderChipHover())
   }
 
   @ViewBuilder
@@ -112,6 +113,7 @@ struct HeaderOpenSplitButton: View {
     .menuIndicator(.hidden)
     .accessibilityLabel("Choose editor")
     .help("Choose editor")
+    .modifier(HeaderChipHover())
   }
 
   @ViewBuilder

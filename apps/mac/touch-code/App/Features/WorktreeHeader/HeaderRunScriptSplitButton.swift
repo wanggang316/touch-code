@@ -56,6 +56,7 @@ struct HeaderRunScriptSplitButton: View {
     .buttonStyle(.borderless)
     .accessibilityLabel(primaryLabel)
     .help(primaryHelp)
+    .modifier(HeaderChipHover())
   }
 
   private func primaryAction() {
@@ -98,6 +99,7 @@ struct HeaderRunScriptSplitButton: View {
     .menuIndicator(.hidden)
     .accessibilityLabel("Choose script")
     .help("Choose script")
+    .modifier(HeaderChipHover())
   }
 
   @ViewBuilder
