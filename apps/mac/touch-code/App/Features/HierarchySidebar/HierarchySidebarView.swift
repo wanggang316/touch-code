@@ -38,6 +38,11 @@ struct HierarchySidebarView: View {
   /// switching (see `MainWindowCommands`), so worktree jumps get `⌃⌘N` instead.
   private static let hotkeyModifiers: EventModifiers = [.command, .control]
 
+  /// Flips to true once `_UnclampedClipView` has been swapped in. Until then
+  /// the List renders at `opacity(0)` so the user never sees the unshifted
+  /// (x=0) frames the AppKit introspection retries paper over.
+  @State private var sidebarIndentReady = false
+
   /// Non-archived worktrees in sidebar render order: main checkout first (the row whose
   /// path matches the Project's rootPath), then user-pinned rows (catalog order), then
   /// the rest (catalog order). Main checkout is kept first regardless of `isPinned` so
@@ -300,7 +305,8 @@ struct HierarchySidebarView: View {
           }
         }
         .listStyle(.sidebar)
-        .background(SidebarIndentZeroer())
+        .opacity(sidebarIndentReady ? 1 : 0)
+        .background(SidebarIndentZeroer(onReady: { sidebarIndentReady = true }))
       }
     } else {
       noSpacesState
@@ -1018,14 +1024,25 @@ private struct ProjectHeaderRow: View {
 ///      internal leading padding without losing hit-testing).
 ///
 /// Retries a few times because the List may not be attached when
-/// `viewDidMoveToWindow` first fires.
+/// `viewDidMoveToWindow` first fires. Fires `onReady` once any outline has
+/// been patched so the SwiftUI parent can gate visibility on install — the
+/// 6pt clip-view shift would otherwise visibly snap rows left mid-launch.
 private struct SidebarIndentZeroer: NSViewRepresentable {
-  func makeNSView(context: Context) -> NSView { _IndentZeroerView() }
-  func updateNSView(_ nsView: NSView, context: Context) {}
+  var onReady: () -> Void = {}
+  func makeNSView(context: Context) -> NSView {
+    let view = _IndentZeroerView()
+    view.onReady = onReady
+    return view
+  }
+  func updateNSView(_ nsView: NSView, context: Context) {
+    (nsView as? _IndentZeroerView)?.onReady = onReady
+  }
 }
 
 private final class _IndentZeroerView: NSView {
+  var onReady: (() -> Void)?
   private var attempts = 0
+  private var didFireReady = false
 
   override func viewDidMoveToWindow() {
     super.viewDidMoveToWindow()
@@ -1036,9 +1053,13 @@ private final class _IndentZeroerView: NSView {
   private func patch() {
     guard let root = window?.contentView else { return }
     let outlines = findOutlineViews(in: root)
-    if outlines.isEmpty, attempts < 20 {
+    if outlines.isEmpty, attempts < 60 {
       attempts += 1
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+      // First handful of retries fire next-runloop (≈1 frame) so the gate
+      // flips before the user can perceive the unshifted rows; fall back
+      // to 100ms after that in case the List takes longer than expected.
+      let delay: DispatchTime = attempts < 10 ? .now() : .now() + 0.1
+      DispatchQueue.main.asyncAfter(deadline: delay) { [weak self] in
         self?.patch()
       }
       return
@@ -1048,6 +1069,10 @@ private final class _IndentZeroerView: NSView {
       outline.intercellSpacing = NSSize(width: 0, height: outline.intercellSpacing.height)
       outline.outlineTableColumn?.minWidth = 0
       installUnclampedClipView(for: outline, leadingOffset: 6)
+    }
+    if !outlines.isEmpty, !didFireReady {
+      didFireReady = true
+      onReady?()
     }
   }
 
@@ -1062,6 +1087,12 @@ private final class _IndentZeroerView: NSView {
   /// the first user interaction.
   private func installUnclampedClipView(for outline: NSOutlineView, leadingOffset: CGFloat) {
     guard let scrollView = outline.enclosingScrollView else { return }
+    // `bounds.origin.y` on the original clip view encodes the top
+    // content-inset / safe-area offset AppKit sets during initial layout
+    // (titlebar gutter on a sidebar column). A freshly allocated
+    // _UnclampedClipView starts at y=0, so we must carry that y forward —
+    // otherwise rows render visibly lower than the eventual steady-state.
+    let preservedY = scrollView.contentView.bounds.origin.y
     if !(scrollView.contentView is _UnclampedClipView) {
       let oldClip = scrollView.contentView
       let newClip = _UnclampedClipView()
@@ -1074,7 +1105,7 @@ private final class _IndentZeroerView: NSView {
     }
     guard let clip = scrollView.contentView as? _UnclampedClipView else { return }
     clip.leadingOffset = leadingOffset
-    clip.setBoundsOrigin(NSPoint(x: leadingOffset, y: clip.bounds.origin.y))
+    clip.setBoundsOrigin(NSPoint(x: leadingOffset, y: preservedY))
     scrollView.tile()
     scrollView.reflectScrolledClipView(clip)
   }

@@ -447,7 +447,7 @@ final class AppState {
     try? inboxStore.saveNow()
     try? notificationBootstrap?.flushPendingWrites()
     notificationBootstrap?.shutdown()
-    // `CatalogStore` writes on scheduleSave and on app termination via its own signals.
+    catalogStore.flushPending()
   }
 }
 

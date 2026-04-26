@@ -45,6 +45,21 @@ final class CatalogStore {
     try AtomicFileStore.write(catalog, to: fileURL)
   }
 
+  /// Synchronous flush for app termination. Cancels the pending debounced
+  /// task and writes `latestCatalog` immediately so the last sidebar
+  /// mutation (selection / expansion / Space switch) is not dropped when
+  /// the user quits within the 500 ms debounce window.
+  func flushPending() {
+    pendingSaveTask?.cancel()
+    pendingSaveTask = nil
+    guard let toSave = latestCatalog else { return }
+    do {
+      try saveNow(toSave)
+    } catch {
+      logger.error("Failed to flush catalog on termination: \(error)")
+    }
+  }
+
   private func backupBrokenFile() {
     let timestamp = ISO8601DateFormatter().string(from: Date())
     let backupURL = fileURL.deletingLastPathComponent()
