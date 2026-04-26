@@ -20,12 +20,16 @@ This is a living document. The Progress, Surprises & Discoveries, Decision Log, 
 
 ## Progress
 
+**Phase A (complete: 2026-04-26 21:45 UTC)**
 - [x] M1 — `SidebarRow.swift` 新建（含 `PendingWorktree` / `PendingWorktreeID` stub）（2026-04-26）
 - [x] M2 — `HierarchySidebarView.orderedSidebarRows(project:, pendings:)` 实现 + `orderedVisibleWorktrees` 改写为派生 shim（2026-04-26）
 - [x] M3 — `HierarchySidebarView` ForEach 拆 main / pinned / pending / unpinned 四段 + `pendingRowPlaceholder(_:)` 占位 + `.onMove` TODO（2026-04-26）
+- [x] M5 — 测试：ordering 4 用例 通过（`HierarchySidebarOrderingTests.swift` commit a4da9c4）；lint / build 绿灯（2026-04-26）
+
+**Phase B (awaiting task01 merge)**
 - [ ] M4 — Reducer forwarder：`reorderWorktrees(projectID:, inSpace:, segment:, from:, to:)`（依赖 task01）
-- [/] M5 — 测试：ordering 4 用例 写完（`HierarchySidebarOrderingTests.swift`），等 build 验证；reducer reorder forwarder 用例待 Phase B
-- [ ] M6 — `make mac-lint` + `make mac-build` + `swift test`（全 sidebar 测试）通过
+- [ ] M5b — Reducer forwarder 测试 1 用例（`HierarchySidebarFeatureTests.swift` 补充）
+- [ ] M6 — `.onMove` 取消注释 + 测试通过
 - [ ] M7 — push + `gh pr create --base main`
 
 ## Surprises & Discoveries
