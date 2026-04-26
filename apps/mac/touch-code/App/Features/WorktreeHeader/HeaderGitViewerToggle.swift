@@ -19,7 +19,7 @@ struct HeaderGitViewerToggle: View {
   /// Same locked side length as the caret chips on the sibling split
   /// buttons — keeps the trailing cluster reading as three uniformly
   /// sized icon targets.
-  private static let chipSide: CGFloat = 22
+  private static let chipSide: CGFloat = 28
 
   var body: some View {
     Button {

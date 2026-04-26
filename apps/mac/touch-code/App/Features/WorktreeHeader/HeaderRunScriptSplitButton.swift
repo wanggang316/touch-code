@@ -20,7 +20,7 @@ struct HeaderRunScriptSplitButton: View {
   /// Locked vertical extent. Mirrors `HeaderOpenSplitButton.chipHeight`
   /// — kept duplicated rather than extracted to a shared constant since
   /// the two split buttons remain independent surfaces.
-  private static let chipHeight: CGFloat = 22
+  private static let chipHeight: CGFloat = 28
 
   var body: some View {
     HStack(spacing: 4) {
@@ -55,8 +55,7 @@ struct HeaderRunScriptSplitButton: View {
         Text(primaryLabel)
           .lineLimit(1)
       }
-      .padding(.horizontal, 6)
-      .frame(height: Self.chipHeight)
+      .padding(6)
     }
     .buttonStyle(.plain)
     .accessibilityLabel(primaryLabel)

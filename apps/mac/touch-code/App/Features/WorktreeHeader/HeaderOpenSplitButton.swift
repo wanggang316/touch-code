@@ -20,11 +20,11 @@ struct HeaderOpenSplitButton: View {
   @Environment(HierarchyManager.self) private var hierarchyManager
   @Environment(SettingsStore.self) private var settingsStore
 
-  /// Locked vertical extent for both halves. `.frame(height:)` on the
-  /// primary keeps top/bottom padding symmetric regardless of icon vs
-  /// text intrinsic heights; the caret reuses the same dimension on
-  /// width AND height to read as a 1:1 square.
-  private static let chipHeight: CGFloat = 22
+  /// Locked vertical extent for both halves: 16pt icon + 2 × 6pt
+  /// padding so vertical breathing room equals the horizontal padding
+  /// (`.padding(6)` on the primary). Caret reuses this on width AND
+  /// height to read as a 1:1 square the same height as the primary.
+  private static let chipHeight: CGFloat = 28
 
   var body: some View {
     HStack(spacing: 4) {
@@ -51,8 +51,7 @@ struct HeaderOpenSplitButton: View {
         Text(primaryLabel)
           .lineLimit(1)
       }
-      .padding(.horizontal, 6)
-      .frame(height: Self.chipHeight)
+      .padding(6)
     }
     .buttonStyle(.plain)
     .accessibilityLabel(primaryDescription)
