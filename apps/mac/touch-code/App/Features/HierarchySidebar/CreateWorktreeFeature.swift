@@ -4,12 +4,13 @@ import TouchCodeCore
 
 /// Reducer backing the "+ Create Worktree" sheet. State tracks user
 /// input, three-way option loading (branch refs / local branches /
-/// default remote branch), live branch-name validation, streaming
-/// progress, and the post-create sidecar actions (append catalog,
-/// select, open a Tab + Pane in the new directory).
+/// default remote branch), live branch-name validation, and the
+/// post-validation hand-off to the parent sidebar reducer.
 ///
-/// Streaming progress buffer feeds from the `wt sw` driver. See
-/// `docs/design-docs/worktree-management-design.md` §CreateWorktreeFeature.
+/// After the pending-row redesign (worktree-sidebar-ordering.md
+/// §pending 段), the streaming `wt sw` consumer + catalog write +
+/// setup-script dispatch live on `HierarchySidebarFeature`. This
+/// reducer's responsibility ends at `delegate(.beginCreate(pending))`.
 @Reducer
 struct CreateWorktreeFeature {
   @ObservableState
@@ -24,6 +25,11 @@ struct CreateWorktreeFeature {
     /// itself is read-only on this — changing it lives in the Project
     /// options flow owned by T-PROJECT.
     let worktreesDirectory: URL
+    /// Snapshot of how many pending creations the parent sidebar already
+    /// holds for this Project. Drives the cap banner + Create-button
+    /// disable. Injected at sheet construction; the sheet does not read
+    /// the parent's pending set.
+    let currentPendingCountForProject: Int
 
     // Options loaded asynchronously on presentation.
     var baseRefOptions: [String] = []
@@ -41,8 +47,6 @@ struct CreateWorktreeFeature {
     // Transient derived state.
     var validationError: String?
     var submitError: String?
-    var progressLines: [String] = []
-    var isSubmitting: Bool = false
   }
 
   enum Action: Equatable {
@@ -60,9 +64,6 @@ struct CreateWorktreeFeature {
     case copyUntrackedToggled(Bool)
 
     case createButtonTapped
-    case progressLine(String)
-    case createFailed(String)
-    case createSucceeded(URL)
 
     case cancelButtonTapped
     case delegate(Delegate)
@@ -70,22 +71,12 @@ struct CreateWorktreeFeature {
     @CasePathable
     enum Delegate: Equatable {
       case dismissed
-      /// Emitted after a successful create flow so the parent can
-      /// dismiss the sheet. The new WorktreeID is not threaded back —
-      /// the parent re-reads from `HierarchyManager.catalog`.
-      case submitted
-      /// M9: setup-script outcome surfaces here after the catalog +
-      /// pane wiring completes. The parent forwards to RootFeature so
-      /// `LifecycleScriptToast` can surface the output.
-      case lifecycleScriptResult(
-        phase: SettingsWriter.WorktreeLifecycle,
-        worktreeName: String,
-        result: LifecycleScriptResult
-      )
+      /// Form is valid and pre-checks passed. Parent dismisses the
+      /// sheet and starts the pending lifecycle.
+      case beginCreate(PendingWorktree)
     }
   }
 
-  @Dependency(HierarchyClient.self) private var hierarchyClient
   @Dependency(GitWorktreeClient.self) private var gitWorktreeClient
 
   var body: some Reducer<State, Action> {
@@ -184,10 +175,13 @@ struct CreateWorktreeFeature {
             """
           return .none
         }
+        guard state.currentPendingCountForProject < 8 else {
+          state.submitError =
+            "Up to 8 worktree creations can be queued. Wait for one to finish."
+          return .none
+        }
 
-        state.isSubmitting = true
         state.submitError = nil
-        state.progressLines = []
 
         let spec = CreateWorktreeSpec(
           repoRoot: state.repoRoot,
@@ -199,79 +193,17 @@ struct CreateWorktreeFeature {
           copyIgnored: state.copyIgnored,
           copyUntracked: state.copyUntracked
         )
-        let client = gitWorktreeClient
-        return .run { send in
-          do {
-            for try await event in client.createWorktreeStream(spec) {
-              switch event {
-              case .progressLine(let line):
-                await send(.progressLine(line))
-              case .finished(let path):
-                await send(.createSucceeded(path))
-                return
-              }
-            }
-            await send(.createFailed("wt exited without reporting a path"))
-          } catch let error as GitWorktreeError {
-            await send(.createFailed(humanReadable(error)))
-          } catch {
-            await send(.createFailed(error.localizedDescription))
-          }
-        }
-
-      case .progressLine(let line):
-        state.progressLines.append(line)
-        return .none
-
-      case .createFailed(let message):
-        state.isSubmitting = false
-        state.submitError = message
-        return .none
-
-      case .createSucceeded(let path):
-        state.isSubmitting = false
-        let projectID = state.projectID
-        let spaceID = state.spaceID
-        let branch = state.branchNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        let directoryName = GitWorktreeClient.sanitizeBranchName(branch)
-        let pathString = path.standardizedFileURL.path(percentEncoded: false)
-        let worktreeID: WorktreeID
-        do {
-          worktreeID = try hierarchyClient.createWorktreeWithGit(
-            projectID, spaceID, branch, directoryName, pathString
-          )
-          try hierarchyClient.selectWorktree(worktreeID, projectID, spaceID)
-          let tabID = try hierarchyClient.createTab(worktreeID, projectID, spaceID, nil)
-          _ = try hierarchyClient.openPane(
-            tabID, worktreeID, projectID, spaceID, pathString, nil
-          )
-        } catch {
-          state.submitError =
-            "Worktree created on disk, but failed to attach in the sidebar: \(error.localizedDescription)"
-          return .none
-        }
-        // M9: dismiss the sheet immediately, then run the setup script
-        // via the script-only path (the catalog row + on-disk
-        // directory both already exist — `wt sw` made the directory,
-        // `createWorktreeWithGit` registered the row). The toast
-        // surfaces the result on the main window. Setup deviates from
-        // the create-with-lifecycle wrapper here: rollback would
-        // require an extra `git worktree remove` we deliberately
-        // don't risk in the create-only path.
-        let client = hierarchyClient
-        return .merge(
-          .send(.delegate(.submitted)),
-          .run { send in
-            let result = await client.runWorktreeLifecycleScript(
-              .setup, worktreeID, projectID
-            )
-            await send(
-              .delegate(
-                .lifecycleScriptResult(
-                  phase: .setup, worktreeName: branch, result: result))
-            )
-          }
+        let pending = PendingWorktree(
+          id: PendingWorktreeID(),
+          projectID: state.projectID,
+          spaceID: state.spaceID,
+          spec: spec,
+          displayName: trimmed,
+          status: .running,
+          lastProgressLine: nil,
+          startedAt: Date()
         )
+        return .send(.delegate(.beginCreate(pending)))
 
       case .cancelButtonTapped:
         return .send(.delegate(.dismissed))
@@ -279,29 +211,6 @@ struct CreateWorktreeFeature {
       case .delegate:
         return .none
       }
-    }
-  }
-
-  /// Maps `GitWorktreeError` to sheet-banner text. Reads better than
-  /// `localizedDescription`, which is often the raw stderr.
-  private func humanReadable(_ error: GitWorktreeError) -> String {
-    switch error {
-    case .branchExists(let name):
-      return "Branch \"\(name)\" already exists."
-    case .invalidBranchName(let name):
-      return "Branch name \"\(name)\" is not valid."
-    case .refNotFound(let ref):
-      return "Base ref not found: \(ref)"
-    case .fetchFailed(let detail):
-      return "git fetch origin failed: \(detail)"
-    case .executableMissing:
-      return "The bundled wt helper is missing. Reinstall touch-code."
-    case .uncommittedChanges:
-      return "The worktree has uncommitted changes."
-    case .worktreeLocked(let detail):
-      return "Worktree is locked: \(detail)"
-    case .commandFailed(let command, let stderr):
-      return "\(command): \(stderr)"
     }
   }
 }
