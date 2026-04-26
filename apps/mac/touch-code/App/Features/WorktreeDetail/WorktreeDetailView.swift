@@ -257,7 +257,7 @@ struct WorktreeDetailView: View {
         worktreePath: info.worktree.path
       )
       .buttonStyle(.plain)
-      .padding(.horizontal, Self.trailingCapsuleInset)
+      .modifier(TrailingChipHover())
     }
     ToolbarSpacer(.fixed)
     ToolbarItem {
@@ -267,7 +267,7 @@ struct WorktreeDetailView: View {
         worktreeID: info.worktree.id
       )
       .buttonStyle(.plain)
-      .padding(.horizontal, Self.trailingCapsuleInset)
+      .modifier(TrailingChipHover())
     }
     if info.project.supportsWorktrees {
       ToolbarSpacer(.fixed)
@@ -277,7 +277,7 @@ struct WorktreeDetailView: View {
           visible: info.worktree.gitViewerVisible
         )
         .buttonStyle(.plain)
-        .padding(.horizontal, Self.trailingCapsuleInset)
+        .modifier(TrailingChipHover())
       }
     }
   }
@@ -285,7 +285,7 @@ struct WorktreeDetailView: View {
   /// Horizontal breathing room inside each trailing capsule. Matches the
   /// look of the status capsule — content sits 8pt off each edge of the
   /// glass background instead of hugging it.
-  private static let trailingCapsuleInset: CGFloat = 8
+  fileprivate static let trailingCapsuleInset: CGFloat = 8
 
   @ToolbarContentBuilder
   private func branchToolbarItem(info: WorktreeInfo) -> some ToolbarContent {
@@ -400,5 +400,29 @@ private struct SuppressTitleModifier: ViewModifier {
     } else {
       content.navigationTitle("")
     }
+  }
+}
+
+/// Hover-aware background for the trailing toolbar chips. The header
+/// buttons internally use `.buttonStyle(.borderless)` which suppresses
+/// the system's hover state on macOS 26's glass capsule, so we paint a
+/// subtle rounded fill ourselves on hover. Also keeps the in-capsule
+/// horizontal inset (`trailingCapsuleInset`) on the modifier rather
+/// than at every call site, so the hover fill spans the full chip
+/// instead of a sliver inside the padding.
+private struct TrailingChipHover: ViewModifier {
+  @State private var isHovering = false
+
+  func body(content: Content) -> some View {
+    content
+      .padding(.horizontal, WorktreeDetailView.trailingCapsuleInset)
+      .padding(.vertical, 2)
+      .background(
+        RoundedRectangle(cornerRadius: 6, style: .continuous)
+          .fill(Color.primary.opacity(isHovering ? 0.08 : 0))
+      )
+      .contentShape(.rect(cornerRadius: 6))
+      .onHover { isHovering = $0 }
+      .animation(.easeOut(duration: 0.12), value: isHovering)
   }
 }
