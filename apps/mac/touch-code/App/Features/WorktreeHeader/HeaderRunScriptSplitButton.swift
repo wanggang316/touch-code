@@ -2,44 +2,41 @@ import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
 
-/// Split button: left half runs the Project's primary script (first
-/// `.run` kind, falling back to first script overall); right half
-/// (caret) lists every script plus a "Manage Scripts…" footer.
-/// Empty-state: primary click and every menu item route to "Manage
-/// Scripts" so users land in a place where they can create one.
+/// Split button chip — same explicit geometry contract as
+/// `HeaderOpenSplitButton`. Outer capsule is drawn here (not by macOS
+/// 26's toolbar shared background) so the four-side gap to the inner
+/// halves stays uniform.
 ///
-/// Layout mirrors `HeaderOpenSplitButton` — two siblings in an HStack
-/// with a fixed 22pt height so primary padding stays symmetric and the
-/// caret renders as a 1:1 square.
+/// Both halves dispatch through `WorktreeHeaderFeature.delegate` so
+/// `RootFeature` owns the `HierarchyClient.runScript` effect.
 struct HeaderRunScriptSplitButton: View {
   @Bindable var store: StoreOf<WorktreeHeaderFeature>
   let projectID: ProjectID
   let worktreeID: WorktreeID
   @Environment(SettingsStore.self) private var settingsStore
 
-  /// Layout invariants — see `HeaderOpenSplitButton` for the rationale.
-  /// The two split buttons stay structurally identical so the toolbar
-  /// reads as one cohesive cluster.
-  private static let chipSide: CGFloat = 22
-  private static let edgeInset: CGFloat = 4
+  static let innerHeight: CGFloat = HeaderOpenSplitButton.innerHeight
+  static let gap: CGFloat = HeaderOpenSplitButton.gap
 
   var body: some View {
     HStack(spacing: 4) {
       primary
       caret
     }
-    .padding(Self.edgeInset)
+    .frame(height: Self.innerHeight)
+    .padding(Self.gap)
+    .background(
+      Capsule(style: .continuous)
+        .fill(.regularMaterial)
+    )
   }
 
   // MARK: - State derivation
 
-  /// Scripts attached to this Project, in array order.
   private var scripts: [ScriptDefinition] {
     settingsStore.settings.projects[projectID]?.scripts ?? []
   }
 
-  /// Default script for the primary click. First `.run`-kind entry, falling
-  /// back to the array's first entry. `nil` when the Project has no scripts.
   private var primaryScript: ScriptDefinition? {
     scripts.first { $0.kind == .run } ?? scripts.first
   }
@@ -58,7 +55,7 @@ struct HeaderRunScriptSplitButton: View {
           .lineLimit(1)
       }
       .padding(.horizontal, 6)
-      .frame(height: Self.chipSide)
+      .frame(height: Self.innerHeight)
     }
     .buttonStyle(.plain)
     .accessibilityLabel(primaryLabel)
@@ -99,7 +96,7 @@ struct HeaderRunScriptSplitButton: View {
       Image(systemName: "chevron.down")
         .font(.caption.bold())
         .accessibilityHidden(true)
-        .frame(width: Self.chipSide, height: Self.chipSide)
+        .frame(width: Self.innerHeight, height: Self.innerHeight)
     }
     .menuStyle(.button)
     .buttonStyle(.plain)

@@ -2,12 +2,17 @@ import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
 
-/// Split button: left half opens the resolved default editor; right
-/// half (caret) is the picker menu. Built as two siblings inside one
-/// HStack — both halves share the toolbar's glass capsule but light up
-/// independently on hover via `HeaderChipHover`. Caret is a fixed 1:1
-/// square the same height as the primary chip so the visual contract
-/// matches the Run-Script split button.
+/// Split button chip with explicit, fully controlled geometry. macOS 26's
+/// `ToolbarItem` glass capsule has asymmetric intrinsic padding (wider
+/// horizontal than vertical), so we suppress the shared background at
+/// the call site (`sharedBackgroundVisibility(.hidden)`) and draw our
+/// own capsule here. This gives us exact control over:
+///
+/// 1. Fixed outer height = `innerHeight + 2 × gap`.
+/// 2. Dynamic outer width — primary content drives it.
+/// 3. Caret is a 1:1 `innerHeight × innerHeight` square.
+/// 4. Inner halves sit with the same `gap` to the outer capsule on
+///    every side (top, bottom, left, right).
 ///
 /// Resolution + delegate routing flow through `WorktreeHeaderFeature`,
 /// keeping the open side-effect on `RootFeature`.
@@ -20,26 +25,20 @@ struct HeaderOpenSplitButton: View {
   @Environment(HierarchyManager.self) private var hierarchyManager
   @Environment(SettingsStore.self) private var settingsStore
 
-  /// Layout invariants:
-  /// 1. The outer toolbar capsule has a fixed total height (computed
-  ///    here as `chipSide + 2 × edgeInset` plus the toolbar's own glass
-  ///    padding).
-  /// 2. The outer width is dynamic — primary text varies as the user
-  ///    picks a different default editor.
-  /// 3. The caret is a hard 1:1 square (`chipSide × chipSide`).
-  /// 4. The two inner halves (primary, caret) sit inside the outer
-  ///    capsule with the same `edgeInset` on every side.
-  private static let chipSide: CGFloat = 22
-  private static let edgeInset: CGFloat = 4
+  static let innerHeight: CGFloat = 22
+  static let gap: CGFloat = 4
 
   var body: some View {
     HStack(spacing: 4) {
       primary
       caret
     }
-    // The same inset on every side gives equal breathing room between
-    // the two inner halves and the outer toolbar capsule.
-    .padding(Self.edgeInset)
+    .frame(height: Self.innerHeight)
+    .padding(Self.gap)
+    .background(
+      Capsule(style: .continuous)
+        .fill(.regularMaterial)
+    )
     .task { editorStore.send(.onAppear) }
   }
 
@@ -60,12 +59,8 @@ struct HeaderOpenSplitButton: View {
         Text(primaryLabel)
           .lineLimit(1)
       }
-      // Horizontal padding gives the icon + text breathing room inside
-      // the primary hover capsule. Vertical sizing comes from the
-      // shared `.frame(height: chipSide)` so this half is flush with
-      // the caret square.
       .padding(.horizontal, 6)
-      .frame(height: Self.chipSide)
+      .frame(height: Self.innerHeight)
     }
     .buttonStyle(.plain)
     .accessibilityLabel(primaryDescription)
@@ -129,7 +124,7 @@ struct HeaderOpenSplitButton: View {
       Image(systemName: "chevron.down")
         .font(.caption.bold())
         .accessibilityHidden(true)
-        .frame(width: Self.chipSide, height: Self.chipSide)
+        .frame(width: Self.innerHeight, height: Self.innerHeight)
     }
     .menuStyle(.button)
     .buttonStyle(.plain)
