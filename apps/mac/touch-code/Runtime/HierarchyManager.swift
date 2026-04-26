@@ -622,8 +622,21 @@ final class HierarchyManager {
       // new last tab. After `remove(at:)`, the original right neighbor sits at
       // `tabIndex`; an out-of-range index means we removed the trailing tab.
       let remaining = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs
-      let next = tabIndex < remaining.count ? remaining[tabIndex] : remaining.last
-      catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].selectedTabID = next?.id
+      let nextTab = tabIndex < remaining.count ? remaining[tabIndex] : remaining.last
+      catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].selectedTabID = nextTab?.id
+      // Transfer AppKit first-responder focus to the new tab's surface.
+      // Without this the closed surface's responder slot stays empty and
+      // the next ⌘W bypasses Ghostty's `performKeyEquivalent`, falling
+      // through to the menu where the system Close Window shadows our
+      // binding and shuts the window. Mirrors `selectTab`'s focus logic.
+      if let nextTab {
+        let flatPaneIDs = Set(nextTab.panes.map(\.id))
+        let remembered = lastFocusedPaneByTab[nextTab.id]
+          .flatMap { flatPaneIDs.contains($0) ? $0 : nil }
+        if let focusID = remembered ?? nextTab.splitTree.leaves().first {
+          runtime.focusSurfaceView(for: focusID)
+        }
+      }
     }
     store.scheduleSave(catalog)
   }

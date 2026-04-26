@@ -661,6 +661,23 @@ struct HierarchyManagerTests {
   }
 
   @Test
+  func closeTabFocusesSurfaceOfNewlySelectedTab() throws {
+    // Without this focus transfer, the closed surface's responder slot
+    // stays empty and subsequent ⌘W bypasses Ghostty's perfKE, falling
+    // through to the menu where the system Close Window can shadow
+    // our binding and close the whole window.
+    let (sp, pr, wt, tabs) = try makeFixtureWithThreeTabs()
+    fakeRuntime.reset()
+    // Close the trailing (selected) tab → fallback to its left neighbor.
+    try manager.closeTab(tabs[2], in: wt, in: pr, in: sp)
+    let newSelected = manager.catalog.spaces[0].projects[0].worktrees[0].selectedTabID
+    #expect(newSelected == tabs[1])
+    let neighborPaneID = manager.catalog.spaces[0].projects[0]
+      .worktrees[0].tabs.first { $0.id == tabs[1] }!.panes[0].id
+    #expect(fakeRuntime.focusSurfaceViewCalls.contains(neighborPaneID))
+  }
+
+  @Test
   func closeAllTabsEmptiesWorktree() throws {
     let (sp, pr, wt, _) = try makeFixtureWithThreeTabs()
     try manager.closeAllTabs(in: wt, in: pr, in: sp)
