@@ -469,13 +469,17 @@ struct HierarchySidebarView: View {
     // sibling rows from `projectSection`), so `.listRowInsets` + `.listRowBackground`
     // are the right knobs. The rounded-pill selection lives in the row background so
     // the selection wash does not paint into the list's trailing gutter.
-    .listRowInsets(EdgeInsets(top: 3, leading: 8, bottom: 3, trailing: 8))
+    // Leading 14 and pill leading 18 compensate the +6pt clip-view shift in
+    // `_UnclampedClipView` and add a +8pt visual indent so worktree content
+    // reads as a child level under the (left-aligned) project header.
+    .listRowInsets(EdgeInsets(top: 3, leading: 14, bottom: 3, trailing: 0))
     .listRowSeparator(.hidden)
     .listRowBackground(
       RoundedRectangle(cornerRadius: 10, style: .continuous)
         .fill(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
         .padding(.vertical, 2)
-        .padding(.horizontal, 4)
+        .padding(.leading, 18)
+        .padding(.trailing, 4)
     )
     .contextMenu { worktreeContextMenu(worktree: worktree, project: project, space: space) }
     .task(id: worktree.path) {
@@ -925,8 +929,9 @@ private struct ProjectHeaderRow: View {
         .rotationEffect(.degrees(isExpanded ? 90 : 0))
         .frame(width: 10, alignment: .center)
         .accessibilityHidden(true)
-        .padding(.leading, -6)
       Text(project.name)
+        .font(.callout)
+        .foregroundStyle(isHovering ? .primary : .secondary)
       Spacer()
       if isLoading {
         ProgressView()
@@ -1002,13 +1007,18 @@ private struct ProjectHeaderRow: View {
   }
 }
 
-/// Transparent helper that hunts down the AppKit `NSOutlineView` that `List(.sidebar)`
-/// mounts under the hood and zeroes its group-row indentation. `.sidebar` style reserves
-/// a ~20pt leading gutter from `indentationPerLevel` + the disclosure column; SwiftUI
-/// exposes no knob for either, so we BFS the view tree from `window.contentView`
-/// (same shape commit 1948530 used to hide the scroller) and patch them directly.
-/// Retries a few times because the List may not be attached when `viewDidMoveToWindow`
-/// first fires.
+/// Transparent helper that hunts down the AppKit `NSOutlineView` backing
+/// `List(.sidebar)` and applies two leading-edge adjustments:
+///
+///   1. Zero `NSOutlineView`'s built-in indentation / intercell spacing, so
+///      rows have no per-level offset on top of the scroll-view gutter.
+///   2. Swap the scroll view's clip view for `_UnclampedClipView`, which pins
+///      `bounds.origin.x` at a fixed offset — visually shifting all row
+///      content leftward by that amount (defeats SwiftUI sidebar style's
+///      internal leading padding without losing hit-testing).
+///
+/// Retries a few times because the List may not be attached when
+/// `viewDidMoveToWindow` first fires.
 private struct SidebarIndentZeroer: NSViewRepresentable {
   func makeNSView(context: Context) -> NSView { _IndentZeroerView() }
   func updateNSView(_ nsView: NSView, context: Context) {}
@@ -1036,22 +1046,37 @@ private final class _IndentZeroerView: NSView {
     for outline in outlines {
       outline.indentationPerLevel = 0
       outline.intercellSpacing = NSSize(width: 0, height: outline.intercellSpacing.height)
-      if let col = outline.outlineTableColumn {
-        col.minWidth = 0
-        // NSOutlineView reserves a disclosure column even when rows have no children;
-        // shrinking its width pulls every row's leading edge flush to the scroll gutter.
-      }
-      // Sidebar NSScrollView adds a small leading contentInset (≈6pt) for the
-      // section-header gutter; zero it so rows sit flush to the window's edge.
-      // Disable auto-adjustment so the system doesn't put the inset back on
-      // layout changes (window resize, safe-area updates, etc.).
-      if let scrollView = outline.enclosingScrollView {
-        scrollView.automaticallyAdjustsContentInsets = false
-        var insets = scrollView.contentInsets
-        insets.left = 0
-        scrollView.contentInsets = insets
-      }
+      outline.outlineTableColumn?.minWidth = 0
+      installUnclampedClipView(for: outline, leadingOffset: 6)
     }
+  }
+
+  /// Replaces the scroll view's clip view with `_UnclampedClipView` (idempotent)
+  /// and pins its `leadingOffset`. Preserves the original clip view's
+  /// background / cursor / copy-on-scroll state so the visual stays identical
+  /// apart from the horizontal shift.
+  ///
+  /// `constrainBoundsRect:` only fires on AppKit-initiated bounds proposals
+  /// (scroll, resize, animation), so on first install we drive `setBoundsOrigin`
+  /// + `tile()` ourselves — otherwise the leading shift only "kicks in" after
+  /// the first user interaction.
+  private func installUnclampedClipView(for outline: NSOutlineView, leadingOffset: CGFloat) {
+    guard let scrollView = outline.enclosingScrollView else { return }
+    if !(scrollView.contentView is _UnclampedClipView) {
+      let oldClip = scrollView.contentView
+      let newClip = _UnclampedClipView()
+      newClip.drawsBackground = oldClip.drawsBackground
+      newClip.backgroundColor = oldClip.backgroundColor
+      newClip.copiesOnScroll = oldClip.copiesOnScroll
+      newClip.documentCursor = oldClip.documentCursor
+      scrollView.contentView = newClip
+      if scrollView.documentView !== outline { scrollView.documentView = outline }
+    }
+    guard let clip = scrollView.contentView as? _UnclampedClipView else { return }
+    clip.leadingOffset = leadingOffset
+    clip.setBoundsOrigin(NSPoint(x: leadingOffset, y: clip.bounds.origin.y))
+    scrollView.tile()
+    scrollView.reflectScrolledClipView(clip)
   }
 
   private func findOutlineViews(in root: NSView) -> [NSOutlineView] {
@@ -1063,5 +1088,34 @@ private final class _IndentZeroerView: NSView {
       queue.append(contentsOf: v.subviews)
     }
     return result
+  }
+}
+
+/// `NSClipView` subclass that pins horizontal `bounds.origin.x` to a fixed
+/// offset (`leadingOffset`) so the documentView visually shifts left by that
+/// amount — bypassing super's clamp that snaps `x` back to 0 for a non-
+/// horizontally-scrollable clip view.
+///
+/// Why pin instead of returning the proposed rect verbatim: AppKit calls
+/// `constrainBoundsRect:` during animation / momentum scroll with values
+/// that include `±infinity` (legitimate intermediates that super would
+/// normally sanitize). Returning identity for those crashes the geometry
+/// pipeline (`Invalid view geometry: x is -infinity`). Calling super first
+/// hands us a finite, sensible rect; we only override the axis we control.
+///
+/// Per the AppKit 10.9 release notes and WWDC 2013 §215, `constrainBoundsRect:`
+/// is the sanctioned override point for custom positioning; this does NOT
+/// disable responsive scrolling (that requires overriding `scrollWheel:`,
+/// which we do not do) or elastic scrolling (governed by independent
+/// `verticalScrollElasticity`/`horizontalScrollElasticity` properties).
+private final class _UnclampedClipView: NSClipView {
+  /// Target `bounds.origin.x` — positive shifts documentView visually left
+  /// by that many points (we're "scrolling right" without horizontal scroll).
+  var leadingOffset: CGFloat = 0
+
+  override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
+    var rect = super.constrainBoundsRect(proposedBounds)
+    rect.origin.x = leadingOffset
+    return rect
   }
 }

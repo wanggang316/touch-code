@@ -28,7 +28,7 @@ struct WorktreeRowIcon: View {
       .renderingMode(.template)
       .resizable()
       .aspectRatio(contentMode: .fit)
-      .frame(width: 16, height: 16)
+      .frame(width: 14, height: 14)
       .foregroundStyle(tint)
       .overlay(alignment: .bottomTrailing) { rollupBadge }
       .accessibilityLabel(accessibilityLabel)
@@ -64,7 +64,7 @@ struct WorktreeRowIcon: View {
   private func rollupGlyph(symbol: String, color: Color) -> some View {
     Image(systemName: symbol)
       .resizable()
-      .frame(width: 10, height: 10)
+      .frame(width: 9, height: 9)
       .symbolRenderingMode(.palette)
       .foregroundStyle(color, Color(nsColor: .windowBackgroundColor))
       .offset(x: 3, y: 3)

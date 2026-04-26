@@ -56,29 +56,29 @@ struct PullRequestBadge: View {
   private func loadedBody(snapshot: PullRequestSnapshot, rollup: CheckRollup) -> some View {
     let tint = snapshot.state.rowTint(isDraft: snapshot.isDraft)
     return Text("#\(snapshot.number)")
-      .font(.caption2.weight(.semibold))
-      .padding(.horizontal, 6)
+      .font(.system(size: 10, weight: .semibold))
+      .padding(.horizontal, 4)
       .padding(.vertical, 1)
       .foregroundStyle(tint)
       .background(
         Capsule(style: .continuous)
-          .stroke(tint.opacity(0.75), lineWidth: 1)
+          .stroke(tint.opacity(0.75), lineWidth: 0.75)
       )
   }
 
   private var loadingBody: some View {
-    HStack(spacing: 4) {
+    HStack(spacing: 3) {
       ProgressView()
         .controlSize(.mini)
       Text("loading")
-        .font(.caption2)
+        .font(.system(size: 10))
         .foregroundStyle(.secondary)
     }
-    .padding(.horizontal, 6)
-    .padding(.vertical, 2)
+    .padding(.horizontal, 4)
+    .padding(.vertical, 1)
     .background(
       Capsule(style: .continuous)
-        .stroke(Color.secondary.opacity(0.4), lineWidth: 1)
+        .stroke(Color.secondary.opacity(0.4), lineWidth: 0.75)
     )
   }
 
