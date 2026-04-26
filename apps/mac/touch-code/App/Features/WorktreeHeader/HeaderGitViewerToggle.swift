@@ -19,12 +19,15 @@ struct HeaderGitViewerToggle: View {
     } label: {
       Image(systemName: "doc.text.magnifyingglass")
         .foregroundStyle(visible ? Color.accentColor : .primary)
-        .padding(.horizontal, 4)
-        .padding(.vertical, 3)
+        .frame(width: Self.chipSide, height: Self.chipSide)
     }
     .buttonStyle(.borderless)
     .accessibilityLabel(visible ? "Hide Git Viewer" : "Show Git Viewer")
     .help(visible ? "Hide Git Viewer" : "Show Git Viewer")
     .modifier(HeaderChipHover())
   }
+
+  /// 1:1 square hit-target so this icon-only chip matches the caret
+  /// halves of the sibling split buttons.
+  private static let chipSide: CGFloat = 22
 }

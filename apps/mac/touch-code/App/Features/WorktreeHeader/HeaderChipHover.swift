@@ -15,10 +15,10 @@ struct HeaderChipHover: ViewModifier {
   func body(content: Content) -> some View {
     content
       .background(
-        RoundedRectangle(cornerRadius: 6, style: .continuous)
+        Capsule(style: .continuous)
           .fill(Color.primary.opacity(isHovering ? 0.08 : 0))
       )
-      .contentShape(.rect(cornerRadius: 6))
+      .contentShape(.capsule)
       .onHover { isHovering = $0 }
       .animation(.easeOut(duration: 0.12), value: isHovering)
   }

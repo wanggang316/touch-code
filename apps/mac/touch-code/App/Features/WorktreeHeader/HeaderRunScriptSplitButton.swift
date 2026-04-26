@@ -18,11 +18,17 @@ struct HeaderRunScriptSplitButton: View {
   @Environment(SettingsStore.self) private var settingsStore
 
   var body: some View {
-    HStack(spacing: 0) {
+    HStack(spacing: 6) {
       primary
       caret
     }
   }
+
+  /// Shared height for the split button's two halves so the caret is a
+  /// 1:1 square matching the primary chip height. Mirrors the constant
+  /// in `HeaderOpenSplitButton` — kept duplicated rather than centralized
+  /// since the two split buttons are independent surfaces.
+  private static let chipHeight: CGFloat = 22
 
   // MARK: - State derivation
 
@@ -50,8 +56,8 @@ struct HeaderRunScriptSplitButton: View {
         Text(primaryLabel)
           .lineLimit(1)
       }
-      .padding(.horizontal, 6)
-      .padding(.vertical, 3)
+      .padding(.horizontal, 8)
+      .frame(height: Self.chipHeight)
     }
     .buttonStyle(.borderless)
     .accessibilityLabel(primaryLabel)
@@ -92,8 +98,7 @@ struct HeaderRunScriptSplitButton: View {
       Image(systemName: "chevron.down")
         .font(.caption.bold())
         .accessibilityHidden(true)
-        .padding(.horizontal, 4)
-        .padding(.vertical, 3)
+        .frame(width: Self.chipHeight, height: Self.chipHeight)
     }
     .menuStyle(.borderlessButton)
     .menuIndicator(.hidden)
