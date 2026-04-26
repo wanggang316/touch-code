@@ -2,10 +2,14 @@ import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
 
-/// Split button chip — same explicit geometry contract as
-/// `HeaderOpenSplitButton`. Outer capsule is drawn here (not by macOS
-/// 26's toolbar shared background) so the four-side gap to the inner
-/// halves stays uniform.
+/// Native toolbar split button: primary action runs the Project's
+/// primary script (first `.run`-kind entry, falling back to the first
+/// script overall); the chevron half lists every script plus a
+/// "Manage Scripts…" footer. Empty-state: primary click and every menu
+/// item route to "Manage Scripts" so users land in a place where they
+/// can create one. Uses `Menu(content:label:primaryAction:)` so macOS
+/// renders the native split-button chrome — matches supacode's
+/// `ScriptMenu` pattern.
 ///
 /// Both halves dispatch through `WorktreeHeaderFeature.delegate` so
 /// `RootFeature` owns the `HierarchyClient.runScript` effect.
@@ -15,37 +19,10 @@ struct HeaderRunScriptSplitButton: View {
   let worktreeID: WorktreeID
   @Environment(SettingsStore.self) private var settingsStore
 
-  static let innerHeight: CGFloat = HeaderOpenSplitButton.innerHeight
-  static let gap: CGFloat = HeaderOpenSplitButton.gap
-
   var body: some View {
-    HStack(spacing: 4) {
-      primary
-      caret
-    }
-    .frame(height: Self.innerHeight)
-    .padding(Self.gap)
-    .background(
-      Capsule(style: .continuous)
-        .fill(.regularMaterial)
-    )
-  }
-
-  // MARK: - State derivation
-
-  private var scripts: [ScriptDefinition] {
-    settingsStore.settings.projects[projectID]?.scripts ?? []
-  }
-
-  private var primaryScript: ScriptDefinition? {
-    scripts.first { $0.kind == .run } ?? scripts.first
-  }
-
-  // MARK: - Primary
-
-  @ViewBuilder
-  private var primary: some View {
-    Button(action: primaryAction) {
+    Menu {
+      caretMenu
+    } label: {
       HStack(spacing: 4) {
         Image(systemName: primaryIconName)
           .frame(width: 16, height: 16)
@@ -54,14 +31,27 @@ struct HeaderRunScriptSplitButton: View {
         Text(primaryLabel)
           .lineLimit(1)
       }
-      .padding(.horizontal, 6)
-      .frame(height: Self.innerHeight)
+    } primaryAction: {
+      primaryAction()
     }
-    .buttonStyle(.plain)
     .accessibilityLabel(primaryLabel)
     .help(primaryHelp)
-    .modifier(HeaderChipHover())
   }
+
+  // MARK: - State derivation
+
+  /// Scripts attached to this Project, in array order.
+  private var scripts: [ScriptDefinition] {
+    settingsStore.settings.projects[projectID]?.scripts ?? []
+  }
+
+  /// Default script for the primary click. First `.run`-kind entry, falling
+  /// back to the array's first entry. `nil` when the Project has no scripts.
+  private var primaryScript: ScriptDefinition? {
+    scripts.first { $0.kind == .run } ?? scripts.first
+  }
+
+  // MARK: - Actions
 
   private func primaryAction() {
     if let script = primaryScript {
@@ -87,24 +77,7 @@ struct HeaderRunScriptSplitButton: View {
     Self.color(for: primaryScript?.resolvedTintColor ?? .green)
   }
 
-  // MARK: - Caret
-
-  private var caret: some View {
-    Menu {
-      caretMenu
-    } label: {
-      Image(systemName: "chevron.down")
-        .font(.caption.bold())
-        .accessibilityHidden(true)
-        .frame(width: Self.innerHeight, height: Self.innerHeight)
-    }
-    .menuStyle(.button)
-    .buttonStyle(.plain)
-    .menuIndicator(.hidden)
-    .accessibilityLabel("Choose script")
-    .help("Choose script")
-    .modifier(HeaderChipHover())
-  }
+  // MARK: - Caret menu
 
   @ViewBuilder
   private var caretMenu: some View {

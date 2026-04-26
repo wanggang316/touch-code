@@ -2,20 +2,13 @@ import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
 
-/// Split button chip with explicit, fully controlled geometry. macOS 26's
-/// `ToolbarItem` glass capsule has asymmetric intrinsic padding (wider
-/// horizontal than vertical), so we suppress the shared background at
-/// the call site (`sharedBackgroundVisibility(.hidden)`) and draw our
-/// own capsule here. This gives us exact control over:
-///
-/// 1. Fixed outer height = `innerHeight + 2 × gap`.
-/// 2. Dynamic outer width — primary content drives it.
-/// 3. Caret is a 1:1 `innerHeight × innerHeight` square.
-/// 4. Inner halves sit with the same `gap` to the outer capsule on
-///    every side (top, bottom, left, right).
-///
-/// Resolution + delegate routing flow through `WorktreeHeaderFeature`,
-/// keeping the open side-effect on `RootFeature`.
+/// Native toolbar split button: primary action opens the resolved
+/// default editor; the chevron half lists every installed editor. Uses
+/// SwiftUI's `Menu(content:label:primaryAction:)` so macOS provides the
+/// system split-button chrome, hover state, and chevron — same pattern
+/// supacode's `openMenu` follows. Resolution + delegate routing flow
+/// through `WorktreeHeaderFeature`, keeping the open side-effect on
+/// `RootFeature`.
 struct HeaderOpenSplitButton: View {
   @Bindable var store: StoreOf<WorktreeHeaderFeature>
   @Bindable var editorStore: StoreOf<EditorFeature>
@@ -25,32 +18,9 @@ struct HeaderOpenSplitButton: View {
   @Environment(HierarchyManager.self) private var hierarchyManager
   @Environment(SettingsStore.self) private var settingsStore
 
-  static let innerHeight: CGFloat = 22
-  static let gap: CGFloat = 4
-
   var body: some View {
-    HStack(spacing: 4) {
-      primary
-      caret
-    }
-    .frame(height: Self.innerHeight)
-    .padding(Self.gap)
-    .background(
-      Capsule(style: .continuous)
-        .fill(.regularMaterial)
-    )
-    .task { editorStore.send(.onAppear) }
-  }
-
-  // MARK: - Primary
-
-  private var primary: some View {
-    Button {
-      store.send(
-        .openDefaultEditorTapped(
-          worktreePath: worktreePath,
-          projectID: projectID
-        ))
+    Menu {
+      openInMenu
     } label: {
       HStack(spacing: 4) {
         primaryIcon
@@ -59,13 +29,16 @@ struct HeaderOpenSplitButton: View {
         Text(primaryLabel)
           .lineLimit(1)
       }
-      .padding(.horizontal, 6)
-      .frame(height: Self.innerHeight)
+    } primaryAction: {
+      store.send(
+        .openDefaultEditorTapped(
+          worktreePath: worktreePath,
+          projectID: projectID
+        ))
     }
-    .buttonStyle(.plain)
     .accessibilityLabel(primaryDescription)
     .help(primaryDescription)
-    .modifier(HeaderChipHover())
+    .task { editorStore.send(.onAppear) }
   }
 
   @ViewBuilder
@@ -113,25 +86,6 @@ struct HeaderOpenSplitButton: View {
   private var projectOverrideID: EditorID? {
     // v3 reads per-Project editor override from settings.json.projects[pid].
     settingsStore.settings.projects[projectID]?.defaultEditor
-  }
-
-  // MARK: - Caret
-
-  private var caret: some View {
-    Menu {
-      openInMenu
-    } label: {
-      Image(systemName: "chevron.down")
-        .font(.caption.bold())
-        .accessibilityHidden(true)
-        .frame(width: Self.innerHeight, height: Self.innerHeight)
-    }
-    .menuStyle(.button)
-    .buttonStyle(.plain)
-    .menuIndicator(.hidden)
-    .accessibilityLabel("Choose editor")
-    .help("Choose editor")
-    .modifier(HeaderChipHover())
   }
 
   @ViewBuilder

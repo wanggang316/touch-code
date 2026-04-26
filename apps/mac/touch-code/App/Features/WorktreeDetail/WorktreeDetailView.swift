@@ -237,17 +237,20 @@ struct WorktreeDetailView: View {
     }
   }
 
-  /// macOS 26 trailing buttons. Each ToolbarItem suppresses the
-  /// system's shared glass capsule — the chip views draw their own
-  /// capsule so we can guarantee a uniform 4-side gap between the
-  /// inner halves and the outer capsule (the system's intrinsic
-  /// padding is asymmetric horizontal vs vertical). `ToolbarSpacer(.fixed)`
-  /// between siblings keeps them visually distinct.
+  /// macOS 26 trailing buttons. Each lives in its own `ToolbarItem` so
+  /// the system wraps it in a separate glass capsule — three discrete
+  /// chips instead of one shared cluster background. `ToolbarSpacer(.fixed)`
+  /// between siblings keeps them visually distinct without collapsing
+  /// the gap. Default placement; ordering after the trailing flexible
+  /// spacer pins the row to the right edge.
   @available(macOS 26.0, *)
   @ToolbarContentBuilder
   private func trailingButtonsDefault(
     address: Address, info: WorktreeInfo
   ) -> some ToolbarContent {
+    // No `.buttonStyle` / no manual padding — each ToolbarItem gets
+    // the toolbar's native glass capsule + hover state. Same pattern as
+    // supacode's openMenu / ScriptMenu.
     ToolbarItem {
       HeaderOpenSplitButton(
         store: headerStore,
@@ -257,7 +260,6 @@ struct WorktreeDetailView: View {
         worktreePath: info.worktree.path
       )
     }
-    .sharedBackgroundVisibility(.hidden)
     ToolbarSpacer(.fixed)
     ToolbarItem {
       HeaderRunScriptSplitButton(
@@ -266,7 +268,6 @@ struct WorktreeDetailView: View {
         worktreeID: info.worktree.id
       )
     }
-    .sharedBackgroundVisibility(.hidden)
     if info.project.supportsWorktrees {
       ToolbarSpacer(.fixed)
       ToolbarItem {
@@ -275,7 +276,6 @@ struct WorktreeDetailView: View {
           visible: info.worktree.gitViewerVisible
         )
       }
-      .sharedBackgroundVisibility(.hidden)
     }
   }
 
