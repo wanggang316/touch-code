@@ -17,31 +17,49 @@ enum EditorPickerRow {
   /// entries and a terminal SF Symbol for the `.shellEditor` pseudo-entry. The catch-all
   /// `app.dashed` glyph handles a defensive "bundle-backed but unresolved" case that
   /// `describe()` filters out in practice.
+  ///
+  /// App-bundle icons are pre-resized at the AppKit level (NSImage redraw
+  /// into 16×16) instead of leaning on SwiftUI `.resizable()`. The
+  /// pre-resized NSImage is what AppKit hands to NSMenuItem when the row
+  /// is hosted inside a `Menu`; without this, the source NSImage retains
+  /// its native ~256pt size and the menu row is forced to that height.
   @ViewBuilder
   static func icon(for descriptor: EditorDescriptor) -> some View {
     switch descriptor.launchMode {
     case .shellEditor:
       Image(systemName: "terminal")
-        .resizable()
-        .aspectRatio(contentMode: .fit)
-        .frame(width: 16, height: 16)
         .foregroundStyle(.secondary)
         .accessibilityHidden(true)
     case .directory, .applicationWithArguments:
       if let appURL = descriptor.appURL {
-        Image(nsImage: NSWorkspace.shared.icon(forFile: appURL.path))
-          .resizable()
-          .frame(width: 16, height: 16)
+        Image(nsImage: resized(NSWorkspace.shared.icon(forFile: appURL.path), to: 16))
+          .renderingMode(.original)
           .accessibilityHidden(true)
       } else {
         Image(systemName: "app.dashed")
-          .resizable()
-          .aspectRatio(contentMode: .fit)
-          .frame(width: 16, height: 16)
           .foregroundStyle(.secondary)
           .accessibilityHidden(true)
       }
     }
+  }
+
+  /// Redraws an NSImage at the requested point-size square so its
+  /// intrinsic size matches the menu row's expected glyph slot. Mirrors
+  /// the supacode pattern; SwiftUI's `.resizable()` only affects the
+  /// SwiftUI rendering pass, not what AppKit reads when bridging to
+  /// NSMenuItem.
+  private static func resized(_ image: NSImage, to side: CGFloat) -> NSImage {
+    let size = NSSize(width: side, height: side)
+    let resized = NSImage(size: size)
+    resized.lockFocus()
+    image.draw(
+      in: NSRect(origin: .zero, size: size),
+      from: NSRect(origin: .zero, size: image.size),
+      operation: .sourceOver,
+      fraction: 1.0
+    )
+    resized.unlockFocus()
+    return resized
   }
 
   /// Standard row content for every editor dropdown — a SwiftUI `Label`
