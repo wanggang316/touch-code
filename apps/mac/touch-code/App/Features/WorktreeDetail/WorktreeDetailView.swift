@@ -216,8 +216,9 @@ struct WorktreeDetailView: View {
 
   /// macOS 26 leading branch item. Default placement so it sits before
   /// the leading `ToolbarSpacer(.flexible)` and reads as the leftmost
-  /// chip. Mirrors the pre-26 `branchToolbarItem` content; only the
-  /// placement differs.
+  /// chip. No `.sharedBackgroundVisibility(.hidden)` so the toolbar
+  /// glass capsule renders consistently with the trailing chips —
+  /// mirrors supacode's `WorktreeDetailTitleView` placement.
   @available(macOS 26.0, *)
   @ToolbarContentBuilder
   private func branchToolbarItemDefault(info: WorktreeInfo) -> some ToolbarContent {
@@ -234,7 +235,6 @@ struct WorktreeDetailView: View {
       .accessibilityLabel("Current branch: \(info.branchLabel)")
       .accessibilityAddTraits(.isStaticText)
     }
-    .sharedBackgroundVisibility(.hidden)
   }
 
   /// macOS 26 trailing buttons. Each lives in its own `ToolbarItem` so
@@ -248,6 +248,9 @@ struct WorktreeDetailView: View {
   private func trailingButtonsDefault(
     address: Address, info: WorktreeInfo
   ) -> some ToolbarContent {
+    // No `.buttonStyle` / no manual padding — each ToolbarItem gets
+    // the toolbar's native glass capsule + hover state. Same pattern as
+    // supacode's openMenu / ScriptMenu.
     ToolbarItem {
       HeaderOpenSplitButton(
         store: headerStore,
@@ -256,8 +259,6 @@ struct WorktreeDetailView: View {
         projectID: address.project,
         worktreePath: info.worktree.path
       )
-      .buttonStyle(.plain)
-      .padding(.horizontal, Self.trailingCapsuleInset)
     }
     ToolbarSpacer(.fixed)
     ToolbarItem {
@@ -266,8 +267,6 @@ struct WorktreeDetailView: View {
         projectID: address.project,
         worktreeID: info.worktree.id
       )
-      .buttonStyle(.plain)
-      .padding(.horizontal, Self.trailingCapsuleInset)
     }
     if info.project.supportsWorktrees {
       ToolbarSpacer(.fixed)
@@ -276,19 +275,9 @@ struct WorktreeDetailView: View {
           store: headerStore,
           visible: info.worktree.gitViewerVisible
         )
-        .buttonStyle(.plain)
-        .padding(.horizontal, Self.trailingCapsuleInset)
       }
     }
   }
-
-  /// Horizontal breathing room inside each trailing capsule. The macOS
-  /// 26 toolbar already pads its glass capsule, so we add only a small
-  /// nudge to keep content from hugging the edge — too much here makes
-  /// the chip look chunky next to the status capsule. Hover backgrounds
-  /// live on each clickable region inside the button views
-  /// (`HeaderChipHover`), so split buttons highlight per-half.
-  private static let trailingCapsuleInset: CGFloat = 2
 
   @ToolbarContentBuilder
   private func branchToolbarItem(info: WorktreeInfo) -> some ToolbarContent {

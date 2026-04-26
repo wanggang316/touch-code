@@ -17,16 +17,10 @@ struct HeaderGitViewerToggle: View {
     Button {
       store.send(.gitViewerToggleTapped)
     } label: {
-      // Content-driven 1:1 square hit target — width grows with the
-      // glyph metrics rather than being pinned to a fixed frame.
       Image(systemName: "doc.text.magnifyingglass")
         .foregroundStyle(visible ? Color.accentColor : .primary)
-        .padding(3)
-        .aspectRatio(1, contentMode: .fill)
     }
-    .buttonStyle(.borderless)
     .accessibilityLabel(visible ? "Hide Git Viewer" : "Show Git Viewer")
     .help(visible ? "Hide Git Viewer" : "Show Git Viewer")
-    .modifier(HeaderChipHover())
   }
 }

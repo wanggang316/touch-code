@@ -2,11 +2,13 @@ import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
 
-/// Split button: left half opens the resolved default editor; right half
-/// (caret) is the picker menu. Resolution, picker content, and the
-/// "Set default for this Project" sub-menu all flow through the
-/// `WorktreeHeaderFeature` delegate so `RootFeature` owns the editor-open
-/// side effect and descriptors stay TCA-observable.
+/// Native toolbar split button: primary action opens the resolved
+/// default editor; the chevron half lists every installed editor. Uses
+/// SwiftUI's `Menu(content:label:primaryAction:)` so macOS provides the
+/// system split-button chrome, hover state, and chevron — same pattern
+/// supacode's `openMenu` follows. Resolution + delegate routing flow
+/// through `WorktreeHeaderFeature`, keeping the open side-effect on
+/// `RootFeature`.
 struct HeaderOpenSplitButton: View {
   @Bindable var store: StoreOf<WorktreeHeaderFeature>
   @Bindable var editorStore: StoreOf<EditorFeature>
@@ -17,22 +19,8 @@ struct HeaderOpenSplitButton: View {
   @Environment(SettingsStore.self) private var settingsStore
 
   var body: some View {
-    HStack(spacing: 6) {
-      primary
-      caret
-    }
-    .task { editorStore.send(.onAppear) }
-  }
-
-  // MARK: - Primary
-
-  private var primary: some View {
-    Button {
-      store.send(
-        .openDefaultEditorTapped(
-          worktreePath: worktreePath,
-          projectID: projectID
-        ))
+    Menu {
+      openInMenu
     } label: {
       HStack(spacing: 4) {
         primaryIcon
@@ -41,12 +29,16 @@ struct HeaderOpenSplitButton: View {
         Text(primaryLabel)
           .lineLimit(1)
       }
-      .padding(3)
+    } primaryAction: {
+      store.send(
+        .openDefaultEditorTapped(
+          worktreePath: worktreePath,
+          projectID: projectID
+        ))
     }
-    .buttonStyle(.borderless)
     .accessibilityLabel(primaryDescription)
     .help(primaryDescription)
-    .modifier(HeaderChipHover())
+    .task { editorStore.send(.onAppear) }
   }
 
   @ViewBuilder
@@ -96,30 +88,6 @@ struct HeaderOpenSplitButton: View {
     settingsStore.settings.projects[projectID]?.defaultEditor
   }
 
-  // MARK: - Caret menu
-
-  private var caret: some View {
-    Menu {
-      openInMenu
-    } label: {
-      // Square hit-target driven entirely by content (chevron + uniform
-      // padding). `.aspectRatio(1, contentMode: .fill)` expands the
-      // smaller axis to match the larger so the box reads as 1:1
-      // without hard-coding a frame size — width grows with chevron
-      // glyph metrics rather than being pinned.
-      Image(systemName: "chevron.down")
-        .font(.caption.bold())
-        .accessibilityHidden(true)
-        .padding(3)
-        .aspectRatio(1, contentMode: .fill)
-    }
-    .menuStyle(.borderlessButton)
-    .menuIndicator(.hidden)
-    .accessibilityLabel("Choose editor")
-    .help("Choose editor")
-    .modifier(HeaderChipHover())
-  }
-
   @ViewBuilder
   private var openInMenu: some View {
     // `EditorService.describe()` already filters to installed entries, so every
@@ -140,5 +108,4 @@ struct HeaderOpenSplitButton: View {
       .help(descriptor.displayName)
     }
   }
-
 }
