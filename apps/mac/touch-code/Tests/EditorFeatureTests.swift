@@ -79,11 +79,27 @@ struct EditorFeatureTests {
   }
 
   @Test
-  func resolveDefaultFallsBackToFinderWhenNothingResolves() {
+  func resolveDefaultWalksPriorityWhenNoOverrideOrGlobal() {
+    // When no override or global default is set, the chip must reflect what
+    // the primary tap will actually open — i.e. the first installed editor
+    // in `EditorRegistry.defaultPriority`. Returning `.finder` here would
+    // mismatch the service-side cascade and surface the wrong default.
     let resolved = EditorFeature.resolveDefault(
       projectOverride: nil,
       globalDefault: nil,
       descriptors: [Self.sampleDescriptor]
+    )
+    #expect(resolved == .editor(Self.sampleDescriptor))
+  }
+
+  @Test
+  func resolveDefaultFallsBackToFinderWhenNoDescriptors() {
+    // The bare `.finder` sentinel is reachable only when nothing is installed
+    // (defensive — `describe()` always includes at least the shell pseudo-editor).
+    let resolved = EditorFeature.resolveDefault(
+      projectOverride: nil,
+      globalDefault: nil,
+      descriptors: []
     )
     #expect(resolved == .finder)
   }

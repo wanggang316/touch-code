@@ -184,6 +184,16 @@ struct EditorFeature {
     {
       return .editor(match)
     }
+    // Mirror the service-side priority walk so the label matches what the
+    // primary tap will actually open. Without this, the chip says "Finder"
+    // while clicking it opens, say, Cursor (RootFeature.openEditor → service
+    // cascade through EditorRegistry.defaultPriority).
+    let byID = Dictionary(uniqueKeysWithValues: descriptors.map { ($0.id, $0) })
+    for id in EditorRegistry.defaultPriority {
+      if let match = byID[id] {
+        return .editor(match)
+      }
+    }
     return .finder
   }
 

@@ -94,6 +94,15 @@ struct HeaderOpenSplitButton: View {
     // `icon + displayName` row (including the terminal glyph for the shell editor).
     ForEach(EditorPickerRow.sorted(editorStore.state.descriptors), id: \.id) { descriptor in
       Button {
+        // Persist the pick as the per-Project default so the primary chip
+        // reflects the user's choice on the next render (matches supacode's
+        // openMenu pattern: `onOpenActionSelectionChanged` + open).
+        store.send(
+          .setProjectDefaultEditorTapped(
+            spaceID: spaceID,
+            projectID: projectID,
+            editorID: descriptor.id
+          ))
         store.send(
           .openEditorTapped(
             editorID: descriptor.id,
