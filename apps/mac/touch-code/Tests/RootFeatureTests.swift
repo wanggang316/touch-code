@@ -777,6 +777,118 @@ struct RootFeatureTests {
   }
 
   @Test
+  func paneLifecycleExitedClosesTabWhenLastPaneInTab() async {
+    // ⌘W routed via Ghostty's `close_surface` lands here. With one pane in
+    // the tab, the surviving tab would be empty — close it instead of
+    // leaving a zombie.
+    let spaceID = SpaceID()
+    let projectID = ProjectID()
+    let worktreeID = WorktreeID()
+    let tabID = TabID()
+    let paneID = PaneID()
+    let pane = Pane(id: paneID, workingDirectory: "/tmp", initialCommand: nil)
+    let tab = Tab(
+      id: tabID, name: "t", splitTree: SplitTree(leaf: paneID), panes: [pane]
+    )
+    let worktree = Worktree(
+      id: worktreeID, name: "main", path: "/tmp", branch: "main",
+      tabs: [tab], selectedTabID: tabID
+    )
+    let project = Project(
+      id: projectID, name: "p", rootPath: "/tmp",
+      worktrees: [worktree], selectedWorktreeID: worktreeID
+    )
+    let space = Space(
+      id: spaceID, name: "s", projects: [project], selectedProjectID: projectID
+    )
+    let catalog = Catalog(windows: [], spaces: [space], selectedSpaceID: spaceID)
+    let address = PaneAddress(
+      spaceID: spaceID, projectID: projectID, worktreeID: worktreeID,
+      tabID: tabID, paneID: paneID
+    )
+
+    let closedTab = LockIsolated<TabID?>(nil)
+    let closedPane = LockIsolated<PaneID?>(nil)
+    let store = TestStore(initialState: RootFeature.State()) {
+      RootFeature()
+    } withDependencies: {
+      $0.hierarchyClient.snapshot = { catalog }
+      $0.hierarchyClient.addressOf = { _ in address }
+      $0.hierarchyClient.closeTab = { id, _, _, _ in
+        closedTab.withValue { $0 = id }
+      }
+      $0.hierarchyClient.closePane = { id, _, _, _, _ in
+        closedPane.withValue { $0 = id }
+      }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.paneLifecycleExited(paneID))
+    await store.finish()
+    #expect(closedTab.value == tabID)
+    #expect(closedPane.value == nil)
+  }
+
+  @Test
+  func paneLifecycleExitedClosesOnlyPaneWhenTabHasSiblings() async {
+    // Multi-pane tab: keep the tab, drop the pane, transfer focus.
+    let spaceID = SpaceID()
+    let projectID = ProjectID()
+    let worktreeID = WorktreeID()
+    let tabID = TabID()
+    let leftPane = PaneID()
+    let rightPane = PaneID()
+    let tab = Tab(
+      id: tabID, name: "t",
+      splitTree: try! SplitTree(leaf: leftPane).inserting(
+        rightPane, at: leftPane, direction: .right
+      ),
+      panes: [
+        Pane(id: leftPane, workingDirectory: "/tmp", initialCommand: nil),
+        Pane(id: rightPane, workingDirectory: "/tmp", initialCommand: nil),
+      ]
+    )
+    let worktree = Worktree(
+      id: worktreeID, name: "main", path: "/tmp", branch: "main",
+      tabs: [tab], selectedTabID: tabID
+    )
+    let project = Project(
+      id: projectID, name: "p", rootPath: "/tmp",
+      worktrees: [worktree], selectedWorktreeID: worktreeID
+    )
+    let space = Space(
+      id: spaceID, name: "s", projects: [project], selectedProjectID: projectID
+    )
+    let catalog = Catalog(windows: [], spaces: [space], selectedSpaceID: spaceID)
+    let address = PaneAddress(
+      spaceID: spaceID, projectID: projectID, worktreeID: worktreeID,
+      tabID: tabID, paneID: rightPane
+    )
+
+    let closedTab = LockIsolated<TabID?>(nil)
+    let closedPane = LockIsolated<PaneID?>(nil)
+    let store = TestStore(initialState: RootFeature.State()) {
+      RootFeature()
+    } withDependencies: {
+      $0.hierarchyClient.snapshot = { catalog }
+      $0.hierarchyClient.addressOf = { _ in address }
+      $0.hierarchyClient.closeTab = { id, _, _, _ in
+        closedTab.withValue { $0 = id }
+      }
+      $0.hierarchyClient.closePane = { id, _, _, _, _ in
+        closedPane.withValue { $0 = id }
+      }
+      $0.hierarchyClient.focusSurfaceView = { _ in }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.paneLifecycleExited(rightPane))
+    await store.finish()
+    #expect(closedPane.value == rightPane)
+    #expect(closedTab.value == nil)
+  }
+
+  @Test
   func selectTabAtIndexPicksNthTab() async {
     let (sp, pr, wt, ids, catalog) = Self.tabBarFixture(tabCount: 3, selectedIndex: 0)
     var initial = RootFeature.State()

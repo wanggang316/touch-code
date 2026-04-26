@@ -430,17 +430,30 @@ struct RootFeature {
         guard let address = hierarchyClient.addressOf(paneID) else {
           return .none
         }
-        // Compute the focus target BEFORE mutating the tree so the
-        // leaf identity is still valid. Matches ghostty's macOS
-        // controller: closing the leftmost leaf → focus next; otherwise
-        // → focus previous. Returns nil for the last leaf in a tab.
         let catalog = hierarchyClient.snapshot()
-        let focusTarget: PaneID? = catalog
-          .spaces.first(where: { $0.id == address.spaceID })?
-          .projects.first(where: { $0.id == address.projectID })?
-          .worktrees.first(where: { $0.id == address.worktreeID })?
-          .tabs.first(where: { $0.id == address.tabID })?
-          .splitTree.focusTargetAfterClosing(paneID)
+        guard
+          let tab = catalog
+            .spaces.first(where: { $0.id == address.spaceID })?
+            .projects.first(where: { $0.id == address.projectID })?
+            .worktrees.first(where: { $0.id == address.worktreeID })?
+            .tabs.first(where: { $0.id == address.tabID })
+        else { return .none }
+        // Single-pane tab: ⌘W's `close_surface` should also retire the now-empty
+        // tab. Leaving a zombie tab with no panes shows a blank pane area and
+        // makes the window look broken. `closeTab` is a no-op for the surface
+        // (already torn down by the engine) but does the catalog cleanup and
+        // routes selection to the adjacent tab.
+        if tab.panes.count <= 1 {
+          try? hierarchyClient.closeTab(
+            address.tabID, address.worktreeID, address.projectID, address.spaceID
+          )
+          return .none
+        }
+        // Multi-pane tab: drop the pane and transfer focus to the survivor.
+        // Compute the focus target BEFORE mutating the tree so the leaf
+        // identity is still valid. Matches ghostty's macOS controller:
+        // closing the leftmost leaf → focus next; otherwise → focus previous.
+        let focusTarget = tab.splitTree.focusTargetAfterClosing(paneID)
         try? hierarchyClient.closePane(
           paneID, address.tabID, address.worktreeID, address.projectID,
           address.spaceID
