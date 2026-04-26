@@ -20,7 +20,7 @@ The design rationale, segment semantics, alternatives considered, and the reject
 - [x] Add `unpinnedBoundary(in:rootPath:)` private static helper — 2026-04-26
 - [x] Change `HierarchyManager.createWorktree` insertion point to the unpinned-segment boundary — 2026-04-26
 - [x] Change `HierarchyManager.setWorktreePinned` to carry pin/unpin positioning — 2026-04-26
-- [ ] Implement `HierarchyManager.reorderWorktrees(in:inSpace:segment:from:to:)` with all-or-nothing validation
+- [x] Implement `HierarchyManager.reorderWorktrees(in:inSpace:segment:from:to:)` with all-or-nothing validation — 2026-04-26
 - [ ] Append `reorderWorktrees` closure to `HierarchyClient` (live, liveValue, testValue)
 - [ ] Tests: reorder happy path within each segment
 - [ ] Tests: reorder out-of-range from/to leaves catalog untouched

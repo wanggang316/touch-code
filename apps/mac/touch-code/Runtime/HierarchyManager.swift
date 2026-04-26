@@ -411,6 +411,51 @@ final class HierarchyManager {
     }
   }
 
+  /// Reorder rows within a single sidebar segment under one Project. SwiftUI
+  /// `.onMove` reports segment-relative `IndexSet` and target offset; this
+  /// method translates those into a catalog-array mutation that preserves the
+  /// catalog positions of rows in other segments (and of archived rows).
+  ///
+  /// Validation is all-or-nothing: if any `from` offset or `to` falls outside
+  /// the current segment range, or `from` is empty, the call is a silent
+  /// no-op (no save). This matches the staleness guard described in
+  /// `docs/design-docs/worktree-sidebar-ordering.md` §Risks — a snapshot
+  /// taken before a worktree was removed produces out-of-range offsets, and
+  /// dropping the whole reorder is preferable to a partial application.
+  /// Missing project throws `.notFound`.
+  func reorderWorktrees(
+    in projectID: ProjectID,
+    inSpace spaceID: SpaceID,
+    segment: WorktreeSegment,
+    from source: IndexSet,
+    to destination: Int
+  ) throws {
+    guard let (spaceIndex, projectIndex) = findProjectIndices(projectID: projectID, spaceID: spaceID) else {
+      throw HierarchyError.notFound("Project \(projectID)")
+    }
+    let project = catalog.spaces[spaceIndex].projects[projectIndex]
+    let rootPath = project.rootPath
+    let inSegment: (Worktree) -> Bool = { w in
+      guard !w.archived, w.path != rootPath else { return false }
+      switch segment {
+      case .pinned: return w.isPinned
+      case .unpinned: return !w.isPinned
+      }
+    }
+    let segmentCatalogIndices = project.worktrees.indices.filter { inSegment(project.worktrees[$0]) }
+    let segmentCount = segmentCatalogIndices.count
+    guard !source.isEmpty,
+      source.allSatisfy({ $0 >= 0 && $0 < segmentCount }),
+      destination >= 0, destination <= segmentCount
+    else { return }
+    var segmentRows = segmentCatalogIndices.map { project.worktrees[$0] }
+    segmentRows.move(fromOffsets: source, toOffset: destination)
+    for (k, catalogIdx) in segmentCatalogIndices.enumerated() {
+      catalog.spaces[spaceIndex].projects[projectIndex].worktrees[catalogIdx] = segmentRows[k]
+    }
+    store.scheduleSave(catalog)
+  }
+
   /// Merges worktrees discovered on disk (typically from
   /// `wt ls --json`) into the catalog. Path-canonicalized dedupe
   /// against existing rows — both sides go through
