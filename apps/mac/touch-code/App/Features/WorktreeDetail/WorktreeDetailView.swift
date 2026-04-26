@@ -40,7 +40,6 @@ struct WorktreeDetailView: View {
       let info = worktreeInfo(for: address)
       VStack(spacing: 0) {
         tabBarRow(address: address)
-        Divider()
         terminalRegion(address: address)
           .overlay(alignment: .trailing) { overlayContent }
           .animation(.easeInOut(duration: 0.15), value: overlayVisible)

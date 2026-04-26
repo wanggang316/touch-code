@@ -31,9 +31,10 @@ enum TabBarMetrics {
   /// Circular close-button diameter. Visible only on chip hover / focus.
   static let closeButtonSize: CGFloat = 16
 
-  /// Top corner radius on chip backgrounds. Bottom corners are square so
-  /// the chip reads as a folder tab rather than a floating card.
-  static let chipCornerRadius: CGFloat = 6
+  /// Top corner radius on chip backgrounds. Square so the hover / active
+  /// fill meets the bar edges flush — the active 2-pt top accent is what
+  /// signals selection, no rounding needed.
+  static let chipCornerRadius: CGFloat = 0
 
   /// Thin vertical separator drawn between adjacent non-active chips.
   static let dividerWidth: CGFloat = 1
