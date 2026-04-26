@@ -694,6 +694,8 @@ struct RootFeatureTests {
 
   @Test
   func closeActiveTabForCurrentWorktreeForwardsActiveTab() async {
+    // Each fixture tab has exactly one pane, so ⌘W takes the
+    // single-pane branch and closes the whole tab.
     let (sp, pr, wt, ids, catalog) = Self.tabBarFixture(tabCount: 3, selectedIndex: 1)
     var initial = RootFeature.State()
     initial.selection = HierarchySelection(spaceID: sp, projectID: pr, worktreeID: wt)
@@ -712,6 +714,66 @@ struct RootFeatureTests {
     await store.send(.closeActiveTabForCurrentWorktree)
     await store.receive(\.detail.tabBar)
     #expect(captured.value == ids[1])
+  }
+
+  @Test
+  func closeActiveTabForCurrentWorktreeClosesFocusedPaneWhenSplit() async throws {
+    // Active tab has two panes: ⌘W must close the focused pane only,
+    // leaving the tab itself open.
+    let spaceID = SpaceID()
+    let projectID = ProjectID()
+    let worktreeID = WorktreeID()
+    let tabID = TabID()
+    let leftPane = PaneID()
+    let rightPane = PaneID()
+    let tab = Tab(
+      id: tabID, name: "t",
+      splitTree: try SplitTree(leaf: leftPane).inserting(
+        rightPane, at: leftPane, direction: .right
+      ),
+      panes: [
+        Pane(id: leftPane, workingDirectory: "/tmp", initialCommand: nil),
+        Pane(id: rightPane, workingDirectory: "/tmp", initialCommand: nil),
+      ]
+    )
+    let worktree = Worktree(
+      id: worktreeID, name: "main", path: "/tmp", branch: "main",
+      tabs: [tab], selectedTabID: tabID
+    )
+    let project = Project(
+      id: projectID, name: "p", rootPath: "/tmp",
+      worktrees: [worktree], selectedWorktreeID: worktreeID
+    )
+    let space = Space(
+      id: spaceID, name: "s", projects: [project], selectedProjectID: projectID
+    )
+    let catalog = Catalog(windows: [], spaces: [space], selectedSpaceID: spaceID)
+
+    var initial = RootFeature.State()
+    initial.selection = HierarchySelection(
+      spaceID: spaceID, projectID: projectID, worktreeID: worktreeID
+    )
+
+    let closedPane = LockIsolated<PaneID?>(nil)
+    let closedTab = LockIsolated<TabID?>(nil)
+    let store = TestStore(initialState: initial) {
+      RootFeature()
+    } withDependencies: {
+      $0.hierarchyClient.snapshot = { catalog }
+      $0.hierarchyClient.lastFocusedPane = { _ in rightPane }
+      $0.hierarchyClient.closePane = { id, _, _, _, _ in
+        closedPane.withValue { $0 = id }
+      }
+      $0.hierarchyClient.closeTab = { id, _, _, _ in
+        closedTab.withValue { $0 = id }
+      }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.closeActiveTabForCurrentWorktree)
+    await store.finish()
+    #expect(closedPane.value == rightPane)
+    #expect(closedTab.value == nil)
   }
 
   @Test

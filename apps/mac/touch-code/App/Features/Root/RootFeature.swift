@@ -809,8 +809,22 @@ struct RootFeature {
             .spaces.first(where: { $0.id == spaceID })?
             .projects.first(where: { $0.id == projectID })?
             .worktrees.first(where: { $0.id == worktreeID }),
-          let activeTabID = worktree.selectedTabID
+          let activeTabID = worktree.selectedTabID,
+          let activeTab = worktree.tabs.first(where: { $0.id == activeTabID })
         else { return .none }
+        // Multi-pane tab: ⌘W closes just the focused pane, leaving the tab
+        // open with its remaining panes (matches iTerm/Terminal.app). Single
+        // (or zero) pane: fall through and close the whole tab.
+        if activeTab.panes.count > 1 {
+          let focusID = hierarchyClient.lastFocusedPane(activeTabID)
+            ?? activeTab.splitTree.leaves().first
+          if let focusID {
+            try? hierarchyClient.closePane(
+              focusID, activeTabID, worktreeID, projectID, spaceID
+            )
+          }
+          return .none
+        }
         return .send(
           .detail(
             .tabBar(
