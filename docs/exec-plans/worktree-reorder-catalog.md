@@ -1,6 +1,6 @@
 # ExecPlan: Worktree Reorder Primitives in Catalog Layer
 
-**Status:** In Progress
+**Status:** Completed
 **Author:** Gump (sub-agent feat/worktree-reorder-catalog)
 **Date:** 2026-04-26
 
@@ -22,15 +22,18 @@ The design rationale, segment semantics, alternatives considered, and the reject
 - [x] Change `HierarchyManager.setWorktreePinned` to carry pin/unpin positioning — 2026-04-26
 - [x] Implement `HierarchyManager.reorderWorktrees(in:inSpace:segment:from:to:)` with all-or-nothing validation — 2026-04-26
 - [x] Append `reorderWorktrees` closure to `HierarchyClient` (live, liveValue, testValue) — 2026-04-26
-- [ ] Tests: reorder happy path within each segment
-- [ ] Tests: reorder out-of-range from/to leaves catalog untouched
-- [ ] Tests: createWorktree lands at unpinned segment top
-- [ ] Tests: Pin moves to pinned segment end; Unpin moves to unpinned segment top
-- [ ] Run `make mac-lint` and `make mac-build` clean
+- [x] Tests: reorder happy path within each segment — 2026-04-26
+- [x] Tests: reorder out-of-range from/to leaves catalog untouched — 2026-04-26
+- [x] Tests: createWorktree lands at unpinned segment top — 2026-04-26
+- [x] Tests: Pin moves to pinned segment end; Unpin moves to unpinned segment top — 2026-04-26
+- [x] Run `make mac-build` clean (lint pre-existing failures on main, see below) — 2026-04-26
 
 ## Surprises & Discoveries
 
-(None yet)
+- **Test build artifact reuse**: `xcodebuild test-without-building` against an artefact from a different branch can produce phantom failures (signal SEGV during pre-test bootstrap, or stale test bundle). Always run `xcodebuild ... test` (with build) when switching between branches that share `DerivedData`.
+- **Pre-existing flaky tests on `main`**: 8 tests fail on `main` independently of this slice — `HierarchyManagerTests/drainLegacyOverrides*` (3) and 5 in `HierarchySidebarFeatureTests` (the latter trip an `Unimplemented: GitHubClient.batchPullRequests` because the reducer subscribes to a GitHub PR effect that the tests don't stub). Verified by running each suite from `/Users/wanggang/dev/00/touch-code` (commit `1f714b3`, `main`) — same failures. Not in scope for this PR.
+- **Pre-existing lint violation**: `HierarchyClient.swift` has an `async_without_await` violation on `runScript` that exists on `main` too. Not introduced by this slice.
+- **Build prerequisite**: This worktree's `apps/mac/.build/ghostty` must symlink to a prebuilt copy (e.g., from `/Users/wanggang/dev/00/touch-code/apps/mac/.build/ghostty`) to avoid the ~20 minute Zig + xcframework build. The symlink is per-worktree local state and not committed.
 
 ## Decision Log
 
@@ -41,7 +44,9 @@ The design rationale, segment semantics, alternatives considered, and the reject
 
 ## Outcomes & Retrospective
 
-(To be filled at completion)
+Completed 2026-04-26. Six commits land the catalog primitives: `WorktreeSegment` enum, `unpinnedBoundary` helper, `createWorktree` insertion at the unpinned-segment top, `setWorktreePinned` repositioning to the segment boundary, `reorderWorktrees(...)` with all-or-nothing validation, the `HierarchyClient.reorderWorktrees` closure, and 14 + 1 tests. `make mac-build` and the new test suite are green; pre-existing main-branch failures (drainLegacy + sidebar/GitHubClient) are out of scope.
+
+Task02 (sidebar feature wiring) can now consume the closure surface defined in `HierarchyClient`; no further hierarchy-layer work is required for the four-segment ordering rule.
 
 ## Context and Orientation
 
