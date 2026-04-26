@@ -23,8 +23,16 @@ final class AgentStateTracker {
   private(set) var state: AgentState = .running
   private(set) var lastActivityAt: Date
 
-  private let idleThreshold: TimeInterval
+  private(set) var idleThreshold: TimeInterval
   private let clock: any Clock<Duration>
+
+  /// Most recent user keystroke on this pane. The tracker suppresses
+  /// `.completed` (rule-driven) and `.idle` (timer) transitions for
+  /// `userInteractionWindow` seconds after this stamps; lifecycle events
+  /// (`.paneExited`, `.paneCrashed`) always notify, since they're rare
+  /// and important enough to interrupt typing. v2 D4 / DEC-V4.
+  private var lastUserInputAt: Date?
+  private let userInteractionWindow: TimeInterval = 3.0
   private let (continuation, stream):
     (AsyncStream<AgentStateTransition>.Continuation, AsyncStream<AgentStateTransition>)
   /// `Task` is `Sendable` and `cancel()` is safe from any context. We
@@ -140,6 +148,28 @@ final class AgentStateTracker {
     state = newState
   }
 
+  /// Record a user keystroke. The next `.completed`/`.idle` transition
+  /// within `userInteractionWindow` seconds will update `state` but not
+  /// yield to the transitions stream — so the user does not get a
+  /// notification banner for a pane they are actively typing in.
+  /// Lifecycle envelopes (`.paneExited`, `.paneCrashed`) are not
+  /// suppressed; user override is irrelevant per design invariant.
+  func recordUserInput(at: Date = Date()) {
+    lastUserInputAt = at
+  }
+
+  /// Adopt a new idle threshold without resetting the FSM. Driven by
+  /// `RuleStore.reloadAndRematerialise()` so a user who edits
+  /// `detection-rules.json` and runs reload sees the change reflected
+  /// in still-running Panes; the timer re-arms against the new value.
+  /// Does NOT change `state` — current agent state is a property of the
+  /// agent, not of the rules.
+  func updateIdleThreshold(_ seconds: TimeInterval) {
+    guard seconds != idleThreshold else { return }
+    idleThreshold = seconds
+    armIdleTimer()
+  }
+
   /// Tear down the tracker: cancel the idle timer and finish the stream.
   /// Called by `TrackerRegistry` when the Pane is removed or loses its
   /// agent label; also called internally on crash/exit.
@@ -172,9 +202,40 @@ final class AgentStateTracker {
       at: now,
       trigger: trigger
     )
+    // State advances even when the transition is suppressed for the
+    // user-interaction window. Two consequences worth knowing:
+    // - A `.completed` suppressed inside the window leaves the FSM at
+    //   `.completed` — a subsequent rule-driven `.completed` is a
+    //   self-transition and `transitionIfChanged` will drop it. This is
+    //   intended: the user was actively typing in the pane the moment
+    //   the agent finished, so they already know; skipping the would-be
+    //   second banner avoids re-notifying for the same event.
+    // - A `.idle` suppressed inside the window self-corrects on the
+    //   next byte: `applyActivityIfNeeded` flips `.idle → .running`,
+    //   re-arming the timer, so the next quiet stretch fires a fresh
+    //   `.idle` outside the suppression window.
     state = newState
-    continuation.yield(transition)
+    if !shouldSuppress(transition, now: now) {
+      continuation.yield(transition)
+    }
     return transition
+  }
+
+  /// True iff the transition lands within the user-interaction window
+  /// AND the transition kind is one that notifies (rule-driven
+  /// completion, timer-driven idle). Lifecycle envelopes always notify
+  /// — see the `lastUserInputAt` doc-comment for rationale.
+  private func shouldSuppress(_ transition: AgentStateTransition, now: Date) -> Bool {
+    guard let last = lastUserInputAt else { return false }
+    guard now.timeIntervalSince(last) < userInteractionWindow else { return false }
+    switch transition.trigger {
+    case .rule:
+      return transition.to == .completed
+    case .idleTimer:
+      return true
+    case .envelope, .userOverride:
+      return false
+    }
   }
 
   /// If we're in `.idle` and an activity envelope just arrived, transition

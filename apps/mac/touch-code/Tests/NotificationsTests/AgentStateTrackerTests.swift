@@ -106,6 +106,56 @@ struct AgentStateTrackerTests {
     #expect(result == nil)
   }
 
+  // MARK: - User-interaction suppression (v2 D4)
+
+  /// User-typing within the suppression window must drop a rule-driven
+  /// completion transition off the stream — the user is already
+  /// attending to that pane, a banner would be redundant.
+  @Test
+  func userInputSuppressesCompletionWithinWindow() async throws {
+    let tracker = Self.makeTracker()
+    var iterator = tracker.transitions.makeAsyncIterator()
+
+    tracker.recordUserInput()
+    let returned = tracker.applyRuleTransition(to: .completed, ruleID: "rule.done")
+    #expect(returned != nil)  // state moved
+    #expect(tracker.state == .completed)
+
+    let racer = Task { await iterator.next() }
+    try await Task.sleep(nanoseconds: 50_000_000)
+    racer.cancel()
+    #expect(await racer.value == nil)
+  }
+
+  /// `.blockedOnInput` is the one signal a typing user actually wants —
+  /// the agent is asking for them. Suppression must NOT swallow it.
+  @Test
+  func userInputDoesNotSuppressBlockedOnInput() async throws {
+    let tracker = Self.makeTracker()
+    var iterator = tracker.transitions.makeAsyncIterator()
+
+    tracker.recordUserInput()
+    _ = tracker.applyRuleTransition(to: .blockedOnInput, ruleID: "rule.ask")
+
+    let next = await iterator.next()
+    #expect(next?.to == .blockedOnInput)
+  }
+
+  /// After the 3-second window expires, completions notify normally
+  /// again. The test stamps a synthetic user-input timestamp into the
+  /// past so it does not depend on `Task.sleep`.
+  @Test
+  func userInputAfterWindowAllowsCompletion() async throws {
+    let tracker = Self.makeTracker()
+    var iterator = tracker.transitions.makeAsyncIterator()
+
+    tracker.recordUserInput(at: Date().addingTimeInterval(-5))
+    _ = tracker.applyRuleTransition(to: .completed, ruleID: "rule.done")
+
+    let next = await iterator.next()
+    #expect(next?.to == .completed)
+  }
+
   // MARK: - Idle timer (sleep/wake safe — R1 coverage)
 
   @Test

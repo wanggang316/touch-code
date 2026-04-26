@@ -43,6 +43,25 @@ final class NotificationCoordinator {
   /// restart-time sweep and live creation fire for the same PaneID.
   private var alreadyPrompted: Set<PaneID> = []
 
+  /// Most recent unread count observed from the inbox publisher. Cached
+  /// so `recomputeDockBadge()` can re-apply the gate when the user
+  /// toggles `inAppEnabled` / `dockBadgeEnabled` without waiting for
+  /// the next inbox mutation (D8 — synchronous badge re-evaluation).
+  private var lastUnreadCount: Int = 0
+
+  /// Per-pane dedup window (v2 D3 / DEC-V3). Two arrivals describing
+  /// the same event within the window get collapsed to one — the inbox
+  /// is the source of truth and we never coalesce existing rows.
+  private struct DedupRecord {
+    let key: String
+    let postedAt: Date
+  }
+  private var recentByPane: [PaneID: DedupRecord] = [:]
+  private let dedupWindow: TimeInterval = 2.0
+  /// Test seam — production uses `Date.init`. Tests inject a closure to
+  /// fast-forward across the dedup window without `Task.sleep`.
+  private let now: @MainActor @Sendable () -> Date
+
   init(
     inbox: InboxStore,
     badger: any DockBadger,
@@ -52,7 +71,8 @@ final class NotificationCoordinator {
     registry: TrackerRegistry,
     permissionDelegate: any NotificationPermissionDelegate,
     ruleStore: RuleStore? = nil,
-    router: DetectionRouter? = nil
+    router: DetectionRouter? = nil,
+    now: @escaping @MainActor @Sendable () -> Date = Date.init
   ) {
     self.inbox = inbox
     self.badger = badger
@@ -63,6 +83,7 @@ final class NotificationCoordinator {
     self.permissionDelegate = permissionDelegate
     self.ruleStore = ruleStore
     self.router = router
+    self.now = now
   }
 
   /// Wire the rule-reload dependencies after construction. `C6AppBootstrap`
@@ -76,13 +97,18 @@ final class NotificationCoordinator {
 
   // MARK: - Binding
 
-  /// Subscribe to the router's output stream + the inbox unread publisher.
-  /// Spawns two concurrent loops under `async let`; returns once either
-  /// stream finishes (normally never, for the app's lifetime).
+  /// Subscribe to the router's output stream + the inbox unread publisher
+  /// + the settings-change stream. Spawns three concurrent loops under
+  /// `async let`; returns once any stream finishes (normally never, for
+  /// the app's lifetime). The settings stream is captured into a local
+  /// before the `async let` so `settingsReader` (a class-bound
+  /// non-Sendable protocol) does not cross the child-task boundary.
   func bind(to outputs: AsyncStream<DetectionRouter.RouterOutput>) async {
+    let settingsStream = settingsReader.notificationsSettingsChanges()
     async let outputLoop: Void = consumeRouterOutputs(outputs)
     async let unreadLoop: Void = consumeUnreadPublisher()
-    _ = await (outputLoop, unreadLoop)
+    async let settingsLoop: Void = consumeSettingsChanges(settingsStream)
+    _ = await (outputLoop, unreadLoop, settingsLoop)
   }
 
   private func consumeRouterOutputs(_ stream: AsyncStream<DetectionRouter.RouterOutput>) async {
@@ -93,7 +119,14 @@ final class NotificationCoordinator {
 
   private func consumeUnreadPublisher() async {
     for await count in inbox.unreadPublisher {
+      lastUnreadCount = count
       handleUnread(count)
+    }
+  }
+
+  private func consumeSettingsChanges(_ stream: AsyncStream<Void>) async {
+    for await _ in stream {
+      recomputeDockBadge()
     }
   }
 
@@ -107,8 +140,34 @@ final class NotificationCoordinator {
   /// badge to zero on the next tick — keeping the UI consistent with the
   /// NotificationsSettingsView caption that says in-app also gates the badge.
   func handleUnread(_ count: Int) {
-    let shouldShow = settingsReader.dockBadgeEnabled && settingsReader.inAppEnabled
+    lastUnreadCount = count
+    let shouldShow =
+      settingsReader.enabled
+      && settingsReader.dockBadgeEnabled
+      && settingsReader.inAppEnabled
     badger.setUnreadCount(shouldShow ? count : 0)
+  }
+
+  /// Re-apply the Dock-badge gate against the most recent unread count.
+  /// Called from the settings-change stream so toggling
+  /// `inAppEnabled` / `dockBadgeEnabled` clears (or restores) the badge
+  /// in the same UI tick instead of lagging until the next inbox
+  /// mutation. Also exposed so tests can drive the recompute without
+  /// starting `bind()`.
+  func recomputeDockBadge() {
+    handleUnread(lastUnreadCount)
+  }
+
+  /// Drop the dedup record for a Pane that is going away. `TrackerRegistry`
+  /// calls this from `destroy(for:)` so a Pane reusing an old PaneID
+  /// (e.g. across a session restore) does not see a false-positive
+  /// duplicate from the previous lifetime.
+  func clearDedupCache(_ paneID: PaneID) {
+    recentByPane.removeValue(forKey: paneID)
+  }
+
+  private static func contentHash(paneID: PaneID, title: String, body: String) -> String {
+    "\(paneID.raw.uuidString)|\(title)|\(body)"
   }
 
   // MARK: - Per-transition fan-out
@@ -118,6 +177,10 @@ final class NotificationCoordinator {
   /// (whose `unreadPublisher` consumer never terminates while the inbox
   /// is live).
   func handle(output: DetectionRouter.RouterOutput) async {
+    guard settingsReader.enabled else {
+      logger.debug("Master toggle off; dropping output.")
+      return
+    }
     guard settingsReader.mute.enabled else {
       logger.debug("Global notifications disabled; dropping output.")
       return
@@ -130,8 +193,27 @@ final class NotificationCoordinator {
       agent: output.agent,
       kind: output.kind,
       title: output.title,
-      body: body
+      body: body,
+      dedupKey: output.dedupKey
     )
+
+    // v2 D3 — cross-source dedup. Drop a duplicate within the window;
+    // do not append, do not post, do not bump unread. Inbox stays the
+    // source of truth (DEC-5) so we never mutate an existing row.
+    let key = notification.dedupKey ?? Self.contentHash(
+      paneID: notification.paneID,
+      title: notification.title,
+      body: notification.body
+    )
+    let nowDate = now()
+    if let recent = recentByPane[notification.paneID],
+      recent.key == key,
+      nowDate.timeIntervalSince(recent.postedAt) < dedupWindow
+    {
+      logger.debug("Duplicate within dedup window; dropping.")
+      return
+    }
+    recentByPane[notification.paneID] = DedupRecord(key: key, postedAt: nowDate)
     if settingsReader.inAppEnabled {
       inbox.append(notification)
     } else {
@@ -263,6 +345,11 @@ final class NotificationCoordinator {
     let newRules = try ruleStore.reloadAndRematerialise()
     let newRenderer = try TemplateRenderer(rules: newRules)
     router.setRules(newRules, renderer: newRenderer)
+    // Propagate the (possibly changed) idle threshold to every live
+    // tracker so already-running Panes pick up the new value without
+    // restart. State machine itself is untouched — `state` is a
+    // property of the agent, not of the rules (D7).
+    registry.updateIdleThreshold(newRules.idleThresholdSeconds)
     logger.info("Reloaded \(newRules.rules.count) detection rule(s).")
   }
 

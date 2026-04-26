@@ -38,6 +38,20 @@ final class InboxStore {
   @ObservationIgnored
   private var inboxSubscribers: [UUID: AsyncStream<NotificationInbox>.Continuation] = [:]
 
+  /// Per-worktree unread map subscribers (v2 D11). Same fan-out shape as
+  /// `inboxSubscribers`. Maps `paneID → worktreeID` via `catalogProvider`
+  /// at each publish so subscribers see fresh values when panes move
+  /// across worktrees mid-session.
+  @ObservationIgnored
+  private var perWorktreeSubscribers: [UUID: AsyncStream<[WorktreeID: Int]>.Continuation] = [:]
+
+  /// Optional catalog accessor injected by the bootstrap. `nil` keeps the
+  /// per-worktree stream emitting `[:]` — the unit tests don't have a
+  /// catalog so this guard makes the store still constructable in
+  /// isolation.
+  @ObservationIgnored
+  private var catalogProvider: (@MainActor @Sendable () -> Catalog)?
+
   /// Design DEC-9 — 500-row retained cap.
   static let retentionCap = 500
 
@@ -59,6 +73,9 @@ final class InboxStore {
     pendingSaveTask?.cancel()
     unreadContinuation.finish()
     for (_, continuation) in inboxSubscribers {
+      continuation.finish()
+    }
+    for (_, continuation) in perWorktreeSubscribers {
       continuation.finish()
     }
   }
@@ -97,6 +114,25 @@ final class InboxStore {
     }
     scheduleSave()
     publishMutation()
+  }
+
+  /// Mark every notification belonging to the given Pane as read.
+  /// Sibling of `markRead(forWorktree:in:)`; used by `tc focus` and any
+  /// other path that wants "focus → acknowledge unread for this pane
+  /// only" semantics (v2 D13 / B10).
+  func markRead(forPane paneID: PaneID, now: Date = Date()) {
+    var mutated = false
+    for index in inbox.notifications.indices
+    where inbox.notifications[index].paneID == paneID
+      && inbox.notifications[index].readAt == nil
+    {
+      inbox.notifications[index].readAt = now
+      mutated = true
+    }
+    if mutated {
+      scheduleSave()
+      publishMutation()
+    }
   }
 
   /// Mark each matching entry as read (sets `readAt = now` if not already read).
@@ -221,10 +257,46 @@ final class InboxStore {
   /// (M4) subscribes to this to drive `DockBadger.setUnreadCount`.
   var unreadPublisher: AsyncStream<Int> { unreadStream }
 
+  /// Inject a catalog snapshotter so `observeUnreadByWorktree` can map
+  /// `paneID → worktreeID` at each publish (v2 D11). C6AppBootstrap
+  /// passes `{ hierarchyManager.catalog }`. Without a provider the
+  /// per-worktree stream stays empty — keeps the store usable in
+  /// catalog-free unit tests.
+  func setCatalogProvider(_ provider: @escaping @MainActor @Sendable () -> Catalog) {
+    catalogProvider = provider
+    publishMutation()  // emit an initial snapshot to existing subscribers.
+  }
+
+  /// Per-worktree unread map. Re-derived from the live catalog snapshot
+  /// at every inbox mutation; emits `[:]` if no catalog provider has
+  /// been set yet (e.g. unit tests). Yields the current value to fresh
+  /// subscribers so the worktree-list reducer doesn't have to wait for
+  /// the next mutation to populate.
+  func observeUnreadByWorktree() -> AsyncStream<[WorktreeID: Int]> {
+    AsyncStream { [weak self] continuation in
+      guard let self else {
+        continuation.finish()
+        return
+      }
+      let id = UUID()
+      perWorktreeSubscribers[id] = continuation
+      continuation.yield(unreadByWorktreeSnapshot())
+      continuation.onTermination = { [weak self, id] _ in
+        Task { @MainActor [weak self] in
+          self?.perWorktreeSubscribers.removeValue(forKey: id)
+        }
+      }
+    }
+  }
+
   /// Fresh inbox-change stream — yields the current inbox on subscribe,
   /// then on every mutation. See field doc on `inboxSubscribers`.
   func observeInbox() -> AsyncStream<NotificationInbox> {
-    AsyncStream { [self] continuation in
+    AsyncStream { [weak self] continuation in
+      guard let self else {
+        continuation.finish()
+        return
+      }
       let id = UUID()
       inboxSubscribers[id] = continuation
       continuation.yield(inbox)
@@ -242,6 +314,35 @@ final class InboxStore {
     for (_, continuation) in inboxSubscribers {
       continuation.yield(snapshot)
     }
+    if !perWorktreeSubscribers.isEmpty {
+      let map = unreadByWorktreeSnapshot()
+      for (_, continuation) in perWorktreeSubscribers {
+        continuation.yield(map)
+      }
+    }
+  }
+
+  private func unreadByWorktreeSnapshot() -> [WorktreeID: Int] {
+    guard let catalog = catalogProvider?() else { return [:] }
+    var paneToWorktree: [PaneID: WorktreeID] = [:]
+    for space in catalog.spaces {
+      for project in space.projects {
+        for worktree in project.worktrees {
+          for tab in worktree.tabs {
+            for pane in tab.panes {
+              paneToWorktree[pane.id] = worktree.id
+            }
+          }
+        }
+      }
+    }
+    var result: [WorktreeID: Int] = [:]
+    for n in inbox.notifications where n.isUnread {
+      if let wid = paneToWorktree[n.paneID] {
+        result[wid, default: 0] += 1
+      }
+    }
+    return result
   }
 
   // MARK: - Sweep

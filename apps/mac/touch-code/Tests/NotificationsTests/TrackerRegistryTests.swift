@@ -57,6 +57,36 @@ struct TrackerRegistryTests {
     #expect(yielded == id)
   }
 
+  // MARK: - User-input forwarding (v2 D4 / B7)
+
+  /// `recordKeyInput` must reach the matching tracker so subsequent
+  /// .completed transitions inside the 3-second window get suppressed.
+  @Test
+  func recordKeyInputForwardsToMatchingTracker() async throws {
+    let registry = Self.emptyRegistry()
+    let paneID = PaneID()
+    let tracker = registry.create(for: paneID)
+    var iterator = tracker.transitions.makeAsyncIterator()
+
+    registry.recordKeyInput(paneID: paneID)
+    _ = tracker.applyRuleTransition(to: .completed, ruleID: "rule.done")
+
+    // Suppression in flight — same race-with-cancel pattern as
+    // overrideDoesNotEmit / userInputSuppressesCompletionWithinWindow.
+    let racer = Task { await iterator.next() }
+    try await Task.sleep(nanoseconds: 50_000_000)
+    racer.cancel()
+    #expect(await racer.value == nil)
+  }
+
+  /// `recordKeyInput` for a paneID without a tracker is a no-op — the
+  /// production wire forwards keystrokes from any pane.
+  @Test
+  func recordKeyInputForUnknownPaneIsNoOp() {
+    let registry = Self.emptyRegistry()
+    registry.recordKeyInput(paneID: PaneID())  // no tracker → no crash
+  }
+
   @Test
   func agentLabelledPanesStaticWalksFullHierarchy() {
     let paneA = Self.pane(labels: ["agent:claude"])

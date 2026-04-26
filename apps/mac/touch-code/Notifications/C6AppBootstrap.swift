@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import TouchCodeCore
 
@@ -33,6 +34,12 @@ final class C6AppBootstrap {
   let rules: AgentDetectionRules
 
   private var bindTask: Task<Void, Never>?
+  private var lifecycleObserver: NSObjectProtocol?
+  /// Strong reference to the delegate that routes banner-tapped actions
+  /// back to the inbox. `UNUserNotificationCenter.delegate` is itself
+  /// weak, so the bootstrap owns the only strong reference; releasing it
+  /// in `shutdown()` lets ARC reclaim.
+  private var notificationDelegate: UserNotificationDelegate?
 
   /// Build the full C6 stack from the supplied dependencies and run the
   /// 11-step wiring sequence. The caller is expected to retain the
@@ -53,13 +60,18 @@ final class C6AppBootstrap {
     // Step 1 — settings is now the single-writer SettingsStore shared across the app shell.
     let settings = settingsStore
 
-    // Step 2 — inbox.
+    // Step 2 — inbox. Wire the catalog provider so observeUnreadByWorktree
+    // can map paneID → worktreeID against the live catalog at each tick
+    // (v2 D11 / B8).
     let inbox: InboxStore
     if let inboxStore {
       inbox = inboxStore
     } else {
       inbox = InboxStore(fileURL: inboxURL, clock: clock)
       _ = try inbox.load()
+    }
+    inbox.setCatalogProvider { [weak hierarchy] in
+      hierarchy?.catalog ?? .default
     }
 
     // Ensure the defaults are present so step 3 always finds something to load.
@@ -127,6 +139,42 @@ final class C6AppBootstrap {
       await coordinator.bind(to: router.transitions)
     }
 
+    // Wire the OS-banner action delegate. Focus and the body-tap default
+    // mark the inbox row read; Dismiss removes it. Without this, the OS
+    // surface and the in-app sidebar diverge on the same notification.
+    // Deeplink-to-pane on focus is deferred until the resolvePanel chain
+    // lands; today the focus action only marks read.
+    let delegate = UserNotificationDelegate(
+      onFocus: { [weak inbox] id in inbox?.markRead([id]) },
+      onDismiss: { [weak inbox] id in inbox?.dismiss([id]) }
+    )
+    bootstrap.notificationDelegate = delegate
+    osNotifier.setDelegate(delegate)
+
+    // Per-pane dedup eviction on tracker teardown (v2 D3). Without this
+    // a pane reusing an old PaneID (session restore) could see a stale
+    // dedup record from the prior lifetime.
+    registry.onDestroy = { [weak coordinator] paneID in
+      coordinator?.clearDedupCache(paneID)
+    }
+
+    // Refresh cached macOS notification permission on every app
+    // activation. The cache is otherwise read once at boot, so a user
+    // who grants permission in System Settings while the app is in the
+    // background only sees the change after a full relaunch. Synchronous
+    // registration is load-bearing — an `AsyncSequence` subscription
+    // would race the first `didBecomeActive` post-bootstrap.
+    bootstrap.lifecycleObserver = NotificationCenter.default.addObserver(
+      forName: NSApplication.didBecomeActiveNotification,
+      object: nil,
+      queue: .main
+    ) { [weak coordinator] _ in
+      guard let coordinator else { return }
+      Task { @MainActor in
+        await coordinator.refreshAuthorizationStatus()
+      }
+    }
+
     return bootstrap
   }
 
@@ -168,6 +216,11 @@ final class C6AppBootstrap {
   func shutdown() {
     bindTask?.cancel()
     bindTask = nil
+    if let lifecycleObserver {
+      NotificationCenter.default.removeObserver(lifecycleObserver)
+      self.lifecycleObserver = nil
+    }
+    notificationDelegate = nil
     hookDispatcher.unregister(prefix: RuleStore.sentinelPrefix)
   }
 

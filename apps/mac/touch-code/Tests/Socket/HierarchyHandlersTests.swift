@@ -83,6 +83,59 @@ struct HierarchyHandlersTests {
 
   // MARK: - Harness helpers
 
+  /// `onPaneFocused` callback must fire after a successful focusPane —
+  /// the wire `tc focus → server → InboxStore.markRead(forPane:)`
+  /// (v2 D13 / B11) hangs off this hook.
+  @Test
+  func focusPaneInvokesOnPaneFocusedCallback() async throws {
+    let catalogURL = URL(fileURLWithPath: NSTemporaryDirectory())
+      .appendingPathComponent("touch-code-onfocus-\(UUID().uuidString).json")
+    let catalogStore = CatalogStore(fileURL: catalogURL)
+    let pane = Pane(workingDirectory: "/tmp", initialCommand: nil)
+    let tab = Tab(splitTree: SplitTree(leaf: pane.id), panes: [pane])
+    let worktree = Worktree(
+      name: "wt", path: "/repo", branch: "main", tabs: [tab], selectedTabID: tab.id
+    )
+    let project = Project(
+      name: "p", rootPath: "/p", gitRoot: "/p",
+      worktrees: [worktree],
+      selectedWorktreeID: worktree.id
+    )
+    let space = Space(name: "s", projects: [project], selectedProjectID: project.id)
+    let catalog = Catalog(
+      version: Catalog.currentVersion,
+      windows: [],
+      spaces: [space],
+      selectedSpaceID: space.id
+    )
+    let hierarchy = HierarchyManager(
+      catalog: catalog,
+      store: catalogStore,
+      runtime: FakeHierarchyRuntime()
+    )
+    let handlers = HierarchyHandlers(manager: hierarchy)
+
+    final class Recorder: @unchecked Sendable {
+      var focusedIDs: [PaneID] = []
+    }
+    let recorder = Recorder()
+    handlers.onPaneFocused = { paneID in recorder.focusedIDs.append(paneID) }
+
+    let params = JSONValue.object([
+      "id": .object(["raw": .string(pane.id.raw.uuidString)]),
+      "tabID": .object(["raw": .string(tab.id.raw.uuidString)]),
+      "worktreeID": .object(["raw": .string(worktree.id.raw.uuidString)]),
+      "projectID": .object(["raw": .string(project.id.raw.uuidString)]),
+      "spaceID": .object(["raw": .string(space.id.raw.uuidString)]),
+    ])
+    let outcome = await handlers.focusPane(params)
+    if case .failed(let err) = outcome {
+      Issue.record("focusPane failed: \(err)")
+    }
+
+    #expect(recorder.focusedIDs == [pane.id])
+  }
+
   static func makeHarness() -> InMemoryIPCServer {
     makeHarnessWithHierarchy().server
   }

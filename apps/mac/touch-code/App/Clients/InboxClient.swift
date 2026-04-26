@@ -27,6 +27,11 @@ nonisolated struct InboxClient: Sendable {
       _ worktreeID: WorktreeID, _ catalog: Catalog
     ) -> Void
 
+  /// Mark every notification belonging to the given Pane as read. Used
+  /// by `tc focus` and other "acknowledge unread on focus" paths
+  /// (v2 D13 / B10). Bridges `InboxStore.markRead(forPane:)`.
+  var markReadForPane: @MainActor @Sendable (_ paneID: PaneID) -> Void
+
   /// Dismiss every notification in the inbox.
   var clearAll: @MainActor @Sendable () -> Void
 
@@ -46,6 +51,11 @@ nonisolated struct InboxClient: Sendable {
   /// `InboxStore.unreadPublisher`; the client exposes it for views that
   /// only need the count.
   var observeUnread: @MainActor @Sendable () -> AsyncStream<Int>
+
+  /// Stream of per-worktree unread maps (v2 D11 / B8). Drives both the
+  /// worktree-promotion reducer (`moveNotifiedWorktreeToTop`) and the
+  /// future status-bar bell from the same source of truth.
+  var observeUnreadByWorktree: @MainActor @Sendable () -> AsyncStream<[WorktreeID: Int]>
 }
 
 // MARK: - Live bridge
@@ -59,12 +69,14 @@ extension InboxClient {
       markReadForWorktree: { worktreeID, catalog in
         inbox.markRead(forWorktree: worktreeID, in: catalog)
       },
+      markReadForPane: { paneID in inbox.markRead(forPane: paneID) },
       clearAll: { inbox.clearAll() },
       muteRule: { ruleID in
         settings.mutateNotifications { $0.mute.mutedRuleIDs.insert(ruleID) }
       },
       observe: { inbox.observeInbox() },
-      observeUnread: { inbox.unreadPublisher }
+      observeUnread: { inbox.unreadPublisher },
+      observeUnreadByWorktree: { inbox.observeUnreadByWorktree() }
     )
   }
 }
@@ -81,16 +93,19 @@ extension InboxClient: DependencyKey {
     dismiss: { _ in },
     markRead: { _ in },
     markReadForWorktree: { _, _ in },
+    markReadForPane: { _ in },
     clearAll: {},
     muteRule: { _ in },
     observe: { AsyncStream { $0.finish() } },
-    observeUnread: { AsyncStream { $0.finish() } }
+    observeUnread: { AsyncStream { $0.finish() } },
+    observeUnreadByWorktree: { AsyncStream { $0.finish() } }
   )
 
   static let testValue: InboxClient = InboxClient(
     dismiss: unimplemented("InboxClient.dismiss"),
     markRead: unimplemented("InboxClient.markRead"),
     markReadForWorktree: unimplemented("InboxClient.markReadForWorktree"),
+    markReadForPane: unimplemented("InboxClient.markReadForPane"),
     clearAll: unimplemented("InboxClient.clearAll"),
     muteRule: unimplemented("InboxClient.muteRule"),
     observe: unimplemented(
@@ -99,6 +114,10 @@ extension InboxClient: DependencyKey {
     ),
     observeUnread: unimplemented(
       "InboxClient.observeUnread",
+      placeholder: AsyncStream { $0.finish() }
+    ),
+    observeUnreadByWorktree: unimplemented(
+      "InboxClient.observeUnreadByWorktree",
       placeholder: AsyncStream { $0.finish() }
     )
   )

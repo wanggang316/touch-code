@@ -10,6 +10,9 @@ import TouchCodeCore
 /// additionally passed that closure so it can cache auth status / cool-down timestamps.
 @MainActor
 protocol NotificationSettingsReader: AnyObject {
+  /// Top-level master kill switch (v2 D5 / DEC-V5). Distinct from
+  /// `mute.enabled` which is the user-facing snooze.
+  var enabled: Bool { get }
   var mute: MuteSettings { get }
   var authStatus: AuthorizationStatusCache { get }
   var neverPrompt: Bool { get }
@@ -18,4 +21,12 @@ protocol NotificationSettingsReader: AnyObject {
   var systemEnabled: Bool { get }
   var soundEnabled: Bool { get }
   var dockBadgeEnabled: Bool { get }
+  /// Auto-promote a worktree on first unread (v2 D11 / DEC-V10).
+  var moveNotifiedWorktreeToTop: Bool { get }
+
+  /// Fires once per `mutateNotifications` call. The coordinator's bind
+  /// loop subscribes so toggling `inAppEnabled` / `dockBadgeEnabled`
+  /// re-evaluates the Dock badge in the same UI tick. Without this, the
+  /// badge would lag by one inbox-mutation cycle (D8).
+  func notificationsSettingsChanges() -> AsyncStream<Void>
 }

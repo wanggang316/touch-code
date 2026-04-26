@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import TouchCodeCore
+@preconcurrency import UserNotifications
 
 @testable import touch_code
 
@@ -218,6 +219,112 @@ struct NotificationCoordinatorTests {
     #expect(off.badger.calls.last == 0)
   }
 
+  // MARK: - Master enabled (v2 D5)
+
+  /// Master toggle off must skip ALL surfaces — inbox, OS post, sound,
+  /// dock badge — distinct from `mute.enabled` (which still appends
+  /// to the inbox so users can review history).
+  @Test
+  func masterEnabledFalseDropsAll() async throws {
+    let harness = Self.make()
+    harness.settings.mutateNotifications { $0.enabled = false }
+
+    await harness.feed(Self.dedupRouterOutput(paneID: PaneID(), title: "t", body: "b"))
+
+    #expect(harness.inbox.inbox.notifications.isEmpty)
+    #expect(harness.mockNotifier.postedNotifications.isEmpty)
+
+    // Badge also clears even with prior unread; recompute to assert.
+    harness.coordinator.handleUnread(7)
+    #expect(harness.badger.calls.last == 0)
+  }
+
+  // MARK: - Dedup window (v2 D3)
+
+  @Test
+  func dedupBlocksDuplicateWithinWindow() async throws {
+    let harness = Self.make()
+    let pane = PaneID()
+    let title = "Claude finished"
+    let body = "ok"
+
+    await harness.feed(Self.dedupRouterOutput(paneID: pane, title: title, body: body))
+    await harness.feed(Self.dedupRouterOutput(paneID: pane, title: title, body: body))
+
+    #expect(harness.inbox.inbox.notifications.count == 1)
+    #expect(harness.mockNotifier.postedNotifications.count == 1)
+  }
+
+  /// Once 2 seconds have elapsed (per the dedup window) the same content
+  /// is allowed through — a user re-running the same command intentionally
+  /// still gets a fresh notification.
+  @Test
+  func dedupAllowsDuplicateAfterWindow() async throws {
+    let now = MutableNowProvider()
+    let harness = Self.make(nowProvider: { now.current })
+    let pane = PaneID()
+
+    await harness.feed(Self.dedupRouterOutput(paneID: pane, title: "t", body: "b"))
+    now.advance(by: 2.5)
+    await harness.feed(Self.dedupRouterOutput(paneID: pane, title: "t", body: "b"))
+
+    #expect(harness.inbox.inbox.notifications.count == 2)
+  }
+
+  /// An explicit `dedupKey` collapses duplicates even when their content
+  /// would otherwise differ — a Stop hook and an OSC 9 sequence that
+  /// describe the same completion can carry different bodies but share
+  /// a `dedupKey`.
+  @Test
+  func dedupKeyOverridesContentHash() async throws {
+    let harness = Self.make()
+    let pane = PaneID()
+
+    await harness.feed(
+      Self.dedupRouterOutput(paneID: pane, title: "via hook", body: "h", dedupKey: "claude.stop:1"))
+    await harness.feed(
+      Self.dedupRouterOutput(paneID: pane, title: "via osc9", body: "o", dedupKey: "claude.stop:1"))
+
+    #expect(harness.inbox.inbox.notifications.count == 1)
+  }
+
+  /// `clearDedupCache(_:)` (driven by tracker teardown) lets a pane that
+  /// reuses an old PaneID — e.g. session restore — start fresh without
+  /// false-positive duplicate suppression.
+  @Test
+  func paneTeardownClearsDedup() async throws {
+    let harness = Self.make()
+    let pane = PaneID()
+
+    await harness.feed(Self.dedupRouterOutput(paneID: pane, title: "t", body: "b"))
+    harness.coordinator.clearDedupCache(pane)
+    await harness.feed(Self.dedupRouterOutput(paneID: pane, title: "t", body: "b"))
+
+    #expect(harness.inbox.inbox.notifications.count == 2)
+  }
+
+  // MARK: - Dock badge auto-recompute
+
+  /// Toggling `inAppEnabled` mid-session must clear the Dock badge in
+  /// the same UI tick — D8 in v2. `recomputeDockBadge()` simulates the
+  /// settings-change-stream tick that `bind()` consumes in production;
+  /// with the never-terminating bind loop disabled in tests, we drive
+  /// the recompute directly.
+  @Test
+  func inAppDisabledClearsBadgeImmediately() {
+    let harness = Self.make(inAppEnabled: true, dockBadgeEnabled: true)
+    harness.coordinator.handleUnread(5)
+    #expect(harness.badger.calls.last == 5)
+
+    harness.settings.mutateNotifications { $0.inAppEnabled = false }
+    harness.coordinator.recomputeDockBadge()
+    #expect(harness.badger.calls.last == 0)
+
+    harness.settings.mutateNotifications { $0.inAppEnabled = true }
+    harness.coordinator.recomputeDockBadge()
+    #expect(harness.badger.calls.last == 5)
+  }
+
   // MARK: - Permission prompt
 
   @Test
@@ -399,7 +506,8 @@ struct NotificationCoordinatorTests {
     soundEnabled: Bool = true,
     inAppEnabled: Bool = true,
     dockBadgeEnabled: Bool = true,
-    decision: PermissionDecision = .continue
+    decision: PermissionDecision = .continue,
+    nowProvider: @escaping @MainActor @Sendable () -> Date = Date.init
   ) -> Harness {
     let inbox = InboxStore(
       fileURL: FileManager.default.temporaryDirectory.appending(component: "\(UUID()).json"),
@@ -443,7 +551,8 @@ struct NotificationCoordinatorTests {
         settings?.mutateNotifications(transform)
       },
       registry: registry,
-      permissionDelegate: delegate
+      permissionDelegate: delegate,
+      now: nowProvider
     )
     return Harness(
       inbox: inbox,
@@ -517,6 +626,14 @@ final class MockOSNotifier: OSNotifier {
     await withCheckedContinuation { cont in
       postWaiters.append((target, cont))
     }
+  }
+
+  // The mock retains the assigned delegate so unit tests that exercise
+  // the delegate routing can assert it was wired without involving the
+  // live `UNUserNotificationCenter`.
+  private(set) var assignedDelegate: (any UNUserNotificationCenterDelegate)?
+  func setDelegate(_ delegate: any UNUserNotificationCenterDelegate) {
+    assignedDelegate = delegate
   }
 }
 
@@ -596,6 +713,45 @@ struct Harness {
   /// `bind` avoids a deadlock in the harness.
   func feed(_ output: DetectionRouter.RouterOutput) async {
     await coordinator.handle(output: output)
+  }
+}
+
+/// Tiny mutable now-provider used by dedup-window tests so they don't
+/// need a real `Task.sleep(2)` to cross the window. MainActor-only,
+/// single-threaded use within a test.
+@MainActor
+final class MutableNowProvider {
+  var current: Date
+  init(_ initial: Date = Date()) { self.current = initial }
+  func advance(by seconds: TimeInterval) {
+    current = current.addingTimeInterval(seconds)
+  }
+}
+
+extension NotificationCoordinatorTests {
+  /// Build a `RouterOutput` quickly for dedup tests. `transition` is
+  /// always `.completed` from `.running` because the dedup logic never
+  /// inspects FSM details.
+  static func dedupRouterOutput(
+    paneID: PaneID,
+    title: String,
+    body: String,
+    dedupKey: String? = nil
+  ) -> DetectionRouter.RouterOutput {
+    DetectionRouter.RouterOutput(
+      transition: AgentStateTransition(
+        paneID: paneID,
+        from: .running,
+        to: .completed,
+        at: Date(),
+        trigger: .rule(id: "rule.done")
+      ),
+      agent: "claude",
+      title: title,
+      body: body,
+      kind: .completed,
+      dedupKey: dedupKey
+    )
   }
 }
 

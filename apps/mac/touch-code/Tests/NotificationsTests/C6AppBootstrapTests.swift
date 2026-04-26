@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 import TouchCodeCore
@@ -127,6 +128,47 @@ struct C6AppBootstrapTests {
     #expect(sentinelSubs.first?.command == "\(RuleStore.sentinelPrefix)custom.done")
   }
 
+  /// On reload, every live tracker must adopt the new idleThreshold so
+  /// long-running Panes pick up rule edits without a restart. State is
+  /// untouched (D7 — `state` belongs to the agent, not to the rules).
+  @Test
+  func reloadAdoptsNewIdleThresholdAcrossLiveTrackers() async throws {
+    let harness = try await Self.startHarness(
+      authStatus: .authorized,
+      agentPaneCount: 1
+    )
+    defer { harness.bootstrap.shutdown() }
+
+    #expect(harness.bootstrap.registry.allTrackers.count == 1)
+    let tracker = harness.bootstrap.registry.allTrackers[0]
+    let oldThreshold = harness.bootstrap.registry.idleThreshold
+    let newThreshold = oldThreshold + 17  // any distinct value
+
+    let rulesURL = harness.tempDirectory.appendingPathComponent("detection-rules.json")
+    let newRules = AgentDetectionRules(
+      idleThresholdSeconds: newThreshold,
+      rules: [
+        AgentDetectionRules.Rule(
+          id: "custom.done",
+          agent: "custom",
+          appliesWhen: .init(paneLabelledAgent: "custom", hookEvent: .paneOutputMatch),
+          match: .containsAny(["done"]),
+          transitionTo: .completed,
+          title: "Custom finished",
+          body: "ok"
+        )
+      ]
+    )
+    try AtomicFileStore.write(newRules, to: rulesURL)
+
+    let priorState = tracker.state
+    try harness.bootstrap.coordinator.reloadRules()
+
+    #expect(harness.bootstrap.registry.idleThreshold == newThreshold)
+    #expect(tracker.idleThreshold == newThreshold)
+    #expect(tracker.state == priorState)  // state preserved across reload
+  }
+
   @Test
   func shutdownUnregistersDispatcher() async throws {
     let harness = try await Self.startHarness(authStatus: .authorized)
@@ -134,6 +176,88 @@ struct C6AppBootstrapTests {
     harness.bootstrap.shutdown()
     // After shutdown, calling unregister again is a no-op (idempotent).
     harness.bootstrap.hookDispatcher.unregister(prefix: RuleStore.sentinelPrefix)
+  }
+
+  /// End-to-end through a real `HookDispatcher.fire(envelope:)` rather
+  /// than the explicit `router.handle(envelope:ruleID:)` seam. Exercises
+  /// the C3-side wire — `register(subscriber:for:)` + sentinel-prefix
+  /// matching + `InternalHookSubscriber.handle(envelope:)` — so a future
+  /// drift in C3's protocol surface fails this test rather than silently
+  /// breaking the live notification path. Uses `.paneExited` because
+  /// `.paneOutputMatch` cannot carry a rule id through the current
+  /// dispatcher protocol (router drops them by design — see
+  /// DetectionRouter.handle(envelope:) doc-comment).
+  @Test
+  func dispatcherFireDeliversLifecycleEnvelopeThroughC6Stack() async throws {
+    let harness = try await Self.startHarness(
+      authStatus: .authorized,
+      agentPaneCount: 1
+    )
+    defer { harness.bootstrap.shutdown() }
+
+    // Default rules subscribe on .paneOutputMatch only; lifecycle
+    // routing through the dispatcher needs an explicit subscription
+    // whose command starts with the sentinel prefix.
+    var config = harness.bootstrap.hookDispatcher.loadedConfig
+    config.subscriptions.append(
+      HookSubscription(
+        event: .paneExited,
+        command: "\(RuleStore.sentinelPrefix)lifecycle.exited"
+      )
+    )
+    harness.bootstrap.hookDispatcher.setConfig(config)
+
+    let tracker = harness.bootstrap.registry.allTrackers[0]
+    let envelope = HookEnvelope(
+      version: HookEnvelope.currentVersion,
+      event: .paneExited,
+      timestamp: Date(),
+      space: nil,
+      project: nil,
+      worktree: nil,
+      tab: nil,
+      pane: HookEnvelope.PaneRef(
+        id: tracker.paneID,
+        workingDirectory: "/tmp",
+        initialCommand: nil,
+        labels: ["agent:claude"]
+      ),
+      data: .paneExited(exitCode: 0)
+    )
+
+    await harness.bootstrap.hookDispatcher.fire(envelope)
+    await harness.mockNotifier.waitForPostCount(1)
+
+    #expect(harness.bootstrap.inboxStore.inbox.notifications.count == 1)
+    #expect(harness.bootstrap.inboxStore.inbox.notifications.first?.kind == .completed)
+    #expect(tracker.state == .completed)
+  }
+
+  /// `applicationDidBecomeActive` must drive `refreshAuthorizationStatus`
+  /// so a user who grants (or revokes) permission in System Settings
+  /// while the app was inactive sees the cached status update on their
+  /// next focus, without an app restart.
+  @Test
+  func applicationDidBecomeActiveRefreshesAuthorizationStatus() async throws {
+    let harness = try await Self.startHarness(authStatus: .notDetermined)
+    defer { harness.bootstrap.shutdown() }
+
+    // Mirror "user flipped the OS-level state while we were inactive."
+    harness.mockNotifier.currentStatus = .denied
+
+    NotificationCenter.default.post(
+      name: NSApplication.didBecomeActiveNotification, object: nil
+    )
+
+    // The observer awaits the notification AsyncSequence on the main
+    // actor; yield until the cache catches up or we hit the bound.
+    for _ in 0..<50 {
+      if harness.bootstrap.settingsStore.settings.notifications.authStatus == .denied {
+        break
+      }
+      await Task.yield()
+    }
+    #expect(harness.bootstrap.settingsStore.settings.notifications.authStatus == .denied)
   }
 
   // MARK: - Harness
