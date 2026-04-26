@@ -65,7 +65,7 @@ struct TabBarRowView: View {
             commit: onReorder
           )
         )
-        if shouldShowDivider(after: index) {
+        if index < tabs.count - 1 {
           Rectangle()
             .fill(TabBarColors.divider)
             .frame(
@@ -76,16 +76,6 @@ struct TabBarRowView: View {
       }
     }
     .animation(.spring(response: 0.3, dampingFraction: 0.85), value: tabs.map(\.id))
-  }
-
-  /// A divider appears between two chips only if neither of them is the
-  /// active chip — the active chip's underline already carries the visual
-  /// boundary on its own sides.
-  private func shouldShowDivider(after index: Int) -> Bool {
-    guard index < tabs.count - 1 else { return false }
-    let currentID = tabs[index].id
-    let nextID = tabs[index + 1].id
-    return currentID != activeTabID && nextID != activeTabID
   }
 }
 
