@@ -30,24 +30,39 @@ struct TabChipView: View {
   @State private var isPressing = false
 
   var body: some View {
-    HStack(spacing: 4) {
+    // Supacode-style hit layout: the select Button claims the whole
+    // chip rectangle so a click anywhere on the chip selects it; the
+    // close button is overlaid on the trailing edge inside the same
+    // ZStack so it intercepts its own taps without forwarding to the
+    // outer Button. Without this, the previous HStack-of-Button-plus-
+    // sibling layout left dead zones (between the label and the close
+    // glyph, and on either chip-padding strip) that swallowed clicks.
+    ZStack(alignment: .trailing) {
       Button(action: onSelect) {
         TabChipLabel(title: title, isDirty: isDirty)
           .frame(maxWidth: .infinity, alignment: .leading)
+          // Reserve space for the close glyph + its gap so long titles
+          // truncate before they slide under the overlay.
+          .padding(
+            .trailing,
+            TabBarMetrics.closeButtonSize + 4
+          )
+          .padding(.horizontal, TabBarMetrics.chipHorizontalPadding)
       }
       .buttonStyle(ChipPressTrackingStyle(isPressing: $isPressing))
+      .frame(
+        minWidth: TabBarMetrics.chipMinWidth,
+        maxWidth: TabBarMetrics.chipMaxWidth
+      )
+      .frame(height: TabBarMetrics.chipHeight)
+      .contentShape(Rectangle())
 
       TabChipCloseButton(
         isVisible: isHovering || isActive,
         action: onClose
       )
+      .padding(.trailing, TabBarMetrics.chipHorizontalPadding)
     }
-    .padding(.horizontal, TabBarMetrics.chipHorizontalPadding)
-    .frame(
-      minWidth: TabBarMetrics.chipMinWidth,
-      maxWidth: TabBarMetrics.chipMaxWidth
-    )
-    .frame(height: TabBarMetrics.chipHeight)
     .background(
       TabChipBackground(
         isActive: isActive,
@@ -55,7 +70,6 @@ struct TabChipView: View {
         isPressing: isPressing
       )
     )
-    .contentShape(Rectangle())
     .overlay(TabChipMiddleClickView(onMiddleClick: onMiddleClick))
     .onHover { hovering in
       withAnimation(.easeInOut(duration: 0.10)) {
