@@ -12,12 +12,15 @@ import TouchCodeCore
 /// the ones a future refactor is most likely to silently break.
 @MainActor
 struct CreateWorktreeFeatureTests {
-  private func initialState() -> CreateWorktreeFeature.State {
+  private func initialState(
+    currentPendingCountForProject: Int = 0
+  ) -> CreateWorktreeFeature.State {
     CreateWorktreeFeature.State(
       projectID: ProjectID(),
       spaceID: SpaceID(),
       repoRoot: URL(fileURLWithPath: "/tmp/repo"),
       worktreesDirectory: URL(fileURLWithPath: "/tmp/repo/.worktrees"),
+      currentPendingCountForProject: currentPendingCountForProject,
       localBranchNamesLower: ["main", "feature/existing"]
     )
   }
@@ -90,6 +93,39 @@ struct CreateWorktreeFeatureTests {
     store.exhaustivity = .off
     await store.send(.createButtonTapped) {
       $0.validationError = "Pick a base ref."
+    }
+  }
+
+  @Test
+  func createButtonTappedEmitsBeginCreateDelegate() async {
+    var state = initialState()
+    state.branchNameDraft = "feature/new-idea"
+    state.selectedBaseRef = "origin/main"
+    let store = TestStore(initialState: state) {
+      CreateWorktreeFeature()
+    }
+    store.exhaustivity = .off
+    await store.send(.createButtonTapped)
+    await store.receive(\.delegate.beginCreate) { _ in
+      // Reducer state is unchanged on success — the new pending payload
+      // travels via the delegate; the payload's exact ID is per-call so
+      // we don't pin its value here. The receive(\.delegate.beginCreate)
+      // matcher verifies the action shape; payload-specific assertions
+      // live in the parent reducer's PendingWorktreeLifecycleTests.
+    }
+  }
+
+  @Test
+  func createButtonTappedRejectedAtCap() async {
+    var state = initialState(currentPendingCountForProject: 8)
+    state.branchNameDraft = "feature/new-idea"
+    state.selectedBaseRef = "origin/main"
+    let store = TestStore(initialState: state) {
+      CreateWorktreeFeature()
+    }
+    store.exhaustivity = .off
+    await store.send(.createButtonTapped) {
+      $0.submitError = CreateWorktreeFeature.capMessage
     }
   }
 }

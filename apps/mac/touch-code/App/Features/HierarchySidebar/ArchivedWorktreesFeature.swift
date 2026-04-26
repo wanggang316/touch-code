@@ -132,17 +132,4 @@ struct ArchivedWorktreesFeature {
       }
     }
   }
-
-  private func humanReadable(_ error: GitWorktreeError) -> String {
-    switch error {
-    case .executableMissing: return "The bundled wt helper is missing."
-    case .branchExists(let name): return "Branch \"\(name)\" already exists."
-    case .invalidBranchName(let name): return "Invalid branch name: \(name)"
-    case .refNotFound(let ref): return "Ref not found: \(ref)"
-    case .fetchFailed(let detail): return "fetch failed: \(detail)"
-    case .uncommittedChanges: return "The worktree has uncommitted changes."
-    case .worktreeLocked(let detail): return "Worktree is locked: \(detail)"
-    case .commandFailed(_, let stderr): return stderr
-    }
-  }
 }
