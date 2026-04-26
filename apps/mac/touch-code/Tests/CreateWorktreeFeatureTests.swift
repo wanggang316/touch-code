@@ -125,7 +125,7 @@ struct CreateWorktreeFeatureTests {
     }
     store.exhaustivity = .off
     await store.send(.createButtonTapped) {
-      $0.submitError = "Up to 8 worktree creations can be queued. Wait for one to finish."
+      $0.submitError = CreateWorktreeFeature.capMessage
     }
   }
 }

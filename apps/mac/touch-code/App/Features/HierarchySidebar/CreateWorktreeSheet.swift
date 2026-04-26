@@ -14,7 +14,7 @@ struct CreateWorktreeSheet: View {
         .font(.headline)
 
       if store.currentPendingCountForProject >= 8 {
-        Text("Up to 8 worktree creations are queued for this project. Wait for one to finish.")
+        Text(CreateWorktreeFeature.capMessage)
           .font(.caption)
           .foregroundStyle(.orange)
           .frame(maxWidth: .infinity, alignment: .leading)

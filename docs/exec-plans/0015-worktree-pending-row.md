@@ -43,7 +43,12 @@ After this change, a user can submit any number of Create Worktree forms without
 
 ## Outcomes & Retrospective
 
-(To be filled at completion)
+PR #48 shipped on 2026-04-26 with M1–M4 + M6. M5 view integration deferred to a follow-up PR pending task02's `SidebarRow` / `orderedSidebarRows` landing on `main`. Code-reviewer agent verdict: APPROVE; merge-blocking nits S1 (symmetric race guard on `pendingWorktreeFailed`) and N1 (shared `CreateWorktreeFeature.capMessage` constant) addressed in a follow-up commit before merge.
+
+**Deferred (post-merge follow-ups):**
+
+- N3 — `os.Logger` instrumentation on every pending* arm (`info` for begin/finished/discard/cancel; `error` for failed) per master design doc §可观测性. Not added in this PR to keep the scope to "data model + lifecycle"; the race guards now in place (progress / finished / failed all explicit) make logging additions trivially correct when they land.
+- M5 — view integration into `HierarchySidebarView` (`ForEach` over `orderedSidebarRows`, dispatch by `SidebarRow` case). Single-commit PR after task02 merges.
 
 ## Context and Orientation
 

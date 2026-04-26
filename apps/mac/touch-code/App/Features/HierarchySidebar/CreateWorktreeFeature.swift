@@ -13,6 +13,12 @@ import TouchCodeCore
 /// reducer's responsibility ends at `delegate(.beginCreate(pending))`.
 @Reducer
 struct CreateWorktreeFeature {
+  /// Shared user-facing copy for the per-project pending cap (8). Used
+  /// by both the sheet banner and the reducer's submitError so the two
+  /// surfaces never drift.
+  static let capMessage =
+    "Up to 8 worktree creations are queued for this project. Wait for one to finish."
+
   @ObservableState
   struct State: Equatable {
     let projectID: ProjectID
@@ -176,8 +182,7 @@ struct CreateWorktreeFeature {
           return .none
         }
         guard state.currentPendingCountForProject < 8 else {
-          state.submitError =
-            "Up to 8 worktree creations can be queued. Wait for one to finish."
+          state.submitError = Self.capMessage
           return .none
         }
 

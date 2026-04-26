@@ -830,6 +830,10 @@ struct HierarchySidebarFeature {
       }
 
     case .pendingWorktreeFailed(let id, let err):
+      // Race guard symmetric with progress / finished arms: a Cancel
+      // that lands before the stream's failure event drains drops the
+      // late .failed without spuriously logging or mutating state.
+      guard state.pendingWorktrees[id: id] != nil else { return .none }
       state.pendingWorktrees[id: id]?.status = .failed(err)
       return .none
 
