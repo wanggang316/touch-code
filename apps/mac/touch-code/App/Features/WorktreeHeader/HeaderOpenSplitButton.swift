@@ -24,8 +24,6 @@ struct HeaderOpenSplitButton: View {
     } label: {
       HStack(spacing: 4) {
         primaryIcon
-          .frame(width: 16, height: 16)
-          .accessibilityHidden(true)
         Text(primaryLabel)
           .lineLimit(1)
       }
