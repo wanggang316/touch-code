@@ -693,6 +693,37 @@ final class HierarchyManager {
     store.scheduleSave(catalog)
   }
 
+  /// Persists the most recently resolved live tab title so the chip can
+  /// fall back to it on the next launch (before the surface respawns and
+  /// the shell re-pushes OSC titles). No-op when the cache is unchanged
+  /// so a hot OSC stream does not churn the catalog (saves are debounced
+  /// further downstream by `CatalogStore`). Failures to locate the tab
+  /// are silent — the cache is best-effort, never load-bearing.
+  func setCachedTabTitle(
+    _ title: String?,
+    for tabID: TabID,
+    in worktreeID: WorktreeID,
+    in projectID: ProjectID,
+    in spaceID: SpaceID
+  ) {
+    guard
+      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+        worktreeID: worktreeID, projectID: projectID, spaceID: spaceID
+      )
+    else { return }
+    guard
+      let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex]
+        .worktrees[worktreeIndex].tabs.firstIndex(where: { $0.id == tabID })
+    else { return }
+    guard
+      catalog.spaces[spaceIndex].projects[projectIndex]
+        .worktrees[worktreeIndex].tabs[tabIndex].cachedDisplayTitle != title
+    else { return }
+    catalog.spaces[spaceIndex].projects[projectIndex]
+      .worktrees[worktreeIndex].tabs[tabIndex].cachedDisplayTitle = title
+    store.scheduleSave(catalog)
+  }
+
   /// Replaces the Worktree's tab ordering in a single atomic write. The
   /// incoming id set must match the current set exactly — mismatched input
   /// throws `.invariantViolation` so upstream drag bugs surface immediately

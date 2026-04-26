@@ -3,17 +3,25 @@ import Foundation
 public nonisolated struct Tab: Equatable, Codable, Sendable, Identifiable {
   public var id: TabID
   public var name: String?
+  /// Snapshot of the most recently resolved live title (OSC tabTitle /
+  /// title / pwd basename). Persisted to the catalog so a tab whose
+  /// surface has not yet been re-spawned after app launch still shows
+  /// the previous session's title instead of falling back to "Tab N".
+  /// Cleared / overwritten as soon as a live title is observed again.
+  public var cachedDisplayTitle: String?
   public var splitTree: SplitTree<PaneID>
   public var panes: [Pane]
 
   public init(
     id: TabID = TabID(),
     name: String? = nil,
+    cachedDisplayTitle: String? = nil,
     splitTree: SplitTree<PaneID> = SplitTree(),
     panes: [Pane] = []
   ) {
     self.id = id
     self.name = name
+    self.cachedDisplayTitle = cachedDisplayTitle
     self.splitTree = splitTree
     self.panes = panes
   }

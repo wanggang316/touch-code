@@ -148,6 +148,20 @@ struct TabBarView: View {
             orderedIDs: orderedIDs,
             inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
           ))
+      },
+      onCacheLiveTitle: { tabID, title in
+        // Direct manager call rather than a TCA action: the cache is a
+        // persistence side-effect of rendering, not a user intent, so
+        // routing through reducer + effect would add noise without
+        // benefit. `setCachedTabTitle` debounces internally and no-ops
+        // on identical values, so a hot OSC stream is cheap.
+        hierarchyManager.setCachedTabTitle(
+          title,
+          for: tabID,
+          in: worktreeID,
+          in: projectID,
+          in: spaceID
+        )
       }
     )
   }

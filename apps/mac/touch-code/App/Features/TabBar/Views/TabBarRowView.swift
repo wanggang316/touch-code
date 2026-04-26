@@ -34,6 +34,12 @@ struct TabBarRowView: View {
   let onCloseAll: () -> Void
   let onRenameRequested: (TabID) -> Void
   let onReorder: @MainActor @Sendable ([TabID]) -> Void
+  /// Fires whenever a chip resolves a non-empty live title (OSC tabTitle
+  /// / title / pwd basename). The parent persists this onto the tab so
+  /// the chip can fall back to it across app launches before the
+  /// surface respawns. Default no-op keeps previews / call sites that
+  /// don't care about cross-launch titles compiling without changes.
+  var onCacheLiveTitle: (TabID, String) -> Void = { _, _ in }
 
   var body: some View {
     HStack(spacing: 0) {
@@ -51,7 +57,8 @@ struct TabBarRowView: View {
           onCloseOthers: { onCloseOthers(tab.id) },
           onCloseToRight: { onCloseToRight(tab.id) },
           onCloseAll: onCloseAll,
-          onRenameRequested: { onRenameRequested(tab.id) }
+          onRenameRequested: { onRenameRequested(tab.id) },
+          onCacheLiveTitle: { title in onCacheLiveTitle(tab.id, title) }
         )
         .id(tab.id)
         .onDrag {
@@ -93,7 +100,14 @@ struct TabBarRowView: View {
 /// 2. focused pane's `info.tabTitle` (OSC 2 / set_tab_title).
 /// 3. focused pane's `info.title` (OSC 0 / set_title).
 /// 4. focused pane's `info.pwd` basename.
-/// 5. `"Tab N"` fallback.
+/// 5. `tab.cachedDisplayTitle` (last live value persisted to the catalog).
+/// 6. `"Tab N"` fallback.
+///
+/// The cache exists because surfaces are spawned lazily — on cold launch
+/// inactive tabs have no live `SurfaceInfo` yet, so without the cache
+/// every previously-named tab would briefly read as "Tab N" until the
+/// shell re-emits an OSC title (and never, for tabs the user does not
+/// re-open during the session).
 private struct ResolvingTabChipView: View {
   let tab: TouchCodeCore.Tab
   let index: Int
@@ -108,13 +122,15 @@ private struct ResolvingTabChipView: View {
   let onCloseToRight: () -> Void
   let onCloseAll: () -> Void
   let onRenameRequested: () -> Void
+  let onCacheLiveTitle: (String) -> Void
 
   @Environment(HierarchyManager.self) private var hierarchyManager
   @Dependency(TerminalClient.self) private var terminalClient
 
   var body: some View {
+    let live = liveResolvedTitle
     TabChipView(
-      title: resolvedTitle,
+      title: resolvedTitle(live: live),
       isActive: isActive,
       isDirty: isDirty,
       isOnlyTab: isOnlyTab,
@@ -127,26 +143,43 @@ private struct ResolvingTabChipView: View {
       onCloseAll: onCloseAll,
       onRenameRequested: onRenameRequested
     )
+    .onChange(of: live, initial: true) { _, newLive in
+      // Only persist once the surface has actually produced a live
+      // title — never overwrite the cache with `nil` (e.g. surface not
+      // yet spawned on cold launch), otherwise a freshly-loaded catalog
+      // would clobber its own cache before the shell pushes anything.
+      guard let newLive, newLive != tab.cachedDisplayTitle else { return }
+      onCacheLiveTitle(newLive)
+    }
   }
 
-  private var resolvedTitle: String {
-    if let name = tab.name, !name.isEmpty { return name }
+  /// Title sourced strictly from the live focused-pane `SurfaceInfo`.
+  /// Returns `nil` when the surface hasn't been spawned yet or the shell
+  /// hasn't pushed any of OSC 2 / OSC 0 / OSC 7 — letting the caller
+  /// decide whether to fall back to the persisted cache or "Tab N".
+  private var liveResolvedTitle: String? {
     let paneID = hierarchyManager.lastFocusedPane(in: tab.id) ?? tab.panes.first?.id
-    if let paneID, let surface = terminalClient.surface(paneID) {
-      let info = surface.info
-      // Read all observable properties up-front so SwiftUI registers
-      // observation on every one — `if let` short-circuits would skip
-      // subsequent reads and miss future updates on those keypaths.
-      let tabTitleValue = info.tabTitle
-      let titleValue = info.title
-      let pwdValue = info.pwd
-      if let t = tabTitleValue, !t.isEmpty { return t }
-      if let t = titleValue, !t.isEmpty { return t }
-      if let pwd = pwdValue {
-        let basename = (pwd as NSString).lastPathComponent
-        if !basename.isEmpty { return basename }
-      }
+    guard let paneID, let surface = terminalClient.surface(paneID) else { return nil }
+    let info = surface.info
+    // Read all observable properties up-front so SwiftUI registers
+    // observation on every one — `if let` short-circuits would skip
+    // subsequent reads and miss future updates on those keypaths.
+    let tabTitleValue = info.tabTitle
+    let titleValue = info.title
+    let pwdValue = info.pwd
+    if let t = tabTitleValue, !t.isEmpty { return t }
+    if let t = titleValue, !t.isEmpty { return t }
+    if let pwd = pwdValue {
+      let basename = (pwd as NSString).lastPathComponent
+      if !basename.isEmpty { return basename }
     }
+    return nil
+  }
+
+  private func resolvedTitle(live: String?) -> String {
+    if let name = tab.name, !name.isEmpty { return name }
+    if let live { return live }
+    if let cached = tab.cachedDisplayTitle, !cached.isEmpty { return cached }
     return "Tab \(index)"
   }
 }
