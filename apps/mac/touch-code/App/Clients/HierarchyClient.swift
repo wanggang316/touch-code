@@ -359,6 +359,20 @@ nonisolated struct HierarchyClient: Sendable {
     @MainActor @Sendable (
       _ worktreeID: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
     ) async throws -> LifecycleScriptResult
+
+  // MARK: - Worktree sidebar ordering (worktree-sidebar-ordering.md task01)
+
+  /// Reorder worktrees within a single sidebar segment under a Project.
+  /// `from` is a segment-relative `IndexSet`; `to` is the segment-relative
+  /// destination offset, both in SwiftUI `ForEach.onMove` convention. Out-of-
+  /// range offsets, an out-of-range destination, or an empty `IndexSet`
+  /// drop the whole reorder silently (staleness guard). Throws
+  /// `HierarchyError.notFound` for unknown project ids.
+  var reorderWorktrees:
+    @MainActor @Sendable (
+      _ projectID: ProjectID, _ inSpace: SpaceID,
+      _ segment: WorktreeSegment, _ from: IndexSet, _ to: Int
+    ) throws -> Void
 }
 
 enum RunScriptError: Error, Equatable, Sendable {
@@ -638,6 +652,12 @@ extension HierarchyClient {
         return try await manager.removeWorktreeWithLifecycle(
           worktreeID, from: projectID, in: spaceID, settings: snapshot
         )
+      },
+      reorderWorktrees: { projectID, spaceID, segment, from, to in
+        try manager.reorderWorktrees(
+          in: projectID, inSpace: spaceID,
+          segment: segment, from: from, to: to
+        )
       }
     )
   }
@@ -899,6 +919,9 @@ extension HierarchyClient: DependencyKey {
     },
     removeWorktreeWithLifecycle: { _, _, _ in
       fatalError("HierarchyClient.liveValue not configured")
+    },
+    reorderWorktrees: { _, _, _, _, _ in
+      fatalError("HierarchyClient.liveValue not configured")
     }
   )
 
@@ -979,7 +1002,8 @@ extension HierarchyClient: DependencyKey {
     removeWorktreeWithLifecycle: unimplemented(
       "HierarchyClient.removeWorktreeWithLifecycle",
       placeholder: .skipped
-    )
+    ),
+    reorderWorktrees: unimplemented("HierarchyClient.reorderWorktrees")
   )
 }
 
