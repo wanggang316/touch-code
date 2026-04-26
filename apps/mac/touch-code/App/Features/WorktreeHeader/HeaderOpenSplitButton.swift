@@ -45,8 +45,8 @@ struct HeaderOpenSplitButton: View {
       .padding(.vertical, 3)
     }
     .buttonStyle(.borderless)
-    .accessibilityLabel(primaryLabel)
-    .help(primaryLabel)
+    .accessibilityLabel(primaryDescription)
+    .help(primaryDescription)
   }
 
   @ViewBuilder
@@ -65,7 +65,18 @@ struct HeaderOpenSplitButton: View {
     }
   }
 
+  /// Visible button label. Drops the "Open in " prefix so the trailing
+  /// toolbar capsules stay compact; the icon already conveys intent.
   private var primaryLabel: String {
+    switch resolvedDefault {
+    case .editor(let descriptor): return descriptor.displayName
+    case .finder: return "Finder"
+    }
+  }
+
+  /// Verbose form used for accessibility + help tooltip — VoiceOver and
+  /// the hover tooltip still benefit from the explicit verb.
+  private var primaryDescription: String {
     switch resolvedDefault {
     case .editor(let descriptor): return "Open in \(descriptor.displayName)"
     case .finder: return "Open in Finder"
