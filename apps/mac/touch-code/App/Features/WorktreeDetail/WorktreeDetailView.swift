@@ -94,8 +94,6 @@ struct WorktreeDetailView: View {
       worktreeID: address.worktree,
       activeTabID: address.activeTab
     )
-    .padding(.horizontal, 8)
-    .padding(.vertical, 4)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(Color(nsColor: .windowBackgroundColor))
   }
@@ -260,6 +258,7 @@ struct WorktreeDetailView: View {
         worktreePath: info.worktree.path
       )
       .buttonStyle(.plain)
+      .padding(.horizontal, Self.trailingCapsuleInset)
     }
     ToolbarSpacer(.fixed)
     ToolbarItem {
@@ -269,6 +268,7 @@ struct WorktreeDetailView: View {
         worktreeID: info.worktree.id
       )
       .buttonStyle(.plain)
+      .padding(.horizontal, Self.trailingCapsuleInset)
     }
     if info.project.supportsWorktrees {
       ToolbarSpacer(.fixed)
@@ -278,9 +278,15 @@ struct WorktreeDetailView: View {
           visible: info.worktree.gitViewerVisible
         )
         .buttonStyle(.plain)
+        .padding(.horizontal, Self.trailingCapsuleInset)
       }
     }
   }
+
+  /// Horizontal breathing room inside each trailing capsule. Matches the
+  /// look of the status capsule — content sits 8pt off each edge of the
+  /// glass background instead of hugging it.
+  private static let trailingCapsuleInset: CGFloat = 8
 
   @ToolbarContentBuilder
   private func branchToolbarItem(info: WorktreeInfo) -> some ToolbarContent {
