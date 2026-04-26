@@ -622,6 +622,45 @@ struct HierarchyManagerTests {
   }
 
   @Test
+  func closeTabSelectsRightNeighborWhenMiddleTabClosed() throws {
+    let (sp, pr, wt, tabs) = try makeFixtureWithThreeTabs()
+    try manager.selectTab(tabs[1], in: wt, in: pr, in: sp)
+    try manager.closeTab(tabs[1], in: wt, in: pr, in: sp)
+    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].selectedTabID == tabs[2])
+  }
+
+  @Test
+  func closeTabFallsBackToLeftNeighborWhenLastTabClosed() throws {
+    let (sp, pr, wt, tabs) = try makeFixtureWithThreeTabs()
+    // makeFixtureWithThreeTabs already leaves tabs[2] (the trailing tab) selected.
+    try manager.closeTab(tabs[2], in: wt, in: pr, in: sp)
+    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].selectedTabID == tabs[1])
+  }
+
+  @Test
+  func closeTabClearsSelectionWhenSoleTabClosed() throws {
+    let spaceID = manager.createSpace(name: "test")
+    let projectID = try manager.addProject(
+      to: spaceID, name: "p", rootPath: "/tmp", gitRoot: "/tmp"
+    )
+    let worktreeID = try manager.createWorktree(
+      in: projectID, in: spaceID, name: "main", path: "/repo", branch: "main"
+    )
+    let only = try manager.createTab(in: worktreeID, in: projectID, in: spaceID, name: "only")
+    try manager.closeTab(only, in: worktreeID, in: projectID, in: spaceID)
+    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].selectedTabID == nil)
+  }
+
+  @Test
+  func closeTabPreservesSelectionWhenInactiveTabClosed() throws {
+    let (sp, pr, wt, tabs) = try makeFixtureWithThreeTabs()
+    try manager.selectTab(tabs[1], in: wt, in: pr, in: sp)
+    // Closing a non-selected tab must not move the selection.
+    try manager.closeTab(tabs[0], in: wt, in: pr, in: sp)
+    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].selectedTabID == tabs[1])
+  }
+
+  @Test
   func closeAllTabsEmptiesWorktree() throws {
     let (sp, pr, wt, _) = try makeFixtureWithThreeTabs()
     try manager.closeAllTabs(in: wt, in: pr, in: sp)

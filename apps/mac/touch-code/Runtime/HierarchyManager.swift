@@ -617,8 +617,13 @@ final class HierarchyManager {
 
     catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.remove(at: tabIndex)
     if catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].selectedTabID == id {
-      catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].selectedTabID =
-        catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.first?.id
+      // Match the platform convention (Safari/Chrome/VSCode/iTerm): pick the
+      // right neighbor; if the closed tab was the last one, fall back to the
+      // new last tab. After `remove(at:)`, the original right neighbor sits at
+      // `tabIndex`; an out-of-range index means we removed the trailing tab.
+      let remaining = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs
+      let next = tabIndex < remaining.count ? remaining[tabIndex] : remaining.last
+      catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].selectedTabID = next?.id
     }
     store.scheduleSave(catalog)
   }
