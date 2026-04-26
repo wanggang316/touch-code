@@ -925,6 +925,7 @@ private struct ProjectHeaderRow: View {
         .rotationEffect(.degrees(isExpanded ? 90 : 0))
         .frame(width: 10, alignment: .center)
         .accessibilityHidden(true)
+        .padding(.leading, -6)
       Text(project.name)
       Spacer()
       if isLoading {
