@@ -41,7 +41,7 @@ struct HeaderOpenSplitButton: View {
         Text(primaryLabel)
           .lineLimit(1)
       }
-      .padding(5)
+      .padding(3)
     }
     .buttonStyle(.borderless)
     .accessibilityLabel(primaryDescription)
@@ -110,7 +110,7 @@ struct HeaderOpenSplitButton: View {
       Image(systemName: "chevron.down")
         .font(.caption.bold())
         .accessibilityHidden(true)
-        .padding(5)
+        .padding(3)
         .aspectRatio(1, contentMode: .fill)
     }
     .menuStyle(.borderlessButton)

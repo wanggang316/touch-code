@@ -288,7 +288,7 @@ struct WorktreeDetailView: View {
   /// the chip look chunky next to the status capsule. Hover backgrounds
   /// live on each clickable region inside the button views
   /// (`HeaderChipHover`), so split buttons highlight per-half.
-  private static let trailingCapsuleInset: CGFloat = 4
+  private static let trailingCapsuleInset: CGFloat = 2
 
   @ToolbarContentBuilder
   private func branchToolbarItem(info: WorktreeInfo) -> some ToolbarContent {

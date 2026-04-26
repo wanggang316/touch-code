@@ -21,7 +21,7 @@ struct HeaderGitViewerToggle: View {
       // glyph metrics rather than being pinned to a fixed frame.
       Image(systemName: "doc.text.magnifyingglass")
         .foregroundStyle(visible ? Color.accentColor : .primary)
-        .padding(5)
+        .padding(3)
         .aspectRatio(1, contentMode: .fill)
     }
     .buttonStyle(.borderless)
