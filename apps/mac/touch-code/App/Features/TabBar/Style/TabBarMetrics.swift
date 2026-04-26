@@ -9,9 +9,12 @@ enum TabBarMetrics {
   /// Height of the full Tab bar row.
   static let barHeight: CGFloat = 32
 
-  /// Height of a single chip. Two points shorter than the bar so the 2-pt
-  /// active underline sits flush with the bar's top edge.
-  static let chipHeight: CGFloat = 28
+  /// Height of a single chip. Matches `barHeight` so the chip's bottom
+  /// edge is flush with the divider beneath the bar (otherwise a hover /
+  /// active background reveals a thin gap), and the 2-pt active
+  /// underline sitting at the chip's top edge ends up flush with the
+  /// bar's top edge.
+  static let chipHeight: CGFloat = 32
 
   /// Chip width clamp — narrower than `chipMinWidth` and the title
   /// truncates to a single glyph; wider than `chipMaxWidth` and one long
