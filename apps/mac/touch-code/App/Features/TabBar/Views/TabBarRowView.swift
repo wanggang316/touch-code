@@ -46,7 +46,6 @@ struct TabBarRowView: View {
       ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
         ResolvingTabChipView(
           tab: tab,
-          index: index + 1,
           isActive: activeTabID == tab.id,
           isDirty: isDirty(tab.id),
           isOnlyTab: tabs.count <= 1,
@@ -101,16 +100,18 @@ struct TabBarRowView: View {
 /// 3. focused pane's `info.title` (OSC 0 / set_title).
 /// 4. focused pane's `info.pwd` basename.
 /// 5. `tab.cachedDisplayTitle` (last live value persisted to the catalog).
-/// 6. `"Tab N"` fallback.
+/// 6. focused (or first) pane's `workingDirectory` basename — always
+///    present on the persisted catalog, so even cold-launched chips
+///    have a meaningful label before the surface respawns.
+/// 7. Empty string as a last-resort defensive default.
 ///
 /// The cache exists because surfaces are spawned lazily — on cold launch
 /// inactive tabs have no live `SurfaceInfo` yet, so without the cache
-/// every previously-named tab would briefly read as "Tab N" until the
-/// shell re-emits an OSC title (and never, for tabs the user does not
-/// re-open during the session).
+/// every previously-named tab would briefly read as the workingDirectory
+/// basename until the shell re-emits an OSC title (and stay there, for
+/// tabs the user does not re-open during the session).
 private struct ResolvingTabChipView: View {
   let tab: TouchCodeCore.Tab
-  let index: Int
   let isActive: Bool
   let isDirty: Bool
   let isOnlyTab: Bool
@@ -180,7 +181,13 @@ private struct ResolvingTabChipView: View {
     if let name = tab.name, !name.isEmpty { return name }
     if let live { return live }
     if let cached = tab.cachedDisplayTitle, !cached.isEmpty { return cached }
-    return "Tab \(index)"
+    let pane = tab.panes.first { $0.id == hierarchyManager.lastFocusedPane(in: tab.id) }
+      ?? tab.panes.first
+    if let pane {
+      let basename = (pane.workingDirectory as NSString).lastPathComponent
+      if !basename.isEmpty { return basename }
+    }
+    return ""
   }
 }
 
