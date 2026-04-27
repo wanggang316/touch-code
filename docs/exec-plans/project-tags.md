@@ -37,10 +37,17 @@ Existing data is migrated losslessly: each prior Space becomes a same-named Tag 
 - [x] M4 — Sidebar chip footer + filter wiring (TagChipFooter + filteredProjects + cmd+F focus) — commit da39c8e
 - [x] M5 — TagManagerFeature + project-row Tag editor (Tag dots + Tags submenu + sheet) — commit 341e4da
 - [x] M6 — tc CLI tag commands + IPC handlers (tag.* + project.tag.* RPCs + tc tag/tc project tag/list --tag) — commit 32c01b8
-- [~] M7 — First-launch toast + docs sweep + gate cleanup
+- [x] M7 — First-launch toast + docs sweep + gate cleanup
   - [x] product-spec.md / architecture.md / CHANGELOG.md sweep — commit 7dfbda8
-  - [ ] First-launch onboarding toast (deferred — needs UserDefaults gate; one-shot UX, not blocking)
-  - [ ] `check-no-space-residue` Make target removal (deferred — leave gate live until change soaks)
+  - [x] First-launch toast — **moot** after the no-compat cleanup. The
+    toast was scoped to "your spaces are now tags" education for users
+    whose catalogs got migrated. With v1/v2 catalog migration removed
+    (commit af7d834), there are no migrated users to educate; fresh
+    installs land on an empty catalog with no Spaces concept ever
+    present. CHANGELOG (3c314e9) communicates the rejection-and-restart
+    upgrade path instead.
+  - [x] `check-no-space-residue` Make target removed — commit af7d834
+    (along with the v1/v2 migration code per "无需考虑兼容性").
 - [ ] Final code review pass via agent-skills:code-reviewer
 
 **Verification (2026-04-27 21:32):**
