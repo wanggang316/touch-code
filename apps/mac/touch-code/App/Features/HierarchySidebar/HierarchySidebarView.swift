@@ -249,7 +249,7 @@ struct HierarchySidebarView: View {
       } label: {
         Label("Add Project", systemImage: "plus")
       }
-      .help("Add Project to the active Space")
+      .help("Add Project")
     }
   }
 

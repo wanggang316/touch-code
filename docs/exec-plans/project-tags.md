@@ -22,9 +22,20 @@ Existing data is migrated losslessly: each prior Space becomes a same-named Tag 
 
 ## Progress
 
-- [ ] M0 — Baseline: rebase, capture pre-existing lint + test status
-- [ ] M1 — TouchCodeCore: introduce `Tag` / `TagID` / `TagColor` / `TagFilter` value types (additive, no integration)
-- [ ] M2 — Catalog v3 schema flip + v2→v3 migration + Space/CatalogWindow removal across runtime, UI, IPC, CLI, tests (the big bang)
+- [x] M0 — Baseline: rebase, capture pre-existing lint + test status — 2026-04-27
+- [x] M1 — TouchCodeCore: introduce `Tag` / `TagID` / `TagColor` / `TagFilter` value types (additive, no integration) — 2026-04-27 commit 4d67c91
+- [~] M2 — Catalog v3 schema flip + v2→v3 migration + Space/CatalogWindow removal (build-clean; 45 test files outstanding for M2.12)
+  - [x] M2.1a Project.tagIDs — commit 1a0d7e3
+  - [x] M2.1b Catalog v3 + migration + Space.swift deletion — commit ec43426
+  - [x] M2.1c TerminalEvent / HookEnvelope / NotificationInboxAggregation / Worktree comments — included in ec43426
+  - [x] M2.2 CatalogCodableTests rewrite + v2→v3 migration tests + IPC type updates — commit 060b3e6
+  - [x] M2.3 HierarchyManager surface flip — commit 9ef04c4 (subagent)
+  - [x] M2.4 HierarchyClient surface flip — commit 9ef04c4 (same subagent)
+  - [x] M2.5–M2.11 RootFeature, Sidebar, SpaceManager deletion, CommandPalette, MainWindowCommands, Socket handlers, tc CLI, TouchCodeApp seed removal — commit 0fc0b1d (subagent) + 971ddf9 (orchestrator final pass)
+  - [ ] M2.12 Test sweep across `apps/mac/touch-code/Tests/` — 45 files reference Space surfaces; build does not depend on these (xcodebuild build green) but xcodebuild test will fail until they land
+  - [x] M2.13 `check-no-space-residue` Make target wired into `make check` — commit 0fc0b1d (gate); commit a95dd15 + this commit refine the filter
+  - [x] Build verification: `xcodebuild build -scheme touch-code` ✅ BUILD SUCCEEDED, `-scheme tc` ✅ BUILD SUCCEEDED
+  - [x] Test verification: `xcodebuild test -scheme TouchCodeCore` ✅ 333/333 passed
 - [ ] M3 — Single-window enforcement: `WindowGroup` → `Window(id:)`, ⌘N suppression, ⌘W hide, ⌘Q confirmation dialog
 - [ ] M4 — Sidebar chip footer: filter UI in the bottom safe-area, ⌘F focus, project-row tag dots, wired to `Catalog.activeTagFilter`
 - [ ] M5 — `TagManagerFeature` + project-row context menu Tag editor (replaces deleted `SpaceManagerFeature`)
