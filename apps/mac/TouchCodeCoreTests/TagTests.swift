@@ -57,19 +57,19 @@ struct TagTests {
   }
 
   @Test
-  func filterTagsEncodesIDsInDeterministicOrder() throws {
+  func filterTagsEncodesIDsInSortedOrder() throws {
     // Set has no inherent ordering. The encoder sorts by raw UUID string so
-    // `git diff catalog.json` is stable. Two filters built from the same set
-    // of IDs but inserted in different orders must produce byte-identical
-    // JSON.
+    // `git diff catalog.json` is stable. Decode the encoded form back into
+    // a JSON object and assert the `tagIDs` array is sorted by `raw`.
     let a = TagID()
     let b = TagID()
     let c = TagID()
-    let filterAB = TagFilter.tags([a, b, c])
-    let filterBA = TagFilter.tags([c, b, a])
-    let dataAB = try JSONEncoder().encode(filterAB)
-    let dataBA = try JSONEncoder().encode(filterBA)
-    #expect(dataAB == dataBA)
+    let filter = TagFilter.tags([a, b, c])
+    let data = try JSONEncoder().encode(filter)
+    let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+    let tagIDs = try #require(object?["tagIDs"] as? [[String: Any]])
+    let raws = tagIDs.compactMap { $0["raw"] as? String }
+    #expect(raws == raws.sorted())
   }
 
   @Test
