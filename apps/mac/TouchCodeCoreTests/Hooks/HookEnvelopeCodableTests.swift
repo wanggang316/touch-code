@@ -17,8 +17,7 @@ struct HookEnvelopeCodableTests {
     let env = HookEnvelope(
       event: .worktreeCreated,
       timestamp: Date(timeIntervalSince1970: 1700000000),
-      space: .init(id: SpaceID(), name: "work"),
-      project: .init(id: ProjectID(), name: "touch-code", rootPath: "/repo"),
+project: .init(id: ProjectID(), name: "touch-code", rootPath: "/repo"),
       worktree: .init(id: WorktreeID(), name: "exp", path: "/wt", branch: "exp"),
       data: .worktreeCreated(branch: "exp", gitExit: 0)
     )
@@ -36,8 +35,7 @@ struct HookEnvelopeCodableTests {
   func validateAnchorsRejectsPaneEventMissingTab() throws {
     let env = HookEnvelope(
       event: .paneReady,
-      space: .init(id: SpaceID(), name: "s"),
-      project: .init(id: ProjectID(), name: "p", rootPath: "/"),
+project: .init(id: ProjectID(), name: "p", rootPath: "/"),
       worktree: .init(id: WorktreeID(), name: "w", path: "/"),
       tab: nil,
       pane: .init(id: PaneID(), workingDirectory: "/"),
@@ -52,8 +50,7 @@ struct HookEnvelopeCodableTests {
   func validateAnchorsRejectsKindMismatch() throws {
     let env = HookEnvelope(
       event: .paneReady,
-      space: .init(id: SpaceID(), name: "s"),
-      project: .init(id: ProjectID(), name: "p", rootPath: "/"),
+project: .init(id: ProjectID(), name: "p", rootPath: "/"),
       worktree: .init(id: WorktreeID(), name: "w", path: "/"),
       tab: .init(id: TabID()),
       pane: .init(id: PaneID(), workingDirectory: "/"),
@@ -68,8 +65,7 @@ struct HookEnvelopeCodableTests {
   func missingOptionalAnchorsEncodeElided() throws {
     let env = HookEnvelope(
       event: .worktreeActivated,
-      space: .init(id: SpaceID(), name: "s"),
-      project: .init(id: ProjectID(), name: "p", rootPath: "/"),
+project: .init(id: ProjectID(), name: "p", rootPath: "/"),
       worktree: .init(id: WorktreeID(), name: "w", path: "/"),
       data: .worktreeActivated(previousWorktreeID: nil)
     )
@@ -83,8 +79,7 @@ struct HookEnvelopeCodableTests {
     HookEnvelope(
       event: .paneOutputMatch,
       timestamp: Date(timeIntervalSince1970: 1700000000),
-      space: .init(id: SpaceID(), name: "work"),
-      project: .init(id: ProjectID(), name: "touch-code", rootPath: "/repo"),
+project: .init(id: ProjectID(), name: "touch-code", rootPath: "/repo"),
       worktree: .init(id: WorktreeID(), name: "exp/test", path: "/wt", branch: "exp/test"),
       tab: .init(id: TabID(), name: "agent", selectedPaneID: PaneID()),
       pane: .init(id: PaneID(), workingDirectory: "/wt", initialCommand: nil, labels: ["agent"]),

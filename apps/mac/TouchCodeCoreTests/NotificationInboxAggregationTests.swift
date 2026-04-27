@@ -4,12 +4,11 @@ import Testing
 @testable import TouchCodeCore
 
 struct NotificationInboxAggregationTests {
-  // Fixture: 1 Space, 2 Projects; Project P1 has 2 Worktrees (W1a, W1b),
+  // Fixture: 2 Projects; Project P1 has 2 Worktrees (W1a, W1b),
   // Project P2 has 1 Worktree (W2). Each Worktree has one Pane.
   // Inbox: unread on W1a, read on W1a, unread on W1b, none on W2.
   struct Fixture {
     let catalog: Catalog
-    let spaceID: SpaceID
     let projectP1: ProjectID
     let projectP2: ProjectID
     let worktreeW1a: WorktreeID
@@ -40,10 +39,8 @@ struct NotificationInboxAggregationTests {
 
       let p1 = Project(name: "repo1", rootPath: "/repo1", gitRoot: "/repo1", worktrees: [w1a, w1b])
       let p2 = Project(name: "repo2", rootPath: "/repo2", gitRoot: "/repo2", worktrees: [w2])
-      let s = Space(name: "work", projects: [p1, p2])
-      self.catalog = Catalog(spaces: [s], selectedSpaceID: s.id)
+      self.catalog = Catalog(projects: [p1, p2])
 
-      self.spaceID = s.id
       self.projectP1 = p1.id
       self.projectP2 = p2.id
       self.worktreeW1a = w1a.id
@@ -89,20 +86,6 @@ struct NotificationInboxAggregationTests {
     let f = Fixture()
     #expect(f.inbox.hasUnread(forProject: f.projectP1, in: f.catalog) == true)
     #expect(f.inbox.hasUnread(forProject: f.projectP2, in: f.catalog) == false)
-  }
-
-  @Test
-  func hasUnreadForSpaceAggregatesAcrossProjects() {
-    let f = Fixture()
-    #expect(f.inbox.hasUnread(forSpace: f.spaceID, in: f.catalog) == true)
-
-    // Drain unread: mark both unread entries read and assert false.
-    var drained = f.inbox
-    let now = Date()
-    for index in drained.notifications.indices where drained.notifications[index].readAt == nil {
-      drained.notifications[index].readAt = now
-    }
-    #expect(drained.hasUnread(forSpace: f.spaceID, in: f.catalog) == false)
   }
 
   @Test
@@ -245,6 +228,6 @@ struct NotificationInboxAggregationTests {
     inbox.notifications.insert(stray, at: 0)
     #expect(inbox.unreadCount(forWorktree: f.worktreeW1a, in: f.catalog) == 1)
     #expect(inbox.unreadCount(forWorktree: f.worktreeW1b, in: f.catalog) == 1)
-    #expect(inbox.hasUnread(forSpace: f.spaceID, in: f.catalog) == true)
+    #expect(inbox.hasUnread(forProject: f.projectP1, in: f.catalog) == true)
   }
 }

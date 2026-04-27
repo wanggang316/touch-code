@@ -17,8 +17,7 @@ struct CatalogResolutionTests {
     )
     let worktree = Worktree(name: "main", path: "/repo", tabs: [tab1, tab2])
     let project = Project(name: "repo", rootPath: "/repo", gitRoot: "/repo", worktrees: [worktree])
-    let space = Space(name: "s", projects: [project])
-    let catalog = Catalog(spaces: [space])
+    let catalog = Catalog(projects: [project])
 
     #expect(catalog.worktreeID(forPane: paneA.id) == worktree.id)
     #expect(catalog.worktreeID(forPane: paneB.id) == worktree.id)
@@ -27,11 +26,9 @@ struct CatalogResolutionTests {
 
   @Test
   func worktreeIDForPaneMissingReturnsNil() {
-    let catalog = Catalog(spaces: [
-      Space(name: "s", projects: [
-        Project(name: "p", rootPath: "/p", worktrees: [
-          Worktree(name: "w", path: "/p"),
-        ]),
+    let catalog = Catalog(projects: [
+      Project(name: "p", rootPath: "/p", worktrees: [
+        Worktree(name: "w", path: "/p"),
       ]),
     ])
     #expect(catalog.worktreeID(forPane: PaneID()) == nil)
@@ -54,7 +51,7 @@ struct CatalogResolutionTests {
     )
     let worktree = Worktree(name: "main", path: "/repo", tabs: [tab1, tab2])
     let project = Project(name: "repo", rootPath: "/repo", gitRoot: "/repo", worktrees: [worktree])
-    let catalog = Catalog(spaces: [Space(name: "s", projects: [project])])
+    let catalog = Catalog(projects: [project])
 
     #expect(catalog.paneIDs(inWorktree: worktree.id) == Set([paneA.id, paneB.id, paneC.id, paneD.id]))
   }

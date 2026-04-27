@@ -25,12 +25,11 @@ extension IPC {
     case editorSetProjectDefault = "editor.setProjectDefault"
 
     // hierarchy — reads
-    case hierarchyListSpaces = "hierarchy.listSpaces"
     case hierarchyListProjects = "hierarchy.listProjects"
     case hierarchyListWorktrees = "hierarchy.listWorktrees"
     case hierarchyListTabs = "hierarchy.listTabs"
     case hierarchyListPanes = "hierarchy.listPanes"
-    case hierarchyDescribeSpace = "hierarchy.describeSpace"
+    case hierarchyListTags = "hierarchy.listTags"
     case hierarchyDescribeProject = "hierarchy.describeProject"
     case hierarchyDescribeWorktree = "hierarchy.describeWorktree"
     case hierarchyDescribeTab = "hierarchy.describeTab"
@@ -40,10 +39,6 @@ extension IPC {
     case hierarchyResolveWorktreeGlob = "hierarchy.resolveWorktreeGlob"
 
     // hierarchy — mutations
-    case hierarchyCreateSpace = "hierarchy.createSpace"
-    case hierarchyRenameSpace = "hierarchy.renameSpace"
-    case hierarchyRemoveSpace = "hierarchy.removeSpace"
-    case hierarchyActivateSpace = "hierarchy.activateSpace"
     case hierarchyAddProject = "hierarchy.addProject"
     case hierarchyRemoveProject = "hierarchy.removeProject"
     case hierarchyRenameProject = "hierarchy.renameProject"
@@ -65,6 +60,12 @@ extension IPC {
     case hierarchyZoomPane = "hierarchy.zoomPane"
     case hierarchyUnzoomPane = "hierarchy.unzoomPane"
     case hierarchySetPaneLabels = "hierarchy.setPaneLabels"
+    case hierarchyCreateTag = "hierarchy.createTag"
+    case hierarchyRenameTag = "hierarchy.renameTag"
+    case hierarchyRecolorTag = "hierarchy.recolorTag"
+    case hierarchyRemoveTag = "hierarchy.removeTag"
+    case hierarchySetProjectTags = "hierarchy.setProjectTags"
+    case hierarchySetActiveTagFilter = "hierarchy.setActiveTagFilter"
 
     // terminal
     case terminalSendInput = "terminal.sendInput"
