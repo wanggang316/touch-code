@@ -55,6 +55,7 @@ public final class MethodRouter {
     guard let h = hierarchyHandlers else { return nil }
     if let outcome = await routeHierarchyReads(request, handlers: h) { return outcome }
     if let outcome = await routeHierarchyMutations(request, handlers: h) { return outcome }
+    if let outcome = await routeHierarchyTags(request, handlers: h) { return outcome }
     return nil
   }
 
@@ -67,6 +68,7 @@ public final class MethodRouter {
     case .hierarchyListWorktrees: return await h.listWorktrees(request.params)
     case .hierarchyListTabs: return await h.listTabs(request.params)
     case .hierarchyListPanes: return await h.listPanes(request.params)
+    case .hierarchyListTags: return await h.listTags(request.params)
     case .hierarchyResolveAlias: return await h.resolveAlias(request.params)
     default: return nil
     }
@@ -89,6 +91,24 @@ public final class MethodRouter {
     case .hierarchyClosePane: return await h.closePane(request.params)
     case .hierarchyFocusPane: return await h.focusPane(request.params)
     case .hierarchySetPaneLabels: return await h.setPaneLabels(request.params)
+    default: return nil
+    }
+  }
+
+  /// Tag-scoped mutations introduced in M6 alongside the `tc tag` /
+  /// `tc project tag` CLI surface. Lives in its own sub-router so the
+  /// switch in `routeHierarchyMutations` doesn't grow unbounded.
+  private func routeHierarchyTags(
+    _ request: IPC.Request,
+    handlers h: HierarchyHandlers
+  ) async -> RouterOutcome? {
+    switch request.method {
+    case .hierarchyCreateTag: return await h.createTag(request.params)
+    case .hierarchyRenameTag: return await h.renameTag(request.params)
+    case .hierarchyRecolorTag: return await h.recolorTag(request.params)
+    case .hierarchyRemoveTag: return await h.removeTag(request.params)
+    case .hierarchySetProjectTags: return await h.setProjectTags(request.params)
+    case .hierarchySetActiveTagFilter: return await h.setActiveTagFilter(request.params)
     default: return nil
     }
   }

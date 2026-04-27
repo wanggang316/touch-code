@@ -7,8 +7,10 @@ import os
 /// resolveAlias) and mutations (create / activate / close / label).
 ///
 /// M2 (rm-space) removed the `space.*` RPCs along with the Space level.
-/// Tag-scoped RPCs (`tag.*`, `project.tag.*`) land alongside the `tc tag`
-/// CLI in M6 — out of scope here.
+/// M6 added the Tag-scoped RPCs (`hierarchy.listTags`, `hierarchy.createTag`,
+/// `hierarchy.renameTag`, `hierarchy.recolorTag`, `hierarchy.removeTag`,
+/// `hierarchy.setProjectTags`, `hierarchy.setActiveTagFilter`) plus the
+/// `tag` / `untagged` filters on `hierarchy.listProjects`.
 @MainActor
 final class HierarchyHandlers {
   private let manager: HierarchyManager
@@ -384,13 +386,169 @@ final class HierarchyHandlers {
 
   // MARK: - Extended reads
 
+  /// Optional `tag` / `untagged` filters mirror the CLI surface
+  /// (`tc project list --tag <id> | --untagged`). Both are absent by default
+  /// — pre-M6 callers that send `{}` see the unfiltered project list.
+  /// Passing both is a caller error.
+  public struct ListProjectsParams: Codable, Sendable {
+    public let tag: TagID?
+    public let untagged: Bool?
+  }
   public func listProjects(_ params: JSONValue) async -> RouterOutcome {
     await Task.yield()
+    let req: ListProjectsParams
     do {
-      return .unary(try JSONValue.encoded(ListProjectsPayload(projects: manager.catalog.projects)))
+      req = try params.decoded(as: ListProjectsParams.self)
+    } catch {
+      // Empty params body is valid — fall back to the unfiltered listing.
+      req = ListProjectsParams(tag: nil, untagged: nil)
+    }
+    if req.tag != nil, req.untagged == true {
+      return .failed(
+        .invalidParams(message: "listProjects: pass at most one of {tag, untagged}", path: nil))
+    }
+    let all = manager.catalog.projects
+    let filtered: [Project]
+    if req.untagged == true {
+      filtered = all.filter { $0.tagIDs.isEmpty }
+    } else if let tagID = req.tag {
+      filtered = all.filter { $0.tagIDs.contains(tagID) }
+    } else {
+      filtered = all
+    }
+    do {
+      return .unary(try JSONValue.encoded(ListProjectsPayload(projects: filtered)))
     } catch {
       return .failed(.internal("encode listProjects: \(error)"))
     }
+  }
+
+  // MARK: - Tag mutations and reads
+
+  public func listTags(_ params: JSONValue) async -> RouterOutcome {
+    await Task.yield()
+    do {
+      return .unary(try JSONValue.encoded(ListTagsPayload(tags: manager.catalog.tags)))
+    } catch {
+      return .failed(.internal("encode listTags: \(error)"))
+    }
+  }
+
+  public struct CreateTagParams: Codable, Sendable {
+    public let name: String
+    public let color: String  // TagColor.rawValue
+  }
+  public func createTag(_ params: JSONValue) async -> RouterOutcome {
+    await Task.yield()
+    let req: CreateTagParams
+    do {
+      req = try params.decoded(as: CreateTagParams.self)
+    } catch {
+      return .failed(.invalidParams(message: "createTag requires {name, color}", path: nil))
+    }
+    guard let color = TagColor(rawValue: req.color) else {
+      let valid = TagColor.allCases.map(\.rawValue).joined(separator: "|")
+      return .failed(
+        .invalidParams(
+          message: "unknown color '\(req.color)'; expected one of \(valid)",
+          path: ["color"]))
+    }
+    let id = manager.createTag(name: req.name, color: color)
+    do {
+      return .unary(try JSONValue.encoded(TagIDPayload(id: id)))
+    } catch {
+      return .failed(.internal("encode createTag: \(error)"))
+    }
+  }
+
+  public struct RenameTagParams: Codable, Sendable {
+    public let id: TagID
+    public let name: String
+  }
+  public func renameTag(_ params: JSONValue) async -> RouterOutcome {
+    await Task.yield()
+    let req: RenameTagParams
+    do {
+      req = try params.decoded(as: RenameTagParams.self)
+    } catch {
+      return .failed(.invalidParams(message: "renameTag requires {id, name}", path: nil))
+    }
+    manager.renameTag(req.id, to: req.name)
+    return .unary(.object([:]))
+  }
+
+  public struct RecolorTagParams: Codable, Sendable {
+    public let id: TagID
+    public let color: String  // TagColor.rawValue
+  }
+  public func recolorTag(_ params: JSONValue) async -> RouterOutcome {
+    await Task.yield()
+    let req: RecolorTagParams
+    do {
+      req = try params.decoded(as: RecolorTagParams.self)
+    } catch {
+      return .failed(.invalidParams(message: "recolorTag requires {id, color}", path: nil))
+    }
+    guard let color = TagColor(rawValue: req.color) else {
+      let valid = TagColor.allCases.map(\.rawValue).joined(separator: "|")
+      return .failed(
+        .invalidParams(
+          message: "unknown color '\(req.color)'; expected one of \(valid)",
+          path: ["color"]))
+    }
+    manager.recolorTag(req.id, to: color)
+    return .unary(.object([:]))
+  }
+
+  public struct RemoveTagParams: Codable, Sendable {
+    public let id: TagID
+  }
+  public func removeTag(_ params: JSONValue) async -> RouterOutcome {
+    await Task.yield()
+    let req: RemoveTagParams
+    do {
+      req = try params.decoded(as: RemoveTagParams.self)
+    } catch {
+      return .failed(.invalidParams(message: "removeTag requires {id}", path: nil))
+    }
+    manager.removeTag(req.id)
+    return .unary(.object([:]))
+  }
+
+  public struct SetProjectTagsParams: Codable, Sendable {
+    public let projectID: ProjectID
+    public let tagIDs: [TagID]
+  }
+  public func setProjectTags(_ params: JSONValue) async -> RouterOutcome {
+    await Task.yield()
+    let req: SetProjectTagsParams
+    do {
+      req = try params.decoded(as: SetProjectTagsParams.self)
+    } catch {
+      return .failed(
+        .invalidParams(message: "setProjectTags requires {projectID, tagIDs}", path: nil))
+    }
+    guard manager.catalog.projects.contains(where: { $0.id == req.projectID }) else {
+      return .failed(.notFound(kind: "project", id: req.projectID.description))
+    }
+    manager.setProjectTags(req.projectID, tags: Set(req.tagIDs))
+    return .unary(.object([:]))
+  }
+
+  public struct SetActiveTagFilterParams: Codable, Sendable {
+    public let filter: TagFilter
+  }
+  public func setActiveTagFilter(_ params: JSONValue) async -> RouterOutcome {
+    await Task.yield()
+    let req: SetActiveTagFilterParams
+    do {
+      req = try params.decoded(as: SetActiveTagFilterParams.self)
+    } catch {
+      return .failed(
+        .invalidParams(message: "setActiveTagFilter requires {filter}", path: nil))
+    }
+    manager.setActiveTagFilter(req.filter)
+    return .unary(.object([:]))
   }
 
   public struct ListWorktreesParams: Codable, Sendable {
@@ -474,7 +632,9 @@ struct ListProjectsPayload: Codable, Sendable { let projects: [Project] }
 struct ListWorktreesPayload: Codable, Sendable { let worktrees: [Worktree] }
 struct ListTabsPayload: Codable, Sendable { let tabs: [Tab] }
 struct ListPanesPayload: Codable, Sendable { let panes: [Pane] }
+struct ListTagsPayload: Codable, Sendable { let tags: [Tag] }
 struct ProjectIDPayload: Codable, Sendable { let id: ProjectID }
 struct WorktreeIDPayload: Codable, Sendable { let id: WorktreeID }
 struct TabIDPayload: Codable, Sendable { let id: TabID }
 struct PaneIDPayload: Codable, Sendable { let id: PaneID }
+struct TagIDPayload: Codable, Sendable { let id: TagID }
