@@ -33,7 +33,10 @@ Existing data is migrated losslessly: each prior Space becomes a same-named Tag 
 
 ## Surprises & Discoveries
 
-(None yet)
+- **2026-04-27, M0**: `make -C apps/mac check` reports **42 pre-existing lint errors** spanning `Toast/`, `GitHub/Views/`, `PaneSurface.swift`, `GhosttyActionDecoder.swift`, `RootFeature.swift`, several test files, and `NotificationCoordinatorTests`/`TrackerRegistry` (inclusive-language + TODO violations). None of these are in files this plan modifies, so they are accepted baseline noise. Captured in `/tmp/m0-lint-baseline.txt`. **Action**: don't gate any milestone on `make check` going green; instead use `make build` + targeted `swiftlint lint <new-files>` + `xcodebuild test`. The `mac-no-space-residue` gate added in M2 is a `grep`, independent of swiftlint, so it still works.
+- **2026-04-27, M0**: The `make test` target in `apps/mac/Makefile` is a stub (`@echo "no tests yet"`). Tests run via `xcodebuild test -scheme touch-code -destination 'platform=macOS'` directly. Plan's Concrete Steps section now says `xcodebuild test ...` not `make test`.
+- **2026-04-27, M0**: Make targets are `build/lint/format/check/test/clean/...` (no `mac-` prefix); the `mac-*` shorthand is at the top-level `Makefile` only. Plan's Concrete Steps uses `make -C apps/mac <target>` which is the correct form for all milestones.
+- **2026-04-27, M0**: `xcodebuild test -project ...` fails with `Unable to find module dependency: 'ArgumentParser'` because Tuist resolves SwiftPM into the **workspace**. Use `-workspace apps/mac/touch-code.xcworkspace` instead. Build then succeeds, but test host (`touch-code` app launched in test mode) crashes with `Signal 11: Backtracing from 0x288e20734...` during Ghostty config file load — `[default] reading configuration file path=/Users/wanggang/.config/ghostty/config` is the last log line before the crash. **Pre-existing**, not introduced by this plan. Workaround: scope tests with `-only-testing:TouchCodeCoreTests` (unit layer; no host app).
 
 ## Decision Log
 
