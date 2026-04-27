@@ -30,12 +30,13 @@ struct PendingProjectRemoval: Equatable {
   var displayName: String
 }
 
-/// Sidebar reducer for the Space → Project → Worktree hierarchy. Owns
-/// local view state (expansion sets, popover visibility, sheet payloads,
-/// confirmation dialogs) and the Space-switch choreography. Structural
-/// catalog data is NOT in state — `HierarchySidebarView` reads
-/// `HierarchyManager.catalog` from the SwiftUI environment directly,
-/// matching the state-ownership trade-off recorded in the T0 design doc.
+/// Sidebar reducer for the Project → Worktree hierarchy plus the Tag
+/// chip footer's filter state. Owns local view state (expansion sets,
+/// sheet payloads, confirmation dialogs) and the project-selection
+/// choreography. Structural catalog data is NOT in state —
+/// `HierarchySidebarView` reads `HierarchyManager.catalog` from the
+/// SwiftUI environment directly, matching the state-ownership trade-off
+/// recorded in the T0 design doc.
 ///
 /// Side effects for Reveal-in-Finder and Open-in-default-editor route
 /// through `.delegate` actions so `RootFeature` composes them with the

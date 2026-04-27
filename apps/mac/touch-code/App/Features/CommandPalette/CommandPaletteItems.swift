@@ -9,7 +9,7 @@ import TouchCodeCore
 ///
 /// Items are emitted in three context bands:
 ///
-/// 1. **Always**: app-level commands, Space switching / management.
+/// 1. **Always**: app-level commands.
 /// 2. **When a Worktree is selected**: Git viewer toggle, editor-open
 ///    commands (one per installed `EditorDescriptor`), refresh, close,
 ///    reveal in Finder.
