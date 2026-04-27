@@ -57,6 +57,11 @@ struct RootFeature {
     /// output anchored to the main window.
     @Presents var lifecycleScriptToast: LifecycleScriptToastFeature.State?
 
+    /// M5 (project-tags): Tag CRUD sheet. `nil` = hidden; non-nil hosts
+    /// `TagManagerSheet`. Opened from the sidebar via
+    /// `.sidebar(.delegate(.openTagManager))`.
+    @Presents var tagManagerSheet: TagManagerFeature.State?
+
     /// T3: live read of the current Worktree's `gitViewerVisible` against
     /// a catalog snapshot. Not a cached field — views pass in
     /// `hierarchyManager.catalog` so SwiftUI's `@Observable` tracking
@@ -178,6 +183,12 @@ struct RootFeature {
       result: LifecycleScriptResult
     )
     case lifecycleScriptToast(PresentationAction<LifecycleScriptToastFeature.Action>)
+    /// M5 (project-tags): Tag CRUD sheet presentation. Mirrors
+    /// `addProject` / `projectOptions` on the sidebar — `tagManagerSheetShown`
+    /// kicks the sheet visible, the `PresentationAction` carries child
+    /// actions and dismiss.
+    case tagManagerSheet(PresentationAction<TagManagerFeature.Action>)
+    case tagManagerSheetShown
     case sidebar(HierarchySidebarFeature.Action)
     case detail(WorktreeDetailFeature.Action)
     case gitViewer(GitViewerFeature.Action)
@@ -501,7 +512,18 @@ struct RootFeature {
       case .sidebar(.delegate(.lifecycleScriptResult(let phase, let name, let result))):
         return .send(.runWorktreeLifecycleResult(phase: phase, worktreeName: name, result: result))
 
+      case .sidebar(.delegate(.openTagManager)):
+        state.tagManagerSheet = TagManagerFeature.State()
+        return .none
+
       case .sidebar:
+        return .none
+
+      case .tagManagerSheetShown:
+        state.tagManagerSheet = TagManagerFeature.State()
+        return .none
+
+      case .tagManagerSheet:
         return .none
 
       case .detail:
@@ -905,6 +927,9 @@ struct RootFeature {
     }
     .ifLet(\.$lifecycleScriptToast, action: \.lifecycleScriptToast) {
       LifecycleScriptToastFeature()
+    }
+    .ifLet(\.$tagManagerSheet, action: \.tagManagerSheet) {
+      TagManagerFeature()
     }
   }
 
