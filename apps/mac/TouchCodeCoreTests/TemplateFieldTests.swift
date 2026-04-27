@@ -13,7 +13,6 @@ struct TemplateFieldTests {
       "tab.id", "tab.name", "tab.selectedPaneID",
       "worktree.id", "worktree.name", "worktree.path", "worktree.branch",
       "project.id", "project.name", "project.rootPath",
-      "space.id", "space.name",
     ]
     #expect(Set(TemplateField.alwaysAvailable.map(\.rawValue)) == expected)
   }

@@ -101,8 +101,8 @@ struct CatalogCodableTests {
 
   @Test
   func migrationV2ToV3AssignsEachProjectItsSpaceTag() throws {
-    let projectA = ["id": ["raw": UUID().uuidString], "name": "acme-web", "rootPath": "/tmp/acme"]
-    let projectB = ["id": ["raw": UUID().uuidString], "name": "marketing", "rootPath": "/tmp/mkt"]
+    let projectA: [String: Any] = ["id": ["raw": UUID().uuidString], "name": "acme-web", "rootPath": "/tmp/acme"]
+    let projectB: [String: Any] = ["id": ["raw": UUID().uuidString], "name": "marketing", "rootPath": "/tmp/mkt"]
     let payload = try v2Payload(spaces: [
       ("Day Job", [projectA]),
       ("Side", [projectB]),

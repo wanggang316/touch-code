@@ -136,16 +136,6 @@ extension Catalog: Codable {
 /// produces v3 Tags + flat Projects.
 private struct LegacySpaceIDV2: Codable, Hashable {
   let raw: UUID
-
-  init(from decoder: Decoder) throws {
-    let container = try decoder.singleValueContainer()
-    self.raw = try container.decode(UUID.self)
-  }
-
-  func encode(to encoder: Encoder) throws {
-    var container = encoder.singleValueContainer()
-    try container.encode(raw)
-  }
 }
 
 private struct LegacySpaceV2: Codable {
