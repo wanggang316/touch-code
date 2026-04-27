@@ -360,8 +360,7 @@ final class TerminalEngine {
       try hierarchy.closeTab(
         location.tabID,
         in: location.worktreeID,
-        in: location.projectID,
-        in: location.spaceID
+        in: location.projectID
       )
     } catch {
       // Preserve the ring so a retry can still close the tab.
@@ -396,24 +395,20 @@ final class TerminalEngine {
   // MARK: - Private
 
   private struct PaneLocation {
-    let spaceID: SpaceID
     let projectID: ProjectID
     let worktreeID: WorktreeID
     let tabID: TabID
   }
 
   private func findPane(_ paneID: PaneID) -> PaneLocation? {
-    for space in hierarchy.catalog.spaces {
-      for project in space.projects {
-        for worktree in project.worktrees {
-          for tab in worktree.tabs where tab.panes.contains(where: { $0.id == paneID }) {
-            return PaneLocation(
-              spaceID: space.id,
-              projectID: project.id,
-              worktreeID: worktree.id,
-              tabID: tab.id
-            )
-          }
+    for project in hierarchy.catalog.projects {
+      for worktree in project.worktrees {
+        for tab in worktree.tabs where tab.panes.contains(where: { $0.id == paneID }) {
+          return PaneLocation(
+            projectID: project.id,
+            worktreeID: worktree.id,
+            tabID: tab.id
+          )
         }
       }
     }
@@ -425,8 +420,7 @@ final class TerminalEngine {
     excluding excluded: PaneID
   ) -> [PaneID] {
     guard
-      let space = hierarchy.catalog.spaces.first(where: { $0.id == location.spaceID }),
-      let project = space.projects.first(where: { $0.id == location.projectID }),
+      let project = hierarchy.catalog.projects.first(where: { $0.id == location.projectID }),
       let worktree = project.worktrees.first(where: { $0.id == location.worktreeID }),
       let tab = worktree.tabs.first(where: { $0.id == location.tabID })
     else {

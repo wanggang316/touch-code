@@ -22,7 +22,6 @@ struct CreateWorktreeFeature {
   @ObservableState
   struct State: Equatable {
     let projectID: ProjectID
-    let spaceID: SpaceID
     /// Git root of the Project. Used to run all `wt` / `git` commands
     /// and to derive the Worktree's on-disk path together with
     /// `worktreesDirectory`.
@@ -201,7 +200,6 @@ struct CreateWorktreeFeature {
         let pending = PendingWorktree(
           id: PendingWorktreeID(),
           projectID: state.projectID,
-          spaceID: state.spaceID,
           spec: spec,
           displayName: trimmed,
           status: .running,

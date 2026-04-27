@@ -413,11 +413,9 @@ struct GitViewerFeature {
   }
 
   fileprivate nonisolated static func worktreePath(in catalog: Catalog, worktreeID: WorktreeID) -> String? {
-    for space in catalog.spaces {
-      for project in space.projects {
-        for worktree in project.worktrees where worktree.id == worktreeID {
-          return worktree.path
-        }
+    for project in catalog.projects {
+      for worktree in project.worktrees where worktree.id == worktreeID {
+        return worktree.path
       }
     }
     return nil

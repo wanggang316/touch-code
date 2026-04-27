@@ -69,5 +69,5 @@ final class CatalogStore {
 }
 
 extension Catalog {
-  static let `default` = Catalog(windows: [], spaces: [], selectedSpaceID: nil)
+  static let `default` = Catalog()
 }

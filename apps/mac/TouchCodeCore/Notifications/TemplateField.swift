@@ -43,9 +43,6 @@ public nonisolated enum TemplateField: String, CaseIterable, Hashable, Sendable 
   case projectName = "project.name"
   case projectRootPath = "project.rootPath"
 
-  case spaceID = "space.id"
-  case spaceName = "space.name"
-
   // MARK: - pane.created
 
   case dataCreatedVia = "data.createdVia"
@@ -113,7 +110,6 @@ public nonisolated enum TemplateField: String, CaseIterable, Hashable, Sendable 
     .tabID, .tabName, .tabSelectedPaneID,
     .worktreeID, .worktreeName, .worktreePath, .worktreeBranch,
     .projectID, .projectName, .projectRootPath,
-    .spaceID, .spaceName,
   ]
 
   /// Legal template placeholders for a rule whose `appliesWhen.hookEvent` is

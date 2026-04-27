@@ -14,20 +14,16 @@ import TouchCodeCore
 ///    does not go through this path).
 /// 4. Let the user edit the default name (last path component).
 /// 5. On submit, call `HierarchyClient.addProject(...)` and delegate
-///    `.projectAdded(ProjectID, SpaceID)` so the parent can kick the
-///    reconciler.
-/// 6. On duplicate + Reveal, delegate `.revealExisting(SpaceID, ProjectID)`.
+///    `.projectAdded(ProjectID)` so the parent can kick the reconciler.
+/// 6. On duplicate + Reveal, delegate `.revealExisting(ProjectID)`.
 @Reducer
 struct AddProjectFeature {
   struct DuplicateRegistration: Equatable {
-    var spaceID: SpaceID
     var projectID: ProjectID
   }
 
   @ObservableState
   struct State: Equatable {
-    var targetSpaceID: SpaceID
-
     /// Canonical path after the picker. Nil until the user picks a folder.
     var pickedPath: String?
     /// `true` after classification if the folder is git-backed; `false` if not.
@@ -74,8 +70,8 @@ struct AddProjectFeature {
     case delegate(Delegate)
     @CasePathable
     enum Delegate: Equatable {
-      case projectAdded(ProjectID, SpaceID)
-      case revealExisting(SpaceID, ProjectID)
+      case projectAdded(ProjectID)
+      case revealExisting(ProjectID)
       case dismiss
     }
   }
@@ -103,10 +99,9 @@ struct AddProjectFeature {
         state.resolvedGitRoot = nil
         state.validationError = nil
 
-        if let existing = hierarchyClient.isPathRegistered(canonical) {
+        if let existingProjectID = hierarchyClient.isPathRegistered(canonical) {
           state.duplicate = DuplicateRegistration(
-            spaceID: existing.0,
-            projectID: existing.1
+            projectID: existingProjectID
           )
           // Seed a sensible name-draft placeholder anyway so the UI isn't blank
           // if the user clears the duplicate state and retries with a new path.
@@ -141,10 +136,9 @@ struct AddProjectFeature {
         else { return .none }
         let trimmed = state.nameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         state.isSubmitting = true
-        let spaceID = state.targetSpaceID
         let gitRoot = state.resolvedGitRoot
         do {
-          let projectID = try hierarchyClient.addProject(spaceID, trimmed, path, gitRoot)
+          let projectID = try hierarchyClient.addProject(trimmed, path, gitRoot)
           return .send(.submitCompleted(projectID))
         } catch {
           state.isSubmitting = false
@@ -153,16 +147,15 @@ struct AddProjectFeature {
         }
 
       case .submitCompleted(let projectID):
-        let spaceID = state.targetSpaceID
         return .run { send in
-          await send(.delegate(.projectAdded(projectID, spaceID)))
+          await send(.delegate(.projectAdded(projectID)))
           await send(.delegate(.dismiss))
         }
 
       case .revealExistingTapped:
         guard let duplicate = state.duplicate else { return .none }
         return .run { send in
-          await send(.delegate(.revealExisting(duplicate.spaceID, duplicate.projectID)))
+          await send(.delegate(.revealExisting(duplicate.projectID)))
           await send(.delegate(.dismiss))
         }
 

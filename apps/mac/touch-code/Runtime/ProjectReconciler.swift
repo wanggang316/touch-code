@@ -41,24 +41,22 @@ actor ProjectReconciler {
   /// calls early-return. The missing-Project branch is also a silent no-op
   /// (the Project may have been removed between the caller's snapshot and
   /// this call).
-  func reconcile(projectID: ProjectID, spaceID: SpaceID) async {
+  func reconcile(projectID: ProjectID) async {
     guard !inFlight.contains(projectID) else { return }
     inFlight.insert(projectID)
     defer { inFlight.remove(projectID) }
 
     let snapshot = await client.snapshot()
-    guard
-      let project = snapshot.spaces.first(where: { $0.id == spaceID })?
-        .projects.first(where: { $0.id == projectID })
+    guard let project = snapshot.projects.first(where: { $0.id == projectID })
     else {
       return
     }
 
-    await client.setProjectLoadState(projectID, spaceID, .loading)
+    await client.setProjectLoadState(projectID, .loading)
 
     guard FileManager.default.fileExists(atPath: project.rootPath) else {
       await client.setProjectLoadState(
-        projectID, spaceID,
+        projectID,
         .failed(reason: "Folder no longer exists at \(project.rootPath)")
       )
       return
@@ -68,8 +66,8 @@ actor ProjectReconciler {
     // orchestration, error recovery, and the append-only mutation of
     // `project.worktrees`. Per its contract it does not throw; the Project
     // lands in `.ready` unconditionally after the call returns.
-    await client.reconcileDiscoveredWorktrees(projectID, spaceID)
-    await client.setProjectLoadState(projectID, spaceID, .ready)
+    await client.reconcileDiscoveredWorktrees(projectID)
+    await client.setProjectLoadState(projectID, .ready)
   }
 
   /// Fan out across all Projects in the current snapshot. Debounced by
@@ -85,13 +83,10 @@ actor ProjectReconciler {
 
     let snapshot = await client.snapshot()
     await withTaskGroup(of: Void.self) { group in
-      for space in snapshot.spaces {
-        for project in space.projects {
-          let pid = project.id
-          let sid = space.id
-          group.addTask { [self] in
-            await reconcile(projectID: pid, spaceID: sid)
-          }
+      for project in snapshot.projects {
+        let pid = project.id
+        group.addTask { [self] in
+          await reconcile(projectID: pid)
         }
       }
     }
@@ -113,9 +108,9 @@ extension ProjectReconciler: DependencyKey {
   static var liveValue: ProjectReconciler {
     MainActor.assumeIsolated {
       var noop = HierarchyClient.testValue
-      noop.snapshot = { Catalog(windows: [], spaces: [], selectedSpaceID: nil) }
-      noop.setProjectLoadState = { _, _, _ in }
-      noop.reconcileDiscoveredWorktrees = { _, _ in }
+      noop.snapshot = { Catalog() }
+      noop.setProjectLoadState = { _, _ in }
+      noop.reconcileDiscoveredWorktrees = { _ in }
       return ProjectReconciler(client: noop)
     }
   }

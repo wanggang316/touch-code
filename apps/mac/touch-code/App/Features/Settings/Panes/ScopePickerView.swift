@@ -85,29 +85,27 @@ nonisolated struct ScopePickerCatalog: Equatable {
 
   /// Build a projection from a `Catalog` snapshot. Panes / tabs / worktrees
   /// are restricted to the children of `currentProjectID`; projects covers
-  /// all open Projects across every Space.
+  /// all open Projects.
   static func from(catalog: Catalog, currentProjectID: ProjectID) -> ScopePickerCatalog {
     var result = ScopePickerCatalog()
 
-    for space in catalog.spaces {
-      for project in space.projects {
-        result.projects.append(ProjectEntry(id: project.id, label: project.name))
-        guard project.id == currentProjectID else { continue }
+    for project in catalog.projects {
+      result.projects.append(ProjectEntry(id: project.id, label: project.name))
+      guard project.id == currentProjectID else { continue }
 
-        for worktree in project.worktrees {
-          let wtLabel = worktree.branch.map { "\(worktree.name) (\($0))" } ?? worktree.name
-          result.worktrees.append(WorktreeEntry(id: worktree.id, label: wtLabel))
+      for worktree in project.worktrees {
+        let wtLabel = worktree.branch.map { "\(worktree.name) (\($0))" } ?? worktree.name
+        result.worktrees.append(WorktreeEntry(id: worktree.id, label: wtLabel))
 
-          for (tabIndex, tab) in worktree.tabs.enumerated() {
-            let tabName = tab.name ?? "Tab \(tabIndex + 1)"
-            let tabLabel = "\(wtLabel) — \(tabName)"
-            result.tabs.append(TabEntry(id: tab.id, label: tabLabel))
+        for (tabIndex, tab) in worktree.tabs.enumerated() {
+          let tabName = tab.name ?? "Tab \(tabIndex + 1)"
+          let tabLabel = "\(wtLabel) — \(tabName)"
+          result.tabs.append(TabEntry(id: tab.id, label: tabLabel))
 
-            for (paneIndex, pane) in tab.panes.enumerated() {
-              let paneLabel = "\(tabLabel) — Pane \(paneIndex + 1)"
-              _ = pane.workingDirectory  // labels could include cwd; keep concise for now
-              result.panes.append(PaneEntry(id: pane.id, label: paneLabel))
-            }
+          for (paneIndex, pane) in tab.panes.enumerated() {
+            let paneLabel = "\(tabLabel) — Pane \(paneIndex + 1)"
+            _ = pane.workingDirectory  // labels could include cwd; keep concise for now
+            result.panes.append(PaneEntry(id: pane.id, label: paneLabel))
           }
         }
       }

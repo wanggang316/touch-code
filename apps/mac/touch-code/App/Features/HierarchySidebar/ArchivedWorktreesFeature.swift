@@ -13,7 +13,6 @@ struct ArchivedWorktreesFeature {
   @ObservableState
   struct State: Equatable {
     let projectID: ProjectID
-    let spaceID: SpaceID
     var banner: String?
     /// Payload for the destructive-remove confirmation dialog. Non-nil
     /// → dialog visible.
@@ -65,13 +64,12 @@ struct ArchivedWorktreesFeature {
       case .removeConfirmed:
         guard let pending = state.pendingRemoval else { return .none }
         let projectID = state.projectID
-        let spaceID = state.spaceID
         let client = hierarchyClient
         let worktreeID = pending.worktreeID
         state.pendingRemoval = nil
         return .run { send in
           do {
-            try await client.removeWorktreeWithGit(worktreeID, projectID, spaceID)
+            try await client.removeWorktreeWithGit(worktreeID, projectID)
             await send(.removeFinished(worktreeID: worktreeID, error: nil))
           } catch let gitError as GitWorktreeError {
             await send(.removeFinished(worktreeID: worktreeID, error: humanReadable(gitError)))

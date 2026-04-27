@@ -38,7 +38,7 @@ struct SettingsWindowView: View {
   /// Stable snapshot of the current Project IDs. `@Observable` catalog access re-evaluates
   /// this on every mutation; `onChange(of:)` dedupes equal values.
   private var projectIDs: Set<ProjectID> {
-    Set(hierarchyManager.catalog.spaces.flatMap { $0.projects.map(\.id) })
+    Set(hierarchyManager.catalog.projects.map(\.id))
   }
 
   /// Window-title binding. Global sections use `SettingsSection.globalTitle`; repository
@@ -57,9 +57,7 @@ struct SettingsWindowView: View {
   }
 
   private func projectTitle(for projectID: ProjectID, suffix: String) -> String {
-    let project = hierarchyManager.catalog.spaces
-      .lazy
-      .flatMap(\.projects)
+    let project = hierarchyManager.catalog.projects
       .first { $0.id == projectID }
     guard let project else { return suffix }
     return "\(project.name) — \(suffix)"

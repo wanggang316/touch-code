@@ -11,7 +11,6 @@ import TouchCodeCore
 struct ProjectOptionsFeature {
   @ObservableState
   struct State: Equatable {
-    var targetSpaceID: SpaceID
     var targetProjectID: ProjectID
 
     /// Snapshot of the Project's current persisted values at open-time so
@@ -54,7 +53,7 @@ struct ProjectOptionsFeature {
     @CasePathable
     enum Delegate: Equatable {
       case dismiss
-      case saved(ProjectID, SpaceID)
+      case saved(ProjectID)
     }
   }
 
@@ -97,7 +96,6 @@ struct ProjectOptionsFeature {
         }
         state.isSaving = true
         state.validationError = nil
-        let spaceID = state.targetSpaceID
         let projectID = state.targetProjectID
         let nameChanged = trimmedName != state.originalName
         let editorChanged = state.defaultEditorDraft != state.originalDefaultEditor
@@ -105,7 +103,7 @@ struct ProjectOptionsFeature {
 
         do {
           if nameChanged {
-            try hierarchyClient.renameProject(projectID, spaceID, trimmedName)
+            try hierarchyClient.renameProject(projectID, trimmedName)
           }
         } catch {
           state.isSaving = false
@@ -133,7 +131,7 @@ struct ProjectOptionsFeature {
           if worktreesChanged {
             await worktreeDirWriter(projectID, worktreesValue)
           }
-          await send(.delegate(.saved(projectID, spaceID)))
+          await send(.delegate(.saved(projectID)))
           await send(.delegate(.dismiss))
         }
 

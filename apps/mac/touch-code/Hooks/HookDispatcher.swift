@@ -170,7 +170,6 @@ public final class HookDispatcher {
         }
         let synthesised = HookEnvelope(
           event: .paneOutputMatch,
-          space: envelope.space,
           project: envelope.project,
           worktree: envelope.worktree,
           tab: envelope.tab,

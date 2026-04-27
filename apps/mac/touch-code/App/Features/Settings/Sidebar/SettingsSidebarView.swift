@@ -83,8 +83,7 @@ struct SettingsSidebarView: View {
   // MARK: - Helpers
 
   private func sortedProjects(in catalog: Catalog) -> [Project] {
-    catalog.spaces
-      .flatMap(\.projects)
+    catalog.projects
       .sorted { lhs, rhs in
         lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
       }
