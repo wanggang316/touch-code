@@ -45,6 +45,11 @@ struct MainWindowCommands: Commands {
       }
       .keyboardShortcut("g", modifiers: [.command, .shift])
       .disabled(!hasActiveWorktree)
+
+      Button("Filter Tags") {
+        store.send(.sidebar(.tagFilterFocusRequested))
+      }
+      .keyboardShortcut("f", modifiers: .command)
     }
 
     // Tab-bar uplift (M2-T2.9). Lands in its own CommandGroup — placed
