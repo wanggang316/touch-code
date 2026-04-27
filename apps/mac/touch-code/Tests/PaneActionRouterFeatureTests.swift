@@ -23,7 +23,6 @@ struct PaneActionRouterFeatureTests {
   /// resolves `paneID` to. Using stable IDs keeps the recorded-call
   /// assertions decoupled from `UUID()` randomness.
   private struct Fixture {
-    let spaceID = SpaceID()
     let projectID = ProjectID()
     let worktreeID = WorktreeID()
     let tabID = TabID()
@@ -33,7 +32,7 @@ struct PaneActionRouterFeatureTests {
 
     var address: PaneAddress {
       PaneAddress(
-        spaceID: spaceID, projectID: projectID,
+        projectID: projectID,
         worktreeID: worktreeID, tabID: tabID, paneID: paneID
       )
     }
@@ -61,8 +60,7 @@ struct PaneActionRouterFeatureTests {
         id: projectID, name: "p", rootPath: "/p", gitRoot: "/p",
         worktrees: [worktree]
       )
-      let space = Space(id: spaceID, name: "s", projects: [project])
-      return Catalog(spaces: [space], selectedSpaceID: spaceID)
+      return Catalog(projects: [project])
     }
   }
 
@@ -71,14 +69,14 @@ struct PaneActionRouterFeatureTests {
   @Test
   func newTabCallsCreateTabWithResolvedAddress() async {
     let f = Fixture()
-    let recorded = LockIsolated<(WorktreeID, ProjectID, SpaceID, String?)?>(nil)
+    let recorded = LockIsolated<(WorktreeID, ProjectID, String?)?>(nil)
     let store = TestStore(initialState: PaneActionRouterFeature.State()) {
       PaneActionRouterFeature()
     } withDependencies: {
       $0.hierarchyClient = HierarchyClient.testValue
       $0.hierarchyClient.addressOf = { _ in f.address }
-      $0.hierarchyClient.createTab = { wid, pid, sid, name in
-        recorded.setValue((wid, pid, sid, name))
+      $0.hierarchyClient.createTab = { wid, pid , name in
+        recorded.setValue((wid, pid , name))
         return TabID()
       }
     }
@@ -86,8 +84,7 @@ struct PaneActionRouterFeatureTests {
     await store.send(.requested(f.paneID, .newTab))
     #expect(recorded.value?.0 == f.worktreeID)
     #expect(recorded.value?.1 == f.projectID)
-    #expect(recorded.value?.2 == f.spaceID)
-    #expect(recorded.value?.3 == nil)
+    #expect(recorded.value?.2 == nil)
   }
 
   // MARK: - closeTab(.this)
@@ -95,14 +92,14 @@ struct PaneActionRouterFeatureTests {
   @Test
   func closeTabThisCallsCloseTab() async {
     let f = Fixture()
-    let recorded = LockIsolated<(TabID, WorktreeID, ProjectID, SpaceID)?>(nil)
+    let recorded = LockIsolated<(TabID, WorktreeID, ProjectID)?>(nil)
     let store = TestStore(initialState: PaneActionRouterFeature.State()) {
       PaneActionRouterFeature()
     } withDependencies: {
       $0.hierarchyClient = HierarchyClient.testValue
       $0.hierarchyClient.addressOf = { _ in f.address }
-      $0.hierarchyClient.closeTab = { tid, wid, pid, sid in
-        recorded.setValue((tid, wid, pid, sid))
+      $0.hierarchyClient.closeTab = { tid, wid, pid  in
+        recorded.setValue((tid, wid, pid ))
       }
     }
 
@@ -110,7 +107,6 @@ struct PaneActionRouterFeatureTests {
     #expect(recorded.value?.0 == f.tabID)
     #expect(recorded.value?.1 == f.worktreeID)
     #expect(recorded.value?.2 == f.projectID)
-    #expect(recorded.value?.3 == f.spaceID)
   }
 
   // MARK: - moveTab
@@ -118,20 +114,20 @@ struct PaneActionRouterFeatureTests {
   @Test
   func moveTabCallsMoveTabWithOffset() async {
     let f = Fixture()
-    let recorded = LockIsolated<(TabID, WorktreeID, ProjectID, SpaceID, Int)?>(nil)
+    let recorded = LockIsolated<(TabID, WorktreeID, ProjectID, Int)?>(nil)
     let store = TestStore(initialState: PaneActionRouterFeature.State()) {
       PaneActionRouterFeature()
     } withDependencies: {
       $0.hierarchyClient = HierarchyClient.testValue
       $0.hierarchyClient.addressOf = { _ in f.address }
-      $0.hierarchyClient.moveTab = { tid, wid, pid, sid, offset in
-        recorded.setValue((tid, wid, pid, sid, offset))
+      $0.hierarchyClient.moveTab = { tid, wid, pid , offset in
+        recorded.setValue((tid, wid, pid , offset))
       }
     }
 
     await store.send(.requested(f.paneID, .moveTab(offset: 2)))
     #expect(recorded.value?.0 == f.tabID)
-    #expect(recorded.value?.4 == 2)
+    #expect(recorded.value?.3 == 2)
   }
 
   // MARK: - gotoTab(.next)
@@ -139,7 +135,7 @@ struct PaneActionRouterFeatureTests {
   @Test
   func gotoTabNextCallsSelectTabWithNextTabID() async {
     let f = Fixture()
-    let recorded = LockIsolated<(TabID?, WorktreeID, ProjectID, SpaceID)?>(nil)
+    let recorded = LockIsolated<(TabID?, WorktreeID, ProjectID)?>(nil)
     let catalog = f.catalog()
     let store = TestStore(initialState: PaneActionRouterFeature.State()) {
       PaneActionRouterFeature()
@@ -147,8 +143,8 @@ struct PaneActionRouterFeatureTests {
       $0.hierarchyClient = HierarchyClient.testValue
       $0.hierarchyClient.addressOf = { _ in f.address }
       $0.hierarchyClient.snapshot = { catalog }
-      $0.hierarchyClient.selectTab = { tid, wid, pid, sid in
-        recorded.setValue((tid, wid, pid, sid))
+      $0.hierarchyClient.selectTab = { tid, wid, pid  in
+        recorded.setValue((tid, wid, pid ))
       }
     }
 
@@ -164,7 +160,7 @@ struct PaneActionRouterFeatureTests {
   func newSplitHorizontalCallsSplitPaneWithRightDirection() async {
     let f = Fixture()
     let recorded = LockIsolated<
-      (PaneID, SplitTree<PaneID>.NewDirection, TabID, WorktreeID, ProjectID, SpaceID, String)?
+      (PaneID, SplitTree<PaneID>.NewDirection, TabID, WorktreeID, ProjectID, String)?
     >(nil)
     let catalog = f.catalog()
     let store = TestStore(initialState: PaneActionRouterFeature.State()) {
@@ -173,8 +169,8 @@ struct PaneActionRouterFeatureTests {
       $0.hierarchyClient = HierarchyClient.testValue
       $0.hierarchyClient.addressOf = { _ in f.address }
       $0.hierarchyClient.snapshot = { catalog }
-      $0.hierarchyClient.splitPane = { paneID, dir, tid, wid, pid, sid, cwd, _ in
-        recorded.setValue((paneID, dir, tid, wid, pid, sid, cwd))
+      $0.hierarchyClient.splitPane = { paneID, dir, tid, wid, pid , cwd, _ in
+        recorded.setValue((paneID, dir, tid, wid, pid , cwd))
         return PaneID()
       }
     }
@@ -183,7 +179,7 @@ struct PaneActionRouterFeatureTests {
     #expect(recorded.value?.0 == f.paneID)
     #expect(recorded.value?.1 == .right)
     #expect(recorded.value?.2 == f.tabID)
-    #expect(recorded.value?.6 == "/cwd")
+    #expect(recorded.value?.5 == "/cwd")
   }
 
   // MARK: - gotoSplit
@@ -196,7 +192,7 @@ struct PaneActionRouterFeatureTests {
   @Test
   func gotoSplitLeftCallsFocusPaneOnResolvedNeighbor() async {
     let f = Fixture()
-    let recorded = LockIsolated<(PaneID, TabID, WorktreeID, ProjectID, SpaceID)?>(nil)
+    let recorded = LockIsolated<(PaneID, TabID, WorktreeID, ProjectID)?>(nil)
     let catalog = f.catalog()
     let store = TestStore(initialState: PaneActionRouterFeature.State()) {
       PaneActionRouterFeature()
@@ -204,8 +200,8 @@ struct PaneActionRouterFeatureTests {
       $0.hierarchyClient = HierarchyClient.testValue
       $0.hierarchyClient.addressOf = { _ in f.address }
       $0.hierarchyClient.snapshot = { catalog }
-      $0.hierarchyClient.focusPane = { paneID, tid, wid, pid, sid in
-        recorded.setValue((paneID, tid, wid, pid, sid))
+      $0.hierarchyClient.focusPane = { paneID, tid, wid, pid  in
+        recorded.setValue((paneID, tid, wid, pid ))
       }
     }
 
@@ -244,14 +240,14 @@ struct PaneActionRouterFeatureTests {
   @Test
   func equalizeSplitsCallsEqualizeTabSplits() async {
     let f = Fixture()
-    let recorded = LockIsolated<(TabID, WorktreeID, ProjectID, SpaceID)?>(nil)
+    let recorded = LockIsolated<(TabID, WorktreeID, ProjectID)?>(nil)
     let store = TestStore(initialState: PaneActionRouterFeature.State()) {
       PaneActionRouterFeature()
     } withDependencies: {
       $0.hierarchyClient = HierarchyClient.testValue
       $0.hierarchyClient.addressOf = { _ in f.address }
-      $0.hierarchyClient.equalizeTabSplits = { tid, wid, pid, sid in
-        recorded.setValue((tid, wid, pid, sid))
+      $0.hierarchyClient.equalizeTabSplits = { tid, wid, pid  in
+        recorded.setValue((tid, wid, pid ))
       }
     }
 
@@ -274,10 +270,10 @@ struct PaneActionRouterFeatureTests {
       $0.hierarchyClient = HierarchyClient.testValue
       $0.hierarchyClient.addressOf = { _ in f.address }
       $0.hierarchyClient.snapshot = { catalog }
-      $0.hierarchyClient.focusPane = { paneID, tid, _, _, _ in
+      $0.hierarchyClient.focusPane = { paneID, tid, _, _ in
         focusCalled.setValue((paneID, tid))
       }
-      $0.hierarchyClient.unzoomTab = { _, _, _, _ in unzoomCalled.setValue(true) }
+      $0.hierarchyClient.unzoomTab = { _, _, _ in unzoomCalled.setValue(true) }
     }
 
     await store.send(.requested(f.paneID, .toggleSplitZoom))
@@ -290,7 +286,7 @@ struct PaneActionRouterFeatureTests {
   func toggleSplitZoomWhenZoomedCallsUnzoomTab() async {
     let f = Fixture()
     let focusCalled = LockIsolated(false)
-    let unzoomCalled = LockIsolated<(TabID, WorktreeID, ProjectID, SpaceID)?>(nil)
+    let unzoomCalled = LockIsolated<(TabID, WorktreeID, ProjectID)?>(nil)
     let catalog = f.catalog(zoomed: true)
     let store = TestStore(initialState: PaneActionRouterFeature.State()) {
       PaneActionRouterFeature()
@@ -298,9 +294,9 @@ struct PaneActionRouterFeatureTests {
       $0.hierarchyClient = HierarchyClient.testValue
       $0.hierarchyClient.addressOf = { _ in f.address }
       $0.hierarchyClient.snapshot = { catalog }
-      $0.hierarchyClient.focusPane = { _, _, _, _, _ in focusCalled.setValue(true) }
-      $0.hierarchyClient.unzoomTab = { tid, wid, pid, sid in
-        unzoomCalled.setValue((tid, wid, pid, sid))
+      $0.hierarchyClient.focusPane = { _, _, _, _ in focusCalled.setValue(true) }
+      $0.hierarchyClient.unzoomTab = { tid, wid, pid  in
+        unzoomCalled.setValue((tid, wid, pid ))
       }
     }
 
@@ -354,12 +350,12 @@ struct PaneActionRouterFeatureTests {
     } withDependencies: {
       $0.hierarchyClient = HierarchyClient.testValue
       $0.hierarchyClient.addressOf = { _ in nil }
-      $0.hierarchyClient.createTab = { _, _, _, _ in
+      $0.hierarchyClient.createTab = { _, _, _ in
         createTabCalled.setValue(true)
         return TabID()
       }
-      $0.hierarchyClient.closeTab = { _, _, _, _ in closeTabCalled.setValue(true) }
-      $0.hierarchyClient.moveTab = { _, _, _, _, _ in moveTabCalled.setValue(true) }
+      $0.hierarchyClient.closeTab = { _, _, _ in closeTabCalled.setValue(true) }
+      $0.hierarchyClient.moveTab = { _, _, _, _ in moveTabCalled.setValue(true) }
     }
 
     await store.send(.requested(f.paneID, .newTab))

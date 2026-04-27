@@ -24,8 +24,7 @@ struct PaneHostFeatureTests {
       paneID: paneID,
       tabID: TabID(),
       worktreeID: WorktreeID(),
-      projectID: ProjectID(),
-      spaceID: SpaceID()
+      projectID: ProjectID()
     )
   }
 
@@ -43,7 +42,7 @@ struct PaneHostFeatureTests {
       PaneHostFeature()
     } withDependencies: {
       $0.terminalClient.surface = { _ in nil }
-      $0.terminalClient.ensureSurface = { _, _, _, _, _ in
+      $0.terminalClient.ensureSurface = { _, _, _, _ in
         ensureCalls.withValue { $0 += 1 }
         throw TerminalClient.Error.worktreeNotFound(Self.fixedErrorWorktreeID)
       }
@@ -62,7 +61,7 @@ struct PaneHostFeatureTests {
       PaneHostFeature()
     } withDependencies: {
       $0.terminalClient.surface = { _ in nil }
-      $0.terminalClient.ensureSurface = { _, _, _, _, _ in
+      $0.terminalClient.ensureSurface = { _, _, _, _ in
         ensureCalls.withValue { $0 += 1 }
       }
     }
@@ -82,7 +81,7 @@ struct PaneHostFeatureTests {
       PaneHostFeature()
     } withDependencies: {
       $0.terminalClient.surface = { _ in nil }
-      $0.terminalClient.ensureSurface = { _, _, _, _, _ in
+      $0.terminalClient.ensureSurface = { _, _, _, _ in
         ensureCalls.withValue { $0 += 1 }
         throw TerminalClient.Error.worktreeNotFound(Self.fixedErrorWorktreeID)
       }
@@ -109,7 +108,7 @@ struct PaneHostFeatureTests {
       PaneHostFeature()
     } withDependencies: {
       $0.terminalClient.surface = { _ in nil }
-      $0.terminalClient.ensureSurface = { _, _, _, _, _ in
+      $0.terminalClient.ensureSurface = { _, _, _, _ in
         ensureCalls.withValue { $0 += 1 }
       }
     }

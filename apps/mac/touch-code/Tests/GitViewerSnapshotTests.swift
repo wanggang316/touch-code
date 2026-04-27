@@ -120,7 +120,6 @@ struct GitViewerSnapshotTests {
 
   // MARK: - Fixtures + helpers
 
-  nonisolated static let fixtureSpaceID = SpaceID()
   nonisolated static let fixtureProjectID = ProjectID()
   nonisolated static let fixtureWorktreeID = WorktreeID()
   nonisolated static let fixturePath = "/Users/snapshot/repo"

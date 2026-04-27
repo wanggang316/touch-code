@@ -144,7 +144,6 @@ struct HookDispatcherTests {
   static func makePaneReadyEnvelope() -> HookEnvelope {
     HookEnvelope(
       event: .paneReady,
-      space: .init(id: SpaceID(), name: "s"),
       project: .init(id: ProjectID(), name: "p", rootPath: "/"),
       worktree: .init(id: WorktreeID(), name: "w", path: "/"),
       tab: .init(id: TabID()),

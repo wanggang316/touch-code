@@ -47,16 +47,12 @@ struct RootFeatureTests {
       // the test selection points at unknown IDs. resolveActiveTab returns nil; the
       // downstream diff effect discovers no path and dispatches .diffFailed with a clear
       // reason.
-      $0.hierarchyClient.snapshot = { Catalog(windows: [], spaces: [], selectedSpaceID: nil) }
+      $0.hierarchyClient.snapshot = { Catalog() }
       $0.gitService = GitServiceClient.testValue
       $0.editorClient = EditorClient.testValue
     }
 
-    let selection = HierarchySelection(
-      spaceID: SpaceID(),
-      projectID: ProjectID(),
-      worktreeID: WorktreeID()
-    )
+    let selection = HierarchySelection(projectID: ProjectID(), worktreeID: WorktreeID())
     await store.send(.selectionChanged(selection)) { state in
       state.selection = selection
     }
@@ -82,7 +78,6 @@ struct RootFeatureTests {
     // Build a catalog snapshot with a Worktree whose selectedTabID is a
     // known value; assert the reducer reads through the snapshot and
     // mirrors that TabID into state.detail.splitViewport.activeTabID.
-    let spaceID = SpaceID()
     let projectID = ProjectID()
     let worktreeID = WorktreeID()
     let tabID = TabID()
@@ -97,10 +92,7 @@ struct RootFeatureTests {
       worktreesDirectory: nil, defaultEditor: nil,
       worktrees: [worktree], selectedWorktreeID: worktreeID
     )
-    let space = Space(
-      id: spaceID, name: "s", projects: [project], selectedProjectID: projectID
-    )
-    let catalog = Catalog(windows: [], spaces: [space], selectedSpaceID: spaceID)
+    let catalog = Catalog(projects: [project])
 
     let store = TestStore(initialState: RootFeature.State()) {
       RootFeature()
@@ -125,9 +117,7 @@ struct RootFeatureTests {
     // covered by `selectionChangedUpdatesStateAndForwardsToGitViewer`.
     store.exhaustivity = .off
 
-    let selection = HierarchySelection(
-      spaceID: spaceID, projectID: projectID, worktreeID: worktreeID
-    )
+    let selection = HierarchySelection(projectID: projectID, worktreeID: worktreeID)
     await store.send(.selectionChanged(selection)) { state in
       state.selection = selection
       state.detail.splitViewport.activeTabID = tabID
@@ -144,7 +134,7 @@ struct RootFeatureTests {
   /// B is hidden. The second Worktree lives under the same Project so the
   /// selection delta is just the worktree leg.
   private static func gvFixtureCatalog(
-    spaceID: SpaceID, projectID: ProjectID,
+    projectID: ProjectID,
     worktreeA: WorktreeID, worktreeB: WorktreeID,
     aVisible: Bool, bVisible: Bool
   ) -> Catalog {
@@ -161,10 +151,7 @@ struct RootFeatureTests {
       worktreesDirectory: nil, defaultEditor: nil,
       worktrees: [wtA, wtB], selectedWorktreeID: worktreeA
     )
-    let space = Space(
-      id: spaceID, name: "s", projects: [project], selectedProjectID: projectID
-    )
-    return Catalog(windows: [], spaces: [space], selectedSpaceID: spaceID)
+    return Catalog(projects: [project])
   }
 
   @Test
@@ -173,12 +160,11 @@ struct RootFeatureTests {
     // `State.gitViewerOverlayVisible(in: catalog)` directly. After a
     // `.selectionChanged`, that read returns the target Worktree's
     // persisted `gitViewerVisible` — no reducer projection in between.
-    let spaceID = SpaceID()
     let projectID = ProjectID()
     let worktreeA = WorktreeID()
     let worktreeB = WorktreeID()
     let catalog = Self.gvFixtureCatalog(
-      spaceID: spaceID, projectID: projectID,
+      projectID: projectID,
       worktreeA: worktreeA, worktreeB: worktreeB,
       aVisible: true, bVisible: false
     )
@@ -203,14 +189,12 @@ struct RootFeatureTests {
     // Initially no selection → helper returns false.
     #expect(store.state.gitViewerOverlayVisible(in: catalog) == false)
 
-    let selectionA = HierarchySelection(
-      spaceID: spaceID, projectID: projectID, worktreeID: worktreeA
+    let selectionA = HierarchySelection(projectID: projectID, worktreeID: worktreeA
     )
     await store.send(.selectionChanged(selectionA)) { $0.selection = selectionA }
     #expect(store.state.gitViewerOverlayVisible(in: catalog) == true)
 
-    let selectionB = HierarchySelection(
-      spaceID: spaceID, projectID: projectID, worktreeID: worktreeB
+    let selectionB = HierarchySelection(projectID: projectID, worktreeID: worktreeB
     )
     await store.send(.selectionChanged(selectionB)) { $0.selection = selectionB }
     #expect(store.state.gitViewerOverlayVisible(in: catalog) == false)
@@ -221,26 +205,24 @@ struct RootFeatureTests {
     // Second half of the single-source-of-truth contract: flipping the
     // catalog value (T2 Header button path) must flip the helper read
     // without any selection change and without any reducer projection.
-    let spaceID = SpaceID()
     let projectID = ProjectID()
     let worktreeA = WorktreeID()
     let worktreeB = WorktreeID()
 
     var initial = RootFeature.State()
-    initial.selection = HierarchySelection(
-      spaceID: spaceID, projectID: projectID, worktreeID: worktreeA
+    initial.selection = HierarchySelection(projectID: projectID, worktreeID: worktreeA
     )
     let store = TestStore(initialState: initial) {
       RootFeature()
     }
 
     let hidden = Self.gvFixtureCatalog(
-      spaceID: spaceID, projectID: projectID,
+      projectID: projectID,
       worktreeA: worktreeA, worktreeB: worktreeB,
       aVisible: false, bVisible: false
     )
     let shown = Self.gvFixtureCatalog(
-      spaceID: spaceID, projectID: projectID,
+      projectID: projectID,
       worktreeA: worktreeA, worktreeB: worktreeB,
       aVisible: true, bVisible: false
     )
@@ -253,20 +235,18 @@ struct RootFeatureTests {
     // The reducer now reads the current value from the catalog snapshot
     // and writes the flipped value; no state mutation. Both entry points
     // (⌘⇧G + Header button) share a single write path.
-    let spaceID = SpaceID()
     let projectID = ProjectID()
     let worktreeA = WorktreeID()
     let worktreeB = WorktreeID()
     let recorded = LockIsolated<[(WorktreeID, Bool)]>([])
     let catalog = Self.gvFixtureCatalog(
-      spaceID: spaceID, projectID: projectID,
+      projectID: projectID,
       worktreeA: worktreeA, worktreeB: worktreeB,
       aVisible: false, bVisible: false
     )
 
     var initial = RootFeature.State()
-    initial.selection = HierarchySelection(
-      spaceID: spaceID, projectID: projectID, worktreeID: worktreeA
+    initial.selection = HierarchySelection(projectID: projectID, worktreeID: worktreeA
     )
 
     let store = TestStore(initialState: initial) {
@@ -293,7 +273,7 @@ struct RootFeatureTests {
     let store = TestStore(initialState: RootFeature.State()) {
       RootFeature()
     } withDependencies: {
-      $0.hierarchyClient.snapshot = { Catalog(windows: [], spaces: [], selectedSpaceID: nil) }
+      $0.hierarchyClient.snapshot = { Catalog() }
       $0.hierarchyClient.setWorktreeGitViewerVisible = { wt, visible in
         recorded.withValue { $0.append((wt, visible)) }
       }
@@ -301,25 +281,6 @@ struct RootFeatureTests {
     await store.send(.gitViewerToggledForCurrentWorktree)
     await store.finish()
     #expect(recorded.value.isEmpty)
-  }
-
-  @Test
-  func openSpaceSwitcherRequestedForwardsToSidebar() async {
-    // ⌘K dispatches this; the root reducer forwards to the sidebar via
-    // `.externalSpacePopoverOpenRequested` (open-only, not a toggle). The
-    // sidebar reducer flips `isSpacePopoverPresented = true`.
-    let store = TestStore(initialState: RootFeature.State()) {
-      RootFeature()
-    }
-    #expect(store.state.sidebar.isSpacePopoverPresented == false)
-    await store.send(.openSpaceSwitcherRequested)
-    await store.receive(\.sidebar.externalSpacePopoverOpenRequested) { state in
-      state.sidebar.isSpacePopoverPresented = true
-    }
-    // Idempotent: a second dispatch with the popover already open is a no-op
-    // on the visible flag (already true).
-    await store.send(.openSpaceSwitcherRequested)
-    await store.receive(\.sidebar.externalSpacePopoverOpenRequested)
   }
 
   // MARK: - T2 worktreeHeader delegate routing
@@ -464,19 +425,17 @@ struct RootFeatureTests {
     // one write path (the hierarchyClient mutation is covered by the
     // dedicated `gitViewerToggleInvokesHierarchyClientWithFlippedValue`
     // test; here we only need to prove routing).
-    let spaceID = SpaceID()
     let projectID = ProjectID()
     let worktreeA = WorktreeID()
     let worktreeB = WorktreeID()
     let catalog = Self.gvFixtureCatalog(
-      spaceID: spaceID, projectID: projectID,
+      projectID: projectID,
       worktreeA: worktreeA, worktreeB: worktreeB,
       aVisible: false, bVisible: false
     )
 
     var initial = RootFeature.State()
-    initial.selection = HierarchySelection(
-      spaceID: spaceID, projectID: projectID, worktreeID: worktreeA
+    initial.selection = HierarchySelection(projectID: projectID, worktreeID: worktreeA
     )
     let recorded = LockIsolated<[(WorktreeID, Bool)]>([])
     let store = TestStore(initialState: initial) {
@@ -510,19 +469,17 @@ struct RootFeatureTests {
       $0.settingsWriter.setProjectDefaultEditor = { _, _ in }
     }
     store.exhaustivity = .off
-
-    let spaceID = SpaceID()
     let projectID = ProjectID()
     await store.send(
       .worktreeHeader(
         .delegate(
           .setProjectOverride(
-            projectID: projectID, spaceID: spaceID, editorID: "zed"
+            projectID: projectID, editorID: "zed"
           ))))
     await store.receive(
       .editor(
         .setProjectOverride(
-          projectID: projectID, spaceID: spaceID, editorID: "zed"
+          projectID: projectID, editorID: "zed"
         )))
   }
 
@@ -545,7 +502,7 @@ struct RootFeatureTests {
     } withDependencies: {
       $0.terminalClient.events = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.selectionChanges = { selectionStream }
-      $0.hierarchyClient.snapshot = { Catalog(windows: [], spaces: [], selectedSpaceID: nil) }
+      $0.hierarchyClient.snapshot = { Catalog() }
       $0.gitService = GitServiceClient.testValue
       $0.editorClient = EditorClient.testValue
     }
@@ -555,9 +512,7 @@ struct RootFeatureTests {
     // `worktreeID: nil` is the key: when GitViewerFeature receives a nil-worktree selection
     // it resets state without spawning a diff effect, so the test stays exhaustive without
     // any downstream action chain.
-    let selection = HierarchySelection(
-      spaceID: SpaceID(),
-      projectID: nil,
+    let selection = HierarchySelection(projectID: nil,
       worktreeID: nil
     )
     selectionContinuation.yield(selection)
@@ -631,8 +586,7 @@ struct RootFeatureTests {
   /// the runtime surface teardown they expect.
   private static func tabBarFixture(
     tabCount: Int, selectedIndex: Int
-  ) -> (SpaceID, ProjectID, WorktreeID, [TabID], Catalog) {
-    let spaceID = SpaceID()
+  ) -> (ProjectID, WorktreeID, [TabID], Catalog) {
     let projectID = ProjectID()
     let worktreeID = WorktreeID()
     var tabs: [Tab] = []
@@ -654,27 +608,24 @@ struct RootFeatureTests {
       id: projectID, name: "p", rootPath: "/tmp",
       worktrees: [worktree], selectedWorktreeID: worktreeID
     )
-    let space = Space(
-      id: spaceID, name: "s", projects: [project], selectedProjectID: projectID
-    )
-    let catalog = Catalog(windows: [], spaces: [space], selectedSpaceID: spaceID)
-    return (spaceID, projectID, worktreeID, ids, catalog)
+    let catalog = Catalog(projects: [project])
+    return (projectID, worktreeID, ids, catalog)
   }
 
   @Test
   func newTabForCurrentWorktreeForwardsToTabBar() async {
-    let (sp, pr, wt, _, catalog) = Self.tabBarFixture(tabCount: 2, selectedIndex: 0)
+    let (pr, wt, _, catalog) = Self.tabBarFixture(tabCount: 2, selectedIndex: 0)
     var initial = RootFeature.State()
-    initial.selection = HierarchySelection(spaceID: sp, projectID: pr, worktreeID: wt)
+    initial.selection = HierarchySelection(projectID: pr, worktreeID: wt)
 
     let store = TestStore(initialState: initial) {
       RootFeature()
     } withDependencies: {
       $0.hierarchyClient.snapshot = { catalog }
-      $0.hierarchyClient.createTab = { _, _, _, _ in TabID() }
+      $0.hierarchyClient.createTab = { _, _, _ in TabID() }
       // The new-tab reducer auto-spawns a pane in the worktree cwd;
       // stub the call so the unimplemented closure does not record.
-      $0.hierarchyClient.openPane = { _, _, _, _, _, _ in PaneID() }
+      $0.hierarchyClient.openPane = { _, _, _, _, _ in PaneID() }
     }
     store.exhaustivity = .off
 
@@ -696,16 +647,16 @@ struct RootFeatureTests {
   func closeActiveTabForCurrentWorktreeForwardsActiveTab() async {
     // Each fixture tab has exactly one pane, so ⌘W takes the
     // single-pane branch and closes the whole tab.
-    let (sp, pr, wt, ids, catalog) = Self.tabBarFixture(tabCount: 3, selectedIndex: 1)
+    let (pr, wt, ids, catalog) = Self.tabBarFixture(tabCount: 3, selectedIndex: 1)
     var initial = RootFeature.State()
-    initial.selection = HierarchySelection(spaceID: sp, projectID: pr, worktreeID: wt)
+    initial.selection = HierarchySelection(projectID: pr, worktreeID: wt)
 
     let captured = LockIsolated<TabID?>(nil)
     let store = TestStore(initialState: initial) {
       RootFeature()
     } withDependencies: {
       $0.hierarchyClient.snapshot = { catalog }
-      $0.hierarchyClient.closeTab = { id, _, _, _ in
+      $0.hierarchyClient.closeTab = { id, _, _ in
         captured.withValue { $0 = id }
       }
     }
@@ -720,7 +671,6 @@ struct RootFeatureTests {
   func closeActiveTabForCurrentWorktreeClosesFocusedPaneWhenSplit() async throws {
     // Active tab has two panes: ⌘W must close the focused pane only,
     // leaving the tab itself open.
-    let spaceID = SpaceID()
     let projectID = ProjectID()
     let worktreeID = WorktreeID()
     let tabID = TabID()
@@ -744,15 +694,10 @@ struct RootFeatureTests {
       id: projectID, name: "p", rootPath: "/tmp",
       worktrees: [worktree], selectedWorktreeID: worktreeID
     )
-    let space = Space(
-      id: spaceID, name: "s", projects: [project], selectedProjectID: projectID
-    )
-    let catalog = Catalog(windows: [], spaces: [space], selectedSpaceID: spaceID)
+    let catalog = Catalog(projects: [project])
 
     var initial = RootFeature.State()
-    initial.selection = HierarchySelection(
-      spaceID: spaceID, projectID: projectID, worktreeID: worktreeID
-    )
+    initial.selection = HierarchySelection(projectID: projectID, worktreeID: worktreeID)
 
     let closedPane = LockIsolated<PaneID?>(nil)
     let closedTab = LockIsolated<TabID?>(nil)
@@ -761,10 +706,10 @@ struct RootFeatureTests {
     } withDependencies: {
       $0.hierarchyClient.snapshot = { catalog }
       $0.hierarchyClient.lastFocusedPane = { _ in rightPane }
-      $0.hierarchyClient.closePane = { id, _, _, _, _ in
+      $0.hierarchyClient.closePane = { id, _, _, _ in
         closedPane.withValue { $0 = id }
       }
-      $0.hierarchyClient.closeTab = { id, _, _, _ in
+      $0.hierarchyClient.closeTab = { id, _, _ in
         closedTab.withValue { $0 = id }
       }
     }
@@ -781,7 +726,6 @@ struct RootFeatureTests {
     // ⌘W routed via Ghostty's `close_surface` lands here. With one pane in
     // the tab, the surviving tab would be empty — close it instead of
     // leaving a zombie.
-    let spaceID = SpaceID()
     let projectID = ProjectID()
     let worktreeID = WorktreeID()
     let tabID = TabID()
@@ -798,12 +742,9 @@ struct RootFeatureTests {
       id: projectID, name: "p", rootPath: "/tmp",
       worktrees: [worktree], selectedWorktreeID: worktreeID
     )
-    let space = Space(
-      id: spaceID, name: "s", projects: [project], selectedProjectID: projectID
-    )
-    let catalog = Catalog(windows: [], spaces: [space], selectedSpaceID: spaceID)
+    let catalog = Catalog(projects: [project])
     let address = PaneAddress(
-      spaceID: spaceID, projectID: projectID, worktreeID: worktreeID,
+      projectID: projectID, worktreeID: worktreeID,
       tabID: tabID, paneID: paneID
     )
 
@@ -814,10 +755,10 @@ struct RootFeatureTests {
     } withDependencies: {
       $0.hierarchyClient.snapshot = { catalog }
       $0.hierarchyClient.addressOf = { _ in address }
-      $0.hierarchyClient.closeTab = { id, _, _, _ in
+      $0.hierarchyClient.closeTab = { id, _, _ in
         closedTab.withValue { $0 = id }
       }
-      $0.hierarchyClient.closePane = { id, _, _, _, _ in
+      $0.hierarchyClient.closePane = { id, _, _, _ in
         closedPane.withValue { $0 = id }
       }
     }
@@ -832,7 +773,6 @@ struct RootFeatureTests {
   @Test
   func paneLifecycleExitedClosesOnlyPaneWhenTabHasSiblings() async {
     // Multi-pane tab: keep the tab, drop the pane, transfer focus.
-    let spaceID = SpaceID()
     let projectID = ProjectID()
     let worktreeID = WorktreeID()
     let tabID = TabID()
@@ -856,12 +796,9 @@ struct RootFeatureTests {
       id: projectID, name: "p", rootPath: "/tmp",
       worktrees: [worktree], selectedWorktreeID: worktreeID
     )
-    let space = Space(
-      id: spaceID, name: "s", projects: [project], selectedProjectID: projectID
-    )
-    let catalog = Catalog(windows: [], spaces: [space], selectedSpaceID: spaceID)
+    let catalog = Catalog(projects: [project])
     let address = PaneAddress(
-      spaceID: spaceID, projectID: projectID, worktreeID: worktreeID,
+      projectID: projectID, worktreeID: worktreeID,
       tabID: tabID, paneID: rightPane
     )
 
@@ -872,10 +809,10 @@ struct RootFeatureTests {
     } withDependencies: {
       $0.hierarchyClient.snapshot = { catalog }
       $0.hierarchyClient.addressOf = { _ in address }
-      $0.hierarchyClient.closeTab = { id, _, _, _ in
+      $0.hierarchyClient.closeTab = { id, _, _ in
         closedTab.withValue { $0 = id }
       }
-      $0.hierarchyClient.closePane = { id, _, _, _, _ in
+      $0.hierarchyClient.closePane = { id, _, _, _ in
         closedPane.withValue { $0 = id }
       }
       $0.hierarchyClient.focusSurfaceView = { _ in }
@@ -890,16 +827,16 @@ struct RootFeatureTests {
 
   @Test
   func selectTabAtIndexPicksNthTab() async {
-    let (sp, pr, wt, ids, catalog) = Self.tabBarFixture(tabCount: 3, selectedIndex: 0)
+    let (pr, wt, ids, catalog) = Self.tabBarFixture(tabCount: 3, selectedIndex: 0)
     var initial = RootFeature.State()
-    initial.selection = HierarchySelection(spaceID: sp, projectID: pr, worktreeID: wt)
+    initial.selection = HierarchySelection(projectID: pr, worktreeID: wt)
 
     let captured = LockIsolated<TabID?>(nil)
     let store = TestStore(initialState: initial) {
       RootFeature()
     } withDependencies: {
       $0.hierarchyClient.snapshot = { catalog }
-      $0.hierarchyClient.selectTab = { id, _, _, _ in
+      $0.hierarchyClient.selectTab = { id, _, _ in
         captured.withValue { $0 = id }
       }
     }
@@ -912,9 +849,9 @@ struct RootFeatureTests {
 
   @Test
   func selectTabAtIndexOutOfRangeIsNoOp() async {
-    let (sp, pr, wt, _, catalog) = Self.tabBarFixture(tabCount: 2, selectedIndex: 0)
+    let (pr, wt, _, catalog) = Self.tabBarFixture(tabCount: 2, selectedIndex: 0)
     var initial = RootFeature.State()
-    initial.selection = HierarchySelection(spaceID: sp, projectID: pr, worktreeID: wt)
+    initial.selection = HierarchySelection(projectID: pr, worktreeID: wt)
     let store = TestStore(initialState: initial) {
       RootFeature()
     } withDependencies: {
@@ -928,17 +865,16 @@ struct RootFeatureTests {
 
   @Test
   func selectAdjacentTabCallsClient() async {
-    let sp = SpaceID()
     let pr = ProjectID()
     let wt = WorktreeID()
     var initial = RootFeature.State()
-    initial.selection = HierarchySelection(spaceID: sp, projectID: pr, worktreeID: wt)
+    initial.selection = HierarchySelection(projectID: pr, worktreeID: wt)
 
     let captured = LockIsolated<TabAdjacency?>(nil)
     let store = TestStore(initialState: initial) {
       RootFeature()
     } withDependencies: {
-      $0.hierarchyClient.selectAdjacentTab = { dir, _, _, _ in
+      $0.hierarchyClient.selectAdjacentTab = { dir, _, _ in
         captured.withValue { $0 = dir }
         return nil
       }
@@ -960,7 +896,6 @@ struct RootFeatureTests {
     // pins that wiring: every hierarchyClient call records its arguments so we can
     // assert the spawn lands on the matched (space, project, worktree, tab) and the
     // Pane was given `$EDITOR` exactly.
-    let spaceID = SpaceID()
     let projectID = ProjectID()
     let worktreeID = WorktreeID()
     let tabID = TabID()
@@ -970,14 +905,12 @@ struct RootFeatureTests {
       id: projectID, name: "p", rootPath: worktreePath, gitRoot: worktreePath,
       worktrees: [worktree]
     )
-    let space = Space(id: spaceID, name: "s", projects: [project])
-    let catalog = Catalog(spaces: [space], selectedSpaceID: spaceID)
+    let catalog = Catalog(projects: [project])
 
     struct OpenPaneCall: Sendable, Equatable {
       let tabID: TabID
       let worktreeID: WorktreeID
       let projectID: ProjectID
-      let spaceID: SpaceID
       let cwd: String
       let initialCommand: String?
     }
@@ -990,23 +923,21 @@ struct RootFeatureTests {
       $0.terminalClient.events = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.snapshot = { catalog }
-      $0.hierarchyClient.createTab = { _, _, _, _ in
+      $0.hierarchyClient.createTab = { _, _, _ in
         createTabCalls.withValue { $0 += 1 }
         return tabID
       }
-      $0.hierarchyClient.openPane = { tab, wt, pr, sp, cwd, cmd in
+      $0.hierarchyClient.openPane = { tab, wt, pr, cwd, cmd in
         openPaneCalls.withValue {
           $0.append(
             OpenPaneCall(
-              tabID: tab, worktreeID: wt, projectID: pr, spaceID: sp,
-              cwd: cwd, initialCommand: cmd))
+              tabID: tab, worktreeID: wt, projectID: pr, cwd: cwd, initialCommand: cmd))
         }
         return PaneID()
       }
-      $0.hierarchyClient.selectSpace = { _ in }
-      $0.hierarchyClient.selectProject = { _, _ in }
-      $0.hierarchyClient.selectWorktree = { _, _, _ in }
-      $0.hierarchyClient.selectTab = { _, _, _, _ in }
+      $0.hierarchyClient.selectProject = { _ in }
+      $0.hierarchyClient.selectWorktree = { _, _ in }
+      $0.hierarchyClient.selectTab = { _, _, _ in }
     }
     store.exhaustivity = .off
 
@@ -1020,7 +951,6 @@ struct RootFeatureTests {
     #expect(call?.tabID == tabID)
     #expect(call?.worktreeID == worktreeID)
     #expect(call?.projectID == projectID)
-    #expect(call?.spaceID == spaceID)
     #expect(call?.cwd == worktreePath)
     #expect(call?.initialCommand == "$EDITOR")
   }

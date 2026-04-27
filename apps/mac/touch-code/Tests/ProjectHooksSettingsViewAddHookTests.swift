@@ -41,8 +41,7 @@ struct ProjectHooksSettingsViewAddHookTests {
       worktrees: [wtA, wtB]
     )
     let other = Project(id: otherPID, name: "Other", rootPath: "/other")
-    let space = Space(id: SpaceID(), name: "S", projects: [project, other])
-    let catalog = Catalog(spaces: [space])
+    let catalog = Catalog(projects: [project, other])
 
     let projection = ScopePickerCatalog.from(
       catalog: catalog,

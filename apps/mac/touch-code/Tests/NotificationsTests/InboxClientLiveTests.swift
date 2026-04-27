@@ -30,7 +30,7 @@ struct InboxClientLiveTests {
       tabs: [Tab(splitTree: SplitTree(leaf: pane.id), panes: [pane])]
     )
     let project = Project(name: "p", rootPath: "/p", gitRoot: "/p", worktrees: [worktree])
-    let catalog = Catalog(spaces: [Space(name: "s", projects: [project])])
+    let catalog = Catalog(projects: [project])
 
     inbox.append(
       AgentNotification(

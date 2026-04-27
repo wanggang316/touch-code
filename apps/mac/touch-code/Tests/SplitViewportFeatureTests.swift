@@ -23,17 +23,16 @@ struct SplitViewportFeatureTests {
 
   @Test
   func newPaneForwardsToOpenPane() async {
-    let received = LockIsolated<(TabID, WorktreeID, ProjectID, SpaceID, String)?>(nil)
+    let received = LockIsolated<(TabID, WorktreeID, ProjectID, String)?>(nil)
     let tabID = TabID()
     let worktreeID = WorktreeID()
     let projectID = ProjectID()
-    let spaceID = SpaceID()
 
     let store = TestStore(initialState: SplitViewportFeature.State()) {
       SplitViewportFeature()
     } withDependencies: {
-      $0.hierarchyClient.openPane = { tid, wid, pid, sid, cwd, _ in
-        received.withValue { $0 = (tid, wid, pid, sid, cwd) }
+      $0.hierarchyClient.openPane = { tid, wid, pid, cwd, _ in
+        received.withValue { $0 = (tid, wid, pid, cwd) }
         return PaneID()
       }
     }
@@ -41,13 +40,13 @@ struct SplitViewportFeatureTests {
     await store.send(
       .newPaneButtonTapped(
         inTab: tabID, inWorktree: worktreeID,
-        inProject: projectID, inSpace: spaceID,
+        inProject: projectID,
         workingDirectory: "/tmp/x"
       ))
     let captured = received.value
     #expect(captured?.0 == tabID)
     #expect(captured?.1 == worktreeID)
-    #expect(captured?.4 == "/tmp/x")
+    #expect(captured?.3 == "/tmp/x")
   }
 
   @Test
@@ -58,7 +57,7 @@ struct SplitViewportFeatureTests {
     let store = TestStore(initialState: SplitViewportFeature.State()) {
       SplitViewportFeature()
     } withDependencies: {
-      $0.hierarchyClient.splitPane = { pid, dir, _, _, _, _, _, _ in
+      $0.hierarchyClient.splitPane = { pid, dir, _, _, _, _, _ in
         received.withValue { $0 = (pid, dir) }
         return PaneID()
       }
@@ -68,7 +67,7 @@ struct SplitViewportFeatureTests {
       .splitButtonTapped(
         paneID, direction: .right,
         inTab: TabID(), inWorktree: WorktreeID(),
-        inProject: ProjectID(), inSpace: SpaceID(),
+        inProject: ProjectID(),
         workingDirectory: "/"
       ))
     #expect(received.value?.0 == paneID)
@@ -83,7 +82,7 @@ struct SplitViewportFeatureTests {
     let store = TestStore(initialState: SplitViewportFeature.State()) {
       SplitViewportFeature()
     } withDependencies: {
-      $0.hierarchyClient.closePane = { pid, _, _, _, _ in
+      $0.hierarchyClient.closePane = { pid, _, _, _ in
         received.withValue { $0 = pid }
       }
     }
@@ -91,7 +90,7 @@ struct SplitViewportFeatureTests {
     await store.send(
       .closePaneButtonTapped(
         paneID, inTab: TabID(), inWorktree: WorktreeID(),
-        inProject: ProjectID(), inSpace: SpaceID()
+        inProject: ProjectID()
       ))
     #expect(received.value == paneID)
   }

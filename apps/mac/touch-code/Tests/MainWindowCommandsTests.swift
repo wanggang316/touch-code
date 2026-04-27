@@ -49,7 +49,6 @@ struct MainWindowCommandsTests {
     // Mirrors the ⌘E button body: `store.send(.openDefaultForCurrentWorktreeRequested)`.
     // The reducer resolves the Worktree path from selection + the catalog
     // snapshot and forwards to `EditorFeature.Action.openDefaultInCurrentWorktreeRequested`.
-    let spaceID = SpaceID()
     let projectID = ProjectID()
     let worktreeID = WorktreeID()
     let worktree = Worktree(id: worktreeID, name: "w", path: "/repo")
@@ -57,12 +56,11 @@ struct MainWindowCommandsTests {
       id: projectID, name: "p", rootPath: "/repo", gitRoot: "/repo",
       worktrees: [worktree]
     )
-    let space = Space(id: spaceID, name: "s", projects: [project])
-    let catalog = Catalog(spaces: [space], selectedSpaceID: spaceID)
+    let catalog = Catalog(projects: [project])
 
     var initial = RootFeature.State()
     initial.selection = HierarchySelection(
-      spaceID: spaceID, projectID: projectID, worktreeID: worktreeID
+      projectID: projectID, worktreeID: worktreeID
     )
 
     let store = TestStore(initialState: initial) {
@@ -90,7 +88,6 @@ struct MainWindowCommandsTests {
     await store.receive(
       .editor(
         .openDefaultInCurrentWorktreeRequested(
-          spaceID: spaceID,
           projectID: projectID,
           worktreeID: worktreeID,
           worktreePath: "/repo"
@@ -128,7 +125,6 @@ struct MainWindowCommandsTests {
     // `store.send(.gitViewerToggledForCurrentWorktree)`. The reducer reads
     // current visibility from the catalog and writes the flipped value via
     // `hierarchyClient.setWorktreeGitViewerVisible`.
-    let spaceID = SpaceID()
     let projectID = ProjectID()
     let worktreeID = WorktreeID()
     let worktree = Worktree(
@@ -139,12 +135,10 @@ struct MainWindowCommandsTests {
       id: projectID, name: "p", rootPath: "/repo", gitRoot: "/repo",
       worktrees: [worktree]
     )
-    let space = Space(id: spaceID, name: "s", projects: [project])
-    let catalog = Catalog(spaces: [space], selectedSpaceID: spaceID)
+    let catalog = Catalog(projects: [project])
 
     var initial = RootFeature.State()
-    initial.selection = HierarchySelection(
-      spaceID: spaceID, projectID: projectID, worktreeID: worktreeID
+    initial.selection = HierarchySelection(projectID: projectID, worktreeID: worktreeID
     )
 
     let recorded = LockIsolated<[(WorktreeID, Bool)]>([])
@@ -164,23 +158,4 @@ struct MainWindowCommandsTests {
     #expect(recorded.value.first?.1 == true)
   }
 
-  // MARK: - ⌘K (Switch Space…)
-
-  @Test
-  func commandKOpensSpaceSwitcherPopoverThroughSidebar() async {
-    // Mirrors the ⌘K button body: `store.send(.openSpaceSwitcherRequested)`.
-    // The reducer forwards to `.sidebar(.externalSpacePopoverOpenRequested)`,
-    // which flips `isSpacePopoverPresented = true`. A dead-shortcut regression
-    // (the PR-#13 case where the forwarding was a token bump nobody
-    // observed) would fail this test: either the sidebar action would be
-    // missing or the presented flag would stay false.
-    let store = TestStore(initialState: RootFeature.State()) {
-      RootFeature()
-    }
-
-    await store.send(.openSpaceSwitcherRequested)
-    await store.receive(\.sidebar.externalSpacePopoverOpenRequested) { state in
-      state.sidebar.isSpacePopoverPresented = true
-    }
-  }
 }

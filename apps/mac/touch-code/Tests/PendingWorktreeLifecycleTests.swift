@@ -28,13 +28,11 @@ struct PendingWorktreeLifecycleTests {
   }
 
   private static func makePending(
-    projectID: ProjectID = ProjectID(),
-    spaceID: SpaceID = SpaceID()
+    projectID: ProjectID = ProjectID()
   ) -> PendingWorktree {
     PendingWorktree(
       id: PendingWorktreeID(),
       projectID: projectID,
-      spaceID: spaceID,
       spec: makeSpec(),
       displayName: "feature/x",
       status: .running,
@@ -74,10 +72,10 @@ struct PendingWorktreeLifecycleTests {
         handle.set(continuation)
       }
     }
-    deps.hierarchyClient.createWorktreeWithGit = { _, _, _, _, _ in fixedWorktreeID }
-    deps.hierarchyClient.selectWorktree = { _, _, _ in }
-    deps.hierarchyClient.createTab = { _, _, _, _ in TabID() }
-    deps.hierarchyClient.openPane = { _, _, _, _, _, _ in PaneID() }
+    deps.hierarchyClient.createWorktreeWithGit = { _, _, _, _ in fixedWorktreeID }
+    deps.hierarchyClient.selectWorktree = { _, _ in }
+    deps.hierarchyClient.createTab = { _, _, _ in TabID() }
+    deps.hierarchyClient.openPane = { _, _, _, _, _ in PaneID() }
     deps.hierarchyClient.runWorktreeLifecycleScript = { _, _, _ in .skipped }
   }
 
@@ -179,7 +177,7 @@ struct PendingWorktreeLifecycleTests {
       HierarchySidebarFeature()
     } withDependencies: { deps in
       Self.wireDefaults(&deps, handle: handle)
-      deps.hierarchyClient.createWorktreeWithGit = { _, _, _, _, _ in
+      deps.hierarchyClient.createWorktreeWithGit = { _, _, _, _ in
         createCalls.withValue { $0 += 1 }
         return WorktreeID()
       }
@@ -200,10 +198,9 @@ struct PendingWorktreeLifecycleTests {
   @Test
   func pendingCapRejectsBeyondEight() async {
     let projectID = ProjectID()
-    let spaceID = SpaceID()
     var initial = HierarchySidebarFeature.State()
     for _ in 0..<8 {
-      initial.pendingWorktrees.append(Self.makePending(projectID: projectID, spaceID: spaceID))
+      initial.pendingWorktrees.append(Self.makePending(projectID: projectID))
     }
     let handle = StreamHandle()
     let store = TestStore(initialState: initial) {
@@ -211,7 +208,7 @@ struct PendingWorktreeLifecycleTests {
     } withDependencies: { Self.wireDefaults(&$0, handle: handle) }
     store.exhaustivity = .off
 
-    let ninth = Self.makePending(projectID: projectID, spaceID: spaceID)
+    let ninth = Self.makePending(projectID: projectID)
     await store.send(.beginPendingWorktreeCreation(ninth))
     #expect(store.state.pendingWorktrees.count == 8)
     #expect(store.state.pendingWorktrees[id: ninth.id] == nil)
@@ -225,7 +222,7 @@ struct PendingWorktreeLifecycleTests {
       HierarchySidebarFeature()
     } withDependencies: { deps in
       Self.wireDefaults(&deps, handle: handle)
-      deps.hierarchyClient.createWorktreeWithGit = { _, _, _, _, _ in
+      deps.hierarchyClient.createWorktreeWithGit = { _, _, _, _ in
         throw GitWorktreeError.commandFailed(command: "catalog", stderr: "boom")
       }
     }
@@ -248,7 +245,7 @@ struct PendingWorktreeLifecycleTests {
       HierarchySidebarFeature()
     } withDependencies: { deps in
       Self.wireDefaults(&deps, handle: handle)
-      deps.hierarchyClient.createTab = { _, _, _, _ in
+      deps.hierarchyClient.createTab = { _, _, _ in
         throw GitWorktreeError.commandFailed(command: "createTab", stderr: "boom")
       }
     }

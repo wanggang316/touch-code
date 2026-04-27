@@ -245,7 +245,7 @@ struct InboxStoreTests {
     let project = Project(
       name: "p", rootPath: "/p", gitRoot: "/p", worktrees: [worktreeA, worktreeB]
     )
-    let catalog = Catalog(spaces: [Space(name: "s", projects: [project])])
+    let catalog = Catalog(projects: [project])
 
     store.append(Self.makeNotification(paneID: paneA.id))
     store.append(Self.makeNotification(paneID: paneA.id))
@@ -270,7 +270,7 @@ struct InboxStoreTests {
       tabs: [Tab(splitTree: SplitTree(leaf: pane.id), panes: [pane])]
     )
     let project = Project(name: "p", rootPath: "/p", gitRoot: "/p", worktrees: [worktree])
-    let catalog = Catalog(spaces: [Space(name: "s", projects: [project])])
+    let catalog = Catalog(projects: [project])
 
     store.append(Self.makeNotification(paneID: pane.id))
     store.markRead(forWorktree: worktree.id, in: catalog)

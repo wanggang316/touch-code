@@ -24,12 +24,11 @@ struct WorktreeLifecycleScriptTests {
     let runtime = FakeHierarchyRuntime()
     let store = CatalogStore(fileURL: storeURL)
     let manager = HierarchyManager(catalog: .default, store: store, runtime: runtime)
-    let spaceID = manager.createSpace(name: "s")
-    let projectID = try manager.addProject(
-      to: spaceID, name: "p", rootPath: tempBase.path, gitRoot: tempBase.path
+    let projectID = manager.addProject(
+      name: "p", rootPath: tempBase.path, gitRoot: tempBase.path
     )
     let worktreeID = try manager.createWorktree(
-      in: projectID, in: spaceID, name: "feat",
+      in: projectID, name: "feat",
       path: tempBase.path, branch: "feat"
     )
     var settings = Settings.default

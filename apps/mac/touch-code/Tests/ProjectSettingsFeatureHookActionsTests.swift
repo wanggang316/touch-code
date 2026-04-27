@@ -30,8 +30,7 @@ struct ProjectSettingsFeatureHookActionsTests {
       $0.hierarchyClient = .testValue
       $0.hierarchyClient.snapshot = {
         let project = Project(id: projectID, name: "P", rootPath: "/p")
-        let space = Space(id: SpaceID(), name: "S", projects: [project])
-        return Catalog(spaces: [space])
+        return Catalog(projects: [project])
       }
       $0.hookConfigClient = .testValue
       $0.hookConfigClient.upsert = { incoming in
@@ -82,8 +81,7 @@ struct ProjectSettingsFeatureHookActionsTests {
       $0.hierarchyClient = .testValue
       $0.hierarchyClient.snapshot = {
         let project = Project(id: projectID, name: "P", rootPath: "/p")
-        let space = Space(id: SpaceID(), name: "S", projects: [project])
-        return Catalog(spaces: [space])
+        return Catalog(projects: [project])
       }
       $0.hookConfigClient = .testValue
       $0.hookConfigClient.delete = { incoming in

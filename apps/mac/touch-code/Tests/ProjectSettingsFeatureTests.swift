@@ -129,8 +129,7 @@ struct ProjectSettingsFeatureTests {
       gitRoot: "/repo",
       worktrees: [Worktree(id: wtID, name: "main", path: "/repo/main", branch: "main")]
     )
-    let space = Space(id: SpaceID(), name: "S", projects: [project])
-    let catalog = Catalog(windows: [], spaces: [space], selectedSpaceID: space.id)
+    let catalog = Catalog(projects: [project])
     let sub = HookSubscription(
       id: subID,
       event: .paneCreated,
@@ -175,8 +174,7 @@ struct ProjectSettingsFeatureTests {
         Worktree(id: WorktreeID(), name: "feat-a", path: "/Users/me/wts/feat-a", branch: "a")
       ]
     )
-    let space = Space(id: SpaceID(), name: "S", projects: [project])
-    let catalog = Catalog(windows: [], spaces: [space], selectedSpaceID: space.id)
+    let catalog = Catalog(projects: [project])
     let sub = HookSubscription(
       id: subID,
       event: .paneCreated,
@@ -211,8 +209,7 @@ struct ProjectSettingsFeatureTests {
     let projectID = ProjectID()
     let subID = UUID()
     let project = Project(id: projectID, name: "P", rootPath: "/tmp/p", gitRoot: nil)
-    let space = Space(id: SpaceID(), name: "S", projects: [project])
-    let catalog = Catalog(windows: [], spaces: [space], selectedSpaceID: space.id)
+    let catalog = Catalog(projects: [project])
     let sub = HookSubscription(
       id: subID,
       event: .paneCreated,
@@ -243,8 +240,7 @@ struct ProjectSettingsFeatureTests {
     let projectID = ProjectID()
     let subID = UUID()
     let project = Project(id: projectID, name: "P", rootPath: "/repo", gitRoot: "/repo")
-    let space = Space(id: SpaceID(), name: "S", projects: [project])
-    let catalog = Catalog(windows: [], spaces: [space], selectedSpaceID: space.id)
+    let catalog = Catalog(projects: [project])
     let sub = HookSubscription(
       id: subID,
       event: .paneCreated,

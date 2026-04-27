@@ -244,7 +244,6 @@ struct AgentStateTrackerTests {
       version: HookEnvelope.currentVersion,
       event: event,
       timestamp: Date(),
-      space: nil,
       project: nil,
       worktree: nil,
       tab: nil,

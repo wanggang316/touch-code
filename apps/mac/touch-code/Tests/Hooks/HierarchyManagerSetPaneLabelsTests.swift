@@ -46,8 +46,7 @@ struct HierarchyManagerSetPaneLabelsTests {
       name: "p", rootPath: "/repo", gitRoot: "/repo",
       worktrees: [worktree], selectedWorktreeID: worktree.id
     )
-    let space = Space(name: "s", projects: [project], selectedProjectID: project.id)
-    let catalog = Catalog(spaces: [space], selectedSpaceID: space.id)
+    let catalog = Catalog(projects: [project])
 
     let store = CatalogStore(fileURL: url)
     let runtime = FakeHierarchyRuntime()
@@ -56,13 +55,11 @@ struct HierarchyManagerSetPaneLabelsTests {
   }
 
   static func readLabels(_ manager: HierarchyManager, paneID: PaneID) -> Set<String> {
-    for space in manager.catalog.spaces {
-      for project in space.projects {
-        for worktree in project.worktrees {
-          for tab in worktree.tabs {
-            if let pane = tab.panes.first(where: { $0.id == paneID }) {
-              return pane.labels
-            }
+    for project in manager.catalog.projects {
+      for worktree in project.worktrees {
+        for tab in worktree.tabs {
+          if let pane = tab.panes.first(where: { $0.id == paneID }) {
+            return pane.labels
           }
         }
       }

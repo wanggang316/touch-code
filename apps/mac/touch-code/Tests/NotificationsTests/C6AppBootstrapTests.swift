@@ -212,7 +212,6 @@ struct C6AppBootstrapTests {
       version: HookEnvelope.currentVersion,
       event: .paneExited,
       timestamp: Date(),
-      space: nil,
       project: nil,
       worktree: nil,
       tab: nil,
@@ -354,12 +353,9 @@ struct C6AppBootstrapTests {
       worktrees: [worktree],
       selectedWorktreeID: worktree.id
     )
-    let space = Space(name: "s", projects: [project], selectedProjectID: project.id)
     return Catalog(
       version: Catalog.currentVersion,
-      windows: [],
-      spaces: [space],
-      selectedSpaceID: space.id
+      projects: [project]
     )
   }
 
@@ -368,7 +364,6 @@ struct C6AppBootstrapTests {
       version: HookEnvelope.currentVersion,
       event: .paneOutputMatch,
       timestamp: Date(),
-      space: nil,
       project: nil,
       worktree: nil,
       tab: nil,

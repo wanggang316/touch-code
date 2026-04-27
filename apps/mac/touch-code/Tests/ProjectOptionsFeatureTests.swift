@@ -13,7 +13,6 @@ struct ProjectOptionsFeatureTests {
     worktreesDirectory: String? = nil
   ) -> ProjectOptionsFeature.State {
     ProjectOptionsFeature.State(
-      targetSpaceID: SpaceID(),
       targetProjectID: ProjectID(),
       originalName: name,
       originalDefaultEditor: editor,
@@ -26,8 +25,8 @@ struct ProjectOptionsFeatureTests {
 
   @Test
   func saveFansOutAllThreeSettersWhenEverythingChanged() async {
-    let renameCalls = LockIsolated<[(ProjectID, SpaceID, String)]>([])
-    let editorCalls = LockIsolated<[(ProjectID, SpaceID, EditorID?)]>([])
+    let renameCalls = LockIsolated<[(ProjectID, String)]>([])
+    let editorCalls = LockIsolated<[(ProjectID, EditorID?)]>([])
     let worktreeDirCalls = LockIsolated<[(ProjectID, String?)]>([])
 
     var state = Self.makeState(name: "orig", editor: nil, worktreesDirectory: nil)
@@ -38,12 +37,12 @@ struct ProjectOptionsFeatureTests {
     let store = TestStore(initialState: state) {
       ProjectOptionsFeature()
     } withDependencies: {
-      $0.hierarchyClient.renameProject = { pid, sid, name in
-        renameCalls.withValue { $0.append((pid, sid, name)) }
+      $0.hierarchyClient.renameProject = { pid, name in
+        renameCalls.withValue { $0.append((pid, name)) }
       }
       $0.settingsWriter = .testValue
       $0.settingsWriter.setProjectDefaultEditor = { pid, editor in
-        editorCalls.withValue { $0.append((pid, SpaceID(), editor)) }
+        editorCalls.withValue { $0.append((pid, editor)) }
       }
       $0.settingsWriter.setProjectWorktreesDirectory = { pid, path in
         worktreeDirCalls.withValue { $0.append((pid, path)) }
@@ -56,9 +55,9 @@ struct ProjectOptionsFeatureTests {
     await store.receive(\.delegate.dismiss)
 
     #expect(renameCalls.value.count == 1)
-    #expect(renameCalls.value.first?.2 == "New Name")
+    #expect(renameCalls.value.first?.1 == "New Name")
     #expect(editorCalls.value.count == 1)
-    #expect(editorCalls.value.first?.2 == "cursor")
+    #expect(editorCalls.value.first?.1 == "cursor")
     #expect(worktreeDirCalls.value.count == 1)
     #expect(worktreeDirCalls.value.first?.1 == "/custom/dir")
   }
@@ -72,7 +71,7 @@ struct ProjectOptionsFeatureTests {
     let store = TestStore(initialState: state) {
       ProjectOptionsFeature()
     } withDependencies: {
-      $0.hierarchyClient.renameProject = { _, _, _ in
+      $0.hierarchyClient.renameProject = { _, _ in
         renameCallCount.withValue { $0 += 1 }
       }
       $0.settingsWriter = .testValue
@@ -97,7 +96,7 @@ struct ProjectOptionsFeatureTests {
     let store = TestStore(initialState: state) {
       ProjectOptionsFeature()
     } withDependencies: {
-      $0.hierarchyClient.renameProject = { _, _, _ in
+      $0.hierarchyClient.renameProject = { _, _ in
         callCount.withValue { $0 += 1 }
       }
     }
@@ -119,7 +118,7 @@ struct ProjectOptionsFeatureTests {
     let store = TestStore(initialState: state) {
       ProjectOptionsFeature()
     } withDependencies: {
-      $0.hierarchyClient.renameProject = { _, _, _ in
+      $0.hierarchyClient.renameProject = { _, _ in
         callCount.withValue { $0 += 1 }
       }
     }

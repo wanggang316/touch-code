@@ -272,13 +272,7 @@ struct C6EndToEndTests {
       name: "p", rootPath: "/p", gitRoot: "/p",
       worktrees: [worktree], selectedWorktreeID: worktree.id
     )
-    let space = Space(name: "s", projects: [project], selectedProjectID: project.id)
-    return Catalog(
-      version: Catalog.currentVersion,
-      windows: [],
-      spaces: [space],
-      selectedSpaceID: space.id
-    )
+    return Catalog(projects: [project])
   }
 
   static func installSentinelSub(for event: HookEvent, on dispatcher: HookDispatcher) {
@@ -300,7 +294,6 @@ struct C6EndToEndTests {
       version: HookEnvelope.currentVersion,
       event: event,
       timestamp: Date(),
-      space: nil,
       project: nil,
       worktree: nil,
       tab: nil,

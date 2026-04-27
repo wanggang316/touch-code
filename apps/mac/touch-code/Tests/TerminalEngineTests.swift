@@ -179,16 +179,15 @@ struct TerminalEngineTests {
 
   private func seedPane(
     in manager: HierarchyManager
-  ) throws -> (SpaceID, ProjectID, WorktreeID, TabID, PaneID) {
-    let spaceID = manager.createSpace(name: "s")
-    let projectID = try manager.addProject(to: spaceID, name: "p", rootPath: "/", gitRoot: "/")
-    let worktreeID = try manager.createWorktree(in: projectID, in: spaceID, name: "w", path: "/w", branch: "main")
-    let tabID = try manager.createTab(in: worktreeID, in: projectID, in: spaceID, name: nil)
+  ) throws -> (ProjectID, WorktreeID, TabID, PaneID) {
+    let projectID = manager.addProject(name: "p", rootPath: "/", gitRoot: "/")
+    let worktreeID = try manager.createWorktree(in: projectID, name: "w", path: "/w", branch: "main")
+    let tabID = try manager.createTab(in: worktreeID, in: projectID, name: nil)
     let paneID = try manager.openPane(
-      in: tabID, in: worktreeID, in: projectID, in: spaceID,
+      in: tabID, in: worktreeID, in: projectID,
       workingDirectory: "/w", initialCommand: nil
     )
-    return (spaceID, projectID, worktreeID, tabID, paneID)
+    return (projectID, worktreeID, tabID, paneID)
   }
 
   // MARK: - Crash isolation
@@ -196,17 +195,17 @@ struct TerminalEngineTests {
   @Test
   func firstCrashSurvives() throws {
     let (engine, manager, _, _) = makeEngine()
-    let (_, _, _, tabID, paneID) = try seedPane(in: manager)
+    let (_, _, tabID, paneID) = try seedPane(in: manager)
 
     let outcome = engine.recordPaneCrash(paneID: paneID, reason: "segv")
     #expect(outcome == .survived)
-    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].tabs.contains(where: { $0.id == tabID }))
+    #expect(manager.catalog.projects[0].worktrees[0].tabs.contains(where: { $0.id == tabID }))
   }
 
   @Test
   func threeCrashesWithinWindowAutoClosesTabAndEmitsCrashLoopCause() async throws {
     let (engine, manager, clk, _) = makeEngine()
-    let (_, _, _, tabID, paneID) = try seedPane(in: manager)
+    let (_, _, tabID, paneID) = try seedPane(in: manager)
 
     let stream = engine.events(lifecycleOnly: true)
 
@@ -216,7 +215,7 @@ struct TerminalEngineTests {
     clk.advance(by: 5)
     let outcome = engine.recordPaneCrash(paneID: paneID, reason: "3")
     #expect(outcome == .tabAutoClosed(tabID))
-    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].tabs.isEmpty)
+    #expect(manager.catalog.projects[0].worktrees[0].tabs.isEmpty)
 
     var events: [TerminalEvent] = []
     var iterator = stream.makeAsyncIterator()
@@ -240,20 +239,20 @@ struct TerminalEngineTests {
   @Test
   func crashesOlderThanWindowDropFromRing() throws {
     let (engine, manager, clk, _) = makeEngine()
-    let (_, _, _, tabID, paneID) = try seedPane(in: manager)
+    let (_, _, tabID, paneID) = try seedPane(in: manager)
 
     #expect(engine.recordPaneCrash(paneID: paneID, reason: "1") == .survived)
     #expect(engine.recordPaneCrash(paneID: paneID, reason: "2") == .survived)
     clk.advance(by: 31)
     #expect(engine.recordPaneCrash(paneID: paneID, reason: "3") == .survived)
     #expect(engine.recordPaneCrash(paneID: paneID, reason: "4") == .survived)
-    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].tabs.contains(where: { $0.id == tabID }))
+    #expect(manager.catalog.projects[0].worktrees[0].tabs.contains(where: { $0.id == tabID }))
   }
 
   @Test
   func crashExactlyAtWindowBoundaryIsStillCounted() throws {
     let (engine, manager, clk, _) = makeEngine()
-    let (_, _, _, tabID, paneID) = try seedPane(in: manager)
+    let (_, _, tabID, paneID) = try seedPane(in: manager)
 
     // t=0
     #expect(engine.recordPaneCrash(paneID: paneID, reason: "1") == .survived)
@@ -268,7 +267,7 @@ struct TerminalEngineTests {
   @Test
   func retryPaneClearsRingAndEmitsReady() throws {
     let (engine, manager, _, _) = makeEngine()
-    let (_, _, _, tabID, paneID) = try seedPane(in: manager)
+    let (_, _, tabID, paneID) = try seedPane(in: manager)
 
     _ = engine.recordPaneCrash(paneID: paneID, reason: "1")
     _ = engine.recordPaneCrash(paneID: paneID, reason: "2")
@@ -276,7 +275,7 @@ struct TerminalEngineTests {
 
     #expect(engine.recordPaneCrash(paneID: paneID, reason: "3") == .survived)
     #expect(engine.recordPaneCrash(paneID: paneID, reason: "4") == .survived)
-    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].tabs.contains(where: { $0.id == tabID }))
+    #expect(manager.catalog.projects[0].worktrees[0].tabs.contains(where: { $0.id == tabID }))
   }
 
   @Test
@@ -288,10 +287,10 @@ struct TerminalEngineTests {
   @Test
   func tabAutoCloseEmitsPaneExitedForSiblings() async throws {
     let (engine, manager, clk, _) = makeEngine()
-    let (spaceID, projectID, worktreeID, tabID, paneA) = try seedPane(in: manager)
+    let (projectID, worktreeID, tabID, paneA) = try seedPane(in: manager)
     let paneB = try manager.splitPane(
       paneA, direction: .right,
-      in: tabID, in: worktreeID, in: projectID, in: spaceID,
+      in: tabID, in: worktreeID, in: projectID,
       workingDirectory: "/w", initialCommand: nil
     )
 

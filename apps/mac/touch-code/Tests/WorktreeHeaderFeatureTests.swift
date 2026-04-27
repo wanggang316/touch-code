@@ -9,12 +9,11 @@ import TouchCodeCore
 struct WorktreeHeaderFeatureTests {
   // MARK: - Fixtures
 
-  /// A catalog with one Space / one Project / one Worktree / one Pane and
-  /// matching IDs, plus a helper inbox builder so tests can mix unreads,
-  /// reads, and orphans succinctly.
+  /// A catalog with one Project / one Worktree / one Pane and matching
+  /// IDs, plus a helper inbox builder so tests can mix unreads, reads,
+  /// and orphans succinctly.
   private struct Fixture {
     let catalog: Catalog
-    let spaceID: SpaceID
     let projectID: ProjectID
     let worktreeID: WorktreeID
     let paneID: PaneID
@@ -26,9 +25,7 @@ struct WorktreeHeaderFeatureTests {
         tabs: [Tab(splitTree: SplitTree(leaf: pane.id), panes: [pane])]
       )
       let project = Project(name: "p", rootPath: "/p", gitRoot: "/p", worktrees: [worktree])
-      let space = Space(name: "s", projects: [project])
-      self.catalog = Catalog(spaces: [space], selectedSpaceID: space.id)
-      self.spaceID = space.id
+      self.catalog = Catalog(projects: [project])
       self.projectID = project.id
       self.worktreeID = worktree.id
       self.paneID = pane.id
@@ -117,9 +114,8 @@ struct WorktreeHeaderFeatureTests {
   @Test
   func notificationTappedChainsSelectionAndMarksRead() async {
     let f = Fixture()
-    let recordedSpace = LockIsolated<SpaceID?>(nil)
-    let recordedProject = LockIsolated<(ProjectID, SpaceID)?>(nil)
-    let recordedWorktree = LockIsolated<(WorktreeID?, ProjectID, SpaceID)?>(nil)
+    let recordedProject = LockIsolated<ProjectID?>(nil)
+    let recordedWorktree = LockIsolated<(WorktreeID?, ProjectID)?>(nil)
     let recordedMarkRead = LockIsolated<WorktreeID?>(nil)
 
     let store = TestStore(
@@ -131,25 +127,22 @@ struct WorktreeHeaderFeatureTests {
       $0[InboxClient.self].markReadForWorktree = { id, _ in recordedMarkRead.setValue(id) }
       $0.hierarchyClient = HierarchyClient.testValue
       $0.hierarchyClient.snapshot = { f.catalog }
-      $0.hierarchyClient.selectSpace = { recordedSpace.setValue($0) }
-      $0.hierarchyClient.selectProject = { pid, sid in
-        recordedProject.setValue((pid ?? ProjectID(), sid))
+      $0.hierarchyClient.selectProject = { pid in
+        recordedProject.setValue(pid)
       }
-      $0.hierarchyClient.selectWorktree = { wid, pid, sid in
-        recordedWorktree.setValue((wid, pid, sid))
+      $0.hierarchyClient.selectWorktree = { wid, pid in
+        recordedWorktree.setValue((wid, pid))
       }
     }
 
     await store.send(
       .notificationTapped(
-        spaceID: f.spaceID, projectID: f.projectID, worktreeID: f.worktreeID
+        projectID: f.projectID, worktreeID: f.worktreeID
       )
     ) { state in
       state.popoverOpen = false
     }
-    #expect(recordedSpace.value == f.spaceID)
-    #expect(recordedProject.value?.0 == f.projectID)
-    #expect(recordedProject.value?.1 == f.spaceID)
+    #expect(recordedProject.value == f.projectID)
     #expect(recordedWorktree.value?.0 == f.worktreeID)
     #expect(recordedMarkRead.value == f.worktreeID)
   }
@@ -244,16 +237,15 @@ struct WorktreeHeaderFeatureTests {
       $0[InboxClient.self] = .testValue
       $0.hierarchyClient = HierarchyClient.testValue
     }
-    let spaceID = SpaceID()
     let projectID = ProjectID()
     await store.send(
       .setProjectDefaultEditorTapped(
-        spaceID: spaceID, projectID: projectID, editorID: "cursor"
+        projectID: projectID, editorID: "cursor"
       ))
     await store.receive(
       .delegate(
         .setProjectOverride(
-          projectID: projectID, spaceID: spaceID, editorID: "cursor"
+          projectID: projectID, editorID: "cursor"
         )))
   }
 

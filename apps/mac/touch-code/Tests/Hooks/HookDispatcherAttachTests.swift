@@ -11,7 +11,7 @@ struct HookDispatcherAttachTests {
     let executor = FakeHookExecutor()
     let dispatcher = Self.makeDispatcher(executor: executor)
 
-    let (catalog, paneID, _, _, _, _) = EventMapperTests.fixture()
+    let (catalog, paneID, _, _, _) = EventMapperTests.fixture()
     let sub = HookSubscription(event: .paneReady, command: "echo")
     dispatcher.setConfig(HookConfig(subscriptions: [sub]))
 
@@ -41,7 +41,7 @@ struct HookDispatcherAttachTests {
     let executor = FakeHookExecutor()
     let dispatcher = Self.makeDispatcher(executor: executor)
 
-    let (catalog, paneID, _, _, _, _) = EventMapperTests.fixture()
+    let (catalog, paneID, _, _, _) = EventMapperTests.fixture()
     dispatcher.setConfig(
       HookConfig(subscriptions: [HookSubscription(event: .paneReady, command: "echo")])
     )
@@ -72,7 +72,7 @@ struct HookDispatcherAttachTests {
     let executor = FakeHookExecutor()
     let dispatcher = Self.makeDispatcher(executor: executor)
 
-    let (catalog, paneID, _, _, _, _) = EventMapperTests.fixture()
+    let (catalog, paneID, _, _, _) = EventMapperTests.fixture()
     dispatcher.setConfig(
       HookConfig(subscriptions: [HookSubscription(event: .paneReady, command: "echo")])
     )
@@ -100,7 +100,7 @@ struct HookDispatcherAttachTests {
     let executor = FakeHookExecutor()
     let dispatcher = Self.makeDispatcher(executor: executor)
 
-    let (catalog, paneID, _, _, _, _) = EventMapperTests.fixture()
+    let (catalog, paneID, _, _, _) = EventMapperTests.fixture()
     let sub = HookSubscription(
       event: .paneOutputMatch,
       command: "echo match",

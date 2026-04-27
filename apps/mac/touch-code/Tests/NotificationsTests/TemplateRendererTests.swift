@@ -173,7 +173,6 @@ struct TemplateRendererTests {
       version: HookEnvelope.currentVersion,
       event: .paneOutputMatch,
       timestamp: Date(),
-      space: nil,
       project: nil,
       worktree: nil,
       tab: nil,
