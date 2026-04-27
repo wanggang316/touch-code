@@ -930,6 +930,8 @@ private struct ProjectHeaderRow: View {
   var isExpanded: Bool = false
   @Bindable var store: StoreOf<HierarchySidebarFeature>
   @State private var isHovering = false
+  @State private var isPlusHovering = false
+  @State private var isMenuHovering = false
 
   var body: some View {
     HStack(spacing: 6) {
@@ -956,7 +958,7 @@ private struct ProjectHeaderRow: View {
       }
       // Keep the hover chrome from collapsing row width when hidden —
       // use opacity, not conditional rendering.
-      HStack(spacing: 10) {
+      HStack(spacing: 2) {
         // Non-git Projects (P-Q4 = a): suppress the Add Worktree affordance.
         // Worktrees are a git-only concept; a scratch folder renders with a
         // single synthetic Worktree and nothing to add.
@@ -964,10 +966,11 @@ private struct ProjectHeaderRow: View {
           Button {
             store.send(.projectAddWorktreeTapped(projectID: project.id, inSpace: space.id))
           } label: {
-            Image(systemName: "plus")
+            iconLabel(systemName: "plus", isHovering: isPlusHovering)
               .accessibilityLabel("Add Worktree under this Project")
           }
-          .buttonStyle(.borderless)
+          .buttonStyle(.plain)
+          .onHover { isPlusHovering = $0 }
         }
         Menu {
           Button("Project Options…") {
@@ -1001,19 +1004,36 @@ private struct ProjectHeaderRow: View {
             )
           }
         } label: {
-          Image(systemName: "ellipsis")
+          iconLabel(systemName: "ellipsis", isHovering: isMenuHovering)
             .accessibilityLabel("Project options")
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
-        .foregroundStyle(.primary)
         .fixedSize()
+        .onHover { isMenuHovering = $0 }
       }
       .opacity(isHovering ? 1 : 0)
     }
     .contentShape(Rectangle())
     .onHover { isHovering = $0 }
+  }
+
+  /// 22×22 hit target with a subtle hover background. Used by the trailing
+  /// "+" and "..." affordances so both share the same affordance footprint
+  /// and so the click target is comfortably larger than the underlying SF
+  /// Symbol glyph.
+  @ViewBuilder
+  private func iconLabel(systemName: String, isHovering: Bool) -> some View {
+    Image(systemName: systemName)
+      .font(.system(size: 11, weight: .medium))
+      .foregroundStyle(isHovering ? .primary : .secondary)
+      .frame(width: 22, height: 22)
+      .background(
+        RoundedRectangle(cornerRadius: 4, style: .continuous)
+          .fill(Color.primary.opacity(isHovering ? 0.08 : 0))
+      )
+      .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
   }
 }
 
