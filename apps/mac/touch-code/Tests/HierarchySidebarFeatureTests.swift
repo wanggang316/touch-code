@@ -208,6 +208,7 @@ struct HierarchySidebarFeatureTests {
     var renameProject: [(ProjectID, SpaceID, String)] = []
     var createSpace: [String] = []
     var reorderProjects: [(SpaceID, IndexSet, Int)] = []
+    var reorderWorktrees: [(ProjectID, SpaceID, WorktreeSegment, IndexSet, Int)] = []
   }
 
   /// Installs recorder overrides for every HierarchyClient entry the reducer
@@ -251,6 +252,11 @@ struct HierarchySidebarFeatureTests {
     }
     deps.hierarchyClient.reorderProjects = { space, from, to in
       calls.withValue { $0.reorderProjects.append((space, from, to)) }
+    }
+    deps.hierarchyClient.reorderWorktrees = { project, space, segment, from, to in
+      calls.withValue {
+        $0.reorderWorktrees.append((project, space, segment, from, to))
+      }
     }
     // M9 Phase 2: the Remove flow now runs the deleteScript before
     // `removeWorktreeWithGit`. Stub the lifecycle closure as a silent
@@ -589,6 +595,50 @@ struct HierarchySidebarFeatureTests {
     #expect(recorded.first?.0 == fix.spaceA)
     #expect(recorded.first?.1 == IndexSet(integer: 1))
     #expect(recorded.first?.2 == 0)
+  }
+
+  // MARK: - Reorder Worktrees (task02 Phase B)
+
+  @Test
+  func reorderWorktreesDispatchesClientCallWithSegment() async {
+    let fix = Self.twoSpaceFixture()
+    let calls = LockIsolated(ClientCalls())
+    let store = TestStore(initialState: HierarchySidebarFeature.State()) {
+      HierarchySidebarFeature()
+    } withDependencies: { deps in
+      Self.installRecorders(
+        on: &deps,
+        calls: calls,
+        snapshotProvider: { fix.catalog }
+      )
+    }
+    store.exhaustivity = .off(showSkippedAssertions: false)
+
+    await store.send(
+      .reorderWorktrees(
+        projectID: fix.projectP, inSpace: fix.spaceA,
+        segment: .pinned, from: IndexSet(integer: 1), to: 0
+      )
+    )
+    await store.send(
+      .reorderWorktrees(
+        projectID: fix.projectQ, inSpace: fix.spaceB,
+        segment: .unpinned, from: IndexSet(integer: 0), to: 2
+      )
+    )
+
+    let recorded = calls.value.reorderWorktrees
+    #expect(recorded.count == 2)
+    #expect(recorded[0].0 == fix.projectP)
+    #expect(recorded[0].1 == fix.spaceA)
+    #expect(recorded[0].2 == .pinned)
+    #expect(recorded[0].3 == IndexSet(integer: 1))
+    #expect(recorded[0].4 == 0)
+    #expect(recorded[1].0 == fix.projectQ)
+    #expect(recorded[1].1 == fix.spaceB)
+    #expect(recorded[1].2 == .unpinned)
+    #expect(recorded[1].3 == IndexSet(integer: 0))
+    #expect(recorded[1].4 == 2)
   }
 
   // MARK: - Project Options (P3.2 / P3.3 replaces Rename Project M6 coverage)

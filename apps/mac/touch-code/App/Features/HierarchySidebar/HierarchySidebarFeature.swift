@@ -187,6 +187,13 @@ struct HierarchySidebarFeature {
     // Reorder Projects within a Space (ForEach.onMove forwarder).
     case reorderProjects(from: IndexSet, to: Int, inSpace: SpaceID)
 
+    // Reorder Worktrees within a single sidebar segment under a Project
+    // (ForEach.onMove forwarder for the pinned / unpinned segments).
+    case reorderWorktrees(
+      projectID: ProjectID, inSpace: SpaceID,
+      segment: WorktreeSegment, from: IndexSet, to: Int
+    )
+
     /// Fired from `FailedProjectRow.Retry` (or the context menu). Delegates
     /// to `RootFeature` which calls `ProjectReconciler.reconcile` — same path
     /// used after Add Project.
@@ -448,6 +455,10 @@ struct HierarchySidebarFeature {
 
     case .reorderProjects(let source, let destination, let spaceID):
       try? hierarchyClient.reorderProjects(spaceID, source, destination)
+      return .none
+
+    case .reorderWorktrees(let projectID, let spaceID, let segment, let source, let destination):
+      try? hierarchyClient.reorderWorktrees(projectID, spaceID, segment, source, destination)
       return .none
 
     case .retryProjectTapped(let projectID, let spaceID):
