@@ -4,14 +4,18 @@
     {
       "layers" : [
         {
-          "image-name" : "logo-1024-ios.png",
-          "name" : "logo-1024-ios"
+          "hidden" : false,
+          "image-name" : "Touch Code Icon - 彩虹树浅色主题.png",
+          "name" : "Touch Code Icon - 彩虹树浅色主题"
+        },
+        {
+          "image-name" : "Touch Code Icon - 彩虹树浅色主题 2.png",
+          "name" : "Touch Code Icon - 彩虹树浅色主题 2"
         },
         {
           "blend-mode" : "normal",
-          "glass" : true,
-          "image-name" : "logo-1024-ios.svg",
-          "name" : "logo-1024-ios"
+          "image-name" : "Touch Code Icon - 彩虹树浅色主题.png",
+          "name" : "Touch Code Icon - 彩虹树浅色主题"
         }
       ],
       "shadow" : {
