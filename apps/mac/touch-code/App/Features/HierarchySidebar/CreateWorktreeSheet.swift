@@ -13,6 +13,13 @@ struct CreateWorktreeSheet: View {
       Text("Create Worktree")
         .font(.headline)
 
+      if store.currentPendingCountForProject >= 8 {
+        Text(CreateWorktreeFeature.capMessage)
+          .font(.caption)
+          .foregroundStyle(.orange)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      }
+
       VStack(alignment: .leading, spacing: 4) {
         Text("Branch name").font(.callout)
         TextField(
@@ -23,7 +30,6 @@ struct CreateWorktreeSheet: View {
           )
         )
         .textFieldStyle(.roundedBorder)
-        .disabled(store.isSubmitting)
         if let error = store.validationError {
           Text(error)
             .font(.caption)
@@ -49,7 +55,6 @@ struct CreateWorktreeSheet: View {
             }
           }
           .labelsHidden()
-          .disabled(store.isSubmitting)
         }
       }
 
@@ -76,22 +81,6 @@ struct CreateWorktreeSheet: View {
           )
         )
       }
-      .disabled(store.isSubmitting)
-
-      if store.isSubmitting && !store.progressLines.isEmpty {
-        ScrollView {
-          Text(store.progressLines.joined(separator: "\n"))
-            .font(.caption.monospaced())
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(8)
-        }
-        .frame(height: 120)
-        .background(Color(nsColor: .textBackgroundColor))
-        .overlay(
-          RoundedRectangle(cornerRadius: 4)
-            .stroke(.secondary.opacity(0.3))
-        )
-      }
 
       if let error = store.submitError {
         Text(error)
@@ -106,17 +95,16 @@ struct CreateWorktreeSheet: View {
           store.send(.cancelButtonTapped)
         }
         .keyboardShortcut(.cancelAction)
-        .disabled(store.isSubmitting)
 
         Button("Create") {
           store.send(.createButtonTapped)
         }
         .keyboardShortcut(.defaultAction)
         .disabled(
-          store.isSubmitting
-            || store.validationError != nil
+          store.validationError != nil
             || store.branchNameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || store.selectedBaseRef == nil
+            || store.currentPendingCountForProject >= 8
         )
       }
     }

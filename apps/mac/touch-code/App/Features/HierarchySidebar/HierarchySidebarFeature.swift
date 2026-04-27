@@ -126,6 +126,13 @@ struct HierarchySidebarFeature {
     var pendingArchiveExplainer: PendingArchiveExplainer?
     /// Transient toast after Prune completes.
     var pruneToast: String?
+    /// In-memory placeholders for in-flight `wt sw` creations. Each row
+    /// renders inside its Project's section between pinned and unpinned
+    /// segments. Not persisted; an app restart clears the set, and the
+    /// existing reconcile path picks up any worktree that did make it to
+    /// disk before the crash. See `docs/design-docs/worktree-sidebar-ordering.md`
+    /// §pending 段.
+    var pendingWorktrees: IdentifiedArrayOf<PendingWorktree> = []
   }
 
   /// Payload for the first-archive explainer dialog. Carries the
@@ -179,6 +186,13 @@ struct HierarchySidebarFeature {
 
     // Reorder Projects within a Space (ForEach.onMove forwarder).
     case reorderProjects(from: IndexSet, to: Int, inSpace: SpaceID)
+
+    // Reorder Worktrees within a single sidebar segment under a Project
+    // (ForEach.onMove forwarder for the pinned / unpinned segments).
+    case reorderWorktrees(
+      projectID: ProjectID, inSpace: SpaceID,
+      segment: WorktreeSegment, from: IndexSet, to: Int
+    )
 
     /// Fired from `FailedProjectRow.Retry` (or the context menu). Delegates
     /// to `RootFeature` which calls `ProjectReconciler.reconcile` — same path
@@ -250,6 +264,15 @@ struct HierarchySidebarFeature {
       path: String
     )
 
+    // Pending-worktree lifecycle. See worktree-sidebar-ordering.md §pending 段.
+    case beginPendingWorktreeCreation(PendingWorktree)
+    case pendingWorktreeProgress(PendingWorktreeID, String)
+    case pendingWorktreeFinished(PendingWorktreeID, URL)
+    case pendingWorktreeFailed(PendingWorktreeID, GitWorktreeError)
+    case pendingWorktreeRetryTapped(PendingWorktreeID)
+    case pendingWorktreeDiscardTapped(PendingWorktreeID)
+    case pendingWorktreeCancelTapped(PendingWorktreeID)
+
     // Add Project — scoped into AddProjectFeature via @Presents.
     case addProject(PresentationAction<AddProjectFeature.Action>)
     // Project Options — scoped into ProjectOptionsFeature via @Presents.
@@ -302,6 +325,17 @@ struct HierarchySidebarFeature {
 
   @Dependency(HierarchyClient.self) private var hierarchyClient
   @Dependency(SettingsWriter.self) private var settingsWriter
+  @Dependency(GitWorktreeClient.self) private var gitWorktreeClient
+
+  /// Cancellation token namespace for sidebar-owned effects. The single
+  /// `.pending` case ties each in-flight `wt sw` stream to its
+  /// `PendingWorktreeID` so Cancel / Retry can target it precisely.
+  /// `nonisolated` because TCA's `.cancellable(id:)` requires a Sendable
+  /// id; the reducer's default MainActor isolation would otherwise gate
+  /// the conformance.
+  private nonisolated enum CancelID: Hashable, Sendable {
+    case pending(PendingWorktreeID)
+  }
 
   var body: some Reducer<State, Action> {
     Reduce { state, action in
@@ -312,16 +346,15 @@ struct HierarchySidebarFeature {
       // `createWorktreeSheet` here is the correct "dismiss the sheet"
       // effect.
       switch action {
-      case .createWorktreeSheet(.delegate(.dismissed)),
-        .createWorktreeSheet(.delegate(.submitted)):
+      case .createWorktreeSheet(.delegate(.dismissed)):
         state.createWorktreeSheet = nil
         return .none
-      case .createWorktreeSheet(.delegate(.lifecycleScriptResult(let phase, let name, let result))):
-        // Forward the setup-script outcome up to RootFeature so the
-        // toast surfaces on the main window after the sheet closes.
-        return .send(
-          .delegate(
-            .lifecycleScriptResult(phase: phase, worktreeName: name, result: result)))
+      case .createWorktreeSheet(.delegate(.beginCreate(let pending))):
+        // Sheet validated the form; parent dismisses and starts the
+        // pending lifecycle in the same reducer frame so the user never
+        // sees a "sheet closed but row not yet present" gap.
+        state.createWorktreeSheet = nil
+        return .send(.beginPendingWorktreeCreation(pending))
       case .createWorktreeSheet:
         // Other child actions are handled by the ifLet-scoped
         // reducer; no-op at the parent level.
@@ -424,6 +457,10 @@ struct HierarchySidebarFeature {
       try? hierarchyClient.reorderProjects(spaceID, source, destination)
       return .none
 
+    case .reorderWorktrees(let projectID, let spaceID, let segment, let source, let destination):
+      try? hierarchyClient.reorderWorktrees(projectID, spaceID, segment, source, destination)
+      return .none
+
     case .retryProjectTapped(let projectID, let spaceID):
       return .send(.delegate(.reconcileProjectRequested(projectID, spaceID)))
 
@@ -441,11 +478,13 @@ struct HierarchySidebarFeature {
       let defaultWtDir = URL(
         fileURLWithPath: wtDirOverride
           ?? (NSHomeDirectory() + "/.touch-code/repos/\(project.name)"))
+      let pendingCount = state.pendingWorktrees.filter { $0.projectID == projectID }.count
       state.createWorktreeSheet = CreateWorktreeFeature.State(
         projectID: projectID,
         spaceID: spaceID,
         repoRoot: URL(fileURLWithPath: gitRoot),
-        worktreesDirectory: defaultWtDir
+        worktreesDirectory: defaultWtDir,
+        currentPendingCountForProject: pendingCount
       )
       return .none
 
@@ -739,6 +778,93 @@ struct HierarchySidebarFeature {
       state.isSpacePopoverPresented = false
       return .send(.delegate(.openSpaceManager))
 
+    // MARK: Pending worktree lifecycle
+
+    case .beginPendingWorktreeCreation(let pending):
+      // Hard cap (master doc Risks): silently reject when this project
+      // already has 8 pending creations. The sheet UI also enforces this
+      // via banner + disabled Create; reducer guard covers non-sheet
+      // entry points (IPC, command palette, tests).
+      let count = state.pendingWorktrees.filter { $0.projectID == pending.projectID }.count
+      guard count < 8 else { return .none }
+      state.pendingWorktrees.append(pending)
+      return runPendingStream(pending)
+
+    case .pendingWorktreeProgress(let id, let line):
+      // Race guard: cancel may have removed the row before this progress
+      // line drained from the stream.
+      guard state.pendingWorktrees[id: id] != nil else { return .none }
+      state.pendingWorktrees[id: id]?.lastProgressLine = line
+      return .none
+
+    case .pendingWorktreeFinished(let id, let path):
+      guard let pending = state.pendingWorktrees[id: id] else { return .none }
+      let pid = pending.projectID
+      let sid = pending.spaceID
+      let branch = pending.spec.branch
+      let directoryName = pending.spec.name
+      let pathString = path.standardizedFileURL.path(percentEncoded: false)
+
+      // Critical boundary: catalog write. Failure here keeps the row
+      // visible as .failed for Retry/Discard. Anything below is cosmetic.
+      let worktreeID: WorktreeID
+      do {
+        worktreeID = try hierarchyClient.createWorktreeWithGit(
+          pid, sid, branch, directoryName, pathString)
+      } catch let err as GitWorktreeError {
+        state.pendingWorktrees[id: id]?.status = .failed(err)
+        return .none
+      } catch {
+        state.pendingWorktrees[id: id]?.status = .failed(
+          .commandFailed(command: "catalog", stderr: error.localizedDescription))
+        return .none
+      }
+
+      // Catalog now has the real worktree row. Remove pending IMMEDIATELY
+      // so the sidebar doesn't double-render (real row + .failed pending
+      // row for the same logical creation). The post-catalog steps below
+      // are cosmetic side-effects and must not roll back this removal.
+      state.pendingWorktrees.remove(id: id)
+      try? hierarchyClient.selectWorktree(worktreeID, pid, sid)
+      if let tabID = try? hierarchyClient.createTab(worktreeID, pid, sid, nil) {
+        _ = try? hierarchyClient.openPane(tabID, worktreeID, pid, sid, pathString, nil)
+      }
+
+      // Setup script fires regardless of cosmetic-step outcomes — the
+      // worktree is real on disk + in catalog, its setup hook should run.
+      let client = hierarchyClient
+      return .run { send in
+        let result = await client.runWorktreeLifecycleScript(.setup, worktreeID, pid)
+        await send(
+          .delegate(
+            .lifecycleScriptResult(phase: .setup, worktreeName: branch, result: result)))
+      }
+
+    case .pendingWorktreeFailed(let id, let err):
+      // Race guard symmetric with progress / finished arms: a Cancel
+      // that lands before the stream's failure event drains drops the
+      // late .failed without spuriously logging or mutating state.
+      guard state.pendingWorktrees[id: id] != nil else { return .none }
+      state.pendingWorktrees[id: id]?.status = .failed(err)
+      return .none
+
+    case .pendingWorktreeRetryTapped(let id):
+      guard let pending = state.pendingWorktrees[id: id] else { return .none }
+      guard case .failed = pending.status else { return .none }
+      state.pendingWorktrees[id: id]?.status = .running
+      state.pendingWorktrees[id: id]?.lastProgressLine = nil
+      // Re-read the (now-updated) row so the effect sees `status == .running`.
+      guard let restarted = state.pendingWorktrees[id: id] else { return .none }
+      return runPendingStream(restarted)
+
+    case .pendingWorktreeDiscardTapped(let id):
+      state.pendingWorktrees.remove(id: id)
+      return .none
+
+    case .pendingWorktreeCancelTapped(let id):
+      state.pendingWorktrees.remove(id: id)
+      return .cancel(id: CancelID.pending(id))
+
     // MARK: Delegate
 
     case .delegate:
@@ -749,6 +875,40 @@ struct HierarchySidebarFeature {
       // Routed through the top-level Reducer; unreachable here.
       return .none
     }
+  }
+
+  /// Cancellable streaming effect that consumes `createWorktreeStream`
+  /// for a single pending creation. Cancel-in-flight protects Retry from
+  /// overlapping a zombie effect (edge case — by the time Retry fires
+  /// the prior effect should already have thrown).
+  private func runPendingStream(_ pending: PendingWorktree) -> Effect<Action> {
+    let client = gitWorktreeClient
+    let id = pending.id
+    return .run { send in
+      do {
+        for try await event in client.createWorktreeStream(pending.spec) {
+          switch event {
+          case .progressLine(let line):
+            await send(.pendingWorktreeProgress(id, line))
+          case .finished(let url):
+            await send(.pendingWorktreeFinished(id, url))
+            return
+          }
+        }
+        await send(
+          .pendingWorktreeFailed(
+            id, .commandFailed(command: "wt sw", stderr: "stream ended without finishing")))
+      } catch let err as GitWorktreeError {
+        await send(.pendingWorktreeFailed(id, err))
+      } catch is CancellationError {
+        return
+      } catch {
+        await send(
+          .pendingWorktreeFailed(
+            id, .commandFailed(command: "wt sw", stderr: error.localizedDescription)))
+      }
+    }
+    .cancellable(id: CancelID.pending(id), cancelInFlight: true)
   }
 
   /// Space-switch choreography. See design doc §Alternatives A — lives in the

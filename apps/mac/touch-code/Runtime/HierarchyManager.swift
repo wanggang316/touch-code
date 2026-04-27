@@ -7,6 +7,15 @@ enum HierarchyError: Error, Equatable, Sendable {
   case invariantViolation(String)
 }
 
+/// Identifies a reorderable sidebar section under a Project. The full sidebar
+/// taxonomy has four sections (main / pinned / pending / unpinned, see
+/// `docs/design-docs/worktree-sidebar-ordering.md`); only `pinned` and
+/// `unpinned` admit user-initiated reordering, so this enum names just those.
+enum WorktreeSegment: Sendable, Equatable {
+  case pinned
+  case unpinned
+}
+
 @MainActor
 @Observable
 final class HierarchyManager {
@@ -268,7 +277,15 @@ final class HierarchyManager {
       tabs: [],
       selectedTabID: nil
     )
-    catalog.spaces[spaceIndex].projects[projectIndex].worktrees.append(worktree)
+    // Insert at the top of the unpinned segment (after the last main/pinned row,
+    // before the first unpinned row) so newly created worktrees are visible
+    // without scrolling. Empty / main-only / all-pinned cases naturally fall to
+    // the array tail because `unpinnedBoundary` returns `worktrees.count`.
+    let boundary = Self.unpinnedBoundary(
+      in: catalog.spaces[spaceIndex].projects[projectIndex].worktrees,
+      rootPath: catalog.spaces[spaceIndex].projects[projectIndex].rootPath
+    )
+    catalog.spaces[spaceIndex].projects[projectIndex].worktrees.insert(worktree, at: boundary)
     catalog.spaces[spaceIndex].projects[projectIndex].selectedWorktreeID = worktreeID
     store.scheduleSave(catalog)
     return worktreeID
@@ -359,10 +376,13 @@ final class HierarchyManager {
     }
   }
 
-  /// Flips the Worktree's pinned flag. Pinned rows render in a dedicated section at the
-  /// top of the project's row group so the user's "current work" set stays visible even
-  /// as the Worktree list grows. Silent no-op for unchanged values and for unknown ids.
-  /// Persists via the standard debounced save pipeline.
+  /// Flips the Worktree's pinned flag and repositions the row in the catalog
+  /// array so segment-internal order matches the sidebar. Pin moves the row to
+  /// the end of the pinned segment (last visible pinned); Unpin moves it to
+  /// the top of the unpinned segment (first visible unpinned). Silent no-op
+  /// for unchanged values (no flag flip, no move, no save) and for unknown
+  /// ids. Persists via the standard debounced save pipeline. See
+  /// `docs/design-docs/worktree-sidebar-ordering.md` §pinned 段 / §unpinned 段.
   func setWorktreePinned(worktreeID: WorktreeID, isPinned: Bool) {
     for spaceIndex in catalog.spaces.indices {
       for projectIndex in catalog.spaces[spaceIndex].projects.indices {
@@ -372,10 +392,68 @@ final class HierarchyManager {
         guard project.worktrees[worktreeIndex].isPinned != isPinned else { return }
         catalog.spaces[spaceIndex].projects[projectIndex]
           .worktrees[worktreeIndex].isPinned = isPinned
+        // Recompute the boundary on the post-flip array so the destination
+        // offset reflects the new flag. Pin → boundary lands the row right
+        // after the last existing pinned row (it becomes the new last
+        // pinned). Unpin → the just-flipped row itself is the first match
+        // (or some earlier unpinned row is), and `move(toOffset:)` is a
+        // no-op when the row already sits at the boundary, otherwise it
+        // pulls the row up to the unpinned-segment top.
+        let boundary = Self.unpinnedBoundary(
+          in: catalog.spaces[spaceIndex].projects[projectIndex].worktrees,
+          rootPath: catalog.spaces[spaceIndex].projects[projectIndex].rootPath
+        )
+        catalog.spaces[spaceIndex].projects[projectIndex].worktrees
+          .move(fromOffsets: IndexSet(integer: worktreeIndex), toOffset: boundary)
         store.scheduleSave(catalog)
         return
       }
     }
+  }
+
+  /// Reorder rows within a single sidebar segment under one Project. SwiftUI
+  /// `.onMove` reports segment-relative `IndexSet` and target offset; this
+  /// method translates those into a catalog-array mutation that preserves the
+  /// catalog positions of rows in other segments (and of archived rows).
+  ///
+  /// Validation is all-or-nothing: if any `from` offset or `to` falls outside
+  /// the current segment range, or `from` is empty, the call is a silent
+  /// no-op (no save). This matches the staleness guard described in
+  /// `docs/design-docs/worktree-sidebar-ordering.md` §Risks — a snapshot
+  /// taken before a worktree was removed produces out-of-range offsets, and
+  /// dropping the whole reorder is preferable to a partial application.
+  /// Missing project throws `.notFound`.
+  func reorderWorktrees(
+    in projectID: ProjectID,
+    inSpace spaceID: SpaceID,
+    segment: WorktreeSegment,
+    from source: IndexSet,
+    to destination: Int
+  ) throws {
+    guard let (spaceIndex, projectIndex) = findProjectIndices(projectID: projectID, spaceID: spaceID) else {
+      throw HierarchyError.notFound("Project \(projectID)")
+    }
+    let project = catalog.spaces[spaceIndex].projects[projectIndex]
+    let rootPath = project.rootPath
+    let inSegment: (Worktree) -> Bool = { w in
+      guard !w.archived, w.path != rootPath else { return false }
+      switch segment {
+      case .pinned: return w.isPinned
+      case .unpinned: return !w.isPinned
+      }
+    }
+    let segmentCatalogIndices = project.worktrees.indices.filter { inSegment(project.worktrees[$0]) }
+    let segmentCount = segmentCatalogIndices.count
+    guard !source.isEmpty,
+      source.allSatisfy({ $0 >= 0 && $0 < segmentCount }),
+      destination >= 0, destination <= segmentCount
+    else { return }
+    var segmentRows = segmentCatalogIndices.map { project.worktrees[$0] }
+    segmentRows.move(fromOffsets: source, toOffset: destination)
+    for (k, catalogIdx) in segmentCatalogIndices.enumerated() {
+      catalog.spaces[spaceIndex].projects[projectIndex].worktrees[catalogIdx] = segmentRows[k]
+    }
+    store.scheduleSave(catalog)
   }
 
   /// Merges worktrees discovered on disk (typically from
@@ -1569,6 +1647,22 @@ final class HierarchyManager {
   ]
 
   // MARK: - Helpers
+
+  /// Index in `worktrees` where the unpinned segment begins — the first row
+  /// that would render in the unpinned section of the sidebar (non-archived,
+  /// not the main checkout, not pinned). Archived and pinned rows that happen
+  /// to sit later in the array do not pull the boundary back. Returns
+  /// `worktrees.count` when no unpinned row exists, so callers can use the
+  /// value directly as an `insert(at:)` or `move(toOffset:)` target.
+  private static func unpinnedBoundary(
+    in worktrees: [Worktree],
+    rootPath: String
+  ) -> Int {
+    for (i, w) in worktrees.enumerated() {
+      if !w.archived && !w.isPinned && w.path != rootPath { return i }
+    }
+    return worktrees.count
+  }
 
   private func findProjectIndices(projectID: ProjectID, spaceID: SpaceID) -> (Int, Int)? {
     guard let spaceIndex = catalog.spaces.firstIndex(where: { $0.id == spaceID }) else { return nil }

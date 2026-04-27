@@ -142,4 +142,25 @@ struct HierarchyClientTests {
   // HierarchyClient no longer exposes per-Project editor / worktree-dir writers. Those
   // values live in `Settings.projects[pid]` (v3 schema) and tests for that storage live
   // in `SettingsStoreTests` / `SettingsWriter` coverage inside each consumer feature.
+
+  @Test
+  func liveReorderWorktreesForwardsToManager() throws {
+    // Wires the closure all the way to `HierarchyManager.reorderWorktrees`.
+    // Algorithm coverage lives in `HierarchyManagerReorderTests`; this test
+    // only proves the closure is hooked up.
+    let (client, manager) = makeLiveClient()
+    let spaceID = client.createSpace("s")
+    let projectID = try client.addProject(spaceID, "p", "/repo", "/repo")
+    _ = try client.createWorktree(projectID, spaceID, "main", "/repo", "main")
+    let p1 = try client.createWorktree(projectID, spaceID, "p1", "/repo/p1", "p1")
+    manager.setWorktreePinned(worktreeID: p1, isPinned: true)
+    let p2 = try client.createWorktree(projectID, spaceID, "p2", "/repo/p2", "p2")
+    manager.setWorktreePinned(worktreeID: p2, isPinned: true)
+
+    try client.reorderWorktrees(projectID, spaceID, .pinned, IndexSet(integer: 0), 2)
+    let pinned = manager.catalog.spaces[0].projects[0].worktrees
+      .filter { $0.isPinned }
+      .map { $0.id }
+    #expect(pinned == [p2, p1])
+  }
 }
