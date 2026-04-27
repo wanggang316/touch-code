@@ -14,6 +14,10 @@ struct TagChipFooter: View {
   let onAllTapped: () -> Void
   let onTagTapped: (TagID) -> Void
   let onUntaggedTapped: () -> Void
+  /// M5 (project-tags): trailing "+" chip opens the TagManager sheet.
+  /// Optional so callers that have no manager wiring (tests, previews)
+  /// can omit it without forcing a placeholder closure.
+  var onEditTagsTapped: (() -> Void)?
   /// Bound to ⌘F via the parent's `tagFilterFocusRequested` action — the
   /// chip footer takes keyboard focus when the user invokes the binding.
   @FocusState private var focused: Bool
@@ -43,6 +47,9 @@ struct TagChipFooter: View {
             action: onUntaggedTapped
           )
         }
+        if let onEditTagsTapped {
+          editChip(action: onEditTagsTapped)
+        }
       }
       .padding(.horizontal, 10)
       .padding(.vertical, 6)
@@ -50,6 +57,24 @@ struct TagChipFooter: View {
     .background(.bar)
     .focusable()
     .focused($focused)
+  }
+
+  /// Trailing "+" chip — opens the TagManager sheet. Styled like the
+  /// other chips for visual rhythm but never shows a selected state and
+  /// uses a glyph instead of a label.
+  @ViewBuilder
+  private func editChip(action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+      Image(systemName: "plus")
+        .font(.caption.weight(.medium))
+        .frame(minWidth: 16, minHeight: 14)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+        .background(Capsule().fill(Color.secondary.opacity(0.10)))
+        .contentShape(Capsule())
+    }
+    .buttonStyle(.plain)
+    .help("Edit Tags…")
   }
 
   private var isAllSelected: Bool {

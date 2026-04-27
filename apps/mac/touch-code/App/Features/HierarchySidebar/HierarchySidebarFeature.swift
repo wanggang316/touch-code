@@ -186,6 +186,10 @@ struct HierarchySidebarFeature {
     /// Bound to ⌘F via `MainWindowCommands`. Routed up so the chip footer
     /// view can take focus.
     case tagFilterFocusRequested
+    /// M5 (project-tags): toggle membership of `tagID` in the Project's
+    /// `tagIDs`. Resolves the current set from the catalog snapshot so
+    /// the View binding can be a plain Toggle without holding state.
+    case toggleTagOnProject(ProjectID, TagID)
 
     // Add Project — scoped into AddProjectFeature via @Presents.
     case addProject(PresentationAction<AddProjectFeature.Action>)
@@ -218,6 +222,10 @@ struct HierarchySidebarFeature {
         worktreeName: String,
         result: LifecycleScriptResult
       )
+      /// M5 (project-tags): opens the Tag CRUD sheet at root level.
+      /// Emitted from the project header's "Tags" submenu ("Edit Tags…")
+      /// and from the chip footer's trailing "+" button.
+      case openTagManager
     }
   }
 
@@ -351,6 +359,19 @@ struct HierarchySidebarFeature {
     case .tagFilterFocusRequested:
       // The view subscribes to this via `@FocusState`; the reducer is a
       // pure pass-through so the feature stays state-light.
+      return .none
+
+    case .toggleTagOnProject(let projectID, let tagID):
+      let snapshot = hierarchyClient.snapshot()
+      guard let project = snapshot.projects.first(where: { $0.id == projectID })
+      else { return .none }
+      var updated = project.tagIDs
+      if updated.contains(tagID) {
+        updated.remove(tagID)
+      } else {
+        updated.insert(tagID)
+      }
+      hierarchyClient.setProjectTags(projectID, updated)
       return .none
 
     // MARK: Project hover chrome

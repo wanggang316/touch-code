@@ -87,6 +87,11 @@ struct ContentView: View {
       ) { toastStore in
         LifecycleScriptToast(store: toastStore)
       }
+      .sheet(
+        item: $store.scope(state: \.tagManagerSheet, action: \.tagManagerSheet)
+      ) { tagStore in
+        TagManagerSheet(store: tagStore)
+      }
     }
     .environment(hierarchyManager)
     .environment(settingsStore)

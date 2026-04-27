@@ -142,7 +142,8 @@ struct HierarchySidebarView: View {
           showUntaggedChip: untaggedExists,
           onAllTapped: { store.send(.allChipTapped) },
           onTagTapped: { store.send(.tagChipTapped($0)) },
-          onUntaggedTapped: { store.send(.untaggedChipTapped) }
+          onUntaggedTapped: { store.send(.untaggedChipTapped) },
+          onEditTagsTapped: { store.send(.delegate(.openTagManager)) }
         )
       }
       .toolbar { sidebarToolbarContent }
@@ -883,6 +884,10 @@ private struct ProjectHeaderRow: View {
       Text(project.name)
         .font(.callout)
         .foregroundStyle(isHovering ? .primary : .secondary)
+      // M5 (project-tags): up to 3 colored dots resolved from the
+      // catalog's tag list. "+N" overflow when more than 3. Hidden
+      // entirely when the project has no tags.
+      ProjectTagDots(project: project)
       Spacer()
       if isLoading {
         ProgressView()
@@ -932,6 +937,12 @@ private struct ProjectHeaderRow: View {
               .projectPruneTapped(projectID: project.id)
             )
           }
+          Divider()
+          // M5 (project-tags): Tag editor submenu — checkbox per tag
+          // routes through `setProjectTags`; "Edit Tags…" opens the
+          // global TagManager sheet via the sidebar's
+          // `.openTagManager` delegate.
+          ProjectTagsMenu(project: project, store: store)
           Divider()
           Button("Remove Project", role: .destructive) {
             store.send(
@@ -1109,5 +1120,82 @@ private final class _UnclampedClipView: NSClipView {
     var rect = super.constrainBoundsRect(proposedBounds)
     rect.origin.x = leadingOffset
     return rect
+  }
+}
+
+// MARK: - Project tag chrome (M5)
+
+/// Up to three 6×6 colored dots after the project name, plus a "+N"
+/// overflow label when the project carries more than three tags.
+/// Resolves each `TagID` against the live catalog so renames / recolors
+/// re-render in place. Renders nothing when the project has no tags.
+private struct ProjectTagDots: View {
+  let project: Project
+  @Environment(HierarchyManager.self) private var hierarchyManager
+
+  var body: some View {
+    let tagIDs = project.tagIDs
+    let allTags = hierarchyManager.catalog.tags
+    let resolved: [Tag] = tagIDs.compactMap { id in
+      allTags.first(where: { $0.id == id })
+    }
+    if resolved.isEmpty {
+      EmptyView()
+    } else {
+      let visible = resolved.prefix(3)
+      let overflow = resolved.count - visible.count
+      HStack(spacing: 3) {
+        ForEach(Array(visible), id: \.id) { tag in
+          Circle()
+            .fill(swiftUIColor(for: tag.color))
+            .frame(width: 6, height: 6)
+            .help(tag.name)
+        }
+        if overflow > 0 {
+          Text("+\(overflow)")
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(.secondary)
+        }
+      }
+      .accessibilityLabel(
+        "Tags: " + resolved.map(\.name).joined(separator: ", ")
+      )
+    }
+  }
+}
+
+/// "Tags" submenu for the project header ⋯ menu. One Toggle per
+/// catalog tag (binding to `Project.tagIDs.contains(tag.id)`), a
+/// Divider, then "Edit Tags…" which routes up via the sidebar's
+/// `.openTagManager` delegate. When the catalog has no tags, the
+/// submenu collapses to a single "Edit Tags…" button so users can
+/// still discover the manager.
+private struct ProjectTagsMenu: View {
+  let project: Project
+  @Bindable var store: StoreOf<HierarchySidebarFeature>
+  @Environment(HierarchyManager.self) private var hierarchyManager
+
+  var body: some View {
+    Menu("Tags") {
+      let tags = hierarchyManager.catalog.tags
+      if !tags.isEmpty {
+        ForEach(tags) { tag in
+          Toggle(
+            isOn: Binding(
+              get: { project.tagIDs.contains(tag.id) },
+              set: { _ in
+                store.send(.toggleTagOnProject(project.id, tag.id))
+              }
+            )
+          ) {
+            Label(tag.name, systemImage: "tag.fill")
+          }
+        }
+        Divider()
+      }
+      Button("Edit Tags…") {
+        store.send(.delegate(.openTagManager))
+      }
+    }
   }
 }
