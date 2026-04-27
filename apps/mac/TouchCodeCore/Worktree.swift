@@ -8,9 +8,9 @@ public nonisolated struct Worktree: Equatable, Sendable, Identifiable {
   public var tabs: [Tab]
   public var selectedTabID: TabID?
   /// Whether the right-side Git Viewer overlay is visible for this Worktree.
-  /// Persists across Space switches and app restarts; each Worktree remembers
-  /// its own visibility. Defaults to `false` — pre-T0 catalogs also decode
-  /// to `false` via the Codable `decodeIfPresent` path.
+  /// Persists across app restarts; each Worktree remembers its own
+  /// visibility. Defaults to `false` — pre-T0 catalogs also decode to
+  /// `false` via the Codable `decodeIfPresent` path.
   public var gitViewerVisible: Bool
   /// App-layer soft-hide. `true` removes the Worktree from the main sidebar
   /// list without touching disk or git refs (see the Worktree Management
@@ -77,8 +77,7 @@ extension Worktree: Codable {
     // Only emit `gitViewerVisible` when it's non-default. Decode path uses
     // `decodeIfPresent ?? false`, so omitting the key for default-visibility
     // Worktrees (the common case) shrinks on-disk catalogs and keeps
-    // pre-T0 catalogs round-trip-identical. Symmetric with how
-    // `Space.lastActiveWorktreeID` uses `encodeIfPresent`.
+    // pre-T0 catalogs round-trip-identical.
     if gitViewerVisible {
       try container.encode(true, forKey: .gitViewerVisible)
     }

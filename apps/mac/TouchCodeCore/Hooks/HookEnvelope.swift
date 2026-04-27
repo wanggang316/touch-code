@@ -39,7 +39,6 @@ public nonisolated struct HookEnvelope: Equatable, Codable, Sendable, Identifiab
   public var version: Int
   public var event: HookEvent
   public var timestamp: Date
-  public var space: SpaceRef?
   public var project: ProjectRef?
   public var worktree: WorktreeRef?
   public var tab: TabRef?
@@ -51,7 +50,6 @@ public nonisolated struct HookEnvelope: Equatable, Codable, Sendable, Identifiab
     version: Int = HookEnvelope.currentVersion,
     event: HookEvent,
     timestamp: Date = Date(),
-    space: SpaceRef? = nil,
     project: ProjectRef? = nil,
     worktree: WorktreeRef? = nil,
     tab: TabRef? = nil,
@@ -62,7 +60,6 @@ public nonisolated struct HookEnvelope: Equatable, Codable, Sendable, Identifiab
     self.version = version
     self.event = event
     self.timestamp = timestamp
-    self.space = space
     self.project = project
     self.worktree = worktree
     self.tab = tab
@@ -90,23 +87,18 @@ public nonisolated struct HookEnvelope: Equatable, Codable, Sendable, Identifiab
         ("tab", tab != nil),
         ("worktree", worktree != nil),
         ("project", project != nil),
-        ("space", space != nil),
       ]
     case .tab:
       required = [
         ("tab", tab != nil),
         ("worktree", worktree != nil),
         ("project", project != nil),
-        ("space", space != nil),
       ]
     case .worktree:
       required = [
         ("worktree", worktree != nil),
         ("project", project != nil),
-        ("space", space != nil),
       ]
-    case .space:
-      required = [("space", space != nil)]
     }
     for entry in required where !entry.present {
       throw ValidationError.missingAnchor(scope: event.scope, missing: entry.name)
@@ -114,15 +106,6 @@ public nonisolated struct HookEnvelope: Equatable, Codable, Sendable, Identifiab
   }
 
   // MARK: - Anchor reference types
-
-  public struct SpaceRef: Equatable, Codable, Sendable {
-    public var id: SpaceID
-    public var name: String
-    public init(id: SpaceID, name: String) {
-      self.id = id
-      self.name = name
-    }
-  }
 
   public struct ProjectRef: Equatable, Codable, Sendable {
     public var id: ProjectID

@@ -39,5 +39,5 @@ public nonisolated enum HookEvent: String, Codable, Hashable, Sendable, CaseIter
 }
 
 public nonisolated enum HookScope: String, Codable, Hashable, Sendable {
-  case pane, tab, worktree, space
+  case pane, tab, worktree
 }
