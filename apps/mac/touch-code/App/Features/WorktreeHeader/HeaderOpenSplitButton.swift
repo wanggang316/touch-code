@@ -94,21 +94,13 @@ struct HeaderOpenSplitButton: View {
     // `icon + displayName` row (including the terminal glyph for the shell editor).
     ForEach(EditorPickerRow.sorted(editorStore.state.descriptors), id: \.id) { descriptor in
       Button {
-        // Persist the pick as the per-Project default so the primary chip
-        // reflects the user's choice on the next render (matches supacode's
-        // openMenu pattern: `onOpenActionSelectionChanged` + open).
-        store.send(
-          .setProjectDefaultEditorTapped(
-            spaceID: spaceID,
-            projectID: projectID,
-            editorID: descriptor.id
-          ))
-        store.send(
-          .openEditorTapped(
-            editorID: descriptor.id,
-            worktreePath: worktreePath,
-            projectID: projectID
-          ))
+        // Single action: parent resolves the live worktree path from
+        // `state.selection`, persists the pick as the per-Project default,
+        // then opens. Avoids the SwiftUI Menu / NSMenuItem stale-closure
+        // trap where `worktreePath` captured at view-render time would
+        // route the open to the originally-selected worktree (often the
+        // project root) after the user switched worktrees.
+        store.send(.pickEditorFromMenuTapped(descriptor.id))
       } label: {
         EditorPickerRow.row(for: descriptor)
       }

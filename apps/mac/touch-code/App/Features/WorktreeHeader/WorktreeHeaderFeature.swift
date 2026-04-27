@@ -48,6 +48,14 @@ struct WorktreeHeaderFeature {
     case notificationTapped(spaceID: SpaceID, projectID: ProjectID, worktreeID: WorktreeID)
     case openDefaultEditorTapped(worktreePath: String, projectID: ProjectID?)
     case openEditorTapped(editorID: EditorID, worktreePath: String, projectID: ProjectID?)
+    /// Dropdown menu item tapped. Resolves the worktree path and projectID
+    /// from the current selection at action-handle time so the open targets
+    /// the live selection rather than the path captured when the Menu's
+    /// NSMenuItems were first built (SwiftUI bridges Menu content to
+    /// NSMenuItem actions that don't always refresh on view rebuild — the
+    /// outer `primaryAction` doesn't suffer this since it's evaluated
+    /// inline). Also persists the pick as the per-Project default.
+    case pickEditorFromMenuTapped(EditorID)
     case customEditorsTapped
     /// Header GV button tapped. Emits `.delegate(.gitViewerToggleRequested)`
     /// so `RootFeature` performs the flip through the same
@@ -73,6 +81,11 @@ struct WorktreeHeaderFeature {
       case showCustomEditorsSettings
       /// Mirror of today's "Set default for this Project" sub-menu.
       case setProjectOverride(projectID: ProjectID, spaceID: SpaceID, editorID: EditorID?)
+      /// Dropdown menu pick: parent resolves the current Worktree's path
+      /// from `state.selection` (avoids stale closure captures in NSMenuItem
+      /// actions), persists `editorID` as the per-Project default, and opens
+      /// the worktree with that editor.
+      case pickEditorFromMenu(EditorID)
       /// GV button tapped. Parent flips the current Worktree's visibility
       /// via `.gitViewerToggledForCurrentWorktree` (shared with ⌘⇧G).
       case gitViewerToggleRequested
@@ -138,6 +151,9 @@ struct WorktreeHeaderFeature {
 
       case .openEditorTapped(let id, let path, let pid):
         return .send(.delegate(.openEditor(editorID: id, worktreePath: path, projectID: pid)))
+
+      case .pickEditorFromMenuTapped(let id):
+        return .send(.delegate(.pickEditorFromMenu(id)))
 
       case .customEditorsTapped:
         return .send(.delegate(.showCustomEditorsSettings))

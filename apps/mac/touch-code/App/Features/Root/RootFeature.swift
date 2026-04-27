@@ -584,6 +584,41 @@ struct RootFeature {
                 editorID: editorID
               )))
 
+        case .pickEditorFromMenu(let editorID):
+          // Resolve worktree path from `state.selection` at handle-time —
+          // the SwiftUI Menu's NSMenuItem actions can hold stale closure
+          // captures of `worktreePath` after worktree selection changes,
+          // which previously routed the open to the project root instead
+          // of the active sub-worktree.
+          guard
+            let spaceID = state.selection.spaceID,
+            let projectID = state.selection.projectID,
+            let worktreeID = state.selection.worktreeID
+          else { return .none }
+          let catalog = hierarchyClient.snapshot()
+          guard
+            let path = catalog
+              .spaces.first(where: { $0.id == spaceID })?
+              .projects.first(where: { $0.id == projectID })?
+              .worktrees.first(where: { $0.id == worktreeID })?.path
+          else { return .none }
+          return .merge(
+            .send(
+              .editor(
+                .setProjectOverride(
+                  projectID: projectID,
+                  spaceID: spaceID,
+                  editorID: editorID
+                ))),
+            .send(
+              .editor(
+                .openRequested(
+                  editorID: editorID,
+                  worktreePath: path,
+                  projectID: projectID
+                )))
+          )
+
         case .gitViewerToggleRequested:
           // Route through the same reducer branch ⌘⇧G uses so both entry
           // points share one write path (reads current visibility from the
