@@ -520,7 +520,7 @@ struct HierarchySidebarView: View {
     .listRowSeparator(.hidden)
     .listRowBackground(
       RoundedRectangle(cornerRadius: 10, style: .continuous)
-        .fill(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
+        .fill(isSelected ? Color(nsColor: .selectedContentBackgroundColor) : Color.clear)
         .padding(.vertical, 2)
         .padding(.leading, 18)
         .padding(.trailing, 4)
