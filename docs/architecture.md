@@ -2,7 +2,7 @@
 
 ## Overview
 
-touch-code is a native macOS application that orchestrates terminals into a five-level hierarchy (Space → Project → Worktree → Tab → Pane) for CLI-agent power users. See [Product Spec](product-spec.md) for capabilities and boundaries.
+touch-code is a native macOS application that orchestrates terminals into a four-level hierarchy (Project → Worktree → Tab → Pane), with cross-cutting Tag classification on Projects, for CLI-agent power users. See [Product Spec](product-spec.md) for capabilities and boundaries.
 
 The system is a **Tuist-managed monorepo** because the product ships three co-versioned artifacts — the Mac app, the `tc` CLI, and the published Agent Skill — whose development benefits from atomic cross-cutting changes (protocol edits, CLI contract changes, domain-model evolution) and shared tooling.
 
@@ -16,7 +16,7 @@ The mac platform (Tuist project, sources, ghostty submodule) lives under `apps/m
 
 | Target | Kind | Source path | Purpose |
 |---|---|---|---|
-| `TouchCodeCore` | static framework | `apps/mac/TouchCodeCore/` | Pure domain types: Space/Project/Worktree/Tab/Pane models, `SplitTree`, stable UUID identifiers. Zero internal deps. Consumed by app + CLI. |
+| `TouchCodeCore` | static framework | `apps/mac/TouchCodeCore/` | Pure domain types: Project/Worktree/Tab/Pane models, `Tag`/`TagFilter`, `SplitTree`, stable UUID identifiers. Zero internal deps. Consumed by app + CLI. |
 | `TouchCodeIPC` | static framework | `apps/mac/TouchCodeIPC/` | JSON-RPC wire protocol: Request/Response envelopes, Method constants, payload types, socket discovery. Shared between app and CLI. |
 | `tc` | command-line tool | `apps/mac/tc/` | CLI binary. Depends on `TouchCodeCore`, `TouchCodeIPC`, `ArgumentParser`. Runtime / Hooks / Git are intentionally off-limits — CLI is a thin RPC client. |
 | `touch-code` | macOS app | `apps/mac/touch-code/{App,Runtime,Hooks,Git}/` | The Mac app. Buildable subfolders compile as one target. Depends on `TouchCodeCore`, `TouchCodeIPC`, `tc` (so app builds produce the CLI binary alongside). |
@@ -105,7 +105,7 @@ Rules not visible in code. Violating any of these will not fail tests immediatel
 - **State management is hybrid by design, with a clear boundary.** High-frequency terminal state uses `@Observable`; app flow state uses TCA. Mixing the two patterns within a single feature is a red flag. See [State Management](#state-management-hybrid-tca--observable).
 - **Persistence is atomic-rename JSON with a top-level `version: Int`.** All files under `~/.config/touch-code/` include a schema version. Readers that encounter an unknown version abort rather than silently upgrade. Writers write to a temp file and rename over the original.
 - **`tc` is stateless.** The CLI has no persistent state of its own. All truth lives in the running app; `tc` is a thin RPC client. Adding file reads/writes in `apps/cli` requires a design doc.
-- **Identifiers are UUIDs.** Every Space, Project, Worktree, Tab, Pane has a stable UUID. Index-based addressing (`tc pane focus 1/2/3`) is convenience sugar resolved to a UUID before any state mutation. Internal code must use UUIDs.
+- **Identifiers are UUIDs.** Every Project, Worktree, Tab, Pane, Tag has a stable UUID. Index-based addressing (`tc pane focus 1/2/3`) is convenience sugar resolved to a UUID before any state mutation. Internal code must use UUIDs.
 - **Agent Skill is consumed, never loaded.** The app must not parse, index, or invoke `SKILL.md`. The only skill-related runtime code is the `tc skill install` helper, which copies files to the agent's skill directory.
 - **`touch-code/Runtime (in-app module)` is TCA-free.** Runtime exposes `@Observable` classes and AsyncStream events. TCA bridging lives in `apps/mac` (the `*Client` types). This keeps Runtime independently testable and portable.
 
@@ -122,7 +122,7 @@ Rules not visible in code. Violating any of these will not fail tests immediatel
 **Swift Observation (`@Observable`)** is used for:
 - `Runtime.PanelState` — libghostty surface, scrollback, cursor
 - `Runtime.TerminalEngine` — manages N panes
-- `HierarchyManager` — mutable tree of Spaces/Projects/Worktrees/Tabs/Panes
+- `HierarchyManager` — mutable Catalog of Projects/Worktrees/Tabs/Panes plus Tags and the active Tag filter
 
 **Bridge:** `apps/mac/Clients/*Client.swift` exposes:
 - **Commands** (TCA → runtime): `terminalClient.openPanel(in: worktree)`, `terminalClient.sendInput(pane, text)`
@@ -154,7 +154,7 @@ Files under `~/.config/touch-code/` (JSON, UTF-8, pretty-printed with sorted key
 
 | File | Version | Contents |
 |---|---|---|
-| `catalog.json` | v2 | Space → Project → Worktree → Tab → Pane tree with UUIDs, split geometry, current selection at every level. Per-Project `defaultEditor` and `worktreesDirectory` moved to `settings.json` in v2 (one-shot read of v1 values through `HierarchyManager.drainLegacyOverrides`). |
+| `catalog.json` | v3 | Project → Worktree → Tab → Pane tree with UUIDs, split geometry, current selection at every level; `tags: [Tag]`, per-Project `tagIDs: Set<TagID>`, top-level `activeTagFilter`. v3 was the rm-space refactor: prior v2 `Catalog.spaces` and `CatalogWindow` are dropped, each Space migrated to a Tag with the same name. Per-Project `defaultEditor` and `worktreesDirectory` moved to `settings.json` in v2 (one-shot read of v1 values through `HierarchyManager.drainLegacyOverrides`). |
 | `settings.json` | v3 | User preferences — global (`general`, `notifications`, `developer`) plus per-Project (`projects[ProjectID]: ProjectSettings`). v3 renamed `repositories` → `projects` and widened the value type to `ProjectSettings` with an optional `git: GitProjectSettings?` subtree for `git_repo`-kind overrides. |
 | `hooks.json` | v2 | User-configured hook subscriptions (event → shell command + options). v2 added `.projectID` / `.projectPathGlob` scope cases and made Scope decoding fail-soft on unknown kinds. |
 
@@ -246,7 +246,7 @@ Readers abort or migrate on version mismatch: `settings.json` accepts v1/v2/v3 (
 
 1. **Internal Tuist target granularity in `apps/mac`.** Split each Feature into its own framework target (supacode pattern — slower clean build, better cache) vs. single app target with folder-level organization. **Blocks:** initial Tuist configuration. *Leaning:* separate framework targets for heavy features (Terminal, Hierarchy, GitViewer); single target for the rest.
 
-2. **Multi-window semantics.** macOS users expect multiple windows. Does each window get its own Space selection, or is Space selection global? **Blocks:** hierarchy state design + persistence schema. *Leaning:* window ↔ Space 1:1; Spaces are window-scoped; multi-window opens new Space from a chooser.
+2. **Multi-window semantics.** *Resolved by docs/design-docs/project-tags.md (M3):* the app is single main window. The prior `WindowGroup` allowed multiple instances but was never wired into application state. M3 collapses the scene to `Window(id: "main")`, suppresses the default ⌘N "New Window" command, and gates ⌘Q with a confirmation alert when running terminal sessions exist. Settings is a separate `Window(id: "settings")`, unchanged. If multi-window demand emerges later it would re-introduce a `windows: [CatalogWindow]` array on `Catalog`.
 
 3. **CLI binary distribution.** *Resolved by exec-plan 0003 (C4 D2):* manual `tc install-cli` — the app copies the bundled `tc` binary into `~/.local/bin/tc` (creating the directory + offering a shell-rc PATH update if needed), collision-checks against an existing `tc` on `$PATH`, and falls back to a `tcode` symlink when `tc` is taken. See [C4 design doc §D2](design-docs/c4-cli.md). *No system-path writes.*
 
