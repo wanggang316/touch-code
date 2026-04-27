@@ -84,6 +84,47 @@ struct HierarchyClientTests {
     #expect(initial?.worktreeID == worktreeID)
   }
 
+  /// Multi-project regression: tapping a worktree in P2 must surface
+  /// `(P2, W2)` even when P1 still carries a non-nil `selectedWorktreeID`
+  /// (which it does after any prior selection in P1). Pre-fix the
+  /// `currentSelection` resolver returned the first project in catalog
+  /// order whose `selectedWorktreeID` was non-nil, pinning the answer to
+  /// P1; the fix adds a top-level `Catalog.selectedProjectID` that
+  /// `selectProject` writes and `currentSelection` reads first.
+  @Test
+  func selectionChangesRespectsLatestProjectAcrossMultipleProjects() async throws {
+    let (client, _) = makeLiveClient()
+    let p1 = client.addProject("p1", "/tmp/p1", "/tmp/p1")
+    let w1 = try client.createWorktree(p1, "w1", "/tmp/p1/w1", "main")
+    let p2 = client.addProject("p2", "/tmp/p2", "/tmp/p2")
+    let w2 = try client.createWorktree(p2, "w2", "/tmp/p2/w2", "main")
+
+    // Touch P1 first so it owns a selectedWorktreeID.
+    client.selectProject(p1)
+    try client.selectWorktree(w1, p1)
+
+    // Now switch to P2.
+    client.selectProject(p2)
+    try client.selectWorktree(w2, p2)
+
+    let stream = client.selectionChanges()
+    var iterator = stream.makeAsyncIterator()
+    let initial = await iterator.next()
+
+    #expect(initial?.projectID == p2)
+    #expect(initial?.worktreeID == w2)
+  }
+
+  @Test
+  func selectProjectClearedOnRemoveProject() throws {
+    let (client, manager) = makeLiveClient()
+    let p = client.addProject("p", "/tmp", "/tmp")
+    client.selectProject(p)
+    #expect(manager.catalog.selectedProjectID == p)
+    try client.removeProject(p)
+    #expect(manager.catalog.selectedProjectID == nil)
+  }
+
   // HierarchyClient no longer exposes per-Project editor / worktree-dir writers. Those
   // values live in `Settings.projects[pid]` (v3 schema) and tests for that storage live
   // in `SettingsStoreTests` / `SettingsWriter` coverage inside each consumer feature.

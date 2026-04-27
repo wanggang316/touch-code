@@ -170,6 +170,24 @@ final class HierarchyManager {
       throw HierarchyError.notFound("Project \(id)")
     }
     catalog.projects.remove(at: projectIndex)
+    if catalog.selectedProjectID == id {
+      catalog.selectedProjectID = nil
+    }
+    store.scheduleSave(catalog)
+  }
+
+  /// Set the user's currently-selected Project at the top level. Single-
+  /// window simplification means there is exactly one such selection per
+  /// app. `nil` clears the selection. Equal-value writes are dropped so
+  /// repeated taps on the same Project don't churn the catalog or the
+  /// debounced save pipeline. Unknown IDs are silently ignored — the
+  /// selection-stream resolver clamps to a valid Project ID anyway.
+  func selectProject(_ id: ProjectID?) {
+    guard catalog.selectedProjectID != id else { return }
+    if let id, !catalog.projects.contains(where: { $0.id == id }) {
+      return
+    }
+    catalog.selectedProjectID = id
     store.scheduleSave(catalog)
   }
 
