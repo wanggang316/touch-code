@@ -220,12 +220,16 @@ nonisolated struct HierarchyClient: Sendable {
       _ branch: String, _ directoryName: String, _ path: String
     ) throws -> WorktreeID
 
-  /// End-to-end Remove Worktree. `GitWorktreeError.uncommittedChanges` is
-  /// re-thrown so the sidebar can surface the specific files.
+  /// End-to-end Remove Worktree. Tears down all surfaces (panes /
+  /// notifications) for the worktree, runs the git client's
+  /// relocate-then-prune removal, then drops the catalog row. The git
+  /// step sidesteps git's "uncommitted changes" and "submodule" guards
+  /// by relocating the working dir before pruning, so this is a
+  /// single-step destructive call — the caller's first confirmation
+  /// dialog is the only protection.
   var removeWorktreeWithGit:
     @MainActor @Sendable (
-      _ worktreeID: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID,
-      _ force: Bool
+      _ worktreeID: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
     ) async throws -> Void
 
   /// Forwards `HierarchyManager.runningPaneCount`.
@@ -554,12 +558,11 @@ extension HierarchyClient {
           name: branch, path: path, branch: branch
         )
       },
-      removeWorktreeWithGit: { worktreeID, projectID, spaceID, force in
+      removeWorktreeWithGit: { worktreeID, projectID, spaceID in
         try await removeWorktreeWithGit(
           worktreeID: worktreeID,
           projectID: projectID,
           spaceID: spaceID,
-          force: force,
           manager: manager,
           gitWorktreeClient: gitWorktreeClient
         )
@@ -762,17 +765,17 @@ extension HierarchyClient {
   }
 
   /// Factored out of the `removeWorktreeWithGit` closure so the
-  /// control flow stays readable. On force, tears down surfaces first
-  /// (releases file handles), then runs git, then drops the catalog
-  /// row. On safe, skips the pre-teardown so uncommitted-changes
-  /// recovery does not kill a live terminal. Re-throws
-  /// `GitWorktreeError` for the caller to surface.
+  /// control flow stays readable. Tears down all surfaces first (the
+  /// relocate-then-prune step about to run will move the worktree's
+  /// working directory out from under any open terminals, so panes
+  /// holding the cwd as a live file descriptor must be closed
+  /// beforehand), then runs git, then drops the catalog row.
+  /// Re-throws `GitWorktreeError` for the caller to surface.
   @MainActor
   private static func removeWorktreeWithGit(
     worktreeID: WorktreeID,
     projectID: ProjectID,
     spaceID: SpaceID,
-    force: Bool,
     manager: HierarchyManager,
     gitWorktreeClient: GitWorktreeClient
   ) async throws {
@@ -783,13 +786,10 @@ extension HierarchyClient {
     else {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
     }
-    if force {
-      manager.tearDownWorktreeSurfaces(worktreeID: worktreeID)
-    }
+    manager.tearDownWorktreeSurfaces(worktreeID: worktreeID)
     try await gitWorktreeClient.removeWorktree(
       URL(fileURLWithPath: gitRoot),
-      URL(fileURLWithPath: worktree.path),
-      force
+      URL(fileURLWithPath: worktree.path)
     )
     try manager.removeWorktree(worktreeID, from: projectID, in: spaceID)
   }
@@ -894,7 +894,7 @@ extension HierarchyClient: DependencyKey {
     setProjectExpanded: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     reconcileDiscoveredWorktrees: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     createWorktreeWithGit: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    removeWorktreeWithGit: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    removeWorktreeWithGit: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     runningPaneCount: { _ in fatalError("HierarchyClient.liveValue not configured") },
     setProjectLoadState: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     reorderProjects: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },

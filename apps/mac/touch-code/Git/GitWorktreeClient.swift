@@ -76,10 +76,16 @@ nonisolated struct GitWorktreeClient: Sendable {
     @Sendable (_ spec: CreateWorktreeSpec)
       -> AsyncThrowingStream<CreateWorktreeEvent, Error>
 
+  /// Removes a worktree using the relocate-then-prune strategy: the
+  /// working directory is first moved into a per-process trash folder
+  /// (atomic same-volume rename when possible), then `git worktree
+  /// prune --expire=now` cleans up the metadata, with a `git worktree
+  /// remove --force` fallback. Sidesteps git's submodule and uncommitted
+  /// guards because once the working dir is gone, `prune` has no reason
+  /// to refuse. The trash directory is rm-rf'd asynchronously so a
+  /// large `.git` (e.g. submodule history) does not block the caller.
   var removeWorktree:
-    @Sendable (
-      _ repoRoot: URL, _ path: URL, _ force: Bool
-    ) async throws -> Void
+    @Sendable (_ repoRoot: URL, _ path: URL) async throws -> Void
   var pruneWorktrees: @Sendable (_ repoRoot: URL) async throws -> Int
 
   var fetchRemote: @Sendable (_ repoRoot: URL, _ remote: String) async throws -> Void
@@ -707,51 +713,40 @@ nonisolated extension GitWorktreeClient {
         }
       },
 
-      removeWorktree: { repoRoot, path, force in
-        var args = [
-          "-C", repoRoot.path(percentEncoded: false),
-          "worktree", "remove",
-        ]
-        if force { args.append("--force") }
-        args.append(path.path(percentEncoded: false))
-        let outcome = await GitWorktreeShell.run(
-          executable: GitWorktreeShell.gitURL,
-          arguments: args,
-          cwd: repoRoot
-        )
-        switch outcome {
-        case .exited(let code, _, let stderr, _) where code == 0:
-          return
-        case .exited(_, _, let stderrData, _):
-          let stderrText = GitWorktreeShell.decodeUTF8(stderrData)
-          let command = "git " + args.joined(separator: " ")
-          let mapped = mapGitStderr(command: command, stderr: stderrText)
-          // For uncommittedChanges, enrich with porcelain file list.
-          if case .uncommittedChanges = mapped, !force {
-            let porcelain = await GitWorktreeShell.run(
-              executable: GitWorktreeShell.gitURL,
-              arguments: [
-                "-C", path.path(percentEncoded: false),
-                "status", "--porcelain",
-              ],
-              cwd: path
-            )
-            if case .exited(_, let porcelainData, _, _) = porcelain {
-              let files = parsePorcelainPaths(GitWorktreeShell.decodeUTF8(porcelainData))
-              throw GitWorktreeError.uncommittedChanges(files: files)
-            }
-            throw GitWorktreeError.uncommittedChanges(files: [])
+      removeWorktree: { repoRoot, path in
+        // Strategy (after supacode/GitClient.removeWorktree):
+        // 1) Try to relocate the worktree directory to a trash folder so
+        //    the UI sees it disappear immediately and `git worktree
+        //    prune` can clean the metadata without tripping over git's
+        //    submodule or "modified files" refusals.
+        // 2) If relocate succeeded, run `prune --expire=now`. If prune
+        //    fails for any reason, fall back to `remove --force` against
+        //    the original path (git tolerates a missing worktree dir
+        //    when --force is set).
+        // 3) If relocate failed (path missing, cross-volume, ENOPERM),
+        //    skip straight to `remove --force <originalPath>`.
+        // 4) Schedule async rm-rf of the relocated dir so a large `.git`
+        //    (submodule history) does not block the caller.
+        let relocated = relocateWorktreeForRemoval(path)
+        if let relocated {
+          let pruneOutcome = await GitWorktreeShell.run(
+            executable: GitWorktreeShell.gitURL,
+            arguments: [
+              "-C", repoRoot.path(percentEncoded: false),
+              "worktree", "prune", "--expire=now",
+            ],
+            cwd: repoRoot
+          )
+          if case .exited(let code, _, _, _) = pruneOutcome, code == 0 {
+            scheduleTrashCleanup(relocated)
+            return
           }
-          throw mapped
-        case .timedOut:
-          throw GitWorktreeError.commandFailed(
-            command: "git " + args.joined(separator: " "), stderr: "timed out"
-          )
-        case .spawnFailed(let reason):
-          throw GitWorktreeError.commandFailed(
-            command: "git " + args.joined(separator: " "), stderr: reason
-          )
+          // Prune failed — fall through to forced remove against the
+          // original path (now empty). Still schedule the trash cleanup
+          // so we don't leak even if forced remove also fails.
+          scheduleTrashCleanup(relocated)
         }
+        try await forceRemoveWorktree(repoRoot: repoRoot, path: path)
       },
 
       pruneWorktrees: { repoRoot in
@@ -832,6 +827,90 @@ nonisolated extension GitWorktreeClient {
   /// degrades to reporting zero pruned instead of throwing.
   fileprivate static func liveLsCount(wt: URL, repoRoot: URL) async -> Int {
     await liveLsEntries(wt: wt, repoRoot: repoRoot).count
+  }
+
+  /// Moves the worktree directory into a per-process trash folder so
+  /// the on-disk working tree disappears immediately. Returns the new
+  /// location on success, or `nil` if the source does not exist or
+  /// every candidate trash base failed (e.g. cross-volume rename).
+  /// Trying `/tmp` first then `NSTemporaryDirectory()` covers the
+  /// common case of `/tmp` being on the same volume as the worktree
+  /// while still falling back to a writable per-user temp on locked-
+  /// down systems.
+  fileprivate static func relocateWorktreeForRemoval(_ worktreeURL: URL) -> URL? {
+    let fileManager = FileManager.default
+    let worktreePath = worktreeURL.path(percentEncoded: false)
+    guard fileManager.fileExists(atPath: worktreePath) else { return nil }
+    let candidates: [URL] = [
+      URL(filePath: "/tmp", directoryHint: .isDirectory),
+      fileManager.temporaryDirectory,
+    ]
+    for base in candidates {
+      let trashBase = base.appending(
+        path: "touch-code-worktree-trash", directoryHint: .isDirectory
+      )
+      do {
+        try fileManager.createDirectory(at: trashBase, withIntermediateDirectories: true)
+      } catch {
+        continue
+      }
+      let destination = trashBase.appending(
+        path: "\(worktreeURL.lastPathComponent)-\(UUID().uuidString)",
+        directoryHint: .isDirectory
+      )
+      do {
+        try fileManager.moveItem(at: worktreeURL, to: destination)
+        return destination
+      } catch {
+        continue
+      }
+    }
+    return nil
+  }
+
+  /// Detached `rm -rf` of the relocated worktree directory. Submodule
+  /// worktrees can carry hundreds of MB of `.git/modules/...` history
+  /// per submodule; running this synchronously would stall the Remove
+  /// confirmation for visible time. Failures are swallowed — the
+  /// trash directory is namespaced under a UUID so a leaked entry
+  /// doesn't collide with future removals.
+  fileprivate static func scheduleTrashCleanup(_ url: URL) {
+    Task.detached(priority: .utility) {
+      try? FileManager.default.removeItem(at: url)
+    }
+  }
+
+  /// `git worktree remove --force` against the original path. Used as
+  /// the second leg of the relocate-then-prune strategy when prune
+  /// fails (rare; e.g. corrupted gitfile) and as the only leg when the
+  /// directory could not be relocated. Errors round-trip through
+  /// `mapGitStderr` so the caller can surface a typed error.
+  fileprivate static func forceRemoveWorktree(repoRoot: URL, path: URL) async throws {
+    let args = [
+      "-C", repoRoot.path(percentEncoded: false),
+      "worktree", "remove", "--force",
+      path.path(percentEncoded: false),
+    ]
+    let outcome = await GitWorktreeShell.run(
+      executable: GitWorktreeShell.gitURL, arguments: args, cwd: repoRoot
+    )
+    switch outcome {
+    case .exited(let code, _, _, _) where code == 0:
+      return
+    case .exited(_, _, let stderr, _):
+      throw mapGitStderr(
+        command: "git " + args.joined(separator: " "),
+        stderr: GitWorktreeShell.decodeUTF8(stderr)
+      )
+    case .timedOut:
+      throw GitWorktreeError.commandFailed(
+        command: "git " + args.joined(separator: " "), stderr: "timed out"
+      )
+    case .spawnFailed(let reason):
+      throw GitWorktreeError.commandFailed(
+        command: "git " + args.joined(separator: " "), stderr: reason
+      )
+    }
   }
 
   /// Unwraps a `CommandOutcome`'s successful stdout or throws a mapped

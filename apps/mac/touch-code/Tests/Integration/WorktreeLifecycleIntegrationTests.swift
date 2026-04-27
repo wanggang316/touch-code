@@ -100,14 +100,21 @@ struct WorktreeLifecycleIntegrationTests {
         URL(fileURLWithPath: $0.path).standardizedFileURL == worktreePath
       }))
 
-    // Safe-remove the clean worktree.
-    try await client.removeWorktree(repo, worktreePath, false)
+    // Remove the clean worktree.
+    try await client.removeWorktree(repo, worktreePath)
     let afterRemove = try await client.lsWorktrees(repo)
     #expect(afterRemove.count == 1)
   }
 
+  /// Post-2026-04-27: `GitWorktreeClient.removeWorktree` adopts
+  /// supacode's relocate-then-prune strategy. The working directory is
+  /// moved into a per-process trash folder before `git worktree prune
+  /// --expire=now` cleans the metadata, so git's "modified or
+  /// untracked files" guard never trips. The Remove flow is now
+  /// single-step destructive (UI's first confirmation is the only
+  /// gate); this test pins that behavior.
   @Test(.enabled(if: WorktreeLifecycleIntegrationTests.wtBundled))
-  func uncommittedChangesBlockSafeRemoveAndForceRemoveSucceeds() async throws {
+  func removeSucceedsEvenWithUncommittedChanges() async throws {
     let repo = try makeTempRepo()
     defer { try? fm.removeItem(at: repo) }
 
@@ -130,28 +137,14 @@ struct WorktreeLifecycleIntegrationTests {
     }
     let worktreePath = try #require(createdPath)
 
-    // Write a new file so the worktree has an untracked/uncommitted file.
     let dirty = worktreePath.appending(path: "uncommitted.txt")
     try "x".write(to: dirty, atomically: true, encoding: .utf8)
     try runGit(["add", "uncommitted.txt"], cwd: worktreePath)
 
-    // Safe-remove fails with .uncommittedChanges.
-    var caught: GitWorktreeError?
-    do {
-      try await client.removeWorktree(repo, worktreePath, false)
-    } catch let err as GitWorktreeError {
-      caught = err
-    }
-    #expect(caught != nil)
-    if case .uncommittedChanges(let files)? = caught {
-      #expect(!files.isEmpty)
-    } else {
-      Issue.record("expected .uncommittedChanges, got \(String(describing: caught))")
-    }
-
-    // Force remove succeeds.
-    try await client.removeWorktree(repo, worktreePath, true)
+    try await client.removeWorktree(repo, worktreePath)
     #expect(!fm.fileExists(atPath: worktreePath.path(percentEncoded: false)))
+    let after = try await client.lsWorktrees(repo)
+    #expect(!after.contains { URL(fileURLWithPath: $0.path).standardizedFileURL == worktreePath })
   }
 
   /// Exercises issue #24 (a) — cancelling a `createWorktreeStream`

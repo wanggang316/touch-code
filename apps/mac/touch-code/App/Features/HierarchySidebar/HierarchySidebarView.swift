@@ -167,7 +167,7 @@ struct HierarchySidebarView: View {
           store.send(.worktreeRemoveCancelled)
         }
       } message: {
-        Text("Removes the Worktree from the Project and closes all its panes. This cannot be undone.")
+        Text("Closes all panes and deletes the Worktree directory, including any uncommitted changes. This cannot be undone.")
       }
       .confirmationDialog(
         projectRemovalTitle,
@@ -199,40 +199,6 @@ struct HierarchySidebarView: View {
         ) {
           ArchivedWorktreesSheet(store: childStore)
         }
-      }
-      // Force-remove upgrade alert (uncommittedChanges → Force Remove).
-      .alert(
-        forceRemoveTitle,
-        isPresented: Binding(
-          get: { store.pendingForceRemove != nil },
-          set: { if !$0 { store.send(.worktreeForceRemoveCancelled) } }
-        )
-      ) {
-        Button("Force Remove", role: .destructive) {
-          store.send(.worktreeForceRemoveConfirmed)
-        }
-        Button("Cancel", role: .cancel) {
-          store.send(.worktreeForceRemoveCancelled)
-        }
-      } message: {
-        Text(forceRemoveMessage)
-      }
-      // W-Q3 ladder step 2: warn before hard-killing live terminals.
-      .alert(
-        runningTerminalTitle,
-        isPresented: Binding(
-          get: { store.pendingRunningTerminalWarning != nil },
-          set: { if !$0 { store.send(.worktreeRunningTerminalWarningCancelled) } }
-        )
-      ) {
-        Button("Terminate & Remove", role: .destructive) {
-          store.send(.worktreeRunningTerminalWarningConfirmed)
-        }
-        Button("Cancel", role: .cancel) {
-          store.send(.worktreeRunningTerminalWarningCancelled)
-        }
-      } message: {
-        Text(runningTerminalMessage)
       }
       // First-archive explainer (once per session).
       .confirmationDialog(
@@ -827,40 +793,6 @@ struct HierarchySidebarView: View {
       return "Remove Project “\(name)”?"
     }
     return "Remove Project?"
-  }
-
-  private var forceRemoveTitle: String {
-    guard let pending = store.pendingForceRemove else { return "Force Remove?" }
-    return "Force Remove “\(pending.displayName)”?"
-  }
-
-  private var forceRemoveMessage: String {
-    guard let pending = store.pendingForceRemove else {
-      return "Uncommitted changes will be discarded. This cannot be undone."
-    }
-    if pending.uncommittedFiles.isEmpty {
-      return "Uncommitted changes will be discarded. This cannot be undone."
-    }
-    let shown = pending.uncommittedFiles.prefix(3).joined(separator: ", ")
-    let more =
-      pending.uncommittedFiles.count > 3
-      ? " and \(pending.uncommittedFiles.count - 3) more"
-      : ""
-    return
-      "\(pending.uncommittedFiles.count) file(s) have uncommitted changes: \(shown)\(more). Force remove will discard them. This cannot be undone."
-  }
-
-  private var runningTerminalTitle: String {
-    guard let pending = store.pendingRunningTerminalWarning else {
-      return "Running processes"
-    }
-    return "Terminate \(pending.count) running process\(pending.count == 1 ? "" : "es")?"
-  }
-
-  private var runningTerminalMessage: String {
-    guard let pending = store.pendingRunningTerminalWarning else { return "" }
-    return
-      "Force-removing “\(pending.displayName)” will terminate \(pending.count) running terminal process\(pending.count == 1 ? "" : "es") in that Worktree."
   }
 
   // MARK: - GitHub badge + popover

@@ -108,16 +108,6 @@ struct HierarchySidebarFeature {
     var archivedWorktreesSheet: ArchivedWorktreesFeature.State?
     var pendingWorktreeRemoval: PendingWorktreeRemoval?
     var pendingProjectRemoval: PendingProjectRemoval?
-    /// Pending force-remove follow-up on the main sidebar row (outside
-    /// the Archived sheet). Triggered when safe-remove fails with
-    /// `.uncommittedChanges`. Distinct from
-    /// `ArchivedWorktreesFeature.pendingForceRemove`, which governs the
-    /// in-sheet variant.
-    var pendingForceRemove: PendingForceRemoval?
-    /// Second-stage confirmation for force-remove when the Worktree
-    /// has live terminal surfaces. Non-nil → "This will terminate N
-    /// running processes" alert visible.
-    var pendingRunningTerminalWarning: PendingRunningTerminalWarning?
     /// Session-scoped "seen it" flag for the first-archive explainer.
     /// Lives on this reducer (sidebar is the sole archive entry point
     /// for the main list; Archived sheet handles its own flow).
@@ -143,27 +133,6 @@ struct HierarchySidebarFeature {
     var projectID: ProjectID
     var spaceID: SpaceID
     var name: String
-  }
-
-  /// Payload for the safe-remove → force-remove escalation on the main
-  /// sidebar row. Captured at `.uncommittedChanges` time so the alert
-  /// message can enumerate the offending files.
-  struct PendingForceRemoval: Equatable {
-    var worktreeID: WorktreeID
-    var projectID: ProjectID
-    var spaceID: SpaceID
-    var displayName: String
-    var uncommittedFiles: [String]
-  }
-
-  /// Second stage of the force-remove ladder — asks for explicit
-  /// consent before the runtime hard-kills the Worktree's terminals.
-  struct PendingRunningTerminalWarning: Equatable {
-    var worktreeID: WorktreeID
-    var projectID: ProjectID
-    var spaceID: SpaceID
-    var displayName: String
-    var count: Int
   }
 
   enum Action: Equatable {
@@ -217,19 +186,6 @@ struct HierarchySidebarFeature {
     )
     case worktreeRemoveConfirmed
     case worktreeRemoveCancelled
-
-    // Safe-remove → force-remove ladder (feat/worktree-mgmt)
-    case worktreeRemoveFailed(
-      worktreeID: WorktreeID,
-      inProject: ProjectID,
-      inSpace: SpaceID,
-      name: String,
-      error: GitWorktreeError
-    )
-    case worktreeForceRemoveConfirmed
-    case worktreeForceRemoveCancelled
-    case worktreeRunningTerminalWarningConfirmed
-    case worktreeRunningTerminalWarningCancelled
 
     // Archive actions on the main worktree row.
     case worktreeArchiveTapped(
@@ -548,76 +504,11 @@ struct HierarchySidebarFeature {
       let sid = pending.spaceID
       let name = pending.displayName
       return runRemoveWithDeleteScript(
-        client: client, wid: wid, pid: pid, sid: sid, name: name, force: false,
-        onFailure: { error in
-          .worktreeRemoveFailed(
-            worktreeID: wid, inProject: pid, inSpace: sid, name: name, error: error
-          )
-        })
+        client: client, wid: wid, pid: pid, sid: sid, name: name
+      )
 
     case .worktreeRemoveCancelled:
       state.pendingWorktreeRemoval = nil
-      return .none
-
-    case .worktreeRemoveFailed(let wid, let pid, let sid, let name, let error):
-      // Uncommitted changes → offer Force Remove. Anything else →
-      // sit the error on the root-feature delegate path as a banner
-      // caller might surface; for now log silently.
-      if case .uncommittedChanges(let files) = error {
-        state.pendingForceRemove = PendingForceRemoval(
-          worktreeID: wid,
-          projectID: pid,
-          spaceID: sid,
-          displayName: name,
-          uncommittedFiles: files
-        )
-      }
-      return .none
-
-    case .worktreeForceRemoveConfirmed:
-      guard let pending = state.pendingForceRemove else { return .none }
-      // W-Q3 ladder step 2: if live terminals, warn before hard-kill.
-      let runningCount = hierarchyClient.runningPaneCount(pending.worktreeID)
-      if runningCount > 0 {
-        state.pendingRunningTerminalWarning = PendingRunningTerminalWarning(
-          worktreeID: pending.worktreeID,
-          projectID: pending.projectID,
-          spaceID: pending.spaceID,
-          displayName: pending.displayName,
-          count: runningCount
-        )
-        state.pendingForceRemove = nil
-        return .none
-      }
-      // No terminals — proceed directly.
-      let client = hierarchyClient
-      let wid = pending.worktreeID
-      let pid = pending.projectID
-      let sid = pending.spaceID
-      let name = pending.displayName
-      state.pendingForceRemove = nil
-      return runRemoveWithDeleteScript(
-        client: client, wid: wid, pid: pid, sid: sid, name: name, force: true,
-        onFailure: nil)
-
-    case .worktreeForceRemoveCancelled:
-      state.pendingForceRemove = nil
-      return .none
-
-    case .worktreeRunningTerminalWarningConfirmed:
-      guard let pending = state.pendingRunningTerminalWarning else { return .none }
-      let client = hierarchyClient
-      let wid = pending.worktreeID
-      let pid = pending.projectID
-      let sid = pending.spaceID
-      let name = pending.displayName
-      state.pendingRunningTerminalWarning = nil
-      return runRemoveWithDeleteScript(
-        client: client, wid: wid, pid: pid, sid: sid, name: name, force: true,
-        onFailure: nil)
-
-    case .worktreeRunningTerminalWarningCancelled:
-      state.pendingRunningTerminalWarning = nil
       return .none
 
     case .worktreeArchiveTapped(let wid, let pid, let sid, let name):
@@ -977,18 +868,19 @@ struct HierarchySidebarFeature {
     }
   }
 
-  /// M9: Remove button → script-only delete-script execution before the
-  /// gh-aware `removeWorktreeWithGit` call. Mirrors `CreateWorktreeFeature`'s
-  /// setup-script pattern: the lifecycle wrapper is bypassed because the
-  /// remove path needs the gh-aware variant (`git worktree remove`), not
-  /// the catalog-only `removeWorktree`. Fail-warn semantics — script
-  /// failure does not block the remove. `onFailure` is non-nil for the
-  /// safe path (so uncommitted-changes errors can ladder into the
-  /// force-remove flow); the force paths swallow remove errors directly.
+  /// Remove button → run the configured `delete` lifecycle script (if
+  /// any), surface its result via the lifecycle toast, then drive the
+  /// relocate-then-prune git removal in `removeWorktreeWithGit`. The
+  /// git step has no "uncommitted changes" or "submodule" guard
+  /// anymore — the worktree directory is moved out of the way before
+  /// `git worktree prune` is asked to clean the metadata — so a single
+  /// confirmation in the UI is the only protection. Errors are
+  /// swallowed: a failed remove leaves the worktree in place but does
+  /// not surface a banner (mirrors supacode's `try?` semantics; see
+  /// design discussion 2026-04-27).
   private func runRemoveWithDeleteScript(
     client: HierarchyClient,
-    wid: WorktreeID, pid: ProjectID, sid: SpaceID, name: String, force: Bool,
-    onFailure: (@Sendable (GitWorktreeError) -> Action)?
+    wid: WorktreeID, pid: ProjectID, sid: SpaceID, name: String
   ) -> Effect<Action> {
     .run { send in
       let result = await client.runWorktreeLifecycleScript(.delete, wid, pid)
@@ -996,19 +888,7 @@ struct HierarchySidebarFeature {
         .delegate(
           .lifecycleScriptResult(phase: .delete, worktreeName: name, result: result))
       )
-      do {
-        try await client.removeWorktreeWithGit(wid, pid, sid, force)
-      } catch let error as GitWorktreeError {
-        if let onFailure {
-          await send(onFailure(error))
-        }
-      } catch {
-        if let onFailure {
-          await send(
-            onFailure(
-              .commandFailed(command: "remove", stderr: error.localizedDescription)))
-        }
-      }
+      try? await client.removeWorktreeWithGit(wid, pid, sid)
     }
   }
 }

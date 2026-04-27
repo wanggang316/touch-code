@@ -203,7 +203,7 @@ struct HierarchySidebarFeatureTests {
     /// Post-T-WORKTREE: the Worktree-Remove confirmation now routes
     /// through `removeWorktreeWithGit` (async) instead of the legacy
     /// synchronous `removeWorktree`. Recorded here.
-    var removeWorktreeWithGit: [(WorktreeID, ProjectID, SpaceID, Bool)] = []
+    var removeWorktreeWithGit: [(WorktreeID, ProjectID, SpaceID)] = []
     var removeProject: [(ProjectID, SpaceID)] = []
     var renameProject: [(ProjectID, SpaceID, String)] = []
     var createSpace: [String] = []
@@ -235,9 +235,9 @@ struct HierarchySidebarFeatureTests {
     deps.hierarchyClient.removeWorktree = { worktree, project, space in
       calls.withValue { $0.removeWorktree.append((worktree, project, space)) }
     }
-    deps.hierarchyClient.removeWorktreeWithGit = { worktree, project, space, force in
+    deps.hierarchyClient.removeWorktreeWithGit = { worktree, project, space in
       calls.withValue {
-        $0.removeWorktreeWithGit.append((worktree, project, space, force))
+        $0.removeWorktreeWithGit.append((worktree, project, space))
       }
     }
     deps.hierarchyClient.removeProject = { project, space in
@@ -477,7 +477,6 @@ struct HierarchySidebarFeatureTests {
     #expect(recorded.removeWorktreeWithGit[0].0 == fix.w2)
     #expect(recorded.removeWorktreeWithGit[0].1 == fix.projectP)
     #expect(recorded.removeWorktreeWithGit[0].2 == fix.spaceA)
-    #expect(recorded.removeWorktreeWithGit[0].3 == false)
   }
 
   @Test

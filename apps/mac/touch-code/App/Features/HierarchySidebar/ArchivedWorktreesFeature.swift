@@ -5,8 +5,9 @@ import TouchCodeCore
 /// Reducer backing the "Archived Worktrees" sheet opened from the
 /// Project `⋯` menu. The view reads archived worktrees live from
 /// `HierarchyManager.catalog` on each render; this reducer owns only
-/// transient UX state (the in-sheet error banner + a pending
-/// force-remove payload awaiting confirmation).
+/// transient UX state (the in-sheet error banner + a pending-removal
+/// payload awaiting confirmation). Mirrors the sidebar's
+/// single-confirmation flow — see HierarchySidebarFeature.
 @Reducer
 struct ArchivedWorktreesFeature {
   @ObservableState
@@ -14,28 +15,22 @@ struct ArchivedWorktreesFeature {
     let projectID: ProjectID
     let spaceID: SpaceID
     var banner: String?
-    /// Payload for the force-remove confirmation dialog. Non-nil →
-    /// dialog visible.
-    var pendingForceRemove: PendingForceRemove?
+    /// Payload for the destructive-remove confirmation dialog. Non-nil
+    /// → dialog visible.
+    var pendingRemoval: PendingRemoval?
   }
 
-  struct PendingForceRemove: Equatable {
+  struct PendingRemoval: Equatable {
     var worktreeID: WorktreeID
     var worktreeName: String
-    var uncommittedFiles: [String]
   }
 
   enum Action: Equatable {
     case unarchiveTapped(WorktreeID)
     case removeTapped(WorktreeID, displayName: String)
+    case removeConfirmed
+    case removeCancelled
     case removeFinished(worktreeID: WorktreeID, error: String?)
-    case removeRequiresForce(
-      worktreeID: WorktreeID,
-      displayName: String,
-      uncommittedFiles: [String]
-    )
-    case forceRemoveConfirmed
-    case forceRemoveCancelled
     case dismissBanner
     case closeButtonTapped
     case delegate(Delegate)
@@ -61,53 +56,22 @@ struct ArchivedWorktreesFeature {
         return .none
 
       case .removeTapped(let worktreeID, let displayName):
-        let projectID = state.projectID
-        let spaceID = state.spaceID
-        let client = hierarchyClient
-        return .run { send in
-          do {
-            try await client.removeWorktreeWithGit(worktreeID, projectID, spaceID, false)
-            await send(.removeFinished(worktreeID: worktreeID, error: nil))
-          } catch let gitError as GitWorktreeError {
-            if case .uncommittedChanges(let files) = gitError {
-              await send(
-                .removeRequiresForce(
-                  worktreeID: worktreeID,
-                  displayName: displayName,
-                  uncommittedFiles: files
-                ))
-              return
-            }
-            await send(.removeFinished(worktreeID: worktreeID, error: humanReadable(gitError)))
-          } catch {
-            await send(.removeFinished(worktreeID: worktreeID, error: error.localizedDescription))
-          }
-        }
-
-      case .removeFinished(_, let error):
-        state.pendingForceRemove = nil
-        state.banner = error
-        return .none
-
-      case .removeRequiresForce(let worktreeID, let displayName, let files):
-        state.pendingForceRemove = PendingForceRemove(
-          worktreeID: worktreeID,
-          worktreeName: displayName,
-          uncommittedFiles: files
+        state.pendingRemoval = PendingRemoval(
+          worktreeID: worktreeID, worktreeName: displayName
         )
         state.banner = nil
         return .none
 
-      case .forceRemoveConfirmed:
-        guard let pending = state.pendingForceRemove else { return .none }
+      case .removeConfirmed:
+        guard let pending = state.pendingRemoval else { return .none }
         let projectID = state.projectID
         let spaceID = state.spaceID
         let client = hierarchyClient
         let worktreeID = pending.worktreeID
-        state.pendingForceRemove = nil
+        state.pendingRemoval = nil
         return .run { send in
           do {
-            try await client.removeWorktreeWithGit(worktreeID, projectID, spaceID, true)
+            try await client.removeWorktreeWithGit(worktreeID, projectID, spaceID)
             await send(.removeFinished(worktreeID: worktreeID, error: nil))
           } catch let gitError as GitWorktreeError {
             await send(.removeFinished(worktreeID: worktreeID, error: humanReadable(gitError)))
@@ -116,8 +80,12 @@ struct ArchivedWorktreesFeature {
           }
         }
 
-      case .forceRemoveCancelled:
-        state.pendingForceRemove = nil
+      case .removeCancelled:
+        state.pendingRemoval = nil
+        return .none
+
+      case .removeFinished(_, let error):
+        state.banner = error
         return .none
 
       case .dismissBanner:

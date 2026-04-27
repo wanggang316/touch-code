@@ -77,21 +77,22 @@ struct ArchivedWorktreesSheet: View {
     }
     .padding(20)
     .frame(width: 480, height: 360)
-    .alert(
-      forceRemoveTitle,
+    .confirmationDialog(
+      removalTitle,
       isPresented: Binding(
-        get: { store.pendingForceRemove != nil },
-        set: { if !$0 { store.send(.forceRemoveCancelled) } }
-      )
+        get: { store.pendingRemoval != nil },
+        set: { if !$0 { store.send(.removeCancelled) } }
+      ),
+      titleVisibility: .visible
     ) {
-      Button("Force Remove", role: .destructive) {
-        store.send(.forceRemoveConfirmed)
+      Button("Remove Worktree", role: .destructive) {
+        store.send(.removeConfirmed)
       }
       Button("Cancel", role: .cancel) {
-        store.send(.forceRemoveCancelled)
+        store.send(.removeCancelled)
       }
     } message: {
-      Text(forceRemoveMessage)
+      Text("Closes all panes and deletes the Worktree directory, including any uncommitted changes. This cannot be undone.")
     }
   }
 
@@ -103,24 +104,8 @@ struct ArchivedWorktreesSheet: View {
     return project.worktrees.filter { $0.archived }
   }
 
-  private var forceRemoveTitle: String {
-    guard let pending = store.pendingForceRemove else { return "Force Remove?" }
-    return "Force Remove “\(pending.worktreeName)”?"
-  }
-
-  private var forceRemoveMessage: String {
-    guard let pending = store.pendingForceRemove else {
-      return "Uncommitted changes will be discarded. This cannot be undone."
-    }
-    if pending.uncommittedFiles.isEmpty {
-      return "Uncommitted changes will be discarded. This cannot be undone."
-    }
-    let shown = pending.uncommittedFiles.prefix(3).joined(separator: ", ")
-    let more =
-      pending.uncommittedFiles.count > 3
-      ? " and \(pending.uncommittedFiles.count - 3) more"
-      : ""
-    return
-      "\(pending.uncommittedFiles.count) file(s) have uncommitted changes: \(shown)\(more). Force remove will discard them. This cannot be undone."
+  private var removalTitle: String {
+    guard let pending = store.pendingRemoval else { return "Remove Worktree?" }
+    return "Remove “\(pending.worktreeName)”?"
   }
 }
