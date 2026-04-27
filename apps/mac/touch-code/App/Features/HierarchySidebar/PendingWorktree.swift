@@ -16,7 +16,6 @@ nonisolated struct PendingWorktreeID: Hashable, Sendable {
 struct PendingWorktree: Equatable, Identifiable {
   let id: PendingWorktreeID
   let projectID: ProjectID
-  let spaceID: SpaceID
   let spec: CreateWorktreeSpec
   let displayName: String
   var status: Status

@@ -78,12 +78,7 @@ struct ProjectScriptsSettingsView: View {
   }
 
   private var project: Project? {
-    for space in hierarchyManager.catalog.spaces {
-      if let p = space.projects.first(where: { $0.id == projectID }) {
-        return p
-      }
-    }
-    return nil
+    hierarchyManager.catalog.projects.first(where: { $0.id == projectID })
   }
 
   // MARK: - Body

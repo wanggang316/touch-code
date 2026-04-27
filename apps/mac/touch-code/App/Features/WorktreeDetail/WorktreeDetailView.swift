@@ -68,7 +68,6 @@ struct WorktreeDetailView: View {
   private func worktreeInfo(for address: Address) -> WorktreeInfo? {
     guard
       let project = hierarchyManager.catalog
-        .spaces.first(where: { $0.id == address.space })?
         .projects.first(where: { $0.id == address.project }),
       let worktree = project.worktrees.first(where: { $0.id == address.worktree })
     else { return nil }
@@ -88,7 +87,6 @@ struct WorktreeDetailView: View {
   private func tabBarRow(address: Address) -> some View {
     TabBarView(
       store: store.scope(state: \.tabBar, action: \.tabBar),
-      spaceID: address.space,
       projectID: address.project,
       worktreeID: address.worktree,
       activeTabID: address.activeTab
@@ -102,7 +100,6 @@ struct WorktreeDetailView: View {
     if let tabID = address.activeTab {
       SplitViewportView(
         store: store.scope(state: \.splitViewport, action: \.splitViewport),
-        spaceID: address.space,
         projectID: address.project,
         worktreeID: address.worktree,
         tabID: tabID
@@ -191,7 +188,6 @@ struct WorktreeDetailView: View {
           HeaderOpenSplitButton(
             store: headerStore,
             editorStore: editorStore,
-            spaceID: address.space,
             projectID: address.project,
             worktreePath: info.worktree.path
           )
@@ -255,7 +251,6 @@ struct WorktreeDetailView: View {
       HeaderOpenSplitButton(
         store: headerStore,
         editorStore: editorStore,
-        spaceID: address.space,
         projectID: address.project,
         worktreePath: info.worktree.path
       )
@@ -336,7 +331,6 @@ struct WorktreeDetailView: View {
   }
 
   private struct Address {
-    let space: SpaceID
     let project: ProjectID
     let worktree: WorktreeID
     let activeTab: TabID?
@@ -344,17 +338,14 @@ struct WorktreeDetailView: View {
 
   private func resolveAddress() -> Address? {
     guard
-      let spaceID = selection.spaceID,
       let projectID = selection.projectID,
       let worktreeID = selection.worktreeID,
-      let space = hierarchyManager.catalog.spaces.first(where: { $0.id == spaceID }),
-      let project = space.projects.first(where: { $0.id == projectID }),
+      let project = hierarchyManager.catalog.projects.first(where: { $0.id == projectID }),
       let worktree = project.worktrees.first(where: { $0.id == worktreeID })
     else {
       return nil
     }
     return Address(
-      space: spaceID,
       project: projectID,
       worktree: worktreeID,
       activeTab: worktree.selectedTabID

@@ -12,7 +12,6 @@ import TouchCodeCore
 struct HeaderOpenSplitButton: View {
   @Bindable var store: StoreOf<WorktreeHeaderFeature>
   @Bindable var editorStore: StoreOf<EditorFeature>
-  let spaceID: SpaceID
   let projectID: ProjectID
   let worktreePath: String
   @Environment(HierarchyManager.self) private var hierarchyManager

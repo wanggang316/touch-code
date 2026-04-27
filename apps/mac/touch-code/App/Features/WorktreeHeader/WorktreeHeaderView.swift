@@ -9,7 +9,6 @@ import TouchCodeCore
 struct WorktreeHeaderView: View {
   @Bindable var store: StoreOf<WorktreeHeaderFeature>
   let editorStore: StoreOf<EditorFeature>
-  let spaceID: SpaceID
   let projectID: ProjectID
   let worktreePath: String
   let branchLabel: String
@@ -36,7 +35,6 @@ struct WorktreeHeaderView: View {
         HeaderOpenSplitButton(
           store: store,
           editorStore: editorStore,
-          spaceID: spaceID,
           projectID: projectID,
           worktreePath: worktreePath
         )

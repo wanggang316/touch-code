@@ -130,18 +130,16 @@ final class TrackerRegistry {
 
   // MARK: - Catalog walk
 
-  /// Flatten the five-level hierarchy to the Panes whose labels mark them
+  /// Flatten the four-level hierarchy to the Panes whose labels mark them
   /// as agent-hosted. Exposed as a static so tests can exercise it without
   /// building a full HierarchyManager.
   static func agentLabelledPanes(in catalog: Catalog) -> [Pane] {
     var result: [Pane] = []
-    for space in catalog.spaces {
-      for project in space.projects {
-        for worktree in project.worktrees {
-          for tab in worktree.tabs {
-            for pane in tab.panes where pane.labels.contains(where: { $0.hasPrefix("agent:") }) {
-              result.append(pane)
-            }
+    for project in catalog.projects {
+      for worktree in project.worktrees {
+        for tab in worktree.tabs {
+          for pane in tab.panes where pane.labels.contains(where: { $0.hasPrefix("agent:") }) {
+            result.append(pane)
           }
         }
       }

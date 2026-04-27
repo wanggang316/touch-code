@@ -69,7 +69,6 @@ struct HeaderBellPopover: View {
             ForEach(worktreeGroup.notifications) { notification in
               row(
                 notification: notification,
-                spaceID: group.spaceID,
                 projectID: group.projectID,
                 worktreeID: worktreeGroup.worktreeID
               )
@@ -83,14 +82,13 @@ struct HeaderBellPopover: View {
 
   private func row(
     notification: AgentNotification,
-    spaceID: SpaceID,
     projectID: ProjectID,
     worktreeID: WorktreeID
   ) -> some View {
     Button {
       store.send(
         .notificationTapped(
-          spaceID: spaceID, projectID: projectID, worktreeID: worktreeID
+          projectID: projectID, worktreeID: worktreeID
         ))
     } label: {
       HStack(spacing: 6) {
@@ -125,7 +123,6 @@ extension HeaderBellPopover {
 
   struct ProjectGroup: Identifiable, Equatable {
     let projectID: ProjectID
-    let spaceID: SpaceID
     let projectName: String
     let worktrees: [WorktreeGroup]
     var id: ProjectID { projectID }
@@ -140,27 +137,23 @@ extension HeaderBellPopover {
     catalog: Catalog
   ) -> [ProjectGroup] {
     struct PaneLocation {
-      let spaceID: SpaceID
       let projectID: ProjectID
       let projectName: String
       let worktreeID: WorktreeID
       let branchLabel: String
     }
     var paneMap: [PaneID: PaneLocation] = [:]
-    for space in catalog.spaces {
-      for project in space.projects {
-        for worktree in project.worktrees {
-          let branch = worktree.branch ?? worktree.name
-          for tab in worktree.tabs {
-            for pane in tab.panes {
-              paneMap[pane.id] = PaneLocation(
-                spaceID: space.id,
-                projectID: project.id,
-                projectName: project.name,
-                worktreeID: worktree.id,
-                branchLabel: branch
-              )
-            }
+    for project in catalog.projects {
+      for worktree in project.worktrees {
+        let branch = worktree.branch ?? worktree.name
+        for tab in worktree.tabs {
+          for pane in tab.panes {
+            paneMap[pane.id] = PaneLocation(
+              projectID: project.id,
+              projectName: project.name,
+              worktreeID: worktree.id,
+              branchLabel: branch
+            )
           }
         }
       }
@@ -168,14 +161,14 @@ extension HeaderBellPopover {
 
     // Bucket unreads by (Project, Worktree) preserving first-seen catalog order.
     var projectOrder: [ProjectID] = []
-    var projectMeta: [ProjectID: (spaceID: SpaceID, name: String, worktreeOrder: [WorktreeID])] = [:]
+    var projectMeta: [ProjectID: (name: String, worktreeOrder: [WorktreeID])] = [:]
     var worktreeMeta: [WorktreeID: (projectID: ProjectID, branchLabel: String)] = [:]
     var bucket: [WorktreeID: [AgentNotification]] = [:]
 
     for notification in inbox.notifications where notification.isUnread {
       guard let location = paneMap[notification.paneID] else { continue }
       if projectMeta[location.projectID] == nil {
-        projectMeta[location.projectID] = (location.spaceID, location.projectName, [])
+        projectMeta[location.projectID] = (location.projectName, [])
         projectOrder.append(location.projectID)
       }
       if worktreeMeta[location.worktreeID] == nil {
@@ -196,7 +189,6 @@ extension HeaderBellPopover {
       }
       return ProjectGroup(
         projectID: projectID,
-        spaceID: meta.spaceID,
         projectName: meta.name,
         worktrees: worktreeGroups
       )

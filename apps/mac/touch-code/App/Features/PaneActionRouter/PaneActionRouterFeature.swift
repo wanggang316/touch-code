@@ -78,28 +78,28 @@ struct PaneActionRouterFeature {
         findPane(
           paneID: paneID, tabID: address.tabID,
           worktreeID: address.worktreeID, projectID: address.projectID,
-          spaceID: address.spaceID, in: catalog
+          in: catalog
         )?.workingDirectory ?? findWorktree(
           worktreeID: address.worktreeID, projectID: address.projectID,
-          spaceID: address.spaceID, in: catalog
+          in: catalog
         )?.path ?? NSHomeDirectory()
       guard
         let newTabID = try? hierarchyClient.createTab(
-          address.worktreeID, address.projectID, address.spaceID, nil
+          address.worktreeID, address.projectID, nil
         )
       else { return .none }
       // Without this, HierarchyManager.createTab initialises an empty Tab
       // and the UI shows "No panes" until the user opens one manually —
       // a surprise for a keybind that asked for a working tab.
       _ = try? hierarchyClient.openPane(
-        newTabID, address.worktreeID, address.projectID, address.spaceID, cwd, nil
+        newTabID, address.worktreeID, address.projectID, cwd, nil
       )
       return .none
 
     case .closeTab(.this):
       guard let address = hierarchyClient.addressOf(paneID) else { return .none }
       try? hierarchyClient.closeTab(
-        address.tabID, address.worktreeID, address.projectID, address.spaceID
+        address.tabID, address.worktreeID, address.projectID
       )
       return .none
 
@@ -114,7 +114,7 @@ struct PaneActionRouterFeature {
     case .moveTab(let offset):
       guard let address = hierarchyClient.addressOf(paneID) else { return .none }
       try? hierarchyClient.moveTab(
-        address.tabID, address.worktreeID, address.projectID, address.spaceID, offset
+        address.tabID, address.worktreeID, address.projectID, offset
       )
       return .none
 
@@ -137,13 +137,13 @@ struct PaneActionRouterFeature {
         let sourcePane = findPane(
           paneID: paneID, tabID: address.tabID,
           worktreeID: address.worktreeID, projectID: address.projectID,
-          spaceID: address.spaceID, in: catalog
+          in: catalog
         )
       else { return .none }
       let newDir = Self.splitDirection(for: direction)
       let newPaneID = try? hierarchyClient.splitPane(
         paneID, newDir,
-        address.tabID, address.worktreeID, address.projectID, address.spaceID,
+        address.tabID, address.worktreeID, address.projectID,
         sourcePane.workingDirectory, nil
       )
       // Match ghostty macOS controller: focus the new pane. Dispatched
@@ -170,7 +170,7 @@ struct PaneActionRouterFeature {
     case .equalizeSplits:
       guard let address = hierarchyClient.addressOf(paneID) else { return .none }
       try? hierarchyClient.equalizeTabSplits(
-        address.tabID, address.worktreeID, address.projectID, address.spaceID
+        address.tabID, address.worktreeID, address.projectID
       )
       return .none
 
@@ -199,7 +199,7 @@ struct PaneActionRouterFeature {
     guard
       let worktree = findWorktree(
         worktreeID: address.worktreeID, projectID: address.projectID,
-        spaceID: address.spaceID, in: catalog
+        in: catalog
       )
     else { return }
     guard let currentIndex = worktree.tabs.firstIndex(where: { $0.id == address.tabID })
@@ -218,7 +218,7 @@ struct PaneActionRouterFeature {
     }
     for tabID in doomed {
       try? hierarchyClient.closeTab(
-        tabID, address.worktreeID, address.projectID, address.spaceID
+        tabID, address.worktreeID, address.projectID
       )
     }
   }
@@ -229,7 +229,7 @@ struct PaneActionRouterFeature {
     guard
       let worktree = findWorktree(
         worktreeID: address.worktreeID, projectID: address.projectID,
-        spaceID: address.spaceID, in: catalog
+        in: catalog
       ),
       !worktree.tabs.isEmpty,
       let currentIndex = worktree.tabs.firstIndex(where: { $0.id == address.tabID })
@@ -254,7 +254,7 @@ struct PaneActionRouterFeature {
     guard targetIndex != currentIndex else { return }
     let targetTabID = worktree.tabs[targetIndex].id
     try? hierarchyClient.selectTab(
-      targetTabID, address.worktreeID, address.projectID, address.spaceID
+      targetTabID, address.worktreeID, address.projectID
     )
   }
 
@@ -286,7 +286,7 @@ struct PaneActionRouterFeature {
     guard
       let tab = findTab(
         tabID: address.tabID, worktreeID: address.worktreeID,
-        projectID: address.projectID, spaceID: address.spaceID, in: catalog
+        projectID: address.projectID, in: catalog
       )
     else { return }
 
@@ -300,7 +300,7 @@ struct PaneActionRouterFeature {
     guard let neighborID = tab.splitTree.focusTarget(for: treeDirection, from: paneID)
     else { return }
     try? hierarchyClient.focusPane(
-      neighborID, address.tabID, address.worktreeID, address.projectID, address.spaceID
+      neighborID, address.tabID, address.worktreeID, address.projectID
     )
   }
 
@@ -310,17 +310,17 @@ struct PaneActionRouterFeature {
     guard
       let tab = findTab(
         tabID: address.tabID, worktreeID: address.worktreeID,
-        projectID: address.projectID, spaceID: address.spaceID, in: catalog
+        projectID: address.projectID, in: catalog
       )
     else { return }
 
     if tab.splitTree.zoomed == paneID {
       try? hierarchyClient.unzoomTab(
-        address.tabID, address.worktreeID, address.projectID, address.spaceID
+        address.tabID, address.worktreeID, address.projectID
       )
     } else {
       try? hierarchyClient.focusPane(
-        paneID, address.tabID, address.worktreeID, address.projectID, address.spaceID
+        paneID, address.tabID, address.worktreeID, address.projectID
       )
     }
   }
@@ -330,11 +330,9 @@ struct PaneActionRouterFeature {
   private func findWorktree(
     worktreeID: WorktreeID,
     projectID: ProjectID,
-    spaceID: SpaceID,
     in catalog: Catalog
   ) -> Worktree? {
-    catalog.spaces.first(where: { $0.id == spaceID })?
-      .projects.first(where: { $0.id == projectID })?
+    catalog.projects.first(where: { $0.id == projectID })?
       .worktrees.first(where: { $0.id == worktreeID })
   }
 
@@ -342,11 +340,10 @@ struct PaneActionRouterFeature {
     tabID: TabID,
     worktreeID: WorktreeID,
     projectID: ProjectID,
-    spaceID: SpaceID,
     in catalog: Catalog
   ) -> Tab? {
     findWorktree(
-      worktreeID: worktreeID, projectID: projectID, spaceID: spaceID, in: catalog
+      worktreeID: worktreeID, projectID: projectID, in: catalog
     )?.tabs.first(where: { $0.id == tabID })
   }
 
@@ -355,12 +352,11 @@ struct PaneActionRouterFeature {
     tabID: TabID,
     worktreeID: WorktreeID,
     projectID: ProjectID,
-    spaceID: SpaceID,
     in catalog: Catalog
   ) -> Pane? {
     findTab(
       tabID: tabID, worktreeID: worktreeID, projectID: projectID,
-      spaceID: spaceID, in: catalog
+      in: catalog
     )?.panes.first(where: { $0.id == paneID })
   }
 }

@@ -31,21 +31,19 @@ struct SplitViewportFeature {
     case panesInActiveTabChanged([PaneHostFeature.State])
     case paneHosts(IdentifiedActionOf<PaneHostFeature>)
     case newPaneButtonTapped(
-      inTab: TabID, inWorktree: WorktreeID, inProject: ProjectID, inSpace: SpaceID,
+      inTab: TabID, inWorktree: WorktreeID, inProject: ProjectID,
       workingDirectory: String)
     case splitButtonTapped(
       PaneID, direction: SplitTree<PaneID>.NewDirection,
-      inTab: TabID, inWorktree: WorktreeID, inProject: ProjectID, inSpace: SpaceID,
+      inTab: TabID, inWorktree: WorktreeID, inProject: ProjectID,
       workingDirectory: String)
     case closePaneButtonTapped(
-      PaneID, inTab: TabID, inWorktree: WorktreeID,
-      inProject: ProjectID, inSpace: SpaceID)
+      PaneID, inTab: TabID, inWorktree: WorktreeID, inProject: ProjectID)
     case focusPaneRequested(
-      PaneID, inTab: TabID, inWorktree: WorktreeID,
-      inProject: ProjectID, inSpace: SpaceID)
+      PaneID, inTab: TabID, inWorktree: WorktreeID, inProject: ProjectID)
     case resizeSplitRequested(
       SplitTree<PaneID>.Path, ratio: Double,
-      inTab: TabID, inWorktree: WorktreeID, inProject: ProjectID, inSpace: SpaceID)
+      inTab: TabID, inWorktree: WorktreeID, inProject: ProjectID)
   }
 
   @Dependency(HierarchyClient.self) private var hierarchyClient
@@ -83,32 +81,32 @@ struct SplitViewportFeature {
       case .paneHosts:
         return .none
 
-      case .newPaneButtonTapped(let tabID, let worktreeID, let projectID, let spaceID, let cwd):
-        _ = try? hierarchyClient.openPane(tabID, worktreeID, projectID, spaceID, cwd, nil)
+      case .newPaneButtonTapped(let tabID, let worktreeID, let projectID, let cwd):
+        _ = try? hierarchyClient.openPane(tabID, worktreeID, projectID, cwd, nil)
         return .none
 
       case .splitButtonTapped(
         let paneID, let direction,
-        let tabID, let worktreeID, let projectID, let spaceID, let cwd
+        let tabID, let worktreeID, let projectID, let cwd
       ):
         _ = try? hierarchyClient.splitPane(
-          paneID, direction, tabID, worktreeID, projectID, spaceID, cwd, nil
+          paneID, direction, tabID, worktreeID, projectID, cwd, nil
         )
         return .none
 
-      case .closePaneButtonTapped(let paneID, let tabID, let worktreeID, let projectID, let spaceID):
-        try? hierarchyClient.closePane(paneID, tabID, worktreeID, projectID, spaceID)
+      case .closePaneButtonTapped(let paneID, let tabID, let worktreeID, let projectID):
+        try? hierarchyClient.closePane(paneID, tabID, worktreeID, projectID)
         return .none
 
-      case .focusPaneRequested(let paneID, let tabID, let worktreeID, let projectID, let spaceID):
-        try? hierarchyClient.focusPane(paneID, tabID, worktreeID, projectID, spaceID)
+      case .focusPaneRequested(let paneID, let tabID, let worktreeID, let projectID):
+        try? hierarchyClient.focusPane(paneID, tabID, worktreeID, projectID)
         return .none
 
       case .resizeSplitRequested(
         let path, let ratio,
-        let tabID, let worktreeID, let projectID, let spaceID
+        let tabID, let worktreeID, let projectID
       ):
-        try? hierarchyClient.resizeSplit(path, ratio, tabID, worktreeID, projectID, spaceID)
+        try? hierarchyClient.resizeSplit(path, ratio, tabID, worktreeID, projectID)
         return .none
       }
     }

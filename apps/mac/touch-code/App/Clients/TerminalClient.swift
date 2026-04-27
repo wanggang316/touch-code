@@ -19,7 +19,7 @@ nonisolated struct TerminalClient: Sendable {
   var ensureSurface:
     @MainActor @Sendable (
       _ paneID: PaneID, _ inTab: TabID, _ inWorktree: WorktreeID,
-      _ inProject: ProjectID, _ inSpace: SpaceID
+      _ inProject: ProjectID
     ) throws -> Void
   var closeSurface: @MainActor @Sendable (_ paneID: PaneID) -> Void
 
@@ -53,11 +53,10 @@ extension TerminalClient {
         engine.ghosttyRuntime?.surface(for: paneID)?.setFocus(focused)
       },
       retryPane: { paneID in engine.retryPane(paneID) },
-      ensureSurface: { paneID, tabID, worktreeID, projectID, spaceID in
+      ensureSurface: { paneID, tabID, worktreeID, projectID in
         let catalog = engine.hierarchy.catalog
         guard
-          let space = catalog.spaces.first(where: { $0.id == spaceID }),
-          let project = space.projects.first(where: { $0.id == projectID }),
+          let project = catalog.projects.first(where: { $0.id == projectID }),
           let worktree = project.worktrees.first(where: { $0.id == worktreeID }),
           let tab = worktree.tabs.first(where: { $0.id == tabID }),
           let pane = tab.panes.first(where: { $0.id == paneID })
@@ -82,7 +81,7 @@ extension TerminalClient: DependencyKey {
     },
     setFocus: { _, _ in fatalError("TerminalClient.liveValue not configured") },
     retryPane: { _ in fatalError("TerminalClient.liveValue not configured") },
-    ensureSurface: { _, _, _, _, _ in fatalError("TerminalClient.liveValue not configured") },
+    ensureSurface: { _, _, _, _ in fatalError("TerminalClient.liveValue not configured") },
     closeSurface: { _ in fatalError("TerminalClient.liveValue not configured") },
     surface: { _ in nil },
     events: { AsyncStream { $0.finish() } }

@@ -14,7 +14,6 @@ struct TabBarView: View {
   let store: StoreOf<TabBarFeature>
   /// Resolved address of the active worktree whose tabs we render. If any
   /// of the IDs is nil, the view shows a thin empty bar.
-  let spaceID: SpaceID
   let projectID: ProjectID
   let worktreeID: WorktreeID
   let activeTabID: TabID?
@@ -34,7 +33,7 @@ struct TabBarView: View {
             store.send(
               .renameSubmitted(
                 target.id, name: newName,
-                inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+                inWorktree: worktreeID, inProject: projectID
               ))
             renameTarget = nil
           },
@@ -61,21 +60,21 @@ struct TabBarView: View {
         onNewTab: {
           store.send(
             .newTabButtonTapped(
-              inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+              inWorktree: worktreeID, inProject: projectID
             ))
         },
         onSplitRight: {
           store.send(
             .trailingSplitRequested(
               direction: .right,
-              inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+              inWorktree: worktreeID, inProject: projectID
             ))
         },
         onSplitDown: {
           store.send(
             .trailingSplitRequested(
               direction: .down,
-              inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+              inWorktree: worktreeID, inProject: projectID
             ))
         }
       )
@@ -105,37 +104,37 @@ struct TabBarView: View {
       onSelect: { tabID in
         store.send(
           .tabButtonTapped(
-            tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+            tabID, inWorktree: worktreeID, inProject: projectID
           ))
       },
       onClose: { tabID in
         store.send(
           .closeButtonTapped(
-            tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+            tabID, inWorktree: worktreeID, inProject: projectID
           ))
       },
       onMiddleClick: { tabID in
         store.send(
           .middleClicked(
-            tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+            tabID, inWorktree: worktreeID, inProject: projectID
           ))
       },
       onCloseOthers: { tabID in
         store.send(
           .contextMenuCloseOthers(
-            tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+            tabID, inWorktree: worktreeID, inProject: projectID
           ))
       },
       onCloseToRight: { tabID in
         store.send(
           .contextMenuCloseToRight(
-            tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+            tabID, inWorktree: worktreeID, inProject: projectID
           ))
       },
       onCloseAll: {
         store.send(
           .contextMenuCloseAll(
-            inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+            inWorktree: worktreeID, inProject: projectID
           ))
       },
       onRenameRequested: { tabID in
@@ -146,7 +145,7 @@ struct TabBarView: View {
         store.send(
           .dragReorderEnded(
             orderedIDs: orderedIDs,
-            inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+            inWorktree: worktreeID, inProject: projectID
           ))
       },
       onCacheLiveTitle: { tabID, title in
@@ -159,15 +158,14 @@ struct TabBarView: View {
           title,
           for: tabID,
           in: worktreeID,
-          in: projectID,
-          in: spaceID
+          in: projectID
         )
       }
     )
   }
 
   private func currentWorktree() -> Worktree? {
-    hierarchyManager.catalog.spaces.first(where: { $0.id == spaceID })?
+    hierarchyManager.catalog
       .projects.first(where: { $0.id == projectID })?
       .worktrees.first(where: { $0.id == worktreeID })
   }

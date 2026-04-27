@@ -161,8 +161,6 @@ nonisolated struct TemplateRenderer {
     case .projectID: return envelope.project?.id.raw.uuidString
     case .projectName: return envelope.project?.name
     case .projectRootPath: return envelope.project?.rootPath
-    case .spaceID: return envelope.space?.id.raw.uuidString
-    case .spaceName: return envelope.space?.name
     // Event data
     default:
       return resolveData(field: field, envelope: envelope)

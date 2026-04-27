@@ -232,13 +232,7 @@ nonisolated func classifyHooks(
   catalog: Catalog
 ) throws -> [(HookSubscription, HookSource)] {
   // Find the project in the catalog.
-  var project: Project?
-  for space in catalog.spaces {
-    if let found = space.projects.first(where: { $0.id == projectID }) {
-      project = found
-      break
-    }
-  }
+  let project = catalog.projects.first(where: { $0.id == projectID })
 
   guard let project else {
     throw ProjectSettingsFeature.LoadError.classificationFailed(

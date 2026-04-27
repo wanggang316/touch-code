@@ -45,7 +45,7 @@ struct WorktreeHeaderFeature {
     case inboxUpdated(NotificationInbox)
     case popoverToggled(Bool)
     case dismissAllTapped
-    case notificationTapped(spaceID: SpaceID, projectID: ProjectID, worktreeID: WorktreeID)
+    case notificationTapped(projectID: ProjectID, worktreeID: WorktreeID)
     case openDefaultEditorTapped(worktreePath: String, projectID: ProjectID?)
     case openEditorTapped(editorID: EditorID, worktreePath: String, projectID: ProjectID?)
     /// Dropdown menu item tapped. Resolves the worktree path and projectID
@@ -63,7 +63,7 @@ struct WorktreeHeaderFeature {
     /// Keeping the write on one path avoids the view-supplied visibility
     /// drifting from the catalog snapshot the reducer reads.
     case gitViewerToggleTapped
-    case setProjectDefaultEditorTapped(spaceID: SpaceID, projectID: ProjectID, editorID: EditorID?)
+    case setProjectDefaultEditorTapped(projectID: ProjectID, editorID: EditorID?)
     /// Run script split-button — primary or menu activation. Phase 2.
     case runScriptTapped(scriptID: UUID, projectID: ProjectID, worktreeID: WorktreeID)
     /// "Manage Scripts…" menu footer or primary click on an empty script list.
@@ -80,7 +80,7 @@ struct WorktreeHeaderFeature {
       /// Present the Settings sheet on the editors tab (`"+ Custom editors…"`).
       case showCustomEditorsSettings
       /// Mirror of today's "Set default for this Project" sub-menu.
-      case setProjectOverride(projectID: ProjectID, spaceID: SpaceID, editorID: EditorID?)
+      case setProjectOverride(projectID: ProjectID, editorID: EditorID?)
       /// Dropdown menu pick: parent resolves the current Worktree's path
       /// from `state.selection` (avoids stale closure captures in NSMenuItem
       /// actions), persists `editorID` as the per-Project default, and opens
@@ -132,11 +132,10 @@ struct WorktreeHeaderFeature {
         state.popoverOpen = false
         return .none
 
-      case .notificationTapped(let spaceID, let projectID, let worktreeID):
-        hierarchyClient.selectSpace(spaceID)
+      case .notificationTapped(let projectID, let worktreeID):
         do {
-          try hierarchyClient.selectProject(projectID, spaceID)
-          try hierarchyClient.selectWorktree(worktreeID, projectID, spaceID)
+          try hierarchyClient.selectProject(projectID)
+          try hierarchyClient.selectWorktree(worktreeID, projectID)
         } catch {
           Self.logger.error(
             "Stale popover row; selection chain failed: \(String(describing: error))"
@@ -161,12 +160,11 @@ struct WorktreeHeaderFeature {
       case .gitViewerToggleTapped:
         return .send(.delegate(.gitViewerToggleRequested))
 
-      case .setProjectDefaultEditorTapped(let spaceID, let projectID, let editorID):
+      case .setProjectDefaultEditorTapped(let projectID, let editorID):
         return .send(
           .delegate(
             .setProjectOverride(
               projectID: projectID,
-              spaceID: spaceID,
               editorID: editorID
             )))
 

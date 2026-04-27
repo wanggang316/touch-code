@@ -13,7 +13,6 @@ import TouchCodeCore
 /// The Tab is never auto-closed by this view (M4 contract from exec plan).
 struct SplitViewportView: View {
   @Bindable var store: StoreOf<SplitViewportFeature>
-  let spaceID: SpaceID
   let projectID: ProjectID
   let worktreeID: WorktreeID
   let tabID: TabID
@@ -28,8 +27,7 @@ struct SplitViewportView: View {
           store: store,
           tabID: tabID,
           worktreeID: worktreeID,
-          projectID: projectID,
-          spaceID: spaceID
+          projectID: projectID
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
@@ -50,7 +48,7 @@ struct SplitViewportView: View {
         store.send(
           .newPaneButtonTapped(
             inTab: tabID, inWorktree: worktreeID,
-            inProject: projectID, inSpace: spaceID,
+            inProject: projectID,
             workingDirectory: currentWorktreePath() ?? NSHomeDirectory()
           ))
       }
@@ -65,14 +63,13 @@ struct SplitViewportView: View {
   /// and tap — the caller falls back to `$HOME`.
   private func currentWorktreePath() -> String? {
     hierarchyManager.catalog
-      .spaces.first(where: { $0.id == spaceID })?
       .projects.first(where: { $0.id == projectID })?
       .worktrees.first(where: { $0.id == worktreeID })?
       .path
   }
 
   private func currentTab() -> TouchCodeCore.Tab? {
-    hierarchyManager.catalog.spaces.first(where: { $0.id == spaceID })?
+    hierarchyManager.catalog
       .projects.first(where: { $0.id == projectID })?
       .worktrees.first(where: { $0.id == worktreeID })?
       .tabs.first(where: { $0.id == tabID })
@@ -95,8 +92,7 @@ struct SplitViewportView: View {
         paneID: pane.id,
         tabID: tabID,
         worktreeID: worktreeID,
-        projectID: projectID,
-        spaceID: spaceID
+        projectID: projectID
       )
     }
     store.send(.panesInActiveTabChanged(seeds))
@@ -131,7 +127,6 @@ private struct SubtreeView: View {
   let tabID: TabID
   let worktreeID: WorktreeID
   let projectID: ProjectID
-  let spaceID: SpaceID
 
   var body: some View {
     switch node {
@@ -159,8 +154,7 @@ private struct SubtreeView: View {
               ratio: Double(newRatio),
               inTab: tabID,
               inWorktree: worktreeID,
-              inProject: projectID,
-              inSpace: spaceID
+              inProject: projectID
             ))
         }
       ),
@@ -172,8 +166,7 @@ private struct SubtreeView: View {
           store: store,
           tabID: tabID,
           worktreeID: worktreeID,
-          projectID: projectID,
-          spaceID: spaceID
+          projectID: projectID
         )
       },
       right: {
@@ -183,8 +176,7 @@ private struct SubtreeView: View {
           store: store,
           tabID: tabID,
           worktreeID: worktreeID,
-          projectID: projectID,
-          spaceID: spaceID
+          projectID: projectID
         )
       },
       onEqualize: {
@@ -194,8 +186,7 @@ private struct SubtreeView: View {
             ratio: 0.5,
             inTab: tabID,
             inWorktree: worktreeID,
-            inProject: projectID,
-            inSpace: spaceID
+            inProject: projectID
           ))
       }
     )

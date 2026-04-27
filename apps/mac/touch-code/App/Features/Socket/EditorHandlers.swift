@@ -113,7 +113,7 @@ final class EditorHandlers {
   private func projectOverride(
     for canonicalPath: String
   ) async -> EditorID? {
-    guard let (_, projectID) = hierarchy.projectContaining(canonicalPath) else {
+    guard let projectID = hierarchy.projectContaining(canonicalPath) else {
       return nil
     }
     // v3 reads per-Project editor override from settings.json.projects[pid].defaultEditor

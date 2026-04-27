@@ -100,8 +100,7 @@ struct ArchivedWorktreesSheet: View {
 
   private func archivedWorktrees() -> [Worktree] {
     let catalog = hierarchyManager.catalog
-    guard let space = catalog.spaces.first(where: { $0.id == store.spaceID }),
-      let project = space.projects.first(where: { $0.id == store.projectID })
+    guard let project = catalog.projects.first(where: { $0.id == store.projectID })
     else { return [] }
     return project.worktrees.filter { $0.archived }
   }

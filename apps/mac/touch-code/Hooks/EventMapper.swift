@@ -2,8 +2,8 @@ import Foundation
 import TouchCodeCore
 
 /// Maps a `TerminalEvent` emitted by the Runtime into a fully-anchored
-/// `HookEnvelope` for dispatch. Anchor enrichment (space / project /
-/// worktree / tab / pane refs) walks the supplied `Catalog` snapshot.
+/// `HookEnvelope` for dispatch. Anchor enrichment (project / worktree /
+/// tab / pane refs) walks the supplied `Catalog` snapshot.
 ///
 /// Pure helper — no state, no side effects. The dispatcher's `attach(to:)`
 /// loop calls `map(_:catalog:)` once per inbound event; a `nil` return
@@ -26,7 +26,7 @@ public enum EventMapper {
   }
 
   /// Cache-backed variant. The dispatcher feeds an `EventMapperCache` so
-  /// repeated events re-use the index and skip the O(S·P·W·T·P) walk.
+  /// repeated events re-use the index and skip the O(P·W·T·P) walk.
   /// Invalidation is the caller's job — the dispatcher does it on
   /// `.hierarchyMutated`.
   @MainActor
@@ -136,7 +136,6 @@ public enum EventMapper {
   // MARK: - Anchor lookup
 
   public struct Anchors {
-    public var space: HookEnvelope.SpaceRef?
     public var project: HookEnvelope.ProjectRef?
     public var worktree: HookEnvelope.WorktreeRef?
     public var tab: HookEnvelope.TabRef?
@@ -150,7 +149,6 @@ public enum EventMapper {
   ) -> HookEnvelope {
     HookEnvelope(
       event: event,
-      space: anchors.space,
       project: anchors.project,
       worktree: anchors.worktree,
       tab: anchors.tab,
@@ -160,36 +158,15 @@ public enum EventMapper {
   }
 
   public static func paneAnchors(_ paneID: PaneID, catalog: Catalog) -> Anchors {
-    for space in catalog.spaces {
-      for project in space.projects {
-        for worktree in project.worktrees {
-          for tab in worktree.tabs {
-            for pane in tab.panes where pane.id == paneID {
-              return Anchors(
-                space: Self.spaceRef(space),
-                project: Self.projectRef(project),
-                worktree: Self.worktreeRef(worktree),
-                tab: Self.tabRef(tab),
-                pane: Self.paneRef(pane)
-              )
-            }
-          }
-        }
-      }
-    }
-    return Anchors()
-  }
-
-  public static func tabAnchors(_ tabID: TabID, catalog: Catalog) -> Anchors {
-    for space in catalog.spaces {
-      for project in space.projects {
-        for worktree in project.worktrees {
-          for tab in worktree.tabs where tab.id == tabID {
+    for project in catalog.projects {
+      for worktree in project.worktrees {
+        for tab in worktree.tabs {
+          for pane in tab.panes where pane.id == paneID {
             return Anchors(
-              space: Self.spaceRef(space),
               project: Self.projectRef(project),
               worktree: Self.worktreeRef(worktree),
-              tab: Self.tabRef(tab)
+              tab: Self.tabRef(tab),
+              pane: Self.paneRef(pane)
             )
           }
         }
@@ -198,14 +175,14 @@ public enum EventMapper {
     return Anchors()
   }
 
-  public static func worktreeAnchors(_ worktreeID: WorktreeID, catalog: Catalog) -> Anchors {
-    for space in catalog.spaces {
-      for project in space.projects {
-        for worktree in project.worktrees where worktree.id == worktreeID {
+  public static func tabAnchors(_ tabID: TabID, catalog: Catalog) -> Anchors {
+    for project in catalog.projects {
+      for worktree in project.worktrees {
+        for tab in worktree.tabs where tab.id == tabID {
           return Anchors(
-            space: Self.spaceRef(space),
             project: Self.projectRef(project),
-            worktree: Self.worktreeRef(worktree)
+            worktree: Self.worktreeRef(worktree),
+            tab: Self.tabRef(tab)
           )
         }
       }
@@ -213,11 +190,19 @@ public enum EventMapper {
     return Anchors()
   }
 
-  // MARK: - Ref builders
-
-  private static func spaceRef(_ space: Space) -> HookEnvelope.SpaceRef {
-    HookEnvelope.SpaceRef(id: space.id, name: space.name)
+  public static func worktreeAnchors(_ worktreeID: WorktreeID, catalog: Catalog) -> Anchors {
+    for project in catalog.projects {
+      for worktree in project.worktrees where worktree.id == worktreeID {
+        return Anchors(
+          project: Self.projectRef(project),
+          worktree: Self.worktreeRef(worktree)
+        )
+      }
+    }
+    return Anchors()
   }
+
+  // MARK: - Ref builders
 
   private static func projectRef(_ project: Project) -> HookEnvelope.ProjectRef {
     HookEnvelope.ProjectRef(id: project.id, name: project.name, rootPath: project.rootPath)

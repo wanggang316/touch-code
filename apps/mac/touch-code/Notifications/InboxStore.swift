@@ -325,13 +325,11 @@ final class InboxStore {
   private func unreadByWorktreeSnapshot() -> [WorktreeID: Int] {
     guard let catalog = catalogProvider?() else { return [:] }
     var paneToWorktree: [PaneID: WorktreeID] = [:]
-    for space in catalog.spaces {
-      for project in space.projects {
-        for worktree in project.worktrees {
-          for tab in worktree.tabs {
-            for pane in tab.panes {
-              paneToWorktree[pane.id] = worktree.id
-            }
+    for project in catalog.projects {
+      for worktree in project.worktrees {
+        for tab in worktree.tabs {
+          for pane in tab.panes {
+            paneToWorktree[pane.id] = worktree.id
           }
         }
       }
