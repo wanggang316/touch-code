@@ -162,6 +162,12 @@ struct RootFeature {
     /// popover opens. Handled inline by the root reducer as a `.send` into
     /// `.sidebar(.externalSpacePopoverOpenRequested)`.
     case openSpaceSwitcherRequested
+    /// $EDITOR routing. Dispatched from `EditorFeature.delegate.openShellEditorRequested`
+    /// when any editor-open path resolves the preferred id to `EditorRegistry.shellEditorID`.
+    /// Locates the target Worktree by path, creates a fresh Tab, and spawns a Pane with
+    /// `initialCommand: "$EDITOR"` so the Pane primitive handles the launch the way
+    /// `EditorService.open` cannot (no Pane/Tab context in the service signature).
+    case openShellEditorInWorktree(worktreePath: String, projectID: ProjectID?)
     case spaceManagerSheetShown
     case spaceManagerSheet(PresentationAction<SpaceManagerFeature.Action>)
     case switchToSpaceAtIndex(Int)
@@ -537,6 +543,10 @@ struct RootFeature {
       case .editor(.openFailed(let reason)):
         return .send(.statusBar(.push(.warning(Self.shortToastMessage(reason)))))
 
+      case .editor(.delegate(.openShellEditorRequested(let worktreePath, let projectID))):
+        return .send(
+          .openShellEditorInWorktree(worktreePath: worktreePath, projectID: projectID))
+
       case .editor:
         return .none
 
@@ -794,6 +804,37 @@ struct RootFeature {
               worktreePath: path
             )))
 
+      case .openShellEditorInWorktree(let worktreePath, let projectIDHint):
+        let catalog = hierarchyClient.snapshot()
+        guard
+          let address = Self.findWorktreeAddress(
+            worktreePath: worktreePath, projectIDHint: projectIDHint, in: catalog)
+        else {
+          return .send(
+            .editor(.openFailed(reason: "Could not locate worktree at \(worktreePath)")))
+        }
+        let (spaceID, projectID, worktreeID) = address
+        guard
+          let tabID = try? hierarchyClient.createTab(worktreeID, projectID, spaceID, nil)
+        else {
+          return .send(.editor(.openFailed(reason: "Could not create tab for $EDITOR")))
+        }
+        guard
+          (try? hierarchyClient.openPane(
+            tabID, worktreeID, projectID, spaceID, worktreePath, "$EDITOR")) != nil
+        else {
+          return .send(.editor(.openFailed(reason: "Could not spawn $EDITOR pane")))
+        }
+        // Bring the user to the freshly spawned Pane. Selecting after the catalog
+        // mutation lets `autoSeedTabAndPaneIfNeeded` (driven by selectionChanges)
+        // see the populated tab and skip its own seed.
+        hierarchyClient.selectSpace(spaceID)
+        try? hierarchyClient.selectProject(projectID, spaceID)
+        try? hierarchyClient.selectWorktree(worktreeID, projectID, spaceID)
+        try? hierarchyClient.selectTab(tabID, worktreeID, projectID, spaceID)
+        return .send(
+          .editor(.openSucceeded(editorID: EditorRegistry.shellEditorID, displayName: "$EDITOR")))
+
       case .openSpaceSwitcherRequested:
         return .send(.sidebar(.externalSpacePopoverOpenRequested))
 
@@ -1028,6 +1069,27 @@ struct RootFeature {
   private func projectOverrideEditorID(for projectID: ProjectID?) -> EditorID? {
     guard let projectID else { return nil }
     return settingsWriter.readSnapshotSync().projects[projectID]?.defaultEditor
+  }
+
+  /// Walks `catalog` to find the `(SpaceID, ProjectID, WorktreeID)` triple whose Worktree
+  /// has the given path. Used by the `.openShellEditorInWorktree` handler to recover
+  /// the full address from the path-only handoff that propagates through the editor
+  /// open chain. The optional `projectIDHint` short-circuits the project loop when the
+  /// caller already knows the parent.
+  nonisolated static func findWorktreeAddress(
+    worktreePath: String,
+    projectIDHint: ProjectID?,
+    in catalog: Catalog
+  ) -> (SpaceID, ProjectID, WorktreeID)? {
+    for space in catalog.spaces {
+      for project in space.projects {
+        if let hint = projectIDHint, project.id != hint { continue }
+        if let worktree = project.worktrees.first(where: { $0.path == worktreePath }) {
+          return (space.id, project.id, worktree.id)
+        }
+      }
+    }
+    return nil
   }
 
   /// Ensures the selected Worktree has at least one Tab, and the active

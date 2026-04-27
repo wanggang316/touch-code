@@ -948,4 +948,113 @@ struct RootFeatureTests {
     await store.finish()
     #expect(captured.value == .next)
   }
+
+  // MARK: - $EDITOR Pane spawn
+
+  @Test
+  func openShellEditorInWorktreeSpawnsPaneWithDollarEditorCommand() async {
+    // The `.openRequested(editorID: "editor", ...)` path delegates out to RootFeature
+    // (because EditorService cannot launch $EDITOR — no Pane/Tab context). RootFeature
+    // looks up the worktree by path, creates a fresh Tab, and opens a Pane carrying
+    // `initialCommand: "$EDITOR"` so the Pane primitive handles the launch. This test
+    // pins that wiring: every hierarchyClient call records its arguments so we can
+    // assert the spawn lands on the matched (space, project, worktree, tab) and the
+    // Pane was given `$EDITOR` exactly.
+    let spaceID = SpaceID()
+    let projectID = ProjectID()
+    let worktreeID = WorktreeID()
+    let tabID = TabID()
+    let worktreePath = "/repo/main"
+    let worktree = Worktree(id: worktreeID, name: "main", path: worktreePath)
+    let project = Project(
+      id: projectID, name: "p", rootPath: worktreePath, gitRoot: worktreePath,
+      worktrees: [worktree]
+    )
+    let space = Space(id: spaceID, name: "s", projects: [project])
+    let catalog = Catalog(spaces: [space], selectedSpaceID: spaceID)
+
+    struct OpenPaneCall: Sendable, Equatable {
+      let tabID: TabID
+      let worktreeID: WorktreeID
+      let projectID: ProjectID
+      let spaceID: SpaceID
+      let cwd: String
+      let initialCommand: String?
+    }
+    let openPaneCalls = LockIsolated<[OpenPaneCall]>([])
+    let createTabCalls = LockIsolated<Int>(0)
+
+    let store = TestStore(initialState: RootFeature.State()) {
+      RootFeature()
+    } withDependencies: {
+      $0.terminalClient.events = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.snapshot = { catalog }
+      $0.hierarchyClient.createTab = { _, _, _, _ in
+        createTabCalls.withValue { $0 += 1 }
+        return tabID
+      }
+      $0.hierarchyClient.openPane = { tab, wt, pr, sp, cwd, cmd in
+        openPaneCalls.withValue {
+          $0.append(
+            OpenPaneCall(
+              tabID: tab, worktreeID: wt, projectID: pr, spaceID: sp,
+              cwd: cwd, initialCommand: cmd))
+        }
+        return PaneID()
+      }
+      $0.hierarchyClient.selectSpace = { _ in }
+      $0.hierarchyClient.selectProject = { _, _ in }
+      $0.hierarchyClient.selectWorktree = { _, _, _ in }
+      $0.hierarchyClient.selectTab = { _, _, _, _ in }
+    }
+    store.exhaustivity = .off
+
+    await store.send(
+      .openShellEditorInWorktree(worktreePath: worktreePath, projectID: projectID))
+    await store.finish()
+
+    #expect(createTabCalls.value == 1)
+    #expect(openPaneCalls.value.count == 1)
+    let call = openPaneCalls.value.first
+    #expect(call?.tabID == tabID)
+    #expect(call?.worktreeID == worktreeID)
+    #expect(call?.projectID == projectID)
+    #expect(call?.spaceID == spaceID)
+    #expect(call?.cwd == worktreePath)
+    #expect(call?.initialCommand == "$EDITOR")
+  }
+
+  @Test
+  func editorOpenRequestedRoutesShellEditorThroughDelegate() async {
+    // EditorFeature intercepts `.openRequested(editorID: shellEditorID, ...)` and
+    // emits `.delegate(.openShellEditorRequested(...))` instead of calling
+    // `editorClient.open` (which would throw). RootFeature catches the delegate and
+    // dispatches its own `.openShellEditorInWorktree(...)`.
+    let projectID = ProjectID()
+    let worktreePath = "/repo/x"
+    let store = TestStore(initialState: RootFeature.State()) {
+      RootFeature()
+    } withDependencies: {
+      $0.terminalClient.events = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
+      $0.hierarchyClient.snapshot = { Catalog() }
+      $0.editorClient = EditorClient.testValue
+    }
+    store.exhaustivity = .off
+
+    await store.send(
+      .editor(
+        .openRequested(
+          editorID: EditorRegistry.shellEditorID,
+          worktreePath: worktreePath,
+          projectID: projectID
+        )))
+    await store.receive(
+      .editor(
+        .delegate(
+          .openShellEditorRequested(worktreePath: worktreePath, projectID: projectID))))
+    await store.receive(
+      .openShellEditorInWorktree(worktreePath: worktreePath, projectID: projectID))
+  }
 }

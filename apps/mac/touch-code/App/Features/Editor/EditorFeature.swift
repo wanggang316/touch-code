@@ -55,6 +55,16 @@ struct EditorFeature {
       worktreeID: WorktreeID,
       worktreePath: String
     )
+    case delegate(Delegate)
+
+    /// Parent-consumed events. RootFeature handles `openShellEditorRequested` by
+    /// spawning a Pane with `initialCommand: "$EDITOR"` — `EditorService` cannot
+    /// service the shell-editor branch (no Pane/Tab context in its signature), so the
+    /// reducer routes it out instead of letting `editorClient.open` throw
+    /// `.launchFailed`.
+    enum Delegate: Equatable {
+      case openShellEditorRequested(worktreePath: String, projectID: ProjectID?)
+    }
   }
 
   @Dependency(EditorClient.self) var editorClient
@@ -109,7 +119,17 @@ struct EditorFeature {
         state.lastProjectOverrideFailure = reason
         return .none
 
-      case .openRequested(let editorID, let worktreePath, _):
+      case .openRequested(let editorID, let worktreePath, let projectID):
+        // `.shellEditor` cannot launch through `editorClient.open` — the service
+        // signature has no Pane/Tab context. Route the spawn out to `RootFeature`
+        // via the delegate so it can call `hierarchyClient.openPane(...
+        // initialCommand: "$EDITOR")` for the target worktree's tab.
+        if editorID == EditorRegistry.shellEditorID {
+          return .send(
+            .delegate(
+              .openShellEditorRequested(worktreePath: worktreePath, projectID: projectID)
+            ))
+        }
         let client = editorClient
         let url = URL(fileURLWithPath: worktreePath)
         return .run { send in
@@ -122,6 +142,9 @@ struct EditorFeature {
             await send(.openFailed(reason: String(describing: error)))
           }
         }
+
+      case .delegate:
+        return .none
 
       case .openSucceeded(let id, let name):
         state.lastOpenResult = .opened(editorID: id, displayName: name)
