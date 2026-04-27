@@ -24,7 +24,7 @@ Existing data is migrated losslessly: each prior Space becomes a same-named Tag 
 
 - [x] M0 — Baseline: rebase, capture pre-existing lint + test status — 2026-04-27
 - [x] M1 — TouchCodeCore: introduce `Tag` / `TagID` / `TagColor` / `TagFilter` value types (additive, no integration) — 2026-04-27 commit 4d67c91
-- [~] M2 — Catalog v3 schema flip + v2→v3 migration + Space/CatalogWindow removal (build-clean; 45 test files outstanding for M2.12)
+- [~] M2 — Catalog v3 schema flip + v2→v3 migration + Space/CatalogWindow removal (production build-clean; M2.12 test sweep in progress)
   - [x] M2.1a Project.tagIDs — commit 1a0d7e3
   - [x] M2.1b Catalog v3 + migration + Space.swift deletion — commit ec43426
   - [x] M2.1c TerminalEvent / HookEnvelope / NotificationInboxAggregation / Worktree comments — included in ec43426
@@ -32,7 +32,16 @@ Existing data is migrated losslessly: each prior Space becomes a same-named Tag 
   - [x] M2.3 HierarchyManager surface flip — commit 9ef04c4 (subagent)
   - [x] M2.4 HierarchyClient surface flip — commit 9ef04c4 (same subagent)
   - [x] M2.5–M2.11 RootFeature, Sidebar, SpaceManager deletion, CommandPalette, MainWindowCommands, Socket handlers, tc CLI, TouchCodeApp seed removal — commit 0fc0b1d (subagent) + 971ddf9 (orchestrator final pass)
-  - [ ] M2.12 Test sweep across `apps/mac/touch-code/Tests/` — 45 files reference Space surfaces; build does not depend on these (xcodebuild build green) but xcodebuild test will fail until they land
+  - [~] M2.12 Test sweep across `apps/mac/touch-code/Tests/` — closing subagent driving build-for-testing to green; production build is unaffected
+- [x] M3 — Single-window enforcement (Window(id:) + cmd+N suppressed + cmd+Q confirmation gate) — commit cd4a153
+- [x] M4 — Sidebar chip footer + filter wiring (TagChipFooter + filteredProjects + cmd+F focus) — commit da39c8e
+- [x] M5 — TagManagerFeature + project-row Tag editor (Tag dots + Tags submenu + sheet) — commit 341e4da
+- [x] M6 — tc CLI tag commands + IPC handlers (tag.* + project.tag.* RPCs + tc tag/tc project tag/list --tag) — commit 32c01b8
+- [~] M7 — First-launch toast + docs sweep + gate cleanup
+  - [x] product-spec.md / architecture.md / CHANGELOG.md sweep — commit 7dfbda8
+  - [ ] First-launch onboarding toast (deferred — needs UserDefaults gate; one-shot UX, not blocking)
+  - [ ] `check-no-space-residue` Make target removal (deferred — leave gate live until change soaks)
+- [ ] Final code review pass via agent-skills:code-reviewer
   - [x] M2.13 `check-no-space-residue` Make target wired into `make check` — commit 0fc0b1d (gate); commit a95dd15 + this commit refine the filter
   - [x] Build verification: `xcodebuild build -scheme touch-code` ✅ BUILD SUCCEEDED, `-scheme tc` ✅ BUILD SUCCEEDED
   - [x] Test verification: `xcodebuild test -scheme TouchCodeCore` ✅ 333/333 passed
