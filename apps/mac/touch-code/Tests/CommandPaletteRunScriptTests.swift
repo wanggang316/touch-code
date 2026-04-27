@@ -18,14 +18,11 @@ struct CommandPaletteRunScriptTests {
   @Test
   func buildEmitsOneItemPerProjectScriptInOrder() {
     var catalog = Catalog()
-    var space = Space(name: "S")
     var project = Project(name: "P", rootPath: "/tmp/p", gitRoot: "/tmp/p")
     let worktree = Worktree(name: "wt", path: "/tmp/p/wt", branch: "main")
     project.worktrees = [worktree]
-    space.projects = [project]
-    catalog.spaces = [space]
-    let selection = HierarchySelection(
-      spaceID: space.id, projectID: project.id, worktreeID: worktree.id
+    catalog.projects = [project]
+    let selection = HierarchySelection(projectID: project.id, worktreeID: worktree.id
     )
 
     let scripts = [
@@ -63,15 +60,13 @@ struct CommandPaletteRunScriptTests {
   @Test
   func switchingActiveProjectSurfacesTheNewProjectsScripts() {
     var catalog = Catalog()
-    var space = Space(name: "S")
     var projectA = Project(name: "A", rootPath: "/tmp/a", gitRoot: "/tmp/a")
     let worktreeA = Worktree(name: "wt-a", path: "/tmp/a/wt", branch: "main")
     projectA.worktrees = [worktreeA]
     var projectB = Project(name: "B", rootPath: "/tmp/b", gitRoot: "/tmp/b")
     let worktreeB = Worktree(name: "wt-b", path: "/tmp/b/wt", branch: "main")
     projectB.worktrees = [worktreeB]
-    space.projects = [projectA, projectB]
-    catalog.spaces = [space]
+    catalog.projects = [projectA, projectB]
 
     let scriptA = ScriptDefinition(kind: .test, name: "Test A", command: "a")
     let scriptB = ScriptDefinition(kind: .deploy, name: "Deploy B", command: "b")
@@ -90,11 +85,9 @@ struct CommandPaletteRunScriptTests {
       }
     }
 
-    let selectionA = HierarchySelection(
-      spaceID: space.id, projectID: projectA.id, worktreeID: worktreeA.id
+    let selectionA = HierarchySelection(projectID: projectA.id, worktreeID: worktreeA.id
     )
-    let selectionB = HierarchySelection(
-      spaceID: space.id, projectID: projectB.id, worktreeID: worktreeB.id
+    let selectionB = HierarchySelection(projectID: projectB.id, worktreeID: worktreeB.id
     )
 
     let titlesA = itemsFor(selectionA).filter {
@@ -113,14 +106,11 @@ struct CommandPaletteRunScriptTests {
   @Test
   func buildEmitsNoScriptItemsWhenActiveProjectHasNoScripts() {
     var catalog = Catalog()
-    var space = Space(name: "S")
     var project = Project(name: "P", rootPath: "/tmp/p", gitRoot: "/tmp/p")
     let worktree = Worktree(name: "wt", path: "/tmp/p/wt", branch: "main")
     project.worktrees = [worktree]
-    space.projects = [project]
-    catalog.spaces = [space]
-    let selection = HierarchySelection(
-      spaceID: space.id, projectID: project.id, worktreeID: worktree.id
+    catalog.projects = [project]
+    let selection = HierarchySelection(projectID: project.id, worktreeID: worktree.id
     )
 
     let items = withDependencies {
@@ -151,8 +141,6 @@ struct CommandPaletteRunScriptTests {
       $0.terminalClient.events = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.snapshot = { Catalog() }
-      $0.hierarchyClient.selectSpace = { _ in }
-      $0.hierarchyClient.setSpaceLastActiveWorktree = { _, _ in }
       $0.hierarchyClient.runScript = { sid, pid, wid in
         captured.setValue((sid, pid, wid))
       }
@@ -186,8 +174,6 @@ struct CommandPaletteRunScriptTests {
       $0.terminalClient.events = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.snapshot = { Catalog() }
-      $0.hierarchyClient.selectSpace = { _ in }
-      $0.hierarchyClient.setSpaceLastActiveWorktree = { _, _ in }
       $0.hierarchyClient.runScript = { _, _, _ in
         throw RunScriptError.unknownScript(scriptID)
       }

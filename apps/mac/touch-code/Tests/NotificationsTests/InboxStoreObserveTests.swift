@@ -94,7 +94,7 @@ struct InboxStoreObserveTests {
     let paneA = Pane(workingDirectory: "/a", initialCommand: nil)
     let paneB = Pane(workingDirectory: "/b", initialCommand: nil)
     let catalog = Self.catalog(panes: [paneA, paneB])
-    let worktreeIDs = catalog.spaces[0].projects[0].worktrees.map(\.id)
+    let worktreeIDs = catalog.projects[0].worktrees.map(\.id)
     store.setCatalogProvider { catalog }
 
     var iterator = store.observeUnreadByWorktree().makeAsyncIterator()
@@ -159,13 +159,7 @@ struct InboxStoreObserveTests {
       worktrees: worktrees,
       selectedWorktreeID: worktrees.first?.id
     )
-    let space = Space(name: "s", projects: [project], selectedProjectID: project.id)
-    return Catalog(
-      version: Catalog.currentVersion,
-      windows: [],
-      spaces: [space],
-      selectedSpaceID: space.id
-    )
+    return Catalog(projects: [project])
   }
 
   private static func makeNotification(agent: String) -> AgentNotification {

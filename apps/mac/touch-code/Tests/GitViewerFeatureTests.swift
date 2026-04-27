@@ -12,7 +12,6 @@ struct GitViewerFeatureTests {
 
   nonisolated static let sampleWorktreeID = WorktreeID()
   nonisolated static let sampleProjectID = ProjectID()
-  nonisolated static let sampleSpaceID = SpaceID()
   nonisolated static let samplePath = "/tmp/touch-code-test-repo"
 
   nonisolated static func catalogWithWorktree() -> Catalog {
@@ -34,8 +33,7 @@ struct GitViewerFeatureTests {
       worktrees: [worktree],
       selectedWorktreeID: worktree.id
     )
-    let space = Space(id: sampleSpaceID, name: "work", projects: [project], selectedProjectID: project.id)
-    return Catalog(spaces: [space], selectedSpaceID: space.id)
+    return Catalog(projects: [project])
   }
 
   nonisolated static func sampleDiff(scope: DiffScope = .working) -> UnifiedDiff {
@@ -494,7 +492,7 @@ struct GitViewerFeatureTests {
       GitViewerFeature()
     } withDependencies: {
       $0.gitService = GitServiceClient.testValue
-      $0.hierarchyClient.snapshot = { Catalog(spaces: [], selectedSpaceID: nil) }
+      $0.hierarchyClient.snapshot = { Catalog() }
       $0.editorClient = EditorClient.testValue
     }
     await store.send(.openInEditorRequested)

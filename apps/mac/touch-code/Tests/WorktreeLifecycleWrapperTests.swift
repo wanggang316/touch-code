@@ -13,7 +13,7 @@ struct WorktreeLifecycleWrapperTests {
     setupScript: String = "",
     archiveScript: String = "",
     deleteScript: String = ""
-  ) throws -> (HierarchyManager, ProjectID, SpaceID, Settings, URL) {
+  ) throws -> (HierarchyManager, ProjectID, Settings, URL) {
     let tempBase = FileManager.default.temporaryDirectory
       .appending(component: UUID().uuidString)
     try FileManager.default.createDirectory(at: tempBase, withIntermediateDirectories: true)
@@ -22,10 +22,7 @@ struct WorktreeLifecycleWrapperTests {
     let runtime = FakeHierarchyRuntime()
     let store = CatalogStore(fileURL: storeURL)
     let manager = HierarchyManager(catalog: .default, store: store, runtime: runtime)
-    let spaceID = manager.createSpace(name: "s")
-    let projectID = try manager.addProject(
-      to: spaceID, name: "p", rootPath: tempBase.path, gitRoot: tempBase.path
-    )
+    let projectID = manager.addProject(name: "p", rootPath: tempBase.path, gitRoot: tempBase.path)
     var settings = Settings.default
     var project = ProjectSettings()
     var git = GitProjectSettings()
@@ -34,14 +31,14 @@ struct WorktreeLifecycleWrapperTests {
     git.deleteScript = deleteScript
     project.git = git
     settings.projects[projectID] = project
-    return (manager, projectID, spaceID, settings, tempBase)
+    return (manager, projectID, settings, tempBase)
   }
 
   // MARK: - createWorktreeWithLifecycle
 
   @Test
   func createSuccessKeepsCatalogRow() async throws {
-    let (manager, projectID, spaceID, settings, tempBase) = try makeFixture(
+    let (manager, projectID, settings, tempBase) = try makeFixture(
       setupScript: "/usr/bin/true"
     )
     let worktreePath = tempBase.appending(component: "wt").path
@@ -49,7 +46,7 @@ struct WorktreeLifecycleWrapperTests {
       atPath: worktreePath, withIntermediateDirectories: true
     )
     let (worktreeID, result) = try await manager.createWorktreeWithLifecycle(
-      in: projectID, in: spaceID,
+      in: projectID,
       name: "wt", path: worktreePath, branch: "main",
       settings: settings
     )
@@ -58,13 +55,13 @@ struct WorktreeLifecycleWrapperTests {
     } else {
       Issue.record("expected .success, got \(result)")
     }
-    let project = manager.catalog.spaces[0].projects[0]
+    let project = manager.catalog.projects[0]
     #expect(project.worktrees.contains(where: { $0.id == worktreeID }))
   }
 
   @Test
   func createFailureRollsBackCatalogRow() async throws {
-    let (manager, projectID, spaceID, settings, tempBase) = try makeFixture(
+    let (manager, projectID, settings, tempBase) = try makeFixture(
       setupScript: "/usr/bin/false"
     )
     let worktreePath = tempBase.appending(component: "wt-bad").path
@@ -72,7 +69,7 @@ struct WorktreeLifecycleWrapperTests {
       atPath: worktreePath, withIntermediateDirectories: true
     )
     let (worktreeID, result) = try await manager.createWorktreeWithLifecycle(
-      in: projectID, in: spaceID,
+      in: projectID,
       name: "wt-bad", path: worktreePath, branch: "topic",
       settings: settings
     )
@@ -81,7 +78,7 @@ struct WorktreeLifecycleWrapperTests {
     } else {
       Issue.record("expected .failure, got \(result)")
     }
-    let project = manager.catalog.spaces[0].projects[0]
+    let project = manager.catalog.projects[0]
     #expect(!project.worktrees.contains(where: { $0.id == worktreeID }))
   }
 
@@ -89,7 +86,7 @@ struct WorktreeLifecycleWrapperTests {
 
   @Test
   func archiveFailureStillFlipsArchivedFlag() async throws {
-    let (manager, projectID, spaceID, settings, tempBase) = try makeFixture(
+    let (manager, projectID, settings, tempBase) = try makeFixture(
       archiveScript: "/usr/bin/false"
     )
     let worktreePath = tempBase.appending(component: "wt-arch").path
@@ -97,7 +94,7 @@ struct WorktreeLifecycleWrapperTests {
       atPath: worktreePath, withIntermediateDirectories: true
     )
     let worktreeID = try manager.createWorktree(
-      in: projectID, in: spaceID, name: "feat",
+      in: projectID, name: "feat",
       path: worktreePath, branch: "feat"
     )
     let result = try await manager.setWorktreeArchivedWithLifecycle(
@@ -109,14 +106,14 @@ struct WorktreeLifecycleWrapperTests {
     } else {
       Issue.record("expected .failure, got \(result)")
     }
-    let worktree = manager.catalog.spaces[0].projects[0].worktrees
+    let worktree = manager.catalog.projects[0].worktrees
       .first(where: { $0.id == worktreeID })
     #expect(worktree?.archived == true)
   }
 
   @Test
   func archiveSkippedWhenScriptEmpty() async throws {
-    let (manager, projectID, spaceID, settings, tempBase) = try makeFixture(
+    let (manager, projectID, settings, tempBase) = try makeFixture(
       archiveScript: ""
     )
     let worktreePath = tempBase.appending(component: "wt-skip").path
@@ -124,7 +121,7 @@ struct WorktreeLifecycleWrapperTests {
       atPath: worktreePath, withIntermediateDirectories: true
     )
     let worktreeID = try manager.createWorktree(
-      in: projectID, in: spaceID, name: "feat",
+      in: projectID, name: "feat",
       path: worktreePath, branch: "feat"
     )
     let result = try await manager.setWorktreeArchivedWithLifecycle(
@@ -132,7 +129,7 @@ struct WorktreeLifecycleWrapperTests {
       in: projectID, settings: settings
     )
     #expect(result == .skipped)
-    let worktree = manager.catalog.spaces[0].projects[0].worktrees
+    let worktree = manager.catalog.projects[0].worktrees
       .first(where: { $0.id == worktreeID })
     #expect(worktree?.archived == true)
   }
@@ -141,7 +138,7 @@ struct WorktreeLifecycleWrapperTests {
 
   @Test
   func removeFailureStillDropsCatalogRow() async throws {
-    let (manager, projectID, spaceID, settings, tempBase) = try makeFixture(
+    let (manager, projectID, settings, tempBase) = try makeFixture(
       deleteScript: "/usr/bin/false"
     )
     let worktreePath = tempBase.appending(component: "wt-del").path
@@ -149,24 +146,24 @@ struct WorktreeLifecycleWrapperTests {
       atPath: worktreePath, withIntermediateDirectories: true
     )
     let worktreeID = try manager.createWorktree(
-      in: projectID, in: spaceID, name: "feat",
+      in: projectID, name: "feat",
       path: worktreePath, branch: "feat"
     )
     let result = try await manager.removeWorktreeWithLifecycle(
-      worktreeID, from: projectID, in: spaceID, settings: settings
+      worktreeID, from: projectID, settings: settings
     )
     if case .failure = result {
       // expected — fail-warn semantics
     } else {
       Issue.record("expected .failure, got \(result)")
     }
-    let project = manager.catalog.spaces[0].projects[0]
+    let project = manager.catalog.projects[0]
     #expect(!project.worktrees.contains(where: { $0.id == worktreeID }))
   }
 
   @Test
   func removeSuccessDropsCatalogRow() async throws {
-    let (manager, projectID, spaceID, settings, tempBase) = try makeFixture(
+    let (manager, projectID, settings, tempBase) = try makeFixture(
       deleteScript: "/usr/bin/true"
     )
     let worktreePath = tempBase.appending(component: "wt-ok").path
@@ -174,18 +171,18 @@ struct WorktreeLifecycleWrapperTests {
       atPath: worktreePath, withIntermediateDirectories: true
     )
     let worktreeID = try manager.createWorktree(
-      in: projectID, in: spaceID, name: "feat",
+      in: projectID, name: "feat",
       path: worktreePath, branch: "feat"
     )
     let result = try await manager.removeWorktreeWithLifecycle(
-      worktreeID, from: projectID, in: spaceID, settings: settings
+      worktreeID, from: projectID, settings: settings
     )
     if case .success = result {
       // ok
     } else {
       Issue.record("expected .success, got \(result)")
     }
-    let project = manager.catalog.spaces[0].projects[0]
+    let project = manager.catalog.projects[0]
     #expect(!project.worktrees.contains(where: { $0.id == worktreeID }))
   }
 }

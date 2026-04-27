@@ -20,28 +20,25 @@ struct HierarchyManagerOpenPaneEnvForwardTests {
   }
 
   private func setupTab(_ manager: HierarchyManager) throws -> (
-    SpaceID, ProjectID, WorktreeID, TabID
+    ProjectID, WorktreeID, TabID
   ) {
-    let spaceID = manager.createSpace(name: "test")
-    let projectID = try manager.addProject(
-      to: spaceID, name: "project", rootPath: "/tmp", gitRoot: "/tmp"
-    )
+    let projectID = manager.addProject(name: "project", rootPath: "/tmp", gitRoot: "/tmp")
     let worktreeID = try manager.createWorktree(
-      in: projectID, in: spaceID, name: "main", path: "/repo", branch: "main"
+      in: projectID, name: "main", path: "/repo", branch: "main"
     )
     let tabID = try manager.createTab(
-      in: worktreeID, in: projectID, in: spaceID, name: nil
+      in: worktreeID, in: projectID, name: nil
     )
-    return (spaceID, projectID, worktreeID, tabID)
+    return (projectID, worktreeID, tabID)
   }
 
   @Test
   func openPaneForwardsEnvToRuntime() throws {
     let (manager, runtime) = makeManager()
-    let (spaceID, projectID, worktreeID, tabID) = try setupTab(manager)
+    let (projectID, worktreeID, tabID) = try setupTab(manager)
 
     _ = try manager.openPane(
-      in: tabID, in: worktreeID, in: projectID, in: spaceID,
+      in: tabID, in: worktreeID, in: projectID,
       workingDirectory: "/tmp",
       initialCommand: nil,
       env: ["A": "1", "B": "2"]
@@ -54,10 +51,10 @@ struct HierarchyManagerOpenPaneEnvForwardTests {
   @Test
   func openPaneDefaultEnvIsEmpty() throws {
     let (manager, runtime) = makeManager()
-    let (spaceID, projectID, worktreeID, tabID) = try setupTab(manager)
+    let (projectID, worktreeID, tabID) = try setupTab(manager)
 
     _ = try manager.openPane(
-      in: tabID, in: worktreeID, in: projectID, in: spaceID,
+      in: tabID, in: worktreeID, in: projectID,
       workingDirectory: "/tmp",
       initialCommand: nil
     )
@@ -69,9 +66,9 @@ struct HierarchyManagerOpenPaneEnvForwardTests {
   @Test
   func splitPaneForwardsEnvToRuntime() throws {
     let (manager, runtime) = makeManager()
-    let (spaceID, projectID, worktreeID, tabID) = try setupTab(manager)
+    let (projectID, worktreeID, tabID) = try setupTab(manager)
     let firstPaneID = try manager.openPane(
-      in: tabID, in: worktreeID, in: projectID, in: spaceID,
+      in: tabID, in: worktreeID, in: projectID,
       workingDirectory: "/tmp",
       initialCommand: nil
     )
@@ -79,7 +76,7 @@ struct HierarchyManagerOpenPaneEnvForwardTests {
     _ = try manager.splitPane(
       firstPaneID,
       direction: .right,
-      in: tabID, in: worktreeID, in: projectID, in: spaceID,
+      in: tabID, in: worktreeID, in: projectID,
       workingDirectory: "/tmp",
       initialCommand: nil,
       env: ["SPLIT_VAR": "42"]
@@ -92,10 +89,10 @@ struct HierarchyManagerOpenPaneEnvForwardTests {
   @Test
   func openPaneEmptyEnvProducesEmptyRecordedEnv() throws {
     let (manager, runtime) = makeManager()
-    let (spaceID, projectID, worktreeID, tabID) = try setupTab(manager)
+    let (projectID, worktreeID, tabID) = try setupTab(manager)
 
     _ = try manager.openPane(
-      in: tabID, in: worktreeID, in: projectID, in: spaceID,
+      in: tabID, in: worktreeID, in: projectID,
       workingDirectory: "/tmp",
       initialCommand: nil,
       env: [:]

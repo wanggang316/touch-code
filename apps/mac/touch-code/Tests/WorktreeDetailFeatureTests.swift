@@ -15,13 +15,12 @@ struct WorktreeDetailFeatureTests {
     let received = LockIsolated<TabID?>(nil)
     let worktreeID = WorktreeID()
     let projectID = ProjectID()
-    let spaceID = SpaceID()
     let newTabID = TabID()
 
     let store = TestStore(initialState: WorktreeDetailFeature.State()) {
       WorktreeDetailFeature()
     } withDependencies: {
-      $0.hierarchyClient.createTab = { _, _, _, _ in
+      $0.hierarchyClient.createTab = { _, _, _ in
         received.withValue { $0 = newTabID }
         return newTabID
       }
@@ -30,7 +29,7 @@ struct WorktreeDetailFeatureTests {
     await store.send(
       .tabBar(
         .newTabButtonTapped(
-          inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+          inWorktree: worktreeID, inProject: projectID
         )))
     #expect(received.value == newTabID)
   }

@@ -8,7 +8,7 @@ import Testing
 struct EventMapperTests {
   @Test
   func paneReadyBuildsFullAnchorChain() {
-    let (catalog, paneID, tabID, worktreeID, projectID, spaceID) = Self.fixture()
+    let (catalog, paneID, tabID, worktreeID, projectID) = Self.fixture()
     let envelope = EventMapper.map(.paneReady(paneID), catalog: catalog)
     #expect(envelope != nil)
     guard let envelope else { return }
@@ -17,7 +17,6 @@ struct EventMapperTests {
     #expect(envelope.tab?.id == tabID)
     #expect(envelope.worktree?.id == worktreeID)
     #expect(envelope.project?.id == projectID)
-    #expect(envelope.space?.id == spaceID)
     if case .paneReady = envelope.data {
     } else {
       Issue.record("expected .paneReady data")
@@ -26,7 +25,7 @@ struct EventMapperTests {
 
   @Test
   func paneOutputCarriesRawBytes() {
-    let (catalog, paneID, _, _, _, _) = Self.fixture()
+    let (catalog, paneID, _, _, _) = Self.fixture()
     let payload = Data("hello\nworld".utf8)
     let envelope = EventMapper.map(.paneOutput(paneID, payload), catalog: catalog)
     guard let envelope else {
@@ -44,7 +43,7 @@ struct EventMapperTests {
 
   @Test
   func paneExitedCarriesExitCode() {
-    let (catalog, paneID, _, _, _, _) = Self.fixture()
+    let (catalog, paneID, _, _, _) = Self.fixture()
     let envelope = EventMapper.map(.paneExited(paneID, code: 42, signal: nil), catalog: catalog)
     guard let envelope else {
       Issue.record("expected envelope")
@@ -60,7 +59,7 @@ struct EventMapperTests {
 
   @Test
   func paneClosedByTabSurfacesAsCrashed() {
-    let (catalog, paneID, _, _, _, _) = Self.fixture()
+    let (catalog, paneID, _, _, _) = Self.fixture()
     let envelope = EventMapper.map(
       .paneClosedByTab(paneID, cause: .crashLoop(count: 3, window: 30)),
       catalog: catalog
@@ -80,7 +79,7 @@ struct EventMapperTests {
 
   @Test
   func tabActivatedAnchorsStopAtTab() {
-    let (catalog, _, tabID, worktreeID, projectID, spaceID) = Self.fixture()
+    let (catalog, _, tabID, worktreeID, projectID) = Self.fixture()
     let envelope = EventMapper.map(.tabActivated(tabID), catalog: catalog)
     guard let envelope else {
       Issue.record("expected envelope")
@@ -90,13 +89,12 @@ struct EventMapperTests {
     #expect(envelope.tab?.id == tabID)
     #expect(envelope.worktree?.id == worktreeID)
     #expect(envelope.project?.id == projectID)
-    #expect(envelope.space?.id == spaceID)
     #expect(envelope.pane == nil)
   }
 
   @Test
   func tabAutoClosedExtractsCrashLoopDetails() {
-    let (catalog, _, tabID, _, _, _) = Self.fixture()
+    let (catalog, _, tabID, _, _) = Self.fixture()
     let envelope = EventMapper.map(
       .tabAutoClosed(tabID, cause: .crashLoop(count: 4, window: 60)),
       catalog: catalog
@@ -117,7 +115,7 @@ struct EventMapperTests {
 
   @Test
   func worktreeActivatedAnchorsStopAtWorktree() {
-    let (catalog, _, _, worktreeID, projectID, spaceID) = Self.fixture()
+    let (catalog, _, _, worktreeID, projectID) = Self.fixture()
     let envelope = EventMapper.map(.worktreeActivated(worktreeID), catalog: catalog)
     guard let envelope else {
       Issue.record("expected envelope")
@@ -126,21 +124,20 @@ struct EventMapperTests {
     #expect(envelope.event == .worktreeActivated)
     #expect(envelope.worktree?.id == worktreeID)
     #expect(envelope.project?.id == projectID)
-    #expect(envelope.space?.id == spaceID)
     #expect(envelope.tab == nil)
     #expect(envelope.pane == nil)
   }
 
   @Test
   func hierarchyMutatedHasNoHookSurface() {
-    let (catalog, _, _, _, _, _) = Self.fixture()
+    let (catalog, _, _, _, _) = Self.fixture()
     let envelope = EventMapper.map(.hierarchyMutated(.catalog), catalog: catalog)
     #expect(envelope == nil)
   }
 
   @Test
   func unknownPaneProducesNilAnchors() {
-    let (catalog, _, _, _, _, _) = Self.fixture()
+    let (catalog, _, _, _, _) = Self.fixture()
     let stranger = PaneID()
     let envelope = EventMapper.map(.paneReady(stranger), catalog: catalog)
     guard let envelope else {
@@ -151,17 +148,15 @@ struct EventMapperTests {
     #expect(envelope.tab == nil)
     #expect(envelope.worktree == nil)
     #expect(envelope.project == nil)
-    #expect(envelope.space == nil)
   }
 
   // MARK: - Fixture
 
-  static func fixture() -> (Catalog, PaneID, TabID, WorktreeID, ProjectID, SpaceID) {
+  static func fixture() -> (Catalog, PaneID, TabID, WorktreeID, ProjectID) {
     let paneID = PaneID()
     let tabID = TabID()
     let worktreeID = WorktreeID()
     let projectID = ProjectID()
-    let spaceID = SpaceID()
     let pane = Pane(
       id: paneID,
       workingDirectory: "/tmp/wt",
@@ -183,8 +178,7 @@ struct EventMapperTests {
       gitRoot: "/tmp/.git",
       worktrees: [worktree]
     )
-    let space = Space(id: spaceID, name: "s", projects: [project])
-    let catalog = Catalog(spaces: [space], selectedSpaceID: spaceID)
-    return (catalog, paneID, tabID, worktreeID, projectID, spaceID)
+    let catalog = Catalog(projects: [project])
+    return (catalog, paneID, tabID, worktreeID, projectID)
   }
 }

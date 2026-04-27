@@ -49,7 +49,6 @@ struct HierarchySidebarOrderingTests {
     PendingWorktree(
       id: PendingWorktreeID(),
       projectID: projectID,
-      spaceID: SpaceID(),
       spec: makeSpec(),
       displayName: name,
       status: .running,

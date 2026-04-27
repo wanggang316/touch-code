@@ -17,7 +17,6 @@ struct CreateWorktreeFeatureTests {
   ) -> CreateWorktreeFeature.State {
     CreateWorktreeFeature.State(
       projectID: ProjectID(),
-      spaceID: SpaceID(),
       repoRoot: URL(fileURLWithPath: "/tmp/repo"),
       worktreesDirectory: URL(fileURLWithPath: "/tmp/repo/.worktrees"),
       currentPendingCountForProject: currentPendingCountForProject,

@@ -127,13 +127,7 @@ struct TrackerRegistryTests {
       worktrees: [worktree],
       selectedWorktreeID: worktree.id
     )
-    let space = Space(name: "s", projects: [project], selectedProjectID: project.id)
-    return Catalog(
-      version: Catalog.currentVersion,
-      windows: [],
-      spaces: [space],
-      selectedSpaceID: space.id
-    )
+    return Catalog(projects: [project])
   }
 
   private static func hierarchy(catalog: Catalog) -> HierarchyManager {

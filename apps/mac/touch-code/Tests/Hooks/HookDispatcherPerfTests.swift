@@ -63,7 +63,6 @@ struct HookDispatcherPerfTests {
   private func makeOutputEnvelope() -> HookEnvelope {
     HookEnvelope(
       event: .paneOutput,
-      space: .init(id: SpaceID(), name: "s"),
       project: .init(id: ProjectID(), name: "p", rootPath: "/"),
       worktree: .init(id: WorktreeID(), name: "w", path: "/"),
       tab: .init(id: TabID()),
@@ -77,30 +76,26 @@ struct HookDispatcherPerfTests {
     tabsPerWorktree: Int,
     worktreesPerProject: Int
   ) -> Catalog {
-    var spaces: [Space] = []
-    for _ in 0..<2 {
-      var projects: [Project] = []
-      for _ in 0..<2 {
-        var worktrees: [Worktree] = []
-        for _ in 0..<worktreesPerProject {
-          var tabs: [Tab] = []
-          for _ in 0..<tabsPerWorktree {
-            var panes: [Pane] = []
-            for _ in 0..<panesPerTab {
-              panes.append(Pane(id: PaneID(), workingDirectory: "/tmp"))
-            }
-            tabs.append(Tab(id: TabID(), name: "t", panes: panes))
+    var projects: [Project] = []
+    for _ in 0..<4 {
+      var worktrees: [Worktree] = []
+      for _ in 0..<worktreesPerProject {
+        var tabs: [Tab] = []
+        for _ in 0..<tabsPerWorktree {
+          var panes: [Pane] = []
+          for _ in 0..<panesPerTab {
+            panes.append(Pane(id: PaneID(), workingDirectory: "/tmp"))
           }
-          worktrees.append(Worktree(id: WorktreeID(), name: "w", path: "/", branch: nil, tabs: tabs))
+          tabs.append(Tab(id: TabID(), name: "t", panes: panes))
         }
-        projects.append(Project(id: ProjectID(), name: "p", rootPath: "/", worktrees: worktrees))
+        worktrees.append(Worktree(id: WorktreeID(), name: "w", path: "/", branch: nil, tabs: tabs))
       }
-      spaces.append(Space(id: SpaceID(), name: "s", projects: projects))
+      projects.append(Project(id: ProjectID(), name: "p", rootPath: "/", worktrees: worktrees))
     }
-    return Catalog(spaces: spaces)
+    return Catalog(projects: projects)
   }
 
   static func firstPaneID(_ catalog: Catalog) -> PaneID {
-    catalog.spaces[0].projects[0].worktrees[0].tabs[0].panes[0].id
+    catalog.projects[0].worktrees[0].tabs[0].panes[0].id
   }
 }

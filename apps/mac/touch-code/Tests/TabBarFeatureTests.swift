@@ -11,8 +11,7 @@ struct TabBarFeatureTests {
   func newTabButtonCallsCreateTab() async {
     let worktreeID = WorktreeID()
     let projectID = ProjectID()
-    let spaceID = SpaceID()
-    let received = LockIsolated<(WorktreeID, ProjectID, SpaceID, String?)?>(nil)
+    let received = LockIsolated<(WorktreeID, ProjectID, String?)?>(nil)
 
     // Reducer now calls snapshot() + openPane() after createTab so the
     // auto-spawned pane lands in the worktree's cwd (see 1f475ff).
@@ -21,24 +20,21 @@ struct TabBarFeatureTests {
     let store = TestStore(initialState: TabBarFeature.State()) {
       TabBarFeature()
     } withDependencies: {
-      $0.hierarchyClient.createTab = { w, p, s, name in
-        received.withValue { $0 = (w, p, s, name) }
+      $0.hierarchyClient.createTab = { w, p, name in
+        received.withValue { $0 = (w, p, name) }
         return TabID()
       }
       $0.hierarchyClient.snapshot = {
-        Catalog(windows: [], spaces: [], selectedSpaceID: nil)
+        Catalog()
       }
     }
 
     await store.send(
-      .newTabButtonTapped(
-        inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
-      ))
+      .newTabButtonTapped(inWorktree: worktreeID, inProject: projectID))
     let captured = received.value
     #expect(captured?.0 == worktreeID)
     #expect(captured?.1 == projectID)
-    #expect(captured?.2 == spaceID)
-    #expect(captured?.3 == nil)
+    #expect(captured?.2 == nil)
   }
 
   @Test
@@ -46,21 +42,18 @@ struct TabBarFeatureTests {
     let tabID = TabID()
     let worktreeID = WorktreeID()
     let projectID = ProjectID()
-    let spaceID = SpaceID()
     let received = LockIsolated<TabID?>(nil)
 
     let store = TestStore(initialState: TabBarFeature.State()) {
       TabBarFeature()
     } withDependencies: {
-      $0.hierarchyClient.selectTab = { id, _, _, _ in
+      $0.hierarchyClient.selectTab = { id, _, _ in
         received.withValue { $0 = id }
       }
     }
 
     await store.send(
-      .tabButtonTapped(
-        tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
-      ))
+      .tabButtonTapped(tabID, inWorktree: worktreeID, inProject: projectID))
     #expect(received.value == tabID)
   }
 
@@ -69,21 +62,18 @@ struct TabBarFeatureTests {
     let tabID = TabID()
     let worktreeID = WorktreeID()
     let projectID = ProjectID()
-    let spaceID = SpaceID()
     let received = LockIsolated<TabID?>(nil)
 
     let store = TestStore(initialState: TabBarFeature.State()) {
       TabBarFeature()
     } withDependencies: {
-      $0.hierarchyClient.closeTab = { id, _, _, _ in
+      $0.hierarchyClient.closeTab = { id, _, _ in
         received.withValue { $0 = id }
       }
     }
 
     await store.send(
-      .closeButtonTapped(
-        tabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
-      ))
+      .closeButtonTapped(tabID, inWorktree: worktreeID, inProject: projectID))
     #expect(received.value == tabID)
   }
 
@@ -96,14 +86,14 @@ struct TabBarFeatureTests {
     let store = TestStore(initialState: TabBarFeature.State()) {
       TabBarFeature()
     } withDependencies: {
-      $0.hierarchyClient.renameTab = { id, _, _, _, name in
+      $0.hierarchyClient.renameTab = { id, _, _, name in
         received.withValue { $0 = (id, name) }
       }
     }
     await store.send(
       .renameSubmitted(
         tabID, name: "new-title",
-        inWorktree: WorktreeID(), inProject: ProjectID(), inSpace: SpaceID()
+        inWorktree: WorktreeID(), inProject: ProjectID()
       ))
     #expect(received.value?.0 == tabID)
     #expect(received.value?.1 == "new-title")
@@ -116,13 +106,13 @@ struct TabBarFeatureTests {
     let store = TestStore(initialState: TabBarFeature.State()) {
       TabBarFeature()
     } withDependencies: {
-      $0.hierarchyClient.closeOtherTabs = { keep, _, _, _ in
+      $0.hierarchyClient.closeOtherTabs = { keep, _, _ in
         received.withValue { $0 = keep }
       }
     }
     await store.send(
       .contextMenuCloseOthers(
-        tabID, inWorktree: WorktreeID(), inProject: ProjectID(), inSpace: SpaceID()
+        tabID, inWorktree: WorktreeID(), inProject: ProjectID()
       ))
     #expect(received.value == tabID)
   }
@@ -134,13 +124,13 @@ struct TabBarFeatureTests {
     let store = TestStore(initialState: TabBarFeature.State()) {
       TabBarFeature()
     } withDependencies: {
-      $0.hierarchyClient.closeTabsToRight = { pivot, _, _, _ in
+      $0.hierarchyClient.closeTabsToRight = { pivot, _, _ in
         received.withValue { $0 = pivot }
       }
     }
     await store.send(
       .contextMenuCloseToRight(
-        tabID, inWorktree: WorktreeID(), inProject: ProjectID(), inSpace: SpaceID()
+        tabID, inWorktree: WorktreeID(), inProject: ProjectID()
       ))
     #expect(received.value == tabID)
   }
@@ -151,13 +141,13 @@ struct TabBarFeatureTests {
     let store = TestStore(initialState: TabBarFeature.State()) {
       TabBarFeature()
     } withDependencies: {
-      $0.hierarchyClient.closeAllTabs = { _, _, _ in
+      $0.hierarchyClient.closeAllTabs = { _, _ in
         received.withValue { $0 = true }
       }
     }
     await store.send(
       .contextMenuCloseAll(
-        inWorktree: WorktreeID(), inProject: ProjectID(), inSpace: SpaceID()
+        inWorktree: WorktreeID(), inProject: ProjectID()
       ))
     #expect(received.value)
   }
@@ -169,14 +159,14 @@ struct TabBarFeatureTests {
     let store = TestStore(initialState: TabBarFeature.State()) {
       TabBarFeature()
     } withDependencies: {
-      $0.hierarchyClient.reorderTabs = { _, _, _, ordered in
+      $0.hierarchyClient.reorderTabs = { _, _, ordered in
         received.withValue { $0 = ordered }
       }
     }
     await store.send(
       .dragReorderEnded(
         orderedIDs: ids,
-        inWorktree: WorktreeID(), inProject: ProjectID(), inSpace: SpaceID()
+        inWorktree: WorktreeID(), inProject: ProjectID()
       ))
     #expect(received.value == ids)
   }
@@ -188,20 +178,19 @@ struct TabBarFeatureTests {
     let store = TestStore(initialState: TabBarFeature.State()) {
       TabBarFeature()
     } withDependencies: {
-      $0.hierarchyClient.closeTab = { id, _, _, _ in
+      $0.hierarchyClient.closeTab = { id, _, _ in
         received.withValue { $0 = id }
       }
     }
     await store.send(
       .middleClicked(
-        tabID, inWorktree: WorktreeID(), inProject: ProjectID(), inSpace: SpaceID()
+        tabID, inWorktree: WorktreeID(), inProject: ProjectID()
       ))
     #expect(received.value == tabID)
   }
 
   @Test
   func trailingSplitRequestedResolvesAnchorAndSplits() async {
-    let spaceID = SpaceID()
     let projectID = ProjectID()
     let worktreeID = WorktreeID()
     let tabID = TabID()
@@ -222,15 +211,14 @@ struct TabBarFeatureTests {
       id: projectID, name: "p", rootPath: "/tmp/repo",
       worktrees: [worktree], selectedWorktreeID: worktreeID
     )
-    let space = Space(id: spaceID, name: "s", projects: [project], selectedProjectID: projectID)
-    let catalog = Catalog(windows: [], spaces: [space], selectedSpaceID: spaceID)
+    let catalog = Catalog(projects: [project])
 
     let received = LockIsolated<(PaneID, SplitTree<PaneID>.NewDirection, String)?>(nil)
     let store = TestStore(initialState: TabBarFeature.State()) {
       TabBarFeature()
     } withDependencies: {
       $0.hierarchyClient.snapshot = { catalog }
-      $0.hierarchyClient.splitPane = { pid, dir, _, _, _, _, cwd, _ in
+      $0.hierarchyClient.splitPane = { pid, dir, _, _, _, cwd, _ in
         received.withValue { $0 = (pid, dir, cwd) }
         return PaneID()
       }
@@ -239,7 +227,7 @@ struct TabBarFeatureTests {
     await store.send(
       .trailingSplitRequested(
         direction: .right,
-        inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+        inWorktree: worktreeID, inProject: projectID
       ))
     #expect(received.value?.0 == paneID)
     #expect(received.value?.1 == .right)
@@ -249,13 +237,13 @@ struct TabBarFeatureTests {
   @Test
   func trailingSplitRequestedNoOpWhenNoActiveTab() async {
     // Empty catalog — no worktree / tab / pane to anchor off.
-    let catalog = Catalog(windows: [], spaces: [], selectedSpaceID: nil)
+    let catalog = Catalog()
     let splitCalled = LockIsolated<Bool>(false)
     let store = TestStore(initialState: TabBarFeature.State()) {
       TabBarFeature()
     } withDependencies: {
       $0.hierarchyClient.snapshot = { catalog }
-      $0.hierarchyClient.splitPane = { _, _, _, _, _, _, _, _ in
+      $0.hierarchyClient.splitPane = { _, _, _, _, _, _, _ in
         splitCalled.withValue { $0 = true }
         return PaneID()
       }
@@ -263,7 +251,7 @@ struct TabBarFeatureTests {
     await store.send(
       .trailingSplitRequested(
         direction: .right,
-        inWorktree: WorktreeID(), inProject: ProjectID(), inSpace: SpaceID()
+        inWorktree: WorktreeID(), inProject: ProjectID()
       ))
     #expect(!splitCalled.value)
   }

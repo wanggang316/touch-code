@@ -8,39 +8,6 @@ import Testing
 @MainActor
 struct HierarchyHandlersTests {
   @Test
-  func createSpaceThenListReturnsIt() async throws {
-    let server = Self.makeHarness()
-    defer { server.stop() }
-
-    try InMemoryIPCServerTests.sendHello(server)
-    _ = try await server.awaitResponse()
-
-    // Create
-    struct CreateParams: Codable {
-      let name: String
-      let activate: Bool
-    }
-    let createParams = try JSONValue.encoded(CreateParams(name: "work", activate: false))
-    try server.send(
-      IPC.Request(id: "c1", method: .hierarchyCreateSpace, params: createParams)
-    )
-    let created = try await server.awaitResponse()
-    #expect(created.error == nil)
-
-    // List
-    try server.send(IPC.Request(id: "l1", method: .hierarchyListSpaces))
-    let listed = try await server.awaitResponse()
-    #expect(listed.error == nil)
-    if case .object(let obj) = listed.result,
-      case .array(let spaces) = obj["spaces"]
-    {
-      #expect(spaces.count == 1)
-    } else {
-      Issue.record("expected { spaces: [...] }, got \(String(describing: listed.result))")
-    }
-  }
-
-  @Test
   func resolveAliasUUIDFastPath() async throws {
     let server = Self.makeHarness()
     defer { server.stop() }
@@ -57,28 +24,6 @@ struct HierarchyHandlersTests {
     #expect(response.error == nil)
     let decoded = try response.result?.decoded(as: IPC.AliasResolveResult.self)
     #expect(decoded?.id == uuid)
-  }
-
-  @Test
-  func activateSpaceUpdatesCatalog() async throws {
-    let harness = Self.makeHarnessWithHierarchy()
-    defer { harness.server.stop() }
-
-    try InMemoryIPCServerTests.sendHello(harness.server)
-    _ = try await harness.server.awaitResponse()
-
-    let spaceID = harness.hierarchy.createSpace(name: "first")
-    _ = harness.hierarchy.createSpace(name: "second")
-    #expect(harness.hierarchy.catalog.selectedSpaceID != spaceID)
-
-    struct Params: Codable { let id: UUID }
-    let params = try JSONValue.encoded(Params(id: spaceID.raw))
-    try harness.server.send(
-      IPC.Request(id: "a1", method: .hierarchyActivateSpace, params: params)
-    )
-    let response = try await harness.server.awaitResponse()
-    #expect(response.error == nil)
-    #expect(harness.hierarchy.catalog.selectedSpaceID == spaceID)
   }
 
   // MARK: - Harness helpers
@@ -101,13 +46,7 @@ struct HierarchyHandlersTests {
       worktrees: [worktree],
       selectedWorktreeID: worktree.id
     )
-    let space = Space(name: "s", projects: [project], selectedProjectID: project.id)
-    let catalog = Catalog(
-      version: Catalog.currentVersion,
-      windows: [],
-      spaces: [space],
-      selectedSpaceID: space.id
-    )
+    let catalog = Catalog(projects: [project])
     let hierarchy = HierarchyManager(
       catalog: catalog,
       store: catalogStore,
@@ -126,7 +65,6 @@ struct HierarchyHandlersTests {
       "tabID": .object(["raw": .string(tab.id.raw.uuidString)]),
       "worktreeID": .object(["raw": .string(worktree.id.raw.uuidString)]),
       "projectID": .object(["raw": .string(project.id.raw.uuidString)]),
-      "spaceID": .object(["raw": .string(space.id.raw.uuidString)]),
     ])
     let outcome = await handlers.focusPane(params)
     if case .failed(let err) = outcome {

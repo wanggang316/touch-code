@@ -93,31 +93,6 @@ struct EndToEndRPCIntegrationTests {
     }
   }
 
-  // MARK: - Hierarchy mutation + describe
-
-  @Test
-  func hierarchyCreateActivateDescribeRoundtrip() async throws {
-    try await withStack { client in
-      struct CreateParams: Codable {
-        let name: String
-        let activate: Bool
-      }
-      struct IDResult: Codable { let id: SpaceID }
-      let created: IDResult = try await client.call(
-        .hierarchyCreateSpace,
-        params: CreateParams(name: "e2e", activate: true)
-      )
-
-      struct DescribeParams: Codable { let id: SpaceID }
-      let space: Space = try await client.call(
-        .hierarchyDescribeSpace,
-        params: DescribeParams(id: created.id)
-      )
-      #expect(space.id == created.id)
-      #expect(space.name == "e2e")
-    }
-  }
-
   // MARK: - Error-path contract
 
   @Test
@@ -142,27 +117,6 @@ struct EndToEndRPCIntegrationTests {
           // expected
         } else {
           Issue.record("expected .unsupported, got \(err)")
-        }
-      }
-    }
-  }
-
-  @Test
-  func describeMissingSpaceSurfacesNotFound() async throws {
-    try await withStack { client in
-      struct DescribeParams: Codable { let id: SpaceID }
-      do {
-        _ = try await client.call(
-          .hierarchyDescribeSpace,
-          params: DescribeParams(id: SpaceID(raw: UUID())),
-          resultType: Space.self
-        )
-        Issue.record("expected throw")
-      } catch RPCClient.RPCError.ipc(let err) {
-        if case .notFound(let kind, _) = err {
-          #expect(kind == "space")
-        } else {
-          Issue.record("expected .notFound, got \(err)")
         }
       }
     }

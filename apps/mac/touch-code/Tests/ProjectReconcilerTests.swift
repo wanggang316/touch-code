@@ -18,8 +18,8 @@ struct ProjectReconcilerTests {
   /// safely push events from any executor.
   final class Recorder: @unchecked Sendable {
     enum Event: Equatable {
-      case setLoadState(ProjectID, SpaceID, ProjectLoadState)
-      case reconcileDiscovered(ProjectID, SpaceID)
+      case setLoadState(ProjectID, ProjectLoadState)
+      case reconcileDiscovered(ProjectID)
     }
 
     private let lock = NSLock()
@@ -55,31 +55,29 @@ struct ProjectReconcilerTests {
   ) -> HierarchyClient {
     var client = HierarchyClient.testValue
     client.snapshot = { catalog() }
-    client.setProjectLoadState = { projectID, spaceID, state in
-      recorder.append(.setLoadState(projectID, spaceID, state))
+    client.setProjectLoadState = { projectID, state in
+      recorder.append(.setLoadState(projectID, state))
     }
-    client.reconcileDiscoveredWorktrees = { projectID, spaceID in
+    client.reconcileDiscoveredWorktrees = { projectID in
       if reconcileDelayNanos > 0 {
         try? await Task.sleep(nanoseconds: reconcileDelayNanos)
       }
-      recorder.append(.reconcileDiscovered(projectID, spaceID))
+      recorder.append(.reconcileDiscovered(projectID))
     }
     return client
   }
 
-  /// Builds a one-Space one-Project catalog with the given `rootPath`.
-  private static func makeCatalog(rootPath: String) -> (Catalog, SpaceID, ProjectID) {
+  /// Builds a one-Project catalog with the given `rootPath`.
+  private static func makeCatalog(rootPath: String) -> (Catalog, ProjectID) {
     let projectID = ProjectID()
-    let spaceID = SpaceID()
     let project = Project(
       id: projectID,
       name: "p",
       rootPath: rootPath,
       gitRoot: rootPath
     )
-    let space = Space(id: spaceID, name: "s", projects: [project], selectedProjectID: projectID)
-    let catalog = Catalog(spaces: [space], selectedSpaceID: spaceID)
-    return (catalog, spaceID, projectID)
+    let catalog = Catalog(projects: [project])
+    return (catalog, projectID)
   }
 
   private static func withTempDir<T>(_ body: (String) async throws -> T) async rethrows -> T {
@@ -95,18 +93,18 @@ struct ProjectReconcilerTests {
   @Test
   func reconcileExistingFolderCallsClosureAndSetsReady() async throws {
     try await Self.withTempDir { rootPath in
-      let (catalog, spaceID, projectID) = Self.makeCatalog(rootPath: rootPath)
+      let (catalog, projectID) = Self.makeCatalog(rootPath: rootPath)
       let recorder = Recorder()
       let client = await Self.makeClient(catalog: { catalog }, recorder: recorder)
       let reconciler = ProjectReconciler(client: client)
 
-      await reconciler.reconcile(projectID: projectID, spaceID: spaceID)
+      await reconciler.reconcile(projectID: projectID)
 
       #expect(
         recorder.events == [
-          .setLoadState(projectID, spaceID, .loading),
-          .reconcileDiscovered(projectID, spaceID),
-          .setLoadState(projectID, spaceID, .ready),
+          .setLoadState(projectID, .loading),
+          .reconcileDiscovered(projectID),
+          .setLoadState(projectID, .ready),
         ])
     }
   }
@@ -115,16 +113,16 @@ struct ProjectReconcilerTests {
   func reconcileMissingFolderSetsFailedAndSkipsClosure() async {
     let missingPath = FileManager.default.temporaryDirectory
       .appendingPathComponent("pm-reconciler-absent-\(UUID().uuidString)").path
-    let (catalog, spaceID, projectID) = Self.makeCatalog(rootPath: missingPath)
+    let (catalog, projectID) = Self.makeCatalog(rootPath: missingPath)
     let recorder = Recorder()
     let client = await Self.makeClient(catalog: { catalog }, recorder: recorder)
     let reconciler = ProjectReconciler(client: client)
 
-    await reconciler.reconcile(projectID: projectID, spaceID: spaceID)
+    await reconciler.reconcile(projectID: projectID)
 
     // Exactly two events: .loading → .failed. No reconcileDiscovered call.
     #expect(recorder.events.count == 2)
-    if case .setLoadState(_, _, let state) = recorder.events.last {
+    if case .setLoadState(_, let state) = recorder.events.last {
       if case .failed(let reason) = state {
         #expect(reason.contains("Folder no longer exists"))
         #expect(reason.contains(missingPath))
@@ -140,11 +138,11 @@ struct ProjectReconcilerTests {
   @Test
   func reconcileUnknownProjectIsSilentNoOp() async {
     let recorder = Recorder()
-    let emptyCatalog = Catalog(spaces: [], selectedSpaceID: nil)
+    let emptyCatalog = Catalog()
     let client = await Self.makeClient(catalog: { emptyCatalog }, recorder: recorder)
     let reconciler = ProjectReconciler(client: client)
 
-    await reconciler.reconcile(projectID: ProjectID(), spaceID: SpaceID())
+    await reconciler.reconcile(projectID: ProjectID())
 
     #expect(recorder.events.isEmpty)
   }
@@ -152,7 +150,7 @@ struct ProjectReconcilerTests {
   @Test
   func reconcileSingleFlightDedupsOverlappingCalls() async throws {
     try await Self.withTempDir { rootPath in
-      let (catalog, spaceID, projectID) = Self.makeCatalog(rootPath: rootPath)
+      let (catalog, projectID) = Self.makeCatalog(rootPath: rootPath)
       let recorder = Recorder()
       // Artificial delay inside the consumed closure so concurrent calls
       // overlap before the first one completes.
@@ -163,8 +161,8 @@ struct ProjectReconcilerTests {
       )
       let reconciler = ProjectReconciler(client: client)
 
-      async let first: Void = reconciler.reconcile(projectID: projectID, spaceID: spaceID)
-      async let second: Void = reconciler.reconcile(projectID: projectID, spaceID: spaceID)
+      async let first: Void = reconciler.reconcile(projectID: projectID)
+      async let second: Void = reconciler.reconcile(projectID: projectID)
       _ = await (first, second)
 
       // Single flight: second call must early-return inside the actor before
@@ -176,7 +174,7 @@ struct ProjectReconcilerTests {
   @Test
   func reconcileAllDebouncesWithinWindow() async throws {
     try await Self.withTempDir { rootPath in
-      let (catalog, _, _) = Self.makeCatalog(rootPath: rootPath)
+      let (catalog, _) = Self.makeCatalog(rootPath: rootPath)
       let recorder = Recorder()
       let client = await Self.makeClient(catalog: { catalog }, recorder: recorder)
 
@@ -211,9 +209,7 @@ struct ProjectReconcilerTests {
       try await Self.withTempDir { rootB in
         let a = Project(name: "a", rootPath: rootA, gitRoot: rootA)
         let b = Project(name: "b", rootPath: rootB, gitRoot: rootB)
-        let s1 = Space(name: "s1", projects: [a], selectedProjectID: a.id)
-        let s2 = Space(name: "s2", projects: [b], selectedProjectID: b.id)
-        let catalog = Catalog(spaces: [s1, s2], selectedSpaceID: s1.id)
+        let catalog = Catalog(projects: [a, b])
         let recorder = Recorder()
         let client = await Self.makeClient(catalog: { catalog }, recorder: recorder)
         let reconciler = ProjectReconciler(client: client)
@@ -222,7 +218,7 @@ struct ProjectReconcilerTests {
 
         #expect(recorder.reconcileDiscoveredCount() == 2)
         let pids = recorder.events.compactMap { event -> ProjectID? in
-          if case .reconcileDiscovered(let pid, _) = event { return pid }
+          if case .reconcileDiscovered(let pid) = event { return pid }
           return nil
         }
         #expect(Set(pids) == Set([a.id, b.id]))

@@ -22,12 +22,6 @@ struct RootFeatureCommandPaletteRoutingTests {
       $0.terminalClient.events = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.snapshot = { Catalog() }
-      // The downstream sidebar / window-router reducers call these when
-      // they receive a routed activation; the test only verifies that
-      // the dispatch happens, so no-op stubs are sufficient to keep the
-      // chain alive without exercising the real client surface.
-      $0.hierarchyClient.selectSpace = { _ in }
-      $0.hierarchyClient.setSpaceLastActiveWorktree = { _, _ in }
       $0.editorClient = EditorClient.testValue
       $0.gitService = GitServiceClient.testValue
       $0.updatesClient.checkNow = {}
@@ -43,31 +37,6 @@ struct RootFeatureCommandPaletteRoutingTests {
     await store.send(.commandPaletteToggle(nil))
     await store.send(.commandPalette(.presented(.delegate(.activate(.toggleGitViewer)))))
     await store.receive(\.gitViewerToggledForCurrentWorktree)
-  }
-
-  @Test
-  func activateSwitchToSpaceAtIndexRoutes() async {
-    let store = Self.stubbedStore()
-    await store.send(.commandPaletteToggle(nil))
-    await store.send(.commandPalette(.presented(.delegate(.activate(.switchToSpaceAtIndex(1))))))
-    await store.receive(\.switchToSpaceAtIndex)
-  }
-
-  @Test
-  func activateSelectSpaceRoutesToSidebar() async {
-    let spaceID = SpaceID()
-    let store = Self.stubbedStore()
-    await store.send(.commandPaletteToggle(nil))
-    await store.send(.commandPalette(.presented(.delegate(.activate(.selectSpace(spaceID))))))
-    await store.receive(\.sidebar.spaceRowTapped)
-  }
-
-  @Test
-  func activateOpenSpaceManagerSetsSheet() async {
-    let store = Self.stubbedStore()
-    await store.send(.commandPaletteToggle(nil))
-    await store.send(.commandPalette(.presented(.delegate(.activate(.openSpaceManager)))))
-    await store.receive(\.spaceManagerSheetShown)
   }
 
   @Test

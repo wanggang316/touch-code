@@ -16,42 +16,29 @@ struct HierarchyClientTests {
   }
 
   @Test
-  func liveCreateSpaceMutatesManager() {
-    let (client, manager) = makeLiveClient()
-    let id = client.createSpace("work")
-    #expect(manager.catalog.spaces.count == 1)
-    #expect(manager.catalog.spaces[0].id == id)
-    #expect(manager.catalog.spaces[0].name == "work")
-    #expect(manager.catalog.selectedSpaceID == id)
-  }
-
-  @Test
   func liveSelectWorktreeUpdatesCatalog() throws {
     let (client, manager) = makeLiveClient()
-    let spaceID = client.createSpace("s")
-    let projectID = try client.addProject(spaceID, "p", "/tmp", "/tmp")
-    let worktreeID = try client.createWorktree(projectID, spaceID, "w2", "/tmp/w2", "main")
+    let projectID = client.addProject("p", "/tmp", "/tmp")
+    let worktreeID = try client.createWorktree(projectID, "w2", "/tmp/w2", "main")
 
-    try client.selectWorktree(worktreeID, projectID, spaceID)
-    #expect(manager.catalog.spaces[0].projects[0].selectedWorktreeID == worktreeID)
+    try client.selectWorktree(worktreeID, projectID)
+    #expect(manager.catalog.projects[0].selectedWorktreeID == worktreeID)
 
-    try client.selectWorktree(nil, projectID, spaceID)
-    #expect(manager.catalog.spaces[0].projects[0].selectedWorktreeID == nil)
+    try client.selectWorktree(nil, projectID)
+    #expect(manager.catalog.projects[0].selectedWorktreeID == nil)
   }
 
   @Test
   func kindReturnsGitRepoWhenProjectHasGitRoot() throws {
     let (client, _) = makeLiveClient()
-    let spaceID = client.createSpace("s")
-    let projectID = try client.addProject(spaceID, "p", "/tmp/p", "/tmp/p")
+    let projectID = client.addProject("p", "/tmp/p", "/tmp/p")
     #expect(client.kind(projectID) == .gitRepo)
   }
 
   @Test
   func kindReturnsPlainDirWhenGitRootNil() throws {
     let (client, _) = makeLiveClient()
-    let spaceID = client.createSpace("s")
-    let projectID = try client.addProject(spaceID, "p", "/tmp/p", nil)
+    let projectID = client.addProject("p", "/tmp/p", nil)
     #expect(client.kind(projectID) == .plainDir)
   }
 
@@ -64,77 +51,35 @@ struct HierarchyClientTests {
   @Test
   func liveSetWorktreeGitViewerVisibleTogglesCatalog() throws {
     let (client, manager) = makeLiveClient()
-    let spaceID = client.createSpace("s")
-    let projectID = try client.addProject(spaceID, "p", "/tmp", "/tmp")
-    let worktreeID = try client.createWorktree(projectID, spaceID, "w", "/tmp/w", "main")
+    let projectID = client.addProject("p", "/tmp", "/tmp")
+    let worktreeID = try client.createWorktree(projectID, "w", "/tmp/w", "main")
 
     // Default is false.
-    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].gitViewerVisible == false)
+    #expect(manager.catalog.projects[0].worktrees[0].gitViewerVisible == false)
 
     client.setWorktreeGitViewerVisible(worktreeID, true)
-    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].gitViewerVisible == true)
+    #expect(manager.catalog.projects[0].worktrees[0].gitViewerVisible == true)
 
     client.setWorktreeGitViewerVisible(worktreeID, false)
-    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].gitViewerVisible == false)
+    #expect(manager.catalog.projects[0].worktrees[0].gitViewerVisible == false)
 
     // Unknown worktreeID is a silent no-op; nothing should crash, state unchanged.
     client.setWorktreeGitViewerVisible(WorktreeID(), true)
-    #expect(manager.catalog.spaces[0].projects[0].worktrees[0].gitViewerVisible == false)
+    #expect(manager.catalog.projects[0].worktrees[0].gitViewerVisible == false)
   }
 
   @Test
-  func selectionChangesEmitsInitialAndOnMutation() async throws {
-    let (client, _) = makeLiveClient()
-    let stream = client.selectionChanges()
-    var iterator = stream.makeAsyncIterator()
-
-    // First emission is the current (empty) selection snapshot.
-    let initial = await iterator.next()
-    #expect(initial == HierarchySelection(spaceID: nil, projectID: nil, worktreeID: nil))
-
-    // Mutate: create a Space (which auto-selects it). Stream should emit.
-    let spaceID = client.createSpace("work")
-    let next = await iterator.next()
-    #expect(next?.spaceID == spaceID)
-  }
-
-  @Test
-  func selectionChangesDedupesIdenticalSelectSpace() async {
-    let (client, _) = makeLiveClient()
-    let stream = client.selectionChanges()
-    var iterator = stream.makeAsyncIterator()
-
-    // Initial empty emission.
-    _ = await iterator.next()
-
-    let spaceID = client.createSpace("s")
-    let afterCreate = await iterator.next()
-    #expect(afterCreate?.spaceID == spaceID)
-
-    // Two identical selects to the same Space — should yield at most one
-    // further value (the second is a no-op against dedupe).
-    client.selectSpace(spaceID)
-    client.selectSpace(spaceID)
-    client.selectSpace(nil)
-    let afterNil = await iterator.next()
-    #expect(afterNil?.spaceID == nil)
-  }
-
-  @Test
-  func selectionChangesPopulatesAllThreeLevelsOnWorktreeSelect() async throws {
+  func selectionChangesPopulatesProjectAndWorktreeOnSelect() async throws {
     let (client, _) = makeLiveClient()
     // Seed the catalog synchronously BEFORE subscribing so the stream's
-    // first emission already reflects all three levels. Simplifies the
-    // iterator loop — no need to count intermediate dedupes.
-    let spaceID = client.createSpace("s")
-    let projectID = try client.addProject(spaceID, "p", "/tmp", "/tmp")
-    let worktreeID = try client.createWorktree(projectID, spaceID, "w", "/tmp/w", "main")
+    // first emission already reflects the selection chain.
+    let projectID = client.addProject("p", "/tmp", "/tmp")
+    let worktreeID = try client.createWorktree(projectID, "w", "/tmp/w", "main")
 
     let stream = client.selectionChanges()
     var iterator = stream.makeAsyncIterator()
     let initial = await iterator.next()
 
-    #expect(initial?.spaceID == spaceID)
     #expect(initial?.projectID == projectID)
     #expect(initial?.worktreeID == worktreeID)
   }
@@ -149,16 +94,15 @@ struct HierarchyClientTests {
     // Algorithm coverage lives in `HierarchyManagerReorderTests`; this test
     // only proves the closure is hooked up.
     let (client, manager) = makeLiveClient()
-    let spaceID = client.createSpace("s")
-    let projectID = try client.addProject(spaceID, "p", "/repo", "/repo")
-    _ = try client.createWorktree(projectID, spaceID, "main", "/repo", "main")
-    let p1 = try client.createWorktree(projectID, spaceID, "p1", "/repo/p1", "p1")
+    let projectID = client.addProject("p", "/repo", "/repo")
+    _ = try client.createWorktree(projectID, "main", "/repo", "main")
+    let p1 = try client.createWorktree(projectID, "p1", "/repo/p1", "p1")
     manager.setWorktreePinned(worktreeID: p1, isPinned: true)
-    let p2 = try client.createWorktree(projectID, spaceID, "p2", "/repo/p2", "p2")
+    let p2 = try client.createWorktree(projectID, "p2", "/repo/p2", "p2")
     manager.setWorktreePinned(worktreeID: p2, isPinned: true)
 
-    try client.reorderWorktrees(projectID, spaceID, .pinned, IndexSet(integer: 0), 2)
-    let pinned = manager.catalog.spaces[0].projects[0].worktrees
+    try client.reorderWorktrees(projectID, .pinned, IndexSet(integer: 0), 2)
+    let pinned = manager.catalog.projects[0].worktrees
       .filter { $0.isPinned }
       .map { $0.id }
     #expect(pinned == [p2, p1])

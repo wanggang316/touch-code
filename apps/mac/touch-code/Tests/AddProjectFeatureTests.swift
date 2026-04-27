@@ -38,19 +38,18 @@ struct AddProjectFeatureTests {
     let dir = try Self.makeTempDir(gitInit: true)
     defer { Self.removeTemp(dir) }
     let canonical = HierarchyManager.canonicalPath(dir.path)
-    let spaceID = SpaceID()
     let addedProjectID = ProjectID()
-    let addCalls = LockIsolated<[(SpaceID, String, String, String?)]>([])
+    let addCalls = LockIsolated<[(String, String, String?)]>([])
 
     let store = TestStore(
-      initialState: AddProjectFeature.State(targetSpaceID: spaceID)
+      initialState: AddProjectFeature.State()
     ) {
       AddProjectFeature()
     } withDependencies: {
       $0.folderPickerClient.pick = { _ in dir }
       $0.hierarchyClient.isPathRegistered = { _ in nil }
-      $0.hierarchyClient.addProject = { space, name, root, gitRoot in
-        addCalls.withValue { $0.append((space, name, root, gitRoot)) }
+      $0.hierarchyClient.addProject = { name, root, gitRoot in
+        addCalls.withValue { $0.append((name, root, gitRoot)) }
         return addedProjectID
       }
     }
@@ -68,27 +67,25 @@ struct AddProjectFeatureTests {
 
     let captured = addCalls.value
     #expect(captured.count == 1)
-    #expect(captured.first?.0 == spaceID)
-    #expect(captured.first?.2 == canonical)
-    #expect(captured.first?.3 != nil)  // gitRoot resolved
+    #expect(captured.first?.1 == canonical)
+    #expect(captured.first?.2 != nil)  // gitRoot resolved
   }
 
   @Test
   func happyPathNonGitFolderSubmitsWithNilGitRoot() async throws {
     let dir = try Self.makeTempDir(gitInit: false)
     defer { Self.removeTemp(dir) }
-    let spaceID = SpaceID()
     let addedProjectID = ProjectID()
     let capturedGitRoot = LockIsolated<String??>(nil)
 
     let store = TestStore(
-      initialState: AddProjectFeature.State(targetSpaceID: spaceID)
+      initialState: AddProjectFeature.State()
     ) {
       AddProjectFeature()
     } withDependencies: {
       $0.folderPickerClient.pick = { _ in dir }
       $0.hierarchyClient.isPathRegistered = { _ in nil }
-      $0.hierarchyClient.addProject = { _, _, _, gitRoot in
+      $0.hierarchyClient.addProject = { _, _, gitRoot in
         capturedGitRoot.withValue { $0 = gitRoot }
         return addedProjectID
       }
@@ -116,19 +113,17 @@ struct AddProjectFeatureTests {
   func duplicatePathBlocksSubmitAndEmitsRevealDelegate() async throws {
     let dir = try Self.makeTempDir(gitInit: true)
     defer { Self.removeTemp(dir) }
-    let spaceID = SpaceID()
-    let existingSpaceID = SpaceID()
     let existingProjectID = ProjectID()
     let addCallCount = LockIsolated(0)
 
     let store = TestStore(
-      initialState: AddProjectFeature.State(targetSpaceID: spaceID)
+      initialState: AddProjectFeature.State()
     ) {
       AddProjectFeature()
     } withDependencies: {
       $0.folderPickerClient.pick = { _ in dir }
-      $0.hierarchyClient.isPathRegistered = { _ in (existingSpaceID, existingProjectID) }
-      $0.hierarchyClient.addProject = { _, _, _, _ in
+      $0.hierarchyClient.isPathRegistered = { _ in existingProjectID }
+      $0.hierarchyClient.addProject = { _, _, _ in
         addCallCount.withValue { $0 += 1 }
         return ProjectID()
       }
@@ -138,7 +133,6 @@ struct AddProjectFeatureTests {
     await store.send(.openPickerTapped)
     await store.receive(\.folderPicked) {
       $0.duplicate = AddProjectFeature.DuplicateRegistration(
-        spaceID: existingSpaceID,
         projectID: existingProjectID
       )
     }
@@ -160,13 +154,13 @@ struct AddProjectFeatureTests {
     let addCallCount = LockIsolated(0)
 
     let store = TestStore(
-      initialState: AddProjectFeature.State(targetSpaceID: SpaceID())
+      initialState: AddProjectFeature.State()
     ) {
       AddProjectFeature()
     } withDependencies: {
       $0.folderPickerClient.pick = { _ in dir }
       $0.hierarchyClient.isPathRegistered = { _ in nil }
-      $0.hierarchyClient.addProject = { _, _, _, _ in
+      $0.hierarchyClient.addProject = { _, _, _ in
         addCallCount.withValue { $0 += 1 }
         return ProjectID()
       }
@@ -188,7 +182,7 @@ struct AddProjectFeatureTests {
   @Test
   func cancelEmitsDismissDelegate() async {
     let store = TestStore(
-      initialState: AddProjectFeature.State(targetSpaceID: SpaceID())
+      initialState: AddProjectFeature.State()
     ) {
       AddProjectFeature()
     }
@@ -200,7 +194,7 @@ struct AddProjectFeatureTests {
   @Test
   func pickerCancelledDismisses() async {
     let store = TestStore(
-      initialState: AddProjectFeature.State(targetSpaceID: SpaceID())
+      initialState: AddProjectFeature.State()
     ) {
       AddProjectFeature()
     } withDependencies: {
