@@ -125,10 +125,26 @@ struct HierarchySidebarView: View {
     let paneIndex = catalog.paneWorktreeIndex()
     let inbox = inboxStore.inbox
 
-    // Sidebar body is the List directly (no VStack wrapper). The bottom
-    // `.safeAreaInset` (formerly the Space footer) is removed in M2; M4
-    // reintroduces it with the Tag chip footer.
-    treeBody(projects: catalog.projects, paneIndex: paneIndex, inbox: inbox)
+    // Filter the project list by the catalog's active tag filter (M4).
+    // OR semantics on `.tags(set)`; `.untagged` shows projects with no
+    // tags; `.all` is the no-op default.
+    let visibleProjects = filteredProjects(catalog: catalog)
+    let untaggedExists = catalog.projects.contains { $0.tagIDs.isEmpty }
+
+    // Sidebar body is the List, with a Tag chip footer mounted at the
+    // bottom `.safeAreaInset` (replaces the prior Space footer slot — see
+    // docs/design-docs/project-tags.md §3.4 for the layout rationale).
+    treeBody(projects: visibleProjects, paneIndex: paneIndex, inbox: inbox)
+      .safeAreaInset(edge: .bottom, spacing: 0) {
+        TagChipFooter(
+          tags: catalog.tags,
+          activeFilter: catalog.activeTagFilter,
+          showUntaggedChip: untaggedExists,
+          onAllTapped: { store.send(.allChipTapped) },
+          onTagTapped: { store.send(.tagChipTapped($0)) },
+          onUntaggedTapped: { store.send(.untaggedChipTapped) }
+        )
+      }
       .toolbar { sidebarToolbarContent }
       .sheet(
         item: $store.scope(state: \.addProject, action: \.addProject)
@@ -250,6 +266,26 @@ struct HierarchySidebarView: View {
         Label("Add Project", systemImage: "plus")
       }
       .help("Add Project")
+    }
+  }
+
+  // MARK: - Tag filter (M4)
+
+  /// Apply `Catalog.activeTagFilter` to `catalog.projects`. Linear scan;
+  /// project counts are small enough (<200) that a per-render filter is
+  /// sub-millisecond.
+  private func filteredProjects(catalog: Catalog) -> [Project] {
+    switch catalog.activeTagFilter {
+    case .all:
+      return catalog.projects
+    case .tags(let set) where set.isEmpty:
+      // Empty `.tags` is normalized to `.all` by the manager but defend
+      // here too — a corrupted catalog shouldn't hide every project.
+      return catalog.projects
+    case .tags(let set):
+      return catalog.projects.filter { !$0.tagIDs.isDisjoint(with: set) }
+    case .untagged:
+      return catalog.projects.filter { $0.tagIDs.isEmpty }
     }
   }
 

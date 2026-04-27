@@ -174,6 +174,19 @@ struct HierarchySidebarFeature {
     case pendingWorktreeDiscardTapped(PendingWorktreeID)
     case pendingWorktreeCancelTapped(PendingWorktreeID)
 
+    // M4: Tag chip footer at the sidebar's safe-area bottom.
+    /// Toggle membership of `id` in `Catalog.activeTagFilter`. If filter is
+    /// `.all` or `.untagged` it becomes `.tags([id])`. Within `.tags(set)`,
+    /// `id` toggles in/out; an empty result resets to `.all`.
+    case tagChipTapped(TagID)
+    /// Resets the filter to `.all`.
+    case allChipTapped
+    /// Sets filter to `.untagged`. Mutually exclusive with `.tags(...)`.
+    case untaggedChipTapped
+    /// Bound to ⌘F via `MainWindowCommands`. Routed up so the chip footer
+    /// view can take focus.
+    case tagFilterFocusRequested
+
     // Add Project — scoped into AddProjectFeature via @Presents.
     case addProject(PresentationAction<AddProjectFeature.Action>)
     // Project Options — scoped into ProjectOptionsFeature via @Presents.
@@ -303,6 +316,41 @@ struct HierarchySidebarFeature {
 
     case .toolbarAddProjectTapped:
       state.addProject = AddProjectFeature.State()
+      return .none
+
+    // MARK: Tag filter chip footer (M4)
+
+    case .tagChipTapped(let tagID):
+      let current = hierarchyClient.snapshot().activeTagFilter
+      let next: TagFilter
+      switch current {
+      case .all, .untagged:
+        next = .tags([tagID])
+      case .tags(let set):
+        if set.contains(tagID) {
+          var updated = set
+          updated.remove(tagID)
+          next = updated.isEmpty ? .all : .tags(updated)
+        } else {
+          var updated = set
+          updated.insert(tagID)
+          next = .tags(updated)
+        }
+      }
+      hierarchyClient.setActiveTagFilter(next)
+      return .none
+
+    case .allChipTapped:
+      hierarchyClient.setActiveTagFilter(.all)
+      return .none
+
+    case .untaggedChipTapped:
+      hierarchyClient.setActiveTagFilter(.untagged)
+      return .none
+
+    case .tagFilterFocusRequested:
+      // The view subscribes to this via `@FocusState`; the reducer is a
+      // pure pass-through so the feature stays state-light.
       return .none
 
     // MARK: Project hover chrome
