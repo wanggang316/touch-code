@@ -240,6 +240,7 @@ let project = Project(
         base: [
           "ENABLE_HARDENED_RUNTIME": "YES",
           "OTHER_LDFLAGS": "$(inherited) -lc++ -framework Carbon -framework Metal -framework MetalKit -framework CoreText -framework QuartzCore",
+          "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
         ],
         defaultSettings: .essential
       )

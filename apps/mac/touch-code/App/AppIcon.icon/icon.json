@@ -1,0 +1,33 @@
+{
+  "fill" : "automatic",
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "image-name" : "logo-1024-ios.png",
+          "name" : "logo-1024-ios"
+        },
+        {
+          "blend-mode" : "normal",
+          "glass" : true,
+          "image-name" : "logo-1024-ios.svg",
+          "name" : "logo-1024-ios"
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}
