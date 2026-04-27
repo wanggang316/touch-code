@@ -25,13 +25,13 @@ extension HookEnvelope {
 /// Wire payload delivered to a user hook handler on stdin and to the
 /// `hook.events` streaming RPC.
 ///
-/// Every anchor field (`space`, `project`, `worktree`, `tab`, `pane`) is
-/// optional on the wire because some events carry no pane / tab / worktree
-/// by construction. `validateAnchors()` asserts the per-scope presence rule
+/// Every anchor field (`project`, `worktree`, `tab`, `pane`) is optional
+/// on the wire because some events carry no pane / tab / worktree by
+/// construction. `validateAnchors()` asserts the per-scope presence rule
 /// (see the C3 design doc): `pane.*` must carry pane + tab + worktree +
-/// project + space; `tab.*` must carry tab + ancestors; `worktree.*` must
-/// carry worktree + ancestors. Debug builds call it on encode; release
-/// builds trust the producer.
+/// project; `tab.*` must carry tab + ancestors; `worktree.*` must carry
+/// worktree + ancestors. Debug builds call it on encode; release builds
+/// trust the producer.
 public nonisolated struct HookEnvelope: Equatable, Codable, Sendable, Identifiable {
   public static let currentVersion = 1
 

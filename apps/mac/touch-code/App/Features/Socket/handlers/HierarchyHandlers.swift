@@ -473,6 +473,9 @@ final class HierarchyHandlers {
     } catch {
       return .failed(.invalidParams(message: "renameTag requires {id, name}", path: nil))
     }
+    guard manager.catalog.tags.contains(where: { $0.id == req.id }) else {
+      return .failed(.notFound(kind: "tag", id: req.id.description))
+    }
     manager.renameTag(req.id, to: req.name)
     return .unary(.object([:]))
   }
@@ -496,6 +499,9 @@ final class HierarchyHandlers {
           message: "unknown color '\(req.color)'; expected one of \(valid)",
           path: ["color"]))
     }
+    guard manager.catalog.tags.contains(where: { $0.id == req.id }) else {
+      return .failed(.notFound(kind: "tag", id: req.id.description))
+    }
     manager.recolorTag(req.id, to: color)
     return .unary(.object([:]))
   }
@@ -510,6 +516,9 @@ final class HierarchyHandlers {
       req = try params.decoded(as: RemoveTagParams.self)
     } catch {
       return .failed(.invalidParams(message: "removeTag requires {id}", path: nil))
+    }
+    guard manager.catalog.tags.contains(where: { $0.id == req.id }) else {
+      return .failed(.notFound(kind: "tag", id: req.id.description))
     }
     manager.removeTag(req.id)
     return .unary(.object([:]))

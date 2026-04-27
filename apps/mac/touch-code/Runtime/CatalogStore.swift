@@ -47,8 +47,8 @@ final class CatalogStore {
 
   /// Synchronous flush for app termination. Cancels the pending debounced
   /// task and writes `latestCatalog` immediately so the last sidebar
-  /// mutation (selection / expansion / Space switch) is not dropped when
-  /// the user quits within the 500 ms debounce window.
+  /// mutation (selection / expansion / tag-filter change) is not dropped
+  /// when the user quits within the 500 ms debounce window.
   func flushPending() {
     pendingSaveTask?.cancel()
     pendingSaveTask = nil

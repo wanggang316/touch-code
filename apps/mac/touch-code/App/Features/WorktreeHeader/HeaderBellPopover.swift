@@ -130,8 +130,8 @@ extension HeaderBellPopover {
 
   /// Builds the Project -> Worktree -> [unread notifications] grouping
   /// from a flat inbox + the current catalog. One walk of the catalog to
-  /// build the `PaneID -> (Space, Project, Worktree, branch)` map;
-  /// one walk of the notifications to bucket them. Orphans drop out.
+  /// build the `PaneID -> (Project, Worktree, branch)` map; one walk of
+  /// the notifications to bucket them. Orphans drop out.
   static func groupProjectByWorktree(
     inbox: NotificationInbox,
     catalog: Catalog

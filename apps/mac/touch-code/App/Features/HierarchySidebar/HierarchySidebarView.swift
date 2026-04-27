@@ -3,12 +3,12 @@ import SwiftUI
 import TouchCodeCore
 
 /// Renders the sidebar per `docs/product-specs/ui-main-window-redesign.md`:
-/// a sticky toolbar with "+ Add Project" and a "⋯" placeholder menu; the
-/// active Space's Projects as collapsible sections with hover-revealed `+` /
-/// `⋯` chrome; Worktree rows with a leading `●`/`○` selection dot and a
-/// trailing unread-notification dot; a pinned Space footer whose tap opens
-/// a popover for switching / creating Spaces; and empty-state + confirmation
-/// / stub-sheet presentations.
+/// a sticky toolbar with "+ Add Project" and a "⋯" menu; the catalog's
+/// Projects as collapsible sections with hover-revealed `+` / `⋯` chrome;
+/// Worktree rows with a leading `●`/`○` selection dot and a trailing
+/// unread-notification dot; a Tag chip footer pinned at the bottom safe
+/// area for filtering by Tag; and empty-state + confirmation / stub-sheet
+/// presentations.
 ///
 /// Structural data is NOT held in reducer state — the view reads the active
 /// `Catalog` from `HierarchyManager` and the `NotificationInbox` from
@@ -70,8 +70,9 @@ struct HierarchySidebarView: View {
     }
   }
 
-  /// Modifier set for the per-row worktree hotkey. `⌘1`–`⌘9` is already bound to Space
-  /// switching (see `MainWindowCommands`), so worktree jumps get `⌃⌘N` instead.
+  /// Modifier set for the per-row worktree hotkey. `⌘1`–`⌘9` is reserved
+  /// for future tab/project quick-switch bindings, so worktree jumps get
+  /// `⌃⌘N` instead.
   private static let hotkeyModifiers: EventModifiers = [.command, .control]
 
   /// Flips to true once `_UnclampedClipView` has been swapped in. Until then
