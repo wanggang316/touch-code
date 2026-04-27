@@ -10,23 +10,50 @@ struct ProjectCommand: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "project",
     abstract: "Project-level verbs.",
-    subcommands: [ProjectAdd.self, ProjectList.self, ProjectRemove.self]
+    subcommands: [
+      ProjectAdd.self,
+      ProjectList.self,
+      ProjectRemove.self,
+      ProjectTagCommand.self,
+    ]
   )
 }
 
 struct ProjectList: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "list",
-    abstract: "List all projects."
+    abstract: "List all projects, optionally filtered by tag."
   )
   @OptionGroup var globals: GlobalOptions
+  @Option(name: .long, help: "Restrict to projects carrying this tag (id or name).")
+  var tag: String?
+  @Flag(name: .long, help: "Restrict to projects with no tags. Mutually exclusive with --tag.")
+  var untagged: Bool = false
 
   func run() async throws {
+    if tag != nil, untagged {
+      CLIError(
+        code: .userError,
+        message: "pass at most one of --tag / --untagged"
+      ).exitProcess()
+    }
     let client = try CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
+      struct Params: Codable {
+        let tag: TagID?
+        let untagged: Bool?
+      }
       struct Result: Codable { let projects: [Project] }
-      let result: Result = try await client.call(.hierarchyListProjects, params: EmptyParams())
+      var resolvedTag: TagID?
+      if let tag {
+        let uuid = try await TagAliasResolver.resolve(tag, client: client)
+        resolvedTag = TagID(raw: uuid)
+      }
+      let result: Result = try await client.call(
+        .hierarchyListProjects,
+        params: Params(tag: resolvedTag, untagged: untagged ? true : nil)
+      )
       try Renderer.emit(
         ProjectListRenderable(projects: result.projects),
         mode: globals.renderMode
@@ -675,5 +702,380 @@ struct RPCCommand: AsyncParsableCommand {
     } catch {
       CLIError.from(error).exitProcess()
     }
+  }
+}
+
+// MARK: - tc tag
+
+/// Top-level `tc tag` verb tree. Mirrors `tc project` for the
+/// catalog-wide tag CRUD surface introduced in M6 alongside the
+/// `hierarchy.*Tag` IPC handlers.
+struct TagCommand: AsyncParsableCommand {
+  static let configuration = CommandConfiguration(
+    commandName: "tag",
+    abstract: "Tag-level verbs.",
+    subcommands: [
+      TagList.self,
+      TagCreate.self,
+      TagRename.self,
+      TagRecolor.self,
+      TagRemove.self,
+    ]
+  )
+}
+
+struct TagListRenderable: Encodable, CustomStringConvertible {
+  let tags: [Tag]
+  private enum Key: String, CodingKey { case tags }
+  func encode(to encoder: Encoder) throws {
+    var c = encoder.container(keyedBy: Key.self)
+    try c.encode(tags, forKey: .tags)
+  }
+  var description: String {
+    tags.isEmpty
+      ? "(no tags)"
+      : tags.map { "\($0.id)  \($0.name)  \($0.color.rawValue)" }.joined(separator: "\n")
+  }
+}
+
+struct TagList: AsyncParsableCommand {
+  static let configuration = CommandConfiguration(
+    commandName: "list",
+    abstract: "List all tags."
+  )
+  @OptionGroup var globals: GlobalOptions
+
+  func run() async throws {
+    let client = try CLISession.connect(globals: globals)
+    defer { Task { await client.shutdown() } }
+    do {
+      struct Result: Codable { let tags: [Tag] }
+      let result: Result = try await client.call(.hierarchyListTags, params: EmptyParams())
+      try Renderer.emit(TagListRenderable(tags: result.tags), mode: globals.renderMode)
+    } catch {
+      CLIError.from(error).exitProcess()
+    }
+  }
+}
+
+struct TagCreate: AsyncParsableCommand {
+  static let configuration = CommandConfiguration(
+    commandName: "create",
+    abstract: "Create a new tag."
+  )
+  @OptionGroup var globals: GlobalOptions
+  @Argument(help: "Display name for the tag.")
+  var name: String
+  @Option(
+    name: .long,
+    help: "Color: red|orange|yellow|green|blue|purple|grey (default: blue)."
+  )
+  var color: String = TagColor.blue.rawValue
+
+  func run() async throws {
+    guard let parsedColor = TagColor(rawValue: color) else {
+      let valid = TagColor.allCases.map(\.rawValue).joined(separator: "|")
+      CLIError(
+        code: .userError,
+        message: "unknown color '\(color)'; expected one of \(valid)"
+      ).exitProcess()
+    }
+    let client = try CLISession.connect(globals: globals)
+    defer { Task { await client.shutdown() } }
+    do {
+      struct Params: Codable {
+        let name: String
+        let color: String
+      }
+      struct Result: Codable { let id: TagID }
+      let result: Result = try await client.call(
+        .hierarchyCreateTag,
+        params: Params(name: name, color: parsedColor.rawValue)
+      )
+      try Renderer.emitObject(
+        ["id": result.id.description, "name": name, "color": parsedColor.rawValue],
+        mode: globals.renderMode
+      ) { obj in "created tag \(obj["id"] ?? "?")  \(name)  \(parsedColor.rawValue)" }
+    } catch {
+      CLIError.from(error).exitProcess()
+    }
+  }
+}
+
+struct TagRename: AsyncParsableCommand {
+  static let configuration = CommandConfiguration(
+    commandName: "rename",
+    abstract: "Rename a tag (by id or unique name)."
+  )
+  @OptionGroup var globals: GlobalOptions
+  @Argument(help: "Tag id (UUID) or current display name.")
+  var id: String
+  @Argument(help: "New display name.")
+  var newName: String
+
+  func run() async throws {
+    let client = try CLISession.connect(globals: globals)
+    defer { Task { await client.shutdown() } }
+    do {
+      let uuid = try await TagAliasResolver.resolve(id, client: client)
+      struct Params: Codable {
+        let id: TagID
+        let name: String
+      }
+      _ = try await client.callRaw(
+        .hierarchyRenameTag,
+        params: Params(id: TagID(raw: uuid), name: newName)
+      )
+      try Renderer.emitObject(
+        ["id": uuid.uuidString, "name": newName],
+        mode: globals.renderMode
+      ) { obj in "renamed tag \(obj["id"] ?? "?") → \(newName)" }
+    } catch {
+      CLIError.from(error).exitProcess()
+    }
+  }
+}
+
+struct TagRecolor: AsyncParsableCommand {
+  static let configuration = CommandConfiguration(
+    commandName: "recolor",
+    abstract: "Recolor a tag (by id or unique name)."
+  )
+  @OptionGroup var globals: GlobalOptions
+  @Argument(help: "Tag id (UUID) or display name.")
+  var id: String
+  @Argument(help: "New color: red|orange|yellow|green|blue|purple|grey.")
+  var color: String
+
+  func run() async throws {
+    guard let parsedColor = TagColor(rawValue: color) else {
+      let valid = TagColor.allCases.map(\.rawValue).joined(separator: "|")
+      CLIError(
+        code: .userError,
+        message: "unknown color '\(color)'; expected one of \(valid)"
+      ).exitProcess()
+    }
+    let client = try CLISession.connect(globals: globals)
+    defer { Task { await client.shutdown() } }
+    do {
+      let uuid = try await TagAliasResolver.resolve(id, client: client)
+      struct Params: Codable {
+        let id: TagID
+        let color: String
+      }
+      _ = try await client.callRaw(
+        .hierarchyRecolorTag,
+        params: Params(id: TagID(raw: uuid), color: parsedColor.rawValue)
+      )
+      try Renderer.emitObject(
+        ["id": uuid.uuidString, "color": parsedColor.rawValue],
+        mode: globals.renderMode
+      ) { obj in "recolored tag \(obj["id"] ?? "?") → \(parsedColor.rawValue)" }
+    } catch {
+      CLIError.from(error).exitProcess()
+    }
+  }
+}
+
+struct TagRemove: AsyncParsableCommand {
+  static let configuration = CommandConfiguration(
+    commandName: "remove",
+    abstract: "Remove a tag. Strips the tag from every project (Project data is untouched)."
+  )
+  @OptionGroup var globals: GlobalOptions
+  @Argument(help: "Tag id (UUID) or unique display name.")
+  var id: String
+
+  func run() async throws {
+    let client = try CLISession.connect(globals: globals)
+    defer { Task { await client.shutdown() } }
+    do {
+      let uuid = try await TagAliasResolver.resolve(id, client: client)
+      struct Params: Codable { let id: TagID }
+      _ = try await client.callRaw(
+        .hierarchyRemoveTag,
+        params: Params(id: TagID(raw: uuid))
+      )
+      try Renderer.emitObject(["id": uuid.uuidString], mode: globals.renderMode) { obj in
+        "removed tag \(obj["id"] ?? "?")"
+      }
+    } catch {
+      CLIError.from(error).exitProcess()
+    }
+  }
+}
+
+// MARK: - tc project tag
+
+/// Subtree under `tc project` that mutates a project's tag membership.
+struct ProjectTagCommand: AsyncParsableCommand {
+  static let configuration = CommandConfiguration(
+    commandName: "tag",
+    abstract: "Add or remove tags on a project.",
+    subcommands: [ProjectTagAdd.self, ProjectTagRemove.self]
+  )
+}
+
+struct ProjectTagAdd: AsyncParsableCommand {
+  static let configuration = CommandConfiguration(
+    commandName: "add",
+    abstract: "Add one or more tags to a project."
+  )
+  @OptionGroup var globals: GlobalOptions
+  @Argument(help: "Project (UUID, 'current', or unique name).")
+  var project: String
+  @Argument(help: "Tags to add (UUIDs or unique names).")
+  var tags: [String]
+
+  func run() async throws {
+    if tags.isEmpty {
+      CLIError(code: .userError, message: "specify at least one tag").exitProcess()
+    }
+    try await ProjectTagMutator.run(
+      globals: globals,
+      project: project,
+      tagAliases: tags,
+      mode: .add,
+      verbLabel: "tagged"
+    )
+  }
+}
+
+struct ProjectTagRemove: AsyncParsableCommand {
+  static let configuration = CommandConfiguration(
+    commandName: "remove",
+    abstract: "Remove one or more tags from a project."
+  )
+  @OptionGroup var globals: GlobalOptions
+  @Argument(help: "Project (UUID, 'current', or unique name).")
+  var project: String
+  @Argument(help: "Tags to remove (UUIDs or unique names).")
+  var tags: [String]
+
+  func run() async throws {
+    if tags.isEmpty {
+      CLIError(code: .userError, message: "specify at least one tag").exitProcess()
+    }
+    try await ProjectTagMutator.run(
+      globals: globals,
+      project: project,
+      tagAliases: tags,
+      mode: .remove,
+      verbLabel: "untagged"
+    )
+  }
+}
+
+/// Shared add/remove flow. Resolves the project and the tag set, fetches
+/// the project's current `tagIDs`, applies the diff, and pushes the new
+/// set via `hierarchy.setProjectTags`. Server-side `setProjectTags` is a
+/// replace (not a delta), so the diff has to be done client-side.
+enum ProjectTagMutator {
+  enum Mode { case add, remove }
+
+  static func run(
+    globals: GlobalOptions,
+    project: String,
+    tagAliases: [String],
+    mode: Mode,
+    verbLabel: String
+  ) async throws {
+    let client = try CLISession.connect(globals: globals)
+    defer { Task { await client.shutdown() } }
+    do {
+      let projectUUID = try await AliasResolver.resolve(project, kind: .project, client: client)
+      var resolvedTagIDs: [TagID] = []
+      for alias in tagAliases {
+        let uuid = try await TagAliasResolver.resolve(alias, client: client)
+        resolvedTagIDs.append(TagID(raw: uuid))
+      }
+      // listProjects is the cheapest read path that exposes
+      // `Project.tagIDs`; there is no dedicated `describeProject` RPC.
+      struct ListResult: Codable { let projects: [Project] }
+      let list: ListResult = try await client.call(.hierarchyListProjects, params: EmptyParams())
+      guard let current = list.projects.first(where: { $0.id.raw == projectUUID }) else {
+        CLIError(
+          code: .notFound,
+          message: "project \(projectUUID.uuidString) not found"
+        ).exitProcess()
+      }
+      var newSet = current.tagIDs
+      switch mode {
+      case .add:
+        for id in resolvedTagIDs { newSet.insert(id) }
+      case .remove:
+        for id in resolvedTagIDs { newSet.remove(id) }
+      }
+      struct Params: Codable {
+        let projectID: ProjectID
+        let tagIDs: [TagID]
+      }
+      _ = try await client.callRaw(
+        .hierarchySetProjectTags,
+        params: Params(
+          projectID: ProjectID(raw: projectUUID),
+          tagIDs: Array(newSet)
+        )
+      )
+      try Renderer.emitObject(
+        [
+          "projectID": projectUUID.uuidString,
+          "tagIDs": newSet.map { $0.description },
+        ],
+        mode: globals.renderMode
+      ) { _ in
+        "\(verbLabel) project \(projectUUID.uuidString) (\(newSet.count) tag(s))"
+      }
+    } catch {
+      CLIError.from(error).exitProcess()
+    }
+  }
+}
+
+// MARK: - Tag alias resolution
+
+/// Client-side resolver for tag identifiers. UUID and 'current' fast-paths
+/// match `AliasResolver`; everything else round-trips through
+/// `hierarchy.listTags` and matches case-folded names. Server-side
+/// `hierarchy.resolveAlias` doesn't yet implement name resolution for any
+/// kind, so doing the lookup client-side keeps the wire surface small and
+/// matches how existing `tc` verbs ask the user to pass UUIDs for now.
+enum TagAliasResolver {
+  static func resolve(
+    _ value: String,
+    client: RPCClient,
+    env: [String: String] = ProcessInfo.processInfo.environment
+  ) async throws -> UUID {
+    if let uuid = UUID(uuidString: value) {
+      return uuid
+    }
+    if value == "current" || value == "." {
+      if let envValue = env["TOUCH_CODE_TAG_ID"], let uuid = UUID(uuidString: envValue) {
+        return uuid
+      }
+      CLIError(
+        code: .userError,
+        message: "no current tag context (TOUCH_CODE_TAG_ID unset)"
+      ).exitProcess()
+    }
+    struct Result: Codable { let tags: [Tag] }
+    let list: Result = try await client.call(.hierarchyListTags, params: EmptyParams())
+    let needle = value.lowercased()
+    let matches = list.tags.filter { $0.name.lowercased() == needle }
+    if matches.count == 1 {
+      return matches[0].id.raw
+    }
+    if matches.isEmpty {
+      CLIError(
+        code: .notFound,
+        message: "no tag matches '\(value)'"
+      ).exitProcess()
+    }
+    let ids = matches.map { $0.id.description }.joined(separator: ", ")
+    CLIError(
+      code: .userError,
+      message:
+        "ambiguous tag name '\(value)' matches \(matches.count) tags (\(ids)); pass the UUID instead"
+    ).exitProcess()
   }
 }
