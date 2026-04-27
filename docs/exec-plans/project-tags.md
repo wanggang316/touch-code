@@ -42,14 +42,14 @@ Existing data is migrated losslessly: each prior Space becomes a same-named Tag 
   - [ ] First-launch onboarding toast (deferred — needs UserDefaults gate; one-shot UX, not blocking)
   - [ ] `check-no-space-residue` Make target removal (deferred — leave gate live until change soaks)
 - [ ] Final code review pass via agent-skills:code-reviewer
-  - [x] M2.13 `check-no-space-residue` Make target wired into `make check` — commit 0fc0b1d (gate); commit a95dd15 + this commit refine the filter
-  - [x] Build verification: `xcodebuild build -scheme touch-code` ✅ BUILD SUCCEEDED, `-scheme tc` ✅ BUILD SUCCEEDED
-  - [x] Test verification: `xcodebuild test -scheme TouchCodeCore` ✅ 333/333 passed
-- [ ] M3 — Single-window enforcement: `WindowGroup` → `Window(id:)`, ⌘N suppression, ⌘W hide, ⌘Q confirmation dialog
-- [ ] M4 — Sidebar chip footer: filter UI in the bottom safe-area, ⌘F focus, project-row tag dots, wired to `Catalog.activeTagFilter`
-- [ ] M5 — `TagManagerFeature` + project-row context menu Tag editor (replaces deleted `SpaceManagerFeature`)
-- [ ] M6 — `tc tag` + `tc project tag` CLI surface, IPC handlers, tests
-- [ ] M7 — First-launch toast, CHANGELOG, docs sweep (`product-spec.md`, `architecture.md`), CI gate cleanup
+
+**Verification (2026-04-27 21:32):**
+- `xcodebuild build -scheme touch-code -destination 'platform=macOS'` ✅ BUILD SUCCEEDED
+- `xcodebuild build -scheme tc -destination 'platform=macOS'` ✅ BUILD SUCCEEDED
+- `xcodebuild build-for-testing -scheme touch-code -destination 'platform=macOS'` ✅ TEST BUILD SUCCEEDED
+- `xcodebuild test -scheme TouchCodeCore -destination 'platform=macOS'` ✅ 333/333 passed in 45 suites
+- `make -C apps/mac check-no-space-residue` ✅ no residue
+- (touch-codeTests host-app run still crashes on Ghostty config load — pre-existing, see Surprises §M0)
 
 ## Surprises & Discoveries
 
