@@ -44,69 +44,83 @@ final class HierarchyManager {
     self.runtime = runtime
   }
 
-  // MARK: - Space mutations
+  // MARK: - Tag mutations
 
-  func createSpace(name: String) -> SpaceID {
-    let spaceID = SpaceID()
-    let space = Space(id: spaceID, name: name, projects: [], selectedProjectID: nil)
-    catalog.spaces.append(space)
-    catalog.selectedSpaceID = spaceID
+  /// Creates a new Tag with the given display name and color, appends it to
+  /// `catalog.tags`, and persists. Names are not enforced unique — see
+  /// `docs/design-docs/project-tags.md` §3.2 for rationale (mirrors Finder).
+  @discardableResult
+  func createTag(name: String, color: TagColor) -> TagID {
+    let tag = Tag(name: name, color: color)
+    catalog.tags.append(tag)
     store.scheduleSave(catalog)
-    return spaceID
+    return tag.id
   }
 
-  func renameSpace(_ id: SpaceID, name: String) throws {
-    guard let index = catalog.spaces.firstIndex(where: { $0.id == id }) else {
-      throw HierarchyError.notFound("Space \(id)")
+  /// Renames the Tag in place. Silent no-op for unknown ids and unchanged
+  /// values (no save scheduled). Caller is responsible for trim / empty
+  /// validation — matches the rename pattern established for `renameTab`.
+  func renameTag(_ id: TagID, to name: String) {
+    guard let index = catalog.tags.firstIndex(where: { $0.id == id }) else { return }
+    guard catalog.tags[index].name != name else { return }
+    catalog.tags[index].name = name
+    store.scheduleSave(catalog)
+  }
+
+  /// Recolors the Tag. Silent no-op for unknown ids and unchanged values.
+  func recolorTag(_ id: TagID, to color: TagColor) {
+    guard let index = catalog.tags.firstIndex(where: { $0.id == id }) else { return }
+    guard catalog.tags[index].color != color else { return }
+    catalog.tags[index].color = color
+    store.scheduleSave(catalog)
+  }
+
+  /// Removes the Tag and cascades the removal: strips `id` from every
+  /// `Project.tagIDs`, and normalizes `catalog.activeTagFilter` so the
+  /// deleted id can never linger in the persisted filter
+  /// (`.tags(set)` with the id dropped; if the set becomes empty the
+  /// filter resets to `.all`). Non-destructive — Project data is not
+  /// affected. Silent no-op for unknown ids; idempotent.
+  func removeTag(_ id: TagID) {
+    guard let index = catalog.tags.firstIndex(where: { $0.id == id }) else { return }
+    catalog.tags.remove(at: index)
+    for projectIndex in catalog.projects.indices {
+      catalog.projects[projectIndex].tagIDs.remove(id)
     }
-    catalog.spaces[index].name = name
-    store.scheduleSave(catalog)
-  }
-
-  func removeSpace(_ id: SpaceID) throws {
-    guard let index = catalog.spaces.firstIndex(where: { $0.id == id }) else {
-      throw HierarchyError.notFound("Space \(id)")
-    }
-    catalog.spaces.remove(at: index)
-    if catalog.selectedSpaceID == id {
-      catalog.selectedSpaceID = catalog.spaces.first?.id
+    if case .tags(var set) = catalog.activeTagFilter {
+      set.remove(id)
+      catalog.activeTagFilter = set.isEmpty ? .all : .tags(set)
     }
     store.scheduleSave(catalog)
   }
 
-  func selectSpace(_ id: SpaceID?) {
-    catalog.selectedSpaceID = id
+  /// Replaces the Project's tag membership with the given set. Silent no-op
+  /// for unknown ids and unchanged values (no save scheduled).
+  func setProjectTags(_ projectID: ProjectID, tags: Set<TagID>) {
+    guard let index = catalog.projects.firstIndex(where: { $0.id == projectID }) else { return }
+    guard catalog.projects[index].tagIDs != tags else { return }
+    catalog.projects[index].tagIDs = tags
     store.scheduleSave(catalog)
   }
 
-  /// Records which Worktree to restore when the window re-activates this Space.
-  /// Pass `nil` to clear. Missing `spaceID` is a silent no-op; unchanged value
-  /// is a silent no-op (no save scheduled). Persists via the standard
-  /// debounced `store.scheduleSave(catalog)` pipeline used by every other
-  /// catalog mutation.
-  func setSpaceLastActiveWorktree(spaceID: SpaceID, worktreeID: WorktreeID?) {
-    guard let index = catalog.spaces.firstIndex(where: { $0.id == spaceID }) else { return }
-    guard catalog.spaces[index].lastActiveWorktreeID != worktreeID else { return }
-    catalog.spaces[index].lastActiveWorktreeID = worktreeID
-    store.scheduleSave(catalog)
-  }
-
-  /// Reorder Spaces using the IndexSet (source) and destination offset payload
-  /// from SwiftUI's `.onMove(perform:)`. Silent no-op on empty IndexSet.
-  /// Persists via the standard debounced `store.scheduleSave` pipeline.
-  func reorderSpaces(fromOffsets source: IndexSet, toOffset destination: Int) {
-    guard !source.isEmpty else { return }
-    catalog.spaces.move(fromOffsets: source, toOffset: destination)
+  /// Replaces the catalog-wide active tag filter. Empty `.tags(set)` is
+  /// normalized to `.all` so callers don't have to. Unchanged value is a
+  /// silent no-op (no save scheduled).
+  func setActiveTagFilter(_ filter: TagFilter) {
+    let normalized: TagFilter
+    if case .tags(let set) = filter, set.isEmpty {
+      normalized = .all
+    } else {
+      normalized = filter
+    }
+    guard catalog.activeTagFilter != normalized else { return }
+    catalog.activeTagFilter = normalized
     store.scheduleSave(catalog)
   }
 
   // MARK: - Project mutations
 
-  func addProject(to spaceID: SpaceID, name: String, rootPath: String, gitRoot: String? = nil) throws -> ProjectID {
-    guard let spaceIndex = catalog.spaces.firstIndex(where: { $0.id == spaceID }) else {
-      throw HierarchyError.notFound("Space \(spaceID)")
-    }
-
+  func addProject(name: String, rootPath: String, gitRoot: String? = nil) -> ProjectID {
     let projectID = ProjectID()
     var worktrees: [Worktree] = []
     var selectedWorktreeID: WorktreeID?
@@ -134,95 +148,71 @@ final class HierarchyManager {
       worktrees: worktrees,
       selectedWorktreeID: selectedWorktreeID
     )
-    catalog.spaces[spaceIndex].projects.append(project)
-    catalog.spaces[spaceIndex].selectedProjectID = projectID
+    catalog.projects.append(project)
     store.scheduleSave(catalog)
     return projectID
   }
 
   /// Renames the Project in place. Missing project is `.notFound`; an unchanged
   /// name is a silent no-op (no catalog churn, no save). The caller is
-  /// responsible for trimming / empty-string validation — matches `renameSpace`.
-  func renameProject(_ id: ProjectID, in spaceID: SpaceID, name: String) throws {
-    guard let (spaceIndex, projectIndex) = findProjectIndices(projectID: id, spaceID: spaceID) else {
+  /// responsible for trimming / empty-string validation.
+  func renameProject(_ id: ProjectID, name: String) throws {
+    guard let projectIndex = catalog.projects.firstIndex(where: { $0.id == id }) else {
       throw HierarchyError.notFound("Project \(id)")
     }
-    guard catalog.spaces[spaceIndex].projects[projectIndex].name != name else { return }
-    catalog.spaces[spaceIndex].projects[projectIndex].name = name
+    guard catalog.projects[projectIndex].name != name else { return }
+    catalog.projects[projectIndex].name = name
     store.scheduleSave(catalog)
   }
 
-  func removeProject(_ id: ProjectID, from spaceID: SpaceID) throws {
-    guard let spaceIndex = catalog.spaces.firstIndex(where: { $0.id == spaceID }) else {
-      throw HierarchyError.notFound("Space \(spaceID)")
-    }
-    guard let projectIndex = catalog.spaces[spaceIndex].projects.firstIndex(where: { $0.id == id }) else {
+  func removeProject(_ id: ProjectID) throws {
+    guard let projectIndex = catalog.projects.firstIndex(where: { $0.id == id }) else {
       throw HierarchyError.notFound("Project \(id)")
     }
-
-    catalog.spaces[spaceIndex].projects.remove(at: projectIndex)
-    if catalog.spaces[spaceIndex].selectedProjectID == id {
-      catalog.spaces[spaceIndex].selectedProjectID = catalog.spaces[spaceIndex].projects.first?.id
-    }
+    catalog.projects.remove(at: projectIndex)
     store.scheduleSave(catalog)
   }
 
-  func selectProject(_ id: ProjectID?, in spaceID: SpaceID) throws {
-    guard let spaceIndex = catalog.spaces.firstIndex(where: { $0.id == spaceID }) else {
-      throw HierarchyError.notFound("Space \(spaceID)")
-    }
-    catalog.spaces[spaceIndex].selectedProjectID = id
-    store.scheduleSave(catalog)
-  }
-
-  /// Sets or unsets the per-Project default editor. `nil` clears the override so editor
-  /// resolution falls back to the global default (managed by `SettingsStore`) and ultimately
   /// Transient Project-level health state owned by `ProjectReconciler`. Never
   /// persisted (`Project.loadState` is a transient field); equal-value writes
   /// are dropped so repeated reconciliations don't churn the catalog graph.
   func setProjectLoadState(
     _ state: ProjectLoadState,
-    projectID: ProjectID,
-    spaceID: SpaceID
+    projectID: ProjectID
   ) {
-    guard let (spaceIndex, projectIndex) = findProjectIndices(projectID: projectID, spaceID: spaceID) else { return }
-    guard catalog.spaces[spaceIndex].projects[projectIndex].loadState != state else { return }
-    catalog.spaces[spaceIndex].projects[projectIndex].loadState = state
+    guard let projectIndex = catalog.projects.firstIndex(where: { $0.id == projectID }) else { return }
+    guard catalog.projects[projectIndex].loadState != state else { return }
+    catalog.projects[projectIndex].loadState = state
     // No scheduleSave — transient.
   }
 
-  /// Reorder Projects inside a Space. Mirrors SwiftUI `ForEach.onMove`'s
-  /// `(IndexSet, Int)` signature so the sidebar can forward directly. Missing
-  /// Space is `.notFound`; Array's `move(fromOffsets:toOffset:)` already
-  /// handles out-of-range destinations by trapping — callers must pass a
-  /// valid index. Persists.
+  /// Reorder Projects at the catalog top level. Mirrors SwiftUI
+  /// `ForEach.onMove`'s `(IndexSet, Int)` signature so the sidebar can
+  /// forward directly. Array's `move(fromOffsets:toOffset:)` already handles
+  /// out-of-range destinations by trapping — callers must pass a valid
+  /// index. Persists.
   func reorderProjects(
-    in spaceID: SpaceID,
     from source: IndexSet,
     to destination: Int
-  ) throws {
-    guard let spaceIndex = catalog.spaces.firstIndex(where: { $0.id == spaceID }) else {
-      throw HierarchyError.notFound("Space \(spaceID)")
-    }
-    catalog.spaces[spaceIndex].projects.move(fromOffsets: source, toOffset: destination)
+  ) {
+    guard !source.isEmpty else { return }
+    catalog.projects.move(fromOffsets: source, toOffset: destination)
     store.scheduleSave(catalog)
   }
 
-  /// Resolves a canonical path to its registered `(SpaceID, ProjectID)` if any
+  /// Resolves a canonical path to its registered `ProjectID` if any
   /// Project's `rootPath` canonicalizes to the same form. Caller canonicalizes
   /// its input via `HierarchyManager.canonicalPath(_:)` before querying.
   /// Linear in total Project count — acceptable at the low cardinality we
   /// support (Projects per user, not per repo).
-  func isPathRegistered(canonical path: String) -> (SpaceID, ProjectID)? {
-    for space in catalog.spaces {
-      for project in space.projects where Self.canonicalPath(project.rootPath) == path {
-        return (space.id, project.id)
-      }
+  func isPathRegistered(canonical path: String) -> ProjectID? {
+    for project in catalog.projects where Self.canonicalPath(project.rootPath) == path {
+      return project.id
     }
     return nil
   }
 
-  /// Resolves a canonical path to the `(SpaceID, ProjectID)` whose `rootPath`
+  /// Resolves a canonical path to the `ProjectID` whose `rootPath`
   /// **contains** `path` — i.e. the path is the root itself or a descendant.
   /// Used by the `editor.open` IPC so `tc open` inside a subdirectory of a
   /// registered Project still honors the Project's `defaultEditor` override;
@@ -235,30 +225,27 @@ final class HierarchyManager {
   ///
   /// Caller canonicalizes via `HierarchyManager.canonicalPath(_:)` before
   /// querying. Linear in total Project count like `isPathRegistered`.
-  func project(containing path: String) -> (SpaceID, ProjectID)? {
-    var best: (SpaceID, ProjectID, Int)?  // (space, project, root length)
-    for space in catalog.spaces {
-      for project in space.projects {
-        let root = Self.canonicalPath(project.rootPath)
-        guard path == root || path.hasPrefix(root + "/") else { continue }
-        if best == nil || root.count > best!.2 {
-          best = (space.id, project.id, root.count)
-        }
+  func project(containing path: String) -> ProjectID? {
+    var best: (ProjectID, Int)?  // (project, root length)
+    for project in catalog.projects {
+      let root = Self.canonicalPath(project.rootPath)
+      guard path == root || path.hasPrefix(root + "/") else { continue }
+      if best == nil || root.count > best!.1 {
+        best = (project.id, root.count)
       }
     }
-    return best.map { ($0.0, $0.1) }
+    return best.map { $0.0 }
   }
 
   // MARK: - Worktree mutations
 
   func createWorktree(
     in projectID: ProjectID,
-    in spaceID: SpaceID,
     name: String,
     path: String,
     branch: String?
   ) throws -> WorktreeID {
-    guard let (spaceIndex, projectIndex) = findProjectIndices(projectID: projectID, spaceID: spaceID) else {
+    guard let projectIndex = catalog.projects.firstIndex(where: { $0.id == projectID }) else {
       throw HierarchyError.notFound("Project \(projectID)")
     }
 
@@ -282,47 +269,46 @@ final class HierarchyManager {
     // without scrolling. Empty / main-only / all-pinned cases naturally fall to
     // the array tail because `unpinnedBoundary` returns `worktrees.count`.
     let boundary = Self.unpinnedBoundary(
-      in: catalog.spaces[spaceIndex].projects[projectIndex].worktrees,
-      rootPath: catalog.spaces[spaceIndex].projects[projectIndex].rootPath
+      in: catalog.projects[projectIndex].worktrees,
+      rootPath: catalog.projects[projectIndex].rootPath
     )
-    catalog.spaces[spaceIndex].projects[projectIndex].worktrees.insert(worktree, at: boundary)
-    catalog.spaces[spaceIndex].projects[projectIndex].selectedWorktreeID = worktreeID
+    catalog.projects[projectIndex].worktrees.insert(worktree, at: boundary)
+    catalog.projects[projectIndex].selectedWorktreeID = worktreeID
     store.scheduleSave(catalog)
     return worktreeID
   }
 
   func removeWorktree(
     _ id: WorktreeID,
-    from projectID: ProjectID,
-    in spaceID: SpaceID
+    from projectID: ProjectID
   ) throws {
-    guard let (spaceIndex, projectIndex) = findProjectIndices(projectID: projectID, spaceID: spaceID) else {
+    guard let projectIndex = catalog.projects.firstIndex(where: { $0.id == projectID }) else {
       throw HierarchyError.notFound("Project \(projectID)")
     }
     guard
-      let worktreeIndex = catalog.spaces[spaceIndex].projects[projectIndex].worktrees.firstIndex(where: { $0.id == id })
+      let worktreeIndex = catalog.projects[projectIndex].worktrees.firstIndex(where: { $0.id == id })
     else {
       throw HierarchyError.notFound("Worktree \(id)")
     }
 
-    let worktree = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex]
+    let worktree = catalog.projects[projectIndex].worktrees[worktreeIndex]
     for pane in worktree.tabs.flatMap({ $0.panes }) {
       runtime.closeSurface(for: pane.id)
     }
 
-    catalog.spaces[spaceIndex].projects[projectIndex].worktrees.remove(at: worktreeIndex)
-    if catalog.spaces[spaceIndex].projects[projectIndex].selectedWorktreeID == id {
-      catalog.spaces[spaceIndex].projects[projectIndex].selectedWorktreeID =
-        catalog.spaces[spaceIndex].projects[projectIndex].worktrees.first?.id
+    catalog.projects[projectIndex].worktrees.remove(at: worktreeIndex)
+    if catalog.projects[projectIndex].selectedWorktreeID == id {
+      catalog.projects[projectIndex].selectedWorktreeID =
+        catalog.projects[projectIndex].worktrees.first?.id
     }
     store.scheduleSave(catalog)
   }
 
-  func selectWorktree(_ id: WorktreeID?, in projectID: ProjectID, in spaceID: SpaceID) throws {
-    guard let (spaceIndex, projectIndex) = findProjectIndices(projectID: projectID, spaceID: spaceID) else {
+  func selectWorktree(_ id: WorktreeID?, in projectID: ProjectID) throws {
+    guard let projectIndex = catalog.projects.firstIndex(where: { $0.id == projectID }) else {
       throw HierarchyError.notFound("Project \(projectID)")
     }
-    catalog.spaces[spaceIndex].projects[projectIndex].selectedWorktreeID = id
+    catalog.projects[projectIndex].selectedWorktreeID = id
     store.scheduleSave(catalog)
   }
 
@@ -334,26 +320,23 @@ final class HierarchyManager {
   /// refs are NOT touched. Idempotent: unchanged value is a silent
   /// no-op (no save scheduled). Silent no-op when the id is unknown.
   func setWorktreeArchived(worktreeID: WorktreeID, archived: Bool) throws {
-    for spaceIndex in catalog.spaces.indices {
-      for projectIndex in catalog.spaces[spaceIndex].projects.indices {
-        let project = catalog.spaces[spaceIndex].projects[projectIndex]
-        guard let worktreeIndex = project.worktrees.firstIndex(where: { $0.id == worktreeID })
-        else { continue }
-        let worktree = project.worktrees[worktreeIndex]
-        if worktree.path == project.rootPath {
-          throw HierarchyError.invariantViolation("Cannot archive main checkout")
-        }
-        guard worktree.archived != archived else { return }
-        if archived {
-          for pane in worktree.tabs.flatMap({ $0.panes }) {
-            runtime.closeSurface(for: pane.id)
-          }
-        }
-        catalog.spaces[spaceIndex].projects[projectIndex]
-          .worktrees[worktreeIndex].archived = archived
-        store.scheduleSave(catalog)
-        return
+    for projectIndex in catalog.projects.indices {
+      let project = catalog.projects[projectIndex]
+      guard let worktreeIndex = project.worktrees.firstIndex(where: { $0.id == worktreeID })
+      else { continue }
+      let worktree = project.worktrees[worktreeIndex]
+      if worktree.path == project.rootPath {
+        throw HierarchyError.invariantViolation("Cannot archive main checkout")
       }
+      guard worktree.archived != archived else { return }
+      if archived {
+        for pane in worktree.tabs.flatMap({ $0.panes }) {
+          runtime.closeSurface(for: pane.id)
+        }
+      }
+      catalog.projects[projectIndex].worktrees[worktreeIndex].archived = archived
+      store.scheduleSave(catalog)
+      return
     }
   }
 
@@ -361,19 +344,10 @@ final class HierarchyManager {
   /// open / closed choice survives restart. Silent no-op for unchanged values
   /// and for unknown ids. Goes through the standard debounced save pipeline.
   func setProjectExpanded(projectID: ProjectID, isExpanded: Bool) {
-    for spaceIndex in catalog.spaces.indices {
-      guard
-        let projectIndex = catalog.spaces[spaceIndex].projects.firstIndex(where: {
-          $0.id == projectID
-        })
-      else { continue }
-      guard catalog.spaces[spaceIndex].projects[projectIndex].isExpanded != isExpanded else {
-        return
-      }
-      catalog.spaces[spaceIndex].projects[projectIndex].isExpanded = isExpanded
-      store.scheduleSave(catalog)
-      return
-    }
+    guard let projectIndex = catalog.projects.firstIndex(where: { $0.id == projectID }) else { return }
+    guard catalog.projects[projectIndex].isExpanded != isExpanded else { return }
+    catalog.projects[projectIndex].isExpanded = isExpanded
+    store.scheduleSave(catalog)
   }
 
   /// Flips the Worktree's pinned flag and repositions the row in the catalog
@@ -384,30 +358,27 @@ final class HierarchyManager {
   /// ids. Persists via the standard debounced save pipeline. See
   /// `docs/design-docs/worktree-sidebar-ordering.md` §pinned 段 / §unpinned 段.
   func setWorktreePinned(worktreeID: WorktreeID, isPinned: Bool) {
-    for spaceIndex in catalog.spaces.indices {
-      for projectIndex in catalog.spaces[spaceIndex].projects.indices {
-        let project = catalog.spaces[spaceIndex].projects[projectIndex]
-        guard let worktreeIndex = project.worktrees.firstIndex(where: { $0.id == worktreeID })
-        else { continue }
-        guard project.worktrees[worktreeIndex].isPinned != isPinned else { return }
-        catalog.spaces[spaceIndex].projects[projectIndex]
-          .worktrees[worktreeIndex].isPinned = isPinned
-        // Recompute the boundary on the post-flip array so the destination
-        // offset reflects the new flag. Pin → boundary lands the row right
-        // after the last existing pinned row (it becomes the new last
-        // pinned). Unpin → the just-flipped row itself is the first match
-        // (or some earlier unpinned row is), and `move(toOffset:)` is a
-        // no-op when the row already sits at the boundary, otherwise it
-        // pulls the row up to the unpinned-segment top.
-        let boundary = Self.unpinnedBoundary(
-          in: catalog.spaces[spaceIndex].projects[projectIndex].worktrees,
-          rootPath: catalog.spaces[spaceIndex].projects[projectIndex].rootPath
-        )
-        catalog.spaces[spaceIndex].projects[projectIndex].worktrees
-          .move(fromOffsets: IndexSet(integer: worktreeIndex), toOffset: boundary)
-        store.scheduleSave(catalog)
-        return
-      }
+    for projectIndex in catalog.projects.indices {
+      let project = catalog.projects[projectIndex]
+      guard let worktreeIndex = project.worktrees.firstIndex(where: { $0.id == worktreeID })
+      else { continue }
+      guard project.worktrees[worktreeIndex].isPinned != isPinned else { return }
+      catalog.projects[projectIndex].worktrees[worktreeIndex].isPinned = isPinned
+      // Recompute the boundary on the post-flip array so the destination
+      // offset reflects the new flag. Pin → boundary lands the row right
+      // after the last existing pinned row (it becomes the new last
+      // pinned). Unpin → the just-flipped row itself is the first match
+      // (or some earlier unpinned row is), and `move(toOffset:)` is a
+      // no-op when the row already sits at the boundary, otherwise it
+      // pulls the row up to the unpinned-segment top.
+      let boundary = Self.unpinnedBoundary(
+        in: catalog.projects[projectIndex].worktrees,
+        rootPath: catalog.projects[projectIndex].rootPath
+      )
+      catalog.projects[projectIndex].worktrees
+        .move(fromOffsets: IndexSet(integer: worktreeIndex), toOffset: boundary)
+      store.scheduleSave(catalog)
+      return
     }
   }
 
@@ -425,15 +396,14 @@ final class HierarchyManager {
   /// Missing project throws `.notFound`.
   func reorderWorktrees(
     in projectID: ProjectID,
-    inSpace spaceID: SpaceID,
     segment: WorktreeSegment,
     from source: IndexSet,
     to destination: Int
   ) throws {
-    guard let (spaceIndex, projectIndex) = findProjectIndices(projectID: projectID, spaceID: spaceID) else {
+    guard let projectIndex = catalog.projects.firstIndex(where: { $0.id == projectID }) else {
       throw HierarchyError.notFound("Project \(projectID)")
     }
-    let project = catalog.spaces[spaceIndex].projects[projectIndex]
+    let project = catalog.projects[projectIndex]
     let rootPath = project.rootPath
     let inSegment: (Worktree) -> Bool = { w in
       guard !w.archived, w.path != rootPath else { return false }
@@ -451,7 +421,7 @@ final class HierarchyManager {
     var segmentRows = segmentCatalogIndices.map { project.worktrees[$0] }
     segmentRows.move(fromOffsets: source, toOffset: destination)
     for (k, catalogIdx) in segmentCatalogIndices.enumerated() {
-      catalog.spaces[spaceIndex].projects[projectIndex].worktrees[catalogIdx] = segmentRows[k]
+      catalog.projects[projectIndex].worktrees[catalogIdx] = segmentRows[k]
     }
     store.scheduleSave(catalog)
   }
@@ -470,21 +440,16 @@ final class HierarchyManager {
   ///
   /// - Parameters:
   ///   - projectID: target Project.
-  ///   - spaceID: parent Space.
   ///   - entries: on-disk worktree metadata (path, branch) from
   ///     `GitWorktreeClient.lsWorktrees`.
   @discardableResult
   func reconcileDiscoveredWorktrees(
     projectID: ProjectID,
-    inSpace spaceID: SpaceID,
     entries: [(path: String, branch: String?)]
   ) -> Int {
-    guard
-      let (spaceIndex, projectIndex) = findProjectIndices(
-        projectID: projectID, spaceID: spaceID
-      )
+    guard let projectIndex = catalog.projects.firstIndex(where: { $0.id == projectID })
     else { return 0 }
-    let project = catalog.spaces[spaceIndex].projects[projectIndex]
+    let project = catalog.projects[projectIndex]
     let existingPaths = Set(
       project.worktrees.map { Self.canonicalPath($0.path) }
     )
@@ -506,7 +471,7 @@ final class HierarchyManager {
         tabs: [],
         selectedTabID: nil
       )
-      catalog.spaces[spaceIndex].projects[projectIndex].worktrees.append(worktree)
+      catalog.projects[projectIndex].worktrees.append(worktree)
       appended += 1
     }
     // Bidirectional sync: rows whose canonical path is no longer in the
@@ -517,7 +482,7 @@ final class HierarchyManager {
     // archived per setWorktreeArchived's invariant) and pinned rows
     // (preserve user intent — `openPane` still guards the click path).
     var archivedCount = 0
-    let snapshot = catalog.spaces[spaceIndex].projects[projectIndex].worktrees
+    let snapshot = catalog.projects[projectIndex].worktrees
     for worktree in snapshot {
       let canonical = Self.canonicalPath(worktree.path)
       guard
@@ -530,11 +495,8 @@ final class HierarchyManager {
         runtime.closeSurface(for: pane.id)
         runningPanes.remove(pane.id)
       }
-      if let idx = catalog.spaces[spaceIndex].projects[projectIndex]
-        .worktrees.firstIndex(where: { $0.id == worktree.id })
-      {
-        catalog.spaces[spaceIndex].projects[projectIndex]
-          .worktrees[idx].archived = true
+      if let idx = catalog.projects[projectIndex].worktrees.firstIndex(where: { $0.id == worktree.id }) {
+        catalog.projects[projectIndex].worktrees[idx].archived = true
         archivedCount += 1
       }
     }
@@ -576,19 +538,17 @@ final class HierarchyManager {
   /// row is dropped afterwards via `removeWorktree`. Silent no-op when
   /// the id is unknown. Idempotent.
   func tearDownWorktreeSurfaces(worktreeID: WorktreeID) {
-    for space in catalog.spaces {
-      for project in space.projects {
-        guard let worktree = project.worktrees.first(where: { $0.id == worktreeID })
-        else { continue }
-        for pane in worktree.tabs.flatMap({ $0.panes }) {
-          runtime.closeSurface(for: pane.id)
-          runningPanes.remove(pane.id)
-        }
-        for tab in worktree.tabs {
-          lastFocusedPaneByTab.removeValue(forKey: tab.id)
-        }
-        return
+    for project in catalog.projects {
+      guard let worktree = project.worktrees.first(where: { $0.id == worktreeID })
+      else { continue }
+      for pane in worktree.tabs.flatMap({ $0.panes }) {
+        runtime.closeSurface(for: pane.id)
+        runningPanes.remove(pane.id)
       }
+      for tab in worktree.tabs {
+        lastFocusedPaneByTab.removeValue(forKey: tab.id)
+      }
+      return
     }
   }
 
@@ -596,43 +556,37 @@ final class HierarchyManager {
   /// is live. Used by force-remove to size the confirmation copy
   /// ("This will terminate N running processes"). 0 when the id is unknown.
   func runningPaneCount(worktreeID: WorktreeID) -> Int {
-    for space in catalog.spaces {
-      for project in space.projects {
-        guard let worktree = project.worktrees.first(where: { $0.id == worktreeID })
-        else { continue }
-        return worktree.tabs
-          .flatMap { $0.panes }
-          .filter { runtime.hasSurface(for: $0.id) }
-          .count
-      }
+    for project in catalog.projects {
+      guard let worktree = project.worktrees.first(where: { $0.id == worktreeID })
+      else { continue }
+      return worktree.tabs
+        .flatMap { $0.panes }
+        .filter { runtime.hasSurface(for: $0.id) }
+        .count
     }
     return 0
   }
 
   /// Records whether the right-side Git Viewer overlay is visible for this
-  /// Worktree. Visibility persists across Space switches and app restarts —
-  /// each Worktree remembers its own. Missing `worktreeID` is a silent no-op;
-  /// unchanged value is a silent no-op (no save scheduled). Persists via the
+  /// Worktree. Visibility persists across app restarts — each Worktree
+  /// remembers its own. Missing `worktreeID` is a silent no-op; unchanged
+  /// value is a silent no-op (no save scheduled). Persists via the
   /// standard debounced `store.scheduleSave(catalog)` pipeline. The
-  /// `(projectID, spaceID)` arguments are not required — the method scans
-  /// all Worktrees in the catalog so the caller does not have to thread
+  /// `projectID` argument is not required — the method scans all
+  /// Worktrees in the catalog so the caller does not have to thread
   /// parent IDs through the UI-toggle path.
   func setWorktreeGitViewerVisible(worktreeID: WorktreeID, visible: Bool) {
-    for spaceIndex in catalog.spaces.indices {
-      for projectIndex in catalog.spaces[spaceIndex].projects.indices {
-        guard
-          let worktreeIndex = catalog.spaces[spaceIndex].projects[projectIndex]
-            .worktrees.firstIndex(where: { $0.id == worktreeID })
-        else { continue }
-        guard
-          catalog.spaces[spaceIndex].projects[projectIndex]
-            .worktrees[worktreeIndex].gitViewerVisible != visible
-        else { return }
-        catalog.spaces[spaceIndex].projects[projectIndex]
-          .worktrees[worktreeIndex].gitViewerVisible = visible
-        store.scheduleSave(catalog)
-        return
-      }
+    for projectIndex in catalog.projects.indices {
+      guard
+        let worktreeIndex = catalog.projects[projectIndex]
+          .worktrees.firstIndex(where: { $0.id == worktreeID })
+      else { continue }
+      guard
+        catalog.projects[projectIndex].worktrees[worktreeIndex].gitViewerVisible != visible
+      else { return }
+      catalog.projects[projectIndex].worktrees[worktreeIndex].gitViewerVisible = visible
+      store.scheduleSave(catalog)
+      return
     }
   }
 
@@ -641,14 +595,12 @@ final class HierarchyManager {
   func createTab(
     in worktreeID: WorktreeID,
     in projectID: ProjectID,
-    in spaceID: SpaceID,
     name: String?
   ) throws -> TabID {
     guard
-      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+      let (projectIndex, worktreeIndex) = findWorktreeIndices(
         worktreeID: worktreeID,
-        projectID: projectID,
-        spaceID: spaceID
+        projectID: projectID
       )
     else {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
@@ -656,8 +608,8 @@ final class HierarchyManager {
 
     let tabID = TabID()
     let tab = Tab(id: tabID, name: name, splitTree: SplitTree(), panes: [])
-    catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.append(tab)
-    catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].selectedTabID = tabID
+    catalog.projects[projectIndex].worktrees[worktreeIndex].tabs.append(tab)
+    catalog.projects[projectIndex].worktrees[worktreeIndex].selectedTabID = tabID
     store.scheduleSave(catalog)
     return tabID
   }
@@ -665,43 +617,41 @@ final class HierarchyManager {
   func closeTab(
     _ id: TabID,
     in worktreeID: WorktreeID,
-    in projectID: ProjectID,
-    in spaceID: SpaceID
+    in projectID: ProjectID
   ) throws {
     guard
-      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+      let (projectIndex, worktreeIndex) = findWorktreeIndices(
         worktreeID: worktreeID,
-        projectID: projectID,
-        spaceID: spaceID
+        projectID: projectID
       )
     else {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
     }
 
     guard
-      let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.firstIndex(where: {
+      let tabIndex = catalog.projects[projectIndex].worktrees[worktreeIndex].tabs.firstIndex(where: {
         $0.id == id
       })
     else {
       throw HierarchyError.notFound("Tab \(id)")
     }
 
-    let tab = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex]
+    let tab = catalog.projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex]
     for pane in tab.panes {
       runtime.closeSurface(for: pane.id)
       runningPanes.remove(pane.id)
     }
     lastFocusedPaneByTab.removeValue(forKey: id)
 
-    catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.remove(at: tabIndex)
-    if catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].selectedTabID == id {
+    catalog.projects[projectIndex].worktrees[worktreeIndex].tabs.remove(at: tabIndex)
+    if catalog.projects[projectIndex].worktrees[worktreeIndex].selectedTabID == id {
       // Match the platform convention (Safari/Chrome/VSCode/iTerm): pick the
       // right neighbor; if the closed tab was the last one, fall back to the
       // new last tab. After `remove(at:)`, the original right neighbor sits at
       // `tabIndex`; an out-of-range index means we removed the trailing tab.
-      let remaining = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs
+      let remaining = catalog.projects[projectIndex].worktrees[worktreeIndex].tabs
       let nextTab = tabIndex < remaining.count ? remaining[tabIndex] : remaining.last
-      catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].selectedTabID = nextTab?.id
+      catalog.projects[projectIndex].worktrees[worktreeIndex].selectedTabID = nextTab?.id
       // Transfer AppKit first-responder focus to the new tab's surface.
       // Without this the closed surface's responder slot stays empty and
       // the next ⌘W bypasses Ghostty's `performKeyEquivalent`, falling
@@ -722,19 +672,17 @@ final class HierarchyManager {
   func selectTab(
     _ id: TabID?,
     in worktreeID: WorktreeID,
-    in projectID: ProjectID,
-    in spaceID: SpaceID
+    in projectID: ProjectID
   ) throws {
     guard
-      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+      let (projectIndex, worktreeIndex) = findWorktreeIndices(
         worktreeID: worktreeID,
-        projectID: projectID,
-        spaceID: spaceID
+        projectID: projectID
       )
     else {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
     }
-    catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].selectedTabID = id
+    catalog.projects[projectIndex].worktrees[worktreeIndex].selectedTabID = id
     store.scheduleSave(catalog)
 
     // Focus the last-used pane in the target tab; fall back to the
@@ -743,7 +691,7 @@ final class HierarchyManager {
     // no active tab or the tab has no panes.
     guard
       let tabID = id,
-      let tab = catalog.spaces[spaceIndex].projects[projectIndex]
+      let tab = catalog.projects[projectIndex]
         .worktrees[worktreeIndex].tabs.first(where: { $0.id == tabID })
     else { return }
     let flatPaneIDs = Set(tab.panes.map(\.id))
@@ -762,29 +710,27 @@ final class HierarchyManager {
     _ id: TabID,
     in worktreeID: WorktreeID,
     in projectID: ProjectID,
-    in spaceID: SpaceID,
     name: String?
   ) throws {
     guard
-      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+      let (projectIndex, worktreeIndex) = findWorktreeIndices(
         worktreeID: worktreeID,
-        projectID: projectID,
-        spaceID: spaceID
+        projectID: projectID
       )
     else {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
     }
     guard
-      let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex]
+      let tabIndex = catalog.projects[projectIndex]
         .worktrees[worktreeIndex].tabs.firstIndex(where: { $0.id == id })
     else {
       throw HierarchyError.notFound("Tab \(id)")
     }
     guard
-      catalog.spaces[spaceIndex].projects[projectIndex]
+      catalog.projects[projectIndex]
         .worktrees[worktreeIndex].tabs[tabIndex].name != name
     else { return }
-    catalog.spaces[spaceIndex].projects[projectIndex]
+    catalog.projects[projectIndex]
       .worktrees[worktreeIndex].tabs[tabIndex].name = name
     store.scheduleSave(catalog)
   }
@@ -799,23 +745,22 @@ final class HierarchyManager {
     _ title: String?,
     for tabID: TabID,
     in worktreeID: WorktreeID,
-    in projectID: ProjectID,
-    in spaceID: SpaceID
+    in projectID: ProjectID
   ) {
     guard
-      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
-        worktreeID: worktreeID, projectID: projectID, spaceID: spaceID
+      let (projectIndex, worktreeIndex) = findWorktreeIndices(
+        worktreeID: worktreeID, projectID: projectID
       )
     else { return }
     guard
-      let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex]
+      let tabIndex = catalog.projects[projectIndex]
         .worktrees[worktreeIndex].tabs.firstIndex(where: { $0.id == tabID })
     else { return }
     guard
-      catalog.spaces[spaceIndex].projects[projectIndex]
+      catalog.projects[projectIndex]
         .worktrees[worktreeIndex].tabs[tabIndex].cachedDisplayTitle != title
     else { return }
-    catalog.spaces[spaceIndex].projects[projectIndex]
+    catalog.projects[projectIndex]
       .worktrees[worktreeIndex].tabs[tabIndex].cachedDisplayTitle = title
     store.scheduleSave(catalog)
   }
@@ -828,19 +773,17 @@ final class HierarchyManager {
   func reorderTabs(
     in worktreeID: WorktreeID,
     in projectID: ProjectID,
-    in spaceID: SpaceID,
     orderedIDs: [TabID]
   ) throws {
     guard
-      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+      let (projectIndex, worktreeIndex) = findWorktreeIndices(
         worktreeID: worktreeID,
-        projectID: projectID,
-        spaceID: spaceID
+        projectID: projectID
       )
     else {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
     }
-    let existing = catalog.spaces[spaceIndex].projects[projectIndex]
+    let existing = catalog.projects[projectIndex]
       .worktrees[worktreeIndex].tabs
     let currentIDs = existing.map(\.id)
     guard Set(currentIDs) == Set(orderedIDs) else {
@@ -849,7 +792,7 @@ final class HierarchyManager {
     guard currentIDs != orderedIDs else { return }
     let byID = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
     let reordered = orderedIDs.compactMap { byID[$0] }
-    catalog.spaces[spaceIndex].projects[projectIndex]
+    catalog.projects[projectIndex]
       .worktrees[worktreeIndex].tabs = reordered
     store.scheduleSave(catalog)
   }
@@ -861,26 +804,24 @@ final class HierarchyManager {
   func closeOtherTabs(
     keeping id: TabID,
     in worktreeID: WorktreeID,
-    in projectID: ProjectID,
-    in spaceID: SpaceID
+    in projectID: ProjectID
   ) throws {
     guard
-      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+      let (projectIndex, worktreeIndex) = findWorktreeIndices(
         worktreeID: worktreeID,
-        projectID: projectID,
-        spaceID: spaceID
+        projectID: projectID
       )
     else {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
     }
-    let siblingIDs = catalog.spaces[spaceIndex].projects[projectIndex]
+    let siblingIDs = catalog.projects[projectIndex]
       .worktrees[worktreeIndex].tabs
       .map(\.id)
       .filter { $0 != id }
     for siblingID in siblingIDs {
-      try? closeTab(siblingID, in: worktreeID, in: projectID, in: spaceID)
+      try? closeTab(siblingID, in: worktreeID, in: projectID)
     }
-    catalog.spaces[spaceIndex].projects[projectIndex]
+    catalog.projects[projectIndex]
       .worktrees[worktreeIndex].selectedTabID = id
     store.scheduleSave(catalog)
   }
@@ -891,35 +832,33 @@ final class HierarchyManager {
   func closeTabsToRight(
     of id: TabID,
     in worktreeID: WorktreeID,
-    in projectID: ProjectID,
-    in spaceID: SpaceID
+    in projectID: ProjectID
   ) throws {
     guard
-      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+      let (projectIndex, worktreeIndex) = findWorktreeIndices(
         worktreeID: worktreeID,
-        projectID: projectID,
-        spaceID: spaceID
+        projectID: projectID
       )
     else {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
     }
     guard
-      let pivotIndex = catalog.spaces[spaceIndex].projects[projectIndex]
+      let pivotIndex = catalog.projects[projectIndex]
         .worktrees[worktreeIndex].tabs.firstIndex(where: { $0.id == id })
     else {
       throw HierarchyError.notFound("Tab \(id)")
     }
-    let doomedIDs = catalog.spaces[spaceIndex].projects[projectIndex]
+    let doomedIDs = catalog.projects[projectIndex]
       .worktrees[worktreeIndex].tabs
       .suffix(from: pivotIndex + 1)
       .map(\.id)
     for doomedID in doomedIDs {
-      try? closeTab(doomedID, in: worktreeID, in: projectID, in: spaceID)
+      try? closeTab(doomedID, in: worktreeID, in: projectID)
     }
     // Mirror `closeOtherTabs`: if the user's active tab was inside the
     // doomed suffix, `closeTab`'s auto-advance lands on `tabs.first`, not
     // the pivot. Reseat selection so the pivot stays the user's anchor.
-    catalog.spaces[spaceIndex].projects[projectIndex]
+    catalog.projects[projectIndex]
       .worktrees[worktreeIndex].selectedTabID = id
     store.scheduleSave(catalog)
   }
@@ -927,22 +866,20 @@ final class HierarchyManager {
   /// Closes every Tab in the Worktree.
   func closeAllTabs(
     in worktreeID: WorktreeID,
-    in projectID: ProjectID,
-    in spaceID: SpaceID
+    in projectID: ProjectID
   ) throws {
     guard
-      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+      let (projectIndex, worktreeIndex) = findWorktreeIndices(
         worktreeID: worktreeID,
-        projectID: projectID,
-        spaceID: spaceID
+        projectID: projectID
       )
     else {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
     }
-    let allIDs = catalog.spaces[spaceIndex].projects[projectIndex]
+    let allIDs = catalog.projects[projectIndex]
       .worktrees[worktreeIndex].tabs.map(\.id)
     for tabID in allIDs {
-      try? closeTab(tabID, in: worktreeID, in: projectID, in: spaceID)
+      try? closeTab(tabID, in: worktreeID, in: projectID)
     }
   }
 
@@ -954,26 +891,25 @@ final class HierarchyManager {
   func selectAdjacentTab(
     direction: TabAdjacency,
     in worktreeID: WorktreeID,
-    in projectID: ProjectID,
-    in spaceID: SpaceID
+    in projectID: ProjectID
   ) throws -> TabID? {
     guard
-      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+      let (projectIndex, worktreeIndex) = findWorktreeIndices(
         worktreeID: worktreeID,
-        projectID: projectID,
-        spaceID: spaceID
+        projectID: projectID
       )
     else {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
     }
-    let tabs = catalog.spaces[spaceIndex].projects[projectIndex]
+    let tabs = catalog.projects[projectIndex]
       .worktrees[worktreeIndex].tabs
     guard !tabs.isEmpty else { return nil }
-    let currentID = catalog.spaces[spaceIndex].projects[projectIndex]
+    let currentID = catalog.projects[projectIndex]
       .worktrees[worktreeIndex].selectedTabID
-    let currentIndex = currentID.flatMap { id in
-      tabs.firstIndex(where: { $0.id == id })
-    } ?? 0
+    let currentIndex =
+      currentID.flatMap { id in
+        tabs.firstIndex(where: { $0.id == id })
+      } ?? 0
     let count = tabs.count
     let newIndex: Int
     switch direction {
@@ -987,7 +923,7 @@ final class HierarchyManager {
     // directly so the M3 focus-restoration block fires for the keyboard
     // shortcut path. Otherwise `⌘⇧[` / `⌘⇧]` would persist the new
     // selection without ever asking AppKit to focus the remembered pane.
-    try selectTab(newID, in: worktreeID, in: projectID, in: spaceID)
+    try selectTab(newID, in: worktreeID, in: projectID)
     return newID
   }
 
@@ -1030,13 +966,11 @@ final class HierarchyManager {
     // call is a single set-emptiness check rather than a hierarchy walk.
     guard !runningPanes.isEmpty else { return false }
     // Walk the catalog once to locate the tab; absent tabs read as idle.
-    for space in catalog.spaces {
-      for project in space.projects {
-        for worktree in project.worktrees {
-          guard let tab = worktree.tabs.first(where: { $0.id == tabID })
-          else { continue }
-          return tab.panes.contains { runningPanes.contains($0.id) }
-        }
+    for project in catalog.projects {
+      for worktree in project.worktrees {
+        guard let tab = worktree.tabs.first(where: { $0.id == tabID })
+        else { continue }
+        return tab.panes.contains { runningPanes.contains($0.id) }
       }
     }
     return false
@@ -1048,23 +982,21 @@ final class HierarchyManager {
     in tabID: TabID,
     in worktreeID: WorktreeID,
     in projectID: ProjectID,
-    in spaceID: SpaceID,
     workingDirectory: String,
     initialCommand: String?,
     env: [String: String] = [:]
   ) throws -> PaneID {
     guard
-      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+      let (projectIndex, worktreeIndex) = findWorktreeIndices(
         worktreeID: worktreeID,
-        projectID: projectID,
-        spaceID: spaceID
+        projectID: projectID
       )
     else {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
     }
 
     guard
-      let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.firstIndex(where: {
+      let tabIndex = catalog.projects[projectIndex].worktrees[worktreeIndex].tabs.firstIndex(where: {
         $0.id == tabID
       })
     else {
@@ -1073,7 +1005,7 @@ final class HierarchyManager {
 
     let paneID = PaneID()
     let pane = Pane(id: paneID, workingDirectory: workingDirectory, initialCommand: initialCommand)
-    var tab = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex]
+    var tab = catalog.projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex]
 
     if tab.splitTree.isEmpty {
       tab.splitTree = SplitTree(leaf: paneID)
@@ -1086,11 +1018,11 @@ final class HierarchyManager {
     }
 
     tab.panes.append(pane)
-    catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex] = tab
+    catalog.projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex] = tab
 
     try tab.validateInvariants()
 
-    let worktree = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex]
+    let worktree = catalog.projects[projectIndex].worktrees[worktreeIndex]
     try runtime.ensureSurface(for: pane, in: worktree, env: env)
 
     store.scheduleSave(catalog)
@@ -1103,23 +1035,21 @@ final class HierarchyManager {
     in tabID: TabID,
     in worktreeID: WorktreeID,
     in projectID: ProjectID,
-    in spaceID: SpaceID,
     workingDirectory: String,
     initialCommand: String?,
     env: [String: String] = [:]
   ) throws -> PaneID {
     guard
-      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+      let (projectIndex, worktreeIndex) = findWorktreeIndices(
         worktreeID: worktreeID,
-        projectID: projectID,
-        spaceID: spaceID
+        projectID: projectID
       )
     else {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
     }
 
     guard
-      let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.firstIndex(where: {
+      let tabIndex = catalog.projects[projectIndex].worktrees[worktreeIndex].tabs.firstIndex(where: {
         $0.id == tabID
       })
     else {
@@ -1128,15 +1058,15 @@ final class HierarchyManager {
 
     let newPaneID = PaneID()
     let newPane = Pane(id: newPaneID, workingDirectory: workingDirectory, initialCommand: initialCommand)
-    var tab = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex]
+    var tab = catalog.projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex]
 
     tab.splitTree = try tab.splitTree.inserting(newPaneID, at: paneID, direction: direction)
     tab.panes.append(newPane)
-    catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex] = tab
+    catalog.projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex] = tab
 
     try tab.validateInvariants()
 
-    let worktree = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex]
+    let worktree = catalog.projects[projectIndex].worktrees[worktreeIndex]
     try runtime.ensureSurface(for: newPane, in: worktree, env: env)
 
     store.scheduleSave(catalog)
@@ -1147,28 +1077,26 @@ final class HierarchyManager {
     _ paneID: PaneID,
     in tabID: TabID,
     in worktreeID: WorktreeID,
-    in projectID: ProjectID,
-    in spaceID: SpaceID
+    in projectID: ProjectID
   ) throws {
     guard
-      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+      let (projectIndex, worktreeIndex) = findWorktreeIndices(
         worktreeID: worktreeID,
-        projectID: projectID,
-        spaceID: spaceID
+        projectID: projectID
       )
     else {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
     }
 
     guard
-      let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.firstIndex(where: {
+      let tabIndex = catalog.projects[projectIndex].worktrees[worktreeIndex].tabs.firstIndex(where: {
         $0.id == tabID
       })
     else {
       throw HierarchyError.notFound("Tab \(tabID)")
     }
 
-    var tab = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex]
+    var tab = catalog.projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex]
     guard let paneIndex = tab.panes.firstIndex(where: { $0.id == paneID }) else {
       throw HierarchyError.notFound("Pane \(paneID)")
     }
@@ -1182,7 +1110,7 @@ final class HierarchyManager {
     tab.panes.remove(at: paneIndex)
     tab.splitTree = tab.splitTree.removing(paneID)
 
-    catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex] = tab
+    catalog.projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex] = tab
 
     try tab.validateInvariants()
 
@@ -1202,34 +1130,32 @@ final class HierarchyManager {
     _ paneID: PaneID,
     in tabID: TabID,
     in worktreeID: WorktreeID,
-    in projectID: ProjectID,
-    in spaceID: SpaceID
+    in projectID: ProjectID
   ) throws {
     guard
-      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+      let (projectIndex, worktreeIndex) = findWorktreeIndices(
         worktreeID: worktreeID,
-        projectID: projectID,
-        spaceID: spaceID
+        projectID: projectID
       )
     else {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
     }
 
     guard
-      let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.firstIndex(where: {
+      let tabIndex = catalog.projects[projectIndex].worktrees[worktreeIndex].tabs.firstIndex(where: {
         $0.id == tabID
       })
     else {
       throw HierarchyError.notFound("Tab \(tabID)")
     }
 
-    var tab = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex]
+    var tab = catalog.projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex]
     guard tab.panes.contains(where: { $0.id == paneID }) else {
       throw HierarchyError.notFound("Pane \(paneID)")
     }
 
     tab.splitTree = tab.splitTree.settingZoomed(paneID)
-    catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex] = tab
+    catalog.projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex] = tab
     // Remember this pane as the tab's last-focused so the next `selectTab`
     // call restores it instead of snapping to the leftmost leaf.
     lastFocusedPaneByTab[tabID] = paneID
@@ -1240,30 +1166,28 @@ final class HierarchyManager {
   func unfocusPane(
     in tabID: TabID,
     in worktreeID: WorktreeID,
-    in projectID: ProjectID,
-    in spaceID: SpaceID
+    in projectID: ProjectID
   ) throws {
     guard
-      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+      let (projectIndex, worktreeIndex) = findWorktreeIndices(
         worktreeID: worktreeID,
-        projectID: projectID,
-        spaceID: spaceID
+        projectID: projectID
       )
     else {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
     }
 
     guard
-      let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.firstIndex(where: {
+      let tabIndex = catalog.projects[projectIndex].worktrees[worktreeIndex].tabs.firstIndex(where: {
         $0.id == tabID
       })
     else {
       throw HierarchyError.notFound("Tab \(tabID)")
     }
 
-    var tab = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex]
+    var tab = catalog.projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex]
     tab.splitTree = tab.splitTree.settingZoomed(nil)
-    catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex] = tab
+    catalog.projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex] = tab
 
     store.scheduleSave(catalog)
   }
@@ -1273,30 +1197,28 @@ final class HierarchyManager {
     ratio: Double,
     in tabID: TabID,
     in worktreeID: WorktreeID,
-    in projectID: ProjectID,
-    in spaceID: SpaceID
+    in projectID: ProjectID
   ) throws {
     guard
-      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+      let (projectIndex, worktreeIndex) = findWorktreeIndices(
         worktreeID: worktreeID,
-        projectID: projectID,
-        spaceID: spaceID
+        projectID: projectID
       )
     else {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
     }
 
     guard
-      let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.firstIndex(where: {
+      let tabIndex = catalog.projects[projectIndex].worktrees[worktreeIndex].tabs.firstIndex(where: {
         $0.id == tabID
       })
     else {
       throw HierarchyError.notFound("Tab \(tabID)")
     }
 
-    var tab = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex]
+    var tab = catalog.projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex]
     tab.splitTree = try tab.splitTree.resizing(at: path, ratio: ratio)
-    catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex] = tab
+    catalog.projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex] = tab
 
     store.scheduleSave(catalog)
   }
@@ -1308,13 +1230,11 @@ final class HierarchyManager {
   /// moveTab, activateTab, equalizeTabSplits). Linear in total pane count —
   /// acceptable at the cardinalities we support; no secondary index needed
   /// yet. `nil` when the pane is unknown (closed mid-flight, stale callback).
-  func addressOf(paneID: PaneID) -> (SpaceID, ProjectID, WorktreeID, TabID)? {
-    for space in catalog.spaces {
-      for project in space.projects {
-        for worktree in project.worktrees {
-          for tab in worktree.tabs where tab.panes.contains(where: { $0.id == paneID }) {
-            return (space.id, project.id, worktree.id, tab.id)
-          }
+  func addressOf(paneID: PaneID) -> (ProjectID, WorktreeID, TabID)? {
+    for project in catalog.projects {
+      for worktree in project.worktrees {
+        for tab in worktree.tabs where tab.panes.contains(where: { $0.id == paneID }) {
+          return (project.id, worktree.id, tab.id)
         }
       }
     }
@@ -1332,25 +1252,23 @@ final class HierarchyManager {
     _ tabID: TabID,
     in worktreeID: WorktreeID,
     in projectID: ProjectID,
-    in spaceID: SpaceID,
     offset: Int
   ) throws {
     guard
-      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+      let (projectIndex, worktreeIndex) = findWorktreeIndices(
         worktreeID: worktreeID,
-        projectID: projectID,
-        spaceID: spaceID
+        projectID: projectID
       )
     else {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
     }
     guard
-      let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex]
+      let tabIndex = catalog.projects[projectIndex]
         .worktrees[worktreeIndex].tabs.firstIndex(where: { $0.id == tabID })
     else {
       throw HierarchyError.notFound("Tab \(tabID)")
     }
-    let count = catalog.spaces[spaceIndex].projects[projectIndex]
+    let count = catalog.projects[projectIndex]
       .worktrees[worktreeIndex].tabs.count
     // Ghostty's move_tab wraps cyclically: moving the last tab forward
     // places it first, moving the first backward places it last. Swift's
@@ -1360,9 +1278,9 @@ final class HierarchyManager {
     let normalized = ((tabIndex + offset) % count + count) % count
     let target = normalized
     guard target != tabIndex else { return }
-    let tab = catalog.spaces[spaceIndex].projects[projectIndex]
+    let tab = catalog.projects[projectIndex]
       .worktrees[worktreeIndex].tabs.remove(at: tabIndex)
-    catalog.spaces[spaceIndex].projects[projectIndex]
+    catalog.projects[projectIndex]
       .worktrees[worktreeIndex].tabs.insert(tab, at: target)
     store.scheduleSave(catalog)
   }
@@ -1377,30 +1295,28 @@ final class HierarchyManager {
   func equalizeTabSplits(
     _ tabID: TabID,
     in worktreeID: WorktreeID,
-    in projectID: ProjectID,
-    in spaceID: SpaceID
+    in projectID: ProjectID
   ) throws {
     guard
-      let (spaceIndex, projectIndex, worktreeIndex) = findWorktreeIndices(
+      let (projectIndex, worktreeIndex) = findWorktreeIndices(
         worktreeID: worktreeID,
-        projectID: projectID,
-        spaceID: spaceID
+        projectID: projectID
       )
     else {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
     }
     guard
-      let tabIndex = catalog.spaces[spaceIndex].projects[projectIndex]
+      let tabIndex = catalog.projects[projectIndex]
         .worktrees[worktreeIndex].tabs.firstIndex(where: { $0.id == tabID })
     else {
       throw HierarchyError.notFound("Tab \(tabID)")
     }
-    var tab = catalog.spaces[spaceIndex].projects[projectIndex]
+    var tab = catalog.projects[projectIndex]
       .worktrees[worktreeIndex].tabs[tabIndex]
     guard let root = tab.splitTree.root else { return }
     let balanced = Self.balancingRatios(in: root)
     tab.splitTree = SplitTree(root: balanced, zoomed: tab.splitTree.zoomed)
-    catalog.spaces[spaceIndex].projects[projectIndex]
+    catalog.projects[projectIndex]
       .worktrees[worktreeIndex].tabs[tabIndex] = tab
     store.scheduleSave(catalog)
   }
@@ -1447,34 +1363,30 @@ final class HierarchyManager {
     // Empirical px → ratio scale. See doc above.
     let pixelsPerRatioStep: Double = 400
     let ratioDelta = amount / pixelsPerRatioStep
-    for spaceIndex in catalog.spaces.indices {
-      for projectIndex in catalog.spaces[spaceIndex].projects.indices {
-        for worktreeIndex in catalog.spaces[spaceIndex].projects[projectIndex].worktrees.indices {
-          let worktree = catalog.spaces[spaceIndex].projects[projectIndex]
-            .worktrees[worktreeIndex]
-          for tabIndex in worktree.tabs.indices
-          where worktree.tabs[tabIndex].splitTree.contains(paneID) {
-            var tab = worktree.tabs[tabIndex]
-            guard let leafPath = tab.splitTree.path(to: paneID) else { return }
-            let orientation: SplitTree<PaneID>.Direction =
-              (direction == .left || direction == .right)
-              ? .horizontal : .vertical
-            guard
-              let (ancestorPath, currentRatio, grewRight) = Self.findAncestorSplit(
-                root: tab.splitTree.root,
-                leafPath: leafPath,
-                orientation: orientation
-              )
-            else { return }
-            let grow: Bool = (direction == .right || direction == .down)
-            let signedDelta = (grewRight == grow) ? ratioDelta : -ratioDelta
-            let newRatio = currentRatio + signedDelta
-            tab.splitTree = try tab.splitTree.resizing(at: ancestorPath, ratio: newRatio)
-            catalog.spaces[spaceIndex].projects[projectIndex]
-              .worktrees[worktreeIndex].tabs[tabIndex] = tab
-            store.scheduleSave(catalog)
-            return
-          }
+    for projectIndex in catalog.projects.indices {
+      for worktreeIndex in catalog.projects[projectIndex].worktrees.indices {
+        let worktree = catalog.projects[projectIndex].worktrees[worktreeIndex]
+        for tabIndex in worktree.tabs.indices
+        where worktree.tabs[tabIndex].splitTree.contains(paneID) {
+          var tab = worktree.tabs[tabIndex]
+          guard let leafPath = tab.splitTree.path(to: paneID) else { return }
+          let orientation: SplitTree<PaneID>.Direction =
+            (direction == .left || direction == .right)
+            ? .horizontal : .vertical
+          guard
+            let (ancestorPath, currentRatio, grewRight) = Self.findAncestorSplit(
+              root: tab.splitTree.root,
+              leafPath: leafPath,
+              orientation: orientation
+            )
+          else { return }
+          let grow: Bool = (direction == .right || direction == .down)
+          let signedDelta = (grewRight == grow) ? ratioDelta : -ratioDelta
+          let newRatio = currentRatio + signedDelta
+          tab.splitTree = try tab.splitTree.resizing(at: ancestorPath, ratio: newRatio)
+          catalog.projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex] = tab
+          store.scheduleSave(catalog)
+          return
         }
       }
     }
@@ -1501,39 +1413,25 @@ final class HierarchyManager {
     return nil
   }
 
-  // MARK: - Space activation (M6)
-
-  /// Select a Space as the catalog's active one. `tc space activate` in M6
-  /// drives this; the Mac app UI ties to the same field.
-  func activateSpace(_ id: SpaceID) throws {
-    guard catalog.spaces.contains(where: { $0.id == id }) else {
-      throw HierarchyError.notFound("Space \(id)")
-    }
-    catalog.selectedSpaceID = id
-    store.scheduleSave(catalog)
-  }
-
   // MARK: - Worktree / Tab activation (M6)
 
   func activateWorktree(_ id: WorktreeID) throws {
-    for (si, space) in catalog.spaces.enumerated() {
-      for (pi, project) in space.projects.enumerated() where project.worktrees.contains(where: { $0.id == id }) {
-        catalog.spaces[si].projects[pi].selectedWorktreeID = id
-        store.scheduleSave(catalog)
-        return
-      }
+    for (pi, project) in catalog.projects.enumerated()
+    where project.worktrees.contains(where: { $0.id == id }) {
+      catalog.projects[pi].selectedWorktreeID = id
+      store.scheduleSave(catalog)
+      return
     }
     throw HierarchyError.notFound("Worktree \(id)")
   }
 
   func activateTab(_ id: TabID) throws {
-    for (si, space) in catalog.spaces.enumerated() {
-      for (pi, project) in space.projects.enumerated() {
-        for (wi, worktree) in project.worktrees.enumerated() where worktree.tabs.contains(where: { $0.id == id }) {
-          catalog.spaces[si].projects[pi].worktrees[wi].selectedTabID = id
-          store.scheduleSave(catalog)
-          return
-        }
+    for (pi, project) in catalog.projects.enumerated() {
+      for (wi, worktree) in project.worktrees.enumerated()
+      where worktree.tabs.contains(where: { $0.id == id }) {
+        catalog.projects[pi].worktrees[wi].selectedTabID = id
+        store.scheduleSave(catalog)
+        return
       }
     }
     throw HierarchyError.notFound("Tab \(id)")
@@ -1558,20 +1456,16 @@ final class HierarchyManager {
     labels: Set<String>,
     replace: Bool = false
   ) throws {
-    for spaceIndex in catalog.spaces.indices {
-      for projectIndex in catalog.spaces[spaceIndex].projects.indices {
-        for worktreeIndex in catalog.spaces[spaceIndex].projects[projectIndex].worktrees.indices {
-          for tabIndex in catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs.indices {
-            let panes = catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex]
-              .panes
-            if let paneIndex = panes.firstIndex(where: { $0.id == paneID }) {
-              var pane = panes[paneIndex]
-              pane.labels = replace ? labels : pane.labels.union(labels)
-              catalog.spaces[spaceIndex].projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex].panes[
-                paneIndex] = pane
-              store.scheduleSave(catalog)
-              return
-            }
+    for projectIndex in catalog.projects.indices {
+      for worktreeIndex in catalog.projects[projectIndex].worktrees.indices {
+        for tabIndex in catalog.projects[projectIndex].worktrees[worktreeIndex].tabs.indices {
+          let panes = catalog.projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex].panes
+          if let paneIndex = panes.firstIndex(where: { $0.id == paneID }) {
+            var pane = panes[paneIndex]
+            pane.labels = replace ? labels : pane.labels.union(labels)
+            catalog.projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex].panes[paneIndex] = pane
+            store.scheduleSave(catalog)
+            return
           }
         }
       }
@@ -1584,7 +1478,7 @@ final class HierarchyManager {
   /// One-shot drain of the two per-Project preference fields that lived on v1
   /// `catalog.json` (`defaultEditor`, `worktreesDirectory`). Returns the
   /// current values keyed by `ProjectID`, then clears them in-memory so the
-  /// next save writes the v2 shape without those keys. Call sequence in
+  /// next save writes the v2/v3 shape without those keys. Call sequence in
   /// `AppState.init`: run this **before** constructing `SettingsStore` so the
   /// drained map can be folded into `Settings.projects[pid]` during the v2 →
   /// v3 `settings.json` migration via the injected `catalogOverrides` closure.
@@ -1595,17 +1489,15 @@ final class HierarchyManager {
   func drainLegacyOverrides() -> [ProjectID: (defaultEditor: EditorID?, worktreesDirectory: String?)] {
     var overrides: [ProjectID: (defaultEditor: EditorID?, worktreesDirectory: String?)] = [:]
     var mutated = false
-    for sIdx in catalog.spaces.indices {
-      for pIdx in catalog.spaces[sIdx].projects.indices {
-        let editor = catalog.spaces[sIdx].projects[pIdx].defaultEditor
-        let wtDir = catalog.spaces[sIdx].projects[pIdx].worktreesDirectory
-        guard editor != nil || wtDir != nil else { continue }
-        let pid = catalog.spaces[sIdx].projects[pIdx].id
-        overrides[pid] = (defaultEditor: editor, worktreesDirectory: wtDir)
-        catalog.spaces[sIdx].projects[pIdx].defaultEditor = nil
-        catalog.spaces[sIdx].projects[pIdx].worktreesDirectory = nil
-        mutated = true
-      }
+    for pIdx in catalog.projects.indices {
+      let editor = catalog.projects[pIdx].defaultEditor
+      let wtDir = catalog.projects[pIdx].worktreesDirectory
+      guard editor != nil || wtDir != nil else { continue }
+      let pid = catalog.projects[pIdx].id
+      overrides[pid] = (defaultEditor: editor, worktreesDirectory: wtDir)
+      catalog.projects[pIdx].defaultEditor = nil
+      catalog.projects[pIdx].worktreesDirectory = nil
+      mutated = true
     }
     if mutated {
       store.scheduleSave(catalog)
@@ -1664,28 +1556,18 @@ final class HierarchyManager {
     return worktrees.count
   }
 
-  private func findProjectIndices(projectID: ProjectID, spaceID: SpaceID) -> (Int, Int)? {
-    guard let spaceIndex = catalog.spaces.firstIndex(where: { $0.id == spaceID }) else { return nil }
-    guard let projectIndex = catalog.spaces[spaceIndex].projects.firstIndex(where: { $0.id == projectID }) else {
-      return nil
-    }
-    return (spaceIndex, projectIndex)
-  }
-
   private func findWorktreeIndices(
     worktreeID: WorktreeID,
-    projectID: ProjectID,
-    spaceID: SpaceID
-  ) -> (Int, Int, Int)? {
-    guard let spaceIndex = catalog.spaces.firstIndex(where: { $0.id == spaceID }) else { return nil }
-    guard let projectIndex = catalog.spaces[spaceIndex].projects.firstIndex(where: { $0.id == projectID }) else {
+    projectID: ProjectID
+  ) -> (Int, Int)? {
+    guard let projectIndex = catalog.projects.firstIndex(where: { $0.id == projectID }) else {
       return nil
     }
     guard
-      let worktreeIndex = catalog.spaces[spaceIndex].projects[projectIndex].worktrees.firstIndex(where: {
+      let worktreeIndex = catalog.projects[projectIndex].worktrees.firstIndex(where: {
         $0.id == worktreeID
       })
     else { return nil }
-    return (spaceIndex, projectIndex, worktreeIndex)
+    return (projectIndex, worktreeIndex)
   }
 }
