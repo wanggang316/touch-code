@@ -34,6 +34,42 @@ struct HierarchySidebarView: View {
   /// reveals per-row `⌃⌘N` hotkey hints (and the matching `⌃⌘1`–`⌃⌘9` bindings).
   @Environment(CommandKeyObserver.self) private var commandKeyObserver
 
+  /// Drives Finder/Mail-style focus-aware selection chrome: emphasized blue
+  /// + white text when this view's window is key; unemphasized grey + dark
+  /// text when the window loses focus. Mirrors AppKit's
+  /// `NSTableView.selectionHighlightStyle = .sourceList` behavior, which
+  /// SwiftUI does not get for free because we render selection ourselves
+  /// via `.listRowBackground`.
+  @Environment(\.controlActiveState) private var controlActiveState
+
+  /// Row fill behind a selected Worktree. Blue when the window is key,
+  /// system grey otherwise. The two `NSColor` tokens are the same ones
+  /// `NSTableView` uses internally for its sidebar selection.
+  private var selectionBackgroundColor: Color {
+    switch controlActiveState {
+    case .inactive:
+      return Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
+    case .key, .active:
+      return Color(nsColor: .selectedContentBackgroundColor)
+    @unknown default:
+      return Color(nsColor: .selectedContentBackgroundColor)
+    }
+  }
+
+  /// Foreground tier applied to the selected row's labels and icons. White
+  /// reads against the emphasized blue; `.primary` keeps the original
+  /// label color when the selection is unemphasized (grey background).
+  private var selectionForegroundColor: Color {
+    switch controlActiveState {
+    case .inactive:
+      return .primary
+    case .key, .active:
+      return .white
+    @unknown default:
+      return .white
+    }
+  }
+
   /// Modifier set for the per-row worktree hotkey. `⌘1`–`⌘9` is already bound to Space
   /// switching (see `MainWindowCommands`), so worktree jumps get `⌃⌘N` instead.
   private static let hotkeyModifiers: EventModifiers = [.command, .control]
@@ -520,7 +556,7 @@ struct HierarchySidebarView: View {
     .listRowSeparator(.hidden)
     .listRowBackground(
       RoundedRectangle(cornerRadius: 10, style: .continuous)
-        .fill(isSelected ? Color(nsColor: .selectedContentBackgroundColor) : Color.clear)
+        .fill(isSelected ? selectionBackgroundColor : Color.clear)
         .padding(.vertical, 2)
         .padding(.leading, 18)
         .padding(.trailing, 4)
@@ -601,6 +637,11 @@ struct HierarchySidebarView: View {
         }
       }
       .contentShape(Rectangle())
+      // Cascade the focus-aware selection foreground into every label /
+      // hierarchical-style child below. Concrete colors (e.g. the orange
+      // pin glyph, PR-state row icon tint) win over this and stay put,
+      // which is what we want — those are role signals, not body text.
+      .foregroundStyle(isSelected ? selectionForegroundColor : .primary)
     }
     .buttonStyle(.plain)
 

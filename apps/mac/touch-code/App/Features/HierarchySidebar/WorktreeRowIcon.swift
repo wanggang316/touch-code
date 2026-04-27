@@ -23,6 +23,12 @@ struct WorktreeRowIcon: View {
   /// secondary for everything else.
   var roleTint: Color = .secondary
 
+  /// So the no-PR branch glyph follows the row's focus-aware selection
+  /// chrome (white on emphasized blue, dark on unemphasized grey) instead
+  /// of staying `.secondary`, which would render as a murky tint on the
+  /// new opaque selection background.
+  @Environment(\.controlActiveState) private var controlActiveState
+
   var body: some View {
     Image(assetName)
       .renderingMode(.template)
@@ -43,7 +49,9 @@ struct WorktreeRowIcon: View {
     if let snapshot {
       return snapshot.state.rowTint(isDraft: snapshot.isDraft)
     }
-    if isSelected { return .secondary }
+    if isSelected {
+      return controlActiveState == .inactive ? .primary : .white
+    }
     return roleTint
   }
 
