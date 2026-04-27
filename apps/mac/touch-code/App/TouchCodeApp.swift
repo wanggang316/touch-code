@@ -24,7 +24,13 @@ struct TouchCodeApp: App {
   @Environment(\.openWindow) private var openWindow
 
   var body: some Scene {
-    WindowGroup {
+    // Single-instance main window. `Window(id:)` (vs. the previous
+    // `WindowGroup`) ensures re-activating the dock icon brings the
+    // existing window forward instead of spawning a duplicate, and the
+    // system menu does not synthesize a "New Window" item that would let
+    // users create extras out-of-band. See docs/design-docs/project-tags.md
+    // §3.8 for the close-vs-quit semantics.
+    Window("touch-code", id: TouchCodeApp.mainWindowID) {
       AppAppearanceView(settingsStore: appState.settingsStore) {
         if let store = appState.store, appState.terminalEngine != nil {
           ContentView(
@@ -68,6 +74,10 @@ struct TouchCodeApp: App {
       if let store = appState.store {
         MainWindowCommands(store: store)
       }
+      // Suppress the default ⌘N "New Window" menu item that `WindowGroup`
+      // synthesizes — `Window(id:)` is single-instance, so the binding
+      // would be a confusing no-op otherwise.
+      CommandGroup(replacing: .newItem) {}
       CommandGroup(replacing: .appSettings) {
         Button("Settings…") {
           openWindow(id: TouchCodeApp.settingsWindowID)
@@ -98,9 +108,13 @@ struct TouchCodeApp: App {
   /// Scene id for the Settings `Window`. Referenced from the app-menu Settings… command and
   /// from `SettingsWindowPresenter` overrides below.
   static let settingsWindowID = "settings"
+
+  /// Scene id for the single main window.
+  static let mainWindowID = "main"
 }
 
-/// AppKit delegate that flushes debounced writes on graceful termination.
+/// AppKit delegate that flushes debounced writes on graceful termination
+/// and gates ⌘Q with a confirmation when running terminal sessions exist.
 /// The weak reference is set from the scene's `.task` after `AppState` has
 /// been constructed — before that, `applicationWillTerminate` is a no-op,
 /// which is fine because nothing has been written yet.
@@ -111,6 +125,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   nonisolated func applicationWillTerminate(_ notification: Notification) {
     MainActor.assumeIsolated {
       appState?.flushAllPersistedState()
+    }
+  }
+
+  /// `false` keeps the app running in the dock when ⌘W closes the main
+  /// window — touch-code is a long-lived terminal host and an inadvertent
+  /// close should not tear down running panes. Re-clicking the dock icon
+  /// (or `open -a touch-code`) re-shows the window.
+  nonisolated func applicationShouldTerminateAfterLastWindowClosed(
+    _ sender: NSApplication
+  ) -> Bool {
+    false
+  }
+
+  /// Confirmation prompt before quit when at least one Pane is open. The
+  /// alert is suppressed on an empty catalog so users without a session
+  /// aren't nagged. See docs/design-docs/project-tags.md §3.8 (OQ-4).
+  nonisolated func applicationShouldTerminate(
+    _ sender: NSApplication
+  ) -> NSApplication.TerminateReply {
+    MainActor.assumeIsolated {
+      let hasOpenPanes =
+        appState?.hierarchyManager.catalog.projects.contains { project in
+          project.worktrees.contains { worktree in
+            worktree.tabs.contains { tab in !tab.panes.isEmpty }
+          }
+        } ?? false
+      guard hasOpenPanes else { return .terminateNow }
+      let alert = NSAlert()
+      alert.messageText = "Quit touch-code?"
+      alert.informativeText = "Running terminal sessions will end."
+      alert.addButton(withTitle: "Quit")
+      alert.addButton(withTitle: "Cancel")
+      alert.alertStyle = .warning
+      return alert.runModal() == .alertFirstButtonReturn
+        ? .terminateNow : .terminateCancel
     }
   }
 }
