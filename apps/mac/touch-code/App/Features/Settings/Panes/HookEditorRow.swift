@@ -264,10 +264,12 @@ struct HookEditorRow: View {
 
         Button("Save") {
           let result = HookEditorRow.validate(draft)
-          if result.isValid, let payload = HookEditorRow.makeSubscription(
-            from: draft,
-            existingID: subscription.id
-          ) {
+          if result.isValid,
+            let payload = HookEditorRow.makeSubscription(
+              from: draft,
+              existingID: subscription.id
+            )
+          {
             validationErrors = .init()
             onSave(payload)
             isExpanded = false

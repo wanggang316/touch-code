@@ -168,15 +168,7 @@ final class AppState {
   init() {
     let catalogStore = CatalogStore()
     let runtime = GhosttyBackedHierarchyRuntime()
-    var catalog = (try? catalogStore.load()) ?? .default
-
-    // First-run seed: if catalog is empty, create a "Personal" Space
-    let needsSeed = catalog.spaces.isEmpty
-    if needsSeed {
-      let seed = Space(name: "Personal")
-      catalog.spaces = [seed]
-      catalog.selectedSpaceID = seed.id
-    }
+    let catalog = (try? catalogStore.load()) ?? .empty
 
     let manager = HierarchyManager(
       catalog: catalog,
@@ -188,18 +180,17 @@ final class AppState {
     // constructing SettingsStore — the drained map is folded into `Settings.projects[pid]`
     // during the v2 → v3 `settings.json` migration. Empty map on a v2 catalog; mutative
     // on a v1 catalog (clears the two fields in-memory so the next save writes v2 shape).
+    // Operates on per-Project legacy fields only; not Space-coupled, so it survived the
+    // M2 schema flip.
     let legacyOverrides = manager.drainLegacyOverrides()
 
-    // When drain captured any override, flush the v2 catalog synchronously BEFORE
+    // When drain captured any override, flush the catalog synchronously BEFORE
     // SettingsStore's atomic v2→v3 rename commits: otherwise a crash between the two
     // writes would leave a v3 settings.json (no further migration) paired with a v1
     // catalog (re-decoded on next launch → drain emits the same overrides → migration
-    // no longer consulted → data silently lost). Seed-only change still goes through
-    // the debounced path since no migration depends on it.
+    // no longer consulted → data silently lost).
     if !legacyOverrides.isEmpty {
       try? catalogStore.saveNow(manager.catalog)
-    } else if needsSeed {
-      catalogStore.scheduleSave(manager.catalog)
     }
     self.catalogStore = catalogStore
     self.hierarchyRuntime = runtime

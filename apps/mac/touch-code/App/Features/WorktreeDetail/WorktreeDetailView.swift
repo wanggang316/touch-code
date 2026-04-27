@@ -394,4 +394,3 @@ private struct SuppressTitleModifier: ViewModifier {
     }
   }
 }
-

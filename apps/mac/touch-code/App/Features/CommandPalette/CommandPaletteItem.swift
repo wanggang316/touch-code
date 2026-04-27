@@ -46,13 +46,8 @@ struct CommandPaletteItem: Equatable, Identifiable {
     case checkForUpdates
     case quit
 
-    // Space
-    case selectSpace(SpaceID)
-    case openSpaceManager
-    case switchToSpaceAtIndex(Int)
-
     // Worktree
-    case selectWorktree(SpaceID, ProjectID, WorktreeID)
+    case selectWorktree(ProjectID, WorktreeID)
     case closeCurrentWorktree
     case refreshCurrentWorktree
     case toggleGitViewer

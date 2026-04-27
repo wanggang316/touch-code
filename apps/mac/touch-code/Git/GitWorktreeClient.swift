@@ -84,8 +84,7 @@ nonisolated struct GitWorktreeClient: Sendable {
   /// guards because once the working dir is gone, `prune` has no reason
   /// to refuse. The trash directory is rm-rf'd asynchronously so a
   /// large `.git` (e.g. submodule history) does not block the caller.
-  var removeWorktree:
-    @Sendable (_ repoRoot: URL, _ path: URL) async throws -> Void
+  var removeWorktree: @Sendable (_ repoRoot: URL, _ path: URL) async throws -> Void
   var pruneWorktrees: @Sendable (_ repoRoot: URL) async throws -> Int
 
   var fetchRemote: @Sendable (_ repoRoot: URL, _ remote: String) async throws -> Void

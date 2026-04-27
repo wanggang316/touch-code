@@ -2,39 +2,6 @@ import ComposableArchitecture
 import Foundation
 import TouchCodeCore
 
-/// Returns the smallest-index unused "Untitled Space [N]" name given the
-/// current list of Spaces. Treats bare "Untitled Space" as the N=1 slot;
-/// the first new Space gets bare, the second gets "Untitled Space 2", and
-/// so on, filling holes before extending the tail.
-///
-/// Pure. No disk I/O, no MainActor. Exposed to tests via `@testable import`.
-/// File-scope (not method on the reducer) so the reducer stays focused on
-/// action→effect mapping and the test target can call it without touching
-/// TCA machinery.
-func nextUntitledSpaceName(in spaces: [Space]) -> String {
-  let bare = "Untitled Space"
-  var occupied: Set<Int> = []
-  for space in spaces {
-    if space.name == bare {
-      occupied.insert(1)
-      continue
-    }
-    guard space.name.hasPrefix(bare + " ") else { continue }
-    let suffix = space.name.dropFirst(bare.count + 1)
-    // Reject leading zeros, signs, whitespace — only a clean positive integer counts.
-    guard !suffix.isEmpty,
-      suffix.allSatisfy(\.isNumber),
-      suffix.first != "0",
-      let n = Int(suffix),
-      n > 0
-    else { continue }
-    occupied.insert(n)
-  }
-  var candidate = 1
-  while occupied.contains(candidate) { candidate += 1 }
-  return candidate == 1 ? bare : "\(bare) \(candidate)"
-}
-
 // MARK: - Transient sheet / dialog payloads
 
 /// Stub-sheet payload for Project-header "+" (add Worktree). Retained
@@ -44,7 +11,6 @@ func nextUntitledSpaceName(in spaces: [Space]) -> String {
 /// Project from `HierarchyManager.catalog` when building the child state.
 struct AddWorktreeSheet: Equatable {
   var projectID: ProjectID
-  var spaceID: SpaceID
 }
 
 /// Worktree-remove confirmation payload. Non-nil → `.confirmationDialog` visible.
@@ -53,7 +19,6 @@ struct AddWorktreeSheet: Equatable {
 struct PendingWorktreeRemoval: Equatable {
   var worktreeID: WorktreeID
   var projectID: ProjectID
-  var spaceID: SpaceID
   var displayName: String
 }
 
@@ -62,7 +27,6 @@ struct PendingWorktreeRemoval: Equatable {
 /// terminal surfaces, so we gate it with the same confirm pattern.
 struct PendingProjectRemoval: Equatable {
   var projectID: ProjectID
-  var spaceID: SpaceID
   var displayName: String
 }
 
@@ -82,18 +46,10 @@ struct PendingProjectRemoval: Equatable {
 struct HierarchySidebarFeature {
   @ObservableState
   struct State: Equatable {
-    /// Retained from pre-T1. The outer Space-level `DisclosureGroup` was
-    /// removed in T1 (the tree now renders the active Space's projects
-    /// flat), but this set and its prune path stay so existing tests keep
-    /// passing and a future iteration can reintroduce space-level grouping
-    /// without re-plumbing state.
-    var expandedSpaceIDs: Set<SpaceID> = []
-    // Project disclosure state used to live here as `expandedProjectIDs`. It
-    // now persists on `Project.isExpanded` so the open / closed choice
-    // survives restart — the view reads `project.isExpanded` directly from
-    // the catalog, mirroring how `Worktree.isPinned` is consumed.
-
-    var isSpacePopoverPresented: Bool = false
+    // Project disclosure state lives on `Project.isExpanded` so the open /
+    // closed choice survives restart — the view reads `project.isExpanded`
+    // directly from the catalog, mirroring how `Worktree.isPinned` is
+    // consumed.
 
     /// Add Project sheet state. Presence-driven: non-nil means the sheet is
     /// visible. `.addProject` actions are scoped into `AddProjectFeature`.
@@ -126,54 +82,46 @@ struct HierarchySidebarFeature {
   }
 
   /// Payload for the first-archive explainer dialog. Carries the
-  /// originating `(spaceID, projectID, name)` so the post-confirm path
+  /// originating `(projectID, name)` so the post-confirm path
   /// can run the archive-script wrapper without re-walking the catalog.
   struct PendingArchiveExplainer: Equatable {
     var worktreeID: WorktreeID
     var projectID: ProjectID
-    var spaceID: SpaceID
     var name: String
   }
 
   enum Action: Equatable {
     // Row taps
-    case spaceRowTapped(SpaceID)
-    case projectRowTapped(ProjectID, inSpace: SpaceID)
-    case worktreeRowTapped(WorktreeID, inProject: ProjectID, inSpace: SpaceID)
+    case projectRowTapped(ProjectID)
+    case worktreeRowTapped(WorktreeID, inProject: ProjectID)
 
     // Expansion
-    case toggleSpaceExpansion(SpaceID)
     case toggleProjectExpansion(ProjectID)
-    /// Invoked by the parent reducer when the catalog mutation stream fires
-    /// — prunes stale Space IDs from `expandedSpaceIDs`. Project expansion
-    /// lives on `Project.isExpanded` and is pruned automatically when the
-    /// Project itself disappears from the catalog, so it is not threaded here.
-    case pruneExpansionSets(currentSpaceIDs: Set<SpaceID>)
 
     // Toolbar
     case toolbarAddProjectTapped
 
-    // Reorder Projects within a Space (ForEach.onMove forwarder).
-    case reorderProjects(from: IndexSet, to: Int, inSpace: SpaceID)
+    // Reorder Projects (ForEach.onMove forwarder).
+    case reorderProjects(from: IndexSet, to: Int)
 
     // Reorder Worktrees within a single sidebar segment under a Project
     // (ForEach.onMove forwarder for the pinned / unpinned segments).
     case reorderWorktrees(
-      projectID: ProjectID, inSpace: SpaceID,
+      projectID: ProjectID,
       segment: WorktreeSegment, from: IndexSet, to: Int
     )
 
     /// Fired from `FailedProjectRow.Retry` (or the context menu). Delegates
     /// to `RootFeature` which calls `ProjectReconciler.reconcile` — same path
     /// used after Add Project.
-    case retryProjectTapped(projectID: ProjectID, inSpace: SpaceID)
+    case retryProjectTapped(projectID: ProjectID)
 
     // Project section hover chrome
-    case projectAddWorktreeTapped(projectID: ProjectID, inSpace: SpaceID)
+    case projectAddWorktreeTapped(projectID: ProjectID)
     /// Open the Project Options sheet for the given row. Replaces the
     /// standalone Rename Project sheet actions (P-Q2 = a).
-    case projectOptionsTapped(projectID: ProjectID, inSpace: SpaceID)
-    case projectRemoveTapped(projectID: ProjectID, inSpace: SpaceID, name: String)
+    case projectOptionsTapped(projectID: ProjectID)
+    case projectRemoveTapped(projectID: ProjectID, name: String)
     case projectRemoveConfirmed
     case projectRemoveCancelled
 
@@ -181,7 +129,6 @@ struct HierarchySidebarFeature {
     case worktreeRemoveTapped(
       worktreeID: WorktreeID,
       inProject: ProjectID,
-      inSpace: SpaceID,
       name: String
     )
     case worktreeRemoveConfirmed
@@ -191,15 +138,13 @@ struct HierarchySidebarFeature {
     case worktreeArchiveTapped(
       worktreeID: WorktreeID,
       inProject: ProjectID,
-      inSpace: SpaceID,
       name: String
     )
     case worktreeArchiveConfirmed
     case worktreeArchiveCancelled
     case worktreeUnarchiveTapped(
       worktreeID: WorktreeID,
-      inProject: ProjectID,
-      inSpace: SpaceID
+      inProject: ProjectID
     )
     /// Right-click menu toggle. Flips the Worktree's `isPinned` flag via `HierarchyClient`.
     /// The `current` parameter lets the reducer emit the opposite value without reading
@@ -207,10 +152,10 @@ struct HierarchySidebarFeature {
     case worktreePinToggleTapped(worktreeID: WorktreeID, current: Bool)
 
     // Project ⋯ menu: Archived + Prune.
-    case projectShowArchivedTapped(projectID: ProjectID, inSpace: SpaceID)
+    case projectShowArchivedTapped(projectID: ProjectID)
     case archivedWorktreesSheet(ArchivedWorktreesFeature.Action)
     case archivedWorktreesSheetDismissed
-    case projectPruneTapped(projectID: ProjectID, inSpace: SpaceID)
+    case projectPruneTapped(projectID: ProjectID)
     case projectPruneCompleted(pruned: Int, error: String?)
     case pruneToastDismissed
     case worktreeRevealInFinderTapped(path: String)
@@ -239,21 +184,6 @@ struct HierarchySidebarFeature {
     /// dismisses on either delegate case (dismiss or submitted).
     case createWorktreeSheet(CreateWorktreeFeature.Action)
 
-    // Space footer + popover
-    case spaceFooterTapped
-    /// External (non-footer) request to open the Space switcher popover.
-    /// Open-only semantics — distinct from `.spaceFooterTapped` which is a
-    /// toggle. Fires when `RootFeature` forwards `⌘K`
-    /// (`.openSpaceSwitcherRequested`).
-    case externalSpacePopoverOpenRequested
-    case spacePopoverDismissed
-    case spacePopoverSpaceSelected(SpaceID)
-    /// Creates a Space with an auto-generated name (see `nextUntitledSpaceName`)
-    /// and activates it. The name is computed synchronously from the current
-    /// catalog snapshot just before calling `hierarchyClient.createSpace`.
-    case spacePopoverNewSpaceTapped
-    case spacePopoverManageSpacesTapped
-
     // Delegate up to RootFeature for effects that cross feature boundaries.
     case delegate(Delegate)
     @CasePathable
@@ -262,11 +192,10 @@ struct HierarchySidebarFeature {
       case revealInFinder(path: String)
       /// Emitted after a Project is added (or via Retry on a `.failed` row).
       /// `RootFeature` forwards to `ProjectReconciler.reconcile`.
-      case reconcileProjectRequested(ProjectID, SpaceID)
+      case reconcileProjectRequested(ProjectID)
       /// Emitted from AddProjectFeature's Reveal banner. `RootFeature` selects
-      /// the Space + Project so the user lands on the existing row.
-      case revealExistingProject(SpaceID, ProjectID)
-      case openSpaceManager
+      /// the Project so the user lands on the existing row.
+      case revealExistingProject(ProjectID)
       /// M9: surfaces a lifecycle-script result on the main window. The
       /// sidebar emits this after the Archive button drives the
       /// `setWorktreeArchivedWithLifecycle` wrapper. RootFeature
@@ -343,42 +272,19 @@ struct HierarchySidebarFeature {
     switch action {
     // MARK: Row taps
 
-    case .spaceRowTapped(let spaceID):
-      return handleSpaceSwitch(to: spaceID)
-
-    case .projectRowTapped(let projectID, let spaceID):
-      try? hierarchyClient.selectProject(projectID, spaceID)
+    case .projectRowTapped(let projectID):
+      try? hierarchyClient.selectProject(projectID)
       return .none
 
-    case .worktreeRowTapped(let worktreeID, let projectID, let spaceID):
-      // Switching worktrees across Projects must also flip
-      // `space.selectedProjectID` — otherwise `currentSelection()` keeps
-      // reading the previous Project's `selectedWorktreeID` and the
-      // detail column never refreshes.
-      try? hierarchyClient.selectProject(projectID, spaceID)
-      try? hierarchyClient.selectWorktree(worktreeID, projectID, spaceID)
-      // Update Space.lastActiveWorktreeID so returning to this Space later
-      // restores this specific Worktree. Skip the write if the current
-      // value already equals `worktreeID` — avoids waking the debounced
-      // save for a no-op and keeps TestStore traces clean (don't rely
-      // solely on T0's manager-side dedup).
-      let snapshot = hierarchyClient.snapshot()
-      if let space = snapshot.spaces.first(where: { $0.id == spaceID }),
-        space.lastActiveWorktreeID != worktreeID
-      {
-        hierarchyClient.setSpaceLastActiveWorktree(spaceID, worktreeID)
-      }
+    case .worktreeRowTapped(let worktreeID, let projectID):
+      // Switching worktrees across Projects must also flip the active
+      // Project — otherwise selection keeps reading the previous Project's
+      // `selectedWorktreeID` and the detail column never refreshes.
+      try? hierarchyClient.selectProject(projectID)
+      try? hierarchyClient.selectWorktree(worktreeID, projectID)
       return .none
 
     // MARK: Expansion
-
-    case .toggleSpaceExpansion(let spaceID):
-      if state.expandedSpaceIDs.contains(spaceID) {
-        state.expandedSpaceIDs.remove(spaceID)
-      } else {
-        state.expandedSpaceIDs.insert(spaceID)
-      }
-      return .none
 
     case .toggleProjectExpansion(let projectID):
       // Single source of truth lives on the catalog (`Project.isExpanded`),
@@ -387,47 +293,38 @@ struct HierarchySidebarFeature {
       // manager.
       let snapshot = hierarchyClient.snapshot()
       let current =
-        snapshot.spaces
-        .lazy
-        .flatMap(\.projects)
+        snapshot.projects
         .first(where: { $0.id == projectID })?
         .isExpanded ?? true
       hierarchyClient.setProjectExpanded(projectID, !current)
       return .none
 
-    case .pruneExpansionSets(let currentSpaceIDs):
-      state.expandedSpaceIDs.formIntersection(currentSpaceIDs)
-      return .none
-
     // MARK: Toolbar
 
     case .toolbarAddProjectTapped:
-      if let spaceID = hierarchyClient.snapshot().selectedSpaceID {
-        state.addProject = AddProjectFeature.State(targetSpaceID: spaceID)
-      }
+      state.addProject = AddProjectFeature.State()
       return .none
 
     // MARK: Project hover chrome
 
-    case .reorderProjects(let source, let destination, let spaceID):
-      try? hierarchyClient.reorderProjects(spaceID, source, destination)
+    case .reorderProjects(let source, let destination):
+      try? hierarchyClient.reorderProjects(source, destination)
       return .none
 
-    case .reorderWorktrees(let projectID, let spaceID, let segment, let source, let destination):
-      try? hierarchyClient.reorderWorktrees(projectID, spaceID, segment, source, destination)
+    case .reorderWorktrees(let projectID, let segment, let source, let destination):
+      try? hierarchyClient.reorderWorktrees(projectID, segment, source, destination)
       return .none
 
-    case .retryProjectTapped(let projectID, let spaceID):
-      return .send(.delegate(.reconcileProjectRequested(projectID, spaceID)))
+    case .retryProjectTapped(let projectID):
+      return .send(.delegate(.reconcileProjectRequested(projectID)))
 
-    case .projectAddWorktreeTapped(let projectID, let spaceID):
+    case .projectAddWorktreeTapped(let projectID):
       // Resolve the Project from the catalog to feed repoRoot + worktreesDirectory
       // into CreateWorktreeFeature. v3 moved worktreesDirectory off catalog into
       // settings.json.projects[pid]. If the Project has no gitRoot the sheet wouldn't
       // be useful — silently no-op (the Add-Worktree "+" row is hidden for non-git).
       let snapshot = hierarchyClient.snapshot()
-      guard let space = snapshot.spaces.first(where: { $0.id == spaceID }),
-        let project = space.projects.first(where: { $0.id == projectID }),
+      guard let project = snapshot.projects.first(where: { $0.id == projectID }),
         let gitRoot = project.gitRoot
       else { return .none }
       let wtDirOverride = settingsWriter.readSnapshotSync().projects[projectID]?.worktreesDirectory
@@ -437,25 +334,22 @@ struct HierarchySidebarFeature {
       let pendingCount = state.pendingWorktrees.filter { $0.projectID == projectID }.count
       state.createWorktreeSheet = CreateWorktreeFeature.State(
         projectID: projectID,
-        spaceID: spaceID,
         repoRoot: URL(fileURLWithPath: gitRoot),
         worktreesDirectory: defaultWtDir,
         currentPendingCountForProject: pendingCount
       )
       return .none
 
-    case .projectOptionsTapped(let projectID, let spaceID):
+    case .projectOptionsTapped(let projectID):
       // Snapshot the Project's current persisted values at open-time so the Options
       // reducer can skip setters for unchanged drafts. v3 reads defaultEditor /
       // worktreesDirectory from settings.json.projects[pid].
       let snapshot = hierarchyClient.snapshot()
       guard
-        let project = snapshot.spaces.first(where: { $0.id == spaceID })?
-          .projects.first(where: { $0.id == projectID })
+        let project = snapshot.projects.first(where: { $0.id == projectID })
       else { return .none }
       let prefs = settingsWriter.readSnapshotSync().projects[projectID]
       state.projectOptions = ProjectOptionsFeature.State(
-        targetSpaceID: spaceID,
         targetProjectID: projectID,
         originalName: project.name,
         originalDefaultEditor: prefs?.defaultEditor,
@@ -466,17 +360,16 @@ struct HierarchySidebarFeature {
       )
       return .none
 
-    case .projectRemoveTapped(let projectID, let spaceID, let name):
+    case .projectRemoveTapped(let projectID, let name):
       state.pendingProjectRemoval = PendingProjectRemoval(
         projectID: projectID,
-        spaceID: spaceID,
         displayName: name
       )
       return .none
 
     case .projectRemoveConfirmed:
       guard let pending = state.pendingProjectRemoval else { return .none }
-      try? hierarchyClient.removeProject(pending.projectID, pending.spaceID)
+      try? hierarchyClient.removeProject(pending.projectID)
       state.pendingProjectRemoval = nil
       return .none
 
@@ -486,11 +379,10 @@ struct HierarchySidebarFeature {
 
     // MARK: Worktree context menu
 
-    case .worktreeRemoveTapped(let worktreeID, let projectID, let spaceID, let name):
+    case .worktreeRemoveTapped(let worktreeID, let projectID, let name):
       state.pendingWorktreeRemoval = PendingWorktreeRemoval(
         worktreeID: worktreeID,
         projectID: projectID,
-        spaceID: spaceID,
         displayName: name
       )
       return .none
@@ -501,22 +393,21 @@ struct HierarchySidebarFeature {
       let client = hierarchyClient
       let wid = pending.worktreeID
       let pid = pending.projectID
-      let sid = pending.spaceID
       let name = pending.displayName
       return runRemoveWithDeleteScript(
-        client: client, wid: wid, pid: pid, sid: sid, name: name
+        client: client, wid: wid, pid: pid, name: name
       )
 
     case .worktreeRemoveCancelled:
       state.pendingWorktreeRemoval = nil
       return .none
 
-    case .worktreeArchiveTapped(let wid, let pid, let sid, let name):
+    case .worktreeArchiveTapped(let wid, let pid, let name):
       if state.hasShownArchiveExplainer {
-        return runArchiveWithLifecycle(wid: wid, pid: pid, sid: sid, name: name)
+        return runArchiveWithLifecycle(wid: wid, pid: pid, name: name)
       }
       state.pendingArchiveExplainer = PendingArchiveExplainer(
-        worktreeID: wid, projectID: pid, spaceID: sid, name: name
+        worktreeID: wid, projectID: pid, name: name
       )
       return .none
 
@@ -526,14 +417,14 @@ struct HierarchySidebarFeature {
       state.pendingArchiveExplainer = nil
       return runArchiveWithLifecycle(
         wid: pending.worktreeID, pid: pending.projectID,
-        sid: pending.spaceID, name: pending.name
+        name: pending.name
       )
 
     case .worktreeArchiveCancelled:
       state.pendingArchiveExplainer = nil
       return .none
 
-    case .worktreeUnarchiveTapped(let wid, _, _):
+    case .worktreeUnarchiveTapped(let wid, _):
       try? hierarchyClient.setWorktreeArchived(wid, false)
       return .none
 
@@ -541,10 +432,9 @@ struct HierarchySidebarFeature {
       hierarchyClient.setWorktreePinned(wid, !current)
       return .none
 
-    case .projectShowArchivedTapped(let projectID, let spaceID):
+    case .projectShowArchivedTapped(let projectID):
       state.archivedWorktreesSheet = ArchivedWorktreesFeature.State(
-        projectID: projectID,
-        spaceID: spaceID
+        projectID: projectID
       )
       return .none
 
@@ -552,10 +442,9 @@ struct HierarchySidebarFeature {
       state.archivedWorktreesSheet = nil
       return .none
 
-    case .projectPruneTapped(let projectID, let spaceID):
+    case .projectPruneTapped(let projectID):
       let snapshot = hierarchyClient.snapshot()
-      guard let space = snapshot.spaces.first(where: { $0.id == spaceID }),
-        let project = space.projects.first(where: { $0.id == projectID }),
+      guard let project = snapshot.projects.first(where: { $0.id == projectID }),
         let gitRoot = project.gitRoot
       else { return .none }
       let gitRootURL = URL(fileURLWithPath: gitRoot)
@@ -605,13 +494,13 @@ struct HierarchySidebarFeature {
 
     // MARK: Add Project — scoped child
 
-    case .addProject(.presented(.delegate(.projectAdded(let projectID, let spaceID)))):
+    case .addProject(.presented(.delegate(.projectAdded(let projectID)))):
       state.addProject = nil
-      return .send(.delegate(.reconcileProjectRequested(projectID, spaceID)))
+      return .send(.delegate(.reconcileProjectRequested(projectID)))
 
-    case .addProject(.presented(.delegate(.revealExisting(let spaceID, let projectID)))):
+    case .addProject(.presented(.delegate(.revealExisting(let projectID)))):
       state.addProject = nil
-      return .send(.delegate(.revealExistingProject(spaceID, projectID)))
+      return .send(.delegate(.revealExistingProject(projectID)))
 
     case .addProject(.presented(.delegate(.dismiss))), .addProject(.dismiss):
       state.addProject = nil
@@ -639,36 +528,6 @@ struct HierarchySidebarFeature {
       state.addWorktreeSheet = nil
       return .none
 
-    // MARK: Space footer + popover
-
-    case .spaceFooterTapped:
-      state.isSpacePopoverPresented.toggle()
-      return .none
-
-    case .externalSpacePopoverOpenRequested:
-      state.isSpacePopoverPresented = true
-      return .none
-
-    case .spacePopoverDismissed:
-      state.isSpacePopoverPresented = false
-      return .none
-
-    case .spacePopoverSpaceSelected(let spaceID):
-      state.isSpacePopoverPresented = false
-      return .send(.spaceRowTapped(spaceID))
-
-    case .spacePopoverNewSpaceTapped:
-      let snapshot = hierarchyClient.snapshot()
-      let name = nextUntitledSpaceName(in: snapshot.spaces)
-      let newID = hierarchyClient.createSpace(name)
-      hierarchyClient.selectSpace(newID)
-      state.isSpacePopoverPresented = false
-      return .none
-
-    case .spacePopoverManageSpacesTapped:
-      state.isSpacePopoverPresented = false
-      return .send(.delegate(.openSpaceManager))
-
     // MARK: Pending worktree lifecycle
 
     case .beginPendingWorktreeCreation(let pending):
@@ -691,7 +550,6 @@ struct HierarchySidebarFeature {
     case .pendingWorktreeFinished(let id, let path):
       guard let pending = state.pendingWorktrees[id: id] else { return .none }
       let pid = pending.projectID
-      let sid = pending.spaceID
       let branch = pending.spec.branch
       let directoryName = pending.spec.name
       let pathString = path.standardizedFileURL.path(percentEncoded: false)
@@ -701,7 +559,7 @@ struct HierarchySidebarFeature {
       let worktreeID: WorktreeID
       do {
         worktreeID = try hierarchyClient.createWorktreeWithGit(
-          pid, sid, branch, directoryName, pathString)
+          pid, branch, directoryName, pathString)
       } catch let err as GitWorktreeError {
         state.pendingWorktrees[id: id]?.status = .failed(err)
         return .none
@@ -716,9 +574,9 @@ struct HierarchySidebarFeature {
       // row for the same logical creation). The post-catalog steps below
       // are cosmetic side-effects and must not roll back this removal.
       state.pendingWorktrees.remove(id: id)
-      try? hierarchyClient.selectWorktree(worktreeID, pid, sid)
-      if let tabID = try? hierarchyClient.createTab(worktreeID, pid, sid, nil) {
-        _ = try? hierarchyClient.openPane(tabID, worktreeID, pid, sid, pathString, nil)
+      try? hierarchyClient.selectWorktree(worktreeID, pid)
+      if let tabID = try? hierarchyClient.createTab(worktreeID, pid, nil) {
+        _ = try? hierarchyClient.openPane(tabID, worktreeID, pid, pathString, nil)
       }
 
       // Setup script fires regardless of cosmetic-step outcomes — the
@@ -802,60 +660,12 @@ struct HierarchySidebarFeature {
     .cancellable(id: CancelID.pending(id), cancelInFlight: true)
   }
 
-  /// Space-switch choreography. See design doc §Alternatives A — lives in the
-  /// sidebar reducer (not in `RootFeature.selectionChanged`) because we need
-  /// to read the outgoing `worktreeID` *before* `selectSpace` mutates the
-  /// catalog.
-  ///
-  /// Steps:
-  /// 1. No-op if already on the target Space.
-  /// 2. Write outgoing Space's `lastActiveWorktreeID` = currently selected
-  ///    worktree under that Space (may be nil; the manager-side dedup drops
-  ///    a nil→nil write).
-  /// 3. `selectSpace(target)`.
-  /// 4. Read the target Space's `lastActiveWorktreeID`. If it still resolves
-  ///    to a Worktree in the post-switch snapshot, `selectWorktree` it.
-  ///    Otherwise clear the stale pointer and let the existing
-  ///    `Project.selectedWorktreeID` fallback take effect on the next
-  ///    selection-stream observation.
-  private func handleSpaceSwitch(to spaceID: SpaceID) -> Effect<Action> {
-    let outgoingSnapshot = hierarchyClient.snapshot()
-    guard outgoingSnapshot.selectedSpaceID != spaceID else { return .none }
-
-    // Write outgoing lastActive = outgoing selection's worktreeID.
-    if let outgoingSpaceID = outgoingSnapshot.selectedSpaceID,
-      let outgoingSpace = outgoingSnapshot.spaces.first(where: { $0.id == outgoingSpaceID })
-    {
-      let outgoingWorktreeID = outgoingSpace.projects
-        .first(where: { $0.id == outgoingSpace.selectedProjectID })?
-        .selectedWorktreeID
-      hierarchyClient.setSpaceLastActiveWorktree(outgoingSpaceID, outgoingWorktreeID)
-    }
-
-    hierarchyClient.selectSpace(spaceID)
-
-    // Resolve target's lastActiveWorktreeID against the post-switch snapshot.
-    let postSnapshot = hierarchyClient.snapshot()
-    guard let targetSpace = postSnapshot.spaces.first(where: { $0.id == spaceID }),
-      let lastID = targetSpace.lastActiveWorktreeID
-    else { return .none }
-
-    for project in targetSpace.projects
-    where project.worktrees.contains(where: { $0.id == lastID }) {
-      try? hierarchyClient.selectWorktree(lastID, project.id, spaceID)
-      return .none
-    }
-    // Stale — clear the pointer and let Project.selectedWorktreeID fallback take over.
-    hierarchyClient.setSpaceLastActiveWorktree(spaceID, nil)
-    return .none
-  }
-
   /// M9: Archive button → wrapper variant. The wrapper runs the archive
   /// script (fail-warn) and flips `Worktree.archived = true` regardless
   /// of script exit. Surfaces the result as a delegate event so
   /// `RootFeature` can present the toast.
   private func runArchiveWithLifecycle(
-    wid: WorktreeID, pid: ProjectID, sid: SpaceID, name: String
+    wid: WorktreeID, pid: ProjectID, name: String
   ) -> Effect<Action> {
     let client = hierarchyClient
     return .run { send in
@@ -880,7 +690,7 @@ struct HierarchySidebarFeature {
   /// design discussion 2026-04-27).
   private func runRemoveWithDeleteScript(
     client: HierarchyClient,
-    wid: WorktreeID, pid: ProjectID, sid: SpaceID, name: String
+    wid: WorktreeID, pid: ProjectID, name: String
   ) -> Effect<Action> {
     .run { send in
       let result = await client.runWorktreeLifecycleScript(.delete, wid, pid)
@@ -888,7 +698,7 @@ struct HierarchySidebarFeature {
         .delegate(
           .lifecycleScriptResult(phase: .delete, worktreeName: name, result: result))
       )
-      try? await client.removeWorktreeWithGit(wid, pid, sid)
+      try? await client.removeWorktreeWithGit(wid, pid)
     }
   }
 }

@@ -2,10 +2,8 @@ import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
 
-
-
-/// T3 main-window shortcuts. Attached to the single `WindowGroup` in
-/// `TouchCodeApp`. Binds three chords requested by the main-window redesign spec:
+/// T3 main-window shortcuts. Attached to the main `Window` in `TouchCodeApp`.
+/// Binds:
 ///
 /// - `⌘E` → open the active Worktree in the resolved default editor (per-Project
 ///   override → global default → Finder). Dispatches
@@ -18,10 +16,6 @@ import TouchCodeCore
 /// - `⌘⇧G` → toggle the Git Viewer overlay for the active Worktree. Dispatches
 ///   `RootFeature.Action.gitViewerToggledForCurrentWorktree`; T2's Header button
 ///   sends the same action so the two entry points share semantics.
-/// - `⌘K` → open the Sidebar's Space switcher popover. Dispatches
-///   `RootFeature.Action.openSpaceSwitcherRequested`; the root reducer
-///   forwards to `.sidebar(.externalSpacePopoverOpenRequested)` which sets
-///   `isSpacePopoverPresented = true`.
 ///
 /// Collision notes: `Cmd-E` (Use Selection for Find) and `Cmd-Shift-G` (Find
 /// Previous) are AppKit defaults in editable-text contexts. This app has no
@@ -51,28 +45,13 @@ struct MainWindowCommands: Commands {
       }
       .keyboardShortcut("g", modifiers: [.command, .shift])
       .disabled(!hasActiveWorktree)
-
-      Button("Switch Space…") {
-        store.send(.openSpaceSwitcherRequested)
-      }
-      .keyboardShortcut("k", modifiers: .command)
-
-      Divider()
-
-      ForEach(1...9, id: \.self) { n in
-        Button("Switch to Space \(n)") {
-          store.send(.switchToSpaceAtIndex(n))
-        }
-        .keyboardShortcut(KeyEquivalent(Character("\(n)")), modifiers: .command)
-      }
     }
 
     // Tab-bar uplift (M2-T2.9). Lands in its own CommandGroup — placed
     // after the existing block so it reads as a second top-level group in
-    // the menu bar rather than inflating the first group's fan-out. The
-    // `⌘1..⌘9` namespace is already Space switching (above) and
-    // `⌃⌘1..⌃⌘9` is Worktree jumping (HierarchySidebarView); tabs take
-    // the next-free modifier stack, `⌥⌘1..⌥⌘9`.
+    // the menu bar rather than inflating the first group's fan-out. Tabs
+    // take `⌥⌘1..⌥⌘9` (the prior `⌘1..⌘9` Space-switching bindings were
+    // removed in M2).
     CommandGroup(after: .newItem) {
       Button("New Tab") {
         store.send(.newTabForCurrentWorktree)

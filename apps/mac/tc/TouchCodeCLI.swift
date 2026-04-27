@@ -14,7 +14,6 @@ struct TouchCodeCLI: AsyncParsableCommand {
     version: "touch-code \(TouchCodeCLI.version)",
     subcommands: [
       SystemCommand.self,
-      SpaceCommand.self,
       ProjectCommand.self,
       WorktreeCommand.self,
       TabCommand.self,

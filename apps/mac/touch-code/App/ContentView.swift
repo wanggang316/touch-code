@@ -82,9 +82,6 @@ struct ContentView: View {
       )
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .overlay(alignment: .bottom) { editorToastOverlay }
-      .sheet(item: $store.scope(state: \.spaceManagerSheet, action: \.spaceManagerSheet)) { sheetStore in
-        SpaceManagerView(store: sheetStore)
-      }
       .sheet(
         item: $store.scope(state: \.lifecycleScriptToast, action: \.lifecycleScriptToast)
       ) { toastStore in
@@ -123,18 +120,9 @@ struct ContentView: View {
     .onDisappear {
       store.send(.onQuit)
     }
-    .onChange(of: store.selection) { _, _ in
-      // Prune `expandedSpaceIDs` when the catalog changes. Using the selection
-      // stream as a coarse "something structural changed" trigger — the
-      // catalog is read synchronously on render, so stale expansion IDs
-      // disappear next layout pass regardless; this just keeps the set
-      // tidy so it doesn't grow unbounded across long sessions. Project
-      // expansion is now persisted on `Project.isExpanded` and is pruned
-      // implicitly when the Project leaves the catalog.
-      let currentSpaceIDs = Set(hierarchyManager.catalog.spaces.map(\.id))
-      store.send(
-        .sidebar(.pruneExpansionSets(currentSpaceIDs: currentSpaceIDs)))
-    }
+    // Project expansion is persisted on `Project.isExpanded` and pruned
+    // implicitly when the Project leaves the catalog; no sidebar-side
+    // expansion set to maintain.
   }
 
 }

@@ -23,7 +23,6 @@ struct PaneHostFeature {
     let tabID: TabID
     let worktreeID: WorktreeID
     let projectID: ProjectID
-    let spaceID: SpaceID
     var phase: Phase = .loading
     /// Non-nil exactly when `phase == .ready`. Identity-equatable via
     /// `SurfaceBox`; the live surface is owned by `TerminalEngine`'s
@@ -71,7 +70,7 @@ struct PaneHostFeature {
     }
     do {
       try terminalClient.ensureSurface(
-        state.paneID, state.tabID, state.worktreeID, state.projectID, state.spaceID
+        state.paneID, state.tabID, state.worktreeID, state.projectID
       )
     } catch {
       let message = String(describing: error)

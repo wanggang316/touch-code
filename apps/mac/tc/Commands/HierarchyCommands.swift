@@ -4,170 +4,6 @@ import TouchCodeCore
 import TouchCodeIPC
 import tcKit
 
-// MARK: - tc space
-
-struct SpaceCommand: AsyncParsableCommand {
-  static let configuration = CommandConfiguration(
-    commandName: "space",
-    abstract: "Space-level verbs.",
-    subcommands: [
-      SpaceList.self, SpaceCreate.self, SpaceActivate.self,
-      SpaceRename.self, SpaceRemove.self,
-    ]
-  )
-}
-
-struct SpaceRename: AsyncParsableCommand {
-  static let configuration = CommandConfiguration(
-    commandName: "rename",
-    abstract: "Rename a space by id or 'current'."
-  )
-  @OptionGroup var globals: GlobalOptions
-  @Argument var id: String
-  @Argument var name: String
-
-  func run() async throws {
-    let client = try CLISession.connect(globals: globals)
-    defer { Task { await client.shutdown() } }
-    do {
-      let uuid = try await AliasResolver.resolve(id, kind: .space, client: client)
-      struct Params: Codable {
-        let id: SpaceID
-        let name: String
-      }
-      _ = try await client.callRaw(
-        .hierarchyRenameSpace,
-        params: Params(id: SpaceID(raw: uuid), name: name)
-      )
-      try Renderer.emitObject(["id": uuid.uuidString, "name": name], mode: globals.renderMode) { _ in
-        "renamed \(uuid.uuidString) → \(name)"
-      }
-    } catch {
-      CLIError.from(error).exitProcess()
-    }
-  }
-}
-
-struct SpaceRemove: AsyncParsableCommand {
-  static let configuration = CommandConfiguration(
-    commandName: "remove",
-    abstract: "Remove a space (and its projects) by id."
-  )
-  @OptionGroup var globals: GlobalOptions
-  @Argument var id: String
-
-  func run() async throws {
-    let client = try CLISession.connect(globals: globals)
-    defer { Task { await client.shutdown() } }
-    do {
-      let uuid = try await AliasResolver.resolve(id, kind: .space, client: client)
-      struct Params: Codable { let id: SpaceID }
-      _ = try await client.callRaw(
-        .hierarchyRemoveSpace,
-        params: Params(id: SpaceID(raw: uuid))
-      )
-      try Renderer.emitObject(["id": uuid.uuidString], mode: globals.renderMode) { _ in
-        "removed \(uuid.uuidString)"
-      }
-    } catch {
-      CLIError.from(error).exitProcess()
-    }
-  }
-}
-
-struct SpaceList: AsyncParsableCommand {
-  static let configuration = CommandConfiguration(
-    commandName: "list",
-    abstract: "List all spaces."
-  )
-  @OptionGroup var globals: GlobalOptions
-
-  func run() async throws {
-    let client = try CLISession.connect(globals: globals)
-    defer { Task { await client.shutdown() } }
-    struct Result: Codable { let spaces: [Space] }
-    do {
-      let result: Result = try await client.call(.hierarchyListSpaces, params: EmptyParams())
-      try Renderer.emit(
-        SpaceListRenderable(spaces: result.spaces),
-        mode: globals.renderMode
-      )
-    } catch {
-      CLIError.from(error).exitProcess()
-    }
-  }
-}
-
-struct SpaceListRenderable: Encodable, CustomStringConvertible {
-  let spaces: [Space]
-  private enum Key: String, CodingKey { case spaces }
-  func encode(to encoder: Encoder) throws {
-    var c = encoder.container(keyedBy: Key.self)
-    try c.encode(spaces, forKey: .spaces)
-  }
-  var description: String {
-    spaces.isEmpty
-      ? "(no spaces)"
-      : spaces.map { "\($0.id)  \($0.name)  (\($0.projects.count) project(s))" }.joined(separator: "\n")
-  }
-}
-
-struct SpaceCreate: AsyncParsableCommand {
-  static let configuration = CommandConfiguration(
-    commandName: "create",
-    abstract: "Create a new space."
-  )
-  @OptionGroup var globals: GlobalOptions
-  @Argument var name: String
-  @Flag(name: .long, help: "Activate the new space immediately.")
-  var activate: Bool = false
-
-  func run() async throws {
-    let client = try CLISession.connect(globals: globals)
-    defer { Task { await client.shutdown() } }
-    struct Params: Codable {
-      let name: String
-      let activate: Bool
-    }
-    struct Result: Codable { let id: SpaceID }
-    do {
-      let result: Result = try await client.call(
-        .hierarchyCreateSpace,
-        params: Params(name: name, activate: activate)
-      )
-      try Renderer.emitObject(["id": result.id.description], mode: globals.renderMode) { obj in
-        "created \(obj["id"] ?? "?")"
-      }
-    } catch {
-      CLIError.from(error).exitProcess()
-    }
-  }
-}
-
-struct SpaceActivate: AsyncParsableCommand {
-  static let configuration = CommandConfiguration(
-    commandName: "activate",
-    abstract: "Activate a space by id or 'current'."
-  )
-  @OptionGroup var globals: GlobalOptions
-  @Argument var id: String
-
-  func run() async throws {
-    let client = try CLISession.connect(globals: globals)
-    defer { Task { await client.shutdown() } }
-    do {
-      let uuid = try await AliasResolver.resolve(id, kind: .space, client: client)
-      struct Params: Codable { let id: UUID }
-      _ = try await client.callRaw(.hierarchyActivateSpace, params: Params(id: uuid))
-      try Renderer.emitObject(["id": uuid.uuidString], mode: globals.renderMode) { obj in
-        "activated \(obj["id"] ?? "?")"
-      }
-    } catch {
-      CLIError.from(error).exitProcess()
-    }
-  }
-}
-
 // MARK: - tc project
 
 struct ProjectCommand: AsyncParsableCommand {
@@ -181,23 +17,16 @@ struct ProjectCommand: AsyncParsableCommand {
 struct ProjectList: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "list",
-    abstract: "List projects in a space (default: current)."
+    abstract: "List all projects."
   )
   @OptionGroup var globals: GlobalOptions
-  @Option(name: .long, help: "Space id (UUID or 'current').")
-  var space: String = "current"
 
   func run() async throws {
     let client = try CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
-      let uuid = try await AliasResolver.resolve(space, kind: .space, client: client)
-      struct Params: Codable { let spaceID: SpaceID }
       struct Result: Codable { let projects: [Project] }
-      let result: Result = try await client.call(
-        .hierarchyListProjects,
-        params: Params(spaceID: SpaceID(raw: uuid))
-      )
+      let result: Result = try await client.call(.hierarchyListProjects, params: EmptyParams())
       try Renderer.emit(
         ProjectListRenderable(projects: result.projects),
         mode: globals.renderMode
@@ -225,29 +54,22 @@ struct ProjectListRenderable: Encodable, CustomStringConvertible {
 struct ProjectRemove: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "remove",
-    abstract: "Remove a project from a space."
+    abstract: "Remove a project."
   )
   @OptionGroup var globals: GlobalOptions
-  @Option(name: .long, help: "Space id (UUID or 'current').")
-  var space: String = "current"
   @Argument var id: String
 
   func run() async throws {
     let client = try CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
-      let spaceUUID = try await AliasResolver.resolve(space, kind: .space, client: client)
       let projectUUID = try await AliasResolver.resolve(id, kind: .project, client: client)
       struct Params: Codable {
         let id: ProjectID
-        let spaceID: SpaceID
       }
       _ = try await client.callRaw(
         .hierarchyRemoveProject,
-        params: Params(
-          id: ProjectID(raw: projectUUID),
-          spaceID: SpaceID(raw: spaceUUID)
-        )
+        params: Params(id: ProjectID(raw: projectUUID))
       )
       try Renderer.emitObject(["id": projectUUID.uuidString], mode: globals.renderMode) { _ in
         "removed project \(projectUUID.uuidString)"
@@ -261,11 +83,9 @@ struct ProjectRemove: AsyncParsableCommand {
 struct ProjectAdd: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "add",
-    abstract: "Add an existing directory as a project in a space."
+    abstract: "Add an existing directory as a project."
   )
   @OptionGroup var globals: GlobalOptions
-  @Option(name: .long, help: "Space id (UUID or 'current').")
-  var space: String = "current"
   @Option(name: .long, help: "Display name.")
   var name: String
   @Option(name: .long, help: "Path on disk to use as the project root.")
@@ -275,9 +95,7 @@ struct ProjectAdd: AsyncParsableCommand {
     let client = try CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
-      let spaceID = try await AliasResolver.resolve(space, kind: .space, client: client)
       struct Params: Codable {
-        let spaceID: SpaceID
         let name: String
         let rootPath: String
         let gitRoot: String?
@@ -286,7 +104,6 @@ struct ProjectAdd: AsyncParsableCommand {
       let result: Result = try await client.call(
         .hierarchyAddProject,
         params: Params(
-          spaceID: SpaceID(raw: spaceID),
           name: name,
           rootPath: path,
           gitRoot: nil
@@ -317,8 +134,6 @@ struct WorktreeList: AsyncParsableCommand {
     abstract: "List worktrees in a project."
   )
   @OptionGroup var globals: GlobalOptions
-  @Option(name: .long, help: "Space id (UUID or 'current').")
-  var space: String = "current"
   @Option(name: .long, help: "Project id (UUID or 'current').")
   var project: String = "current"
 
@@ -326,19 +141,14 @@ struct WorktreeList: AsyncParsableCommand {
     let client = try CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
-      let spaceUUID = try await AliasResolver.resolve(space, kind: .space, client: client)
       let projectUUID = try await AliasResolver.resolve(project, kind: .project, client: client)
       struct Params: Codable {
         let projectID: ProjectID
-        let spaceID: SpaceID
       }
       struct Result: Codable { let worktrees: [Worktree] }
       let result: Result = try await client.call(
         .hierarchyListWorktrees,
-        params: Params(
-          projectID: ProjectID(raw: projectUUID),
-          spaceID: SpaceID(raw: spaceUUID)
-        )
+        params: Params(projectID: ProjectID(raw: projectUUID))
       )
       try Renderer.emit(
         WorktreeListRenderable(worktrees: result.worktrees),
@@ -371,8 +181,6 @@ struct WorktreeRemove: AsyncParsableCommand {
     abstract: "Remove a worktree (clears the hierarchy entry; does not delete on-disk files)."
   )
   @OptionGroup var globals: GlobalOptions
-  @Option(name: .long, help: "Space id (UUID or 'current').")
-  var space: String = "current"
   @Option(name: .long, help: "Project id (UUID or 'current').")
   var project: String = "current"
   @Argument var id: String
@@ -381,20 +189,17 @@ struct WorktreeRemove: AsyncParsableCommand {
     let client = try CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
-      let spaceUUID = try await AliasResolver.resolve(space, kind: .space, client: client)
       let projectUUID = try await AliasResolver.resolve(project, kind: .project, client: client)
       let worktreeUUID = try await AliasResolver.resolve(id, kind: .worktree, client: client)
       struct Params: Codable {
         let id: WorktreeID
         let projectID: ProjectID
-        let spaceID: SpaceID
       }
       _ = try await client.callRaw(
         .hierarchyRemoveWorktree,
         params: Params(
           id: WorktreeID(raw: worktreeUUID),
-          projectID: ProjectID(raw: projectUUID),
-          spaceID: SpaceID(raw: spaceUUID)
+          projectID: ProjectID(raw: projectUUID)
         )
       )
       try Renderer.emitObject(["id": worktreeUUID.uuidString], mode: globals.renderMode) { _ in
@@ -446,7 +251,6 @@ struct TabList: AsyncParsableCommand {
     abstract: "List tabs in a worktree."
   )
   @OptionGroup var globals: GlobalOptions
-  @Option(name: .long) var space: String = "current"
   @Option(name: .long) var project: String = "current"
   @Option(name: .long) var worktree: String = "current"
 
@@ -454,21 +258,18 @@ struct TabList: AsyncParsableCommand {
     let client = try CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
-      let spaceUUID = try await AliasResolver.resolve(space, kind: .space, client: client)
       let projectUUID = try await AliasResolver.resolve(project, kind: .project, client: client)
       let worktreeUUID = try await AliasResolver.resolve(worktree, kind: .worktree, client: client)
       struct Params: Codable {
         let worktreeID: WorktreeID
         let projectID: ProjectID
-        let spaceID: SpaceID
       }
       struct Result: Codable { let tabs: [Tab] }
       let result: Result = try await client.call(
         .hierarchyListTabs,
         params: Params(
           worktreeID: WorktreeID(raw: worktreeUUID),
-          projectID: ProjectID(raw: projectUUID),
-          spaceID: SpaceID(raw: spaceUUID)
+          projectID: ProjectID(raw: projectUUID)
         )
       )
       try Renderer.emit(TabListRenderable(tabs: result.tabs), mode: globals.renderMode)
@@ -499,7 +300,6 @@ struct TabClose: AsyncParsableCommand {
     abstract: "Close a tab."
   )
   @OptionGroup var globals: GlobalOptions
-  @Option(name: .long) var space: String = "current"
   @Option(name: .long) var project: String = "current"
   @Option(name: .long) var worktree: String = "current"
   @Argument var id: String
@@ -508,7 +308,6 @@ struct TabClose: AsyncParsableCommand {
     let client = try CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
-      let spaceUUID = try await AliasResolver.resolve(space, kind: .space, client: client)
       let projectUUID = try await AliasResolver.resolve(project, kind: .project, client: client)
       let worktreeUUID = try await AliasResolver.resolve(worktree, kind: .worktree, client: client)
       let tabUUID = try await AliasResolver.resolve(id, kind: .tab, client: client)
@@ -516,15 +315,13 @@ struct TabClose: AsyncParsableCommand {
         let id: TabID
         let worktreeID: WorktreeID
         let projectID: ProjectID
-        let spaceID: SpaceID
       }
       _ = try await client.callRaw(
         .hierarchyCloseTab,
         params: Params(
           id: TabID(raw: tabUUID),
           worktreeID: WorktreeID(raw: worktreeUUID),
-          projectID: ProjectID(raw: projectUUID),
-          spaceID: SpaceID(raw: spaceUUID)
+          projectID: ProjectID(raw: projectUUID)
         )
       )
       try Renderer.emitObject(["id": tabUUID.uuidString], mode: globals.renderMode) { _ in
@@ -576,7 +373,6 @@ struct PaneList: AsyncParsableCommand {
     abstract: "List panes in a tab."
   )
   @OptionGroup var globals: GlobalOptions
-  @Option(name: .long) var space: String = "current"
   @Option(name: .long) var project: String = "current"
   @Option(name: .long) var worktree: String = "current"
   @Option(name: .long) var tab: String = "current"
@@ -585,7 +381,6 @@ struct PaneList: AsyncParsableCommand {
     let client = try CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
-      let spaceUUID = try await AliasResolver.resolve(space, kind: .space, client: client)
       let projectUUID = try await AliasResolver.resolve(project, kind: .project, client: client)
       let worktreeUUID = try await AliasResolver.resolve(worktree, kind: .worktree, client: client)
       let tabUUID = try await AliasResolver.resolve(tab, kind: .tab, client: client)
@@ -593,7 +388,6 @@ struct PaneList: AsyncParsableCommand {
         let tabID: TabID
         let worktreeID: WorktreeID
         let projectID: ProjectID
-        let spaceID: SpaceID
       }
       struct Result: Codable { let panes: [Pane] }
       let result: Result = try await client.call(
@@ -601,8 +395,7 @@ struct PaneList: AsyncParsableCommand {
         params: Params(
           tabID: TabID(raw: tabUUID),
           worktreeID: WorktreeID(raw: worktreeUUID),
-          projectID: ProjectID(raw: projectUUID),
-          spaceID: SpaceID(raw: spaceUUID)
+          projectID: ProjectID(raw: projectUUID)
         )
       )
       try Renderer.emit(PaneListRenderable(panes: result.panes), mode: globals.renderMode)
@@ -631,7 +424,6 @@ struct PaneListRenderable: Encodable, CustomStringConvertible {
 }
 
 struct PaneLocatorArgs: ParsableArguments {
-  @Option(name: .long) var space: String = "current"
   @Option(name: .long) var project: String = "current"
   @Option(name: .long) var worktree: String = "current"
   @Option(name: .long) var tab: String = "current"
@@ -679,13 +471,11 @@ struct PaneLocatorBody: Codable, Sendable {
   let tabID: TabID
   let worktreeID: WorktreeID
   let projectID: ProjectID
-  let spaceID: SpaceID
 }
 
 enum PaneLocatorFlow {
-  /// Shared pane-locator flow — resolves 5 aliases then dispatches
-  /// the supplied method with a `{id, tabID, worktreeID, projectID,
-  /// spaceID}` body.
+  /// Shared pane-locator flow — resolves 4 aliases then dispatches
+  /// the supplied method with a `{id, tabID, worktreeID, projectID}` body.
   static func run(
     globals: GlobalOptions,
     args: PaneLocatorArgs,
@@ -695,7 +485,6 @@ enum PaneLocatorFlow {
     let client = try CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
-      let spaceUUID = try await AliasResolver.resolve(args.space, kind: .space, client: client)
       let projectUUID = try await AliasResolver.resolve(args.project, kind: .project, client: client)
       let worktreeUUID = try await AliasResolver.resolve(args.worktree, kind: .worktree, client: client)
       let tabUUID = try await AliasResolver.resolve(args.tab, kind: .tab, client: client)
@@ -706,8 +495,7 @@ enum PaneLocatorFlow {
           id: PaneID(raw: paneUUID),
           tabID: TabID(raw: tabUUID),
           worktreeID: WorktreeID(raw: worktreeUUID),
-          projectID: ProjectID(raw: projectUUID),
-          spaceID: SpaceID(raw: spaceUUID)
+          projectID: ProjectID(raw: projectUUID)
         )
       )
       try Renderer.emitObject(["id": paneUUID.uuidString], mode: globals.renderMode) { _ in
@@ -798,21 +586,20 @@ struct SendCommand: AsyncParsableCommand {
 struct BroadcastCommand: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "broadcast",
-    abstract: "Fan-out text to a tab, worktree, space, or label scope."
+    abstract: "Fan-out text to a tab, worktree, or label scope."
   )
   @OptionGroup var globals: GlobalOptions
   @Option(name: .long, help: "Tab id.") var tab: String?
   @Option(name: .long, help: "Worktree id.") var worktree: String?
-  @Option(name: .long, help: "Space id.") var space: String?
   @Option(name: .long, help: "Label string.") var label: String?
   @Argument(parsing: .remaining) var textPieces: [String]
 
   func run() async throws {
-    let scopeCount = [tab, worktree, space, label].compactMap { $0 }.count
+    let scopeCount = [tab, worktree, label].compactMap { $0 }.count
     if scopeCount != 1 {
       CLIError(
         code: .userError,
-        message: "broadcast requires exactly one of --tab / --worktree / --space / --label"
+        message: "broadcast requires exactly one of --tab / --worktree / --label"
       ).exitProcess()
     }
     let client = try CLISession.connect(globals: globals)
@@ -849,10 +636,6 @@ struct BroadcastCommand: AsyncParsableCommand {
       let uuid = try await AliasResolver.resolve(worktree, kind: .worktree, client: client)
       return .worktree(WorktreeID(raw: uuid))
     }
-    if let space {
-      let uuid = try await AliasResolver.resolve(space, kind: .space, client: client)
-      return .space(SpaceID(raw: uuid))
-    }
     if let label {
       return .label(label)
     }
@@ -868,7 +651,7 @@ struct RPCCommand: AsyncParsableCommand {
     abstract: "Low-level: invoke an arbitrary RPC method. Parses JSON params from argv."
   )
   @OptionGroup var globals: GlobalOptions
-  @Argument(help: "Method name (e.g. system.ping, hierarchy.listSpaces).")
+  @Argument(help: "Method name (e.g. system.ping, hierarchy.listProjects).")
   var method: String
   @Argument(help: "Params as JSON (default: {}).")
   var params: String = "{}"

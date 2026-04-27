@@ -25,7 +25,7 @@ enum CommandPaletteItems {
     focusedPaneID: PaneID? = nil,
     paneFocusPrecise: Bool = false
   ) -> [CommandPaletteItem] {
-    var items = appItems() + spaceItems(catalog: catalog)
+    var items = appItems()
     items.append(contentsOf: worktreeSwitchItems(selection: selection, catalog: catalog))
     if let worktree = resolveWorktree(selection: selection, catalog: catalog) {
       items.append(contentsOf: worktreeItems(worktreeName: worktree.name))
@@ -59,12 +59,8 @@ enum CommandPaletteItems {
     selection: HierarchySelection,
     catalog: Catalog
   ) -> [CommandPaletteItem] {
-    guard
-      let spaceID = selection.spaceID,
-      let space = catalog.spaces.first(where: { $0.id == spaceID })
-    else { return [] }
     var items: [CommandPaletteItem] = []
-    for project in space.projects {
+    for project in catalog.projects {
       for worktree in project.worktrees where worktree.id != selection.worktreeID {
         items.append(
           CommandPaletteItem(
@@ -72,7 +68,7 @@ enum CommandPaletteItems {
             title: "Switch to Worktree: \(worktree.name)",
             subtitle: project.name,
             icon: "arrow.triangle.branch",
-            kind: .selectWorktree(spaceID, project.id, worktree.id)
+            kind: .selectWorktree(project.id, worktree.id)
           )
         )
       }
@@ -106,45 +102,15 @@ enum CommandPaletteItems {
     ]
   }
 
-  private static func spaceItems(catalog: Catalog) -> [CommandPaletteItem] {
-    var items: [CommandPaletteItem] = [
-      CommandPaletteItem(
-        id: "space.manage",
-        title: "Manage Spaces…",
-        icon: "slider.horizontal.3",
-        kind: .openSpaceManager
-      )
-    ]
-    for (index, space) in catalog.spaces.enumerated() {
-      let isActive = catalog.selectedSpaceID == space.id
-      let indexChord: KeyEquivalentDescriptor? =
-        index < 9 ? .command("\(index + 1)") : nil
-      items.append(
-        CommandPaletteItem(
-          id: "space.select.\(space.id.raw.uuidString)",
-          title: "Switch to Space: \(space.name)",
-          subtitle: isActive ? "Currently active" : nil,
-          icon: "square.stack",
-          shortcut: indexChord,
-          priorityTier: isActive ? 110 : 100,
-          kind: .selectSpace(space.id)
-        )
-      )
-    }
-    return items
-  }
-
   private static func resolveWorktree(
     selection: HierarchySelection,
     catalog: Catalog
   ) -> Worktree? {
     guard
-      let spaceID = selection.spaceID,
       let projectID = selection.projectID,
       let worktreeID = selection.worktreeID
     else { return nil }
-    return catalog.spaces.first(where: { $0.id == spaceID })?
-      .projects.first(where: { $0.id == projectID })?
+    return catalog.projects.first(where: { $0.id == projectID })?
       .worktrees.first(where: { $0.id == worktreeID })
   }
 
@@ -246,11 +212,9 @@ enum CommandPaletteItems {
     catalog: Catalog
   ) -> PaneID? {
     guard
-      let spaceID = selection.spaceID,
       let projectID = selection.projectID,
       let worktreeID = selection.worktreeID,
-      let space = catalog.spaces.first(where: { $0.id == spaceID }),
-      let project = space.projects.first(where: { $0.id == projectID }),
+      let project = catalog.projects.first(where: { $0.id == projectID }),
       let worktree = project.worktrees.first(where: { $0.id == worktreeID }),
       let selectedTabID = worktree.selectedTabID,
       let tab = worktree.tabs.first(where: { $0.id == selectedTabID })
