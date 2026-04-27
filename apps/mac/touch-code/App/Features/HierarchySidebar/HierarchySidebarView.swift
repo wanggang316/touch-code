@@ -34,40 +34,30 @@ struct HierarchySidebarView: View {
   /// reveals per-row `⌃⌘N` hotkey hints (and the matching `⌃⌘1`–`⌃⌘9` bindings).
   @Environment(CommandKeyObserver.self) private var commandKeyObserver
 
-  /// Drives Finder/Mail-style focus-aware selection chrome: emphasized blue
-  /// + white text when this view's window is key; unemphasized grey + dark
-  /// text when the window loses focus. Mirrors AppKit's
-  /// `NSTableView.selectionHighlightStyle = .sourceList` behavior, which
-  /// SwiftUI does not get for free because we render selection ourselves
-  /// via `.listRowBackground`.
-  @Environment(\.controlActiveState) private var controlActiveState
-
-  /// Row fill behind a selected Worktree. Blue when the window is key,
-  /// system grey otherwise. The two `NSColor` tokens are the same ones
-  /// `NSTableView` uses internally for its sidebar selection.
-  private var selectionBackgroundColor: Color {
-    switch controlActiveState {
-    case .inactive:
-      return Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
-    case .key, .active:
-      return Color(nsColor: .selectedContentBackgroundColor)
-    @unknown default:
-      return Color(nsColor: .selectedContentBackgroundColor)
-    }
-  }
-
-  /// Foreground tier applied to the selected row's labels and icons. White
-  /// reads against the emphasized blue; `.primary` keeps the original
-  /// label color when the selection is unemphasized (grey background).
-  private var selectionForegroundColor: Color {
-    switch controlActiveState {
-    case .inactive:
-      return .primary
-    case .key, .active:
-      return .white
-    @unknown default:
-      return .white
-    }
+  /// Bridges TCA-owned `currentSelection.worktreeID` ↔ SwiftUI's native
+  /// `List(selection:)`. Native binding is what gets us Finder-/Mail-style
+  /// selection chrome for free: emphasized blue + white text when the
+  /// sidebar holds first-responder, unemphasized grey + dark text the
+  /// instant focus moves to a terminal pane (or anywhere else inside or
+  /// outside the window). `NSTableView.selectionHighlightStyle = .sourceList`
+  /// owns that transition; we just have to feed it a selection binding
+  /// instead of painting `.listRowBackground` ourselves. Setter dispatches
+  /// the existing `worktreeRowTapped` action so all the side-effects
+  /// (selectedProjectID propagation, hooks, etc.) fire identically to a tap.
+  private var nativeSelectionBinding: Binding<WorktreeID?> {
+    Binding(
+      get: { currentSelection.worktreeID },
+      set: { newValue in
+        guard let newValue, newValue != currentSelection.worktreeID else { return }
+        guard
+          let project = hierarchyManager.catalog.projects
+            .first(where: { project in
+              project.worktrees.contains(where: { $0.id == newValue })
+            })
+        else { return }
+        store.send(.worktreeRowTapped(newValue, inProject: project.id))
+      }
+    )
   }
 
   /// Modifier set for the per-row worktree hotkey. `⌘1`–`⌘9` is reserved
@@ -324,7 +314,7 @@ struct HierarchySidebarView: View {
       // first row then draws at y=0, overlapping with the traffic lights.
       // Accepting the scroller-when-needed trade-off; supacode + Prowl both
       // tolerate the default indicator posture here.
-      List {
+      List(selection: nativeSelectionBinding) {
         ForEach(projects) { project in
           projectSection(
             project,
@@ -529,22 +519,18 @@ struct HierarchySidebarView: View {
       )
       gitHubBadge(for: worktree, in: project)
     }
-    // Worktree rows are now real List children (header + worktrees emitted as
-    // sibling rows from `projectSection`), so `.listRowInsets` + `.listRowBackground`
-    // are the right knobs. The rounded-pill selection lives in the row background so
-    // the selection wash does not paint into the list's trailing gutter.
-    // Leading 14 and pill leading 18 compensate the +6pt clip-view shift in
-    // `_UnclampedClipView` and add a +8pt visual indent so worktree content
+    // Worktree rows are real List children. Selection chrome is owned by
+    // SwiftUI's native `List(selection:)` (see `nativeSelectionBinding`):
+    // `.tag(worktree.id)` makes the row a selectable target so AppKit's
+    // sourceList renderer paints the focus-aware highlight (emphasized blue
+    // when sidebar holds first-responder, unemphasized grey when focus
+    // moves to a terminal pane), with the matching white / dark text.
+    // Leading 14 compensates the +6pt clip-view shift in
+    // `_UnclampedClipView` and adds a +8pt visual indent so worktree content
     // reads as a child level under the (left-aligned) project header.
+    .tag(worktree.id)
     .listRowInsets(EdgeInsets(top: 3, leading: 14, bottom: 3, trailing: 0))
     .listRowSeparator(.hidden)
-    .listRowBackground(
-      RoundedRectangle(cornerRadius: 10, style: .continuous)
-        .fill(isSelected ? selectionBackgroundColor : Color.clear)
-        .padding(.vertical, 2)
-        .padding(.leading, 18)
-        .padding(.trailing, 4)
-    )
     .contextMenu { worktreeContextMenu(worktree: worktree, project: project) }
     .task(id: worktree.path) {
       // Refresh the "dirty" dot on mount / path change. The monitor enforces a 30 s
@@ -621,11 +607,6 @@ struct HierarchySidebarView: View {
         }
       }
       .contentShape(Rectangle())
-      // Cascade the focus-aware selection foreground into every label /
-      // hierarchical-style child below. Concrete colors (e.g. the orange
-      // pin glyph, PR-state row icon tint) win over this and stay put,
-      // which is what we want — those are role signals, not body text.
-      .foregroundStyle(isSelected ? selectionForegroundColor : .primary)
     }
     .buttonStyle(.plain)
 
