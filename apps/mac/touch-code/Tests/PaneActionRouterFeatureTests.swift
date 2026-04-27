@@ -75,8 +75,8 @@ struct PaneActionRouterFeatureTests {
     } withDependencies: {
       $0.hierarchyClient = HierarchyClient.testValue
       $0.hierarchyClient.addressOf = { _ in f.address }
-      $0.hierarchyClient.createTab = { wid, pid , name in
-        recorded.setValue((wid, pid , name))
+      $0.hierarchyClient.createTab = { wid, pid, name in
+        recorded.setValue((wid, pid, name))
         return TabID()
       }
     }
@@ -98,8 +98,8 @@ struct PaneActionRouterFeatureTests {
     } withDependencies: {
       $0.hierarchyClient = HierarchyClient.testValue
       $0.hierarchyClient.addressOf = { _ in f.address }
-      $0.hierarchyClient.closeTab = { tid, wid, pid  in
-        recorded.setValue((tid, wid, pid ))
+      $0.hierarchyClient.closeTab = { tid, wid, pid in
+        recorded.setValue((tid, wid, pid))
       }
     }
 
@@ -120,8 +120,8 @@ struct PaneActionRouterFeatureTests {
     } withDependencies: {
       $0.hierarchyClient = HierarchyClient.testValue
       $0.hierarchyClient.addressOf = { _ in f.address }
-      $0.hierarchyClient.moveTab = { tid, wid, pid , offset in
-        recorded.setValue((tid, wid, pid , offset))
+      $0.hierarchyClient.moveTab = { tid, wid, pid, offset in
+        recorded.setValue((tid, wid, pid, offset))
       }
     }
 
@@ -143,8 +143,8 @@ struct PaneActionRouterFeatureTests {
       $0.hierarchyClient = HierarchyClient.testValue
       $0.hierarchyClient.addressOf = { _ in f.address }
       $0.hierarchyClient.snapshot = { catalog }
-      $0.hierarchyClient.selectTab = { tid, wid, pid  in
-        recorded.setValue((tid, wid, pid ))
+      $0.hierarchyClient.selectTab = { tid, wid, pid in
+        recorded.setValue((tid, wid, pid))
       }
     }
 
@@ -169,8 +169,8 @@ struct PaneActionRouterFeatureTests {
       $0.hierarchyClient = HierarchyClient.testValue
       $0.hierarchyClient.addressOf = { _ in f.address }
       $0.hierarchyClient.snapshot = { catalog }
-      $0.hierarchyClient.splitPane = { paneID, dir, tid, wid, pid , cwd, _ in
-        recorded.setValue((paneID, dir, tid, wid, pid , cwd))
+      $0.hierarchyClient.splitPane = { paneID, dir, tid, wid, pid, cwd, _ in
+        recorded.setValue((paneID, dir, tid, wid, pid, cwd))
         return PaneID()
       }
     }
@@ -200,8 +200,8 @@ struct PaneActionRouterFeatureTests {
       $0.hierarchyClient = HierarchyClient.testValue
       $0.hierarchyClient.addressOf = { _ in f.address }
       $0.hierarchyClient.snapshot = { catalog }
-      $0.hierarchyClient.focusPane = { paneID, tid, wid, pid  in
-        recorded.setValue((paneID, tid, wid, pid ))
+      $0.hierarchyClient.focusPane = { paneID, tid, wid, pid in
+        recorded.setValue((paneID, tid, wid, pid))
       }
     }
 
@@ -246,8 +246,8 @@ struct PaneActionRouterFeatureTests {
     } withDependencies: {
       $0.hierarchyClient = HierarchyClient.testValue
       $0.hierarchyClient.addressOf = { _ in f.address }
-      $0.hierarchyClient.equalizeTabSplits = { tid, wid, pid  in
-        recorded.setValue((tid, wid, pid ))
+      $0.hierarchyClient.equalizeTabSplits = { tid, wid, pid in
+        recorded.setValue((tid, wid, pid))
       }
     }
 
@@ -295,8 +295,8 @@ struct PaneActionRouterFeatureTests {
       $0.hierarchyClient.addressOf = { _ in f.address }
       $0.hierarchyClient.snapshot = { catalog }
       $0.hierarchyClient.focusPane = { _, _, _, _ in focusCalled.setValue(true) }
-      $0.hierarchyClient.unzoomTab = { tid, wid, pid  in
-        unzoomCalled.setValue((tid, wid, pid ))
+      $0.hierarchyClient.unzoomTab = { tid, wid, pid in
+        unzoomCalled.setValue((tid, wid, pid))
       }
     }
 

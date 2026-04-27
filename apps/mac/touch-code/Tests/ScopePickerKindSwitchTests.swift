@@ -67,7 +67,8 @@ struct ScopePickerKindSwitchTests {
 
     // ID-based scopes do not share the buffer.
     #expect(step1.buffer[.paneLabel] == "ssh-pane")
-    if case .paneID = step1.scope {} else {
+    if case .paneID = step1.scope {
+    } else {
       Issue.record("Expected .paneID scope, got \(step1.scope)")
     }
 

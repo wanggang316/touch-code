@@ -73,14 +73,15 @@ struct HierarchySidebarOrderingTests {
     let rows = HierarchySidebarView.orderedSidebarRows(project: project, pendings: [])
 
     #expect(rows.count == 6)
-    #expect(rows.map(\.id) == [
-      "wt:\(main.id.raw)",
-      "wt:\(pin1.id.raw)",
-      "wt:\(pin2.id.raw)",
-      "wt:\(un1.id.raw)",
-      "wt:\(un2.id.raw)",
-      "wt:\(un3.id.raw)",
-    ])
+    #expect(
+      rows.map(\.id) == [
+        "wt:\(main.id.raw)",
+        "wt:\(pin1.id.raw)",
+        "wt:\(pin2.id.raw)",
+        "wt:\(un1.id.raw)",
+        "wt:\(un2.id.raw)",
+        "wt:\(un3.id.raw)",
+      ])
   }
 
   @Test
@@ -151,10 +152,11 @@ struct HierarchySidebarOrderingTests {
     let rows = HierarchySidebarView.orderedSidebarRows(project: project, pendings: [])
 
     #expect(rows.count == 3)
-    #expect(rows.map(\.id) == [
-      "wt:\(main.id.raw)",
-      "wt:\(pinKept.id.raw)",
-      "wt:\(unKept.id.raw)",
-    ])
+    #expect(
+      rows.map(\.id) == [
+        "wt:\(main.id.raw)",
+        "wt:\(pinKept.id.raw)",
+        "wt:\(unKept.id.raw)",
+      ])
   }
 }

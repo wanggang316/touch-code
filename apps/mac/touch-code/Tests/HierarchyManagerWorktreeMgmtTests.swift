@@ -28,7 +28,8 @@ struct HierarchyManagerWorktreeMgmtTests {
 
   @Test
   func archiveTogglesFlag() throws {
-    let projectID = manager.addProject(name: "p", rootPath: "/repo", gitRoot: "/repo"
+    let projectID = manager.addProject(
+      name: "p", rootPath: "/repo", gitRoot: "/repo"
     )
     let worktreeID = try manager.createWorktree(
       in: projectID, name: "feature", path: "/repo/feat", branch: "feature"
@@ -40,7 +41,8 @@ struct HierarchyManagerWorktreeMgmtTests {
 
   @Test
   func archiveIsIdempotent() throws {
-    let projectID = manager.addProject(name: "p", rootPath: "/repo", gitRoot: "/repo"
+    let projectID = manager.addProject(
+      name: "p", rootPath: "/repo", gitRoot: "/repo"
     )
     let worktreeID = try manager.createWorktree(
       in: projectID, name: "feature", path: "/repo/feat", branch: "feature"
@@ -53,7 +55,8 @@ struct HierarchyManagerWorktreeMgmtTests {
 
   @Test
   func archiveMainCheckoutThrows() throws {
-    let projectID = manager.addProject(name: "p", rootPath: "/repo", gitRoot: "/repo"
+    let projectID = manager.addProject(
+      name: "p", rootPath: "/repo", gitRoot: "/repo"
     )
     // addProject with gitRoot != nil does not synthesize a worktree;
     // create one whose path EQUALS the Project rootPath to simulate the
@@ -68,7 +71,8 @@ struct HierarchyManagerWorktreeMgmtTests {
 
   @Test
   func archiveTearsDownSurfaces() throws {
-    let projectID = manager.addProject(name: "p", rootPath: "/repo", gitRoot: "/repo"
+    let projectID = manager.addProject(
+      name: "p", rootPath: "/repo", gitRoot: "/repo"
     )
     let worktreeID = try manager.createWorktree(
       in: projectID, name: "feature", path: "/repo/feat", branch: "feature"
@@ -91,7 +95,8 @@ struct HierarchyManagerWorktreeMgmtTests {
 
   @Test
   func reconcileAppendsUnknownEntries() throws {
-    let projectID = manager.addProject(name: "p", rootPath: "/repo", gitRoot: "/repo"
+    let projectID = manager.addProject(
+      name: "p", rootPath: "/repo", gitRoot: "/repo"
     )
     _ = try manager.createWorktree(
       in: projectID, name: "main", path: "/repo", branch: "main"
@@ -109,7 +114,8 @@ struct HierarchyManagerWorktreeMgmtTests {
 
   @Test
   func reconcileIsIdempotent() throws {
-    let projectID = manager.addProject(name: "p", rootPath: "/repo", gitRoot: "/repo"
+    let projectID = manager.addProject(
+      name: "p", rootPath: "/repo", gitRoot: "/repo"
     )
     let entries: [(path: String, branch: String?)] = [
       (path: "/repo", branch: "main"),
@@ -161,7 +167,8 @@ struct HierarchyManagerWorktreeMgmtTests {
     let alias = try Self.makeAliasedTempDir(tag: "reconcile")
     defer { try? FileManager.default.removeItem(at: alias.url) }
     // Catalog stores the resolved form, matching T-PROJECT's side.
-    let projectID = manager.addProject(name: "p", rootPath: alias.privateForm, gitRoot: alias.privateForm
+    let projectID = manager.addProject(
+      name: "p", rootPath: alias.privateForm, gitRoot: alias.privateForm
     )
     _ = try manager.createWorktree(
       in: projectID, name: "main",
@@ -194,7 +201,8 @@ struct HierarchyManagerWorktreeMgmtTests {
     defer { try? FileManager.default.removeItem(at: alias.url) }
     let canonicalForm = HierarchyManager.canonicalPath(alias.varForm)
     #expect(canonicalForm == HierarchyManager.canonicalPath(alias.privateForm))
-    let projectID = manager.addProject(name: "p", rootPath: canonicalForm, gitRoot: canonicalForm
+    let projectID = manager.addProject(
+      name: "p", rootPath: canonicalForm, gitRoot: canonicalForm
     )
     // Feeding the `/var/...` alias must still store the canonical form.
     let wtIDFromVar = try manager.createWorktree(
@@ -236,7 +244,8 @@ struct HierarchyManagerWorktreeMgmtTests {
     // of `wt ls --json`; reconcile soft-archives them so the sidebar's
     // non-archived filter hides them and clicks no longer reach a stale
     // cwd. Rows are kept in the catalog so Archived menu can restore.
-    let projectID = manager.addProject(name: "p", rootPath: "/repo", gitRoot: "/repo"
+    let projectID = manager.addProject(
+      name: "p", rootPath: "/repo", gitRoot: "/repo"
     )
     _ = try manager.createWorktree(
       in: projectID, name: "main", path: "/repo", branch: "main"
@@ -260,7 +269,8 @@ struct HierarchyManagerWorktreeMgmtTests {
     // (setWorktreeArchived throws). Reconcile must skip it even when
     // `entries` is empty (e.g. transient git error) so the user is
     // never locked out of their primary worktree.
-    let projectID = manager.addProject(name: "p", rootPath: "/repo", gitRoot: "/repo"
+    let projectID = manager.addProject(
+      name: "p", rootPath: "/repo", gitRoot: "/repo"
     )
     let mainID = try manager.createWorktree(
       in: projectID, name: "main", path: "/repo", branch: "main"
@@ -278,7 +288,8 @@ struct HierarchyManagerWorktreeMgmtTests {
     // Pinned rows encode explicit user intent; reconcile leaves them
     // alone even when stale. The openPane defensive guard handles the
     // click-on-stale case without losing the pin.
-    let projectID = manager.addProject(name: "p", rootPath: "/repo", gitRoot: "/repo"
+    let projectID = manager.addProject(
+      name: "p", rootPath: "/repo", gitRoot: "/repo"
     )
     _ = try manager.createWorktree(
       in: projectID, name: "main", path: "/repo", branch: "main"
@@ -302,7 +313,8 @@ struct HierarchyManagerWorktreeMgmtTests {
     // Stale-archive must release pty surfaces — same contract as the
     // user-invoked archive path. Without this, libghostty would hold
     // a working dir that no longer exists and fail on the next read.
-    let projectID = manager.addProject(name: "p", rootPath: "/repo", gitRoot: "/repo"
+    let projectID = manager.addProject(
+      name: "p", rootPath: "/repo", gitRoot: "/repo"
     )
     _ = try manager.createWorktree(
       in: projectID, name: "main", path: "/repo", branch: "main"
@@ -330,7 +342,8 @@ struct HierarchyManagerWorktreeMgmtTests {
   func reconcileAutoArchiveIsIdempotent() throws {
     // A second reconcile pass with the same stale set must not flip
     // anything (already-archived guard) and must not schedule a save.
-    let projectID = manager.addProject(name: "p", rootPath: "/repo", gitRoot: "/repo"
+    let projectID = manager.addProject(
+      name: "p", rootPath: "/repo", gitRoot: "/repo"
     )
     _ = try manager.createWorktree(
       in: projectID, name: "main", path: "/repo", branch: "main"
@@ -357,7 +370,8 @@ struct HierarchyManagerWorktreeMgmtTests {
 
   @Test
   func runningPaneCountReflectsRuntime() throws {
-    let projectID = manager.addProject(name: "p", rootPath: "/repo", gitRoot: "/repo"
+    let projectID = manager.addProject(
+      name: "p", rootPath: "/repo", gitRoot: "/repo"
     )
     let worktreeID = try manager.createWorktree(
       in: projectID, name: "feature", path: "/repo/feat", branch: "feature"

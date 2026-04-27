@@ -47,15 +47,18 @@ struct PendingWorktreeLifecycleTests {
     private let lock = NSLock()
     private var _continuation: AsyncThrowingStream<CreateWorktreeEvent, Error>.Continuation?
     func set(_ c: AsyncThrowingStream<CreateWorktreeEvent, Error>.Continuation) {
-      lock.lock(); defer { lock.unlock() }
+      lock.lock()
+      defer { lock.unlock() }
       _continuation = c
     }
     func yield(_ event: CreateWorktreeEvent) {
-      lock.lock(); defer { lock.unlock() }
+      lock.lock()
+      defer { lock.unlock() }
       _continuation?.yield(event)
     }
     func finish(_ error: Error? = nil) {
-      lock.lock(); defer { lock.unlock() }
+      lock.lock()
+      defer { lock.unlock() }
       _continuation?.finish(throwing: error)
     }
   }
@@ -87,7 +90,9 @@ struct PendingWorktreeLifecycleTests {
     let handle = StreamHandle()
     let store = TestStore(initialState: HierarchySidebarFeature.State()) {
       HierarchySidebarFeature()
-    } withDependencies: { Self.wireDefaults(&$0, handle: handle) }
+    } withDependencies: {
+      Self.wireDefaults(&$0, handle: handle)
+    }
     store.exhaustivity = .off
 
     await store.send(.beginPendingWorktreeCreation(pending)) {
@@ -113,7 +118,9 @@ struct PendingWorktreeLifecycleTests {
     let handle = StreamHandle()
     let store = TestStore(initialState: HierarchySidebarFeature.State()) {
       HierarchySidebarFeature()
-    } withDependencies: { Self.wireDefaults(&$0, handle: handle) }
+    } withDependencies: {
+      Self.wireDefaults(&$0, handle: handle)
+    }
     store.exhaustivity = .off
 
     await store.send(.beginPendingWorktreeCreation(pending))
@@ -133,7 +140,9 @@ struct PendingWorktreeLifecycleTests {
 
     let store = TestStore(initialState: initial) {
       HierarchySidebarFeature()
-    } withDependencies: { Self.wireDefaults(&$0, handle: handle) }
+    } withDependencies: {
+      Self.wireDefaults(&$0, handle: handle)
+    }
     store.exhaustivity = .off
 
     await store.send(.pendingWorktreeRetryTapped(pending.id)) {
@@ -155,7 +164,9 @@ struct PendingWorktreeLifecycleTests {
     let handle = StreamHandle()
     let store = TestStore(initialState: HierarchySidebarFeature.State()) {
       HierarchySidebarFeature()
-    } withDependencies: { Self.wireDefaults(&$0, handle: handle) }
+    } withDependencies: {
+      Self.wireDefaults(&$0, handle: handle)
+    }
     store.exhaustivity = .off
 
     await store.send(.beginPendingWorktreeCreation(pending))
@@ -205,7 +216,9 @@ struct PendingWorktreeLifecycleTests {
     let handle = StreamHandle()
     let store = TestStore(initialState: initial) {
       HierarchySidebarFeature()
-    } withDependencies: { Self.wireDefaults(&$0, handle: handle) }
+    } withDependencies: {
+      Self.wireDefaults(&$0, handle: handle)
+    }
     store.exhaustivity = .off
 
     let ninth = Self.makePending(projectID: projectID)
