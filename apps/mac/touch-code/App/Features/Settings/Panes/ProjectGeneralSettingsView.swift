@@ -149,26 +149,35 @@ struct ProjectGeneralSettingsView: View {
 
   // MARK: - Editor
 
+  /// Visually mirrors Settings → General → Default editor and the Worktree-header
+  /// "Open in" submenu: a flat priority-ordered list rendered through
+  /// `EditorPickerRow.row(for:)` so every editor dropdown across the app has the same
+  /// icon + displayName row. The leading sentinel reuses
+  /// `OptionalOverridePicker.inheritRowText` so the "Use global default — <name>"
+  /// composition stays in one place.
   @ViewBuilder
   private var editorSection: some View {
     Section("Editor") {
-      OptionalOverridePicker<EditorID>(
-        title: "Default editor",
-        selection: editorBinding,
-        inheritedValue: general.defaultEditorID,
-        options: editorOptions,
-        inheritedLabel: { id in
-          guard let id else { return "Auto" }
-          return descriptors.first(where: { $0.id == id })?.displayName ?? id
+      Picker("Default editor", selection: editorBinding) {
+        Text(editorInheritRowText)
+          .tag(EditorID?.none)
+        ForEach(EditorPickerRow.sorted(descriptors), id: \.id) { descriptor in
+          EditorPickerRow.row(for: descriptor)
+            .tag(EditorID?(descriptor.id))
         }
-      )
+      }
+      .pickerStyle(.menu)
     }
   }
 
-  private var editorOptions: [OptionalOverridePicker<EditorID>.Option] {
-    EditorPickerRow.sorted(descriptors).map { descriptor in
-      .init(value: descriptor.id, label: descriptor.displayName)
-    }
+  private var editorInheritRowText: String {
+    OptionalOverridePicker<EditorID>.inheritRowText(
+      inheritedLabel: { id in
+        guard let id else { return "Auto" }
+        return descriptors.first(where: { $0.id == id })?.displayName ?? id
+      },
+      inheritedValue: general.defaultEditorID
+    )
   }
 
   private var editorBinding: Binding<EditorID?> {

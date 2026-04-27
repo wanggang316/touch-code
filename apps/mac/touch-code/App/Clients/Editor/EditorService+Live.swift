@@ -33,13 +33,22 @@ final actor LiveEditorService: EditorService {
     for template in EditorRegistry.registry {
       switch template.launchMode {
       case .shellEditor:
-        // TODO(C8a): re-expose once a Pane-aware open path lands — see exec-plan progress
-        // section. The registry entry stays so the descriptor shape is defined for the
-        // future caller, but `describe()` cannot advertise an editor whose `open()` throws
-        // `.launchFailed` every time: saving it as a global/project default strands the
-        // user. Filtering here keeps `.shellEditor` out of the Settings + Project Options
-        // pickers until end-to-end wiring exists.
-        continue
+        // Always-installed pseudo-editor (no bundle to probe). Opening $EDITOR through this
+        // service still throws `.launchFailed` because the service signature does not carry
+        // a Pane/Tab context — callers that want $EDITOR to actually launch must route
+        // through `hierarchyClient.openPane(... initialCommand: "$EDITOR")` (see the
+        // `.shellEditor` branch of `open(directory:preferred:)` below). Surfacing the row
+        // anyway lets the Settings + Project Options + Worktree-header pickers list it.
+        resolved.append(
+          EditorDescriptor(
+            id: template.id,
+            displayName: template.displayName,
+            bundleIdentifier: template.bundleIdentifier,
+            launchMode: template.launchMode,
+            appURL: nil,
+            alternateBundleIdentifiers: template.alternateBundleIdentifiers
+          )
+        )
       case .directory, .applicationWithArguments:
         if let appURL = await resolveAppURL(for: template) {
           resolved.append(

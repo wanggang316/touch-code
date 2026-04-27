@@ -123,16 +123,16 @@ struct EditorServiceLaunchTests {
     }
   }
 
-  // MARK: - .shellEditor (deferred — filtered from describe())
+  // MARK: - .shellEditor (descriptive throw — Pane-aware caller is the real launcher)
 
   @Test
-  func shellEditorIsUnreachableFromOpenInV1() async throws {
-    // v1 design limitation: `.shellEditor` cannot launch from the service because the
-    // `(directory: URL, preferred: EditorID?)` signature excludes the Pane/Tab context
-    // the Pane primitive needs. The filter in `describe()` suppresses the registry entry
-    // so a strict `preferred: "editor"` surfaces `.notInstalled` before the launch branch
-    // is ever reached. The `.shellEditor` case in `open()` is retained for a future
-    // Pane-aware caller. See `EditorService+Live.swift` describe() for the filter.
+  func shellEditorThroughOpenServiceThrowsLaunchFailed() async throws {
+    // `describe()` now includes `.shellEditor` so pickers can list it, but the service's
+    // `(directory: URL, preferred: EditorID?)` signature still excludes the Pane/Tab
+    // context the Pane primitive needs. A strict `preferred: "editor"` therefore
+    // resolves through the descriptor list (no `.notInstalled`) and lands in the
+    // `.shellEditor` branch of `open()`, which throws `.launchFailed` with a message
+    // pointing callers at `hierarchyClient.openPane(... initialCommand: "$EDITOR")`.
     let dir = try Self.tempDir()
     defer { try? FileManager.default.removeItem(at: dir) }
     let (service, _) = Self.makeService(installed: ["finder"])
@@ -141,13 +141,12 @@ struct EditorServiceLaunchTests {
       _ = try await service.open(directory: dir, preferred: "editor")
       Issue.record(".shellEditor open should have thrown")
     } catch let error as EditorError {
-      guard case .notInstalled(let id, _) = error else {
-        Issue.record("Expected .notInstalled (shell editor filtered from describe), got \(error)")
+      guard case .launchFailed = error else {
+        Issue.record("Expected .launchFailed for shell editor open, got \(error)")
         return
       }
-      #expect(id == "editor")
     } catch {
-      Issue.record("Expected EditorError.notInstalled, got \(error)")
+      Issue.record("Expected EditorError.launchFailed, got \(error)")
     }
   }
 
