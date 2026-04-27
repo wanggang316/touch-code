@@ -22,56 +22,73 @@ private let reconcileLogger = Logger(
 /// Narrow by design: every command is a one-line forward into the manager,
 /// and `snapshot` plus `selectionChanges` provide the read paths TCA
 /// features need without exposing the `@Observable` manager surface.
+///
+/// **M2 surface inversion**: per `docs/exec-plans/project-tags.md` §M2.4 the
+/// append-only convention is waived for this milestone. Space-named closures
+/// are removed and Tag-shaped closures replace them. Append-only resumes in
+/// M5+.
 nonisolated struct HierarchyClient: Sendable {
-  var createSpace: @MainActor @Sendable (_ name: String) -> SpaceID
-  var renameSpace: @MainActor @Sendable (_ id: SpaceID, _ name: String) throws -> Void
-  var removeSpace: @MainActor @Sendable (_ id: SpaceID) throws -> Void
+  // MARK: - Tag mutations
+
+  /// Appends a new Tag and returns its id. Persists.
+  var createTag: @MainActor @Sendable (_ name: String, _ color: TagColor) -> TagID
+  /// Renames the Tag in place. Silent no-op for unknown ids / unchanged values.
+  var renameTag: @MainActor @Sendable (_ id: TagID, _ name: String) -> Void
+  /// Recolors the Tag. Silent no-op for unknown ids / unchanged values.
+  var recolorTag: @MainActor @Sendable (_ id: TagID, _ color: TagColor) -> Void
+  /// Removes the Tag and cascades: strips the id from every project's
+  /// `tagIDs`, normalizes `activeTagFilter` (drops the id from `.tags(set)`;
+  /// empty set falls back to `.all`). Silent no-op for unknown ids.
+  var removeTag: @MainActor @Sendable (_ id: TagID) -> Void
+  /// Replaces the Project's tag membership.
+  var setProjectTags:
+    @MainActor @Sendable (
+      _ projectID: ProjectID, _ tags: Set<TagID>
+    ) -> Void
+  /// Replaces the catalog-wide active tag filter. Empty `.tags(set)` is
+  /// normalized to `.all`.
+  var setActiveTagFilter: @MainActor @Sendable (_ filter: TagFilter) -> Void
+
+  // MARK: - Project mutations
 
   var addProject:
     @MainActor @Sendable (
-      _ spaceID: SpaceID, _ name: String, _ rootPath: String, _ gitRoot: String?
-    ) throws -> ProjectID
-  var removeProject: @MainActor @Sendable (_ projectID: ProjectID, _ inSpace: SpaceID) throws -> Void
+      _ name: String, _ rootPath: String, _ gitRoot: String?
+    ) -> ProjectID
+  var removeProject: @MainActor @Sendable (_ projectID: ProjectID) throws -> Void
   var renameProject:
     @MainActor @Sendable (
-      _ projectID: ProjectID, _ inSpace: SpaceID, _ name: String
+      _ projectID: ProjectID, _ name: String
     ) throws -> Void
+
+  // MARK: - Worktree mutations
 
   var createWorktree:
     @MainActor @Sendable (
-      _ projectID: ProjectID, _ inSpace: SpaceID, _ name: String, _ path: String, _ branch: String?
+      _ projectID: ProjectID, _ name: String, _ path: String, _ branch: String?
     ) throws -> WorktreeID
   var removeWorktree:
     @MainActor @Sendable (
-      _ worktreeID: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
+      _ worktreeID: WorktreeID, _ inProject: ProjectID
     ) throws -> Void
 
-  /// Records which Worktree to restore when the window re-activates this Space.
-  /// `nil` clears. Missing space / unchanged value is a silent no-op — matches
-  /// `HierarchyManager.setSpaceLastActiveWorktree` contract.
-  var setSpaceLastActiveWorktree:
-    @MainActor @Sendable (
-      _ spaceID: SpaceID, _ worktreeID: WorktreeID?
-    ) -> Void
-
-  var selectSpace: @MainActor @Sendable (_ id: SpaceID?) -> Void
-  var selectProject: @MainActor @Sendable (_ id: ProjectID?, _ inSpace: SpaceID) throws -> Void
+  var selectProject: @MainActor @Sendable (_ id: ProjectID?) -> Void
   var selectWorktree:
     @MainActor @Sendable (
-      _ id: WorktreeID?, _ inProject: ProjectID, _ inSpace: SpaceID
+      _ id: WorktreeID?, _ inProject: ProjectID
     ) throws -> Void
 
   var createTab:
     @MainActor @Sendable (
-      _ worktreeID: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID, _ name: String?
+      _ worktreeID: WorktreeID, _ inProject: ProjectID, _ name: String?
     ) throws -> TabID
   var closeTab:
     @MainActor @Sendable (
-      _ id: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
+      _ id: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID
     ) throws -> Void
   var selectTab:
     @MainActor @Sendable (
-      _ id: TabID?, _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
+      _ id: TabID?, _ inWorktree: WorktreeID, _ inProject: ProjectID
     ) throws -> Void
 
   // MARK: - Tab mutations (tab-bar uplift)
@@ -79,32 +96,32 @@ nonisolated struct HierarchyClient: Sendable {
   var renameTab:
     @MainActor @Sendable (
       _ id: TabID,
-      _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID,
+      _ inWorktree: WorktreeID, _ inProject: ProjectID,
       _ name: String?
     ) throws -> Void
   var reorderTabs:
     @MainActor @Sendable (
-      _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID,
+      _ inWorktree: WorktreeID, _ inProject: ProjectID,
       _ orderedIDs: [TabID]
     ) throws -> Void
   var closeOtherTabs:
     @MainActor @Sendable (
       _ keeping: TabID,
-      _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
+      _ inWorktree: WorktreeID, _ inProject: ProjectID
     ) throws -> Void
   var closeTabsToRight:
     @MainActor @Sendable (
       _ of: TabID,
-      _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
+      _ inWorktree: WorktreeID, _ inProject: ProjectID
     ) throws -> Void
   var closeAllTabs:
     @MainActor @Sendable (
-      _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
+      _ inWorktree: WorktreeID, _ inProject: ProjectID
     ) throws -> Void
   var selectAdjacentTab:
     @MainActor @Sendable (
       _ direction: TabAdjacency,
-      _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
+      _ inWorktree: WorktreeID, _ inProject: ProjectID
     ) throws -> TabID?
 
   // MARK: - Runtime state (tab-bar uplift, M3)
@@ -126,24 +143,24 @@ nonisolated struct HierarchyClient: Sendable {
 
   var openPane:
     @MainActor @Sendable (
-      _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID,
+      _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID,
       _ workingDirectory: String, _ initialCommand: String?
     ) throws -> PaneID
   var splitPane:
     @MainActor @Sendable (
       _ paneID: PaneID, _ direction: SplitTree<PaneID>.NewDirection,
-      _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID,
+      _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID,
       _ workingDirectory: String, _ initialCommand: String?
     ) throws -> PaneID
   var closePane:
     @MainActor @Sendable (
       _ paneID: PaneID, _ tabID: TabID, _ inWorktree: WorktreeID,
-      _ inProject: ProjectID, _ inSpace: SpaceID
+      _ inProject: ProjectID
     ) throws -> Void
   var focusPane:
     @MainActor @Sendable (
       _ paneID: PaneID, _ tabID: TabID, _ inWorktree: WorktreeID,
-      _ inProject: ProjectID, _ inSpace: SpaceID
+      _ inProject: ProjectID
     ) throws -> Void
   /// View-level first-responder focus. Unlike `focusPane` this does
   /// NOT mutate the catalog (no zoom flag, no persistence) — it only
@@ -154,7 +171,7 @@ nonisolated struct HierarchyClient: Sendable {
   var resizeSplit:
     @MainActor @Sendable (
       _ path: SplitTree<PaneID>.Path, _ ratio: Double,
-      _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
+      _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID
     ) throws -> Void
 
   // Per-Project editor / worktrees-directory writers were retired in v3: the values
@@ -174,8 +191,8 @@ nonisolated struct HierarchyClient: Sendable {
 
   var snapshot: @MainActor @Sendable () -> Catalog
 
-  /// Emits whenever the selection chain `(spaceID, projectID, worktreeID)`
-  /// changes in the catalog. Deduped against the previous snapshot. Consumers
+  /// Emits whenever the selection chain `(projectID, worktreeID)` changes
+  /// in the catalog. Deduped against the previous snapshot. Consumers
   /// (C6 inbox, C7 git-viewer, M4 detail-column swap) subscribe without
   /// needing a reference to the `@Observable` `HierarchyManager`. The stream
   /// finishes only when the engine shuts down.
@@ -210,13 +227,13 @@ nonisolated struct HierarchyClient: Sendable {
   /// by `ProjectReconciler` on feat/project-mgmt.
   var reconcileDiscoveredWorktrees:
     @MainActor @Sendable (
-      _ projectID: ProjectID, _ inSpace: SpaceID
+      _ projectID: ProjectID
     ) async -> Void
 
   /// Catalog-append step for Create Worktree.
   var createWorktreeWithGit:
     @MainActor @Sendable (
-      _ projectID: ProjectID, _ inSpace: SpaceID,
+      _ projectID: ProjectID,
       _ branch: String, _ directoryName: String, _ path: String
     ) throws -> WorktreeID
 
@@ -229,7 +246,7 @@ nonisolated struct HierarchyClient: Sendable {
   /// dialog is the only protection.
   var removeWorktreeWithGit:
     @MainActor @Sendable (
-      _ worktreeID: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
+      _ worktreeID: WorktreeID, _ inProject: ProjectID
     ) async throws -> Void
 
   /// Forwards `HierarchyManager.runningPaneCount`.
@@ -240,36 +257,30 @@ nonisolated struct HierarchyClient: Sendable {
   /// Transient Project health signal. Written by `ProjectReconciler` only.
   var setProjectLoadState:
     @MainActor @Sendable (
-      _ projectID: ProjectID, _ inSpace: SpaceID, _ state: ProjectLoadState
+      _ projectID: ProjectID, _ state: ProjectLoadState
     ) -> Void
 
-  /// Reorder Projects inside a Space. Mirrors `ForEach.onMove`'s signature.
+  /// Reorder Projects at the catalog top level. Mirrors `ForEach.onMove`'s signature.
   var reorderProjects:
     @MainActor @Sendable (
-      _ inSpace: SpaceID, _ from: IndexSet, _ to: Int
-    ) throws -> Void
+      _ from: IndexSet, _ to: Int
+    ) -> Void
 
   /// Duplicate-add guard. Caller canonicalizes before querying.
-  var isPathRegistered: @MainActor @Sendable (_ canonicalPath: String) -> (SpaceID, ProjectID)?
+  var isPathRegistered: @MainActor @Sendable (_ canonicalPath: String) -> ProjectID?
 
   /// Containing-project lookup (subdirectory-aware). Returns the deepest
   /// Project whose `rootPath` contains the canonical path (root or descendant).
   /// Used by the `editor.open` IPC so `tc open` inside a subdirectory still
   /// resolves the parent Project's default editor. Caller canonicalizes.
-  var projectContaining: @MainActor @Sendable (_ canonicalPath: String) -> (SpaceID, ProjectID)?
+  var projectContaining: @MainActor @Sendable (_ canonicalPath: String) -> ProjectID?
 
-  /// Derived `ProjectKind` lookup — scans every Space for the Project and
-  /// returns its kind, or `nil` if the Project is not in the catalog. The
-  /// Settings sidebar consults this to choose which sub-rows to render
+  /// Derived `ProjectKind` lookup — scans `catalog.projects` for the Project
+  /// and returns its kind, or `nil` if the Project is not in the catalog.
+  /// The Settings sidebar consults this to choose which sub-rows to render
   /// under a Project. Read-only; the app never writes kind — it flows from
   /// `gitRoot` set at project-discovery time.
   var kind: @MainActor @Sendable (_ projectID: ProjectID) -> ProjectKind?
-
-  // MARK: - Space Management additions (feat/space-mgmt)
-
-  /// Reorder Spaces using the IndexSet (source) and destination offset from
-  /// SwiftUI's `.onMove(perform:)`. Silent no-op on empty IndexSet.
-  var reorderSpaces: @MainActor @Sendable (_ source: IndexSet, _ destination: Int) -> Void
 
   // MARK: - Pane Action Routing (0008 M5)
 
@@ -286,15 +297,14 @@ nonisolated struct HierarchyClient: Sendable {
   var moveTab:
     @MainActor @Sendable (
       _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID,
-      _ inSpace: SpaceID, _ offset: Int
+      _ offset: Int
     ) throws -> Void
 
   /// Sets every split node's ratio in the Tab's SplitTree to 0.5 so sibling
   /// panes render at equal sizes. Leaf-only trees are a silent no-op.
   var equalizeTabSplits:
     @MainActor @Sendable (
-      _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID,
-      _ inSpace: SpaceID
+      _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID
     ) throws -> Void
 
   /// Resizes a Pane in the SplitTree along the given direction by `amount`.
@@ -310,8 +320,7 @@ nonisolated struct HierarchyClient: Sendable {
   /// sets the zoom) to service `PaneActionRequest.toggleSplitZoom`.
   var unzoomTab:
     @MainActor @Sendable (
-      _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID,
-      _ inSpace: SpaceID
+      _ tabID: TabID, _ inWorktree: WorktreeID, _ inProject: ProjectID
     ) throws -> Void
 
   // MARK: - Project Settings Phase 2
@@ -346,7 +355,7 @@ nonisolated struct HierarchyClient: Sendable {
   /// Mirrors `createWorktree` plus the lifecycle wrapper.
   var createWorktreeWithLifecycle:
     @MainActor @Sendable (
-      _ projectID: ProjectID, _ inSpace: SpaceID,
+      _ projectID: ProjectID,
       _ name: String, _ path: String, _ branch: String?
     ) async throws -> (WorktreeID, LifecycleScriptResult)
 
@@ -361,7 +370,7 @@ nonisolated struct HierarchyClient: Sendable {
   /// is removed regardless of script exit.
   var removeWorktreeWithLifecycle:
     @MainActor @Sendable (
-      _ worktreeID: WorktreeID, _ inProject: ProjectID, _ inSpace: SpaceID
+      _ worktreeID: WorktreeID, _ inProject: ProjectID
     ) async throws -> LifecycleScriptResult
 
   // MARK: - Worktree sidebar ordering (worktree-sidebar-ordering.md task01)
@@ -374,7 +383,7 @@ nonisolated struct HierarchyClient: Sendable {
   /// `HierarchyError.notFound` for unknown project ids.
   var reorderWorktrees:
     @MainActor @Sendable (
-      _ projectID: ProjectID, _ inSpace: SpaceID,
+      _ projectID: ProjectID,
       _ segment: WorktreeSegment, _ from: IndexSet, _ to: Int
     ) throws -> Void
 }
@@ -390,7 +399,6 @@ enum RunScriptError: Error, Equatable, Sendable {
 /// (`closeTab`, `selectTab`, `equalizeTabSplits`, …) can be called without a
 /// second catalog walk.
 nonisolated struct PaneAddress: Sendable, Equatable {
-  let spaceID: SpaceID
   let projectID: ProjectID
   let worktreeID: WorktreeID
   let tabID: TabID
@@ -398,13 +406,20 @@ nonisolated struct PaneAddress: Sendable, Equatable {
 }
 
 /// Coarse selection payload. `nil` for any level means "no selection at that
-/// level" — e.g. a Space may be selected with no Project chosen yet.
+/// level" — e.g. a Project may be implied by the worktree without an explicit
+/// project-level selection store.
+///
+/// FIXME(rm-space, M2): v3 dropped per-Space `selectedProjectID`. The
+/// `projectID` field here is derived by walking `catalog.projects` for a
+/// project whose `selectedWorktreeID` matches `worktreeID`. Downstream
+/// features that needed a project-level selection beyond the implied parent
+/// of the active worktree must rebuild that state in their own reducers
+/// (M2.5+ work).
 nonisolated struct HierarchySelection: Equatable, Sendable {
-  let spaceID: SpaceID?
   let projectID: ProjectID?
   let worktreeID: WorktreeID?
 
-  static let empty = HierarchySelection(spaceID: nil, projectID: nil, worktreeID: nil)
+  static let empty = HierarchySelection(projectID: nil, worktreeID: nil)
 }
 
 // MARK: - Live bridge
@@ -418,64 +433,72 @@ extension HierarchyClient {
     gitWorktreeClient: GitWorktreeClient = .makeLive()
   ) -> HierarchyClient {
     HierarchyClient(
-      createSpace: { manager.createSpace(name: $0) },
-      renameSpace: { try manager.renameSpace($0, name: $1) },
-      removeSpace: { try manager.removeSpace($0) },
-      addProject: { try manager.addProject(to: $0, name: $1, rootPath: $2, gitRoot: $3) },
-      removeProject: { try manager.removeProject($0, from: $1) },
-      renameProject: { projectID, spaceID, name in
-        try manager.renameProject(projectID, in: spaceID, name: name)
+      createTag: { name, color in
+        manager.createTag(name: name, color: color)
       },
-      createWorktree: { projectID, spaceID, name, path, branch in
-        try manager.createWorktree(in: projectID, in: spaceID, name: name, path: path, branch: branch)
+      renameTag: { id, name in manager.renameTag(id, to: name) },
+      recolorTag: { id, color in manager.recolorTag(id, to: color) },
+      removeTag: { id in manager.removeTag(id) },
+      setProjectTags: { projectID, tags in
+        manager.setProjectTags(projectID, tags: tags)
       },
-      removeWorktree: { worktreeID, projectID, spaceID in
-        try manager.removeWorktree(worktreeID, from: projectID, in: spaceID)
+      setActiveTagFilter: { filter in manager.setActiveTagFilter(filter) },
+      addProject: { name, rootPath, gitRoot in
+        manager.addProject(name: name, rootPath: rootPath, gitRoot: gitRoot)
       },
-      setSpaceLastActiveWorktree: { spaceID, worktreeID in
-        manager.setSpaceLastActiveWorktree(spaceID: spaceID, worktreeID: worktreeID)
+      removeProject: { projectID in try manager.removeProject(projectID) },
+      renameProject: { projectID, name in
+        try manager.renameProject(projectID, name: name)
       },
-      selectSpace: { manager.selectSpace($0) },
-      selectProject: { try manager.selectProject($0, in: $1) },
-      selectWorktree: { worktreeID, projectID, spaceID in
-        try manager.selectWorktree(worktreeID, in: projectID, in: spaceID)
+      createWorktree: { projectID, name, path, branch in
+        try manager.createWorktree(in: projectID, name: name, path: path, branch: branch)
       },
-      createTab: { worktreeID, projectID, spaceID, name in
-        try manager.createTab(in: worktreeID, in: projectID, in: spaceID, name: name)
+      removeWorktree: { worktreeID, projectID in
+        try manager.removeWorktree(worktreeID, from: projectID)
       },
-      closeTab: { tabID, worktreeID, projectID, spaceID in
-        try manager.closeTab(tabID, in: worktreeID, in: projectID, in: spaceID)
+      // FIXME(rm-space, M2): no `selectProject` on the manager — v3 dropped
+      // catalog-level project selection. Closure currently no-ops. Sidebar
+      // reducers (M2.6) own selection state locally now.
+      selectProject: { _ in },
+      selectWorktree: { worktreeID, projectID in
+        try manager.selectWorktree(worktreeID, in: projectID)
       },
-      selectTab: { tabID, worktreeID, projectID, spaceID in
-        try manager.selectTab(tabID, in: worktreeID, in: projectID, in: spaceID)
+      createTab: { worktreeID, projectID, name in
+        try manager.createTab(in: worktreeID, in: projectID, name: name)
       },
-      renameTab: { tabID, worktreeID, projectID, spaceID, name in
-        try manager.renameTab(tabID, in: worktreeID, in: projectID, in: spaceID, name: name)
+      closeTab: { tabID, worktreeID, projectID in
+        try manager.closeTab(tabID, in: worktreeID, in: projectID)
       },
-      reorderTabs: { worktreeID, projectID, spaceID, orderedIDs in
+      selectTab: { tabID, worktreeID, projectID in
+        try manager.selectTab(tabID, in: worktreeID, in: projectID)
+      },
+      renameTab: { tabID, worktreeID, projectID, name in
+        try manager.renameTab(tabID, in: worktreeID, in: projectID, name: name)
+      },
+      reorderTabs: { worktreeID, projectID, orderedIDs in
         try manager.reorderTabs(
-          in: worktreeID, in: projectID, in: spaceID, orderedIDs: orderedIDs)
+          in: worktreeID, in: projectID, orderedIDs: orderedIDs)
       },
-      closeOtherTabs: { keepID, worktreeID, projectID, spaceID in
+      closeOtherTabs: { keepID, worktreeID, projectID in
         try manager.closeOtherTabs(
-          keeping: keepID, in: worktreeID, in: projectID, in: spaceID)
+          keeping: keepID, in: worktreeID, in: projectID)
       },
-      closeTabsToRight: { pivotID, worktreeID, projectID, spaceID in
+      closeTabsToRight: { pivotID, worktreeID, projectID in
         try manager.closeTabsToRight(
-          of: pivotID, in: worktreeID, in: projectID, in: spaceID)
+          of: pivotID, in: worktreeID, in: projectID)
       },
-      closeAllTabs: { worktreeID, projectID, spaceID in
-        try manager.closeAllTabs(in: worktreeID, in: projectID, in: spaceID)
+      closeAllTabs: { worktreeID, projectID in
+        try manager.closeAllTabs(in: worktreeID, in: projectID)
       },
-      selectAdjacentTab: { direction, worktreeID, projectID, spaceID in
+      selectAdjacentTab: { direction, worktreeID, projectID in
         try manager.selectAdjacentTab(
-          direction: direction, in: worktreeID, in: projectID, in: spaceID)
+          direction: direction, in: worktreeID, in: projectID)
       },
       tabIsDirty: { tabID in manager.tabIsDirty(tabID) },
       lastFocusedPane: { tabID in manager.lastFocusedPane(in: tabID) },
       markPaneRunning: { paneID in manager.markPaneRunning(paneID) },
       markPaneIdle: { paneID in manager.markPaneIdle(paneID) },
-      openPane: { [weak settings] tabID, worktreeID, projectID, spaceID, cwd, initial in
+      openPane: { [weak settings] tabID, worktreeID, projectID, cwd, initial in
         // Defensive guard against stale catalog state: when a worktree
         // is deleted outside the app (`git worktree remove`) before
         // reconcile catches up, libghostty crashes if it tries to spawn
@@ -498,11 +521,11 @@ extension HierarchyClient {
           settings.map { HierarchyManager.resolvedEnv(for: projectID, in: $0.settings) }
           ?? [:]
         return try manager.openPane(
-          in: tabID, in: worktreeID, in: projectID, in: spaceID,
+          in: tabID, in: worktreeID, in: projectID,
           workingDirectory: cwd, initialCommand: initial, env: env
         )
       },
-      splitPane: { [weak settings] paneID, direction, tabID, worktreeID, projectID, spaceID, cwd, initial in
+      splitPane: { [weak settings] paneID, direction, tabID, worktreeID, projectID, cwd, initial in
         // Splits inherit the same Project envVars as the parent pane —
         // the new pty is forked from a fresh shell, not the existing one,
         // so the env hook still has to run.
@@ -511,23 +534,23 @@ extension HierarchyClient {
           ?? [:]
         return try manager.splitPane(
           paneID, direction: direction,
-          in: tabID, in: worktreeID, in: projectID, in: spaceID,
+          in: tabID, in: worktreeID, in: projectID,
           workingDirectory: cwd, initialCommand: initial, env: env
         )
       },
-      closePane: { paneID, tabID, worktreeID, projectID, spaceID in
-        try manager.closePane(paneID, in: tabID, in: worktreeID, in: projectID, in: spaceID)
+      closePane: { paneID, tabID, worktreeID, projectID in
+        try manager.closePane(paneID, in: tabID, in: worktreeID, in: projectID)
       },
-      focusPane: { paneID, tabID, worktreeID, projectID, spaceID in
-        try manager.focusPane(paneID, in: tabID, in: worktreeID, in: projectID, in: spaceID)
+      focusPane: { paneID, tabID, worktreeID, projectID in
+        try manager.focusPane(paneID, in: tabID, in: worktreeID, in: projectID)
       },
       focusSurfaceView: { paneID in
         manager.focusSurfaceView(for: paneID)
       },
-      resizeSplit: { path, ratio, tabID, worktreeID, projectID, spaceID in
+      resizeSplit: { path, ratio, tabID, worktreeID, projectID in
         try manager.resizeSplit(
           at: path, ratio: ratio,
-          in: tabID, in: worktreeID, in: projectID, in: spaceID
+          in: tabID, in: worktreeID, in: projectID
         )
       },
       setWorktreeGitViewerVisible: { worktreeID, visible in
@@ -544,25 +567,23 @@ extension HierarchyClient {
       setProjectExpanded: { projectID, isExpanded in
         manager.setProjectExpanded(projectID: projectID, isExpanded: isExpanded)
       },
-      reconcileDiscoveredWorktrees: { projectID, spaceID in
+      reconcileDiscoveredWorktrees: { projectID in
         await reconcile(
           projectID: projectID,
-          spaceID: spaceID,
           manager: manager,
           gitWorktreeClient: gitWorktreeClient
         )
       },
-      createWorktreeWithGit: { projectID, spaceID, branch, _, path in
+      createWorktreeWithGit: { projectID, branch, _, path in
         try manager.createWorktree(
-          in: projectID, in: spaceID,
+          in: projectID,
           name: branch, path: path, branch: branch
         )
       },
-      removeWorktreeWithGit: { worktreeID, projectID, spaceID in
+      removeWorktreeWithGit: { worktreeID, projectID in
         try await removeWorktreeWithGit(
           worktreeID: worktreeID,
           projectID: projectID,
-          spaceID: spaceID,
           manager: manager,
           gitWorktreeClient: gitWorktreeClient
         )
@@ -570,11 +591,11 @@ extension HierarchyClient {
       runningPaneCount: { worktreeID in
         manager.runningPaneCount(worktreeID: worktreeID)
       },
-      setProjectLoadState: { projectID, spaceID, state in
-        manager.setProjectLoadState(state, projectID: projectID, spaceID: spaceID)
+      setProjectLoadState: { projectID, state in
+        manager.setProjectLoadState(state, projectID: projectID)
       },
-      reorderProjects: { spaceID, from, to in
-        try manager.reorderProjects(in: spaceID, from: from, to: to)
+      reorderProjects: { from, to in
+        manager.reorderProjects(from: from, to: to)
       },
       isPathRegistered: { canonicalPath in
         manager.isPathRegistered(canonical: canonicalPath)
@@ -583,40 +604,31 @@ extension HierarchyClient {
         manager.project(containing: canonicalPath)
       },
       kind: { projectID in
-        for space in manager.catalog.spaces {
-          if let project = space.projects.first(where: { $0.id == projectID }) {
-            return project.kind
-          }
-        }
-        return nil
-      },
-      reorderSpaces: { source, destination in
-        manager.reorderSpaces(fromOffsets: source, toOffset: destination)
+        manager.catalog.projects.first(where: { $0.id == projectID })?.kind
       },
       addressOf: { paneID in
-        guard let (spaceID, projectID, worktreeID, tabID) = manager.addressOf(paneID: paneID)
+        guard let (projectID, worktreeID, tabID) = manager.addressOf(paneID: paneID)
         else { return nil }
         return PaneAddress(
-          spaceID: spaceID,
           projectID: projectID,
           worktreeID: worktreeID,
           tabID: tabID,
           paneID: paneID
         )
       },
-      moveTab: { tabID, worktreeID, projectID, spaceID, offset in
+      moveTab: { tabID, worktreeID, projectID, offset in
         try manager.moveTab(
-          tabID, in: worktreeID, in: projectID, in: spaceID, offset: offset
+          tabID, in: worktreeID, in: projectID, offset: offset
         )
       },
-      equalizeTabSplits: { tabID, worktreeID, projectID, spaceID in
-        try manager.equalizeTabSplits(tabID, in: worktreeID, in: projectID, in: spaceID)
+      equalizeTabSplits: { tabID, worktreeID, projectID in
+        try manager.equalizeTabSplits(tabID, in: worktreeID, in: projectID)
       },
       resizePane: { paneID, direction, amount in
         try manager.resizePane(paneID, direction: direction, amount: amount)
       },
-      unzoomTab: { tabID, worktreeID, projectID, spaceID in
-        try manager.unfocusPane(in: tabID, in: worktreeID, in: projectID, in: spaceID)
+      unzoomTab: { tabID, worktreeID, projectID in
+        try manager.unfocusPane(in: tabID, in: worktreeID, in: projectID)
       },
       runScript: { [weak settings] scriptID, projectID, worktreeID in
         try await runScript(
@@ -633,10 +645,10 @@ extension HierarchyClient {
           phase, for: worktreeID, in: projectID, settings: snapshot
         )
       },
-      createWorktreeWithLifecycle: { [weak settings] projectID, spaceID, name, path, branch in
+      createWorktreeWithLifecycle: { [weak settings] projectID, name, path, branch in
         let snapshot = settings?.settings ?? .default
         return try await manager.createWorktreeWithLifecycle(
-          in: projectID, in: spaceID,
+          in: projectID,
           name: name, path: path, branch: branch,
           settings: snapshot
         )
@@ -650,15 +662,15 @@ extension HierarchyClient {
           settings: snapshot
         )
       },
-      removeWorktreeWithLifecycle: { [weak settings] worktreeID, projectID, spaceID in
+      removeWorktreeWithLifecycle: { [weak settings] worktreeID, projectID in
         let snapshot = settings?.settings ?? .default
         return try await manager.removeWorktreeWithLifecycle(
-          worktreeID, from: projectID, in: spaceID, settings: snapshot
+          worktreeID, from: projectID, settings: snapshot
         )
       },
-      reorderWorktrees: { projectID, spaceID, segment, from, to in
+      reorderWorktrees: { projectID, segment, from, to in
         try manager.reorderWorktrees(
-          in: projectID, inSpace: spaceID,
+          in: projectID,
           segment: segment, from: from, to: to
         )
       }
@@ -685,18 +697,14 @@ extension HierarchyClient {
     else {
       throw RunScriptError.unknownScript(scriptID)
     }
-    var foundSpaceID: SpaceID?
     var foundWorktreePath: String?
-    outer: for space in manager.catalog.spaces {
-      for project in space.projects where project.id == projectID {
-        for worktree in project.worktrees where worktree.id == worktreeID {
-          foundSpaceID = space.id
-          foundWorktreePath = worktree.path
-          break outer
-        }
+    outer: for project in manager.catalog.projects where project.id == projectID {
+      for worktree in project.worktrees where worktree.id == worktreeID {
+        foundWorktreePath = worktree.path
+        break outer
       }
     }
-    guard let spaceID = foundSpaceID, let cwd = foundWorktreePath else {
+    guard let cwd = foundWorktreePath else {
       throw RunScriptError.missingWorktree(worktreeID)
     }
     // M8: forward the resolved env into the spawn path so the new pane's
@@ -705,11 +713,11 @@ extension HierarchyClient {
     let env = HierarchyManager.resolvedEnv(for: projectID, in: snapshot)
 
     let tabID = try manager.createTab(
-      in: worktreeID, in: projectID, in: spaceID,
+      in: worktreeID, in: projectID,
       name: script.displayName
     )
     _ = try manager.openPane(
-      in: tabID, in: worktreeID, in: projectID, in: spaceID,
+      in: tabID, in: worktreeID, in: projectID,
       workingDirectory: cwd,
       initialCommand: script.command,
       env: env
@@ -729,12 +737,10 @@ extension HierarchyClient {
   @MainActor
   private static func reconcile(
     projectID: ProjectID,
-    spaceID: SpaceID,
     manager: HierarchyManager,
     gitWorktreeClient: GitWorktreeClient
   ) async {
-    guard let space = manager.catalog.spaces.first(where: { $0.id == spaceID }),
-      let project = space.projects.first(where: { $0.id == projectID }),
+    guard let project = manager.catalog.projects.first(where: { $0.id == projectID }),
       let gitRoot = project.gitRoot
     else { return }
     do {
@@ -747,7 +753,6 @@ extension HierarchyClient {
       }
       _ = manager.reconcileDiscoveredWorktrees(
         projectID: projectID,
-        inSpace: spaceID,
         entries: mapped
       )
     } catch {
@@ -775,12 +780,10 @@ extension HierarchyClient {
   private static func removeWorktreeWithGit(
     worktreeID: WorktreeID,
     projectID: ProjectID,
-    spaceID: SpaceID,
     manager: HierarchyManager,
     gitWorktreeClient: GitWorktreeClient
   ) async throws {
-    guard let space = manager.catalog.spaces.first(where: { $0.id == spaceID }),
-      let project = space.projects.first(where: { $0.id == projectID }),
+    guard let project = manager.catalog.projects.first(where: { $0.id == projectID }),
       let worktree = project.worktrees.first(where: { $0.id == worktreeID }),
       let gitRoot = project.gitRoot
     else {
@@ -791,12 +794,12 @@ extension HierarchyClient {
       URL(fileURLWithPath: gitRoot),
       URL(fileURLWithPath: worktree.path)
     )
-    try manager.removeWorktree(worktreeID, from: projectID, in: spaceID)
+    try manager.removeWorktree(worktreeID, from: projectID)
   }
 
   /// AsyncStream backed by Swift Observation — samples `manager.catalog`'s
   /// selection chain and yields a new `HierarchySelection` whenever any of
-  /// the three IDs changes. Closes the re-arm race window by sampling
+  /// the IDs changes. Closes the re-arm race window by sampling
   /// `currentSelection` BEFORE arming the next `withObservationTracking`
   /// block: any mutation that landed between the prior yield and the next
   /// arm is caught on the pre-arm compare; `withObservationTracking` then
@@ -833,19 +836,20 @@ extension HierarchyClient {
     }
   }
 
+  /// FIXME(rm-space, M2): v3 has no top-level `selectedProjectID`. The
+  /// closest analog is the project that owns a non-nil `selectedWorktreeID`
+  /// — we pick the first one in catalog order. Downstream consumers that
+  /// need a richer notion of "current project" must layer it on in their
+  /// own reducers.
   @MainActor
   private static func currentSelection(for manager: HierarchyManager) -> HierarchySelection {
     let catalog = manager.catalog
-    let spaceID = catalog.selectedSpaceID
-    let space = spaceID.flatMap { id in catalog.spaces.first(where: { $0.id == id }) }
-    let projectID = space?.selectedProjectID
-    let project = projectID.flatMap { id in space?.projects.first(where: { $0.id == id }) }
-    let worktreeID = project?.selectedWorktreeID
-    return HierarchySelection(
-      spaceID: spaceID,
-      projectID: projectID,
-      worktreeID: worktreeID
-    )
+    for project in catalog.projects {
+      if let worktreeID = project.selectedWorktreeID {
+        return HierarchySelection(projectID: project.id, worktreeID: worktreeID)
+      }
+    }
+    return .empty
   }
 }
 
@@ -853,89 +857,90 @@ extension HierarchyClient {
 
 extension HierarchyClient: DependencyKey {
   static let liveValue: HierarchyClient = HierarchyClient(
-    createSpace: { _ in
+    createTag: { _, _ in
       fatalError("HierarchyClient.liveValue not configured; wire via .withDependencies at app startup")
     },
-    renameSpace: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    removeSpace: { _ in fatalError("HierarchyClient.liveValue not configured") },
-    addProject: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    removeProject: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    renameProject: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    createWorktree: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    removeWorktree: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    setSpaceLastActiveWorktree: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    selectSpace: { _ in fatalError("HierarchyClient.liveValue not configured") },
-    selectProject: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    selectWorktree: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    createTab: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    closeTab: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    selectTab: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    renameTab: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    reorderTabs: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    closeOtherTabs: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    closeTabsToRight: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    closeAllTabs: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    selectAdjacentTab: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    renameTag: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    recolorTag: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    removeTag: { _ in fatalError("HierarchyClient.liveValue not configured") },
+    setProjectTags: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    setActiveTagFilter: { _ in fatalError("HierarchyClient.liveValue not configured") },
+    addProject: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    removeProject: { _ in fatalError("HierarchyClient.liveValue not configured") },
+    renameProject: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    createWorktree: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    removeWorktree: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    selectProject: { _ in fatalError("HierarchyClient.liveValue not configured") },
+    selectWorktree: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    createTab: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    closeTab: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    selectTab: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    renameTab: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    reorderTabs: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    closeOtherTabs: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    closeTabsToRight: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    closeAllTabs: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    selectAdjacentTab: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     tabIsDirty: { _ in false },
     lastFocusedPane: { _ in nil },
     markPaneRunning: { _ in },
     markPaneIdle: { _ in },
-    openPane: { _, _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    splitPane: { _, _, _, _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    closePane: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    focusPane: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    openPane: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    splitPane: { _, _, _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    closePane: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    focusPane: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     focusSurfaceView: { _ in fatalError("HierarchyClient.liveValue not configured") },
-    resizeSplit: { _, _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    resizeSplit: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     setWorktreeGitViewerVisible: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     snapshot: { fatalError("HierarchyClient.liveValue not configured") },
     selectionChanges: { AsyncStream { $0.finish() } },
     setWorktreeArchived: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     setWorktreePinned: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     setProjectExpanded: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    reconcileDiscoveredWorktrees: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    createWorktreeWithGit: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    removeWorktreeWithGit: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    reconcileDiscoveredWorktrees: { _ in fatalError("HierarchyClient.liveValue not configured") },
+    createWorktreeWithGit: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    removeWorktreeWithGit: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     runningPaneCount: { _ in fatalError("HierarchyClient.liveValue not configured") },
-    setProjectLoadState: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    reorderProjects: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    setProjectLoadState: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    reorderProjects: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     isPathRegistered: { _ in fatalError("HierarchyClient.liveValue not configured") },
     projectContaining: { _ in fatalError("HierarchyClient.liveValue not configured") },
     kind: { _ in fatalError("HierarchyClient.liveValue not configured") },
-    reorderSpaces: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     addressOf: { _ in fatalError("HierarchyClient.liveValue not configured") },
-    moveTab: { _, _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    equalizeTabSplits: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    moveTab: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    equalizeTabSplits: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     resizePane: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    unzoomTab: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    unzoomTab: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     runScript: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     runWorktreeLifecycleScript: { _, _, _ in
       fatalError("HierarchyClient.liveValue not configured")
     },
-    createWorktreeWithLifecycle: { _, _, _, _, _ in
+    createWorktreeWithLifecycle: { _, _, _, _ in
       fatalError("HierarchyClient.liveValue not configured")
     },
     setWorktreeArchivedWithLifecycle: { _, _, _ in
       fatalError("HierarchyClient.liveValue not configured")
     },
-    removeWorktreeWithLifecycle: { _, _, _ in
+    removeWorktreeWithLifecycle: { _, _ in
       fatalError("HierarchyClient.liveValue not configured")
     },
-    reorderWorktrees: { _, _, _, _, _ in
+    reorderWorktrees: { _, _, _, _ in
       fatalError("HierarchyClient.liveValue not configured")
     }
   )
 
   static let testValue: HierarchyClient = HierarchyClient(
-    createSpace: unimplemented("HierarchyClient.createSpace", placeholder: SpaceID()),
-    renameSpace: unimplemented("HierarchyClient.renameSpace"),
-    removeSpace: unimplemented("HierarchyClient.removeSpace"),
+    createTag: unimplemented("HierarchyClient.createTag", placeholder: TagID()),
+    renameTag: unimplemented("HierarchyClient.renameTag"),
+    recolorTag: unimplemented("HierarchyClient.recolorTag"),
+    removeTag: unimplemented("HierarchyClient.removeTag"),
+    setProjectTags: unimplemented("HierarchyClient.setProjectTags"),
+    setActiveTagFilter: unimplemented("HierarchyClient.setActiveTagFilter"),
     addProject: unimplemented("HierarchyClient.addProject", placeholder: ProjectID()),
     removeProject: unimplemented("HierarchyClient.removeProject"),
     renameProject: unimplemented("HierarchyClient.renameProject"),
     createWorktree: unimplemented("HierarchyClient.createWorktree", placeholder: WorktreeID()),
     removeWorktree: unimplemented("HierarchyClient.removeWorktree"),
-    setSpaceLastActiveWorktree: unimplemented("HierarchyClient.setSpaceLastActiveWorktree"),
-    selectSpace: unimplemented("HierarchyClient.selectSpace"),
     selectProject: unimplemented("HierarchyClient.selectProject"),
     selectWorktree: unimplemented("HierarchyClient.selectWorktree"),
     createTab: unimplemented("HierarchyClient.createTab", placeholder: TabID()),
@@ -960,7 +965,7 @@ extension HierarchyClient: DependencyKey {
     setWorktreeGitViewerVisible: unimplemented("HierarchyClient.setWorktreeGitViewerVisible"),
     snapshot: unimplemented(
       "HierarchyClient.snapshot",
-      placeholder: Catalog(windows: [], spaces: [], selectedSpaceID: nil)
+      placeholder: Catalog()
     ),
     selectionChanges: unimplemented(
       "HierarchyClient.selectionChanges",
@@ -980,7 +985,6 @@ extension HierarchyClient: DependencyKey {
     isPathRegistered: unimplemented("HierarchyClient.isPathRegistered", placeholder: nil),
     projectContaining: unimplemented("HierarchyClient.projectContaining", placeholder: nil),
     kind: unimplemented("HierarchyClient.kind", placeholder: nil),
-    reorderSpaces: unimplemented("HierarchyClient.reorderSpaces"),
     addressOf: unimplemented("HierarchyClient.addressOf", placeholder: nil),
     moveTab: unimplemented("HierarchyClient.moveTab"),
     equalizeTabSplits: unimplemented("HierarchyClient.equalizeTabSplits"),

@@ -35,11 +35,9 @@ extension HierarchyManager {
   /// script runner; returns `nil` if the worktree was removed between the
   /// caller's decision and the spawn.
   private func path(of worktreeID: WorktreeID) -> String? {
-    for space in catalog.spaces {
-      for project in space.projects {
-        if let worktree = project.worktrees.first(where: { $0.id == worktreeID }) {
-          return worktree.path
-        }
+    for project in catalog.projects {
+      if let worktree = project.worktrees.first(where: { $0.id == worktreeID }) {
+        return worktree.path
       }
     }
     return nil
@@ -105,20 +103,19 @@ extension HierarchyManager {
   /// 2026-04-25 — catalog rollback on setup failure.
   func createWorktreeWithLifecycle(
     in projectID: ProjectID,
-    in spaceID: SpaceID,
     name: String,
     path: String,
     branch: String?,
     settings: Settings
   ) async throws -> (WorktreeID, LifecycleScriptResult) {
     let worktreeID = try createWorktree(
-      in: projectID, in: spaceID, name: name, path: path, branch: branch
+      in: projectID, name: name, path: path, branch: branch
     )
     let result = await runWorktreeLifecycleScript(
       .setup, for: worktreeID, in: projectID, settings: settings
     )
     if case .failure = result {
-      try? removeWorktree(worktreeID, from: projectID, in: spaceID)
+      try? removeWorktree(worktreeID, from: projectID)
     }
     return (worktreeID, result)
   }
@@ -150,13 +147,12 @@ extension HierarchyManager {
   func removeWorktreeWithLifecycle(
     _ worktreeID: WorktreeID,
     from projectID: ProjectID,
-    in spaceID: SpaceID,
     settings: Settings
   ) async throws -> LifecycleScriptResult {
     let result = await runWorktreeLifecycleScript(
       .delete, for: worktreeID, in: projectID, settings: settings
     )
-    try removeWorktree(worktreeID, from: projectID, in: spaceID)
+    try removeWorktree(worktreeID, from: projectID)
     return result
   }
 }
