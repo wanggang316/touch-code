@@ -4,8 +4,8 @@ import Testing
 @testable import TouchCodeCore
 
 /// Exercises `Catalog.init(from:)` / `Catalog.encode(to:)` for the v3
-/// schema (Tags + flat Projects + activeTagFilter; no Space, no
-/// CatalogWindow), plus the v2→v3 and chained v1→v2→v3 migrations.
+/// schema (Tags + flat Projects + activeTagFilter). The decoder rejects
+/// any pre-v3 payload as `unsupportedVersion`.
 struct CatalogCodableTests {
   @Test
   func emptyCatalogRoundTrip() throws {
@@ -82,97 +82,28 @@ struct CatalogCodableTests {
     #expect(root["activeTagFilter"] != nil)
   }
 
-  // MARK: - v2 -> v3 migration
+  // MARK: - Pre-v3 catalogs are rejected outright
 
   @Test
-  func migrationV2ToV3ProducesOneTagPerSpace() throws {
-    let payload = try v2Payload(spaces: [
-      ("Day Job", []),
-      ("Side", []),
-    ])
-    let catalog = try JSONDecoder().decode(Catalog.self, from: payload)
-    #expect(catalog.version == 3)
-    #expect(catalog.tags.count == 2)
-    #expect(catalog.tags[0].name == "Day Job")
-    #expect(catalog.tags[1].name == "Side")
-    #expect(catalog.tags[0].color == .blue)    // palette[0]
-    #expect(catalog.tags[1].color == .orange)  // palette[1]
+  func decodingV2CatalogRejectsAsUnsupportedVersion() throws {
+    // No backward-compat: the decoder accepts v3 only. v2 (and earlier)
+    // catalogs surface as `unsupportedVersion` so the app fails loud
+    // instead of silently dropping the user's data.
+    let payload = Data(#"{"version": 2, "spaces": []}"#.utf8)
+    #expect(throws: Catalog.DecodingIssue.unsupportedVersion(2)) {
+      _ = try JSONDecoder().decode(Catalog.self, from: payload)
+    }
   }
 
   @Test
-  func migrationV2ToV3AssignsEachProjectItsSpaceTag() throws {
-    let projectA: [String: Any] = ["id": ["raw": UUID().uuidString], "name": "acme-web", "rootPath": "/tmp/acme"]
-    let projectB: [String: Any] = ["id": ["raw": UUID().uuidString], "name": "marketing", "rootPath": "/tmp/mkt"]
-    let payload = try v2Payload(spaces: [
-      ("Day Job", [projectA]),
-      ("Side", [projectB]),
-    ])
-    let catalog = try JSONDecoder().decode(Catalog.self, from: payload)
-    #expect(catalog.projects.count == 2)
-    let acme = try #require(catalog.projects.first { $0.name == "acme-web" })
-    let mkt = try #require(catalog.projects.first { $0.name == "marketing" })
-    let dayJobTag = try #require(catalog.tags.first { $0.name == "Day Job" })
-    let sideTag = try #require(catalog.tags.first { $0.name == "Side" })
-    #expect(acme.tagIDs == [dayJobTag.id])
-    #expect(mkt.tagIDs == [sideTag.id])
+  func decodingV1CatalogRejectsAsUnsupportedVersion() throws {
+    let payload = Data(#"{"version": 1, "spaces": []}"#.utf8)
+    #expect(throws: Catalog.DecodingIssue.unsupportedVersion(1)) {
+      _ = try JSONDecoder().decode(Catalog.self, from: payload)
+    }
   }
 
-  @Test
-  func migrationV2ToV3UsesSelectedSpaceIDForInitialFilter() throws {
-    let spaceAID = UUID()
-    let spaceBID = UUID()
-    let payload = try v2PayloadRaw(
-      spaces: [
-        ["id": ["raw": spaceAID.uuidString], "name": "Day Job", "projects": []],
-        ["id": ["raw": spaceBID.uuidString], "name": "Side", "projects": []],
-      ],
-      windows: [],
-      selectedSpaceID: ["raw": spaceBID.uuidString]
-    )
-    let catalog = try JSONDecoder().decode(Catalog.self, from: payload)
-    let sideTag = try #require(catalog.tags.first { $0.name == "Side" })
-    #expect(catalog.activeTagFilter == .tags([sideTag.id]))
-  }
-
-  @Test
-  func migrationV2ToV3FallsBackToFirstWindowFilter() throws {
-    let spaceAID = UUID()
-    let spaceBID = UUID()
-    let payload = try v2PayloadRaw(
-      spaces: [
-        ["id": ["raw": spaceAID.uuidString], "name": "Day Job", "projects": []],
-        ["id": ["raw": spaceBID.uuidString], "name": "Side", "projects": []],
-      ],
-      windows: [
-        ["id": UUID().uuidString, "selectedSpaceID": ["raw": spaceBID.uuidString]],
-      ],
-      selectedSpaceID: nil
-    )
-    let catalog = try JSONDecoder().decode(Catalog.self, from: payload)
-    let sideTag = try #require(catalog.tags.first { $0.name == "Side" })
-    #expect(catalog.activeTagFilter == .tags([sideTag.id]))
-  }
-
-  @Test
-  func migrationV2ToV3WithEmptySpacesYieldsAllFilter() throws {
-    let payload = try v2PayloadRaw(spaces: [], windows: [], selectedSpaceID: nil)
-    let catalog = try JSONDecoder().decode(Catalog.self, from: payload)
-    #expect(catalog.tags.isEmpty)
-    #expect(catalog.projects.isEmpty)
-    #expect(catalog.activeTagFilter == .all)
-  }
-
-  @Test
-  func migrationV2ToV3PaletteCyclesAfterSeven() throws {
-    // 8 spaces → palette wraps. The 8th tag's color must equal the 1st's.
-    let names = (1...8).map { ("Space\($0)", [[String: Any]]()) }
-    let payload = try v2Payload(spaces: names)
-    let catalog = try JSONDecoder().decode(Catalog.self, from: payload)
-    #expect(catalog.tags.count == 8)
-    #expect(catalog.tags[7].color == catalog.tags[0].color)
-  }
-
-  // MARK: - Worktree default-omission round-trips (preserved from v2 era)
+  // MARK: - Worktree default-omission round-trips
 
   @Test
   func encodeOmitsGitViewerVisibleWhenFalse() throws {
@@ -192,7 +123,7 @@ struct CatalogCodableTests {
     #expect(decoded == catalog)
   }
 
-  // MARK: - Tab invariants (preserved verbatim from v2 era)
+  // MARK: - Tab invariants
 
   @Test
   func tabInvariantsHoldForSeededTab() throws {
@@ -224,36 +155,4 @@ struct CatalogCodableTests {
     }
   }
 
-  // MARK: - v2 payload helpers
-
-  /// Build a minimal v2 catalog JSON from name+projects pairs. Spaces are
-  /// assigned fresh UUIDs.
-  private func v2Payload(spaces: [(String, [[String: Any]])]) throws -> Data {
-    let spaceDicts: [[String: Any]] = spaces.map { (name, projects) in
-      [
-        "id": ["raw": UUID().uuidString],
-        "name": name,
-        "projects": projects,
-      ]
-    }
-    return try v2PayloadRaw(spaces: spaceDicts, windows: [], selectedSpaceID: nil)
-  }
-
-  /// Build a v2 catalog JSON from raw dicts. Use this when the test needs
-  /// to control space IDs / window selection precisely.
-  private func v2PayloadRaw(
-    spaces: [[String: Any]],
-    windows: [[String: Any]],
-    selectedSpaceID: [String: Any]?
-  ) throws -> Data {
-    var root: [String: Any] = [
-      "version": 2,
-      "spaces": spaces,
-      "windows": windows,
-    ]
-    if let selectedSpaceID {
-      root["selectedSpaceID"] = selectedSpaceID
-    }
-    return try JSONSerialization.data(withJSONObject: root)
-  }
 }

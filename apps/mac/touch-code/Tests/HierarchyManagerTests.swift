@@ -211,8 +211,7 @@ struct HierarchyManagerTests {
 
   // Per-Project editor / worktrees-directory mutators moved off HierarchyManager in v3
   // and now live on `SettingsStore.mutateProject`; see `SettingsStoreTests` for their
-  // coverage. The drain shim (`drainLegacyOverrides`) is tested below alongside
-  // the v1 → v2 catalog migration.
+  // coverage.
 
   @Test
   func setWorktreeGitViewerVisiblePersists() throws {
@@ -276,7 +275,8 @@ struct HierarchyManagerTests {
 
   @Test
   func isPathRegisteredReturnsPairForCanonicalizedMatch() throws {
-    let projectID = manager.addProject(name: "p",
+    let projectID = manager.addProject(
+      name: "p",
       rootPath: HierarchyManager.canonicalPath("/tmp/p")
     )
 
@@ -300,7 +300,8 @@ struct HierarchyManagerTests {
 
   @Test
   func projectContainingMatchesRootExactly() throws {
-    let projectID = manager.addProject(name: "p",
+    let projectID = manager.addProject(
+      name: "p",
       rootPath: HierarchyManager.canonicalPath("/tmp/p")
     )
     let match = manager.project(containing: HierarchyManager.canonicalPath("/tmp/p"))
@@ -309,7 +310,8 @@ struct HierarchyManagerTests {
 
   @Test
   func projectContainingMatchesSubdirectoryOfRoot() throws {
-    let projectID = manager.addProject(name: "p",
+    let projectID = manager.addProject(
+      name: "p",
       rootPath: HierarchyManager.canonicalPath("/tmp/p")
     )
     // `tc open` from a subdirectory must still resolve to the parent Project, so the
@@ -321,7 +323,8 @@ struct HierarchyManagerTests {
 
   @Test
   func projectContainingRespectsPathSegmentBoundary() throws {
-    _ = manager.addProject(name: "p",
+    _ = manager.addProject(
+      name: "p",
       rootPath: HierarchyManager.canonicalPath("/tmp/repo")
     )
     // `/tmp/repo` must not match `/tmp/repository`; prefix-match on the raw string alone
@@ -334,10 +337,12 @@ struct HierarchyManagerTests {
   func projectContainingPicksDeepestMatchWhenProjectsNest() throws {
     // Monorepo with a nested sub-project — deepest root wins so the closest override is
     // applied, not the outer monorepo's override.
-    let outerID = manager.addProject(name: "outer",
+    let outerID = manager.addProject(
+      name: "outer",
       rootPath: HierarchyManager.canonicalPath("/tmp/mono")
     )
-    let innerID = manager.addProject(name: "inner",
+    let innerID = manager.addProject(
+      name: "inner",
       rootPath: HierarchyManager.canonicalPath("/tmp/mono/apps/web")
     )
     let innerPath = HierarchyManager.canonicalPath("/tmp/mono/apps/web") + "/src/pages"
@@ -357,83 +362,6 @@ struct HierarchyManagerTests {
     #expect(match == nil)
   }
 
-  // MARK: - drainLegacyOverrides — v1 catalog migration bridge
-
-  /// Builds a fresh manager whose catalog was decoded from a v1 payload carrying the
-  /// two legacy-only Project fields. This is the closest approximation to production
-  /// ordering: the catalog is loaded first (v1 decoder populates `defaultEditor` /
-  /// `worktreesDirectory` into the in-memory Project), then `drainLegacyOverrides`
-  /// runs to hand those values off to SettingsStore.
-  private static func makeManagerFromV1Catalog(
-    projectUUID: UUID = UUID(),
-    spaceUUID: UUID = UUID(),
-    defaultEditor: EditorID? = nil,
-    worktreesDirectory: String? = nil
-  ) throws -> (HierarchyManager, ProjectID) {
-    let editorField = defaultEditor.map { "\"defaultEditor\": \"\($0)\"," } ?? ""
-    let wtField = worktreesDirectory.map { "\"worktreesDirectory\": \"\($0)\"," } ?? ""
-    let json = #"""
-      {
-        "version": 1,
-        "spaces": [
-          {
-            "id": "\#(spaceUUID.uuidString)",
-            "name": "s",
-            "projects": [
-              {
-                "id": { "raw": "\#(projectUUID.uuidString)" },
-                "name": "p",
-                "rootPath": "/tmp/p",
-                \#(editorField)
-                \#(wtField)
-                "worktrees": []
-              }
-            ]
-          }
-        ]
-      }
-      """#
-    let catalog = try JSONDecoder().decode(Catalog.self, from: Data(json.utf8))
-    let tempURL = FileManager.default.temporaryDirectory.appending(
-      component: UUID().uuidString + ".json"
-    )
-    let store = CatalogStore(fileURL: tempURL)
-    let runtime = FakeHierarchyRuntime()
-    let manager = HierarchyManager(catalog: catalog, store: store, runtime: runtime)
-    return (manager, ProjectID(raw: projectUUID))
-  }
-
-  @Test
-  func drainLegacyOverridesReturnsMapAndClearsFields() throws {
-    let (manager, projectID) = try Self.makeManagerFromV1Catalog(
-      defaultEditor: "vscode",
-      worktreesDirectory: "/tmp/wt"
-    )
-
-    let overrides = manager.drainLegacyOverrides()
-    #expect(overrides.count == 1)
-    #expect(overrides[projectID]?.defaultEditor == "vscode")
-    #expect(overrides[projectID]?.worktreesDirectory == "/tmp/wt")
-    #expect(manager.catalog.projects[0].defaultEditor == nil)
-    #expect(manager.catalog.projects[0].worktreesDirectory == nil)
-  }
-
-  @Test
-  func drainLegacyOverridesOnCleanCatalogReturnsEmptyMap() throws {
-    let (manager, _) = try Self.makeManagerFromV1Catalog()
-    let overrides = manager.drainLegacyOverrides()
-    #expect(overrides.isEmpty)
-  }
-
-  @Test
-  func drainLegacyOverridesIsIdempotent() throws {
-    let (manager, _) = try Self.makeManagerFromV1Catalog(defaultEditor: "vscode")
-    let first = manager.drainLegacyOverrides()
-    let second = manager.drainLegacyOverrides()
-    #expect(first.count == 1)
-    #expect(second.isEmpty, "Second drain must see empty fields")
-  }
-
   // MARK: - Tab-bar uplift (M2-T2.1)
 
   /// Seeds a worktree with three tabs and returns (space, project, worktree, tabIDs).
@@ -441,7 +369,8 @@ struct HierarchyManagerTests {
   /// the same way the real UI drives it.
   @MainActor
   private func makeFixtureWithThreeTabs() throws -> (ProjectID, WorktreeID, [TabID]) {
-    let projectID = manager.addProject(name: "project", rootPath: "/tmp", gitRoot: "/tmp"
+    let projectID = manager.addProject(
+      name: "project", rootPath: "/tmp", gitRoot: "/tmp"
     )
     let worktreeID = try manager.createWorktree(
       in: projectID, name: "main", path: "/repo", branch: "main"
@@ -567,7 +496,8 @@ struct HierarchyManagerTests {
 
   @Test
   func closeTabClearsSelectionWhenSoleTabClosed() throws {
-    let projectID = manager.addProject(name: "p", rootPath: "/tmp", gitRoot: "/tmp"
+    let projectID = manager.addProject(
+      name: "p", rootPath: "/tmp", gitRoot: "/tmp"
     )
     let worktreeID = try manager.createWorktree(
       in: projectID, name: "main", path: "/repo", branch: "main"
@@ -633,7 +563,8 @@ struct HierarchyManagerTests {
 
   @Test
   func selectAdjacentTabReturnsNilOnEmptyWorktree() throws {
-    let projectID = manager.addProject(name: "project", rootPath: "/tmp", gitRoot: "/tmp"
+    let projectID = manager.addProject(
+      name: "project", rootPath: "/tmp", gitRoot: "/tmp"
     )
     let worktreeID = try manager.createWorktree(
       in: projectID, name: "main", path: "/repo", branch: "main"
@@ -653,7 +584,8 @@ struct HierarchyManagerTests {
   private func makeFixtureTwoTabsWithPanes() throws -> (
     ProjectID, WorktreeID, TabID, TabID, PaneID, PaneID, PaneID
   ) {
-    let projectID = manager.addProject(name: "project", rootPath: "/tmp", gitRoot: "/tmp"
+    let projectID = manager.addProject(
+      name: "project", rootPath: "/tmp", gitRoot: "/tmp"
     )
     let worktreeID = try manager.createWorktree(
       in: projectID, name: "main", path: "/repo", branch: "main"
