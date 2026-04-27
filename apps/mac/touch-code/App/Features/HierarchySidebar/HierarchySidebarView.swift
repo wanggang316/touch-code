@@ -1030,10 +1030,10 @@ private struct ProjectHeaderRow: View {
       .foregroundStyle(isHovering ? .primary : .secondary)
       .frame(width: 22, height: 22)
       .background(
-        RoundedRectangle(cornerRadius: 4, style: .continuous)
+        RoundedRectangle(cornerRadius: 6, style: .continuous)
           .fill(Color.primary.opacity(isHovering ? 0.08 : 0))
       )
-      .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+      .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
   }
 }
 
