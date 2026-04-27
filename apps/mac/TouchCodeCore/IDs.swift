@@ -10,11 +10,6 @@ nonisolated extension HierarchyID {
   public var description: String { raw.uuidString }
 }
 
-public nonisolated struct SpaceID: HierarchyID {
-  public let raw: UUID
-  public init(raw: UUID) { self.raw = raw }
-}
-
 public nonisolated struct ProjectID: HierarchyID {
   public let raw: UUID
   public init(raw: UUID) { self.raw = raw }

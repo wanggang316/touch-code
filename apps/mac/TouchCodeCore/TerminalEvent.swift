@@ -5,12 +5,15 @@ import Foundation
 /// whole catalog.
 public nonisolated enum HierarchyMutationScope: Sendable, Equatable {
   case catalog
-  case space(SpaceID)
-  case project(SpaceID, ProjectID)
-  case worktree(SpaceID, ProjectID, WorktreeID)
-  case tab(SpaceID, ProjectID, WorktreeID, TabID)
-  case pane(SpaceID, ProjectID, WorktreeID, TabID, PaneID)
+  case project(ProjectID)
+  case worktree(ProjectID, WorktreeID)
+  case tab(ProjectID, WorktreeID, TabID)
+  case pane(ProjectID, WorktreeID, TabID, PaneID)
   case selection
+  /// Tag CRUD or filter-state mutation. Sidebar uses this to refresh the
+  /// chip footer + filtered project list without recomputing the whole
+  /// hierarchy.
+  case tags
 }
 
 public nonisolated enum TabAutoCloseCause: Sendable, Equatable {

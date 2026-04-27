@@ -1,10 +1,10 @@
 import Foundation
 
 /// Aggregation helpers that project the flat `PaneID`-keyed inbox onto the
-/// Worktree / Project / Space hierarchy in a given `Catalog`. Each call
-/// rebuilds a `[PaneID: WorktreeID]` index from the catalog, so render-hot
-/// paths (for example sidebars rendering one row per Project or per Worktree)
-/// should cache a snapshot-scoped index instead of calling these per-row.
+/// Worktree / Project hierarchy in a given `Catalog`. Each call rebuilds a
+/// `[PaneID: WorktreeID]` index from the catalog, so render-hot paths (for
+/// example sidebars rendering one row per Project or per Worktree) should
+/// cache a snapshot-scoped index instead of calling these per-row.
 ///
 /// All helpers filter by `AgentNotification.isUnread` except
 /// `notifications(forWorktree:in:)`, which returns every entry keyed to the
@@ -29,21 +29,6 @@ extension NotificationInbox {
   /// resolves to a Worktree under the given Project.
   public func hasUnread(forProject projectID: ProjectID, in catalog: Catalog) -> Bool {
     guard let worktreeIDs = catalog.worktreeIDs(inProject: projectID), !worktreeIDs.isEmpty else {
-      return false
-    }
-    let index = catalog.paneWorktreeIndex()
-    return notifications.contains { notification in
-      guard notification.isUnread else { return false }
-      guard let worktreeID = index[notification.paneID] else { return false }
-      return worktreeIDs.contains(worktreeID)
-    }
-  }
-
-  /// Render-hot paths should cache a snapshot-scoped index.
-  /// Returns `true` iff at least one unread, non-dismissed notification
-  /// resolves to any Worktree of any Project in the given Space.
-  public func hasUnread(forSpace spaceID: SpaceID, in catalog: Catalog) -> Bool {
-    guard let worktreeIDs = catalog.worktreeIDs(inSpace: spaceID), !worktreeIDs.isEmpty else {
       return false
     }
     let index = catalog.paneWorktreeIndex()
@@ -99,13 +84,11 @@ extension Catalog {
   /// same render pass.
   public nonisolated func paneWorktreeIndex() -> [PaneID: WorktreeID] {
     var index: [PaneID: WorktreeID] = [:]
-    for space in spaces {
-      for project in space.projects {
-        for worktree in project.worktrees {
-          for tab in worktree.tabs {
-            for pane in tab.panes {
-              index[pane.id] = worktree.id
-            }
+    for project in projects {
+      for worktree in project.worktrees {
+        for tab in worktree.tabs {
+          for pane in tab.panes {
+            index[pane.id] = worktree.id
           }
         }
       }
@@ -117,24 +100,7 @@ extension Catalog {
   /// in this Catalog. Returns `nil` — not an empty set — for unknown
   /// Projects so callers can distinguish "no unread" from "no such Project".
   nonisolated func worktreeIDs(inProject projectID: ProjectID) -> Set<WorktreeID>? {
-    for space in spaces {
-      guard let project = space.projects.first(where: { $0.id == projectID }) else { continue }
-      return Set(project.worktrees.map(\.id))
-    }
-    return nil
-  }
-
-  /// Every Worktree under every Project of the given Space, if the Space
-  /// exists. Returns `nil` for unknown Spaces (same rationale as
-  /// `worktreeIDs(inProject:)`).
-  nonisolated func worktreeIDs(inSpace spaceID: SpaceID) -> Set<WorktreeID>? {
-    guard let space = spaces.first(where: { $0.id == spaceID }) else { return nil }
-    var ids: Set<WorktreeID> = []
-    for project in space.projects {
-      for worktree in project.worktrees {
-        ids.insert(worktree.id)
-      }
-    }
-    return ids
+    guard let project = projects.first(where: { $0.id == projectID }) else { return nil }
+    return Set(project.worktrees.map(\.id))
   }
 }
