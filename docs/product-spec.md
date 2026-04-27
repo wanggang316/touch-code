@@ -10,7 +10,7 @@ Developers who already live inside CLI coding agents (Claude Code, Codex CLI, ai
 
 ### Solution
 
-A native macOS application, built on libghostty, that treats **terminals as the primary surface** and orchestrates them into a five-level hierarchy: Space → Project → Worktree → Tab → Pane. It exposes terminal lifecycle hooks and a CLI so coding agents become first-class citizens — their output can be aggregated, their completion can trigger cross-pane actions, and their worktree-per-feature workflow takes zero ceremony. A lightweight read-only diff/history viewer handles quick git inspection in-app. **touch-code is deliberately not an IDE** — for reading or editing code, it opens the user's preferred external editor (VSCode, Cursor, Zed, Xcode, Sublime Text, Finder, etc.) with one command or click.
+A native macOS application, built on libghostty, that treats **terminals as the primary surface** and orchestrates them into a four-level hierarchy: Project → Worktree → Tab → Pane (with cross-cutting Tag classification on Projects). It exposes terminal lifecycle hooks and a CLI so coding agents become first-class citizens — their output can be aggregated, their completion can trigger cross-pane actions, and their worktree-per-feature workflow takes zero ceremony. A lightweight read-only diff/history viewer handles quick git inspection in-app. **touch-code is deliberately not an IDE** — for reading or editing code, it opens the user's preferred external editor (VSCode, Cursor, Zed, Xcode, Sublime Text, Finder, etc.) with one command or click.
 
 ## Target Users
 
@@ -28,9 +28,9 @@ A native macOS application, built on libghostty, that treats **terminals as the 
 | # | Capability | Description | Status | Maturity |
 |---|---|---|---|---|
 | C1 | Terminal engine | libghostty-based multi-pane terminal rendering and lifecycle management | Planned | Alpha |
-| C2 | Space / Project / Worktree / Tab / Pane hierarchy | Five-level organization: Space groups Projects; Project maps to a git repo; Worktree maps to a `git worktree`; a Worktree holds one or more Tabs; a Tab holds one or more Panes (split layouts); a Pane is a single libghostty-rendered terminal session. Switching at any level is instant and stateful | Planned | Alpha |
+| C2 | Project / Worktree / Tab / Pane hierarchy with Tag classification | Four-level organization: Project maps to a git repo; Worktree maps to a `git worktree`; a Worktree holds one or more Tabs; a Tab holds one or more Panes (split layouts); a Pane is a single libghostty-rendered terminal session. Projects carry zero or more **Tags** (name + Finder-style color) for cross-cutting classification; the sidebar can be filtered by an active Tag set. Switching at any level is instant and stateful | Planned | Alpha |
 | C3 | Lifecycle hooks | Programmable hooks at Pane create / ready / output / idle / exit, plus Tab and Worktree activation events; enables agent notifications, command injection, custom automation | Planned | Alpha |
-| C4 | CLI (`tc`) | A command-line interface for controlling Spaces, Projects, Worktrees, Tabs, and Panes from inside any Pane — including cross-pane messaging | Planned | Alpha |
+| C4 | CLI (`tc`) | A command-line interface for controlling Projects, Worktrees, Tabs, Panes, and Tags from inside any Pane — including cross-pane messaging | Planned | Alpha |
 | C5 | Published Agent Skill | A standard-format Agent Skill (Claude Code / Codex / pi compatible — `SKILL.md` + `references/` + optional `agents/`) that teaches coding agents how to drive touch-code via its CLI and concepts. Distributed as an independent package; consumed by the coding agent, not by the app. Zero runtime coupling with the app. The app ships installation helpers (e.g. `tc skill install --claude-code`) that copy or symlink the bundled skill into the agent's skill directory | Planned | Alpha |
 | C6 | Agent notification aggregation | Detect agent completion / blocking-on-input states via hooks; surface as OS notifications, badge counts, and in-app inbox | Planned | Alpha |
 | C7 | Git diff / history viewer | Read-only viewer for diffs and commit history of the current Worktree — a quick inspection surface, not a code-review or editing tool; no write operations | Shipped | Beta |
@@ -40,7 +40,7 @@ A native macOS application, built on libghostty, that treats **terminals as the 
 
 ```
 C1 Terminal engine (libghostty)
- ├── C2 Space / Project / Worktree / Tab / Pane hierarchy
+ ├── C2 Project / Worktree / Tab / Pane hierarchy with Tag classification
  │    ├── C7 Git diff / history viewer    (reads the Worktree C2 selects)
  │    └── C8 External editor integration  (opens the current Worktree directory)
  └── C3 Lifecycle hooks
@@ -61,7 +61,7 @@ C5 Published Agent Skill   (standalone package; consumed by coding agents, not b
 - Native macOS application; universal binary (Apple Silicon + Intel)
 - libghostty-backed terminal rendering with full escape sequence support (inherits ghostty's capability)
 - Within a Worktree: multiple Tabs; within a Tab: multiple Panes via split layouts (tiling and stacking)
-- Persistent Space / Project / Worktree / Tab / Pane state across restarts (including split geometry)
+- Persistent Project / Worktree / Tab / Pane state and Tag assignments across restarts (including split geometry)
 - Git worktree creation, listing, switching, and removal from within the app
 - Lifecycle hooks (Pane created / ready / output match / idle / exit; Tab activated; Worktree activated)
 - `tc` CLI auto-injected into every Pane's PATH
@@ -93,7 +93,7 @@ C5 Published Agent Skill   (standalone package; consumed by coding agents, not b
 
 - **Git write operations** — after the read-only viewer proves useful, evaluate selective write UI (stage/unstage, quick commit from diff)
 - **Linux support** — after macOS version validates the product; libghostty is cross-platform so porting cost is moderate
-- **Remote / SSH / dev-container workflows** — Spaces that live on remote hosts, with local Panes that attach transparently
+- **Remote / SSH / dev-container workflows** — Projects whose Worktrees live on remote hosts, with local Panes that attach transparently
 - **Windows support** — evaluate after macOS + Linux; depends on libghostty Windows maturity
 - **Team / shared sessions** — only if demand emerges from solo usage; would be a major architecture shift
 
@@ -101,8 +101,8 @@ C5 Published Agent Skill   (standalone package; consumed by coding agents, not b
 
 | Term | Definition | Not to Be Confused With |
 |---|---|---|
-| Space | Top-level workspace grouping; contains one or more Projects. Roughly one Space per role/context (e.g. "day job", "side project", "research") | macOS "Spaces" (virtual desktops) — unrelated |
-| Project | A single git repository tracked by touch-code; lives inside one Space | A VSCode "workspace" — touch-code Projects are always git-backed and scoped to one repo |
+| Project | A single git repository tracked by touch-code; the top-level row in the sidebar | A VSCode "workspace" — touch-code Projects are always git-backed and scoped to one repo |
+| Tag | A user-assigned label (name + Finder-style color) attached to zero or more Projects. Used for cross-cutting classification (e.g. "client-acme", "urgent"); the sidebar can be filtered by an active Tag set with OR semantics | A folder — Projects are not nested into Tags; a Project can carry multiple Tags simultaneously |
 | Worktree | A `git worktree` of a Project; each Worktree has its own directory, branch checkout, and Tab/Pane layout | A "branch" — a Worktree is a concrete checkout on disk; switching Worktrees switches directories, not just HEAD |
 | Tab | A named grouping of Panes inside a Worktree; one Tab is visible at a time per Worktree. Roughly "one Tab per concurrent task" (e.g. "dev server", "agent", "test watcher") | A browser tab — touch-code Tabs are scoped to a Worktree, not to the whole app |
 | Pane | A single terminal session rendered by libghostty; lives inside a Tab. Multiple Panes per Tab form split layouts | A tmux/iTerm "pane" — same idea, but touch-code uses the term "Pane" consistently; also not an OS window |
@@ -120,7 +120,7 @@ C5 Published Agent Skill   (standalone package; consumed by coding agents, not b
 | Resource | Idle CPU usage | ~0% with 8 idle Panes |
 | Resource | Memory per idle Pane | < 50MB |
 | Reliability | Pane crash isolation | A single Pane crash must not bring down other Panes, its Tab, or the app |
-| Reliability | State durability | App-level crash must not lose Space / Project / Worktree / Tab / Pane configuration |
+| Reliability | State durability | App-level crash must not lose Project / Worktree / Tab / Pane configuration or Tag assignments |
 | Compatibility | macOS version floor | macOS 13 (Ventura) or higher, aligned with libghostty minimum |
 | Compatibility | Architecture | Universal binary (arm64 + x86_64) |
 | Security | Hook handler sandboxing | Hook handlers execute as user-privileged shell commands defined in user config; no elevated sandbox in v1. The published Agent Skill has no runtime side and therefore no sandboxing concern on the app side |
