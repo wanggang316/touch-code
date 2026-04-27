@@ -55,13 +55,12 @@ struct PaneLabelsCatalogTests {
       name: "touch-code", rootPath: "/repo", gitRoot: "/repo",
       worktrees: [worktree], selectedWorktreeID: worktree.id
     )
-    let space = Space(name: "work", projects: [project], selectedProjectID: project.id)
-    let catalog = Catalog(spaces: [space], selectedSpaceID: space.id)
+    let catalog = Catalog(projects: [project])
 
     let data = try JSONEncoder().encode(catalog)
     let decoded = try JSONDecoder().decode(Catalog.self, from: data)
 
-    let roundTripped = decoded.spaces[0].projects[0].worktrees[0].tabs[0].panes[0]
+    let roundTripped = decoded.projects[0].worktrees[0].tabs[0].panes[0]
     #expect(roundTripped.labels == Set(["agent"]))
   }
 }

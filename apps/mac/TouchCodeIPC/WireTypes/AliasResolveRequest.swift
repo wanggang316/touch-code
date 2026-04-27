@@ -7,7 +7,7 @@ extension IPC {
   /// pure UUIDs are resolved locally and do not round-trip.
   public struct AliasResolveRequest: Codable, Equatable, Sendable {
     public enum Kind: String, Codable, Hashable, Sendable {
-      case space, project, worktree, tab, pane
+      case project, worktree, tab, pane, tag
     }
 
     public let kind: Kind

@@ -10,7 +10,6 @@ struct WireTypeCodableTests {
     let cases: [IPC.BroadcastScope] = [
       .tab(TabID()),
       .worktree(WorktreeID()),
-      .space(SpaceID()),
       .label("agent"),
     ]
     for scope in cases {
