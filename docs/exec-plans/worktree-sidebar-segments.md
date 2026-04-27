@@ -26,10 +26,12 @@ This is a living document. The Progress, Surprises & Discoveries, Decision Log, 
 - [x] M3 — `HierarchySidebarView` ForEach 拆 main / pinned / pending / unpinned 四段 + `pendingRowPlaceholder(_:)` 占位 + `.onMove` TODO（2026-04-26）
 - [x] M5 — 测试：ordering 4 用例 通过（`HierarchySidebarOrderingTests.swift` commit a4da9c4）；lint / build 绿灯（2026-04-26）
 
-**Phase B (awaiting task01 merge)**
-- [ ] M4 — Reducer forwarder：`reorderWorktrees(projectID:, inSpace:, segment:, from:, to:)`（依赖 task01）
-- [ ] M5b — Reducer forwarder 测试 1 用例（`HierarchySidebarFeatureTests.swift` 补充）
-- [ ] M6 — `.onMove` 取消注释 + 测试通过
+**Phase B (complete: 2026-04-27)**
+- [x] Rebase on origin/main (task01 a48e406 + task03 7b75042 merged)（2026-04-27）
+- [x] M4 — Reducer forwarder：`reorderWorktrees(projectID:, inSpace:, segment:, from:, to:)`（2026-04-27）
+- [x] M5b — Reducer forwarder 测试 `reorderWorktreesDispatchesClientCallWithSegment`（2026-04-27）
+- [x] Wire pinned/unpinned `.onMove` + plumb live `pendingWorktrees` from `store.state` + replace placeholder with `PendingWorktreeRow` (task03 owns) + drop duplicate `PendingWorktree`/`PendingWorktreeID` from `SidebarRow.swift`（2026-04-27）
+- [x] M6 — `make mac-build` 绿灯；ordering tests + reorder forwarder test 通过；task02 文件 lint 净增 0 violations（2026-04-27）
 - [ ] M7 — push + `gh pr create --base main`
 
 ## Surprises & Discoveries

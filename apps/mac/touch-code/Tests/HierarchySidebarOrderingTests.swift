@@ -7,8 +7,7 @@ import TouchCodeCore
 /// Pure tests for `HierarchySidebarView.orderedSidebarRows(project:pendings:)` — the
 /// segment-merge function that decides which rows render in what order. No `TestStore`
 /// here: the function is a `static` over plain values, so a focused file keeps it
-/// independent of the reducer test surface (and easy for task03 to extend with
-/// pending-status cases).
+/// independent of the reducer test surface.
 @MainActor
 struct HierarchySidebarOrderingTests {
 
@@ -30,11 +29,33 @@ struct HierarchySidebarOrderingTests {
     Project(name: "p", rootPath: rootPath, worktrees: worktrees)
   }
 
+  private static func makeSpec() -> CreateWorktreeSpec {
+    CreateWorktreeSpec(
+      repoRoot: URL(fileURLWithPath: "/tmp/repo"),
+      baseDirectory: URL(fileURLWithPath: "/tmp/repo/.worktrees"),
+      name: "feature-x",
+      branch: "feature/x",
+      baseRef: "origin/main",
+      fetchOrigin: false,
+      copyIgnored: false,
+      copyUntracked: false
+    )
+  }
+
   private static func pending(
     projectID: ProjectID,
     name: String
   ) -> PendingWorktree {
-    PendingWorktree(id: PendingWorktreeID(), projectID: projectID, displayName: name)
+    PendingWorktree(
+      id: PendingWorktreeID(),
+      projectID: projectID,
+      spaceID: SpaceID(),
+      spec: makeSpec(),
+      displayName: name,
+      status: .running,
+      lastProgressLine: nil,
+      startedAt: Date(timeIntervalSince1970: 0)
+    )
   }
 
   // MARK: - Tests

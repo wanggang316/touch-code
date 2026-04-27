@@ -47,8 +47,9 @@ struct HierarchySidebarView: View {
   /// unpinned. Per-segment rules and rationale live in
   /// docs/design-docs/worktree-sidebar-ordering.md §渲染合并. `pendings`
   /// is filtered to the given project (caller passes the full sidebar-wide
-  /// list). task02 ships this with `pendings` always empty at the call
-  /// site; task03 will plumb the live `pendingWorktrees` collection in.
+  /// list). Used by ordering tests + the hotkey enumeration shim; the
+  /// production view splits the segments across separate ForEach blocks
+  /// so each can own its own .onMove.
   static func orderedSidebarRows(
     project: Project,
     pendings: [PendingWorktree]
@@ -434,17 +435,15 @@ struct HierarchySidebarView: View {
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
         if isExpanded {
-          // Render the segments individually so pinned and unpinned each
-          // own their own ForEach + .onMove (per design doc §渲染合并 /
-          // 拖拽). pending rows render here in source order between pinned
-          // and unpinned; task02 ships an empty pendings list, so the
-          // pending ForEach is a no-op until task03 plumbs the live
-          // collection in.
+          // Render the four segments individually so pinned and unpinned
+          // each own their own ForEach + .onMove (per design doc §渲染合并
+          // / 拖拽). Pending rows render in source order between pinned
+          // and unpinned; main and pending segments do not admit reorder.
           let visible = project.worktrees.filter { !$0.archived }
           let mainRows = visible.filter { $0.path == project.rootPath }
           let pinnedRows = visible.filter { $0.isPinned && $0.path != project.rootPath }
           let unpinnedRows = visible.filter { !$0.isPinned && $0.path != project.rootPath }
-          let pendingRows: [PendingWorktree] = []
+          let pendingRows = store.pendingWorktrees.filter { $0.projectID == project.id }
           ForEach(mainRows) { worktree in
             worktreeRow(
               worktree, in: project, space: space, paneIndex: paneIndex, inbox: inbox,
@@ -457,17 +456,16 @@ struct HierarchySidebarView: View {
               hotkeySlot: hotkeyIndex[worktree.id]
             )
           }
-          // task01 will wire pinned-segment .onMove → reorderWorktrees
-          // forwarder once HierarchyClient exposes the closure;
-          // SidebarRow + per-segment ForEach already in place.
-          //   .onMove { source, destination in
-          //     store.send(.reorderWorktrees(
-          //       projectID: project.id, inSpace: space.id,
-          //       segment: .pinned, from: source, to: destination
-          //     ))
-          //   }
+          .onMove { source, destination in
+            store.send(
+              .reorderWorktrees(
+                projectID: project.id, inSpace: space.id,
+                segment: .pinned, from: source, to: destination
+              )
+            )
+          }
           ForEach(pendingRows) { pending in
-            pendingRowPlaceholder(pending)
+            pendingRow(pending)
           }
           ForEach(unpinnedRows) { worktree in
             worktreeRow(
@@ -475,26 +473,32 @@ struct HierarchySidebarView: View {
               hotkeySlot: hotkeyIndex[worktree.id]
             )
           }
-          // task01 will wire unpinned-segment .onMove the same way.
+          .onMove { source, destination in
+            store.send(
+              .reorderWorktrees(
+                projectID: project.id, inSpace: space.id,
+                segment: .unpinned, from: source, to: destination
+              )
+            )
+          }
         }
       }
     }
   }
 
-  // MARK: - Pending row placeholder
+  // MARK: - Pending row
 
-  /// Minimal placeholder for a `PendingWorktree` row. task02 ships the
-  /// shape only — `pendingRows` is always empty until task03 plumbs the
-  /// live `pendingWorktreeStore` through. task03 will replace this with
-  /// `PendingWorktreeRow.swift` (see design doc §Component Boundaries).
+  /// Wires task03's `PendingWorktreeRow` into the segment ForEach with
+  /// Cancel / Retry / Discard handlers dispatched to the lifecycle reducer.
   @ViewBuilder
-  private func pendingRowPlaceholder(_ pending: PendingWorktree) -> some View {
-    // task03 will replace this body with PendingWorktreeRow (full row
-    // chrome, Cancel / Retry / Discard menu, status icon, progress line).
-    Text(pending.displayName)
-      .font(.callout)
-      .foregroundStyle(.secondary)
-      .listRowSeparator(.hidden)
+  private func pendingRow(_ pending: PendingWorktree) -> some View {
+    PendingWorktreeRow(
+      pending: pending,
+      onCancel: { store.send(.pendingWorktreeCancelTapped(pending.id)) },
+      onRetry: { store.send(.pendingWorktreeRetryTapped(pending.id)) },
+      onDiscard: { store.send(.pendingWorktreeDiscardTapped(pending.id)) }
+    )
+    .listRowSeparator(.hidden)
   }
 
   // MARK: - Worktree row
