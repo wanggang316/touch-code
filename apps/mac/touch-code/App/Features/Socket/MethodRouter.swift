@@ -63,12 +63,10 @@ public final class MethodRouter {
     handlers h: HierarchyHandlers
   ) async -> RouterOutcome? {
     switch request.method {
-    case .hierarchyListSpaces: return await h.listSpaces(request.params)
     case .hierarchyListProjects: return await h.listProjects(request.params)
     case .hierarchyListWorktrees: return await h.listWorktrees(request.params)
     case .hierarchyListTabs: return await h.listTabs(request.params)
     case .hierarchyListPanes: return await h.listPanes(request.params)
-    case .hierarchyDescribeSpace: return await h.describeSpace(request.params)
     case .hierarchyResolveAlias: return await h.resolveAlias(request.params)
     default: return nil
     }
@@ -78,31 +76,9 @@ public final class MethodRouter {
     _ request: IPC.Request,
     handlers h: HierarchyHandlers
   ) async -> RouterOutcome? {
-    if let outcome = await routeHierarchySpaceMutations(request, handlers: h) { return outcome }
-    if let outcome = await routeHierarchyTreeMutations(request, handlers: h) { return outcome }
-    return nil
-  }
-
-  private func routeHierarchySpaceMutations(
-    _ request: IPC.Request,
-    handlers h: HierarchyHandlers
-  ) async -> RouterOutcome? {
     switch request.method {
-    case .hierarchyCreateSpace: return await h.createSpace(request.params)
-    case .hierarchyRenameSpace: return await h.renameSpace(request.params)
-    case .hierarchyRemoveSpace: return await h.removeSpace(request.params)
-    case .hierarchyActivateSpace: return await h.activateSpace(request.params)
     case .hierarchyAddProject: return await h.addProject(request.params)
     case .hierarchyRemoveProject: return await h.removeProject(request.params)
-    default: return nil
-    }
-  }
-
-  private func routeHierarchyTreeMutations(
-    _ request: IPC.Request,
-    handlers h: HierarchyHandlers
-  ) async -> RouterOutcome? {
-    switch request.method {
     case .hierarchyActivateWorktree: return await h.activateWorktree(request.params)
     case .hierarchyActivateTab: return await h.activateTab(request.params)
     case .hierarchyCreateWorktree: return await h.createWorktree(request.params)

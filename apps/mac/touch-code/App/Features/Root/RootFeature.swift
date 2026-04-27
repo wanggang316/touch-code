@@ -46,10 +46,6 @@ struct RootFeature {
     /// 0008: router for window/app-level intents decoded from ghostty keybinds.
     var windowActionRouter: WindowActionRouterFeature.State = .init()
 
-    /// T4: space manager sheet presentation. `nil` = hidden; non-nil
-    /// presents the sheet for managing (list / rename / reorder / delete) Spaces.
-    @Presents var spaceManagerSheet: SpaceManagerFeature.State?
-
     /// Command Palette overlay presentation. `nil` = hidden; non-nil
     /// renders the floating search card on top of the main split. Cleared
     /// on activation (the child emits `.delegate(.activate(…))`, the root
@@ -71,11 +67,9 @@ struct RootFeature {
     /// the authoritative catalog each render.
     func gitViewerOverlayVisible(in catalog: Catalog) -> Bool {
       guard
-        let spaceID = selection.spaceID,
         let projectID = selection.projectID,
         let worktreeID = selection.worktreeID,
-        let space = catalog.spaces.first(where: { $0.id == spaceID }),
-        let project = space.projects.first(where: { $0.id == projectID }),
+        let project = catalog.projects.first(where: { $0.id == projectID }),
         let worktree = project.worktrees.first(where: { $0.id == worktreeID })
       else { return false }
       return worktree.gitViewerVisible
@@ -158,19 +152,12 @@ struct RootFeature {
     /// with wrap-around. Calls `HierarchyClient.selectAdjacentTab`
     /// directly since the traversal logic lives in `HierarchyManager`.
     case selectAdjacentTabForCurrentWorktree(TabAdjacency)
-    /// T3: ⌘K entry point. Forwards to the sidebar so its Space-switcher
-    /// popover opens. Handled inline by the root reducer as a `.send` into
-    /// `.sidebar(.externalSpacePopoverOpenRequested)`.
-    case openSpaceSwitcherRequested
     /// $EDITOR routing. Dispatched from `EditorFeature.delegate.openShellEditorRequested`
     /// when any editor-open path resolves the preferred id to `EditorRegistry.shellEditorID`.
     /// Locates the target Worktree by path, creates a fresh Tab, and spawns a Pane with
     /// `initialCommand: "$EDITOR"` so the Pane primitive handles the launch the way
     /// `EditorService.open` cannot (no Pane/Tab context in the service signature).
     case openShellEditorInWorktree(worktreePath: String, projectID: ProjectID?)
-    case spaceManagerSheetShown
-    case spaceManagerSheet(PresentationAction<SpaceManagerFeature.Action>)
-    case switchToSpaceAtIndex(Int)
     /// Toggle the Command Palette overlay. Sources: `⌘P` menu binding
     /// (source pane unknown — payload is `nil`), and
     /// `paneActionRouter(.delegate(.commandPaletteToggleRequested(paneID)))`
@@ -324,18 +311,16 @@ struct RootFeature {
             guard !cached.isEmpty else { return }
             let catalog = await MainActor.run { client.snapshot() }
             var pairsByProject: [ProjectID: [GitHubFeature.Action.WorktreeBranchPair]] = [:]
-            for space in catalog.spaces {
-              for project in space.projects {
-                let pairs = project.worktrees.compactMap {
-                  worktree -> GitHubFeature.Action.WorktreeBranchPair? in
-                  guard !worktree.archived, let branch = worktree.branch, !branch.isEmpty
-                  else { return nil }
-                  return GitHubFeature.Action.WorktreeBranchPair(
-                    worktreeID: worktree.id, branch: branch
-                  )
-                }
-                if !pairs.isEmpty { pairsByProject[project.id] = pairs }
+            for project in catalog.projects {
+              let pairs = project.worktrees.compactMap {
+                worktree -> GitHubFeature.Action.WorktreeBranchPair? in
+                guard !worktree.archived, let branch = worktree.branch, !branch.isEmpty
+                else { return nil }
+                return GitHubFeature.Action.WorktreeBranchPair(
+                  worktreeID: worktree.id, branch: branch
+                )
               }
+              if !pairs.isEmpty { pairsByProject[project.id] = pairs }
             }
             await send(
               .gitHub(.seedFromCache(cached: cached, branchPairsByProject: pairsByProject))
@@ -401,9 +386,7 @@ struct RootFeature {
         // N per-Worktree calls — see docs/exec-plans/0013-github-integration-batched.md.
         if selection.projectID != priorProjectID,
           let projectID = selection.projectID,
-          let project = lookupProject(
-            projectID: projectID, spaceID: selection.spaceID
-          ),
+          let project = lookupProject(projectID: projectID),
           let gitRootString = project.gitRoot
         {
           let gitRoot = URL(fileURLWithPath: gitRootString)
@@ -439,7 +422,6 @@ struct RootFeature {
         let catalog = hierarchyClient.snapshot()
         guard
           let tab = catalog
-            .spaces.first(where: { $0.id == address.spaceID })?
             .projects.first(where: { $0.id == address.projectID })?
             .worktrees.first(where: { $0.id == address.worktreeID })?
             .tabs.first(where: { $0.id == address.tabID })
@@ -451,7 +433,7 @@ struct RootFeature {
         // routes selection to the adjacent tab.
         if tab.panes.count <= 1 {
           try? hierarchyClient.closeTab(
-            address.tabID, address.worktreeID, address.projectID, address.spaceID
+            address.tabID, address.worktreeID, address.projectID
           )
           return .none
         }
@@ -461,8 +443,7 @@ struct RootFeature {
         // closing the leftmost leaf → focus next; otherwise → focus previous.
         let focusTarget = tab.splitTree.focusTargetAfterClosing(paneID)
         try? hierarchyClient.closePane(
-          paneID, address.tabID, address.worktreeID, address.projectID,
-          address.spaceID
+          paneID, address.tabID, address.worktreeID, address.projectID
         )
         if let focusTarget {
           return .run { [client = hierarchyClient] _ in
@@ -502,24 +483,20 @@ struct RootFeature {
           await MainActor.run { client.reveal(path) }
         }
 
-      case .sidebar(.delegate(.reconcileProjectRequested(let projectID, let spaceID))):
+      case .sidebar(.delegate(.reconcileProjectRequested(let projectID))):
         // Kick the ProjectReconciler so the newly-added (or retried)
         // Project transitions through .loading → .ready (or .failed) and the
         // worktree list populates via T-WORKTREE's reconcileDiscoveredWorktrees
         // closure (once that PR lands; currently a no-op stub).
         return .run { _ in
-          await projectReconciler.reconcile(projectID: projectID, spaceID: spaceID)
+          await projectReconciler.reconcile(projectID: projectID)
         }
 
-      case .sidebar(.delegate(.revealExistingProject(let spaceID, let projectID))):
+      case .sidebar(.delegate(.revealExistingProject(let projectID))):
         // AddProjectFeature's "Reveal existing" banner fired — jump the user
         // to the already-registered row.
-        hierarchyClient.selectSpace(spaceID)
-        try? hierarchyClient.selectProject(projectID, spaceID)
+        try? hierarchyClient.selectProject(projectID)
         return .none
-
-      case .sidebar(.delegate(.openSpaceManager)):
-        return .send(.spaceManagerSheetShown)
 
       case .sidebar(.delegate(.lifecycleScriptResult(let phase, let name, let result))):
         return .send(.runWorktreeLifecycleResult(phase: phase, worktreeName: name, result: result))
@@ -575,12 +552,11 @@ struct RootFeature {
           let presenter = settingsWindowPresenter
           return .run { _ in await MainActor.run { presenter.open() } }
 
-        case .setProjectOverride(let projectID, let spaceID, let editorID):
+        case .setProjectOverride(let projectID, let editorID):
           return .send(
             .editor(
               .setProjectOverride(
                 projectID: projectID,
-                spaceID: spaceID,
                 editorID: editorID
               )))
 
@@ -591,14 +567,12 @@ struct RootFeature {
           // which previously routed the open to the project root instead
           // of the active sub-worktree.
           guard
-            let spaceID = state.selection.spaceID,
             let projectID = state.selection.projectID,
             let worktreeID = state.selection.worktreeID
           else { return .none }
           let catalog = hierarchyClient.snapshot()
           guard
             let path = catalog
-              .spaces.first(where: { $0.id == spaceID })?
               .projects.first(where: { $0.id == projectID })?
               .worktrees.first(where: { $0.id == worktreeID })?.path
           else { return .none }
@@ -607,7 +581,6 @@ struct RootFeature {
               .editor(
                 .setProjectOverride(
                   projectID: projectID,
-                  spaceID: spaceID,
                   editorID: editorID
                 ))),
             .send(
@@ -705,17 +678,6 @@ struct RootFeature {
       case .windowActionRouter:
         return .none
 
-      case .spaceManagerSheetShown:
-        state.spaceManagerSheet = SpaceManagerFeature.State()
-        return .none
-
-      case .spaceManagerSheet(.dismiss):
-        state.spaceManagerSheet = nil
-        return .none
-
-      case .spaceManagerSheet:
-        return .none
-
       case .commandPaletteToggle(let sourcePaneID):
         if state.commandPalette == nil {
           state.commandPalette = CommandPaletteFeature.State()
@@ -798,12 +760,6 @@ struct RootFeature {
       case .lifecycleScriptToast:
         return .none
 
-      case .switchToSpaceAtIndex(let index):
-        let snapshot = hierarchyClient.snapshot()
-        guard index >= 1 && index <= snapshot.spaces.count else { return .none }
-        let targetID = snapshot.spaces[index - 1].id
-        return .send(.sidebar(.spaceRowTapped(targetID)))
-
       case .gitViewerToggledForCurrentWorktree:
         guard let worktreeID = state.selection.worktreeID else { return .none }
         // Read the current visibility from the live catalog — the view
@@ -819,21 +775,18 @@ struct RootFeature {
 
       case .openDefaultForCurrentWorktreeRequested:
         guard
-          let spaceID = state.selection.spaceID,
           let projectID = state.selection.projectID,
           let worktreeID = state.selection.worktreeID
         else { return .none }
         let catalog = hierarchyClient.snapshot()
         guard
           let path = catalog
-            .spaces.first(where: { $0.id == spaceID })?
             .projects.first(where: { $0.id == projectID })?
             .worktrees.first(where: { $0.id == worktreeID })?.path
         else { return .none }
         return .send(
           .editor(
             .openDefaultInCurrentWorktreeRequested(
-              spaceID: spaceID,
               projectID: projectID,
               worktreeID: worktreeID,
               worktreePath: path
@@ -848,34 +801,29 @@ struct RootFeature {
           return .send(
             .editor(.openFailed(reason: "Could not locate worktree at \(worktreePath)")))
         }
-        let (spaceID, projectID, worktreeID) = address
+        let (projectID, worktreeID) = address
         guard
-          let tabID = try? hierarchyClient.createTab(worktreeID, projectID, spaceID, nil)
+          let tabID = try? hierarchyClient.createTab(worktreeID, projectID, nil)
         else {
           return .send(.editor(.openFailed(reason: "Could not create tab for $EDITOR")))
         }
         guard
           (try? hierarchyClient.openPane(
-            tabID, worktreeID, projectID, spaceID, worktreePath, "$EDITOR")) != nil
+            tabID, worktreeID, projectID, worktreePath, "$EDITOR")) != nil
         else {
           return .send(.editor(.openFailed(reason: "Could not spawn $EDITOR pane")))
         }
         // Bring the user to the freshly spawned Pane. Selecting after the catalog
         // mutation lets `autoSeedTabAndPaneIfNeeded` (driven by selectionChanges)
         // see the populated tab and skip its own seed.
-        hierarchyClient.selectSpace(spaceID)
-        try? hierarchyClient.selectProject(projectID, spaceID)
-        try? hierarchyClient.selectWorktree(worktreeID, projectID, spaceID)
-        try? hierarchyClient.selectTab(tabID, worktreeID, projectID, spaceID)
+        try? hierarchyClient.selectProject(projectID)
+        try? hierarchyClient.selectWorktree(worktreeID, projectID)
+        try? hierarchyClient.selectTab(tabID, worktreeID, projectID)
         return .send(
           .editor(.openSucceeded(editorID: EditorRegistry.shellEditorID, displayName: "$EDITOR")))
 
-      case .openSpaceSwitcherRequested:
-        return .send(.sidebar(.externalSpacePopoverOpenRequested))
-
       case .newTabForCurrentWorktree:
         guard
-          let spaceID = state.selection.spaceID,
           let projectID = state.selection.projectID,
           let worktreeID = state.selection.worktreeID
         else { return .none }
@@ -883,19 +831,17 @@ struct RootFeature {
           .detail(
             .tabBar(
               .newTabButtonTapped(
-                inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+                inWorktree: worktreeID, inProject: projectID
               ))))
 
       case .closeActiveTabForCurrentWorktree:
         guard
-          let spaceID = state.selection.spaceID,
           let projectID = state.selection.projectID,
           let worktreeID = state.selection.worktreeID
         else { return .none }
         let catalog = hierarchyClient.snapshot()
         guard
           let worktree = catalog
-            .spaces.first(where: { $0.id == spaceID })?
             .projects.first(where: { $0.id == projectID })?
             .worktrees.first(where: { $0.id == worktreeID }),
           let activeTabID = worktree.selectedTabID,
@@ -905,11 +851,12 @@ struct RootFeature {
         // open with its remaining panes (matches iTerm/Terminal.app). Single
         // (or zero) pane: fall through and close the whole tab.
         if activeTab.panes.count > 1 {
-          let focusID = hierarchyClient.lastFocusedPane(activeTabID)
+          let focusID =
+            hierarchyClient.lastFocusedPane(activeTabID)
             ?? activeTab.splitTree.leaves().first
           if let focusID {
             try? hierarchyClient.closePane(
-              focusID, activeTabID, worktreeID, projectID, spaceID
+              focusID, activeTabID, worktreeID, projectID
             )
           }
           return .none
@@ -918,20 +865,18 @@ struct RootFeature {
           .detail(
             .tabBar(
               .closeButtonTapped(
-                activeTabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+                activeTabID, inWorktree: worktreeID, inProject: projectID
               ))))
 
       case .selectTabAtIndexForCurrentWorktree(let n):
         guard
           n >= 1,
-          let spaceID = state.selection.spaceID,
           let projectID = state.selection.projectID,
           let worktreeID = state.selection.worktreeID
         else { return .none }
         let catalog = hierarchyClient.snapshot()
         guard
           let worktree = catalog
-            .spaces.first(where: { $0.id == spaceID })?
             .projects.first(where: { $0.id == projectID })?
             .worktrees.first(where: { $0.id == worktreeID }),
           n <= worktree.tabs.count
@@ -941,23 +886,19 @@ struct RootFeature {
           .detail(
             .tabBar(
               .tabButtonTapped(
-                targetTabID, inWorktree: worktreeID, inProject: projectID, inSpace: spaceID
+                targetTabID, inWorktree: worktreeID, inProject: projectID
               ))))
 
       case .selectAdjacentTabForCurrentWorktree(let direction):
         guard
-          let spaceID = state.selection.spaceID,
           let projectID = state.selection.projectID,
           let worktreeID = state.selection.worktreeID
         else { return .none }
         // Selection mutation lives in HierarchyManager — no TabBarFeature
         // action to forward since there's no TabID to look up yet.
-        _ = try? hierarchyClient.selectAdjacentTab(direction, worktreeID, projectID, spaceID)
+        _ = try? hierarchyClient.selectAdjacentTab(direction, worktreeID, projectID)
         return .none
       }
-    }
-    .ifLet(\.$spaceManagerSheet, action: \.spaceManagerSheet) {
-      SpaceManagerFeature()
     }
     .ifLet(\.$commandPalette, action: \.commandPalette) {
       CommandPaletteFeature()
@@ -987,43 +928,31 @@ struct RootFeature {
     case .quit:
       return .send(.windowActionRouter(.requested(.quit)))
 
-    // Spaces
-    case .selectSpace(let id):
-      return .send(.sidebar(.spaceRowTapped(id)))
-    case .openSpaceManager:
-      return .send(.spaceManagerSheetShown)
-    case .switchToSpaceAtIndex(let n):
-      return .send(.switchToSpaceAtIndex(n))
-
     // Worktree
-    case .selectWorktree(let spaceID, let projectID, let worktreeID):
+    case .selectWorktree(let projectID, let worktreeID):
       return .send(
-        .sidebar(.worktreeRowTapped(worktreeID, inProject: projectID, inSpace: spaceID))
+        .sidebar(.worktreeRowTapped(worktreeID, inProject: projectID))
       )
     case .closeCurrentWorktree:
-      guard let spaceID = state.selection.spaceID,
-        let projectID = state.selection.projectID,
+      guard let projectID = state.selection.projectID,
         let worktreeID = state.selection.worktreeID
       else { return .none }
       let catalog = hierarchyClient.snapshot()
       let name =
         catalog
-        .spaces.first(where: { $0.id == spaceID })?
         .projects.first(where: { $0.id == projectID })?
         .worktrees.first(where: { $0.id == worktreeID })?.name ?? ""
       return .send(
         .sidebar(
           .worktreeRemoveTapped(
-            worktreeID: worktreeID, inProject: projectID, inSpace: spaceID, name: name
+            worktreeID: worktreeID, inProject: projectID, name: name
           )
         )
       )
     case .refreshCurrentWorktree:
-      guard let spaceID = state.selection.spaceID,
-        let projectID = state.selection.projectID
-      else { return .none }
+      guard let projectID = state.selection.projectID else { return .none }
       return .run { [projectReconciler] _ in
-        await projectReconciler.reconcile(projectID: projectID, spaceID: spaceID)
+        await projectReconciler.reconcile(projectID: projectID)
       }
     case .toggleGitViewer:
       return .send(.gitViewerToggledForCurrentWorktree)
@@ -1032,14 +961,12 @@ struct RootFeature {
     case .openCurrentWorktreeInDefaultEditor:
       return .send(.openDefaultForCurrentWorktreeRequested)
     case .openCurrentWorktreeIn(let editorID):
-      guard let spaceID = state.selection.spaceID,
-        let projectID = state.selection.projectID,
+      guard let projectID = state.selection.projectID,
         let worktreeID = state.selection.worktreeID
       else { return .none }
       let catalog = hierarchyClient.snapshot()
       guard
         let path = catalog
-          .spaces.first(where: { $0.id == spaceID })?
           .projects.first(where: { $0.id == projectID })?
           .worktrees.first(where: { $0.id == worktreeID })?.path
       else { return .none }
@@ -1051,14 +978,12 @@ struct RootFeature {
         )
       )
     case .revealCurrentWorktreeInFinder:
-      guard let spaceID = state.selection.spaceID,
-        let projectID = state.selection.projectID,
+      guard let projectID = state.selection.projectID,
         let worktreeID = state.selection.worktreeID
       else { return .none }
       let catalog = hierarchyClient.snapshot()
       guard
         let path = catalog
-          .spaces.first(where: { $0.id == spaceID })?
           .projects.first(where: { $0.id == projectID })?
           .worktrees.first(where: { $0.id == worktreeID })?.path
       else { return .none }
@@ -1106,7 +1031,7 @@ struct RootFeature {
     return settingsWriter.readSnapshotSync().projects[projectID]?.defaultEditor
   }
 
-  /// Walks `catalog` to find the `(SpaceID, ProjectID, WorktreeID)` triple whose Worktree
+  /// Walks `catalog` to find the `(ProjectID, WorktreeID)` pair whose Worktree
   /// has the given path. Used by the `.openShellEditorInWorktree` handler to recover
   /// the full address from the path-only handoff that propagates through the editor
   /// open chain. The optional `projectIDHint` short-circuits the project loop when the
@@ -1115,13 +1040,11 @@ struct RootFeature {
     worktreePath: String,
     projectIDHint: ProjectID?,
     in catalog: Catalog
-  ) -> (SpaceID, ProjectID, WorktreeID)? {
-    for space in catalog.spaces {
-      for project in space.projects {
-        if let hint = projectIDHint, project.id != hint { continue }
-        if let worktree = project.worktrees.first(where: { $0.path == worktreePath }) {
-          return (space.id, project.id, worktree.id)
-        }
+  ) -> (ProjectID, WorktreeID)? {
+    for project in catalog.projects {
+      if let hint = projectIDHint, project.id != hint { continue }
+      if let worktree = project.worktrees.first(where: { $0.path == worktreePath }) {
+        return (project.id, worktree.id)
       }
     }
     return nil
@@ -1137,21 +1060,19 @@ struct RootFeature {
   /// stream does not re-fire and there is no loop.
   private func autoSeedTabAndPaneIfNeeded(for selection: HierarchySelection) {
     guard
-      let spaceID = selection.spaceID,
       let projectID = selection.projectID,
       let worktreeID = selection.worktreeID
     else { return }
     let catalog = hierarchyClient.snapshot()
     guard
-      let space = catalog.spaces.first(where: { $0.id == spaceID }),
-      let project = space.projects.first(where: { $0.id == projectID }),
+      let project = catalog.projects.first(where: { $0.id == projectID }),
       let worktree = project.worktrees.first(where: { $0.id == worktreeID })
     else { return }
     let cwd = worktree.path
     if worktree.tabs.isEmpty {
-      guard let tabID = try? hierarchyClient.createTab(worktreeID, projectID, spaceID, nil)
+      guard let tabID = try? hierarchyClient.createTab(worktreeID, projectID, nil)
       else { return }
-      _ = try? hierarchyClient.openPane(tabID, worktreeID, projectID, spaceID, cwd, nil)
+      _ = try? hierarchyClient.openPane(tabID, worktreeID, projectID, cwd, nil)
       return
     }
     let activeTabID = worktree.selectedTabID ?? worktree.tabs.first?.id
@@ -1159,7 +1080,7 @@ struct RootFeature {
       let tab = worktree.tabs.first(where: { $0.id == activeTabID }),
       tab.panes.isEmpty
     else { return }
-    _ = try? hierarchyClient.openPane(activeTabID, worktreeID, projectID, spaceID, cwd, nil)
+    _ = try? hierarchyClient.openPane(activeTabID, worktreeID, projectID, cwd, nil)
   }
 
   /// Rebuilds `SplitViewportFeature.State.paneHosts` for the selection's
@@ -1178,7 +1099,6 @@ struct RootFeature {
     tabID: TabID?
   ) {
     guard
-      let spaceID = selection.spaceID,
       let projectID = selection.projectID,
       let worktreeID = selection.worktreeID,
       let tabID
@@ -1189,7 +1109,6 @@ struct RootFeature {
     let catalog = hierarchyClient.snapshot()
     guard
       let tab = catalog
-        .spaces.first(where: { $0.id == spaceID })?
         .projects.first(where: { $0.id == projectID })?
         .worktrees.first(where: { $0.id == worktreeID })?
         .tabs.first(where: { $0.id == tabID })
@@ -1205,8 +1124,7 @@ struct RootFeature {
           paneID: pane.id,
           tabID: tabID,
           worktreeID: worktreeID,
-          projectID: projectID,
-          spaceID: spaceID
+          projectID: projectID
         )
         if let surface = terminalClient.surface(pane.id) {
           seeded.phase = .ready
@@ -1252,34 +1170,18 @@ struct RootFeature {
   private func resolveActiveTab(selection: HierarchySelection) -> TabID? {
     let catalog = hierarchyClient.snapshot()
     guard
-      let spaceID = selection.spaceID,
       let projectID = selection.projectID,
       let worktreeID = selection.worktreeID,
-      let space = catalog.spaces.first(where: { $0.id == spaceID }),
-      let project = space.projects.first(where: { $0.id == projectID }),
+      let project = catalog.projects.first(where: { $0.id == projectID }),
       let worktree = project.worktrees.first(where: { $0.id == worktreeID })
     else { return nil }
     return worktree.selectedTabID
   }
 
-  /// Locates a `Project` in the current catalog snapshot by `(projectID, spaceID)`.
-  /// `spaceID` narrows the search when present — useful for selection payloads that
-  /// carry both; walks every Space otherwise so stale selection payloads still resolve
-  /// under in-place catalog mutations.
-  private func lookupProject(projectID: ProjectID, spaceID: SpaceID?) -> Project? {
+  /// Locates a `Project` in the current catalog snapshot by `projectID`.
+  private func lookupProject(projectID: ProjectID) -> Project? {
     let catalog = hierarchyClient.snapshot()
-    if let spaceID,
-      let space = catalog.spaces.first(where: { $0.id == spaceID }),
-      let project = space.projects.first(where: { $0.id == projectID })
-    {
-      return project
-    }
-    for space in catalog.spaces {
-      if let project = space.projects.first(where: { $0.id == projectID }) {
-        return project
-      }
-    }
-    return nil
+    return catalog.projects.first(where: { $0.id == projectID })
   }
 
 }

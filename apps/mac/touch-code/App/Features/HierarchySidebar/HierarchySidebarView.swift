@@ -124,42 +124,11 @@ struct HierarchySidebarView: View {
     // calls out in §View Composition / §Unread-dot index caching.
     let paneIndex = catalog.paneWorktreeIndex()
     let inbox = inboxStore.inbox
-    let activeSpace = catalog.spaces.first { $0.id == catalog.selectedSpaceID }
 
-    // Sidebar body is the List directly (no VStack wrapper). This matches
-    // supacode's shape and lets SwiftUI's `List(.sidebar)` cover the full
-    // column with the system sidebar material — when toolbar/footer lived
-    // inside a VStack above/below the List, those strips were NOT tagged as
-    // sidebar content and showed the column's base color through as a dark
-    // band in light mode. `.safeAreaInset` attaches the Space footer at the
-    // bottom edge with proper material continuity, and `.toolbar` promotes
-    // the add-project / options actions into the window titlebar over the
-    // sidebar column (same as Finder / Xcode).
-    treeBody(activeSpace: activeSpace, paneIndex: paneIndex, inbox: inbox)
-      .safeAreaInset(edge: .bottom, spacing: 0) {
-        VStack(spacing: 0) {
-          Divider()
-          spaceFooter(activeSpace: activeSpace)
-            .popover(
-              isPresented: Binding(
-                get: { store.isSpacePopoverPresented },
-                set: { isPresented in
-                  if !isPresented { store.send(.spacePopoverDismissed) }
-                }
-              ),
-              attachmentAnchor: .rect(.bounds),
-              arrowEdge: .top
-            ) {
-              spacePopover(catalog: catalog)
-            }
-        }
-        // `safeAreaInset` places its content outside the `List(.sidebar)`
-        // material, so without an explicit background the Ghostty-stained
-        // window color showed through. `.bar` is macOS's standard bottom-bar
-        // material (Finder / Xcode / Notes sidebar footers), and it still
-        // blends with the window tint for visual continuity with the list.
-        .background(.bar)
-      }
+    // Sidebar body is the List directly (no VStack wrapper). The bottom
+    // `.safeAreaInset` (formerly the Space footer) is removed in M2; M4
+    // reintroduces it with the Tag chip footer.
+    treeBody(projects: catalog.projects, paneIndex: paneIndex, inbox: inbox)
       .toolbar { sidebarToolbarContent }
       .sheet(
         item: $store.scope(state: \.addProject, action: \.addProject)
@@ -203,7 +172,9 @@ struct HierarchySidebarView: View {
           store.send(.worktreeRemoveCancelled)
         }
       } message: {
-        Text("Closes all panes and deletes the Worktree directory, including any uncommitted changes. This cannot be undone.")
+        Text(
+          "Closes all panes and deletes the Worktree directory, including any uncommitted changes. This cannot be undone."
+        )
       }
       .confirmationDialog(
         projectRemovalTitle,
@@ -286,73 +257,52 @@ struct HierarchySidebarView: View {
 
   @ViewBuilder
   private func treeBody(
-    activeSpace: Space?,
+    projects: [Project],
     paneIndex: [PaneID: WorktreeID],
     inbox: NotificationInbox
   ) -> some View {
-    if let activeSpace {
-      if activeSpace.projects.isEmpty {
-        emptySpaceState
-      } else {
-        // Top-down flat enumeration of visible worktrees across projects, following the
-        // same main → pinned → others partition the rows themselves render in. Used to
-        // assign `⌃⌘1`…`⌃⌘9` and reveal matching hints while ⌘ is held. Archived rows
-        // live in a separate sheet and never claim a hotkey slot.
-        let hotkeyIndex: [WorktreeID: Int] = {
-          var map: [WorktreeID: Int] = [:]
-          var slot = 0
-          for project in activeSpace.projects {
-            for worktree in Self.orderedVisibleWorktrees(in: project) {
-              if slot >= 9 { return map }
-              map[worktree.id] = slot
-              slot += 1
-            }
-          }
-          return map
-        }()
-        // List + .listStyle(.sidebar) with NO `.scrollIndicators(.*)` modifier.
-        // On macOS 26 / NavigationSplitView sidebar columns, both `.hidden` and
-        // `.never` silently collapse the List's top titlebar safe area — the
-        // first row then draws at y=0, overlapping with the traffic lights.
-        // Accepting the scroller-when-needed trade-off; supacode + Prowl both
-        // tolerate the default indicator posture here.
-        List {
-          ForEach(activeSpace.projects) { project in
-            projectSection(
-              project,
-              in: activeSpace,
-              paneIndex: paneIndex,
-              inbox: inbox,
-              hotkeyIndex: hotkeyIndex
-            )
+    if projects.isEmpty {
+      emptyState
+    } else {
+      // Top-down flat enumeration of visible worktrees across projects, following the
+      // same main → pinned → others partition the rows themselves render in. Used to
+      // assign `⌃⌘1`…`⌃⌘9` and reveal matching hints while ⌘ is held. Archived rows
+      // live in a separate sheet and never claim a hotkey slot.
+      let hotkeyIndex: [WorktreeID: Int] = {
+        var map: [WorktreeID: Int] = [:]
+        var slot = 0
+        for project in projects {
+          for worktree in Self.orderedVisibleWorktrees(in: project) {
+            if slot >= 9 { return map }
+            map[worktree.id] = slot
+            slot += 1
           }
         }
-        .listStyle(.sidebar)
-        .opacity(sidebarIndentReady ? 1 : 0)
-        .background(SidebarIndentZeroer(onReady: { sidebarIndentReady = true }))
+        return map
+      }()
+      // List + .listStyle(.sidebar) with NO `.scrollIndicators(.*)` modifier.
+      // On macOS 26 / NavigationSplitView sidebar columns, both `.hidden` and
+      // `.never` silently collapse the List's top titlebar safe area — the
+      // first row then draws at y=0, overlapping with the traffic lights.
+      // Accepting the scroller-when-needed trade-off; supacode + Prowl both
+      // tolerate the default indicator posture here.
+      List {
+        ForEach(projects) { project in
+          projectSection(
+            project,
+            paneIndex: paneIndex,
+            inbox: inbox,
+            hotkeyIndex: hotkeyIndex
+          )
+        }
       }
-    } else {
-      noSpacesState
+      .listStyle(.sidebar)
+      .opacity(sidebarIndentReady ? 1 : 0)
+      .background(SidebarIndentZeroer(onReady: { sidebarIndentReady = true }))
     }
   }
 
-  private var noSpacesState: some View {
-    VStack(spacing: 8) {
-      Spacer()
-      Image(systemName: "folder.badge.plus")
-        .font(.title)
-        .foregroundStyle(.secondary)
-        .accessibilityHidden(true)
-      Text("No Spaces yet.")
-        .font(.callout)
-        .foregroundStyle(.secondary)
-      Spacer()
-    }
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .padding()
-  }
-
-  private var emptySpaceState: some View {
+  private var emptyState: some View {
     VStack(spacing: 10) {
       Spacer()
       Image(systemName: "tray")
@@ -378,7 +328,6 @@ struct HierarchySidebarView: View {
 
   private func projectSection(
     _ project: Project,
-    in space: Space,
     paneIndex: [PaneID: WorktreeID],
     inbox: NotificationInbox,
     hotkeyIndex: [WorktreeID: Int]
@@ -399,13 +348,12 @@ struct HierarchySidebarView: View {
           rootPath: project.rootPath,
           reason: reason,
           retry: {
-            store.send(.retryProjectTapped(projectID: project.id, inSpace: space.id))
+            store.send(.retryProjectTapped(projectID: project.id))
           },
           remove: {
             store.send(
               .projectRemoveTapped(
                 projectID: project.id,
-                inSpace: space.id,
                 name: project.name
               ))
           }
@@ -425,7 +373,6 @@ struct HierarchySidebarView: View {
         } label: {
           ProjectHeaderRow(
             project: project,
-            space: space,
             hasUnread: projectHasUnread,
             isLoading: project.loadState == .loading,
             isExpanded: isExpanded,
@@ -448,20 +395,20 @@ struct HierarchySidebarView: View {
           let pendingRows = store.pendingWorktrees.filter { $0.projectID == project.id }
           ForEach(mainRows) { worktree in
             worktreeRow(
-              worktree, in: project, space: space, paneIndex: paneIndex, inbox: inbox,
+              worktree, in: project, paneIndex: paneIndex, inbox: inbox,
               hotkeySlot: hotkeyIndex[worktree.id]
             )
           }
           ForEach(pinnedRows) { worktree in
             worktreeRow(
-              worktree, in: project, space: space, paneIndex: paneIndex, inbox: inbox,
+              worktree, in: project, paneIndex: paneIndex, inbox: inbox,
               hotkeySlot: hotkeyIndex[worktree.id]
             )
           }
           .onMove { source, destination in
             store.send(
               .reorderWorktrees(
-                projectID: project.id, inSpace: space.id,
+                projectID: project.id,
                 segment: .pinned, from: source, to: destination
               )
             )
@@ -471,14 +418,14 @@ struct HierarchySidebarView: View {
           }
           ForEach(unpinnedRows) { worktree in
             worktreeRow(
-              worktree, in: project, space: space, paneIndex: paneIndex, inbox: inbox,
+              worktree, in: project, paneIndex: paneIndex, inbox: inbox,
               hotkeySlot: hotkeyIndex[worktree.id]
             )
           }
           .onMove { source, destination in
             store.send(
               .reorderWorktrees(
-                projectID: project.id, inSpace: space.id,
+                projectID: project.id,
                 segment: .unpinned, from: source, to: destination
               )
             )
@@ -508,7 +455,6 @@ struct HierarchySidebarView: View {
   private func worktreeRow(
     _ worktree: Worktree,
     in project: Project,
-    space: Space,
     paneIndex: [PaneID: WorktreeID],
     inbox: NotificationInbox,
     hotkeySlot: Int?
@@ -538,12 +484,12 @@ struct HierarchySidebarView: View {
     // the Button; the trailing badge sits beside it.
     return HStack(spacing: 6) {
       rowSelectionButton(
-        worktree: worktree, project: project, space: space,
+        worktree: worktree, project: project,
         snapshot: snapshot, rollup: rollup,
         unreadCount: unreadCount, hotkeyNumber: hotkeyNumber,
         isSelected: isSelected
       )
-      gitHubBadge(for: worktree, in: project, space: space)
+      gitHubBadge(for: worktree, in: project)
     }
     // Worktree rows are now real List children (header + worktrees emitted as
     // sibling rows from `projectSection`), so `.listRowInsets` + `.listRowBackground`
@@ -561,7 +507,7 @@ struct HierarchySidebarView: View {
         .padding(.leading, 18)
         .padding(.trailing, 4)
     )
-    .contextMenu { worktreeContextMenu(worktree: worktree, project: project, space: space) }
+    .contextMenu { worktreeContextMenu(worktree: worktree, project: project) }
     .task(id: worktree.path) {
       // Refresh the "dirty" dot on mount / path change. The monitor enforces a 30 s
       // freshness window internally so list-rerenders don't spawn redundant fetches.
@@ -577,7 +523,7 @@ struct HierarchySidebarView: View {
   /// wiring stays close to the button those bindings drive.
   @ViewBuilder
   private func rowSelectionButton(
-    worktree: Worktree, project: Project, space: Space,
+    worktree: Worktree, project: Project,
     snapshot: PullRequestSnapshot?, rollup: PullRequestBadge.CheckRollup,
     unreadCount: Int, hotkeyNumber: Int?,
     isSelected: Bool
@@ -589,7 +535,7 @@ struct HierarchySidebarView: View {
       return .secondary
     }()
     let button = Button {
-      store.send(.worktreeRowTapped(worktree.id, inProject: project.id, inSpace: space.id))
+      store.send(.worktreeRowTapped(worktree.id, inProject: project.id))
     } label: {
       HStack(spacing: 6) {
         WorktreeRowIcon(
@@ -660,7 +606,7 @@ struct HierarchySidebarView: View {
   // body stays under swiftlint's function_body_length limit.
   @ViewBuilder
   private func worktreeContextMenu(
-    worktree: Worktree, project: Project, space: Space
+    worktree: Worktree, project: Project
   ) -> some View {
     let isMainCheckout = worktree.path == project.rootPath
     if !isMainCheckout {
@@ -676,7 +622,7 @@ struct HierarchySidebarView: View {
         Button {
           store.send(
             .worktreeUnarchiveTapped(
-              worktreeID: worktree.id, inProject: project.id, inSpace: space.id
+              worktreeID: worktree.id, inProject: project.id
             ))
         } label: {
           Label("Unarchive Worktree", systemImage: "tray.and.arrow.up")
@@ -685,7 +631,7 @@ struct HierarchySidebarView: View {
         Button {
           store.send(
             .worktreeArchiveTapped(
-              worktreeID: worktree.id, inProject: project.id, inSpace: space.id, name: worktree.name
+              worktreeID: worktree.id, inProject: project.id, name: worktree.name
             ))
         } label: {
           Label("Archive Worktree", systemImage: "archivebox")
@@ -694,7 +640,7 @@ struct HierarchySidebarView: View {
       Button(role: .destructive) {
         store.send(
           .worktreeRemoveTapped(
-            worktreeID: worktree.id, inProject: project.id, inSpace: space.id, name: worktree.name
+            worktreeID: worktree.id, inProject: project.id, name: worktree.name
           ))
       } label: {
         Label("Remove Worktree", systemImage: "trash")
@@ -713,89 +659,6 @@ struct HierarchySidebarView: View {
     } label: {
       Label("Open in Default Editor", systemImage: "square.and.pencil")
     }
-  }
-
-  // MARK: - Space footer + popover
-
-  private func spaceFooter(activeSpace: Space?) -> some View {
-    Button {
-      store.send(.spaceFooterTapped)
-    } label: {
-      HStack(spacing: 8) {
-        Image(systemName: "square.stack.3d.up")
-          .foregroundStyle(.secondary)
-          .accessibilityHidden(true)
-        Text(activeSpace?.name ?? "No Space")
-          .lineLimit(1)
-        Spacer()
-        Image(systemName: "chevron.down")
-          .foregroundStyle(.secondary)
-          .accessibilityHidden(true)
-      }
-      .padding(.horizontal, 12)
-      .padding(.vertical, 10)
-      .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
-    .help("Switch Space")
-  }
-
-  @ViewBuilder
-  private func spacePopover(catalog: Catalog) -> some View {
-    let activeID = catalog.selectedSpaceID
-    VStack(alignment: .leading, spacing: 0) {
-      ForEach(catalog.spaces) { space in
-        Button {
-          store.send(.spacePopoverSpaceSelected(space.id))
-        } label: {
-          HStack(spacing: 8) {
-            Image(systemName: space.id == activeID ? "checkmark" : "")
-              .frame(width: 14)
-              .foregroundStyle(.primary)
-              .accessibilityHidden(true)
-            Text(space.name)
-            Spacer()
-          }
-          .padding(.horizontal, 12)
-          .padding(.vertical, 6)
-          .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-      }
-      Divider()
-      Button {
-        store.send(.spacePopoverNewSpaceTapped)
-      } label: {
-        HStack(spacing: 8) {
-          Image(systemName: "plus")
-            .frame(width: 14)
-            .accessibilityHidden(true)
-          Text("New Space")
-          Spacer()
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .contentShape(Rectangle())
-      }
-      .buttonStyle(.plain)
-      Button {
-        store.send(.spacePopoverManageSpacesTapped)
-      } label: {
-        HStack(spacing: 8) {
-          Image(systemName: "slider.horizontal.3")
-            .frame(width: 14)
-            .accessibilityHidden(true)
-          Text("Manage Spaces…")
-          Spacer()
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .contentShape(Rectangle())
-      }
-      .buttonStyle(.plain)
-    }
-    .padding(.vertical, 4)
-    .frame(minWidth: 220)
   }
 
   // MARK: - Stub sheets
@@ -839,7 +702,7 @@ struct HierarchySidebarView: View {
   // MARK: - GitHub badge + popover
 
   @ViewBuilder
-  fileprivate func gitHubBadge(for worktree: Worktree, in project: Project, space: Space) -> some View {
+  fileprivate func gitHubBadge(for worktree: Worktree, in project: Project) -> some View {
     if let gitHubStore, let branch = worktree.branch {
       let path = URL(fileURLWithPath: worktree.path)
       WorktreeGitHubBadge(
@@ -960,7 +823,6 @@ struct HierarchySidebarView: View {
 /// view-local concern — not worth promoting to reducer state.
 private struct ProjectHeaderRow: View {
   let project: Project
-  let space: Space
   let hasUnread: Bool
   /// When `true`, a small inline `ProgressView` replaces the unread dot so
   /// the user can see a reconcile pass is in flight without blocking the
@@ -1005,7 +867,7 @@ private struct ProjectHeaderRow: View {
         // single synthetic Worktree and nothing to add.
         if project.supportsWorktrees {
           Button {
-            store.send(.projectAddWorktreeTapped(projectID: project.id, inSpace: space.id))
+            store.send(.projectAddWorktreeTapped(projectID: project.id))
           } label: {
             iconLabel(systemName: "plus", isHovering: isPlusHovering)
               .accessibilityLabel("Add Worktree under this Project")
@@ -1016,7 +878,7 @@ private struct ProjectHeaderRow: View {
         Menu {
           Button("Project Options…") {
             store.send(
-              .projectOptionsTapped(projectID: project.id, inSpace: space.id)
+              .projectOptionsTapped(projectID: project.id)
             )
           }
           let archivedCount = project.worktrees.filter { $0.archived }.count
@@ -1026,12 +888,12 @@ private struct ProjectHeaderRow: View {
               : "Archived Worktrees…"
           ) {
             store.send(
-              .projectShowArchivedTapped(projectID: project.id, inSpace: space.id)
+              .projectShowArchivedTapped(projectID: project.id)
             )
           }
           Button("Prune Stale Worktrees") {
             store.send(
-              .projectPruneTapped(projectID: project.id, inSpace: space.id)
+              .projectPruneTapped(projectID: project.id)
             )
           }
           Divider()
@@ -1039,7 +901,6 @@ private struct ProjectHeaderRow: View {
             store.send(
               .projectRemoveTapped(
                 projectID: project.id,
-                inSpace: space.id,
                 name: project.name
               )
             )

@@ -181,7 +181,8 @@ private struct ResolvingTabChipView: View {
     if let name = tab.name, !name.isEmpty { return name }
     if let live { return live }
     if let cached = tab.cachedDisplayTitle, !cached.isEmpty { return cached }
-    let pane = tab.panes.first { $0.id == hierarchyManager.lastFocusedPane(in: tab.id) }
+    let pane =
+      tab.panes.first { $0.id == hierarchyManager.lastFocusedPane(in: tab.id) }
       ?? tab.panes.first
     if let pane {
       let basename = (pane.workingDirectory as NSString).lastPathComponent
@@ -217,12 +218,12 @@ private struct ChipDropDelegate: DropDelegate {
     let ids = tabs.map(\.id)
     provider.loadObject(ofClass: NSString.self) { [commit] loaded, _ in
       guard let raw = loaded as? String,
-            let uuid = UUID(uuidString: raw)
+        let uuid = UUID(uuidString: raw)
       else { return }
       let sourceID = TabID(raw: uuid)
       guard sourceID != targetID,
-            let sourceIdx = ids.firstIndex(of: sourceID),
-            let targetIdx = ids.firstIndex(of: targetID)
+        let sourceIdx = ids.firstIndex(of: sourceID),
+        let targetIdx = ids.firstIndex(of: targetID)
       else { return }
       var reordered = ids
       reordered.remove(at: sourceIdx)

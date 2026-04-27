@@ -1,4 +1,4 @@
-.PHONY: help bootstrap build-ghostty generate build run-app format lint check test clean build-cli
+.PHONY: help bootstrap build-ghostty generate build run-app format lint check check-rename check-no-space-residue test clean build-cli
 
 # Use full Xcode.app when xcode-select points at Command Line Tools only.
 # See DEC-10 in docs/exec-plans/0001-bootstrap-monorepo.md.
@@ -47,7 +47,20 @@ lint:
 check-rename:
 	../../scripts/check-rename-residue.sh apps/mac
 
-check: format lint check-rename
+# Temporary gate covering the Space -> Tag refactor (refactor/rm-space).
+# Removed in M7 once the change has soaked.
+check-no-space-residue:
+	@if grep -rn 'SpaceID\|\bSpace\b\|CatalogWindow\|spacePopover\|spaceFooter\|selectedSpaceID' \
+	    --include='*.swift' \
+	    TouchCodeCore TouchCodeCoreTests TouchCodeIPC touch-code tc 2>/dev/null \
+	    | grep -v 'Tests/Fixtures' \
+	    | grep -v '// FIXME(rm-space' \
+	    | grep -v 'LegacySpace\|migration\|legacy' \
+	    | grep -E '.'; then \
+	  echo "Space residue found (see grep output above)"; exit 1; \
+	fi
+
+check: format lint check-rename check-no-space-residue
 
 test:
 	@echo "no tests yet"

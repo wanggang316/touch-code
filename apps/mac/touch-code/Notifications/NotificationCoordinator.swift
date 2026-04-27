@@ -200,11 +200,13 @@ final class NotificationCoordinator {
     // v2 D3 — cross-source dedup. Drop a duplicate within the window;
     // do not append, do not post, do not bump unread. Inbox stays the
     // source of truth (DEC-5) so we never mutate an existing row.
-    let key = notification.dedupKey ?? Self.contentHash(
-      paneID: notification.paneID,
-      title: notification.title,
-      body: notification.body
-    )
+    let key =
+      notification.dedupKey
+      ?? Self.contentHash(
+        paneID: notification.paneID,
+        title: notification.title,
+        body: notification.body
+      )
     let nowDate = now()
     if let recent = recentByPane[notification.paneID],
       recent.key == key,

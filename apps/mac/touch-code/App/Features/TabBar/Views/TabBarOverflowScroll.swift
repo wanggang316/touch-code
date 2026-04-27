@@ -54,7 +54,6 @@ struct TabBarOverflowScroll<Content: View>: View {
     }
   }
 
-
   @ViewBuilder
   private var leadingShadow: some View {
     if !atLeadingEdge {

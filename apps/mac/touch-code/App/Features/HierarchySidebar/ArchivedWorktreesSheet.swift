@@ -92,7 +92,9 @@ struct ArchivedWorktreesSheet: View {
         store.send(.removeCancelled)
       }
     } message: {
-      Text("Closes all panes and deletes the Worktree directory, including any uncommitted changes. This cannot be undone.")
+      Text(
+        "Closes all panes and deletes the Worktree directory, including any uncommitted changes. This cannot be undone."
+      )
     }
   }
 

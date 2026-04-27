@@ -42,7 +42,7 @@ struct EditorFeature {
     case descriptorsLoaded([EditorDescriptor])
     case settingsObserved(globalDefault: EditorID?)
     case setGlobalDefault(EditorID?)
-    case setProjectOverride(projectID: ProjectID, spaceID: SpaceID, editorID: EditorID?)
+    case setProjectOverride(projectID: ProjectID, editorID: EditorID?)
     case setProjectOverrideFailed(reason: String)
     case openRequested(editorID: EditorID?, worktreePath: String, projectID: ProjectID?)
     case openSucceeded(editorID: EditorID, displayName: String)
@@ -50,7 +50,6 @@ struct EditorFeature {
     /// T3 (⌘E): resolve the Worktree's default editor via per-Project override → global
     /// default → priority walk, then forward to `.openRequested` with a concrete preferred.
     case openDefaultInCurrentWorktreeRequested(
-      spaceID: SpaceID,
       projectID: ProjectID,
       worktreeID: WorktreeID,
       worktreePath: String
@@ -106,11 +105,8 @@ struct EditorFeature {
         let writer = settingsWriter.setDefaultEditorID
         return .run { _ in await writer(editorID) }
 
-      case .setProjectOverride(let projectID, _, let editorID):
-        // `spaceID` is ignored — per-Project editor overrides moved from catalog.json
-        // to settings.json.projects[pid].defaultEditor (v3), and ProjectID alone keys
-        // that slot. The signature keeps the SpaceID for callers that still hold one
-        // (WorktreeHeader dropdown) but the write no longer needs it.
+      case .setProjectOverride(let projectID, let editorID):
+        // Per-Project editor overrides live in settings.json.projects[pid].defaultEditor.
         state.lastProjectOverrideFailure = nil
         let writer = settingsWriter.setProjectDefaultEditor
         return .run { _ in await writer(projectID, editorID) }
@@ -154,7 +150,7 @@ struct EditorFeature {
         state.lastOpenResult = .failed(reason: reason)
         return .none
 
-      case .openDefaultInCurrentWorktreeRequested(let spaceID, let projectID, _, let worktreePath):
+      case .openDefaultInCurrentWorktreeRequested(let projectID, _, let worktreePath):
         // Look up per-Project override in the catalog snapshot, then hand a nullable
         // `preferred` to the service. `resolveInstalledPreference` returns nil when
         // neither the override nor the global default resolves to an installed editor,
@@ -323,14 +319,12 @@ nonisolated struct SettingsWriter: Sendable {
 
   /// Per-Project envVars mutation. `value: nil` removes the key; `""` stores
   /// an empty-string value.
-  var setProjectEnvVar:
-    @Sendable (_ projectID: ProjectID, _ key: String, _ value: String?) async -> Void
+  var setProjectEnvVar: @Sendable (_ projectID: ProjectID, _ key: String, _ value: String?) async -> Void
 
   /// Per-Project scripts replace. The Scripts pane writes the full array
   /// after every edit / reorder / delete; this is simpler than per-script
   /// upsert closures and matches `ForEach.onMove`'s array-back semantics.
-  var setProjectScripts:
-    @Sendable (_ projectID: ProjectID, _ scripts: [ScriptDefinition]) async -> Void
+  var setProjectScripts: @Sendable (_ projectID: ProjectID, _ scripts: [ScriptDefinition]) async -> Void
 
   /// Per-Project worktree-lifecycle script. Empty string clears.
   var setProjectLifecycleScript:
