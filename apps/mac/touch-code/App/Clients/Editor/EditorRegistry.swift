@@ -1,7 +1,7 @@
 import Foundation
 import TouchCodeCore
 
-/// The C8a 28-entry built-in registry. Every row is a template: `appURL` is always nil and
+/// The C8a 29-entry built-in registry. Every row is a template: `appURL` is always nil and
 /// `alternateBundleIdentifiers` is always empty — the service layer resolves a live `appURL`
 /// against an `AppLauncher` at `describe()` time.
 ///
@@ -54,6 +54,11 @@ nonisolated enum EditorRegistry {
       bundleIdentifier: "com.vscodium",
       launchMode: .directory, appURL: nil,
       alternateBundleIdentifiers: []),
+    EditorDescriptor(
+      id: "sublimeText", displayName: "Sublime Text",
+      bundleIdentifier: "com.sublimetext.4",
+      launchMode: .directory, appURL: nil,
+      alternateBundleIdentifiers: ["com.sublimetext.3"]),
     // Editors — .applicationWithArguments (JetBrains)
     EditorDescriptor(
       id: "intellij", displayName: "IntelliJ IDEA",
@@ -175,7 +180,7 @@ nonisolated enum EditorRegistry {
   // MARK: - Priority lists
 
   static let editorPriority: [EditorID] = [
-    "cursor", "zed", "vscode", "windsurf", "vscodeInsiders", "vscodium",
+    "cursor", "zed", "vscode", "windsurf", "vscodeInsiders", "vscodium", "sublimeText",
     "intellij", "webstorm", "pycharm", "rubymine", "rustrover", "antigravity",
   ]
 
