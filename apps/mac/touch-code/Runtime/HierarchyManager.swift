@@ -47,23 +47,29 @@ final class HierarchyManager {
   // MARK: - Tag mutations
 
   /// Creates a new Tag with the given display name and color, appends it to
-  /// `catalog.tags`, and persists. Names are not enforced unique — see
-  /// `docs/design-docs/project-tags.md` §3.2 for rationale (mirrors Finder).
+  /// `catalog.tags`, and persists. Names are trimmed and rejected if empty
+  /// (returns a fresh TagID without appending — symmetric with the way
+  /// `addProject` would silently no-op on an empty name). Names are not
+  /// enforced unique — see `docs/design-docs/project-tags.md` §3.2 for
+  /// rationale (mirrors Finder).
   @discardableResult
   func createTag(name: String, color: TagColor) -> TagID {
-    let tag = Tag(name: name, color: color)
+    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return TagID() }
+    let tag = Tag(name: trimmed, color: color)
     catalog.tags.append(tag)
     store.scheduleSave(catalog)
     return tag.id
   }
 
-  /// Renames the Tag in place. Silent no-op for unknown ids and unchanged
-  /// values (no save scheduled). Caller is responsible for trim / empty
-  /// validation — matches the rename pattern established for `renameTab`.
+  /// Renames the Tag in place. Trims the input, rejects empty names, and
+  /// silently no-ops on unknown ids or unchanged values.
   func renameTag(_ id: TagID, to name: String) {
+    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return }
     guard let index = catalog.tags.firstIndex(where: { $0.id == id }) else { return }
-    guard catalog.tags[index].name != name else { return }
-    catalog.tags[index].name = name
+    guard catalog.tags[index].name != trimmed else { return }
+    catalog.tags[index].name = trimmed
     store.scheduleSave(catalog)
   }
 
@@ -143,8 +149,6 @@ final class HierarchyManager {
       name: name,
       rootPath: rootPath,
       gitRoot: gitRoot,
-      worktreesDirectory: nil,
-      defaultEditor: nil,
       worktrees: worktrees,
       selectedWorktreeID: selectedWorktreeID
     )
@@ -1489,38 +1493,6 @@ final class HierarchyManager {
       }
     }
     throw HierarchyError.notFound("Pane \(paneID)")
-  }
-
-  // MARK: - Legacy v1 catalog fields
-
-  /// One-shot drain of the two per-Project preference fields that lived on v1
-  /// `catalog.json` (`defaultEditor`, `worktreesDirectory`). Returns the
-  /// current values keyed by `ProjectID`, then clears them in-memory so the
-  /// next save writes the v2/v3 shape without those keys. Call sequence in
-  /// `AppState.init`: run this **before** constructing `SettingsStore` so the
-  /// drained map can be folded into `Settings.projects[pid]` during the v2 →
-  /// v3 `settings.json` migration via the injected `catalogOverrides` closure.
-  ///
-  /// Idempotent: a second call on an already-drained catalog returns an
-  /// empty map and schedules no save. Any Project whose two fields are both
-  /// nil is omitted from the returned map.
-  func drainLegacyOverrides() -> [ProjectID: (defaultEditor: EditorID?, worktreesDirectory: String?)] {
-    var overrides: [ProjectID: (defaultEditor: EditorID?, worktreesDirectory: String?)] = [:]
-    var mutated = false
-    for pIdx in catalog.projects.indices {
-      let editor = catalog.projects[pIdx].defaultEditor
-      let wtDir = catalog.projects[pIdx].worktreesDirectory
-      guard editor != nil || wtDir != nil else { continue }
-      let pid = catalog.projects[pIdx].id
-      overrides[pid] = (defaultEditor: editor, worktreesDirectory: wtDir)
-      catalog.projects[pIdx].defaultEditor = nil
-      catalog.projects[pIdx].worktreesDirectory = nil
-      mutated = true
-    }
-    if mutated {
-      store.scheduleSave(catalog)
-    }
-    return overrides
   }
 
   // MARK: - Phase 2: env resolution

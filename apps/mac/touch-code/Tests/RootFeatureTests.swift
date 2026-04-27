@@ -89,7 +89,7 @@ struct RootFeatureTests {
     )
     let project = Project(
       id: projectID, name: "p", rootPath: "/", gitRoot: "/",
-      worktreesDirectory: nil, defaultEditor: nil,
+
       worktrees: [worktree], selectedWorktreeID: worktreeID
     )
     let catalog = Catalog(projects: [project])
@@ -148,7 +148,7 @@ struct RootFeatureTests {
     )
     let project = Project(
       id: projectID, name: "p", rootPath: "/", gitRoot: "/",
-      worktreesDirectory: nil, defaultEditor: nil,
+
       worktrees: [wtA, wtB], selectedWorktreeID: worktreeA
     )
     return Catalog(projects: [project])
@@ -189,12 +189,14 @@ struct RootFeatureTests {
     // Initially no selection → helper returns false.
     #expect(store.state.gitViewerOverlayVisible(in: catalog) == false)
 
-    let selectionA = HierarchySelection(projectID: projectID, worktreeID: worktreeA
+    let selectionA = HierarchySelection(
+      projectID: projectID, worktreeID: worktreeA
     )
     await store.send(.selectionChanged(selectionA)) { $0.selection = selectionA }
     #expect(store.state.gitViewerOverlayVisible(in: catalog) == true)
 
-    let selectionB = HierarchySelection(projectID: projectID, worktreeID: worktreeB
+    let selectionB = HierarchySelection(
+      projectID: projectID, worktreeID: worktreeB
     )
     await store.send(.selectionChanged(selectionB)) { $0.selection = selectionB }
     #expect(store.state.gitViewerOverlayVisible(in: catalog) == false)
@@ -210,7 +212,8 @@ struct RootFeatureTests {
     let worktreeB = WorktreeID()
 
     var initial = RootFeature.State()
-    initial.selection = HierarchySelection(projectID: projectID, worktreeID: worktreeA
+    initial.selection = HierarchySelection(
+      projectID: projectID, worktreeID: worktreeA
     )
     let store = TestStore(initialState: initial) {
       RootFeature()
@@ -246,7 +249,8 @@ struct RootFeatureTests {
     )
 
     var initial = RootFeature.State()
-    initial.selection = HierarchySelection(projectID: projectID, worktreeID: worktreeA
+    initial.selection = HierarchySelection(
+      projectID: projectID, worktreeID: worktreeA
     )
 
     let store = TestStore(initialState: initial) {
@@ -435,7 +439,8 @@ struct RootFeatureTests {
     )
 
     var initial = RootFeature.State()
-    initial.selection = HierarchySelection(projectID: projectID, worktreeID: worktreeA
+    initial.selection = HierarchySelection(
+      projectID: projectID, worktreeID: worktreeA
     )
     let recorded = LockIsolated<[(WorktreeID, Bool)]>([])
     let store = TestStore(initialState: initial) {
@@ -512,7 +517,8 @@ struct RootFeatureTests {
     // `worktreeID: nil` is the key: when GitViewerFeature receives a nil-worktree selection
     // it resets state without spawning a diff effect, so the test stays exhaustive without
     // any downstream action chain.
-    let selection = HierarchySelection(projectID: nil,
+    let selection = HierarchySelection(
+      projectID: nil,
       worktreeID: nil
     )
     selectionContinuation.yield(selection)

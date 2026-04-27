@@ -225,37 +225,16 @@ final class AppState {
       runtime: runtime
     )
 
-    // Drain legacy v1 Project overrides (`defaultEditor`, `worktreesDirectory`) before
-    // constructing SettingsStore — the drained map is folded into `Settings.projects[pid]`
-    // during the v2 → v3 `settings.json` migration. Empty map on a v2 catalog; mutative
-    // on a v1 catalog (clears the two fields in-memory so the next save writes v2 shape).
-    // Operates on per-Project legacy fields only; not Space-coupled, so it survived the
-    // M2 schema flip.
-    let legacyOverrides = manager.drainLegacyOverrides()
-
-    // When drain captured any override, flush the catalog synchronously BEFORE
-    // SettingsStore's atomic v2→v3 rename commits: otherwise a crash between the two
-    // writes would leave a v3 settings.json (no further migration) paired with a v1
-    // catalog (re-decoded on next launch → drain emits the same overrides → migration
-    // no longer consulted → data silently lost).
-    if !legacyOverrides.isEmpty {
-      try? catalogStore.saveNow(manager.catalog)
-    }
     self.catalogStore = catalogStore
     self.hierarchyRuntime = runtime
     self.hierarchyManager = manager
     // C6 stores — cheap to build up front so InboxClient.live has
     // stable referents to bind its closures to. The inbox + settings
-    // files materialise during bringUp().
-    // 0005 M6b: SettingsStore is constructed here so its `@Observable`
-    // surface is alive for the full app lifetime. Views observe it via
-    // env injection; EditorClient closes over it in bringUp().
+    // files materialise during bringUp(). SettingsStore is constructed
+    // here so its `@Observable` surface is alive for the full app
+    // lifetime; views observe it via env injection.
     self.inboxStore = InboxStore()
-    // Settings stores catalog-overrides as a closure so the v2 → v3
-    // migration can fold them into `projects[pid]` top-level fields.
-    // After migration the closure is never called again (subsequent
-    // launches hit the strict v3 branch).
-    self.settingsStore = SettingsStore(catalogOverrides: legacyOverrides)
+    self.settingsStore = SettingsStore()
     self.worktreeStatusMonitor = .live()
     // TerminalEngine is constructed in bringUp() once we know whether a
     // GhosttyRuntime is available — this avoids a throwaway engine.

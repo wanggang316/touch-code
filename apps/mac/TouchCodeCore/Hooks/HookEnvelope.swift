@@ -33,7 +33,10 @@ extension HookEnvelope {
 /// worktree + ancestors. Debug builds call it on encode; release builds
 /// trust the producer.
 public nonisolated struct HookEnvelope: Equatable, Codable, Sendable, Identifiable {
-  public static let currentVersion = 1
+  /// Wire version. v1 → v2 dropped the `space` anchor field (and the
+  /// `space.*` template paths) when the Space concept was removed from
+  /// the catalog model.
+  public static let currentVersion = 2
 
   public var id: UUID
   public var version: Int
