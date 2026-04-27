@@ -167,9 +167,11 @@ struct SettingsWriterPhase2Tests {
       let writer = SettingsWriter.live(store)
       await writer.setProjectDefaultShell(pid, "/bin/zsh")
       await writer.setProjectEnvVar(pid, "MY_VAR", "hello")
-      await writer.setProjectScripts(pid, [
-        ScriptDefinition(kind: .test, name: "Test", command: "go test ./...")
-      ])
+      await writer.setProjectScripts(
+        pid,
+        [
+          ScriptDefinition(kind: .test, name: "Test", command: "go test ./...")
+        ])
       await writer.setProjectGitField(pid, .githubDisabled(true))
       await writer.setProjectLifecycleScript(pid, .setup, "echo SETUP")
       store.flush()

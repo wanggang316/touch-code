@@ -49,7 +49,7 @@ struct ChecksRollupRingBreakdownTests {
     ]
     for kind in kinds {
       let b = ChecksRollupRing.Breakdown(checks: [
-        CheckResult(name: "t", status: .completed, conclusion: kind),
+        CheckResult(name: "t", status: .completed, conclusion: kind)
       ])
       #expect(b.failing == 1, "expected \(kind) to count as failing")
       #expect(b.passing == 0)
@@ -60,7 +60,7 @@ struct ChecksRollupRingBreakdownTests {
   @Test
   func completedWithoutConclusionCountsAsNeutral() {
     let b = ChecksRollupRing.Breakdown(checks: [
-      CheckResult(name: "nullary", status: .completed, conclusion: nil),
+      CheckResult(name: "nullary", status: .completed, conclusion: nil)
     ])
     #expect(b.neutral == 1)
     #expect(b.total == 1)

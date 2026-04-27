@@ -41,7 +41,8 @@ struct HierarchyManagerResolvedEnvTests {
   @Test
   func projectEnvVarsOverrideProcessEnvOnCollision() {
     let pid = ProjectID()
-    let collidingKey = ProcessInfo.processInfo.environment.keys
+    let collidingKey =
+      ProcessInfo.processInfo.environment.keys
       .first { !Self.strippedKeys.contains($0) } ?? "HOME"
     var settings = Settings.default
     settings.projects[pid] = ProjectSettings(envVars: [collidingKey: "PROJECT_WINS"])

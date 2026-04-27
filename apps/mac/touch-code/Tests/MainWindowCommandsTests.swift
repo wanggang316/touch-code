@@ -138,7 +138,8 @@ struct MainWindowCommandsTests {
     let catalog = Catalog(projects: [project])
 
     var initial = RootFeature.State()
-    initial.selection = HierarchySelection(projectID: projectID, worktreeID: worktreeID
+    initial.selection = HierarchySelection(
+      projectID: projectID, worktreeID: worktreeID
     )
 
     let recorded = LockIsolated<[(WorktreeID, Bool)]>([])

@@ -22,7 +22,8 @@ struct CommandPaletteRunScriptTests {
     let worktree = Worktree(name: "wt", path: "/tmp/p/wt", branch: "main")
     project.worktrees = [worktree]
     catalog.projects = [project]
-    let selection = HierarchySelection(projectID: project.id, worktreeID: worktree.id
+    let selection = HierarchySelection(
+      projectID: project.id, worktreeID: worktree.id
     )
 
     let scripts = [
@@ -85,9 +86,11 @@ struct CommandPaletteRunScriptTests {
       }
     }
 
-    let selectionA = HierarchySelection(projectID: projectA.id, worktreeID: worktreeA.id
+    let selectionA = HierarchySelection(
+      projectID: projectA.id, worktreeID: worktreeA.id
     )
-    let selectionB = HierarchySelection(projectID: projectB.id, worktreeID: worktreeB.id
+    let selectionB = HierarchySelection(
+      projectID: projectB.id, worktreeID: worktreeB.id
     )
 
     let titlesA = itemsFor(selectionA).filter {
@@ -110,7 +113,8 @@ struct CommandPaletteRunScriptTests {
     let worktree = Worktree(name: "wt", path: "/tmp/p/wt", branch: "main")
     project.worktrees = [worktree]
     catalog.projects = [project]
-    let selection = HierarchySelection(projectID: project.id, worktreeID: worktree.id
+    let selection = HierarchySelection(
+      projectID: project.id, worktreeID: worktree.id
     )
 
     let items = withDependencies {
