@@ -409,12 +409,12 @@ nonisolated struct PaneAddress: Sendable, Equatable {
 /// level" — e.g. a Project may be implied by the worktree without an explicit
 /// project-level selection store.
 ///
-/// FIXME(rm-space, M2): v3 dropped per-Space `selectedProjectID`. The
-/// `projectID` field here is derived by walking `catalog.projects` for a
-/// project whose `selectedWorktreeID` matches `worktreeID`. Downstream
-/// features that needed a project-level selection beyond the implied parent
-/// of the active worktree must rebuild that state in their own reducers
-/// (M2.5+ work).
+/// `projectID` resolves from `Catalog.selectedProjectID` (the v3 top-level
+/// authoritative field, set by `HierarchyManager.selectProject`); when that
+/// is nil it falls back to the first Project carrying a non-nil
+/// `selectedWorktreeID` (the initial-load path before the user's first
+/// click). `worktreeID` reads off the resolved Project's
+/// `selectedWorktreeID`.
 nonisolated struct HierarchySelection: Equatable, Sendable {
   let projectID: ProjectID?
   let worktreeID: WorktreeID?
@@ -456,10 +456,7 @@ extension HierarchyClient {
       removeWorktree: { worktreeID, projectID in
         try manager.removeWorktree(worktreeID, from: projectID)
       },
-      // FIXME(rm-space, M2): no `selectProject` on the manager — v3 dropped
-      // catalog-level project selection. Closure currently no-ops. Sidebar
-      // reducers (M2.6) own selection state locally now.
-      selectProject: { _ in },
+      selectProject: { id in manager.selectProject(id) },
       selectWorktree: { worktreeID, projectID in
         try manager.selectWorktree(worktreeID, in: projectID)
       },
@@ -836,14 +833,19 @@ extension HierarchyClient {
     }
   }
 
-  /// FIXME(rm-space, M2): v3 has no top-level `selectedProjectID`. The
-  /// closest analog is the project that owns a non-nil `selectedWorktreeID`
-  /// — we pick the first one in catalog order. Downstream consumers that
-  /// need a richer notion of "current project" must layer it on in their
-  /// own reducers.
+  /// Resolve `(projectID, worktreeID)` for the selection stream. Reads the
+  /// authoritative `Catalog.selectedProjectID` first; if that is nil
+  /// (initial-load before the user's first click), falls back to the first
+  /// Project carrying a non-nil `selectedWorktreeID`. The fallback ensures
+  /// app launch lands on a sensible default without a UI poke.
   @MainActor
   private static func currentSelection(for manager: HierarchyManager) -> HierarchySelection {
     let catalog = manager.catalog
+    if let pid = catalog.selectedProjectID,
+      let project = catalog.projects.first(where: { $0.id == pid })
+    {
+      return HierarchySelection(projectID: project.id, worktreeID: project.selectedWorktreeID)
+    }
     for project in catalog.projects {
       if let worktreeID = project.selectedWorktreeID {
         return HierarchySelection(projectID: project.id, worktreeID: worktreeID)

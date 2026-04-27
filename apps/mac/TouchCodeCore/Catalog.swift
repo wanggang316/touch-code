@@ -8,17 +8,28 @@ public nonisolated struct Catalog: Equatable, Sendable {
   public var projects: [Project]
   public var tags: [Tag]
   public var activeTagFilter: TagFilter
+  /// Authoritative top-level "the user's current Project". Promoted in v3
+  /// from `Space.selectedProjectID` (which itself was demoted from
+  /// `Catalog.selectedSpaceID` in v2). Single-window simplification means
+  /// there is exactly one such selection per app — no per-Window or
+  /// per-Space ambiguity. The selection-stream resolver in
+  /// `HierarchyClient` reads this first; it falls back to the first
+  /// Project carrying a non-nil `selectedWorktreeID` only when this
+  /// field is nil (initial-load path).
+  public var selectedProjectID: ProjectID?
 
   public init(
     version: Int = Catalog.currentVersion,
     projects: [Project] = [],
     tags: [Tag] = [],
-    activeTagFilter: TagFilter = .all
+    activeTagFilter: TagFilter = .all,
+    selectedProjectID: ProjectID? = nil
   ) {
     self.version = version
     self.projects = projects
     self.tags = tags
     self.activeTagFilter = activeTagFilter
+    self.selectedProjectID = selectedProjectID
   }
 
   public static let empty = Catalog()
@@ -38,7 +49,7 @@ extension Catalog: Codable {
   }
 
   private enum CodingKeys: String, CodingKey {
-    case version, projects, tags, activeTagFilter
+    case version, projects, tags, activeTagFilter, selectedProjectID
     // v1/v2-only (decoded for migration, never encoded): spaces, windows, selectedSpaceID
     case spaces, windows, selectedSpaceID
   }
@@ -63,6 +74,8 @@ extension Catalog: Codable {
       self.tags = try container.decodeIfPresent([Tag].self, forKey: .tags) ?? []
       self.activeTagFilter =
         try container.decodeIfPresent(TagFilter.self, forKey: .activeTagFilter) ?? .all
+      self.selectedProjectID =
+        try container.decodeIfPresent(ProjectID.self, forKey: .selectedProjectID)
       return
     }
 
@@ -111,6 +124,11 @@ extension Catalog: Codable {
     self.projects = migratedProjects
     self.tags = migratedTags
     self.activeTagFilter = migratedFilter
+    // v2 had `Space.selectedProjectID` but it lived per-space; promoting
+    // it to the top-level v3 field would require knowing which Space's
+    // selection wins. We drop it on migration — the user's first
+    // sidebar interaction in the new build sets the v3 field cleanly.
+    self.selectedProjectID = nil
   }
 
   public func encode(to encoder: Encoder) throws {
@@ -124,6 +142,7 @@ extension Catalog: Codable {
     if activeTagFilter != .all {
       try container.encode(activeTagFilter, forKey: .activeTagFilter)
     }
+    try container.encodeIfPresent(selectedProjectID, forKey: .selectedProjectID)
   }
 }
 

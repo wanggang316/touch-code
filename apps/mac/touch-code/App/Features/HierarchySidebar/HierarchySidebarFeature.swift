@@ -643,6 +643,7 @@ struct HierarchySidebarFeature {
       // row for the same logical creation). The post-catalog steps below
       // are cosmetic side-effects and must not roll back this removal.
       state.pendingWorktrees.remove(id: id)
+      hierarchyClient.selectProject(pid)
       try? hierarchyClient.selectWorktree(worktreeID, pid)
       if let tabID = try? hierarchyClient.createTab(worktreeID, pid, nil) {
         _ = try? hierarchyClient.openPane(tabID, worktreeID, pid, pathString, nil)
