@@ -27,6 +27,10 @@ public nonisolated struct Project: Equatable, Sendable, Identifiable {
   /// choice survives app restarts. Pre-existing catalogs without this key
   /// also decode to `true` (preserves "everything visible" baseline).
   public var isExpanded: Bool
+  /// User-assigned tag membership. Set semantics in memory; encoded as a
+  /// sorted `[TagID]` so `git diff catalog.json` is order-stable. Default
+  /// empty — pre-tag catalogs decode to no tags.
+  public var tagIDs: Set<TagID>
   /// Transient. See `ProjectLoadState` doc-comment.
   public var loadState: ProjectLoadState
 
@@ -40,6 +44,7 @@ public nonisolated struct Project: Equatable, Sendable, Identifiable {
     worktrees: [Worktree] = [],
     selectedWorktreeID: WorktreeID? = nil,
     isExpanded: Bool = true,
+    tagIDs: Set<TagID> = [],
     loadState: ProjectLoadState = .loading
   ) {
     self.id = id
@@ -51,6 +56,7 @@ public nonisolated struct Project: Equatable, Sendable, Identifiable {
     self.worktrees = worktrees
     self.selectedWorktreeID = selectedWorktreeID
     self.isExpanded = isExpanded
+    self.tagIDs = tagIDs
     self.loadState = loadState
   }
 
@@ -66,7 +72,7 @@ extension Project: Codable {
   /// `Settings.projects[pid]` on first load, but they are **no longer encoded** — v2
   /// Projects never carry those keys. `loadState` is transient.
   private enum CodingKeys: String, CodingKey {
-    case id, name, rootPath, gitRoot, worktrees, selectedWorktreeID, isExpanded
+    case id, name, rootPath, gitRoot, worktrees, selectedWorktreeID, isExpanded, tagIDs
     // v1-only (decoded, never encoded): worktreesDirectory, defaultEditor
   }
 
@@ -88,6 +94,8 @@ extension Project: Codable {
     // both render expanded. Encoder only emits the key when collapsed, so
     // round-trips on existing data stay byte-identical.
     self.isExpanded = try container.decodeIfPresent(Bool.self, forKey: .isExpanded) ?? true
+    let tagIDArray = try container.decodeIfPresent([TagID].self, forKey: .tagIDs) ?? []
+    self.tagIDs = Set(tagIDArray)
     self.loadState = .loading
 
     // Legacy v1 fields — present on v1 catalogs, absent on v2. Carried in-memory so
@@ -110,6 +118,13 @@ extension Project: Codable {
     // round-trip identical for Projects in the default expanded state.
     if !isExpanded {
       try container.encode(false, forKey: .isExpanded)
+    }
+    // Stable on-disk ordering for set-typed memory: sort by raw UUID string.
+    // Omit the key entirely when the project carries no tags so pre-tag
+    // catalogs round-trip byte-identical.
+    if !tagIDs.isEmpty {
+      let sorted = tagIDs.sorted { $0.raw.uuidString < $1.raw.uuidString }
+      try container.encode(sorted, forKey: .tagIDs)
     }
     // `defaultEditor` and `worktreesDirectory` intentionally not encoded (v2 shape).
     // `loadState` intentionally not encoded.
