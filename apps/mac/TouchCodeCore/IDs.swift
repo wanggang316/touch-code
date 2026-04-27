@@ -34,3 +34,8 @@ public nonisolated struct PaneID: HierarchyID {
   public let raw: UUID
   public init(raw: UUID) { self.raw = raw }
 }
+
+public nonisolated struct TagID: HierarchyID {
+  public let raw: UUID
+  public init(raw: UUID) { self.raw = raw }
+}
