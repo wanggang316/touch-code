@@ -13,12 +13,7 @@ and the project does not yet follow semantic versioning — every release until
 - **Spaces.** The top-level workspace grouping is gone. Projects are now
   the top-level row in the sidebar; the prior 5-level hierarchy
   (Space → Project → Worktree → Tab → Pane) collapses to 4 levels
-  (Project → Worktree → Tab → Pane). Existing v2 catalogs are migrated
-  losslessly: each Space becomes a same-named Tag (Finder-palette color
-  cycled by Space order), and every Project that lived in that Space
-  inherits the Tag. The previously-active Space (`Catalog.selectedSpaceID`,
-  or the first window's selection) becomes the initial filter on
-  `Catalog.activeTagFilter`.
+  (Project → Worktree → Tab → Pane).
 - **Multi-window.** The main scene is now `Window(id: "main")` instead of
   `WindowGroup`. The `WindowGroup` allowed users to spawn extra main
   windows from the system menu, but no in-app surface ever consumed
@@ -62,17 +57,20 @@ and the project does not yet follow semantic versioning — every release until
 
 ### Changed
 
-- **`catalog.json` schema bumped to v3.** v3 readers accept v1, v2, v3
-  payloads (chained migration). v2 → v3 normalizes the version field
-  in-memory; the next save writes v3 shape. Downgrading a v3 catalog
-  to a pre-rm-space build will fail with `unsupportedVersion(3)` —
-  restore from a backup.
-- **`HookEnvelope` v1 wire shape changes** — `space` field removed.
-  Hook handlers should drop any `envelope.space.*` references.
+- **`catalog.json` schema bumped to v3.** **No backward compatibility:**
+  the v3 reader rejects v1 and v2 payloads with `unsupportedVersion`. A
+  user upgrading from a pre-rm-space build will need to delete (or
+  hand-edit) `~/.config/touch-code/catalog.json` to launch the new
+  build; a fresh v3 catalog will be written from defaults. Downgrading
+  a v3 catalog back to a pre-rm-space build also fails-loud.
+- **`HookEnvelope` wire bumped to v2.** v1 → v2 dropped the `space`
+  anchor field and the `space.*` template paths. Hook handlers should
+  drop any `envelope.space.*` references and check
+  `envelope.version >= 2` if they read newer fields.
 
-### Migration
+### Breaking
 
-The catalog migration runs once on first launch of the new build. A
-backup of the prior catalog is not made automatically — users who want
-a rollback path should copy `~/.config/touch-code/catalog.json` aside
-before running the new build.
+- Existing `catalog.json` files (v1 / v2) are not migrated; the new
+  build refuses to read them. This is intentional — see Removed §
+  catalog.json schema. Recommended path for upgraders: delete the file
+  and re-add Projects via the sidebar's "Add Project" affordance.
