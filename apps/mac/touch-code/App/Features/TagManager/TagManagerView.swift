@@ -98,15 +98,17 @@ struct TagManagerSheet: View {
         emptyState
       } else {
         List {
-          ForEach(tags) { tag in
+          ForEach(Array(tags.enumerated()), id: \.element.id) { index, tag in
             tagRow(tag)
               .listRowSeparator(.hidden)
-              .listRowBackground(Color.clear)
+              .listRowBackground(
+                Color.primary.opacity(index.isMultiple(of: 2) ? 0 : 0.05)
+              )
               .listRowInsets(
                 EdgeInsets(
-                  top: 2,
+                  top: 0,
                   leading: Self.edgeX - Self.rowInnerPad - Self.swatchCellOffset,
-                  bottom: 2,
+                  bottom: 0,
                   trailing: Self.edgeX - Self.rowInnerPad
                 )
               )
@@ -431,19 +433,8 @@ private struct HoverableTagRow<Leading: View, Trailing: View>: View {
         .opacity(isHovering ? 1 : 0)
     }
     .padding(.horizontal, 6)
-    .padding(.vertical, 6)
-    .background(
-      RoundedRectangle(cornerRadius: 7, style: .continuous)
-        .fill(rowFill)
-    )
+    .padding(.vertical, 7)
     .contentShape(Rectangle())
     .onHover { isHovering = $0 }
-  }
-
-  /// Subtle always-on tint per row gives the list visible "card"
-  /// rhythm so the eye can scan rows without relying on separators;
-  /// hover state deepens it slightly to confirm interactivity.
-  private var rowFill: Color {
-    isHovering ? Color.primary.opacity(0.08) : Color.primary.opacity(0.04)
   }
 }
