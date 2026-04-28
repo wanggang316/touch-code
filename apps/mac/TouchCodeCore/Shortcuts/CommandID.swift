@@ -38,6 +38,7 @@ public enum CommandID: String, CaseIterable, Hashable, Sendable, Codable, Coding
   case switchToTab7
   case switchToTab8
   case switchToTab9
+  case switchToTab10
 
   // Sidebar row hotkeys.
   case selectWorktreeAt1
@@ -49,12 +50,14 @@ public enum CommandID: String, CaseIterable, Hashable, Sendable, Codable, Coding
   case selectWorktreeAt7
   case selectWorktreeAt8
   case selectWorktreeAt9
+  case selectWorktreeAt10
 }
 
 extension CommandID {
   /// Maps a 1-based tab index to the matching `switchToTabN` case, or `nil` if `index` is
-  /// outside `1...9`. Used by `MainWindowCommands` when wiring the `⌥⌘1`–`⌥⌘9` quartet from a
-  /// single `ForEach`.
+  /// outside `1...10`. Used by `MainWindowCommands` when wiring the `⌘1`–`⌘9` / `⌘0` row
+  /// from a single `ForEach`. The 10th slot is keyed under digit `0` per the macOS / Safari
+  /// convention.
   public static func switchToTab(index: Int) -> CommandID? {
     switch index {
     case 1: return .switchToTab1
@@ -66,13 +69,14 @@ extension CommandID {
     case 7: return .switchToTab7
     case 8: return .switchToTab8
     case 9: return .switchToTab9
+    case 10: return .switchToTab10
     default: return nil
     }
   }
 
   /// Maps a 1-based sidebar row index to the matching `selectWorktreeAtN` case. Rows beyond
-  /// 9 receive no hotkey, matching the pre-registry behavior at
-  /// `HierarchySidebarView.swift:619`.
+  /// 10 receive no hotkey. The 10th slot is keyed under digit `0` per the macOS / Safari
+  /// convention.
   public static func selectWorktreeAt(index: Int) -> CommandID? {
     switch index {
     case 1: return .selectWorktreeAt1
@@ -84,6 +88,7 @@ extension CommandID {
     case 7: return .selectWorktreeAt7
     case 8: return .selectWorktreeAt8
     case 9: return .selectWorktreeAt9
+    case 10: return .selectWorktreeAt10
     default: return nil
     }
   }

@@ -207,63 +207,70 @@ extension ShortcutSchema {
         title: "Select Worktree 1",
         category: .sidebar,
         scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_1), modifiers: [.command, .control])
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_1), modifiers: [.control])
       ),
       .init(
         id: .selectWorktreeAt2,
         title: "Select Worktree 2",
         category: .sidebar,
         scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_2), modifiers: [.command, .control])
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_2), modifiers: [.control])
       ),
       .init(
         id: .selectWorktreeAt3,
         title: "Select Worktree 3",
         category: .sidebar,
         scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_3), modifiers: [.command, .control])
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_3), modifiers: [.control])
       ),
       .init(
         id: .selectWorktreeAt4,
         title: "Select Worktree 4",
         category: .sidebar,
         scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_4), modifiers: [.command, .control])
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_4), modifiers: [.control])
       ),
       .init(
         id: .selectWorktreeAt5,
         title: "Select Worktree 5",
         category: .sidebar,
         scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_5), modifiers: [.command, .control])
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_5), modifiers: [.control])
       ),
       .init(
         id: .selectWorktreeAt6,
         title: "Select Worktree 6",
         category: .sidebar,
         scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_6), modifiers: [.command, .control])
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_6), modifiers: [.control])
       ),
       .init(
         id: .selectWorktreeAt7,
         title: "Select Worktree 7",
         category: .sidebar,
         scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_7), modifiers: [.command, .control])
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_7), modifiers: [.control])
       ),
       .init(
         id: .selectWorktreeAt8,
         title: "Select Worktree 8",
         category: .sidebar,
         scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_8), modifiers: [.command, .control])
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_8), modifiers: [.control])
       ),
       .init(
         id: .selectWorktreeAt9,
         title: "Select Worktree 9",
         category: .sidebar,
         scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_9), modifiers: [.command, .control])
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_9), modifiers: [.control])
+      ),
+      .init(
+        id: .selectWorktreeAt10,
+        title: "Select Worktree 10",
+        category: .sidebar,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_0), modifiers: [.control])
       ),
     ]
   )
