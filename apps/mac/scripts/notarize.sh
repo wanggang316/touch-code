@@ -26,10 +26,20 @@ target="${1:-}"
 }
 
 cleanup_files=()
+cleanup_dirs=()
 cleanup() {
-  for f in "${cleanup_files[@]}"; do
-    [ -n "${f}" ] && rm -f "${f}" || true
-  done
+  # Guard the loops: bash 3.2 (default /bin/bash on macOS) errors on
+  # "${arr[@]}" when arr is empty under `set -u`.
+  if [ "${#cleanup_files[@]}" -gt 0 ]; then
+    for f in "${cleanup_files[@]}"; do
+      [ -n "${f}" ] && rm -f "${f}" || true
+    done
+  fi
+  if [ "${#cleanup_dirs[@]}" -gt 0 ]; then
+    for d in "${cleanup_dirs[@]}"; do
+      [ -n "${d}" ] && rm -rf "${d}" || true
+    done
+  fi
 }
 trap cleanup EXIT
 
@@ -38,7 +48,9 @@ if [ -n "${AC_API_KEY_ID:-}" ]; then
   : "${AC_API_KEY_P8:?AC_API_KEY_P8 must be set when AC_API_KEY_ID is set}"
   key_path="$(mktemp -t touch-code-notary).p8"
   cleanup_files+=("${key_path}")
-  printf '%s' "${AC_API_KEY_P8}" | base64 --decode > "${key_path}"
+  # `tr -d` strips whitespace and CRs that creep in when secrets are
+  # set via UI dashboards; `-D` (BSD base64) is what macOS ships.
+  printf '%s' "${AC_API_KEY_P8}" | tr -d ' \n\r\t' | base64 -D > "${key_path}"
   notary_args=(--key "${key_path}" --key-id "${AC_API_KEY_ID}" --issuer "${AC_API_ISSUER_ID}")
 else
   profile="${KEYCHAIN_PROFILE:-touch-code-notary}"
@@ -52,9 +64,10 @@ cleanup_files+=("${submit_log}")
 # notarytool wants a zip when notarizing a .app; DMGs go in directly.
 case "${target}" in
   *.app)
-    zip_path="$(mktemp -d -t touch-code-notary)/$(basename "${target}").zip"
+    zip_dir="$(mktemp -d -t touch-code-notary)"
+    cleanup_dirs+=("${zip_dir}")
+    zip_path="${zip_dir}/$(basename "${target}").zip"
     /usr/bin/ditto -c -k --keepParent "${target}" "${zip_path}"
-    cleanup_files+=("${zip_path}")
     submission="${zip_path}"
     ;;
   *.dmg)
