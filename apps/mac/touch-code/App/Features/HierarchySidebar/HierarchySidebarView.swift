@@ -1186,26 +1186,62 @@ private final class ProjectOptionsMenuPanel: NSPanel {
   /// "Adopting Liquid Glass" sample's grouped-glass examples and the
   /// system menus on macOS 26.
   static let liquidGlassCornerRadius: CGFloat = 12
+  /// Pixel margin around the glass inside the panel frame, leaving room
+  /// for the custom CALayer shadow to render without being clipped at
+  /// the window edge. AppKit's auto-shadow follows window alpha (which
+  /// would draw a rectangle past the rounded backdrop), so on Tahoe we
+  /// disable that and paint our own rounded shadow on the layer
+  /// instead.
+  private static let liquidGlassShadowMargin: CGFloat = 16
 
   override var canBecomeKey: Bool { true }
   override var canBecomeMain: Bool { false }
+
+  /// Rectangle (in panel-content coords) that the visible menu chrome
+  /// occupies. On pre-Tahoe this is the full panel; on Tahoe the glass
+  /// is inset by `liquidGlassShadowMargin` to leave room for the layer
+  /// shadow, so the controller has to anchor positioning against this
+  /// rect rather than the panel frame.
+  let visibleContentRect: NSRect
 
   init(rootView: some View) {
     let host = NSHostingView(rootView: AnyView(rootView))
     host.frame.size = host.fittingSize
 
-    let backdrop = Self.makeMenuBackdrop(host: host)
+    let usesLiquidGlass: Bool
+    if #available(macOS 26, *) { usesLiquidGlass = true } else { usesLiquidGlass = false }
+
+    let contentSize: NSSize
+    if usesLiquidGlass {
+      contentSize = NSSize(
+        width: host.frame.width + Self.liquidGlassShadowMargin * 2,
+        height: host.frame.height + Self.liquidGlassShadowMargin * 2
+      )
+      self.visibleContentRect = NSRect(
+        x: Self.liquidGlassShadowMargin,
+        y: Self.liquidGlassShadowMargin,
+        width: host.frame.width,
+        height: host.frame.height
+      )
+    } else {
+      contentSize = host.frame.size
+      self.visibleContentRect = NSRect(origin: .zero, size: host.frame.size)
+    }
 
     super.init(
-      contentRect: NSRect(origin: .zero, size: host.frame.size),
+      contentRect: NSRect(origin: .zero, size: contentSize),
       styleMask: [.borderless, .nonactivatingPanel],
       backing: .buffered,
       defer: false
     )
-    self.contentView = backdrop
+    self.contentView = Self.makeMenuBackdrop(host: host, panelSize: contentSize)
     self.isOpaque = false
     self.backgroundColor = .clear
-    self.hasShadow = true
+    // On Tahoe we paint our own rounded layer shadow; AppKit's auto
+    // shadow would still trace the rectangular window frame past the
+    // rounded glass. On older macOS, the masksToBounds wrapper clips
+    // alpha to the rounded shape so AppKit's auto shadow follows it.
+    self.hasShadow = !usesLiquidGlass
     self.level = .popUpMenu
     self.isMovable = false
     self.hidesOnDeactivate = false
@@ -1213,52 +1249,81 @@ private final class ProjectOptionsMenuPanel: NSPanel {
   }
 
   /// Builds the OS-appropriate glass / vibrancy backdrop and embeds the
-  /// SwiftUI hosting view inside it. Wraps in a `masksToBounds`
-  /// container in both branches: NSGlassEffectView's `cornerRadius`
-  /// clips the visible *material* but the view's alpha mask stays
-  /// rectangular, so AppKit's window shadow draws a faint rectangle
-  /// past each rounded corner. The container forces the alpha mask to
-  /// match the rounded silhouette. Tahoe's Liquid Glass loses some live
-  /// blur quality through the extra compositing pass; that's the cost
-  /// of getting a system-correct rounded silhouette without a private
-  /// API.
-  private static func makeMenuBackdrop(host: NSHostingView<AnyView>) -> NSView {
-    let cornerRadius: CGFloat
-    let backdrop: NSView
+  /// SwiftUI hosting view inside it.
+  ///
+  /// On macOS 26 (Tahoe) we hand `NSGlassEffectView` direct ownership
+  /// of the SwiftUI host through `contentView`. Wrapping the glass in
+  /// a `masksToBounds` `NSView` would clip alpha to the rounded shape
+  /// but flatten the layer tree — Liquid Glass needs the live blur
+  /// pipeline and the wrapper's offscreen render kills it. Instead we
+  /// paint a CALayer shadow with a rounded `shadowPath` and let the
+  /// glass live in a transparent margin so the shadow has room.
+  ///
+  /// On older macOS, `NSVisualEffectView`'s vibrancy isn't a live blur
+  /// the way Liquid Glass is, so the masksToBounds clip costs nothing
+  /// visible and we keep the simpler auto-shadow path.
+  private static func makeMenuBackdrop(
+    host: NSHostingView<AnyView>,
+    panelSize: NSSize
+  ) -> NSView {
     if #available(macOS 26, *) {
-      let glass = NSGlassEffectView(
-        frame: NSRect(origin: .zero, size: host.frame.size)
+      let glassFrame = NSRect(
+        x: liquidGlassShadowMargin,
+        y: liquidGlassShadowMargin,
+        width: host.frame.width,
+        height: host.frame.height
       )
+
+      // Stage carries the rounded layer shadow as a `shadowPath` —
+      // setting the shadow on `glass.layer` directly is unreliable
+      // because NSGlassEffectView's cornerRadius may toggle its own
+      // `masksToBounds` to clip the live-blur material, which would
+      // also clip away the shadow. The stage doesn't clip and
+      // doesn't host the live blur, so the shadow renders cleanly
+      // outside the rounded silhouette.
+      let stage = NSView(frame: NSRect(origin: .zero, size: panelSize))
+      stage.autoresizingMask = [.width, .height]
+      stage.wantsLayer = true
+      stage.layer?.shadowColor = NSColor.black.cgColor
+      stage.layer?.shadowOpacity = 0.28
+      stage.layer?.shadowRadius = 12
+      stage.layer?.shadowOffset = CGSize(width: 0, height: -3)
+      stage.layer?.shadowPath = CGPath(
+        roundedRect: glassFrame,
+        cornerWidth: liquidGlassCornerRadius,
+        cornerHeight: liquidGlassCornerRadius,
+        transform: nil
+      )
+
+      let glass = NSGlassEffectView(frame: glassFrame)
       glass.cornerRadius = liquidGlassCornerRadius
       glass.contentView = host
-      glass.autoresizingMask = [.width, .height]
-      cornerRadius = liquidGlassCornerRadius
-      backdrop = glass
-    } else {
-      let effect = NSVisualEffectView(
-        frame: NSRect(origin: .zero, size: host.frame.size)
-      )
-      effect.material = .menu
-      effect.blendingMode = .behindWindow
-      effect.state = .active
-      effect.autoresizingMask = [.width, .height]
-
-      host.frame = effect.bounds
-      host.autoresizingMask = [.width, .height]
-      effect.addSubview(host)
-      cornerRadius = legacyCornerRadius
-      backdrop = effect
+      glass.autoresizingMask = []
+      stage.addSubview(glass)
+      return stage
     }
 
-    let clip = NSView(frame: backdrop.frame)
+    let effect = NSVisualEffectView(
+      frame: NSRect(origin: .zero, size: host.frame.size)
+    )
+    effect.material = .menu
+    effect.blendingMode = .behindWindow
+    effect.state = .active
+    effect.autoresizingMask = [.width, .height]
+
+    host.frame = effect.bounds
+    host.autoresizingMask = [.width, .height]
+    effect.addSubview(host)
+
+    let clip = NSView(frame: effect.frame)
     clip.wantsLayer = true
-    clip.layer?.cornerRadius = cornerRadius
+    clip.layer?.cornerRadius = legacyCornerRadius
     clip.layer?.cornerCurve = .continuous
     clip.layer?.masksToBounds = true
     clip.autoresizingMask = [.width, .height]
-    backdrop.frame = clip.bounds
-    backdrop.autoresizingMask = [.width, .height]
-    clip.addSubview(backdrop)
+    effect.frame = clip.bounds
+    effect.autoresizingMask = [.width, .height]
+    clip.addSubview(effect)
     return clip
   }
 }
@@ -1312,13 +1377,17 @@ private final class ProjectOptionsMenuController {
     let panel = ProjectOptionsMenuPanel(rootView: content)
     self.panel = panel
 
-    // Position just below the anchor in screen coordinates.
+    // Position so the *visible* menu — not the panel frame — sits 4 pt
+    // below the anchor's bottom-left. The panel may be larger than the
+    // visible content (Tahoe leaves a margin for the layer shadow),
+    // so we offset by `visibleContentRect.minX/maxY` inside the panel.
     let anchorScreenOrigin = anchorWindow.convertPoint(
       toScreen: anchor.convert(NSPoint.zero, to: nil)
     )
+    let visible = panel.visibleContentRect
     let panelOrigin = NSPoint(
-      x: anchorScreenOrigin.x,
-      y: anchorScreenOrigin.y - panel.frame.height - 4
+      x: anchorScreenOrigin.x - visible.minX,
+      y: anchorScreenOrigin.y - 4 - visible.maxY
     )
     panel.setFrameOrigin(panelOrigin)
 
