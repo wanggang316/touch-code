@@ -191,6 +191,7 @@ let project = Project(
       name: "touch-code",
       destinations: .macOS,
       product: .app,
+      productName: "Touch Code",
       bundleId: "com.gumpw.touch-agent-mac",
       deploymentTargets: .macOS("14.0"),
       infoPlist: .file(path: "Configurations/mac-Info.plist"),
@@ -208,6 +209,7 @@ let project = Project(
         "touch-code/GitHub",
         "touch-code/Notifications",
       ],
+      entitlements: .file(path: "Configurations/touch-code.entitlements"),
       // git-wt submodule wiring. Pre-script fails the build cleanly when
       // the submodule is not checked out; post-script copies only the `wt`
       // file into Resources/git-wt/wt so Bundle.main.url(forResource:
