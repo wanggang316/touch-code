@@ -32,7 +32,7 @@ struct GitViewerModalHost: View {
 
         GitViewerView(store: store)
           .frame(width: card.width, height: card.height)
-          .clipShape(RoundedRectangle(cornerRadius: 12))
+          .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
           .shadow(radius: 24, y: 10)
           .onKeyPress(.escape) {
             onDismiss()
