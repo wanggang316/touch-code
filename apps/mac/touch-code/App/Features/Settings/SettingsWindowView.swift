@@ -11,6 +11,8 @@ struct SettingsWindowView: View {
   /// Strong reference to the store so Appearance / future pane writes route through the
   /// single-writer SettingsStore without TCA scoping churn. Injected at scene construction.
   let settingsStore: SettingsStore
+  /// Strong reference to the shortcuts store so the Shortcuts pane can mutate overrides.
+  let shortcutsStore: ShortcutsStore
   /// Read for the sidebar's Repositories disclosure + the B8 pruning subscription below.
   @Environment(HierarchyManager.self) private var hierarchyManager
 
@@ -80,7 +82,7 @@ struct SettingsWindowView: View {
     case .developer:
       DeveloperSettingsView()
     case .shortcuts:
-      ComingSoonPane(title: "Shortcuts")
+      ShortcutsSettingsView(store: shortcutsStore)
     case .updates:
       ComingSoonPane(title: "Updates")
     case .about:

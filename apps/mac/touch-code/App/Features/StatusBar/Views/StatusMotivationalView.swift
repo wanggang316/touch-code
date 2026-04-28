@@ -14,6 +14,8 @@ struct StatusMotivationalView: View {
   /// `icon + HH:mm`. Driven by `ViewThatFits` in narrow titlebars.
   var compact: Bool = false
 
+  @Environment(\.resolvedShortcuts) private var resolvedShortcuts
+
   var body: some View {
     TimelineView(.everyMinute) { context in
       row(for: context.date)
@@ -24,7 +26,8 @@ struct StatusMotivationalView: View {
   private func row(for date: Date) -> some View {
     let style = Self.timeStyle(for: Calendar.current.component(.hour, from: date))
     let displayTime = date.formatted(date: .omitted, time: .shortened)
-    let fullText = "\(displayTime) – Open Command Palette \(CommandPaletteShortcut.displayString)"
+    let chord = chordDisplay()
+    let fullText = "\(displayTime) – Open Command Palette \(chord)"
     let displayText = compact ? displayTime : fullText
     HStack(spacing: 8) {
       Image(systemName: style.icon)
@@ -41,6 +44,20 @@ struct StatusMotivationalView: View {
     .accessibilityLabel("Status idle")
     .accessibilityValue(fullText)
     .accessibilityIdentifier("status.motivational")
+  }
+
+  /// Resolves the Command Palette chord display from the registry, falling back to the
+  /// schema default when the env-injected map is missing the entry (rare — only happens
+  /// before `ShortcutsStore` finishes loading).
+  private func chordDisplay() -> String {
+    if let resolved = resolvedShortcuts[.commandPaletteToggle], resolved.isEnabled,
+       let binding = resolved.binding {
+      return ShortcutDisplay.chord(for: binding)
+    }
+    if let fallback = ShortcutSchema.app.entry(for: .commandPaletteToggle)?.defaultBinding {
+      return ShortcutDisplay.chord(for: fallback)
+    }
+    return ""
   }
 
   /// Pure `hour → (icon, color)` mapping. Break-points are inclusive on

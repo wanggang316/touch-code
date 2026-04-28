@@ -1,5 +1,6 @@
 import ComposableArchitecture
 import SwiftUI
+import TouchCodeCore
 
 /// Overlay UI for the Command Palette. Presented as a floating card
 /// centered near the top of the window, over whatever the
@@ -15,6 +16,7 @@ struct CommandPaletteView: View {
   /// has no teardown work to do.
   let onDismiss: () -> Void
 
+  @Environment(\.resolvedShortcuts) private var resolvedShortcuts
   @FocusState private var queryFocused: Bool
 
   var body: some View {
@@ -108,8 +110,8 @@ struct CommandPaletteView: View {
         }
       }
       Spacer()
-      if let shortcut = item.shortcut {
-        Text(shortcut.keys.joined())
+      if let chord = chordDisplay(for: item) {
+        Text(chord)
           .font(.system(size: 11, design: .monospaced))
           .foregroundStyle(selected ? AnyShapeStyle(.white.opacity(0.85)) : AnyShapeStyle(.secondary))
       }
@@ -118,5 +120,18 @@ struct CommandPaletteView: View {
     .padding(.vertical, 8)
     .background(selected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(Color.clear))
     .foregroundStyle(selected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+  }
+
+  /// Prefer the registry-derived chord when the item declares a `commandID` and the resolved
+  /// map has an enabled binding. Falls back to the literal `KeyEquivalentDescriptor` —
+  /// retained so per-script and ad-hoc items can still surface a hint without a registry
+  /// entry.
+  private func chordDisplay(for item: CommandPaletteItem) -> String? {
+    if let id = item.commandID,
+       let resolved = resolvedShortcuts[id], resolved.isEnabled,
+       let binding = resolved.binding {
+      return ShortcutDisplay.chord(for: binding)
+    }
+    return item.shortcut.map { $0.keys.joined() }
   }
 }
