@@ -1179,14 +1179,19 @@ private struct ProjectTagDots: View {
 }
 
 /// Inline tag controls for the project header ⋯ menu. Renders the catalog
-/// tags as a horizontal `Picker(.palette)` strip — the Apple-blessed
-/// pattern (Notes, Reminders) — with each item's `.tint(...)` providing
-/// the swatch color and `.paletteSelectionEffect(.symbolVariant(.fill))`
-/// toggling between hollow / filled circles for unselected / selected.
-/// Below the palette sits a plain "Tags…" entry that opens the global
-/// TagManager via the sidebar's `.openTagManager` delegate. When the
-/// catalog has no tags, only the "Tags…" entry renders so users can
-/// still discover the manager.
+/// tags as a `ControlGroup(.palette)` of always-filled colored circles
+/// that flip to `checkmark.circle.fill` when the project carries the tag.
+/// Color comes from `.tint(...)` on the Button (NSMenu's palette renderer
+/// honours per-item tint; `.foregroundStyle` on the inner Label is
+/// silently dropped). Below the palette sits a plain "Tags…" entry that
+/// opens the global TagManager via the sidebar's `.openTagManager`
+/// delegate. When the catalog has no tags, only the "Tags…" entry
+/// renders so users can still discover the manager.
+///
+/// `Picker(.palette)` is the more idiomatic API but its
+/// `paletteSelectionEffect` only switches symbol variants (hollow ↔
+/// filled) — there's no built-in path to a checkmark overlay, so we
+/// drive the symbol manually here.
 private struct ProjectTagsMenu: View {
   let project: Project
   @Bindable var store: StoreOf<HierarchySidebarFeature>
@@ -1195,23 +1200,23 @@ private struct ProjectTagsMenu: View {
   var body: some View {
     let tags = hierarchyManager.catalog.tags
     if !tags.isEmpty {
-      Picker(
-        "Tags",
-        selection: Binding<Set<TagID>>(
-          get: { project.tagIDs },
-          set: { newSet in
-            store.send(.setProjectTagsBulk(project.id, newSet))
-          }
-        )
-      ) {
+      ControlGroup {
         ForEach(tags) { tag in
-          Label(tag.name, systemImage: "circle")
-            .tint(swiftUIColor(for: tag.color))
-            .tag(tag.id)
+          let isOn = project.tagIDs.contains(tag.id)
+          Button {
+            store.send(.toggleTagOnProject(project.id, tag.id))
+          } label: {
+            Label(
+              tag.name,
+              systemImage: isOn ? "checkmark.circle.fill" : "circle.fill"
+            )
+            .labelStyle(.iconOnly)
+          }
+          .tint(swiftUIColor(for: tag.color))
+          .help(tag.name)
         }
       }
-      .pickerStyle(.palette)
-      .paletteSelectionEffect(.symbolVariant(.fill))
+      .controlGroupStyle(.palette)
     }
     Button {
       store.send(.delegate(.openTagManager))

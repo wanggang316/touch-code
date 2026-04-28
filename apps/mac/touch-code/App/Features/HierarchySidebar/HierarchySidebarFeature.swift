@@ -192,10 +192,6 @@ struct HierarchySidebarFeature {
     /// `tagIDs`. Resolves the current set from the catalog snapshot so
     /// the View binding can be a plain Toggle without holding state.
     case toggleTagOnProject(ProjectID, TagID)
-    /// Replace the Project's `tagIDs` wholesale. Used by the project
-    /// header ⋯ menu's `Picker(.palette)` whose `Set<TagID>` setter
-    /// fires with the new full set rather than per-tag toggles.
-    case setProjectTagsBulk(ProjectID, Set<TagID>)
 
     // Project Options — scoped into ProjectOptionsFeature via @Presents.
     case projectOptions(PresentationAction<ProjectOptionsFeature.Action>)
@@ -396,10 +392,6 @@ struct HierarchySidebarFeature {
         updated.insert(tagID)
       }
       hierarchyClient.setProjectTags(projectID, updated)
-      return .none
-
-    case .setProjectTagsBulk(let projectID, let set):
-      hierarchyClient.setProjectTags(projectID, set)
       return .none
 
     // MARK: Project hover chrome
