@@ -885,6 +885,7 @@ private struct ProjectHeaderRow: View {
   @State private var isHovering = false
   @State private var isPlusHovering = false
   @State private var isMenuHovering = false
+  @State private var isOptionsPopoverPresented = false
 
   var body: some View {
     HStack(spacing: 6) {
@@ -929,60 +930,22 @@ private struct ProjectHeaderRow: View {
           .buttonStyle(.plain)
           .onHover { isPlusHovering = $0 }
         }
-        Menu {
-          Button {
-            store.send(
-              .projectOptionsTapped(projectID: project.id)
-            )
-          } label: {
-            Label("Project Options…", systemImage: "slider.horizontal.3")
-          }
-          let archivedCount = project.worktrees.filter { $0.archived }.count
-          Button {
-            store.send(
-              .projectShowArchivedTapped(projectID: project.id)
-            )
-          } label: {
-            Label(
-              archivedCount > 0
-                ? "Archived Worktrees (\(archivedCount))…"
-                : "Archived Worktrees…",
-              systemImage: "archivebox"
-            )
-          }
-          Button {
-            store.send(
-              .projectPruneTapped(projectID: project.id)
-            )
-          } label: {
-            Label("Prune Stale Worktrees", systemImage: "wand.and.sparkles")
-          }
-          Divider()
-          // M5 (project-tags): inline color palette + "Tags…" button. The
-          // palette toggles `Project.tagIDs` membership through
-          // `setProjectTags`; "Tags…" opens the global TagManager sheet via
-          // the sidebar's `.openTagManager` delegate.
-          ProjectTagsMenu(project: project, store: store)
-          Divider()
-          Button(role: .destructive) {
-            store.send(
-              .projectRemoveTapped(
-                projectID: project.id,
-                name: project.name
-              )
-            )
-          } label: {
-            Label("Remove Project", systemImage: "trash")
-          }
+        Button {
+          isOptionsPopoverPresented.toggle()
         } label: {
           iconLabel(systemName: "ellipsis", isHovering: isMenuHovering)
             .accessibilityLabel("Project options")
         }
-        .menuStyle(.button)
         .buttonStyle(.plain)
-        .menuIndicator(.hidden)
         .fixedSize()
         .onHover { isMenuHovering = $0 }
+        .popover(isPresented: $isOptionsPopoverPresented, arrowEdge: .bottom) {
+          ProjectOptionsPopover(
+            project: project,
+            store: store,
+            isPresented: $isOptionsPopoverPresented
+          )
+        }
       }
       .opacity(isHovering ? 1 : 0)
     }
@@ -1186,42 +1149,172 @@ private struct ProjectTagDots: View {
   }
 }
 
-/// Inline tag controls for the project header ⋯ menu. Renders the catalog
-/// tags as a horizontal `ControlGroup(.palette)` strip of colored circles —
-/// matching Finder's tag palette in context menus — followed by a plain
-/// "Edit Tags…" entry that routes up via the sidebar's `.openTagManager`
-/// delegate. When the catalog has no tags, only the "Edit Tags…" entry
-/// renders so users can still discover the manager.
-private struct ProjectTagsMenu: View {
+/// Custom popover that replaces the project header's ⋯ menu. Mimics a
+/// native macOS context menu (icon + text rows with hover highlight,
+/// dividers, destructive role) but rendered entirely in SwiftUI so the
+/// embedded tag palette can render real `TagColor` swatches and update the
+/// `Tags…` entry's label as the user hovers each swatch — neither of which
+/// is reachable through `Menu { … }` on macOS, where palette items lose
+/// their per-item tint and hover events don't propagate to surrounding
+/// rows.
+private struct ProjectOptionsPopover: View {
   let project: Project
   @Bindable var store: StoreOf<HierarchySidebarFeature>
+  @Binding var isPresented: Bool
   @Environment(HierarchyManager.self) private var hierarchyManager
 
+  /// Drives the live preview of the hovered tag's name in the "Tags…" row.
+  /// Cleared whenever the cursor leaves the palette.
+  @State private var hoveredTagID: TagID?
+
   var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      PopoverMenuRow(title: "Project Options…", systemImage: "slider.horizontal.3") {
+        store.send(.projectOptionsTapped(projectID: project.id))
+        isPresented = false
+      }
+      PopoverMenuRow(title: archivedTitle, systemImage: "archivebox") {
+        store.send(.projectShowArchivedTapped(projectID: project.id))
+        isPresented = false
+      }
+      PopoverMenuRow(title: "Prune Stale Worktrees", systemImage: "wand.and.sparkles") {
+        store.send(.projectPruneTapped(projectID: project.id))
+        isPresented = false
+      }
+
+      menuDivider
+
+      tagPalette
+      PopoverMenuRow(title: tagsRowTitle, systemImage: "tag") {
+        store.send(.delegate(.openTagManager))
+        isPresented = false
+      }
+
+      menuDivider
+
+      PopoverMenuRow(
+        title: "Remove Project",
+        systemImage: "trash",
+        role: .destructive
+      ) {
+        store.send(
+          .projectRemoveTapped(projectID: project.id, name: project.name)
+        )
+        isPresented = false
+      }
+    }
+    .padding(.vertical, 5)
+    .frame(minWidth: 220)
+  }
+
+  private var archivedTitle: String {
+    let count = project.worktrees.filter { $0.archived }.count
+    return count > 0 ? "Archived Worktrees (\(count))…" : "Archived Worktrees…"
+  }
+
+  private var tagsRowTitle: String {
+    if let id = hoveredTagID,
+      let tag = hierarchyManager.catalog.tags.first(where: { $0.id == id })
+    {
+      return tag.name
+    }
+    return "Tags…"
+  }
+
+  @ViewBuilder
+  private var tagPalette: some View {
     let tags = hierarchyManager.catalog.tags
     if !tags.isEmpty {
-      ControlGroup {
+      HStack(spacing: 6) {
         ForEach(tags) { tag in
-          let isOn = project.tagIDs.contains(tag.id)
-          Button {
-            store.send(.toggleTagOnProject(project.id, tag.id))
-          } label: {
-            Label(
-              tag.name,
-              systemImage: isOn ? "checkmark.circle.fill" : "circle.fill"
-            )
-            .labelStyle(.iconOnly)
-            .foregroundStyle(swiftUIColor(for: tag.color))
-          }
-          .help(tag.name)
+          tagSwatch(tag)
+        }
+        Spacer(minLength: 0)
+      }
+      .padding(.horizontal, 12)
+      .padding(.vertical, 4)
+    }
+  }
+
+  @ViewBuilder
+  private func tagSwatch(_ tag: Tag) -> some View {
+    let isSelected = project.tagIDs.contains(tag.id)
+    let isHovered = hoveredTagID == tag.id
+    Button {
+      store.send(.toggleTagOnProject(project.id, tag.id))
+    } label: {
+      ZStack {
+        Circle()
+          .fill(swiftUIColor(for: tag.color))
+          .frame(width: 16, height: 16)
+        if isSelected {
+          Image(systemName: "checkmark")
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(.white)
         }
       }
-      .controlGroupStyle(.palette)
+      .padding(3)
+      .overlay {
+        Circle()
+          .strokeBorder(Color.primary.opacity(0.7), lineWidth: 1.5)
+          .opacity(isHovered ? 1 : 0)
+      }
+      .contentShape(Circle())
     }
-    Button {
-      store.send(.delegate(.openTagManager))
-    } label: {
-      Label("Tags…", systemImage: "tag")
+    .buttonStyle(.plain)
+    .onHover { hovering in
+      if hovering {
+        hoveredTagID = tag.id
+      } else if hoveredTagID == tag.id {
+        hoveredTagID = nil
+      }
     }
+    .accessibilityLabel(tag.name)
+    .accessibilityAddTraits(isSelected ? .isSelected : [])
+  }
+
+  @ViewBuilder
+  private var menuDivider: some View {
+    Divider()
+      .padding(.horizontal, 6)
+      .padding(.vertical, 4)
+  }
+}
+
+/// One row inside `ProjectOptionsPopover`. Visually matches a native macOS
+/// menu item: 13 pt label with leading SF Symbol, 4 pt rounded hover
+/// highlight on `accentColor`, white text while hovered, red text for
+/// destructive entries.
+private struct PopoverMenuRow: View {
+  let title: String
+  let systemImage: String
+  var role: ButtonRole?
+  let action: () -> Void
+  @State private var isHovered = false
+
+  var body: some View {
+    Button(action: action) {
+      Label(title, systemImage: systemImage)
+        .labelStyle(.titleAndIcon)
+        .font(.system(size: 13))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .foregroundStyle(textColor)
+    .background(
+      RoundedRectangle(cornerRadius: 4)
+        .fill(isHovered ? Color.accentColor : Color.clear)
+        .padding(.horizontal, 4)
+    )
+    .onHover { isHovered = $0 }
+  }
+
+  private var textColor: Color {
+    if isHovered { return .white }
+    if role == .destructive { return .red }
+    return .primary
   }
 }
