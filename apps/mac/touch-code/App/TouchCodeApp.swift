@@ -42,6 +42,7 @@ struct TouchCodeApp: App {
           )
           .frame(minWidth: 800, minHeight: 600)
           .environment(commandKeyObserver)
+          .environment(\.resolvedShortcuts, appState.shortcutsStore.resolved)
         } else {
           // Initial loading state while appState.bringUp runs.
           VStack(spacing: 12) {
@@ -72,13 +73,15 @@ struct TouchCodeApp: App {
     .windowToolbarStyle(.unified)
     .commands {
       if let store = appState.store {
-        MainWindowCommands(store: store)
+        MainWindowCommands(store: store, shortcuts: appState.shortcutsStore.resolved)
       }
       // Suppress the default ⌘N "New Window" menu item that `WindowGroup`
       // synthesizes — `Window(id:)` is single-instance, so the binding
       // would be a confusing no-op otherwise.
       CommandGroup(replacing: .newItem) {}
       CommandGroup(replacing: .appSettings) {
+        // `.openSettings` is registered as `.systemFixed` in the schema (display-only); the
+        // chord stays as the AppKit-conventional ⌘, regardless of any user override attempt.
         Button("Settings…") {
           openWindow(id: TouchCodeApp.settingsWindowID)
         }
@@ -89,10 +92,15 @@ struct TouchCodeApp: App {
     Window("Settings", id: TouchCodeApp.settingsWindowID) {
       AppAppearanceView(settingsStore: appState.settingsStore) {
         if let store = appState.settingsWindowStore {
-          SettingsWindowView(store: store, settingsStore: appState.settingsStore)
-            .environment(appState.hierarchyManager)
-            .environment(appState.settingsStore)
-            .environment(appState.developerPaneDependencies)
+          SettingsWindowView(
+            store: store,
+            settingsStore: appState.settingsStore,
+            shortcutsStore: appState.shortcutsStore
+          )
+          .environment(appState.hierarchyManager)
+          .environment(appState.settingsStore)
+          .environment(appState.developerPaneDependencies)
+          .environment(\.resolvedShortcuts, appState.shortcutsStore.resolved)
         } else {
           // Settings window can be opened before AppState.bringUp completes (rare but
           // possible during launch). Render a transient placeholder; SwiftUI will
@@ -175,6 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 final class AppState {
   let hierarchyManager: HierarchyManager
   let settingsStore: SettingsStore
+  let shortcutsStore: ShortcutsStore
   private(set) var terminalEngine: TerminalEngine?
   private(set) var store: StoreOf<RootFeature>?
   /// Long-lived store for the Settings window scene. Built during `bringUp()` so the
@@ -235,6 +244,7 @@ final class AppState {
     // lifetime; views observe it via env injection.
     self.inboxStore = InboxStore()
     self.settingsStore = SettingsStore()
+    self.shortcutsStore = ShortcutsStore()
     self.worktreeStatusMonitor = .live()
     // TerminalEngine is constructed in bringUp() once we know whether a
     // GhosttyRuntime is available — this avoids a throwaway engine.
@@ -463,6 +473,7 @@ final class AppState {
   /// drain them explicitly here.
   func flushAllPersistedState() {
     settingsStore.flush()
+    shortcutsStore.flush()
     try? inboxStore.saveNow()
     try? notificationBootstrap?.flushPendingWrites()
     notificationBootstrap?.shutdown()

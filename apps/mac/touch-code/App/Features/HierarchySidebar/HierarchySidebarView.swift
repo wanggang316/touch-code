@@ -33,6 +33,7 @@ struct HierarchySidebarView: View {
   /// Tracks whether the `.command` modifier is currently pressed. When held the sidebar
   /// reveals per-row `⌃⌘N` hotkey hints (and the matching `⌃⌘1`–`⌃⌘9` bindings).
   @Environment(CommandKeyObserver.self) private var commandKeyObserver
+  @Environment(\.resolvedShortcuts) private var resolvedShortcuts
 
   /// Bridges TCA-owned `currentSelection.worktreeID` ↔ SwiftUI's native
   /// `List(selection:)`. Native binding is what gets us Finder-/Mail-style
@@ -81,11 +82,6 @@ struct HierarchySidebarView: View {
       }
     )
   }
-
-  /// Modifier set for the per-row worktree hotkey. `⌘1`–`⌘9` is reserved
-  /// for future tab/project quick-switch bindings, so worktree jumps get
-  /// `⌃⌘N` instead.
-  private static let hotkeyModifiers: EventModifiers = [.command, .control]
 
   /// Flips to true once `_UnclampedClipView` has been swapped in. Until then
   /// the List renders at `opacity(0)` so the user never sees the unshifted
@@ -629,19 +625,21 @@ struct HierarchySidebarView: View {
     }
     .contentShape(Rectangle())
 
-    // The `⌃⌘N` shortcut still requires a Button to bind to. Mount a
+    // The per-row hotkey still requires a Button to bind to. Mount a
     // 0×0 invisible Button via `.background` so the shortcut lives in
     // the responder chain without painting pixels or competing with
-    // List's hit-test for clicks (zero frame == zero hit area).
-    if let hotkeyNumber {
+    // List's hit-test for clicks (zero frame == zero hit area). The
+    // chord itself comes from the shortcut registry — defaults match
+    // the prior `⌃⌘N` literal but a user rebind takes effect here
+    // without restart.
+    if let hotkeyNumber, let commandID = CommandID.selectWorktreeAt(index: hotkeyNumber) {
       content.background(alignment: .topLeading) {
         Button {
           store.send(.worktreeRowTapped(worktree.id, inProject: project.id))
-        } label: { EmptyView() }
-        .keyboardShortcut(
-          KeyEquivalent(Character("\(hotkeyNumber)")),
-          modifiers: Self.hotkeyModifiers
-        )
+        } label: {
+          EmptyView()
+        }
+        .appKeyboardShortcut(commandID, in: resolvedShortcuts)
         .frame(width: 0, height: 0)
         .opacity(0)
         .accessibilityHidden(true)
