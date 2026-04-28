@@ -212,9 +212,9 @@ struct WorktreeDetailView: View {
 
   /// macOS 26 leading branch item. Default placement so it sits before
   /// the leading `ToolbarSpacer(.flexible)` and reads as the leftmost
-  /// chip. No `.sharedBackgroundVisibility(.hidden)` so the toolbar
-  /// glass capsule renders consistently with the trailing chips —
-  /// mirrors supacode's `WorktreeDetailTitleView` placement.
+  /// chip. `.sharedBackgroundVisibility(.hidden)` opts the branch label
+  /// out of the toolbar's glass capsule so it reads as plain text
+  /// alongside the trailing action chips.
   @available(macOS 26.0, *)
   @ToolbarContentBuilder
   private func branchToolbarItemDefault(info: WorktreeInfo) -> some ToolbarContent {
@@ -231,6 +231,7 @@ struct WorktreeDetailView: View {
       .accessibilityLabel("Current branch: \(info.branchLabel)")
       .accessibilityAddTraits(.isStaticText)
     }
+    .sharedBackgroundVisibility(.hidden)
   }
 
   /// macOS 26 trailing buttons. Each lives in its own `ToolbarItem` so
