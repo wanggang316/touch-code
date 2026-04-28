@@ -265,6 +265,7 @@ let project = Project(
         "touch-code/Tests/NotificationsTests",
         "touch-code/Tests/GitHubTests",
         "touch-code/Tests/StatusBarTests",
+        "touch-code/Tests/Shortcuts",
       ],
       dependencies: [
         .target(name: "touch-code"),
