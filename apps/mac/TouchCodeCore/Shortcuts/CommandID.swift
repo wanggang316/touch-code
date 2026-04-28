@@ -23,6 +23,7 @@ public enum CommandID: String, CaseIterable, Hashable, Sendable, Codable, Coding
   case openInDefaultEditor
   case toggleGitViewer
   case filterTags
+  case addProject
 
   // Window — tabs.
   case newTab

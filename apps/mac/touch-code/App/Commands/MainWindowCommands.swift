@@ -54,6 +54,12 @@ struct MainWindowCommands: Commands {
       }
       .appKeyboardShortcut(.filterTags, in: shortcuts)
       .disabled(store() == nil)
+
+      Button("Add Project…") {
+        store()?.send(.sidebar(.toolbarAddProjectTapped))
+      }
+      .appKeyboardShortcut(.addProject, in: shortcuts)
+      .disabled(store() == nil)
     }
 
     // Tab-bar uplift (M2-T2.9). Lands in its own CommandGroup — placed

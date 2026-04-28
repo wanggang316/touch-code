@@ -107,6 +107,13 @@ extension ShortcutSchema {
         scope: .configurable,
         defaultBinding: .init(keyCode: UInt16(kVK_ANSI_F), modifiers: .command)
       ),
+      .init(
+        id: .addProject,
+        title: "Add Project…",
+        category: .general,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_N), modifiers: .command)
+      ),
 
       // Tabs scope.
       .init(
