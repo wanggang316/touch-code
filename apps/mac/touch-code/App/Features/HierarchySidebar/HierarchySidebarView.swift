@@ -32,7 +32,7 @@ struct HierarchySidebarView: View {
   @Environment(WorktreeStatusMonitor.self) private var worktreeStatusMonitor
 
   /// Tracks whether the `.command` modifier is currently pressed. When held the sidebar
-  /// reveals per-row `⌃⌘N` hotkey hints (and the matching `⌃⌘1`–`⌃⌘9` bindings).
+  /// reveals per-row `⌃N` hotkey hints (and the matching `⌃1`–`⌃9` / `⌃0` bindings).
   @Environment(CommandKeyObserver.self) private var commandKeyObserver
   @Environment(\.resolvedShortcuts) private var resolvedShortcuts
 
@@ -115,7 +115,7 @@ struct HierarchySidebarView: View {
   /// which only assigns slots to real worktrees. Derived from
   /// `orderedSidebarRows` so the segment ordering stays in one place; the
   /// `pendings: []` argument is correct for hotkey purposes — pending rows
-  /// never claim a `⌃⌘N` slot per design doc §pending 段 用户操作.
+  /// never claim a `⌃N` slot per design doc §pending 段 用户操作.
   static func orderedVisibleWorktrees(in project: Project) -> [Worktree] {
     orderedSidebarRows(project: project, pendings: []).compactMap { row in
       if case .worktree(let w) = row { return w } else { return nil }
@@ -308,14 +308,14 @@ struct HierarchySidebarView: View {
     } else {
       // Top-down flat enumeration of visible worktrees across projects, following the
       // same main → pinned → others partition the rows themselves render in. Used to
-      // assign `⌃⌘1`…`⌃⌘9` and reveal matching hints while ⌘ is held. Archived rows
-      // live in a separate sheet and never claim a hotkey slot.
+      // assign `⌃1`…`⌃9` plus `⌃0` (10th slot) and reveal matching hints while ⌘ is
+      // held. Archived rows live in a separate sheet and never claim a hotkey slot.
       let hotkeyIndex: [WorktreeID: Int] = {
         var map: [WorktreeID: Int] = [:]
         var slot = 0
         for project in projects {
           for worktree in Self.orderedVisibleWorktrees(in: project) {
-            if slot >= 9 { return map }
+            if slot >= 10 { return map }
             map[worktree.id] = slot
             slot += 1
           }
@@ -612,7 +612,7 @@ struct HierarchySidebarView: View {
           .accessibilityLabel("Has \(unreadCount) unread notifications")
       }
       if let hotkeyNumber, commandKeyObserver.isCommandHeld {
-        Text("⌃⌘\(hotkeyNumber)")
+        Text("⌃\(hotkeyNumber == 10 ? "0" : String(hotkeyNumber))")
           .font(.caption2.monospaced())
           .foregroundStyle(.secondary)
           .padding(.horizontal, 4)
@@ -630,9 +630,8 @@ struct HierarchySidebarView: View {
     // 0×0 invisible Button via `.background` so the shortcut lives in
     // the responder chain without painting pixels or competing with
     // List's hit-test for clicks (zero frame == zero hit area). The
-    // chord itself comes from the shortcut registry — defaults match
-    // the prior `⌃⌘N` literal but a user rebind takes effect here
-    // without restart.
+    // chord itself comes from the shortcut registry — defaults are
+    // ⌃1..⌃9 / ⌃0 but a user rebind takes effect here without restart.
     if let hotkeyNumber, let commandID = CommandID.selectWorktreeAt(index: hotkeyNumber) {
       content.background(alignment: .topLeading) {
         Button {
@@ -1218,9 +1217,18 @@ private final class ProjectOptionsMenuPanel: NSPanel {
   }
 
   /// Builds the OS-appropriate glass / vibrancy backdrop and embeds the
-  /// SwiftUI hosting view inside it. Splitting this out keeps the
-  /// version branch out of the panel's main initializer.
+  /// SwiftUI hosting view inside it. Wrapping in a `masksToBounds`
+  /// container is what makes the window shadow trace the rounded
+  /// silhouette: NSGlassEffectView and NSVisualEffectView clip *the
+  /// material* to `cornerRadius`, but their view bounds stay rectangular
+  /// — AppKit samples the rectangular alpha when it draws the window
+  /// shadow, leaving a faint right-angle outline visible just past each
+  /// rounded corner. A parent layer with `masksToBounds = true` and the
+  /// same corner radius forces the entire backdrop's alpha to clip too,
+  /// so the shadow follows the rounded shape exactly.
   private static func makeMenuBackdrop(host: NSHostingView<AnyView>) -> NSView {
+    let cornerRadius: CGFloat
+    let backdrop: NSView
     if #available(macOS 26, *) {
       let glass = NSGlassEffectView(
         frame: NSRect(origin: .zero, size: host.frame.size)
@@ -1228,25 +1236,34 @@ private final class ProjectOptionsMenuPanel: NSPanel {
       glass.cornerRadius = liquidGlassCornerRadius
       glass.contentView = host
       glass.autoresizingMask = [.width, .height]
-      return glass
+      cornerRadius = liquidGlassCornerRadius
+      backdrop = glass
+    } else {
+      let effect = NSVisualEffectView(
+        frame: NSRect(origin: .zero, size: host.frame.size)
+      )
+      effect.material = .menu
+      effect.blendingMode = .behindWindow
+      effect.state = .active
+      effect.autoresizingMask = [.width, .height]
+
+      host.frame = effect.bounds
+      host.autoresizingMask = [.width, .height]
+      effect.addSubview(host)
+      cornerRadius = legacyCornerRadius
+      backdrop = effect
     }
 
-    let effect = NSVisualEffectView(
-      frame: NSRect(origin: .zero, size: host.frame.size)
-    )
-    effect.material = .menu
-    effect.blendingMode = .behindWindow
-    effect.state = .active
-    effect.wantsLayer = true
-    effect.layer?.cornerRadius = legacyCornerRadius
-    effect.layer?.cornerCurve = .continuous
-    effect.layer?.masksToBounds = true
-    effect.autoresizingMask = [.width, .height]
-
-    host.frame = effect.bounds
-    host.autoresizingMask = [.width, .height]
-    effect.addSubview(host)
-    return effect
+    let clip = NSView(frame: backdrop.frame)
+    clip.wantsLayer = true
+    clip.layer?.cornerRadius = cornerRadius
+    clip.layer?.cornerCurve = .continuous
+    clip.layer?.masksToBounds = true
+    clip.autoresizingMask = [.width, .height]
+    backdrop.frame = clip.bounds
+    backdrop.autoresizingMask = [.width, .height]
+    clip.addSubview(backdrop)
+    return clip
   }
 }
 
