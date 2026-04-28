@@ -210,6 +210,19 @@ struct WorktreeDetailView: View {
     }
   }
 
+  /// Branch glyph that mirrors `WorktreeRowIcon`'s no-PR rendering — same
+  /// `git-branch` asset, template mode, 14×14 — so the toolbar reads as
+  /// the same icon family the sidebar uses.
+  private var branchGlyph: some View {
+    Image("git-branch")
+      .renderingMode(.template)
+      .resizable()
+      .aspectRatio(contentMode: .fit)
+      .frame(width: 14, height: 14)
+      .foregroundStyle(.secondary)
+      .accessibilityHidden(true)
+  }
+
   /// macOS 26 leading branch item. Default placement so it sits before
   /// the leading `ToolbarSpacer(.flexible)` and reads as the leftmost
   /// chip. `.sharedBackgroundVisibility(.hidden)` opts the branch label
@@ -220,9 +233,7 @@ struct WorktreeDetailView: View {
   private func branchToolbarItemDefault(info: WorktreeInfo) -> some ToolbarContent {
     ToolbarItem {
       HStack(spacing: 6) {
-        Image(systemName: "arrow.trianglehead.branch")
-          .foregroundStyle(.secondary)
-          .accessibilityHidden(true)
+        branchGlyph
         Text(info.branchLabel)
           .lineLimit(1)
       }
@@ -279,9 +290,7 @@ struct WorktreeDetailView: View {
   private func branchToolbarItem(info: WorktreeInfo) -> some ToolbarContent {
     let item = ToolbarItem(placement: .navigation) {
       HStack(spacing: 6) {
-        Image(systemName: "arrow.trianglehead.branch")
-          .foregroundStyle(.secondary)
-          .accessibilityHidden(true)
+        branchGlyph
         Text(info.branchLabel)
           .lineLimit(1)
       }
