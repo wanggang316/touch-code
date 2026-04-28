@@ -139,11 +139,6 @@ struct HierarchySidebarView: View {
       }
       .toolbar { sidebarToolbarContent }
       .sheet(
-        item: $store.scope(state: \.addProject, action: \.addProject)
-      ) { childStore in
-        AddProjectSheet(store: childStore)
-      }
-      .sheet(
         isPresented: Binding(
           get: { store.createWorktreeSheet != nil },
           set: { isPresented in

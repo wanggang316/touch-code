@@ -184,7 +184,7 @@ struct RootFeature {
     )
     case lifecycleScriptToast(PresentationAction<LifecycleScriptToastFeature.Action>)
     /// M5 (project-tags): Tag CRUD sheet presentation. Mirrors
-    /// `addProject` / `projectOptions` on the sidebar — `tagManagerSheetShown`
+    /// `projectOptions` on the sidebar — `tagManagerSheetShown`
     /// kicks the sheet visible, the `PresentationAction` carries child
     /// actions and dismiss.
     case tagManagerSheet(PresentationAction<TagManagerFeature.Action>)
@@ -504,8 +504,8 @@ struct RootFeature {
         }
 
       case .sidebar(.delegate(.revealExistingProject(let projectID))):
-        // AddProjectFeature's "Reveal existing" banner fired — jump the user
-        // to the already-registered row.
+        // Add Project picker hit a duplicate folder — jump the user to
+        // the already-registered row.
         try? hierarchyClient.selectProject(projectID)
         return .none
 

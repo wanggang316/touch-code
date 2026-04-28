@@ -133,8 +133,9 @@ actor GitWorktreeCLI {
 extension GitWorktreeCLI: DependencyKey {
   /// Single shared actor instance; `GitWorktreeCLI` wraps the system `git`
   /// binary with no per-instance state (the actor just serializes subprocess
-  /// invocations). Used today by `AddProjectFeature` for add-time gitRoot
-  /// classification — reconcile-time worktree enumeration is owned by
+  /// invocations). Used today by `HierarchySidebarFeature`'s Add Project
+  /// flow for add-time gitRoot classification — reconcile-time worktree
+  /// enumeration is owned by
   /// T-WORKTREE's `HierarchyClient.reconcileDiscoveredWorktrees` and does
   /// not go through this dependency.
   static let liveValue = GitWorktreeCLI()

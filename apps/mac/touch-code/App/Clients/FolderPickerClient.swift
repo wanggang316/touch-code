@@ -3,9 +3,9 @@ import ComposableArchitecture
 import Foundation
 
 /// Thin TCA dependency over `NSOpenPanel` for picking a single local folder.
-/// Exists so `AddProjectFeature` can trigger the macOS folder picker without
-/// importing AppKit into the reducer and so `TestStore` can drive the flow
-/// with scripted URLs.
+/// Exists so `HierarchySidebarFeature`'s Add Project flow can trigger the
+/// macOS folder picker without importing AppKit into the reducer and so
+/// `TestStore` can drive the flow with scripted URLs.
 ///
 /// Distinct from `FinderClient` (which is reveal-only and returns `Void`):
 /// the picker needs an async `URL?` return and a different dialog shape, so

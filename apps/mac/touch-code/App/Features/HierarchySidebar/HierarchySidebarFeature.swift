@@ -52,11 +52,6 @@ struct HierarchySidebarFeature {
     // directly from the catalog, mirroring how `Worktree.isPinned` is
     // consumed.
 
-    /// Add Project sheet state. Presence-driven: non-nil means the sheet is
-    /// visible. `.addProject` actions are scoped into `AddProjectFeature`.
-    /// `@Presents` gives us `.sheet(item:)`-compatible scoping and wires
-    /// dismiss semantics (`PresentationAction.dismiss`) automatically.
-    @Presents var addProject: AddProjectFeature.State?
     /// Project Options sheet state. Subsumes what used to be the separate
     /// Rename Project sheet; `⋯` menu launches this with a Project-snapshot.
     @Presents var projectOptions: ProjectOptionsFeature.State?
@@ -99,8 +94,14 @@ struct HierarchySidebarFeature {
     // Expansion
     case toggleProjectExpansion(ProjectID)
 
-    // Toolbar
+    // Toolbar — Add Project flow. The toolbar button drives the folder
+    // picker directly (no intermediate sheet); the picked folder is then
+    // classified for git-backing and either registered with its
+    // last-path-component name or routed to the existing row when the
+    // path is already a Project.
     case toolbarAddProjectTapped
+    case addProjectFolderPicked(URL?)
+    case addProjectGitRootResolved(canonicalPath: String, gitRoot: String?)
 
     // Reorder Projects (ForEach.onMove forwarder).
     case reorderProjects(from: IndexSet, to: Int)
@@ -192,8 +193,6 @@ struct HierarchySidebarFeature {
     /// the View binding can be a plain Toggle without holding state.
     case toggleTagOnProject(ProjectID, TagID)
 
-    // Add Project — scoped into AddProjectFeature via @Presents.
-    case addProject(PresentationAction<AddProjectFeature.Action>)
     // Project Options — scoped into ProjectOptionsFeature via @Presents.
     case projectOptions(PresentationAction<ProjectOptionsFeature.Action>)
     // Sheet stubs
@@ -211,8 +210,9 @@ struct HierarchySidebarFeature {
       /// Emitted after a Project is added (or via Retry on a `.failed` row).
       /// `RootFeature` forwards to `ProjectReconciler.reconcile`.
       case reconcileProjectRequested(ProjectID)
-      /// Emitted from AddProjectFeature's Reveal banner. `RootFeature` selects
-      /// the Project so the user lands on the existing row.
+      /// Emitted when the Add Project picker hits a folder that's already
+      /// registered. `RootFeature` selects the Project so the user lands
+      /// on the existing row.
       case revealExistingProject(ProjectID)
       /// M9: surfaces a lifecycle-script result on the main window. The
       /// sidebar emits this after the Archive button drives the
@@ -233,6 +233,8 @@ struct HierarchySidebarFeature {
   @Dependency(HierarchyClient.self) private var hierarchyClient
   @Dependency(SettingsWriter.self) private var settingsWriter
   @Dependency(GitWorktreeClient.self) private var gitWorktreeClient
+  @Dependency(FolderPickerClient.self) private var folderPickerClient
+  @Dependency(GitWorktreeCLI.self) private var gitCLI
 
   /// Cancellation token namespace for sidebar-owned effects. The single
   /// `.pending` case ties each in-flight `wt sw` stream to its
@@ -281,9 +283,6 @@ struct HierarchySidebarFeature {
     .ifLet(\.archivedWorktreesSheet, action: \.archivedWorktreesSheet) {
       ArchivedWorktreesFeature()
     }
-    .ifLet(\.$addProject, action: \.addProject) {
-      AddProjectFeature()
-    }
     .ifLet(\.$projectOptions, action: \.projectOptions) {
       ProjectOptionsFeature()
     }
@@ -324,8 +323,28 @@ struct HierarchySidebarFeature {
     // MARK: Toolbar
 
     case .toolbarAddProjectTapped:
-      state.addProject = AddProjectFeature.State()
-      return .none
+      return .run { [picker = folderPickerClient] send in
+        let url = await picker.pick("Add Project")
+        await send(.addProjectFolderPicked(url))
+      }
+
+    case .addProjectFolderPicked(let url):
+      guard let url else { return .none }
+      let canonical = HierarchyManager.canonicalPath(url.path)
+      if let existing = hierarchyClient.isPathRegistered(canonical) {
+        return .send(.delegate(.revealExistingProject(existing)))
+      }
+      return .run { [cli = gitCLI] send in
+        let gitRoot = try? await cli.discoverGitRoot(candidatePath: canonical)
+        await send(.addProjectGitRootResolved(canonicalPath: canonical, gitRoot: gitRoot))
+      }
+
+    case .addProjectGitRootResolved(let canonical, let gitRoot):
+      let name = (canonical as NSString).lastPathComponent
+      guard !name.isEmpty,
+        let projectID = try? hierarchyClient.addProject(name, canonical, gitRoot)
+      else { return .none }
+      return .send(.delegate(.reconcileProjectRequested(projectID)))
 
     // MARK: Tag filter chip footer (M4)
 
@@ -561,23 +580,6 @@ struct HierarchySidebarFeature {
 
     case .worktreeOpenInDefaultEditorTapped(_, let projectID, let path):
       return .send(.delegate(.openInDefaultEditor(worktreePath: path, projectID: projectID)))
-
-    // MARK: Add Project — scoped child
-
-    case .addProject(.presented(.delegate(.projectAdded(let projectID)))):
-      state.addProject = nil
-      return .send(.delegate(.reconcileProjectRequested(projectID)))
-
-    case .addProject(.presented(.delegate(.revealExisting(let projectID)))):
-      state.addProject = nil
-      return .send(.delegate(.revealExistingProject(projectID)))
-
-    case .addProject(.presented(.delegate(.dismiss))), .addProject(.dismiss):
-      state.addProject = nil
-      return .none
-
-    case .addProject:
-      return .none
 
     // MARK: Project Options — scoped child
 
