@@ -20,10 +20,6 @@ struct WorktreeDetailView: View {
   /// T2 Header feature — scoped by `ContentView` from the root. Drives the bell
   /// badge, the Open-in split button's delegate routing, and the Git Viewer toggle.
   let headerStore: StoreOf<WorktreeHeaderFeature>
-  /// T3: scoped Git Viewer store, hosted as a right-edge overlay on the terminal region
-  /// when `overlayVisible == true` AND the terminal has enough width to keep the
-  /// overlay + the minimum terminal gutter side-by-side.
-  let gitViewerStore: StoreOf<GitViewerFeature>
   /// 0014: titlebar-center Worktree Status Bar store. Owns the toast slot; PR /
   /// motivational forms are view-level projections of other scopes (added in M4/M5).
   let statusBarStore: StoreOf<StatusBarFeature>
@@ -31,8 +27,6 @@ struct WorktreeDetailView: View {
   /// `snapshots[worktreeID]` lookup. Same store the sidebar badge reads so
   /// the two surfaces stay in sync by construction.
   let gitHubStore: StoreOf<GitHubFeature>
-  /// T3: derived from `RootFeature.State.gitViewerOverlayVisible`; never assigned locally.
-  let overlayVisible: Bool
   @Environment(HierarchyManager.self) private var hierarchyManager
 
   var body: some View {
@@ -41,7 +35,6 @@ struct WorktreeDetailView: View {
       VStack(spacing: 0) {
         tabBarRow(address: address)
         terminalRegion(address: address)
-          .overlay { overlayContent }
       }
       // On macOS 15+ remove the title slot entirely so default-placement
       // toolbar items can flow leading-to-trailing with `ToolbarSpacer`
@@ -105,21 +98,6 @@ struct WorktreeDetailView: View {
       )
     } else {
       emptyTab
-    }
-  }
-
-  /// Centered modal overlay for Git Viewer. When `overlayVisible` is true, mounts
-  /// `GitViewerModalHost` with a spring animation. Dismissal (scrim tap, ESC, or
-  /// ⌘⇧G from header) dispatches the toggle action to close the modal.
-  @ViewBuilder
-  private var overlayContent: some View {
-    if overlayVisible {
-      GitViewerModalHost(
-        store: gitViewerStore,
-        onDismiss: { headerStore.send(.gitViewerToggleTapped) }
-      )
-      .transition(.scale(scale: 0.96).combined(with: .opacity))
-      .animation(.spring(response: 0.32, dampingFraction: 0.85), value: overlayVisible)
     }
   }
 
