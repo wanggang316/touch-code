@@ -50,7 +50,7 @@ struct TagManagerSheet: View {
       Divider()
       doneFooter
     }
-    .frame(minWidth: 460, minHeight: 380)
+    .frame(minWidth: 322, minHeight: 380)
     .confirmationDialog(
       confirmationTitle,
       isPresented: Binding(
@@ -72,14 +72,10 @@ struct TagManagerSheet: View {
 
   // MARK: - Header
 
-  /// Single header band — accent-tinted tag glyph + "Tags" title. Replaces
-  /// the prior NavigationStack title bar so the sheet only owns one header.
+  /// Single header band — just the "Tags" title. Replaces the prior
+  /// NavigationStack title bar so the sheet only owns one header.
   private var header: some View {
-    HStack(spacing: 8) {
-      Image(systemName: "tag.fill")
-        .font(.system(size: 16, weight: .regular))
-        .foregroundStyle(Color.accentColor)
-        .accessibilityHidden(true)
+    HStack(spacing: 0) {
       Text("Tags")
         .font(.headline)
       Spacer()
