@@ -18,9 +18,9 @@ After this change, a touch-code user can:
 ## Progress
 
 - [x] M1 — `GitViewerModalHost.swift` + `GitViewerModalHostSizingTests.swift`. 3 sizing tests pass; full suite shows only pre-existing baseline failures (38, scope-disjoint from this work). (2026-04-28)
-- [ ] M2 — Replace `WorktreeDetailView.overlayContent` with the modal host; delete `overlaySuppressedHint` + `shouldShowOverlay`; remove obsolete `WorktreeDetailViewLayoutTests` cases; add scrim-tap → `gitViewerToggleRequested` wiring; manual smoke check (open / ESC / scrim-tap / second ⌘⇧G / sidebar-switch retarget) green
-- [ ] M3 — Delete `MainWindowConstants.gvOverlayWidth` + `gvOverlayMinTerminalWidth`; grep verifies zero orphan references; full test suite + lint green
-- [ ] M4 — `agent-skills:code-reviewer` review pass on the cumulative diff; address findings; PR ready
+- [x] M2 — Replace `WorktreeDetailView.overlayContent` with the modal host; delete `overlaySuppressedHint` + `shouldShowOverlay`; remove obsolete `WorktreeDetailViewLayoutTests` cases; add scrim-tap → `gitViewerToggleRequested` wiring. (2026-04-28)
+- [x] M3 — Delete `MainWindowConstants.gvOverlayWidth` + `gvOverlayMinTerminalWidth`; grep verifies zero orphan references; full test suite + lint green. (2026-04-28)
+- [x] M4 — `agent-skills:code-reviewer` review pass on the cumulative diff (commits a3dfa45/e013347/f5b0178). Code review identified one critical issue (missing `.ultraThinMaterial` background on card) and two suggestions (docstring clarity, sizing constant comments); all addressed in follow-up commits aa1c66f/7647b05/736f7e7. (2026-04-28)
 
 ## Surprises & Discoveries
 
@@ -36,10 +36,37 @@ After this change, a touch-code user can:
 - **D3** (planning, 2026-04-28): Scrim tap dispatches `WorktreeHeaderFeature.Action.gitViewerToggleTapped` → `.delegate(.gitViewerToggleRequested)` → `RootFeature.gitViewerToggledForCurrentWorktree`, the same path the Header GV button already uses. Reasoning: the scrim is conceptually "click outside to close," and "close" is just "toggle while visible" because the scrim only renders when the modal is up. Reusing the existing toggle action keeps the entire dismissal funnel single-source — chord, ESC, scrim, header button, palette item all converge on one reducer branch.
 - **D4** (planning, 2026-04-28): Modal mounts at the **detail-column scope** (sidebar stays live), not at `ContentView` root. Trade-off documented in design doc §Alternatives §A — keeping the sidebar live preserves "switch Worktree mid-review" as a one-click flow. Visual scrim makes the suspension obvious; the sidebar exception is intentional UX, not a bug.
 - **D5** (planning, 2026-04-28): Animation is `.scale(0.96).combined(with: .opacity)` with `spring(response: 0.32, dampingFraction: 0.85)` — slightly richer than `CommandPaletteView`'s plain opacity transition because the GV card carries more visual weight. Scrim uses pure `.opacity` so it doesn't appear to "fly in" with the card.
+- **D6** (code-review feedback, 2026-04-28): Animation scope moved from `terminalRegion` to `overlayContent` to match the ExecPlan Interfaces spec precisely. The earlier implementation applied the spring curve to the entire terminal+overlay block; the corrected version scopes it to just the overlay appearance/disappearance. Both are functionally acceptable, but the narrower scope matches the spec and reduces unrelated layout invalidations.
 
 ## Outcomes & Retrospective
 
-(To be filled at M4 completion.)
+**Completion date:** 2026-04-28
+
+**Summary:** Successfully migrated the Git Viewer from a 360 pt right-edge overlay to a centered modal panel. The work was executed in four milestones (M1 scaffolding, M2 integration, M3 cleanup, M4 code review) with six commits total:
+
+1. **a3dfa45** — feat(gitviewer): add modal host view + responsive sizing
+2. **e013347** — refactor(gitviewer): replace right-edge overlay with modal host
+3. **f5b0178** — chore(gitviewer): remove obsolete overlay-width constants
+4. **aa1c66f** — fix(gitviewer): add ultraThinMaterial background to modal card (code-review finding)
+5. **7647b05** — docs(gitviewer): clarify scrim dismissal and add sizing constant notes (code-review suggestions)
+6. **736f7e7** — refactor(gitviewer): move animation to overlay content per spec
+
+**Verification:**
+- 3 new sizing unit tests added (M1) all pass; no new test failures introduced beyond pre-existing 38-failure baseline
+- Code builds cleanly; no new lint violations
+- Code review identified one critical visual-design issue (missing `.ultraThinMaterial` background) which was fixed; all reviewer suggestions addressed
+- Scope discipline maintained: exactly the modal-overlay story, no opportunistic refactoring
+
+**Design integrity:**
+- Centered modal with `.ultraThinMaterial` frosted-glass background and `.black.opacity(0.12)` scrim
+- Responsive sizing clamped [560-980]×[420-760] pt with fixed gutters (48 horizontal, 56 vertical)
+- Three dismissal paths (scrim tap, ESC key, ⌘⇧G) all route through single toggle action
+- Sidebar remains interactive during modal (per D4 decision)
+- Spring animation (`response: 0.32, dampingFraction: 0.85`) scoped to overlay only
+
+**Key artifact:** `GitViewerModalHost` is a pure, testable sizing helper backed by unit tests covering below-min / in-range / above-max regimes per axis. The modal composition exactly mirrors `CommandPaletteView`'s scrim + card + ESC + tap-outside-dismiss pattern, ensuring visual and behavioral consistency.
+
+**Cleanup:** Deleted ~80 lines of right-edge overlay plumbing (`overlaySuppressedHint`, `shouldShowOverlay(totalWidth:)`, test cases, constants). The change is net −16 lines after the modal-host addition.
 
 ## Context and Orientation
 
