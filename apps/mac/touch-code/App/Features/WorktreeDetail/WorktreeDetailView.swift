@@ -33,6 +33,11 @@ struct WorktreeDetailView: View {
   let gitHubStore: StoreOf<GitHubFeature>
   /// T3: derived from `RootFeature.State.gitViewerOverlayVisible`; never assigned locally.
   let overlayVisible: Bool
+  /// Invoked from the empty-state Add Project button. Wired by `ContentView`
+  /// so the detail view doesn't need to hold the sidebar's TCA scope just
+  /// to fire `toolbarAddProjectTapped` — same pattern as the editor toast
+  /// that surfaces sidebar outcomes without a back-channel store.
+  let onAddProject: () -> Void
   @Environment(HierarchyManager.self) private var hierarchyManager
 
   var body: some View {
@@ -363,22 +368,11 @@ struct WorktreeDetailView: View {
   }
 
   private var emptyTab: some View {
-    VStack(spacing: 12) {
-      Text("No Tab selected")
-        .font(.title3)
-        .foregroundStyle(.secondary)
-      Text("Use the tab bar above to create a Tab.")
-        .font(.caption)
-        .foregroundStyle(.tertiary)
-    }
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    EmptyTerminalPaneView(message: "No terminals open")
   }
 
   private var placeholder: some View {
-    Text("Select a Worktree")
-      .font(.title2)
-      .foregroundStyle(.secondary)
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
+    EmptyProjectStateView(onAddProject: onAddProject)
   }
 }
 

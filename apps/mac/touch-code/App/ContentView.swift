@@ -78,7 +78,8 @@ struct ContentView: View {
         // write to `Worktree.gitViewerVisible` (⌘⇧G, Header button, or
         // external API) re-renders this view without needing a reducer
         // projection to stay in sync.
-        overlayVisible: store.state.gitViewerOverlayVisible(in: hierarchyManager.catalog)
+        overlayVisible: store.state.gitViewerOverlayVisible(in: hierarchyManager.catalog),
+        onAddProject: { store.send(.sidebar(.toolbarAddProjectTapped)) }
       )
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .overlay(alignment: .bottom) { editorToastOverlay }
