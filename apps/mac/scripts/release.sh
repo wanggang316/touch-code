@@ -39,7 +39,34 @@ die() { echo "error: $*" >&2; exit 1; }
 log() { echo "==> $*"; }
 
 print_usage() {
-  sed -n '3,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  cat <<'EOF'
+release.sh — orchestrate Touch Code's Developer ID release pipeline.
+
+Subcommands:
+  archive     Archive + exportArchive to .build/release/export/Touch Code.app
+  notarize    Submit a path to Apple notary, wait, and staple
+  dmg         Package the exported .app into a signed DMG
+  release     archive → notarize app → dmg → notarize dmg → staple both
+
+Usage:
+  ./scripts/release.sh archive
+  ./scripts/release.sh --help
+
+Environment (precedence: env > Release.xcconfig > defaults):
+  DEVELOPMENT_TEAM     required (10-char team ID)
+  CODE_SIGN_IDENTITY   default "Developer ID Application"
+EOF
+}
+
+# Pipe stdout/stderr from xcodebuild through xcbeautify when mise has
+# it, else through cat. Using a function (not a $() expansion) so the
+# multi-word command does not get word-collapsed into a single argv.
+beautify() {
+  if command -v mise >/dev/null 2>&1 && mise exec -- xcbeautify --version >/dev/null 2>&1; then
+    mise exec -- xcbeautify --is-ci
+  else
+    cat
+  fi
 }
 
 read_xcconfig_value() {
@@ -107,6 +134,12 @@ cmd_archive() {
   rm -rf "${archive_path}" "${export_dir}"
   mkdir -p "${release_dir}"
 
+  # Set the cleanup trap up front so a SIGINT delivered between the
+  # mktemp and the trap call cannot leak the substituted ExportOptions
+  # plist (which carries the team ID).
+  local export_options=""
+  trap '[ -n "${export_options}" ] && rm -f "${export_options}"; true' EXIT
+
   xcodebuild archive \
     -workspace "${workspace}" \
     -scheme "${scheme}" \
@@ -114,12 +147,10 @@ cmd_archive() {
     -destination "generic/platform=macOS" \
     -archivePath "${archive_path}" \
     SKIP_INSTALL=NO \
-    | "$(mise_xcbeautify_cmd)" --is-ci
+    | beautify
 
   log "exporting archive (developer-id method)"
-  local export_options
   export_options="$(mktemp -t touch-code-export-options).plist"
-  trap 'rm -f "${export_options}"' EXIT
   local team
   team="$(resolve_team_id)"
   sed "s/__DEVELOPMENT_TEAM__/${team}/" "${export_options_template}" > "${export_options}"
@@ -128,9 +159,10 @@ cmd_archive() {
     -archivePath "${archive_path}" \
     -exportPath "${export_dir}" \
     -exportOptionsPlist "${export_options}" \
-    | "$(mise_xcbeautify_cmd)" --is-ci
+    | beautify
 
   rm -f "${export_options}"
+  export_options=""
   trap - EXIT
 
   [ -d "${app_path}" ] || die "exportArchive did not produce ${app_path}"
@@ -179,16 +211,6 @@ cmd_release() {
   log "notarizing DMG"
   "${script_dir}/notarize.sh" "${dmg_path}"
   log "release ready: ${dmg_path}"
-}
-
-mise_xcbeautify_cmd() {
-  # Best effort — falls back to cat when xcbeautify is missing so the
-  # script still works on a runner that has not run mise install.
-  if command -v mise >/dev/null 2>&1 && mise exec -- xcbeautify --version >/dev/null 2>&1; then
-    printf 'mise exec -- xcbeautify'
-  else
-    printf 'cat'
-  fi
 }
 
 # ----- main ---------------------------------------------------------------
