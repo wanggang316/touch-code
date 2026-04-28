@@ -138,12 +138,10 @@ struct ScriptDefinitionRow: View {
       VStack(alignment: .leading, spacing: 4) {
         Text("Command")
         TextEditor(text: Binding(get: { draft.command }, set: { draft.command = $0 }))
-          .font(.system(.body, design: .monospaced))
-          .frame(minHeight: 80)
-          .overlay(
-            RoundedRectangle(cornerRadius: 4)
-              .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
-          )
+          .monospaced()
+          .textEditorStyle(.plain)
+          .autocorrectionDisabled()
+          .frame(height: 90)
       }
 
       LabeledContent("Kind") {

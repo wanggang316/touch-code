@@ -2,17 +2,17 @@ import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
 
-/// Project Scripts sub-pane (M5). Two Sections:
+/// Project Scripts sub-pane (M5). Rendered as a grouped `Form` so the
+/// pane shares the macOS System-Settings look used by every other
+/// project pane (General / Hooks).
 ///
-///   * **Worktree Lifecycle** — git_repo only. Three TextEditors bound
-///     to `git.setupScript` / `archiveScript` / `deleteScript`. Writes
-///     route through `SettingsWriter.setProjectLifecycleScript` on the
-///     reducer.
-///   * **Scripts** — user-defined `[ScriptDefinition]` list with inline
-///     edit (`ScriptDefinitionRow`), `+ Add` to prepend a new row, and
-///     `.onMove` for drag-to-reorder. Run dispatches
-///     `HierarchyClient.runScript`; Delete prompts via the row's
-///     confirmation dialog.
+/// Lifecycle scripts (git_repo only) each own a dedicated Section with
+/// an icon-led header and a footer example — this lets users tell
+/// Setup / Archive / Delete apart at a glance and keeps the layout
+/// consistent with `RepositoryScriptsSettingsView` in supacode. The
+/// user-defined `[ScriptDefinition]` list lives in a single Section so
+/// `.onMove` keeps working; the trailing `+` is a kind-aware menu that
+/// only offers predefined kinds the project doesn't already use.
 ///
 /// Reads come from `@Environment(SettingsStore.self)` for live updates;
 /// writes always go through the TCA reducer so test stores can spy on
@@ -84,10 +84,37 @@ struct ProjectScriptsSettingsView: View {
   // MARK: - Body
 
   var body: some View {
-    List {
+    Form {
       if visible.contains(.lifecycle) {
-        lifecycleSection
+        lifecycleSection(
+          title: "Setup Script",
+          subtitle: "Runs after a new worktree is created.",
+          icon: "truck.box.badge.clock",
+          iconColor: .blue,
+          example: "pnpm install",
+          text: git.setupScript,
+          phase: .setup
+        )
+        lifecycleSection(
+          title: "Archive Script",
+          subtitle: "Runs before a worktree is archived.",
+          icon: "archivebox",
+          iconColor: .orange,
+          example: "docker compose down",
+          text: git.archiveScript,
+          phase: .archive
+        )
+        lifecycleSection(
+          title: "Delete Script",
+          subtitle: "Runs before a worktree is removed (files still on disk).",
+          icon: "trash",
+          iconColor: .red,
+          example: "docker compose down",
+          text: git.deleteScript,
+          phase: .delete
+        )
       }
+
       if visible.contains(.scripts) {
         scriptsSection
       }
@@ -95,63 +122,53 @@ struct ProjectScriptsSettingsView: View {
       if let error = store.state.lastWriteFailure, !error.isEmpty {
         Section {
           Label(error, systemImage: "exclamationmark.circle.fill")
-            .foregroundColor(.red)
+            .foregroundStyle(.red)
         }
       }
     }
-    .listStyle(.inset)
+    .formStyle(.grouped)
   }
 
   // MARK: - Lifecycle Section
 
   @ViewBuilder
-  private var lifecycleSection: some View {
-    Section("Worktree Lifecycle") {
-      lifecycleEditor(
-        label: "Setup",
-        text: git.setupScript,
-        caption: "Run after a new worktree is created.",
-        phase: .setup
-      )
-      lifecycleEditor(
-        label: "Archive",
-        text: git.archiveScript,
-        caption: "Run before archiving a worktree.",
-        phase: .archive
-      )
-      lifecycleEditor(
-        label: "Delete",
-        text: git.deleteScript,
-        caption: "Run before removing a worktree (files still on disk).",
-        phase: .delete
-      )
-    }
-  }
-
-  @ViewBuilder
-  private func lifecycleEditor(
-    label: String,
+  private func lifecycleSection(
+    title: String,
+    subtitle: String,
+    icon: String,
+    iconColor: Color,
+    example: String,
     text: String,
-    caption: String,
     phase: SettingsWriter.WorktreeLifecycle
   ) -> some View {
-    VStack(alignment: .leading, spacing: 4) {
-      Text(label)
-        .font(.headline)
-      // Local debounced buffer: edits live in @State while the user types
-      // and commit on blur (focus loss) so we do not write-on-every-
-      // keystroke. The pure logic is `LifecycleEditor`.
+    Section {
       LifecycleEditor(
         initial: text,
         onCommit: { newValue in
           store.send(.setLifecycleScript(phase, newValue))
         }
       )
-      Text(caption)
-        .font(.caption)
-        .foregroundStyle(.secondary)
+    } header: {
+      Label {
+        VStack(alignment: .leading, spacing: 0) {
+          Text(title)
+            .font(.body)
+            .bold()
+            .lineLimit(1)
+          Text(subtitle)
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+        }
+      } icon: {
+        Image(systemName: icon)
+          .foregroundStyle(iconColor)
+          .accessibilityHidden(true)
+      }
+      .labelStyle(.scriptSectionHeader)
+    } footer: {
+      Text("e.g., `\(example)`")
     }
-    .padding(.vertical, 4)
   }
 
   // MARK: - Scripts Section
@@ -160,11 +177,9 @@ struct ProjectScriptsSettingsView: View {
   private var scriptsSection: some View {
     Section {
       if scripts.isEmpty {
-        Text("No scripts yet — click + Add to create one.")
-          .font(.caption)
+        Text("No scripts yet — use the + menu to add one.")
+          .font(.callout)
           .foregroundStyle(.secondary)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(.vertical, 4)
       } else {
         ForEach(scripts) { script in
           ScriptDefinitionRow(
@@ -198,23 +213,54 @@ struct ProjectScriptsSettingsView: View {
         }
       }
     } header: {
-      HStack {
-        Text("Scripts")
-        Spacer()
-        Button {
-          addScript()
-        } label: {
-          Label("Add", systemImage: "plus")
+      HStack(spacing: 8) {
+        Label {
+          Text("Scripts")
+            .font(.body)
+            .bold()
+        } icon: {
+          Image(systemName: "terminal.fill")
+            .foregroundStyle(.gray)
+            .accessibilityHidden(true)
         }
-        .buttonStyle(.borderless)
+        .labelStyle(.scriptSectionHeader)
+
+        Spacer()
+
+        addScriptMenu
       }
+    } footer: {
+      Text("Run from the toolbar, command palette, or keyboard shortcut.")
     }
+  }
+
+  @ViewBuilder
+  private var addScriptMenu: some View {
+    let usedKinds = Set(scripts.map(\.kind))
+    Menu {
+      ForEach(ScriptKind.allCases, id: \.self) { kind in
+        if kind == .custom || !usedKinds.contains(kind) {
+          Button {
+            addScript(kind: kind)
+          } label: {
+            Label(kind.defaultName, systemImage: kind.defaultSystemImage)
+          }
+        }
+      }
+    } label: {
+      Image(systemName: "plus")
+        .accessibilityLabel("Add Script")
+    }
+    .menuStyle(.borderlessButton)
+    .menuIndicator(.hidden)
+    .fixedSize()
+    .help("Add a new script")
   }
 
   // MARK: - Mutations
 
-  private func addScript() {
-    let newScript = ScriptDefinition()
+  private func addScript(kind: ScriptKind = .custom) {
+    let newScript = ScriptDefinition(kind: kind)
     var updated = scripts
     updated.insert(newScript, at: 0)
     expandedScriptIDs.insert(newScript.id)
@@ -239,6 +285,24 @@ struct ProjectScriptsSettingsView: View {
   }
 }
 
+// MARK: - Section header label style
+
+/// Horizontal icon + title pairing used by every Section header in this
+/// pane. Mirrors supacode's `VerticallyCenteredLabelStyle` so the visual
+/// rhythm matches across the two apps.
+private struct ScriptSectionHeaderLabelStyle: LabelStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    HStack(spacing: 6) {
+      configuration.icon
+      configuration.title
+    }
+  }
+}
+
+extension LabelStyle where Self == ScriptSectionHeaderLabelStyle {
+  fileprivate static var scriptSectionHeader: ScriptSectionHeaderLabelStyle { .init() }
+}
+
 // MARK: - Lifecycle TextEditor with commit-on-blur
 
 /// Tiny TextEditor wrapper that buffers user input locally and commits
@@ -260,12 +324,10 @@ private struct LifecycleEditor: View {
 
   var body: some View {
     TextEditor(text: $draft)
-      .font(.system(.body, design: .monospaced))
-      .frame(minHeight: 60)
-      .overlay(
-        RoundedRectangle(cornerRadius: 4)
-          .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
-      )
+      .monospaced()
+      .textEditorStyle(.plain)
+      .autocorrectionDisabled()
+      .frame(height: 90)
       .focused($focused)
       .onChange(of: focused) { _, isFocused in
         if !isFocused, draft != initial {
