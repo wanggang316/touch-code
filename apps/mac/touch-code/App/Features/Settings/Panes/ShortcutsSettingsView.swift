@@ -5,6 +5,12 @@ import TouchCodeCore
 /// category, lets the user record a new chord, disable a chord, reset one row, or restore
 /// every row to its default. Conflict feedback during recording surfaces inline; cascading
 /// resets present a confirmation dialog before applying.
+///
+/// Layout follows the macOS System-Settings convention used by supacode's
+/// `KeyboardShortcutsSettingsView`: a hierarchical `Table` with `DisclosureTableRow` group
+/// headers, alternating row backgrounds, search routed through `.searchable(.toolbar)`,
+/// and a primary toolbar action for "Restore Defaults". The behavioural surface (recording,
+/// conflict resolution, reset planning) is unchanged from the previous custom-painted pane.
 struct ShortcutsSettingsView: View {
   @Bindable var store: ShortcutsStore
   @State private var query: String = ""
@@ -13,30 +19,77 @@ struct ShortcutsSettingsView: View {
   @State private var pendingConflict: PendingConflict?
   @State private var pendingReset: ShortcutResetPlan?
   @State private var showRestoreAllConfirmation: Bool = false
+  /// Categories that are expanded in the outline. Defaults to "all expanded" so the pane
+  /// opens fully populated; subsequent collapses persist for the lifetime of the window.
+  @State private var expandedCategories: Set<String> = Set(
+    ShortcutSchema.Category.allCases.map(\.rawValue)
+  )
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 0) {
-        header
-          .padding(.horizontal, 24)
-          .padding(.top, 18)
-          .padding(.bottom, 12)
-
-        if let rejectionMessage {
-          Text(rejectionMessage)
-            .font(.callout)
-            .foregroundStyle(.red)
-            .padding(.horizontal, 24)
-            .padding(.bottom, 8)
-        }
-
-        ForEach(visibleCategories, id: \.self) { category in
-          section(for: category)
+    Table(of: ShortcutTableItem.self) {
+      TableColumn("Name") { item in
+        NameCell(item: item)
+      }
+      TableColumn("Shortcut") { item in
+        HotkeyCell(
+          item: item,
+          store: store,
+          recordingID: $recordingID,
+          rejectionMessage: $rejectionMessage,
+          onCapture: { binding, id in handleCapture(binding, for: id) }
+        )
+      }
+      .width(min: 140, ideal: 180, max: 240)
+      TableColumn("") { item in
+        ResetCell(item: item, store: store, onReset: requestReset)
+      }
+      .width(min: 28, max: 36)
+    } rows: {
+      ForEach(tableItems) { group in
+        DisclosureTableRow(
+          group,
+          isExpanded: Binding(
+            get: { expandedCategories.contains(group.id) },
+            set: { expanded in
+              if expanded {
+                expandedCategories.insert(group.id)
+              } else {
+                expandedCategories.remove(group.id)
+              }
+            }
+          )
+        ) {
+          if let children = group.children {
+            ForEach(children) { TableRow($0) }
+          }
         }
       }
-      .padding(.bottom, 24)
     }
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    .alternatingRowBackgrounds()
+    .searchable(text: $query, placement: .toolbar, prompt: "Search shortcuts")
+    .toolbar {
+      ToolbarItem(placement: .primaryAction) {
+        Button {
+          showRestoreAllConfirmation = true
+        } label: {
+          Image(systemName: "arrow.counterclockwise")
+            .accessibilityLabel("Restore Defaults")
+        }
+        .help("Restore all shortcuts to their default values.")
+        .disabled(store.overrides.overrides.isEmpty)
+      }
+    }
+    .safeAreaInset(edge: .top, spacing: 0) {
+      if let rejectionMessage {
+        Text(rejectionMessage)
+          .font(.callout)
+          .foregroundStyle(.red)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(.horizontal, 16)
+          .padding(.vertical, 8)
+          .background(.regularMaterial)
+      }
+    }
     .confirmationDialog(
       restoreAllTitle,
       isPresented: $showRestoreAllConfirmation,
@@ -89,85 +142,205 @@ struct ShortcutsSettingsView: View {
     }
   }
 
-  // MARK: - Sections
+  // MARK: - Table model
 
-  @ViewBuilder
-  private var header: some View {
-    HStack(alignment: .firstTextBaseline) {
-      TextField("Search shortcuts", text: $query)
-        .textFieldStyle(.roundedBorder)
-        .frame(maxWidth: 320)
-      Spacer()
-      Button("Restore All Defaults") {
-        showRestoreAllConfirmation = true
-      }
-      .disabled(store.overrides.overrides.isEmpty)
-    }
-  }
-
-  @ViewBuilder
-  private func section(for category: ShortcutSchema.Category) -> some View {
-    let entries = filteredEntries(for: category)
-    if !entries.isEmpty {
-      VStack(alignment: .leading, spacing: 0) {
-        Text(category.title.uppercased())
-          .font(.caption.weight(.semibold))
-          .foregroundStyle(.secondary)
-          .padding(.horizontal, 24)
-          .padding(.top, 18)
-          .padding(.bottom, 6)
-
-        VStack(spacing: 0) {
-          ForEach(entries, id: \.id) { entry in
-            row(for: entry)
-              .padding(.horizontal, 24)
-              .padding(.vertical, 8)
-            Divider().padding(.leading, 24)
-          }
+  /// Group → entries projection for the outline table. Filtered by `query`.
+  private var tableItems: [ShortcutTableItem] {
+    visibleCategories.map { category in
+      ShortcutTableItem(
+        id: category.rawValue,
+        kind: .group(category),
+        children: filteredEntries(for: category).map { entry in
+          ShortcutTableItem(
+            id: entry.id.rawValue,
+            kind: .entry(entry),
+            children: nil
+          )
         }
-      }
+      )
     }
   }
 
-  @ViewBuilder
-  private func row(for entry: ShortcutSchema.Entry) -> some View {
-    let resolved = store.resolved[entry.id]
-    HStack(spacing: 12) {
+  // MARK: - Mutations
+
+  private func handleCapture(_ binding: ShortcutBinding, for id: CommandID) {
+    let symbolicHotkeyDefaults = UserDefaults(suiteName: "com.apple.symbolichotkeys") ?? .standard
+    if SystemReservedDetector.isReserved(
+      keyCode: binding.keyCode,
+      modifiers: binding.modifiers,
+      in: symbolicHotkeyDefaults
+    ) {
+      rejectionMessage = "That chord is claimed by a macOS system shortcut."
+      return
+    }
+    if AppKitReservedDetector.isReserved(keyCode: binding.keyCode, modifiers: binding.modifiers) {
+      rejectionMessage = "That chord is reserved by macOS standard menus."
+      return
+    }
+    if let conflictingID = InternalConflictDetector.conflicts(
+      in: store.resolved, candidate: binding, excluding: id
+    ) {
+      pendingConflict = PendingConflict(
+        target: id, binding: binding, conflictingID: conflictingID
+      )
+      recordingID = nil
+      return
+    }
+    rejectionMessage = nil
+    recordingID = nil
+    store.update(id, to: binding)
+  }
+
+  private func requestReset(for id: CommandID) {
+    let plan = ShortcutResetPlanner.plan(
+      resetting: id, schema: .app, overrides: store.overrides
+    )
+    pendingReset = plan
+  }
+
+  // MARK: - Filtering
+
+  private var visibleCategories: [ShortcutSchema.Category] {
+    ShortcutSchema.Category.allCases.filter { !filteredEntries(for: $0).isEmpty }
+  }
+
+  private func filteredEntries(for category: ShortcutSchema.Category) -> [ShortcutSchema.Entry] {
+    let trimmed = query.trimmingCharacters(in: .whitespaces).lowercased()
+    return ShortcutSchema.app.entries
+      .filter { $0.category == category }
+      .filter { entry in
+        guard !trimmed.isEmpty else { return true }
+        if entry.title.lowercased().contains(trimmed) { return true }
+        if let binding = store.resolved[entry.id]?.binding,
+          ShortcutDisplay.chord(for: binding).lowercased().contains(trimmed)
+        {
+          return true
+        }
+        return false
+      }
+  }
+
+  // MARK: - Dialogs
+
+  fileprivate struct PendingConflict: Equatable {
+    let target: CommandID
+    let binding: ShortcutBinding
+    let conflictingID: CommandID
+  }
+
+  private var conflictDialogBinding: Binding<Bool> {
+    Binding(
+      get: { pendingConflict != nil },
+      set: { presented in
+        if !presented { pendingConflict = nil }
+      }
+    )
+  }
+
+  private var conflictDialogTitle: String { "Replace Existing Shortcut?" }
+  private var conflictDialogMessage: String {
+    guard let pending = pendingConflict,
+      let conflictingTitle = ShortcutSchema.app.entry(for: pending.conflictingID)?.title
+    else { return "" }
+    return "This chord is currently bound to ‘\(conflictingTitle)’. Replacing will disable that shortcut."
+  }
+
+  private var resetDialogBinding: Binding<Bool> {
+    Binding(
+      get: { pendingReset != nil },
+      set: { presented in
+        if !presented { pendingReset = nil }
+      }
+    )
+  }
+
+  private var resetDialogTitle: String { "Restore Default?" }
+  private var resetDialogMessage: String {
+    guard let plan = pendingReset else { return "" }
+    if plan.cascadingResets.isEmpty {
+      let title = ShortcutSchema.app.entry(for: plan.target)?.title ?? plan.target.rawValue
+      return "Restore the default chord for ‘\(title)’."
+    }
+    let titles = plan.cascadingResets
+      .compactMap { ShortcutSchema.app.entry(for: $0)?.title }
+      .map { "‘\($0)’" }
+      .joined(separator: ", ")
+    let target = ShortcutSchema.app.entry(for: plan.target)?.title ?? plan.target.rawValue
+    return "Resetting ‘\(target)’ will also reset \(titles) so the chords no longer collide."
+  }
+
+  private var restoreAllTitle: String { "Restore All Defaults?" }
+}
+
+// MARK: - Table model
+
+/// Row model for the outline `Table`. Categories are group rows with `children`; individual
+/// shortcuts are leaf rows. Mirrors the supacode model so the call-site reads similarly.
+struct ShortcutTableItem: Identifiable {
+  enum Kind {
+    case group(ShortcutSchema.Category)
+    case entry(ShortcutSchema.Entry)
+  }
+  let id: String
+  let kind: Kind
+  let children: [ShortcutTableItem]?
+}
+
+// MARK: - Cells
+
+private struct NameCell: View {
+  let item: ShortcutTableItem
+
+  var body: some View {
+    switch item.kind {
+    case .group(let category):
+      Text(category.title)
+        .font(.body.weight(.semibold))
+    case .entry(let entry):
       VStack(alignment: .leading, spacing: 2) {
-        Text(entry.title).font(.body)
+        Text(entry.title)
+          .font(.body)
         Text(scopeDescription(entry.scope))
           .font(.caption)
           .foregroundStyle(.secondary)
       }
-      Spacer(minLength: 12)
-
-      sourcePill(resolved)
-
-      chordCell(entry: entry, resolved: resolved)
-        .frame(width: 140)
-
-      if entry.scope == .configurable, resolved?.source == .userOverride {
-        Button {
-          requestReset(for: entry.id)
-        } label: {
-          Image(systemName: "arrow.uturn.backward.circle")
-            .help("Restore default")
-        }
-        .buttonStyle(.borderless)
-      } else {
-        // Reserve space so rows align even when the reset glyph is hidden.
-        Color.clear.frame(width: 24, height: 1)
-      }
     }
-    .contextMenu {
-      if entry.scope == .configurable, let resolved {
-        if resolved.isEnabled {
-          Button("Disable Shortcut") { store.disable(entry.id) }
-        } else {
-          Button("Enable Shortcut") { restoreEnabled(for: entry.id) }
-        }
-        if resolved.source == .userOverride {
-          Button("Restore Default") { requestReset(for: entry.id) }
+  }
+
+  private func scopeDescription(_ scope: ShortcutScope) -> String {
+    switch scope {
+    case .configurable: return "Customizable"
+    case .systemFixed: return "System default"
+    case .localOnly: return "Context-specific"
+    }
+  }
+}
+
+private struct HotkeyCell: View {
+  let item: ShortcutTableItem
+  @Bindable var store: ShortcutsStore
+  @Binding var recordingID: CommandID?
+  @Binding var rejectionMessage: String?
+  let onCapture: (ShortcutBinding, CommandID) -> Void
+
+  var body: some View {
+    switch item.kind {
+    case .group:
+      EmptyView()
+    case .entry(let entry):
+      let resolved = store.resolved[entry.id]
+      HStack(spacing: 8) {
+        chordCell(entry: entry, resolved: resolved)
+          .frame(maxWidth: .infinity, alignment: .leading)
+        sourcePill(resolved)
+      }
+      .contextMenu {
+        if entry.scope == .configurable, let resolved {
+          if resolved.isEnabled {
+            Button("Disable Shortcut") { store.disable(entry.id) }
+          } else {
+            Button("Enable Shortcut") { restoreEnabled(for: entry.id, resolved: resolved) }
+          }
         }
       }
     }
@@ -192,15 +365,9 @@ struct ShortcutsSettingsView: View {
             }
           }
         ),
-        onCapture: { binding in
-          handleCapture(binding, for: entry.id)
-        },
-        onReject: { reason in
-          rejectionMessage = rejectionText(reason)
-        },
-        onCancel: {
-          rejectionMessage = nil
-        }
+        onCapture: { binding in onCapture(binding, entry.id) },
+        onReject: { reason in rejectionMessage = rejectionText(reason) },
+        onCancel: { rejectionMessage = nil }
       )
       .overlay(alignment: .leading) {
         Button {
@@ -219,7 +386,6 @@ struct ShortcutsSettingsView: View {
       }
       .frame(height: 24)
     } else {
-      // System-fixed: render the chord as a non-interactive label.
       HStack {
         chordLabel(resolved: resolved, isRecording: false)
         Spacer()
@@ -264,135 +430,6 @@ struct ShortcutsSettingsView: View {
       .foregroundStyle(label.color)
   }
 
-  // MARK: - Mutations
-
-  private func handleCapture(_ binding: ShortcutBinding, for id: CommandID) {
-    let symbolicHotkeyDefaults = UserDefaults(suiteName: "com.apple.symbolichotkeys") ?? .standard
-    if SystemReservedDetector.isReserved(
-      keyCode: binding.keyCode,
-      modifiers: binding.modifiers,
-      in: symbolicHotkeyDefaults
-    ) {
-      rejectionMessage = "That chord is claimed by a macOS system shortcut."
-      return
-    }
-    if AppKitReservedDetector.isReserved(keyCode: binding.keyCode, modifiers: binding.modifiers) {
-      rejectionMessage = "That chord is reserved by macOS standard menus."
-      return
-    }
-    if let conflictingID = InternalConflictDetector.conflicts(
-      in: store.resolved, candidate: binding, excluding: id
-    ) {
-      pendingConflict = PendingConflict(
-        target: id, binding: binding, conflictingID: conflictingID
-      )
-      recordingID = nil
-      return
-    }
-    rejectionMessage = nil
-    recordingID = nil
-    store.update(id, to: binding)
-  }
-
-  private func requestReset(for id: CommandID) {
-    let plan = ShortcutResetPlanner.plan(
-      resetting: id, schema: .app, overrides: store.overrides
-    )
-    pendingReset = plan
-  }
-
-  private func restoreEnabled(for id: CommandID) {
-    guard let resolved = store.resolved[id], let binding = resolved.binding else { return }
-    let enabled = ShortcutBinding(
-      keyCode: binding.keyCode, modifiers: binding.modifiers, isEnabled: true
-    )
-    if resolved.source == .userOverride {
-      store.update(id, to: enabled)
-    } else {
-      store.clear(id)
-    }
-  }
-
-  // MARK: - Filtering
-
-  private var visibleCategories: [ShortcutSchema.Category] {
-    ShortcutSchema.Category.allCases.filter { !filteredEntries(for: $0).isEmpty }
-  }
-
-  private func filteredEntries(for category: ShortcutSchema.Category) -> [ShortcutSchema.Entry] {
-    let trimmed = query.trimmingCharacters(in: .whitespaces).lowercased()
-    return ShortcutSchema.app.entries
-      .filter { $0.category == category }
-      .filter { entry in
-        guard !trimmed.isEmpty else { return true }
-        if entry.title.lowercased().contains(trimmed) { return true }
-        if let binding = store.resolved[entry.id]?.binding,
-           ShortcutDisplay.chord(for: binding).lowercased().contains(trimmed) { return true }
-        return false
-      }
-  }
-
-  // MARK: - Dialogs
-
-  private struct PendingConflict: Equatable {
-    let target: CommandID
-    let binding: ShortcutBinding
-    let conflictingID: CommandID
-  }
-
-  private var conflictDialogBinding: Binding<Bool> {
-    Binding(
-      get: { pendingConflict != nil },
-      set: { presented in
-        if !presented { pendingConflict = nil }
-      }
-    )
-  }
-
-  private var conflictDialogTitle: String { "Replace Existing Shortcut?" }
-  private var conflictDialogMessage: String {
-    guard let pending = pendingConflict,
-          let conflictingTitle = ShortcutSchema.app.entry(for: pending.conflictingID)?.title
-    else { return "" }
-    return "This chord is currently bound to ‘\(conflictingTitle)’. Replacing will disable that shortcut."
-  }
-
-  private var resetDialogBinding: Binding<Bool> {
-    Binding(
-      get: { pendingReset != nil },
-      set: { presented in
-        if !presented { pendingReset = nil }
-      }
-    )
-  }
-
-  private var resetDialogTitle: String { "Restore Default?" }
-  private var resetDialogMessage: String {
-    guard let plan = pendingReset else { return "" }
-    if plan.cascadingResets.isEmpty {
-      let title = ShortcutSchema.app.entry(for: plan.target)?.title ?? plan.target.rawValue
-      return "Restore the default chord for ‘\(title)’."
-    }
-    let titles = plan.cascadingResets
-      .compactMap { ShortcutSchema.app.entry(for: $0)?.title }
-      .map { "‘\($0)’" }
-      .joined(separator: ", ")
-    let target = ShortcutSchema.app.entry(for: plan.target)?.title ?? plan.target.rawValue
-    return "Resetting ‘\(target)’ will also reset \(titles) so the chords no longer collide."
-  }
-
-  private var restoreAllTitle: String { "Restore All Defaults?" }
-
-  // MARK: - Display helpers
-
-  private func scopeDescription(_ scope: ShortcutScope) -> String {
-    switch scope {
-    case .configurable: return "Customizable"
-    case .systemFixed: return "System default"
-    case .localOnly: return "Context-specific"
-    }
-  }
-
   private func sourceLabel(_ resolved: ResolvedShortcut?) -> (text: String, color: Color) {
     guard let resolved else { return ("—", .secondary) }
     if !resolved.isEnabled { return ("Disabled", .gray) }
@@ -406,6 +443,44 @@ struct ShortcutsSettingsView: View {
     switch reason {
     case .missingPrimaryModifier: return "Add a ⌘, ⌥, or ⌃ modifier."
     case .modifierOnly: return "Press a non-modifier key."
+    }
+  }
+
+  private func restoreEnabled(for id: CommandID, resolved: ResolvedShortcut) {
+    guard let binding = resolved.binding else { return }
+    let enabled = ShortcutBinding(
+      keyCode: binding.keyCode, modifiers: binding.modifiers, isEnabled: true
+    )
+    if resolved.source == .userOverride {
+      store.update(id, to: enabled)
+    } else {
+      store.clear(id)
+    }
+  }
+}
+
+private struct ResetCell: View {
+  let item: ShortcutTableItem
+  let store: ShortcutsStore
+  let onReset: (CommandID) -> Void
+
+  var body: some View {
+    switch item.kind {
+    case .group:
+      EmptyView()
+    case .entry(let entry):
+      if entry.scope == .configurable, store.resolved[entry.id]?.source == .userOverride {
+        Button {
+          onReset(entry.id)
+        } label: {
+          Image(systemName: "arrow.uturn.backward.circle")
+            .accessibilityLabel("Restore default")
+        }
+        .buttonStyle(.borderless)
+        .help("Restore default")
+      } else {
+        EmptyView()
+      }
     }
   }
 }
