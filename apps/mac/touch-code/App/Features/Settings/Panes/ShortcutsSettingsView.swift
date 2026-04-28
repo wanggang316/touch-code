@@ -36,14 +36,15 @@ struct ShortcutsSettingsView: View {
           store: store,
           recordingID: $recordingID,
           rejectionMessage: $rejectionMessage,
-          onCapture: { binding, id in handleCapture(binding, for: id) }
+          onCapture: { binding, id in handleCapture(binding, for: id) },
+          onReset: requestReset
         )
       }
-      .width(min: 140, ideal: 180, max: 240)
-      TableColumn("") { item in
-        ResetCell(item: item, store: store, onReset: requestReset)
+      .width(min: 160, ideal: 200, max: 260)
+      TableColumn("Enabled") { item in
+        EnabledCell(item: item, store: store)
       }
-      .width(min: 28, max: 36)
+      .width(min: 60, max: 90)
     } rows: {
       ForEach(tableItems) { group in
         DisclosureTableRow(
@@ -322,6 +323,7 @@ private struct HotkeyCell: View {
   @Binding var recordingID: CommandID?
   @Binding var rejectionMessage: String?
   let onCapture: (ShortcutBinding, CommandID) -> Void
+  let onReset: (CommandID) -> Void
 
   var body: some View {
     switch item.kind {
@@ -333,13 +335,25 @@ private struct HotkeyCell: View {
         chordCell(entry: entry, resolved: resolved)
           .frame(maxWidth: .infinity, alignment: .leading)
         sourcePill(resolved)
+        if entry.scope == .configurable, resolved?.source == .userOverride {
+          Button {
+            onReset(entry.id)
+          } label: {
+            Image(systemName: "arrow.uturn.backward.circle")
+              .accessibilityLabel("Restore default")
+          }
+          .buttonStyle(.borderless)
+          .help("Restore default")
+        }
       }
       .contextMenu {
         if entry.scope == .configurable, let resolved {
           if resolved.isEnabled {
             Button("Disable Shortcut") { store.disable(entry.id) }
           } else {
-            Button("Enable Shortcut") { restoreEnabled(for: entry.id, resolved: resolved) }
+            Button("Enable Shortcut") {
+              EnabledCell.restoreEnabled(for: entry.id, resolved: resolved, store: store)
+            }
           }
         }
       }
@@ -446,7 +460,49 @@ private struct HotkeyCell: View {
     }
   }
 
-  private func restoreEnabled(for id: CommandID, resolved: ResolvedShortcut) {
+}
+
+private struct EnabledCell: View {
+  let item: ShortcutTableItem
+  @Bindable var store: ShortcutsStore
+
+  var body: some View {
+    switch item.kind {
+    case .group:
+      EmptyView()
+    case .entry(let entry):
+      if entry.scope == .configurable {
+        let resolved = store.resolved[entry.id]
+        Toggle(
+          "",
+          isOn: Binding(
+            get: { resolved?.isEnabled ?? true },
+            set: { newValue in
+              if newValue, let resolved {
+                Self.restoreEnabled(for: entry.id, resolved: resolved, store: store)
+              } else {
+                store.disable(entry.id)
+              }
+            }
+          )
+        )
+        .toggleStyle(.checkbox)
+        .labelsHidden()
+        .frame(maxWidth: .infinity, alignment: .center)
+      } else {
+        EmptyView()
+      }
+    }
+  }
+
+  /// Re-enable `id`. If the row currently has a user override, flip its `isEnabled` flag back
+  /// to true; otherwise the row inherits the schema default and `clear` is a no-op safeguard.
+  /// Exposed as a static so the chord cell's context menu can share the same recovery path.
+  static func restoreEnabled(
+    for id: CommandID,
+    resolved: ResolvedShortcut,
+    store: ShortcutsStore
+  ) {
     guard let binding = resolved.binding else { return }
     let enabled = ShortcutBinding(
       keyCode: binding.keyCode, modifiers: binding.modifiers, isEnabled: true
@@ -455,32 +511,6 @@ private struct HotkeyCell: View {
       store.update(id, to: enabled)
     } else {
       store.clear(id)
-    }
-  }
-}
-
-private struct ResetCell: View {
-  let item: ShortcutTableItem
-  let store: ShortcutsStore
-  let onReset: (CommandID) -> Void
-
-  var body: some View {
-    switch item.kind {
-    case .group:
-      EmptyView()
-    case .entry(let entry):
-      if entry.scope == .configurable, store.resolved[entry.id]?.source == .userOverride {
-        Button {
-          onReset(entry.id)
-        } label: {
-          Image(systemName: "arrow.uturn.backward.circle")
-            .accessibilityLabel("Restore default")
-        }
-        .buttonStyle(.borderless)
-        .help("Restore default")
-      } else {
-        EmptyView()
-      }
     }
   }
 }
