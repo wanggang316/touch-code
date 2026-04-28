@@ -532,6 +532,21 @@ struct HierarchySidebarView: View {
         isSelected: isSelected
       )
       gitHubBadge(for: worktree, in: project)
+      // Trailing chord hint, after both the row content and the optional PR pill so it
+      // always pins to the right edge of the row instead of being shoved leftwards by
+      // the pill's intrinsic width. Visible only while ⌘ is held.
+      if let hotkeyNumber, commandKeyObserver.isCommandHeld {
+        Text("⌃\(hotkeyNumber == 10 ? "0" : String(hotkeyNumber))")
+          .font(.caption2.monospaced())
+          .foregroundStyle(.secondary)
+          .padding(.horizontal, 4)
+          .padding(.vertical, 1)
+          .overlay(
+            RoundedRectangle(cornerRadius: 3)
+              .stroke(Color.secondary.opacity(0.35), lineWidth: 1)
+          )
+          .accessibilityHidden(true)
+      }
     }
     // Worktree rows are real List children. Selection chrome is owned by
     // SwiftUI's native `List(selection:)` (see `nativeSelectionBinding`):
@@ -611,18 +626,12 @@ struct HierarchySidebarView: View {
           .frame(width: 6, height: 6)
           .accessibilityLabel("Has \(unreadCount) unread notifications")
       }
-      if let hotkeyNumber, commandKeyObserver.isCommandHeld {
-        Text("⌃\(hotkeyNumber == 10 ? "0" : String(hotkeyNumber))")
-          .font(.caption2.monospaced())
-          .foregroundStyle(.secondary)
-          .padding(.horizontal, 4)
-          .padding(.vertical, 1)
-          .overlay(
-            RoundedRectangle(cornerRadius: 3)
-              .stroke(Color.secondary.opacity(0.35), lineWidth: 1)
-          )
-          .accessibilityHidden(true)
-      }
+      // The chord hint used to sit here, but the GitHub PR badge is a *sibling* HStack
+      // member outside `rowSelectionButton` (so the badge's Button isn't a child of the
+      // row Button); rendering the hint inline meant the trailing PR pill always pushed
+      // the hint left of itself. Hint moved to the outer HStack — see
+      // `worktreeRow(...)` in this file — so it sticks to the trailing edge regardless
+      // of whether a PR pill is present.
     }
     .contentShape(Rectangle())
 
