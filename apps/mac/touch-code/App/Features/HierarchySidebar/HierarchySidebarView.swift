@@ -1316,7 +1316,7 @@ private struct PopoverMenuRow: View {
     .buttonStyle(.plain)
     .foregroundStyle(textColor)
     .background(
-      RoundedRectangle(cornerRadius: 4)
+      RoundedRectangle(cornerRadius: 3)
         .fill(isHovered ? Color.accentColor : Color.clear)
         .padding(.horizontal, 4)
     )
