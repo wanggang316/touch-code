@@ -23,8 +23,10 @@ public struct ShortcutOverrideStore: Equatable, Sendable, Codable {
   public var version: Int
   public var overrides: [CommandID: ShortcutBinding]
 
-  public init(version: Int = ShortcutOverrideStore.currentVersion,
-              overrides: [CommandID: ShortcutBinding] = [:]) {
+  public init(
+    version: Int = ShortcutOverrideStore.currentVersion,
+    overrides: [CommandID: ShortcutBinding] = [:]
+  ) {
     self.version = version
     self.overrides = overrides
   }
