@@ -16,15 +16,11 @@ struct TagManagerSheet: View {
   // Inline create-row state. Lives at the View level — these drafts
   // never need to round-trip through the reducer; on Add we send a
   // single `.createTagTapped(name, color)` and reset locally.
+  @State private var isAdding = false
   @State private var newTagName: String = ""
   @State private var newTagColor: TagColor = .blue
   @FocusState private var renameFocused: Bool
-
-  /// Width budget for the inline color picker block. Sized to fit
-  /// `TagColor.allCases.count` (7) discs at 22pt cells with 6pt gaps —
-  /// 7×22 + 6×6 = 190. Used to align the name column across the tag
-  /// rows AND the bottom new-tag row so labels start at the same x.
-  private static let pickerWidth: CGFloat = 190
+  @FocusState private var newTagFocused: Bool
 
   var body: some View {
     NavigationStack {
@@ -33,9 +29,9 @@ struct TagManagerSheet: View {
         Divider()
         tagList
         Divider()
-        newTagRow
+        bottomBar
       }
-      .frame(minWidth: 540, minHeight: 400)
+      .frame(minWidth: 420, minHeight: 380)
       .navigationTitle("Tags")
       .toolbar {
         ToolbarItem(placement: .confirmationAction) {
@@ -64,38 +60,20 @@ struct TagManagerSheet: View {
 
   // MARK: - Header
 
+  /// Minimal header: a single accent-tinted tag glyph leading the sheet.
+  /// The sheet's textual title lives in `navigationTitle` so we don't
+  /// repeat it here.
   private var header: some View {
-    let tags = hierarchyManager.catalog.tags
-    return HStack(alignment: .center, spacing: 14) {
-      ZStack {
-        RoundedRectangle(cornerRadius: 9, style: .continuous)
-          .fill(Color.accentColor.opacity(0.14))
-          .frame(width: 36, height: 36)
-        Image(systemName: "tag.fill")
-          .font(.system(size: 16, weight: .semibold))
-          .foregroundStyle(Color.accentColor)
-      }
-      .accessibilityHidden(true)
-
-      VStack(alignment: .leading, spacing: 2) {
-        Text("Manage Tags")
-          .font(.title3.weight(.semibold))
-        Text("Color-coded labels for grouping projects in the sidebar.")
-          .font(.subheadline)
-          .foregroundStyle(.secondary)
-      }
-      Spacer(minLength: 12)
-      Text(tags.count == 1 ? "1 tag" : "\(tags.count) tags")
-        .font(.caption.weight(.medium))
-        .monospacedDigit()
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
-        .background(Capsule().fill(Color.secondary.opacity(0.12)))
+    HStack(spacing: 0) {
+      Image(systemName: "tag.fill")
+        .font(.system(size: 20, weight: .regular))
+        .foregroundStyle(Color.accentColor)
+        .accessibilityHidden(true)
+      Spacer()
     }
     .padding(.horizontal, 18)
-    .padding(.top, 14)
-    .padding(.bottom, 12)
+    .padding(.top, 12)
+    .padding(.bottom, 10)
   }
 
   // MARK: - Tag list
@@ -128,7 +106,7 @@ struct TagManagerSheet: View {
         .accessibilityHidden(true)
       Text("No tags yet.")
         .foregroundStyle(.secondary)
-      Text("Use the form below to add one.")
+      Text("Click + below to add one.")
         .font(.caption)
         .foregroundStyle(.tertiary)
       Spacer()
@@ -139,11 +117,10 @@ struct TagManagerSheet: View {
   @ViewBuilder
   private func tagRow(_ tag: Tag) -> some View {
     HoverableTagRow {
-      ColorRowPicker(
+      ColorSwatchPicker(
         selected: tag.color,
         onPick: { store.send(.recolor(tag.id, $0)) }
       )
-      .frame(width: Self.pickerWidth, alignment: .leading)
       nameField(tag: tag)
       Spacer(minLength: 8)
     } trailing: {
@@ -188,32 +165,80 @@ struct TagManagerSheet: View {
     }
   }
 
-  // MARK: - New tag form
+  // MARK: - Bottom bar (Add affordance)
 
-  private var newTagRow: some View {
-    HStack(spacing: 10) {
-      ColorRowPicker(
-        selected: newTagColor,
-        onPick: { newTagColor = $0 }
-      )
-      .frame(width: Self.pickerWidth, alignment: .leading)
-      TextField("New tag name", text: $newTagName)
-        .textFieldStyle(.plain)
-        .onSubmit(addNewTag)
-      Button("Add") { addNewTag() }
-        .keyboardShortcut(.defaultAction)
-        .disabled(newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+  /// Two states: a quiet `+ Add Tag` button by default; on click it
+  /// expands inline into the new-tag form (color picker + name field +
+  /// Cancel/Add). Esc or the Cancel button collapses the form back.
+  @ViewBuilder
+  private var bottomBar: some View {
+    Group {
+      if isAdding {
+        addingForm
+      } else {
+        addButtonRow
+      }
     }
-    .padding(.horizontal, 22)
-    .padding(.vertical, 12)
     .background(.bar)
   }
 
-  private func addNewTag() {
+  private var addButtonRow: some View {
+    HStack(spacing: 6) {
+      Button {
+        beginAdding()
+      } label: {
+        Label("Add Tag", systemImage: "plus")
+          .labelStyle(.titleAndIcon)
+          .font(.callout)
+      }
+      .buttonStyle(.borderless)
+      Spacer()
+    }
+    .padding(.horizontal, 12)
+    .padding(.vertical, 8)
+  }
+
+  private var addingForm: some View {
+    HStack(spacing: 10) {
+      ColorSwatchPicker(
+        selected: newTagColor,
+        onPick: { newTagColor = $0 }
+      )
+      TextField("New tag name", text: $newTagName)
+        .textFieldStyle(.plain)
+        .focused($newTagFocused)
+        .onSubmit(commitNewTag)
+        .onExitCommand { cancelAdding() }
+      Button("Cancel", action: cancelAdding)
+        .buttonStyle(.borderless)
+        .keyboardShortcut(.cancelAction)
+      Button("Add", action: commitNewTag)
+        .keyboardShortcut(.defaultAction)
+        .disabled(newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+    .padding(.horizontal, 12)
+    .padding(.vertical, 8)
+  }
+
+  private func beginAdding() {
+    newTagName = ""
+    newTagColor = .blue
+    isAdding = true
+    // Defer focus so the TextField is mounted before we focus it.
+    DispatchQueue.main.async { newTagFocused = true }
+  }
+
+  private func commitNewTag() {
     let trimmed = newTagName.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return }
     store.send(.createTagTapped(name: trimmed, color: newTagColor))
     newTagName = ""
+    isAdding = false
+  }
+
+  private func cancelAdding() {
+    newTagName = ""
+    isAdding = false
   }
 
   // MARK: - Confirmation strings
@@ -232,53 +257,69 @@ struct TagManagerSheet: View {
   }
 }
 
-// MARK: - Inline color row picker
+// MARK: - Color swatch picker
 
-/// Single horizontal strip showing every `TagColor` as a colored disc,
-/// rendered inline (no popover hop). Tapping a disc commits the color
-/// immediately. The current selection draws a 1.5pt dark ring around
-/// itself so the active hue is unmistakable even when neighboring colors
-/// share luminance.
-///
-/// Sized so seven 22×22 hit cells with 6pt gaps fit in
-/// `TagManagerSheet.pickerWidth` (190pt). Disc visual is 14pt; the
-/// cell carries the extra padding to keep the click target generous.
-private struct ColorRowPicker: View {
+/// Single colored disc that opens a popover with the seven palette
+/// colors when tapped. The current color carries an accent ring +
+/// inner checkmark in the popover so the active hue is unambiguous.
+private struct ColorSwatchPicker: View {
   let selected: TagColor
   let onPick: (TagColor) -> Void
 
+  @State private var isPopoverPresented = false
+
   var body: some View {
-    HStack(spacing: 6) {
-      ForEach(TagColor.allCases, id: \.self) { color in
-        Button {
-          if color != selected { onPick(color) }
-        } label: {
-          swatchCell(color: color, isSelected: color == selected)
+    Button {
+      isPopoverPresented.toggle()
+    } label: {
+      Circle()
+        .fill(swiftUIColor(for: selected))
+        .frame(width: 14, height: 14)
+        .overlay(
+          Circle().strokeBorder(Color.primary.opacity(0.18), lineWidth: 0.5)
+        )
+        .frame(width: 22, height: 22)
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .help("Change Color")
+    .popover(isPresented: $isPopoverPresented, arrowEdge: .top) {
+      HStack(spacing: 10) {
+        ForEach(TagColor.allCases, id: \.self) { color in
+          Button {
+            onPick(color)
+            isPopoverPresented = false
+          } label: {
+            popoverSwatch(color: color, isSelected: color == selected)
+          }
+          .buttonStyle(.plain)
+          .help(color.rawValue.capitalized)
+          .accessibilityLabel(color.rawValue.capitalized)
+          .accessibilityAddTraits(color == selected ? [.isSelected] : [])
         }
-        .buttonStyle(.plain)
-        .help(color.rawValue.capitalized)
-        .accessibilityLabel(color.rawValue.capitalized)
-        .accessibilityAddTraits(color == selected ? [.isSelected] : [])
       }
+      .padding(.horizontal, 12)
+      .padding(.vertical, 10)
     }
   }
 
   @ViewBuilder
-  private func swatchCell(color: TagColor, isSelected: Bool) -> some View {
+  private func popoverSwatch(color: TagColor, isSelected: Bool) -> some View {
     ZStack {
       Circle()
         .fill(swiftUIColor(for: color))
-        .frame(width: 14, height: 14)
-        .overlay(
-          Circle().strokeBorder(Color.black.opacity(0.10), lineWidth: 0.5)
-        )
+        .frame(width: 20, height: 20)
       if isSelected {
         Circle()
-          .strokeBorder(Color.primary.opacity(0.85), lineWidth: 1.5)
-          .frame(width: 20, height: 20)
+          .strokeBorder(Color.accentColor, lineWidth: 2)
+          .frame(width: 26, height: 26)
+        Image(systemName: "checkmark")
+          .font(.system(size: 11, weight: .bold))
+          .foregroundStyle(.white)
+          .shadow(color: .black.opacity(0.25), radius: 0.5, y: 0.5)
       }
     }
-    .frame(width: 22, height: 22)
+    .frame(width: 28, height: 28)
     .contentShape(Rectangle())
   }
 }
