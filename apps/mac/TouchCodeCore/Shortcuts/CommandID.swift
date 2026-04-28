@@ -11,7 +11,7 @@ import Foundation
 /// the persisted format and must not change once shipped — a rename here orphans every
 /// existing user override for that command. New cases use lowerCamelCase identifiers that
 /// double as their raw value.
-public enum CommandID: String, CaseIterable, Hashable, Sendable, Codable {
+public enum CommandID: String, CaseIterable, Hashable, Sendable, Codable, CodingKeyRepresentable {
   // App scope.
   case openSettings
   case quit
