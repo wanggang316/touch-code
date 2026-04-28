@@ -76,7 +76,7 @@ struct TouchCodeApp: App {
       // `appState.store` lazily. Wrapping the call in `if let store = appState.store { … }`
       // resolves once at scene build (when `bringUp()` has not yet run and the store is
       // nil); SwiftUI's `Commands` builder does not subsequently re-add the dropped commands
-      // when the store materialises, leaving the entire File menu absent and unbinding ⌘E /
+      // when the store materialises, leaving the entire File menu absent and unbinding ⌘O /
       // ⌘P / ⌘T / etc. for the rest of the session.
       //
       // We also intentionally do NOT add `CommandGroup(replacing: .newItem) {}` to suppress

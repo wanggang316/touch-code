@@ -14,11 +14,10 @@ import TouchCodeCore
 ///
 /// Collision notes for the registry-default chords below:
 ///
-/// - `⌘E` (Open in Default Editor) and `⌘⇧G` (Toggle Git Viewer) shadow AppKit defaults
-///   ("Use Selection for Find" / "Find Previous") in editable-text contexts. The app has no
-///   editable text fields at the window scope today, so the menu binding wins in the common
-///   case. In-GitViewer keybindings (`j / k / g / G / …`) gate on `press.modifiers.isEmpty`
-///   and are never shadowed by these ⌘-modified chords.
+/// - `⌘⇧G` shadows AppKit's default "Find Previous" in editable-text contexts. The app has
+///   no editable text fields at the window scope today, so the menu binding wins in the
+///   common case. In-GitViewer keybindings (`j / k / g / G / …`) gate on
+///   `press.modifiers.isEmpty` and are never shadowed by these ⌘-modified chords.
 /// - The app delegate guards `⌘Q` quit with a confirmation when running terminal sessions
 ///   exist; the registry tracks `.quit` as `.systemFixed` for display only.
 struct MainWindowCommands: Commands {

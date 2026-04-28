@@ -53,7 +53,7 @@ struct ShortcutSchemaAuditTests {
     (.openSettings, (0x2B, [.command])),                    // ,
     (.quit, (0x0C, [.command])),                            // q
     (.commandPaletteToggle, (0x23, [.command])),            // p
-    (.openInDefaultEditor, (0x0E, [.command])),             // e
+    (.openInDefaultEditor, (0x1F, [.command])),             // o
     (.toggleGitViewer, (0x05, [.command, .shift])),         // g
     (.filterTags, (0x03, [.command])),                      // f
     (.newTab, (0x11, [.command])),                          // t

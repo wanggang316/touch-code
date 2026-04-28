@@ -152,8 +152,8 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
   /// binding and route it into `keyDown` if so.
   ///
   /// One exception: if the app's main menu already has a matching key
-  /// equivalent (touch-code's File / Touch Code / Edit menus bind ⌘E, ⌘,,
-  /// ⌘P, ⌘T, ⌘W, ⌥⌘1..9 etc. to first-class app actions), defer to that
+  /// equivalent (touch-code's File / Touch Code / Edit menus bind ⌘O, ⌘,,
+  /// ⌘P, ⌘T, ⌘W, ⌘1..9 etc. to first-class app actions), defer to that
   /// menu first. Without this hand-off the chord lands on a libghostty
   /// binding the touch-code action decoder doesn't translate (e.g. ⌘, →
   /// `OPEN_CONFIG`) and the keystroke is silently swallowed instead of

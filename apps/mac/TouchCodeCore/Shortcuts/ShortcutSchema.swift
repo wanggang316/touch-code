@@ -91,7 +91,7 @@ extension ShortcutSchema {
         title: "Open in Default Editor",
         category: .general,
         scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_E), modifiers: .command)
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_O), modifiers: .command)
       ),
       .init(
         id: .toggleGitViewer,

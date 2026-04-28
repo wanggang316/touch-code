@@ -137,7 +137,7 @@ struct RootFeature {
     /// flips `state.gitViewerOverlayVisible` and fires
     /// `HierarchyClient.setWorktreeGitViewerVisible` to persist.
     case gitViewerToggledForCurrentWorktree
-    /// T3: ⌘E entry point. Resolves the current Worktree's path from the
+    /// T3: ⌘O entry point. Resolves the current Worktree's path from the
     /// catalog snapshot (via `hierarchyClient` — reducer-scoped dependency,
     /// unlike SwiftUI `Commands` structs where `@Dependency` falls through
     /// to `liveValue` and crashes on the stubbed `snapshot` accessor) and
@@ -470,7 +470,7 @@ struct RootFeature {
 
       case .sidebar(.delegate(.openInDefaultEditor(let path, let projectID))):
         // Route through the shared `resolveInstalledPreference` helper so the sidebar
-        // context menu, the Header Open-in button, and the ⌘E shortcut use one resolution
+        // context menu, the Header Open-in button, and the ⌘O shortcut use one resolution
         // path. When neither override nor global default is installed, pass `nil` so the
         // service's priority cascade picks the first installed editor (Cursor / Zed /
         // VSCode / …) before falling through to Finder. Passing `"finder"` here short-
