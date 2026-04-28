@@ -3,8 +3,8 @@ import SwiftUI
 
 /// Centered modal host for `GitViewerView`. Mounted by `WorktreeDetailView` when
 /// the active Worktree's `gitViewerVisible` is `true`. The modal overlays the
-/// detail column only — the Sidebar stays interactive — and the translucent scrim
-/// around the card dispatches `onDismiss` on tap, mirroring `CommandPaletteView`'s
+/// detail column only — the Sidebar stays interactive — and taps outside the card
+/// (on the translucent scrim) dispatch `onDismiss`, mirroring `CommandPaletteView`'s
 /// dismissal composition.
 ///
 /// Sizing is responsive inside explicit bounds via `cardSize(in:)`. Both axes apply
@@ -54,10 +54,10 @@ struct GitViewerModalHost: View {
     return CGSize(width: w, height: h)
   }
 
-  private static let widthGutter: CGFloat = 48
-  private static let minWidth: CGFloat = 560
-  private static let maxWidth: CGFloat = 980
-  private static let heightGutter: CGFloat = 56
-  private static let minHeight: CGFloat = 420
-  private static let maxHeight: CGFloat = 760
+  private static let widthGutter: CGFloat = 48 // gutter ensures scrim is a clear dismissal target
+  private static let minWidth: CGFloat = 560 // minimum card width for readability
+  private static let maxWidth: CGFloat = 980 // maximum width to preserve usable diff space
+  private static let heightGutter: CGFloat = 56 // vertical margin around the card
+  private static let minHeight: CGFloat = 420 // minimum card height for usable content
+  private static let maxHeight: CGFloat = 760 // maximum height for typical displays
 }
