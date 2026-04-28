@@ -23,11 +23,16 @@ struct WorktreeRowIcon: View {
   /// secondary for everything else.
   var roleTint: Color = .secondary
 
-  /// So the no-PR branch glyph follows the row's focus-aware selection
-  /// chrome (white on emphasized blue, dark on unemphasized grey) instead
-  /// of staying `.secondary`, which would render as a murky tint on the
-  /// new opaque selection background.
-  @Environment(\.controlActiveState) private var controlActiveState
+  /// Native `List(selection:)` paints the selection chrome via NSTableView's
+  /// `.sourceList` mode and sets `\.backgroundProminence = .increased` on
+  /// the row content only while the selection is *emphasized* (sidebar
+  /// holds first-responder, blue fill, white text). The instant focus
+  /// moves to a terminal pane the fill becomes unemphasized grey, the
+  /// system text color flips to dark, and `backgroundProminence` returns
+  /// to `.standard`. Reading this env (rather than `\.controlActiveState`,
+  /// which only tracks window-key state) keeps the icon tint in lockstep
+  /// with the text color through both transitions.
+  @Environment(\.backgroundProminence) private var backgroundProminence
 
   var body: some View {
     Image(assetName)
@@ -50,7 +55,12 @@ struct WorktreeRowIcon: View {
       return snapshot.state.rowTint(isDraft: snapshot.isDraft)
     }
     if isSelected {
-      return controlActiveState == .inactive ? .primary : .white
+      // Emphasized: white on blue. Unemphasized: the same dark token the
+      // system uses for the row label, so icon and text move together
+      // when focus shifts to a terminal pane within the same window.
+      return backgroundProminence == .increased
+        ? Color(nsColor: .alternateSelectedControlTextColor)
+        : Color(nsColor: .unemphasizedSelectedTextColor)
     }
     return roleTint
   }
