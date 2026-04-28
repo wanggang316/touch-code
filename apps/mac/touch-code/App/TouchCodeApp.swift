@@ -72,13 +72,21 @@ struct TouchCodeApp: App {
     // window controls.
     .windowToolbarStyle(.unified)
     .commands {
-      if let store = appState.store {
-        MainWindowCommands(store: store, shortcuts: appState.shortcutsStore.resolved)
-      }
-      // Suppress the default ⌘N "New Window" menu item that `WindowGroup`
-      // synthesizes — `Window(id:)` is single-instance, so the binding
-      // would be a confusing no-op otherwise.
-      CommandGroup(replacing: .newItem) {}
+      // `MainWindowCommands` is rendered unconditionally and reads
+      // `appState.store` lazily. Wrapping the call in `if let store = appState.store { … }`
+      // resolves once at scene build (when `bringUp()` has not yet run and the store is
+      // nil); SwiftUI's `Commands` builder does not subsequently re-add the dropped commands
+      // when the store materialises, leaving the entire File menu absent and unbinding ⌘E /
+      // ⌘P / ⌘T / etc. for the rest of the session.
+      //
+      // We also intentionally do NOT add `CommandGroup(replacing: .newItem) {}` to suppress
+      // ⌘N "New Window": with `Window(id:)` AppKit no longer synthesizes that item, and the
+      // empty-replacing block has the surprising side effect of wiping out every
+      // `CommandGroup(after: .newItem)` content from `MainWindowCommands`.
+      MainWindowCommands(
+        store: { appState.store },
+        shortcuts: appState.shortcutsStore.resolved
+      )
       CommandGroup(replacing: .appSettings) {
         // `.openSettings` is registered as `.systemFixed` in the schema (display-only); the
         // chord stays as the AppKit-conventional ⌘, regardless of any user override attempt.

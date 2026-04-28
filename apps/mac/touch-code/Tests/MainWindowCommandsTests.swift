@@ -35,7 +35,7 @@ struct MainWindowCommandsTests {
   @Test
   func mainWindowCommandsHasNoDependencyFields() {
     let store = Store(initialState: RootFeature.State()) { RootFeature() }
-    let commands = MainWindowCommands(store: store, shortcuts: [:])
+    let commands = MainWindowCommands(store: { store }, shortcuts: [:])
     let mirror = Mirror(reflecting: commands)
     let labels = mirror.children.compactMap(\.label)
     #expect(mirror.children.count == 2)

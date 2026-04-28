@@ -7,6 +7,11 @@ import TouchCodeCore
 /// modifier — defaults match what was previously hardcoded inline, but a user can rebind
 /// any of them via Settings → Shortcuts and the menu rebinds without restart.
 ///
+/// `store` is a closure rather than the resolved `Store` because this `Commands` struct is
+/// instantiated once at scene build, before `AppState.bringUp()` has produced the live
+/// store. Reading the store lazily on each button press lets the parent render
+/// `MainWindowCommands` unconditionally — see the matching note in `TouchCodeApp.body`.
+///
 /// Collision notes for the registry-default chords below:
 ///
 /// - `⌘E` (Open in Default Editor) and `⌘⇧G` (Toggle Git Viewer) shadow AppKit defaults
@@ -17,7 +22,7 @@ import TouchCodeCore
 /// - The app delegate guards `⌘Q` quit with a confirmation when running terminal sessions
 ///   exist; the registry tracks `.quit` as `.systemFixed` for display only.
 struct MainWindowCommands: Commands {
-  let store: StoreOf<RootFeature>
+  let store: () -> StoreOf<RootFeature>?
   /// Snapshot of the live `ShortcutsStore.resolved` map. Re-injected from `TouchCodeApp.body`
   /// on every render; SwiftUI's `Commands` participates in observation, so an override
   /// rebinds the menu items without a manual refresh path.
@@ -26,28 +31,30 @@ struct MainWindowCommands: Commands {
   var body: some Commands {
     CommandGroup(after: .newItem) {
       Button("Quick Action…") {
-        store.send(.commandPaletteToggle(nil))
+        store()?.send(.commandPaletteToggle(nil))
       }
       .appKeyboardShortcut(.commandPaletteToggle, in: shortcuts)
+      .disabled(store() == nil)
 
       Divider()
 
       Button("Open in Default Editor") {
-        store.send(.openDefaultForCurrentWorktreeRequested)
+        store()?.send(.openDefaultForCurrentWorktreeRequested)
       }
       .appKeyboardShortcut(.openInDefaultEditor, in: shortcuts)
       .disabled(!hasActiveWorktree)
 
       Button("Toggle Git Viewer") {
-        store.send(.gitViewerToggledForCurrentWorktree)
+        store()?.send(.gitViewerToggledForCurrentWorktree)
       }
       .appKeyboardShortcut(.toggleGitViewer, in: shortcuts)
       .disabled(!hasActiveWorktree)
 
       Button("Filter Tags") {
-        store.send(.sidebar(.tagFilterFocusRequested))
+        store()?.send(.sidebar(.tagFilterFocusRequested))
       }
       .appKeyboardShortcut(.filterTags, in: shortcuts)
+      .disabled(store() == nil)
     }
 
     // Tab-bar uplift (M2-T2.9). Lands in its own CommandGroup — placed
@@ -57,13 +64,13 @@ struct MainWindowCommands: Commands {
     // removed in M2).
     CommandGroup(after: .newItem) {
       Button("New Tab") {
-        store.send(.newTabForCurrentWorktree)
+        store()?.send(.newTabForCurrentWorktree)
       }
       .appKeyboardShortcut(.newTab, in: shortcuts)
       .disabled(!hasActiveWorktree)
 
       Button("Close Tab") {
-        store.send(.closeActiveTabForCurrentWorktree)
+        store()?.send(.closeActiveTabForCurrentWorktree)
       }
       .appKeyboardShortcut(.closeTab, in: shortcuts)
       .disabled(!hasActiveWorktree)
@@ -71,13 +78,13 @@ struct MainWindowCommands: Commands {
       Divider()
 
       Button("Previous Tab") {
-        store.send(.selectAdjacentTabForCurrentWorktree(.previous))
+        store()?.send(.selectAdjacentTabForCurrentWorktree(.previous))
       }
       .appKeyboardShortcut(.previousTab, in: shortcuts)
       .disabled(!hasActiveWorktree)
 
       Button("Next Tab") {
-        store.send(.selectAdjacentTabForCurrentWorktree(.next))
+        store()?.send(.selectAdjacentTabForCurrentWorktree(.next))
       }
       .appKeyboardShortcut(.nextTab, in: shortcuts)
       .disabled(!hasActiveWorktree)
@@ -87,7 +94,7 @@ struct MainWindowCommands: Commands {
       ForEach(1...9, id: \.self) { n in
         if let id = CommandID.switchToTab(index: n) {
           Button("Switch to Tab \(n)") {
-            store.send(.selectTabAtIndexForCurrentWorktree(n))
+            store()?.send(.selectTabAtIndexForCurrentWorktree(n))
           }
           .appKeyboardShortcut(id, in: shortcuts)
           .disabled(!hasActiveWorktree)
@@ -96,5 +103,7 @@ struct MainWindowCommands: Commands {
     }
   }
 
-  private var hasActiveWorktree: Bool { store.state.selection.worktreeID != nil }
+  private var hasActiveWorktree: Bool {
+    store()?.state.selection.worktreeID != nil
+  }
 }
