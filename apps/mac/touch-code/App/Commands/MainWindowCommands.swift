@@ -2,54 +2,52 @@ import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
 
-/// T3 main-window shortcuts. Attached to the main `Window` in `TouchCodeApp`.
-/// Binds:
+/// Main-window menu commands. Every chord is sourced from the shortcut registry
+/// (`ShortcutSchema.app` ⊕ `ShortcutsStore.overrides`) by way of the `appKeyboardShortcut`
+/// modifier — defaults match what was previously hardcoded inline, but a user can rebind
+/// any of them via Settings → Shortcuts and the menu rebinds without restart.
 ///
-/// - `⌘E` → open the active Worktree in the resolved default editor (per-Project
-///   override → global default → Finder). Dispatches
-///   `RootFeature.Action.openDefaultForCurrentWorktreeRequested`; the reducer
-///   resolves the Worktree path from the catalog snapshot and forwards to
-///   `EditorFeature.Action.openDefaultInCurrentWorktreeRequested`. Snapshot
-///   reads cannot live in this `Commands` struct: `@Dependency` here falls
-///   through to `HierarchyClient.liveValue`, whose `snapshot` accessor is a
-///   `fatalError` stub, so any direct call from Commands crashes.
-/// - `⌘⇧G` → toggle the Git Viewer overlay for the active Worktree. Dispatches
-///   `RootFeature.Action.gitViewerToggledForCurrentWorktree`; T2's Header button
-///   sends the same action so the two entry points share semantics.
+/// Collision notes for the registry-default chords below:
 ///
-/// Collision notes: `Cmd-E` (Use Selection for Find) and `Cmd-Shift-G` (Find
-/// Previous) are AppKit defaults in editable-text contexts. This app has no
-/// editable text fields at the window scope, so the menu binding wins in the
-/// common case. In-GitViewer keybindings (`j / k / g / G / …`) gate on
-/// `press.modifiers.isEmpty` and are never shadowed by these ⌘-modified chords.
+/// - `⌘E` (Open in Default Editor) and `⌘⇧G` (Toggle Git Viewer) shadow AppKit defaults
+///   ("Use Selection for Find" / "Find Previous") in editable-text contexts. The app has no
+///   editable text fields at the window scope today, so the menu binding wins in the common
+///   case. In-GitViewer keybindings (`j / k / g / G / …`) gate on `press.modifiers.isEmpty`
+///   and are never shadowed by these ⌘-modified chords.
+/// - The app delegate guards `⌘Q` quit with a confirmation when running terminal sessions
+///   exist; the registry tracks `.quit` as `.systemFixed` for display only.
 struct MainWindowCommands: Commands {
   let store: StoreOf<RootFeature>
+  /// Snapshot of the live `ShortcutsStore.resolved` map. Re-injected from `TouchCodeApp.body`
+  /// on every render; SwiftUI's `Commands` participates in observation, so an override
+  /// rebinds the menu items without a manual refresh path.
+  let shortcuts: ResolvedShortcutMap
 
   var body: some Commands {
     CommandGroup(after: .newItem) {
       Button("Quick Action…") {
         store.send(.commandPaletteToggle(nil))
       }
-      .keyboardShortcut(KeyEquivalent(CommandPaletteShortcut.keyChar), modifiers: .command)
+      .appKeyboardShortcut(.commandPaletteToggle, in: shortcuts)
 
       Divider()
 
       Button("Open in Default Editor") {
         store.send(.openDefaultForCurrentWorktreeRequested)
       }
-      .keyboardShortcut("e", modifiers: .command)
+      .appKeyboardShortcut(.openInDefaultEditor, in: shortcuts)
       .disabled(!hasActiveWorktree)
 
       Button("Toggle Git Viewer") {
         store.send(.gitViewerToggledForCurrentWorktree)
       }
-      .keyboardShortcut("g", modifiers: [.command, .shift])
+      .appKeyboardShortcut(.toggleGitViewer, in: shortcuts)
       .disabled(!hasActiveWorktree)
 
       Button("Filter Tags") {
         store.send(.sidebar(.tagFilterFocusRequested))
       }
-      .keyboardShortcut("f", modifiers: .command)
+      .appKeyboardShortcut(.filterTags, in: shortcuts)
     }
 
     // Tab-bar uplift (M2-T2.9). Lands in its own CommandGroup — placed
@@ -61,13 +59,13 @@ struct MainWindowCommands: Commands {
       Button("New Tab") {
         store.send(.newTabForCurrentWorktree)
       }
-      .keyboardShortcut("t", modifiers: .command)
+      .appKeyboardShortcut(.newTab, in: shortcuts)
       .disabled(!hasActiveWorktree)
 
       Button("Close Tab") {
         store.send(.closeActiveTabForCurrentWorktree)
       }
-      .keyboardShortcut("w", modifiers: .command)
+      .appKeyboardShortcut(.closeTab, in: shortcuts)
       .disabled(!hasActiveWorktree)
 
       Divider()
@@ -75,26 +73,25 @@ struct MainWindowCommands: Commands {
       Button("Previous Tab") {
         store.send(.selectAdjacentTabForCurrentWorktree(.previous))
       }
-      .keyboardShortcut("[", modifiers: [.command, .shift])
+      .appKeyboardShortcut(.previousTab, in: shortcuts)
       .disabled(!hasActiveWorktree)
 
       Button("Next Tab") {
         store.send(.selectAdjacentTabForCurrentWorktree(.next))
       }
-      .keyboardShortcut("]", modifiers: [.command, .shift])
+      .appKeyboardShortcut(.nextTab, in: shortcuts)
       .disabled(!hasActiveWorktree)
 
       Divider()
 
       ForEach(1...9, id: \.self) { n in
-        Button("Switch to Tab \(n)") {
-          store.send(.selectTabAtIndexForCurrentWorktree(n))
+        if let id = CommandID.switchToTab(index: n) {
+          Button("Switch to Tab \(n)") {
+            store.send(.selectTabAtIndexForCurrentWorktree(n))
+          }
+          .appKeyboardShortcut(id, in: shortcuts)
+          .disabled(!hasActiveWorktree)
         }
-        .keyboardShortcut(
-          KeyEquivalent(Character("\(n)")),
-          modifiers: [.command, .option]
-        )
-        .disabled(!hasActiveWorktree)
       }
     }
   }

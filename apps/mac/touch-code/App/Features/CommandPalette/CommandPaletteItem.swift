@@ -12,7 +12,14 @@ struct CommandPaletteItem: Equatable, Identifiable {
   let title: String
   let subtitle: String?
   let icon: String
+  /// Hardcoded display hint, used as a fallback when `commandID` is unset or the env-injected
+  /// resolved-shortcut map has no binding for that ID. Registry-tracked actions should pass
+  /// `commandID` instead so users see their custom rebinds in the palette.
   let shortcut: KeyEquivalentDescriptor?
+  /// Identifier into the shortcut registry. When set, the row view derives the chord display
+  /// from `@Environment(\.resolvedShortcuts)` so user rebinds and disables flow through to
+  /// the palette hint without rebuilding the items.
+  let commandID: CommandID?
   let priorityTier: Int
   /// When true, the item is excluded from the empty-query list. Reserved
   /// for sharp-edge commands (e.g. "Close Current Worktree") that should
@@ -26,6 +33,7 @@ struct CommandPaletteItem: Equatable, Identifiable {
     subtitle: String? = nil,
     icon: String,
     shortcut: KeyEquivalentDescriptor? = nil,
+    commandID: CommandID? = nil,
     priorityTier: Int = 100,
     hiddenWhenQueryEmpty: Bool = false,
     kind: Kind
@@ -35,6 +43,7 @@ struct CommandPaletteItem: Equatable, Identifiable {
     self.subtitle = subtitle
     self.icon = icon
     self.shortcut = shortcut
+    self.commandID = commandID
     self.priorityTier = priorityTier
     self.hiddenWhenQueryEmpty = hiddenWhenQueryEmpty
     self.kind = kind

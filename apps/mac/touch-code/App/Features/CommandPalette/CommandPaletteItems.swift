@@ -83,6 +83,7 @@ enum CommandPaletteItems {
         title: "Open Settings",
         icon: "gearshape",
         shortcut: .command(","),
+        commandID: .openSettings,
         kind: .openSettings
       ),
       CommandPaletteItem(
@@ -96,6 +97,7 @@ enum CommandPaletteItems {
         title: "Quit touch-code",
         icon: "power",
         shortcut: .command("Q"),
+        commandID: .quit,
         hiddenWhenQueryEmpty: true,
         kind: .quit
       ),
@@ -122,6 +124,7 @@ enum CommandPaletteItems {
         subtitle: worktreeName,
         icon: "doc.text.magnifyingglass",
         shortcut: .command("G", shift: true),
+        commandID: .toggleGitViewer,
         kind: .toggleGitViewer
       ),
       CommandPaletteItem(
@@ -160,6 +163,7 @@ enum CommandPaletteItems {
         subtitle: worktreeName,
         icon: "arrow.up.forward.app",
         shortcut: .command("E"),
+        commandID: .openInDefaultEditor,
         kind: .openCurrentWorktreeInDefaultEditor
       )
     ]

@@ -26,20 +26,20 @@ import TouchCodeCore
 struct MainWindowCommandsTests {
   // MARK: - Structural
 
-  /// If this count ever exceeds 1, a `@Dependency`, `@Environment`, or other
-  /// stored property has been added to `MainWindowCommands`. `@Dependency`
-  /// in particular resolves to `liveValue` inside a SwiftUI `Commands`
-  /// struct (TCA's `withDependencies` injection does not scope here), so
-  /// any client whose `liveValue` has a `fatalError` stub crashes on first
-  /// button tap. Keep shortcut side effects in `RootFeature`'s reducer.
+  /// If this count ever exceeds 2, a `@Dependency`, `@Environment`, or other client-resolving
+  /// stored property has been added to `MainWindowCommands`. `@Dependency` in particular
+  /// resolves to `liveValue` inside a SwiftUI `Commands` struct (TCA's `withDependencies`
+  /// injection does not scope here), so any client whose `liveValue` has a `fatalError`
+  /// stub crashes on first button tap. The two allowed fields are `store` and the inert
+  /// resolved-shortcut snapshot `shortcuts` — neither carries a fatalError client.
   @Test
   func mainWindowCommandsHasNoDependencyFields() {
     let store = Store(initialState: RootFeature.State()) { RootFeature() }
-    let commands = MainWindowCommands(store: store)
+    let commands = MainWindowCommands(store: store, shortcuts: [:])
     let mirror = Mirror(reflecting: commands)
-    // Exactly one stored property: `store`.
-    #expect(mirror.children.count == 1)
-    #expect(mirror.children.first?.label == "store")
+    let labels = mirror.children.compactMap(\.label)
+    #expect(mirror.children.count == 2)
+    #expect(Set(labels) == ["store", "shortcuts"])
   }
 
   // MARK: - ⌘E (Open in Default Editor)
