@@ -1154,6 +1154,19 @@ private struct ProjectTagDots: View {
 
 // MARK: - Project options native menu (NSHostingView-backed)
 
+/// `NSHostingView` subclass that opts into the first-click. While an
+/// `NSMenu` is tracking, its overlay panel is the key window — the
+/// original window (and our hosting view's responder chain) is no
+/// longer key. The default `NSView.acceptsFirstMouse(for:)` returns
+/// `false`, which causes AppKit to swallow the very first mouse-down
+/// inside our hosted view as a "make-key" click instead of forwarding
+/// it to the SwiftUI Button hit-test, so taps on rows / swatches
+/// silently do nothing. Returning `true` here forwards the click and
+/// SwiftUI's normal Button + onHover plumbing then behaves as expected.
+private final class ProjectOptionsMenuHostingView<Content: View>: NSHostingView<Content> {
+  override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
 /// Captures the underlying `NSView` for a SwiftUI element so a sibling
 /// click handler can use it as the anchor passed to `NSMenu.popUp`.
 /// We need a real `NSView` because NSMenu measures its popup position
@@ -1201,7 +1214,7 @@ private func presentProjectOptionsMenu(
     hierarchyManager: hierarchyManager,
     dismiss: { [weak menu] in menu?.cancelTracking() }
   )
-  let host = NSHostingView(rootView: content)
+  let host = ProjectOptionsMenuHostingView(rootView: content)
   host.frame.size = host.fittingSize
   item.view = host
   menu.addItem(item)
