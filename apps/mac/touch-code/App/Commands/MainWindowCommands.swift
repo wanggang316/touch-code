@@ -90,7 +90,7 @@ struct MainWindowCommands: Commands {
 
       Divider()
 
-      ForEach(1...9, id: \.self) { n in
+      ForEach(1...10, id: \.self) { n in
         if let id = CommandID.switchToTab(index: n) {
           Button("Switch to Tab \(n)") {
             store()?.send(.selectTabAtIndexForCurrentWorktree(n))

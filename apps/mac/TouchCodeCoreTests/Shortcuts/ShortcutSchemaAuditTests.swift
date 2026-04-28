@@ -60,15 +60,16 @@ struct ShortcutSchemaAuditTests {
     (.closeTab, (0x0D, [.command])),                        // w
     (.previousTab, (0x21, [.command, .shift])),             // [
     (.nextTab, (0x1E, [.command, .shift])),                 // ]
-    (.switchToTab1, (0x12, [.command, .option])),
-    (.switchToTab2, (0x13, [.command, .option])),
-    (.switchToTab3, (0x14, [.command, .option])),
-    (.switchToTab4, (0x15, [.command, .option])),
-    (.switchToTab5, (0x17, [.command, .option])),           // kVK_ANSI_5 == 0x17 (not 0x16!)
-    (.switchToTab6, (0x16, [.command, .option])),           // kVK_ANSI_6 == 0x16
-    (.switchToTab7, (0x1A, [.command, .option])),
-    (.switchToTab8, (0x1C, [.command, .option])),
-    (.switchToTab9, (0x19, [.command, .option])),
+    (.switchToTab1, (0x12, [.command])),
+    (.switchToTab2, (0x13, [.command])),
+    (.switchToTab3, (0x14, [.command])),
+    (.switchToTab4, (0x15, [.command])),
+    (.switchToTab5, (0x17, [.command])),                    // kVK_ANSI_5 == 0x17 (not 0x16!)
+    (.switchToTab6, (0x16, [.command])),                    // kVK_ANSI_6 == 0x16
+    (.switchToTab7, (0x1A, [.command])),
+    (.switchToTab8, (0x1C, [.command])),
+    (.switchToTab9, (0x19, [.command])),
+    (.switchToTab10, (0x1D, [.command])),                   // 0
     (.selectWorktreeAt1, (0x12, [.control])),
     (.selectWorktreeAt2, (0x13, [.control])),
     (.selectWorktreeAt3, (0x14, [.control])),
