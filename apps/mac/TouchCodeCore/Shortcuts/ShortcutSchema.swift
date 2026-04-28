@@ -112,7 +112,7 @@ extension ShortcutSchema {
         title: "Add Project…",
         category: .general,
         scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_N), modifiers: .command)
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_O), modifiers: [.command, .shift])
       ),
       .init(
         id: .openCurrentPR,
