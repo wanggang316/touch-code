@@ -42,7 +42,6 @@ struct WorktreeDetailView: View {
         tabBarRow(address: address)
         terminalRegion(address: address)
           .overlay { overlayContent }
-          .animation(.spring(response: 0.32, dampingFraction: 0.85), value: overlayVisible)
       }
       // On macOS 15+ remove the title slot entirely so default-placement
       // toolbar items can flow leading-to-trailing with `ToolbarSpacer`
@@ -120,6 +119,7 @@ struct WorktreeDetailView: View {
         onDismiss: { headerStore.send(.gitViewerToggleTapped) }
       )
       .transition(.scale(scale: 0.96).combined(with: .opacity))
+      .animation(.spring(response: 0.32, dampingFraction: 0.85), value: overlayVisible)
     }
   }
 
