@@ -46,15 +46,37 @@ struct HierarchySidebarView: View {
   /// (selectedProjectID propagation, hooks, etc.) fire identically to a tap.
   private var nativeSelectionBinding: Binding<WorktreeID?> {
     Binding(
-      get: { currentSelection.worktreeID },
+      get: {
+        // Read live from `hierarchyManager.catalog` rather than from the
+        // `currentSelection` prop. The prop trails state by one render
+        // cycle (parent feature observes a stream → re-renders → re-passes
+        // the value), so cross-Project clicks see a one-frame revert: the
+        // setter mutates the manager synchronously, but on the immediate
+        // next render `currentSelection` is still the previous value.
+        // NSTableView snaps the highlight back to the old row for one
+        // frame before the prop catches up — visible as the flicker
+        // (A.main → B.main → A.main → B.main) the user reported. Reading
+        // the @Observable manager directly closes the gap; mutations from
+        // `worktreeRowTapped` land in the same tick the binding's `get`
+        // is re-evaluated.
+        let catalog = hierarchyManager.catalog
+        guard let pid = catalog.selectedProjectID,
+          let project = catalog.projects.first(where: { $0.id == pid })
+        else { return nil }
+        return project.selectedWorktreeID
+      },
       set: { newValue in
-        guard let newValue, newValue != currentSelection.worktreeID else { return }
+        guard let newValue else { return }
         guard
           let project = hierarchyManager.catalog.projects
             .first(where: { project in
               project.worktrees.contains(where: { $0.id == newValue })
             })
         else { return }
+        // Drop the no-op guard. Cross-Project clicks where the same
+        // WorktreeID happens to be selected in both Projects (rare but
+        // possible after a copy / reattach) would otherwise be filtered
+        // out and the active Project would never flip.
         store.send(.worktreeRowTapped(newValue, inProject: project.id))
       }
     )
