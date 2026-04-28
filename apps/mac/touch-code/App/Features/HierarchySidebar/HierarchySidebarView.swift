@@ -930,25 +930,32 @@ private struct ProjectHeaderRow: View {
           .onHover { isPlusHovering = $0 }
         }
         Menu {
-          Button("Project Options…") {
+          Button {
             store.send(
               .projectOptionsTapped(projectID: project.id)
             )
+          } label: {
+            Label("Project Options…", systemImage: "slider.horizontal.3")
           }
           let archivedCount = project.worktrees.filter { $0.archived }.count
-          Button(
-            archivedCount > 0
-              ? "Archived Worktrees (\(archivedCount))…"
-              : "Archived Worktrees…"
-          ) {
+          Button {
             store.send(
               .projectShowArchivedTapped(projectID: project.id)
             )
+          } label: {
+            Label(
+              archivedCount > 0
+                ? "Archived Worktrees (\(archivedCount))…"
+                : "Archived Worktrees…",
+              systemImage: "archivebox"
+            )
           }
-          Button("Prune Stale Worktrees") {
+          Button {
             store.send(
               .projectPruneTapped(projectID: project.id)
             )
+          } label: {
+            Label("Prune Stale Worktrees", systemImage: "wand.and.sparkles")
           }
           Divider()
           // M5 (project-tags): inline color palette + "Tags…" button. The
@@ -957,13 +964,15 @@ private struct ProjectHeaderRow: View {
           // the sidebar's `.openTagManager` delegate.
           ProjectTagsMenu(project: project, store: store)
           Divider()
-          Button("Remove Project", role: .destructive) {
+          Button(role: .destructive) {
             store.send(
               .projectRemoveTapped(
                 projectID: project.id,
                 name: project.name
               )
             )
+          } label: {
+            Label("Remove Project", systemImage: "trash")
           }
         } label: {
           iconLabel(systemName: "ellipsis", isHovering: isMenuHovering)
