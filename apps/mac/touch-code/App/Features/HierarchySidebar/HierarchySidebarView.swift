@@ -951,10 +951,10 @@ private struct ProjectHeaderRow: View {
             )
           }
           Divider()
-          // M5 (project-tags): Tag editor submenu — checkbox per tag
-          // routes through `setProjectTags`; "Edit Tags…" opens the
-          // global TagManager sheet via the sidebar's
-          // `.openTagManager` delegate.
+          // M5 (project-tags): inline color palette + "Tags…" button. The
+          // palette toggles `Project.tagIDs` membership through
+          // `setProjectTags`; "Tags…" opens the global TagManager sheet via
+          // the sidebar's `.openTagManager` delegate.
           ProjectTagsMenu(project: project, store: store)
           Divider()
           Button("Remove Project", role: .destructive) {
@@ -1177,38 +1177,42 @@ private struct ProjectTagDots: View {
   }
 }
 
-/// "Tags" submenu for the project header ⋯ menu. One Toggle per
-/// catalog tag (binding to `Project.tagIDs.contains(tag.id)`), a
-/// Divider, then "Edit Tags…" which routes up via the sidebar's
-/// `.openTagManager` delegate. When the catalog has no tags, the
-/// submenu collapses to a single "Edit Tags…" button so users can
-/// still discover the manager.
+/// Inline tag controls for the project header ⋯ menu. Renders the catalog
+/// tags as a horizontal `ControlGroup(.palette)` strip of colored circles —
+/// matching Finder's tag palette in context menus — followed by a plain
+/// "Edit Tags…" entry that routes up via the sidebar's `.openTagManager`
+/// delegate. When the catalog has no tags, only the "Edit Tags…" entry
+/// renders so users can still discover the manager.
 private struct ProjectTagsMenu: View {
   let project: Project
   @Bindable var store: StoreOf<HierarchySidebarFeature>
   @Environment(HierarchyManager.self) private var hierarchyManager
 
   var body: some View {
-    Menu("Tags") {
-      let tags = hierarchyManager.catalog.tags
-      if !tags.isEmpty {
+    let tags = hierarchyManager.catalog.tags
+    if !tags.isEmpty {
+      ControlGroup {
         ForEach(tags) { tag in
-          Toggle(
-            isOn: Binding(
-              get: { project.tagIDs.contains(tag.id) },
-              set: { _ in
-                store.send(.toggleTagOnProject(project.id, tag.id))
-              }
+          let isOn = project.tagIDs.contains(tag.id)
+          Button {
+            store.send(.toggleTagOnProject(project.id, tag.id))
+          } label: {
+            Label(
+              tag.name,
+              systemImage: isOn ? "checkmark.circle.fill" : "circle.fill"
             )
-          ) {
-            Label(tag.name, systemImage: "tag.fill")
+            .labelStyle(.iconOnly)
+            .foregroundStyle(swiftUIColor(for: tag.color))
           }
+          .help(tag.name)
         }
-        Divider()
       }
-      Button("Edit Tags…") {
-        store.send(.delegate(.openTagManager))
-      }
+      .controlGroupStyle(.palette)
+    }
+    Button {
+      store.send(.delegate(.openTagManager))
+    } label: {
+      Label("Tags…", systemImage: "tag")
     }
   }
 }
