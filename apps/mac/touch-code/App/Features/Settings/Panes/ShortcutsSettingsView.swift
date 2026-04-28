@@ -14,8 +14,6 @@ import TouchCodeCore
 struct ShortcutsSettingsView: View {
   @Bindable var store: ShortcutsStore
   @State private var query: String = ""
-  @State private var recordingID: CommandID?
-  @State private var rejectionMessage: String?
   @State private var pendingConflict: PendingConflict?
   @State private var pendingReset: ShortcutResetPlan?
   @State private var showRestoreAllConfirmation: Bool = false
@@ -34,9 +32,8 @@ struct ShortcutsSettingsView: View {
         HotkeyCell(
           item: item,
           store: store,
-          recordingID: $recordingID,
-          rejectionMessage: $rejectionMessage,
-          onCapture: { binding, id in handleCapture(binding, for: id) },
+          validate: validate,
+          onCommit: commit,
           onReset: requestReset
         )
       }
@@ -78,17 +75,6 @@ struct ShortcutsSettingsView: View {
         }
         .help("Restore all shortcuts to their default values.")
         .disabled(store.overrides.overrides.isEmpty)
-      }
-    }
-    .safeAreaInset(edge: .top, spacing: 0) {
-      if let rejectionMessage {
-        Text(rejectionMessage)
-          .font(.callout)
-          .foregroundStyle(.red)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(.horizontal, 16)
-          .padding(.vertical, 8)
-          .background(.regularMaterial)
       }
     }
     .confirmationDialog(
@@ -164,31 +150,36 @@ struct ShortcutsSettingsView: View {
 
   // MARK: - Mutations
 
-  private func handleCapture(_ binding: ShortcutBinding, for id: CommandID) {
+  /// Hard rejections that surface as in-popover red text + shake. Internal conflicts
+  /// (`commit` below) are *not* checked here — those land in a Replace-existing dialog
+  /// instead so the user can promote the new chord by demoting the holder.
+  private func validate(_ binding: ShortcutBinding, for _: CommandID) -> HotkeyRecorderPopover.ValidationResult {
     let symbolicHotkeyDefaults = UserDefaults(suiteName: "com.apple.symbolichotkeys") ?? .standard
     if SystemReservedDetector.isReserved(
       keyCode: binding.keyCode,
       modifiers: binding.modifiers,
       in: symbolicHotkeyDefaults
     ) {
-      rejectionMessage = "That chord is claimed by a macOS system shortcut."
-      return
+      return .rejected(message: "Reserved by macOS system.")
     }
     if AppKitReservedDetector.isReserved(keyCode: binding.keyCode, modifiers: binding.modifiers) {
-      rejectionMessage = "That chord is reserved by macOS standard menus."
-      return
+      return .rejected(message: "Reserved by macOS standard menus.")
     }
+    return .ok
+  }
+
+  /// Run after `validate` returns `.ok`. Routes through the internal-conflict planner so
+  /// chords already used by another command surface the Replace dialog instead of silently
+  /// overwriting; otherwise commits straight to the override store.
+  private func commit(_ binding: ShortcutBinding, for id: CommandID) {
     if let conflictingID = InternalConflictDetector.conflicts(
       in: store.resolved, candidate: binding, excluding: id
     ) {
       pendingConflict = PendingConflict(
         target: id, binding: binding, conflictingID: conflictingID
       )
-      recordingID = nil
       return
     }
-    rejectionMessage = nil
-    recordingID = nil
     store.update(id, to: binding)
   }
 
@@ -320,10 +311,16 @@ private struct NameCell: View {
 private struct HotkeyCell: View {
   let item: ShortcutTableItem
   @Bindable var store: ShortcutsStore
-  @Binding var recordingID: CommandID?
-  @Binding var rejectionMessage: String?
-  let onCapture: (ShortcutBinding, CommandID) -> Void
+  let validate: (ShortcutBinding, CommandID) -> HotkeyRecorderPopover.ValidationResult
+  let onCommit: (ShortcutBinding, CommandID) -> Void
   let onReset: (CommandID) -> Void
+
+  /// One popover per cell. Tapping the chord button toggles this on; the popover dismisses
+  /// itself on capture / cancel via the recorder's own task scheduling. Keeping the state
+  /// per-cell (instead of pane-wide) means closing one row's popover doesn't disturb any
+  /// other row, and the popover's `.popover` anchor naturally re-targets when rows
+  /// re-order under search filtering.
+  @State private var isRecording = false
 
   var body: some View {
     switch item.kind {
@@ -332,7 +329,7 @@ private struct HotkeyCell: View {
     case .entry(let entry):
       let resolved = store.resolved[entry.id]
       HStack(spacing: 8) {
-        chordCell(entry: entry, resolved: resolved)
+        chordButton(entry: entry, resolved: resolved)
           .frame(maxWidth: .infinity, alignment: .leading)
         sourcePill(resolved)
         if entry.scope == .configurable, resolved?.source == .userOverride {
@@ -347,12 +344,16 @@ private struct HotkeyCell: View {
         }
       }
       .contextMenu {
-        if entry.scope == .configurable, let resolved {
-          if resolved.isEnabled {
-            Button("Disable Shortcut") { store.disable(entry.id) }
-          } else {
-            Button("Enable Shortcut") {
-              EnabledCell.restoreEnabled(for: entry.id, resolved: resolved, store: store)
+        if entry.scope == .configurable {
+          Button("Change Shortcut…") { isRecording = true }
+          if let resolved {
+            Divider()
+            if resolved.isEnabled {
+              Button("Disable Shortcut") { store.disable(entry.id) }
+            } else {
+              Button("Enable Shortcut") {
+                EnabledCell.restoreEnabled(for: entry.id, resolved: resolved, store: store)
+              }
             }
           }
         }
@@ -360,48 +361,31 @@ private struct HotkeyCell: View {
     }
   }
 
-  /// The recorder NSView captures `keyDown` only; the SwiftUI button overlaid on top is
-  /// what receives mouse clicks and drives `recordingID`. The recorder's mouse-handling
-  /// paths are therefore intentionally unused.
+  /// Configurable rows are buttons that toggle a `HotkeyRecorderPopover`; non-configurable
+  /// rows ("System default" — `.openSettings`, `.quit`) render the chord as a static
+  /// bordered cell since the user cannot rebind them.
   @ViewBuilder
-  private func chordCell(entry: ShortcutSchema.Entry, resolved: ResolvedShortcut?) -> some View {
+  private func chordButton(entry: ShortcutSchema.Entry, resolved: ResolvedShortcut?) -> some View {
     if entry.scope == .configurable {
-      let isThisRowRecording = recordingID == entry.id
-      HotkeyRecorderView(
-        isRecording: Binding(
-          get: { isThisRowRecording },
-          set: { newValue in
-            if newValue {
-              recordingID = entry.id
-              rejectionMessage = nil
-            } else if recordingID == entry.id {
-              recordingID = nil
-            }
-          }
-        ),
-        onCapture: { binding in onCapture(binding, entry.id) },
-        onReject: { reason in rejectionMessage = rejectionText(reason) },
-        onCancel: { rejectionMessage = nil }
-      )
-      .overlay(alignment: .leading) {
-        Button {
-          if recordingID == entry.id {
-            recordingID = nil
-          } else {
-            recordingID = entry.id
-            rejectionMessage = nil
-          }
-        } label: {
-          chordLabel(resolved: resolved, isRecording: isThisRowRecording)
-            .frame(maxWidth: .infinity, alignment: .center)
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
+      Button {
+        isRecording = true
+      } label: {
+        chordLabel(resolved: resolved)
+          .frame(maxWidth: .infinity, alignment: .center)
       }
-      .frame(height: 24)
+      .buttonStyle(.bordered)
+      .controlSize(.small)
+      .popover(isPresented: $isRecording, arrowEdge: .bottom) {
+        HotkeyRecorderPopover(
+          title: entry.title,
+          validate: { validate($0, entry.id) },
+          onCommit: { onCommit($0, entry.id) },
+          onCancel: { isRecording = false }
+        )
+      }
     } else {
       HStack {
-        chordLabel(resolved: resolved, isRecording: false)
+        chordLabel(resolved: resolved)
         Spacer()
       }
       .padding(.horizontal, 8)
@@ -414,12 +398,8 @@ private struct HotkeyCell: View {
   }
 
   @ViewBuilder
-  private func chordLabel(resolved: ResolvedShortcut?, isRecording: Bool) -> some View {
-    if isRecording {
-      Text("Type a chord…")
-        .font(.system(size: 11, design: .monospaced))
-        .foregroundStyle(.secondary)
-    } else if let resolved, let binding = resolved.binding {
+  private func chordLabel(resolved: ResolvedShortcut?) -> some View {
+    if let resolved, let binding = resolved.binding {
       Text(ShortcutDisplay.chord(for: binding))
         .font(.system(size: 12, design: .monospaced))
         .foregroundStyle(resolved.isEnabled ? .primary : .secondary)
@@ -452,14 +432,6 @@ private struct HotkeyCell: View {
     case .userOverride: return ("Custom", .accentColor)
     }
   }
-
-  private func rejectionText(_ reason: HotkeyRecorderNSView.RejectionReason) -> String {
-    switch reason {
-    case .missingPrimaryModifier: return "Add a ⌘, ⌥, or ⌃ modifier."
-    case .modifierOnly: return "Press a non-modifier key."
-    }
-  }
-
 }
 
 private struct EnabledCell: View {
