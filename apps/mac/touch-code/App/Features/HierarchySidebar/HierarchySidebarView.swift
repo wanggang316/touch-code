@@ -1197,15 +1197,6 @@ private struct ProjectTagsMenu: View {
   @Bindable var store: StoreOf<HierarchySidebarFeature>
   @Environment(HierarchyManager.self) private var hierarchyManager
 
-  /// Tracks the currently-hovered swatch so the trailing "Tags…" row can
-  /// preview the tag's name. Whether NSMenu actually re-renders the
-  /// trailing row's title in response to this state is determined at
-  /// runtime — `.onHover` does fire on palette items, but NSMenuItem's
-  /// title is snapshot at presentation time and may ignore SwiftUI body
-  /// recomputation. If it doesn't update, fall back to `.help(name)`
-  /// tooltips per swatch.
-  @State private var hoveredTagID: TagID?
-
   var body: some View {
     let tags = hierarchyManager.catalog.tags
     if !tags.isEmpty {
@@ -1223,13 +1214,6 @@ private struct ProjectTagsMenu: View {
           }
           .tint(swiftUIColor(for: tag.color))
           .help(tag.name)
-          .onHover { hovering in
-            if hovering {
-              hoveredTagID = tag.id
-            } else if hoveredTagID == tag.id {
-              hoveredTagID = nil
-            }
-          }
         }
       }
       .controlGroupStyle(.palette)
@@ -1237,16 +1221,7 @@ private struct ProjectTagsMenu: View {
     Button {
       store.send(.delegate(.openTagManager))
     } label: {
-      Label(tagsRowTitle, systemImage: "tag")
+      Label("Tags…", systemImage: "tag")
     }
-  }
-
-  private var tagsRowTitle: String {
-    if let id = hoveredTagID,
-      let tag = hierarchyManager.catalog.tags.first(where: { $0.id == id })
-    {
-      return tag.name
-    }
-    return "Tags…"
   }
 }
