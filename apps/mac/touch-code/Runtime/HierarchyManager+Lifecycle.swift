@@ -58,9 +58,16 @@ extension HierarchyManager {
     }
   }
 
-  /// Spawns `$SHELL -c <command>` and blocks until exit. Failure to
-  /// launch (e.g. `$SHELL` binary missing) surfaces as
-  /// `.failure(-1, _)` with the launch error description.
+  /// Spawns `$SHELL -l -c <command>` and blocks until exit. The login
+  /// flag is what makes `$SHELL` source the user's `.zprofile` /
+  /// `.bash_profile`, so PATH additions made there (Homebrew shellenv,
+  /// `~/.local/bin`, etc.) are visible to the script. Without `-l` the
+  /// child only inherits the LaunchServices-launched app's PATH —
+  /// `/usr/bin:/bin:/usr/sbin:/sbin` — and any tool the user installed
+  /// outside that (`claude`, `gh`, `node`, …) fails with
+  /// "command not found". Same pattern `GhExecutableResolver` uses to
+  /// find `gh`. Failure to launch (e.g. `$SHELL` binary missing)
+  /// surfaces as `.failure(-1, _)` with the launch error description.
   nonisolated private static func spawn(
     command: String,
     cwd: String,
@@ -69,7 +76,7 @@ extension HierarchyManager {
     let shellPath = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
     let process = Process()
     process.executableURL = URL(fileURLWithPath: shellPath)
-    process.arguments = ["-c", command]
+    process.arguments = ["-l", "-c", command]
     process.environment = env
     process.currentDirectoryURL = URL(fileURLWithPath: cwd)
 
