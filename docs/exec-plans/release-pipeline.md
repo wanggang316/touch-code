@@ -18,7 +18,7 @@ The pipeline must also embed the `tc` CLI inside the app bundle so [c4-cli.md §
 
 ## Progress
 
-- [ ] M1 — Identity, productName, entitlements, embedded `tc`
+- [x] M1 — Identity, productName, entitlements, embedded `tc` — 2026-04-28
 - [ ] M2 — Local archive + Developer ID signing script
 - [ ] M3 — Notarization + stapling
 - [ ] M4 — DMG packaging (signed + notarized)
@@ -28,7 +28,8 @@ The pipeline must also embed the `tc` CLI inside the app bundle so [c4-cli.md §
 
 ## Surprises & Discoveries
 
-(None yet)
+- **2026-04-28 (M1): Tuist warns on spaces in `productName` but the build works.** `mise exec -- tuist generate` prints `Invalid product name 'Touch Code'. This string must contain only alphanumeric (A-Z,a-z,0-9), period (.), hyphen (-), and underscore (_) characters.` and proceeds anyway. xcodebuild resolves `PRODUCT_NAME=Touch Code`, `WRAPPER_NAME=Touch Code.app`, `EXECUTABLE_NAME=Touch Code` correctly; `Touch Code.app` builds, signs ad-hoc, and launches. The Tuist warning is a Tuist-only style check, not an xcodebuild-level constraint — left as-is. If a future Tuist version upgrades it to an error, fall back to `productName: "TouchCode"` and rely on `CFBundleDisplayName` alone.
+- **2026-04-28 (M1): `xcodebuild` first run after pbxproj regeneration printed `** BUILD FAILED ** (3 failures)` but a second invocation a moment later (piped through xcbeautify) succeeded.** No source change between the two runs. Likely a transient stale-derived-data effect from Tuist regenerating the pbxproj while a previous build's incremental graph was still indexed. Re-running was sufficient; not adding a `xcodebuild clean` step in the Makefile because the cost (full rebuild on every generate) outweighs the rare flake.
 
 ## Decision Log
 
@@ -42,7 +43,18 @@ The pipeline must also embed the `tc` CLI inside the app bundle so [c4-cli.md §
 
 ## Outcomes & Retrospective
 
-(To be filled at milestone completion)
+### M1 — Identity, productName, entitlements, embedded `tc` (2026-04-28)
+
+**What landed:** `apps/mac/Project.swift` now sets `productName: "Touch Code"` and `entitlements: .file(path: "Configurations/touch-code.entitlements")` on the app target; `tc`'s blanket `CODE_SIGNING_ALLOWED=NO` was scoped to `[config=Debug]` so Release will sign the CLI for embedding. New files: `apps/mac/Configurations/touch-code.entitlements` (empty `<dict/>`) and `apps/mac/scripts/embed-tc.sh` (modeled on `embed-git-wt.sh`). `docs/architecture.md` Codemap row for `touch-code` records the embedding.
+
+**Verification:**
+- `mise exec -- tuist generate --no-open` succeeds (with a Tuist style warning about the space in productName — see Surprises).
+- `xcodebuild ... build` produces `Touch Code.app` at `~/Library/Developer/Xcode/DerivedData/touch-code-*/Build/Products/Debug/Touch Code.app`.
+- `/usr/libexec/PlistBuddy -c "Print CFBundleIdentifier"` returns `com.gumpw.touch-agent-mac`; `CFBundleDisplayName` and `CFBundleName` both `Touch Code`.
+- `codesign -d --entitlements -` shows the (Debug-injected) `get-task-allow=true` only — the empty Release entitlements file is intact.
+- `Touch Code.app/Contents/Resources/bin/tc --version` runs from the embedded location.
+
+**Carry-forward to M2:** Release configuration is now structurally ready for Developer ID signing — the entitlements file exists, tc will sign in Release, and the bundle filename is final. M2 needs `Release.xcconfig` (gitignored) + `ExportOptions.plist` + `release.sh archive`.
 
 ## Context and Orientation
 
