@@ -143,6 +143,13 @@ struct RootFeature {
     /// to `liveValue` and crashes on the stubbed `snapshot` accessor) and
     /// dispatches `.editor(.openDefaultInCurrentWorktreeRequested)`.
     case openDefaultForCurrentWorktreeRequested
+    /// ⌘⇧G entry point. Looks up the current Worktree's PR snapshot in
+    /// `state.gitHub.snapshots` and forwards the URL through
+    /// `.gitHub(.delegate(.openURL(...)))` — the same hop the status-bar
+    /// PR badge uses on click. No-op when no Worktree is selected or no
+    /// PR snapshot has been fetched for it yet (typical for non-GitHub
+    /// repos or freshly created branches).
+    case openCurrentPRRequested
     /// Tab-bar uplift: `⌘T` menu binding. Resolves the current Worktree
     /// and forwards `.detail(.tabBar(.newTabButtonTapped))`.
     case newTabForCurrentWorktree
@@ -813,6 +820,13 @@ struct RootFeature {
               worktreeID: worktreeID,
               worktreePath: path
             )))
+
+      case .openCurrentPRRequested:
+        guard
+          let worktreeID = state.selection.worktreeID,
+          let snapshot = state.gitHub.snapshots[worktreeID]
+        else { return .none }
+        return .send(.gitHub(.delegate(.openURL(snapshot.url))))
 
       case .openShellEditorInWorktree(let worktreePath, let projectIDHint):
         let catalog = hierarchyClient.snapshot()

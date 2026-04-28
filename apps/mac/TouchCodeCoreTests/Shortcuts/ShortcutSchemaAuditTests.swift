@@ -54,9 +54,10 @@ struct ShortcutSchemaAuditTests {
     (.quit, (0x0C, [.command])),                            // q
     (.commandPaletteToggle, (0x23, [.command])),            // p
     (.openInDefaultEditor, (0x1F, [.command])),             // o
-    (.toggleGitViewer, (0x05, [.command, .shift])),         // g
+    (.toggleGitViewer, (0x05, [.command, .option])),        // g
     (.filterTags, (0x03, [.command])),                      // f
     (.addProject, (0x2D, [.command])),                      // n
+    (.openCurrentPR, (0x05, [.command, .shift])),           // g
     (.newTab, (0x11, [.command])),                          // t
     (.closeTab, (0x0D, [.command])),                        // w
     (.previousTab, (0x21, [.command, .shift])),             // [

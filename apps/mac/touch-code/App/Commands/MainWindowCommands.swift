@@ -60,6 +60,12 @@ struct MainWindowCommands: Commands {
       }
       .appKeyboardShortcut(.addProject, in: shortcuts)
       .disabled(store() == nil)
+
+      Button("Open PR on GitHub") {
+        store()?.send(.openCurrentPRRequested)
+      }
+      .appKeyboardShortcut(.openCurrentPR, in: shortcuts)
+      .disabled(!hasPRForCurrentWorktree)
     }
 
     // Tab-bar uplift (M2-T2.9). Lands in its own CommandGroup — placed
@@ -110,5 +116,17 @@ struct MainWindowCommands: Commands {
 
   private var hasActiveWorktree: Bool {
     store()?.state.selection.worktreeID != nil
+  }
+
+  /// `true` when the current Worktree has a PR snapshot in the GitHub feature's cache.
+  /// Drives the `.disabled` state of the "Open PR on GitHub" menu item — a Worktree
+  /// without a fetched PR (non-GitHub repo, fresh branch with no PR yet, GitHub auth
+  /// not configured) silently exposes a useless chord otherwise.
+  private var hasPRForCurrentWorktree: Bool {
+    guard
+      let worktreeID = store()?.state.selection.worktreeID,
+      store()?.state.gitHub.snapshots[worktreeID] != nil
+    else { return false }
+    return true
   }
 }
