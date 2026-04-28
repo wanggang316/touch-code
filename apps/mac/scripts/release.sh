@@ -4,9 +4,9 @@
 #
 # Subcommands:
 #   archive     Archive + exportArchive to .build/release/export/Touch Code.app
-#   notarize    Submit a path to Apple notary, wait, and staple (M3, wired later)
-#   dmg         Package the exported .app into a signed DMG (M4, wired later)
-#   release     archive → notarize app → dmg → notarize dmg → staple both (M4)
+#   notarize    Submit a path to Apple notary, wait, and staple
+#   dmg         Package the exported .app into a signed DMG
+#   release     archive → notarize app → dmg → notarize dmg → staple both
 #
 # Usage:
 #   ./scripts/release.sh archive
@@ -149,6 +149,38 @@ cmd_notarize() {
   "${script_dir}/notarize.sh" "${target}"
 }
 
+read_marketing_version() {
+  /usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" \
+    "${app_path}/Contents/Info.plist" 2>/dev/null || die "cannot read CFBundleShortVersionString from ${app_path}"
+}
+
+cmd_dmg() {
+  [ -d "${app_path}" ] || die "missing ${app_path}. Run release.sh archive first."
+  preflight_signing
+  local version="${1:-$(read_marketing_version)}"
+  local identity
+  identity="$(resolve_signing_identity)"
+  local team
+  team="$(resolve_team_id)"
+  local dmg_path="${release_dir}/Touch Code ${version}.dmg"
+  "${script_dir}/make-dmg.sh" "${app_path}" "${dmg_path}" "${identity} (${team})"
+  printf '%s\n' "${dmg_path}"
+}
+
+cmd_release() {
+  cmd_archive
+  log "notarizing app"
+  "${script_dir}/notarize.sh" "${app_path}"
+  log "packaging DMG"
+  local version
+  version="$(read_marketing_version)"
+  local dmg_path="${release_dir}/Touch Code ${version}.dmg"
+  cmd_dmg "${version}"
+  log "notarizing DMG"
+  "${script_dir}/notarize.sh" "${dmg_path}"
+  log "release ready: ${dmg_path}"
+}
+
 mise_xcbeautify_cmd() {
   # Best effort — falls back to cat when xcbeautify is missing so the
   # script still works on a runner that has not run mise install.
@@ -165,8 +197,8 @@ main() {
   case "${1:-}" in
     archive)   shift; cmd_archive "$@" ;;
     notarize)  shift; cmd_notarize "$@" ;;
-    dmg)       die "dmg: not yet wired (M4)." ;;
-    release)   die "release: not yet wired (M4)." ;;
+    dmg)       shift; cmd_dmg "$@" ;;
+    release)   shift; cmd_release "$@" ;;
     -h|--help|help|"") print_usage ;;
     *) die "unknown subcommand: ${1}. Run release.sh --help." ;;
   esac
