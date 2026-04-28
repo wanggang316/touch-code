@@ -41,8 +41,8 @@ struct WorktreeDetailView: View {
       VStack(spacing: 0) {
         tabBarRow(address: address)
         terminalRegion(address: address)
-          .overlay(alignment: .trailing) { overlayContent }
-          .animation(.easeInOut(duration: 0.15), value: overlayVisible)
+          .overlay { overlayContent }
+          .animation(.spring(response: 0.32, dampingFraction: 0.85), value: overlayVisible)
       }
       // On macOS 15+ remove the title slot entirely so default-placement
       // toolbar items can flow leading-to-trailing with `ToolbarSpacer`
@@ -109,44 +109,18 @@ struct WorktreeDetailView: View {
     }
   }
 
-  /// T3 overlay content: the Git Viewer occupies a fixed-width slot on the trailing edge
-  /// when there's room, otherwise a compact suppressed-hint badge nudges the user to
-  /// widen the window. Width clamp logic lives in `shouldShowOverlay(totalWidth:)` so
-  /// the threshold is unit-testable independently of SwiftUI layout.
+  /// Centered modal overlay for Git Viewer. When `overlayVisible` is true, mounts
+  /// `GitViewerModalHost` with a spring animation. Dismissal (scrim tap, ESC, or
+  /// ⌘⇧G from header) dispatches the toggle action to close the modal.
   @ViewBuilder
   private var overlayContent: some View {
     if overlayVisible {
-      GeometryReader { proxy in
-        if Self.shouldShowOverlay(totalWidth: proxy.size.width) {
-          GitViewerView(store: gitViewerStore)
-            .frame(width: MainWindowConstants.gvOverlayWidth)
-            .frame(maxWidth: .infinity, alignment: .trailing)
-            .transition(.move(edge: .trailing).combined(with: .opacity))
-        } else {
-          overlaySuppressedHint
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-            .padding(8)
-        }
-      }
+      GitViewerModalHost(
+        store: gitViewerStore,
+        onDismiss: { headerStore.send(.gitViewerToggleTapped) }
+      )
+      .transition(.scale(scale: 0.96).combined(with: .opacity))
     }
-  }
-
-  private var overlaySuppressedHint: some View {
-    Text("Widen window to show Git Viewer")
-      .font(.caption)
-      .foregroundStyle(.secondary)
-      .padding(.horizontal, 10)
-      .padding(.vertical, 5)
-      .background(.thinMaterial, in: .capsule)
-  }
-
-  /// Pure width-clamp helper. The overlay only renders when the host has room to keep
-  /// the overlay at its fixed width AND leave at least `gvOverlayMinTerminalWidth` for
-  /// the terminal. Equivalence with `>=` keeps the exact threshold inclusive — matches
-  /// the paired unit tests in `WorktreeDetailViewLayoutTests`.
-  static func shouldShowOverlay(totalWidth: CGFloat) -> Bool {
-    totalWidth >= MainWindowConstants.gvOverlayMinTerminalWidth
-      + MainWindowConstants.gvOverlayWidth
   }
 
   /// Window-titlebar toolbar content for the active Worktree. Branch label
