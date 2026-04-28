@@ -1171,28 +1171,54 @@ private struct ProjectOptionsMenuAnchor: NSViewRepresentable {
   func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
-/// Borderless, non-activating panel styled like a context menu.
-/// `nonactivatingPanel` keeps the parent window key (so the project list
-/// stays selected); `popUpMenu` window level keeps it above ordinary
-/// windows. We render a transparent panel and let the inner SwiftUI view
-/// draw a `Material.menu` background — that produces the exact same
-/// vibrancy / corner radius / shadow combination NSMenu uses, without
-/// inheriting NSMenu's tracking-loop event-routing problems (the reason
-/// this isn't a hand-rolled `NSMenu` + `NSHostingView`).
+/// Borderless, non-activating panel styled to match the system NSMenu.
+/// Its `contentView` is an `NSVisualEffectView` with `material = .menu`
+/// (the same vibrancy backdrop AppKit uses for real menus, popovers,
+/// etc.) and a layer-level corner radius. The SwiftUI body sits inside
+/// this view; we don't draw any background in SwiftUI. That lets
+/// AppKit's window shadow follow the rounded mask automatically and
+/// gives us the exact glass material of a real menu — neither
+/// reachable through SwiftUI's `Material.regularMaterial` substitute.
 private final class ProjectOptionsMenuPanel: NSPanel {
+  /// Sonoma's NSMenu corner radius rounded to a 1 pt grid. Apple
+  /// doesn't publish the exact value; this matches the system menu by
+  /// eye and stays consistent with the Big Sur → Sonoma family.
+  /// macOS 26 (Tahoe) shifts to a much larger radius — that path is
+  /// not yet wired up because we deploy to 14.
+  static let cornerRadius: CGFloat = 6
+
   override var canBecomeKey: Bool { true }
   override var canBecomeMain: Bool { false }
 
   init(rootView: some View) {
     let host = NSHostingView(rootView: AnyView(rootView))
     host.frame.size = host.fittingSize
+
+    let effect = NSVisualEffectView(
+      frame: NSRect(origin: .zero, size: host.frame.size)
+    )
+    effect.material = .menu
+    effect.blendingMode = .behindWindow
+    effect.state = .active
+    effect.wantsLayer = true
+    effect.layer?.cornerRadius = Self.cornerRadius
+    // Continuous corners track macOS Big Sur+ corner styling — sharper
+    // contour than circular at the same radius.
+    effect.layer?.cornerCurve = .continuous
+    effect.layer?.masksToBounds = true
+    effect.autoresizingMask = [.width, .height]
+
+    host.frame = effect.bounds
+    host.autoresizingMask = [.width, .height]
+    effect.addSubview(host)
+
     super.init(
       contentRect: NSRect(origin: .zero, size: host.frame.size),
       styleMask: [.borderless, .nonactivatingPanel],
       backing: .buffered,
       defer: false
     )
-    self.contentView = host
+    self.contentView = effect
     self.isOpaque = false
     self.backgroundColor = .clear
     self.hasShadow = true
@@ -1200,6 +1226,10 @@ private final class ProjectOptionsMenuPanel: NSPanel {
     self.isMovable = false
     self.hidesOnDeactivate = false
     self.collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary]
+    // Force AppKit to recompute the shadow against the rounded mask so
+    // it doesn't briefly draw against the rectangular window bounds on
+    // first show.
+    self.invalidateShadow()
   }
 }
 
@@ -1350,20 +1380,10 @@ private struct ProjectOptionsMenuContent: View {
     }
     .padding(.vertical, 5)
     .frame(width: 240)
-    .background(
-      // Mimic NSMenu chrome: vibrant menu material with a 6 pt corner
-      // radius. The panel itself is transparent and shadowed by AppKit,
-      // so this background draws everything visible. `.menu` material
-      // would be more accurate but is iOS-17-only; `.regularMaterial`
-      // is the macOS-14-compatible substitute.
-      RoundedRectangle(cornerRadius: 6)
-        .fill(.regularMaterial)
-    )
-    .overlay(
-      // Hairline border tightens the edge against light walls.
-      RoundedRectangle(cornerRadius: 6)
-        .stroke(Color.primary.opacity(0.06), lineWidth: 0.5)
-    )
+    // No background here — `ProjectOptionsMenuPanel.contentView` is an
+    // `NSVisualEffectView(material: .menu)` that supplies the system
+    // menu vibrancy + rounded clip. Drawing a SwiftUI material on top
+    // would double-tint the glass and block the proper backdrop blur.
   }
 
   private var archivedTitle: String {
