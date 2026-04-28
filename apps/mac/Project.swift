@@ -177,7 +177,12 @@ let project = Project(
       ],
       settings: .settings(
         base: [
-          "CODE_SIGNING_ALLOWED": "NO",
+          // Debug builds intentionally skip signing so contributors without
+          // a Developer ID can build the CLI. Release builds sign tc with
+          // the same identity as the app — the CLI ships embedded inside
+          // the .app bundle (see embed-tc.sh) and a notarized app cannot
+          // contain an unsigned executable.
+          "CODE_SIGNING_ALLOWED[config=Debug]": "NO",
           "PRODUCT_NAME": "tc",
           "SWIFT_DEFAULT_ACTOR_ISOLATION": "nonisolated",
         ],
@@ -230,6 +235,22 @@ let project = Project(
             "$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/git-wt/wt",
           ],
           basedOnDependencyAnalysis: false
+        ),
+        // tc CLI embedding. Copies the tc binary built by its sibling
+        // target into Resources/bin/tc so the app can ship a single
+        // self-contained .app and `tc skill install` / first-launch
+        // installer (c4-cli D3) have a stable inside-bundle path to
+        // symlink from ~/.local/bin/tc.
+        .post(
+          script: "\"${SRCROOT}/scripts/embed-tc.sh\"",
+          name: "Embed tc",
+          inputPaths: [
+            "$(CONFIGURATION_BUILD_DIR)/tc",
+          ],
+          outputPaths: [
+            "$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/tc",
+          ],
+          basedOnDependencyAnalysis: true
         ),
       ],
       dependencies: [
