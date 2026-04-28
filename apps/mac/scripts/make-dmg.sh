@@ -17,6 +17,13 @@ identity="${3:?usage: make-dmg.sh <app> <out-dmg> <signing-identity>}"
 
 [ -d "${app_path}" ] || { echo "error: ${app_path} is not a directory" >&2; exit 1; }
 
+# Refuse to wrap an unsigned (or improperly-signed) .app in a signed
+# DMG. codesign --strict --deep walks the entire bundle and catches
+# unsigned helpers (e.g., a stale tc) that would otherwise sail through
+# to a notarization failure 30 minutes from now.
+echo "==> verifying ${app_path} signature before staging"
+codesign --verify --deep --strict --verbose=2 "${app_path}"
+
 stage_dir="$(mktemp -d -t touch-code-dmg)"
 cleanup() { rm -rf "${stage_dir}"; }
 trap cleanup EXIT

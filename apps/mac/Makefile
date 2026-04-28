@@ -52,8 +52,8 @@ bump-version:
 	  echo "error: VERSION not set. Usage: make bump-version VERSION=0.2.0" >&2; \
 	  exit 1; \
 	fi
-	@if ! git -C $(CURDIR)/../.. diff --quiet -- apps/mac/Configurations; then \
-	  echo "error: apps/mac/Configurations has uncommitted changes; refusing to bump" >&2; \
+	@if ! git -C $(CURDIR)/../.. diff --quiet HEAD -- apps/mac/Configurations; then \
+	  echo "error: apps/mac/Configurations has uncommitted changes (staged or unstaged); refusing to bump" >&2; \
 	  exit 1; \
 	fi
 	@CURRENT_BUILD=$$(awk -F'=' '/^CURRENT_PROJECT_VERSION/ {gsub(/[[:space:]]/,"",$$2); print $$2}' Configurations/Project.xcconfig); \
