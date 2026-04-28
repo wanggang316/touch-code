@@ -26,7 +26,7 @@ struct SettingsSidebarView: View {
     List(selection: $selection) {
       Section {
         ForEach(SettingsSection.globals, id: \.self) { section in
-          Label(section.globalTitle ?? "", systemImage: icon(for: section))
+          globalRow(for: section)
             .tag(Optional(section))
         }
       }
@@ -87,6 +87,27 @@ struct SettingsSidebarView: View {
       .sorted { lhs, rhs in
         lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
       }
+  }
+
+  /// Per-section sidebar row. GitHub uses the official mark from the bundled
+  /// `github` asset (template-rendered SVG); every other row falls through to an
+  /// SF Symbol.
+  @ViewBuilder
+  private func globalRow(for section: SettingsSection) -> some View {
+    let title = section.globalTitle ?? ""
+    if section == .github {
+      Label {
+        Text(title)
+      } icon: {
+        Image("github")
+          .renderingMode(.template)
+          .resizable()
+          .aspectRatio(contentMode: .fit)
+          .frame(width: 16, height: 16)
+      }
+    } else {
+      Label(title, systemImage: icon(for: section))
+    }
   }
 
   private func icon(for section: SettingsSection) -> String {
