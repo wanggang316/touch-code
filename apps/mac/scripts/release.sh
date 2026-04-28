@@ -3,7 +3,7 @@
 # release.sh — orchestrate Touch Code's Developer ID release pipeline.
 #
 # Subcommands:
-#   archive     Archive + exportArchive to .build/release/export/Touch Code.app
+#   archive     Archive + exportArchive to .build/release/export/TouchCode.app
 #   notarize    Submit a path to Apple notary, wait, and staple
 #   dmg         Package the exported .app into a signed DMG
 #   release     archive → notarize app → dmg → notarize dmg → staple both
@@ -26,7 +26,7 @@ srcroot="$(cd "${script_dir}/.." && pwd)"
 release_dir="${srcroot}/.build/release"
 archive_path="${release_dir}/TouchCode.xcarchive"
 export_dir="${release_dir}/export"
-app_path="${export_dir}/Touch Code.app"
+app_path="${export_dir}/TouchCode.app"
 export_options_template="${srcroot}/Configurations/ExportOptions.plist"
 release_xcconfig="${srcroot}/Configurations/Release.xcconfig"
 
@@ -43,7 +43,7 @@ print_usage() {
 release.sh — orchestrate Touch Code's Developer ID release pipeline.
 
 Subcommands:
-  archive     Archive + exportArchive to .build/release/export/Touch Code.app
+  archive     Archive + exportArchive to .build/release/export/TouchCode.app
   notarize    Submit a path to Apple notary, wait, and staple
   dmg         Package the exported .app into a signed DMG
   release     archive → notarize app → dmg → notarize dmg → staple both
@@ -194,7 +194,7 @@ cmd_dmg() {
   identity="$(resolve_signing_identity)"
   local team
   team="$(resolve_team_id)"
-  local dmg_path="${release_dir}/Touch Code ${version}.dmg"
+  local dmg_path="${release_dir}/TouchCode-${version}.dmg"
   "${script_dir}/make-dmg.sh" "${app_path}" "${dmg_path}" "${identity} (${team})"
   printf '%s\n' "${dmg_path}"
 }
@@ -206,7 +206,7 @@ cmd_release() {
   log "packaging DMG"
   local version
   version="$(read_marketing_version)"
-  local dmg_path="${release_dir}/Touch Code ${version}.dmg"
+  local dmg_path="${release_dir}/TouchCode-${version}.dmg"
   cmd_dmg "${version}"
   log "notarizing DMG"
   "${script_dir}/notarize.sh" "${dmg_path}"

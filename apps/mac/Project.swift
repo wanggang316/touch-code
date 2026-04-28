@@ -196,7 +196,7 @@ let project = Project(
       name: "touch-code",
       destinations: .macOS,
       product: .app,
-      productName: "Touch Code",
+      productName: "TouchCode",
       bundleId: "com.gumpw.touch-agent-mac",
       deploymentTargets: .macOS("14.0"),
       infoPlist: .file(path: "Configurations/mac-Info.plist"),

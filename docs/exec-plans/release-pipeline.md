@@ -28,7 +28,7 @@ The pipeline must also embed the `tc` CLI inside the app bundle so [c4-cli.md §
 
 ## Surprises & Discoveries
 
-- **2026-04-28 (M1): Tuist warns on spaces in `productName` but the build works.** `mise exec -- tuist generate` prints `Invalid product name 'Touch Code'. This string must contain only alphanumeric (A-Z,a-z,0-9), period (.), hyphen (-), and underscore (_) characters.` and proceeds anyway. xcodebuild resolves `PRODUCT_NAME=Touch Code`, `WRAPPER_NAME=Touch Code.app`, `EXECUTABLE_NAME=Touch Code` correctly; `Touch Code.app` builds, signs ad-hoc, and launches. The Tuist warning is a Tuist-only style check, not an xcodebuild-level constraint — left as-is. If a future Tuist version upgrades it to an error, fall back to `productName: "TouchCode"` and rely on `CFBundleDisplayName` alone.
+- **2026-04-28 (M1, superseded by DEC-11): Tuist warned on spaces in `productName` but the build worked.** `mise exec -- tuist generate` printed `Invalid product name 'Touch Code'. This string must contain only alphanumeric (A-Z,a-z,0-9), period (.), hyphen (-), and underscore (_) characters.` and proceeded anyway. xcodebuild resolved `PRODUCT_NAME=Touch Code`, `WRAPPER_NAME=Touch Code.app`, `EXECUTABLE_NAME=Touch Code` correctly; `Touch Code.app` built, signed ad-hoc, and launched. Originally accepted the warning. Reverted to `productName: "TouchCode"` later the same day per DEC-11 — the Tuist warning is the canary, and downstream packaging tools that have to quote the path are the actual risk.
 - **2026-04-28 (M1): `xcodebuild` first run after pbxproj regeneration printed `** BUILD FAILED ** (3 failures)` but a second invocation a moment later (piped through xcbeautify) succeeded.** No source change between the two runs. Likely a transient stale-derived-data effect from Tuist regenerating the pbxproj while a previous build's incremental graph was still indexed. Re-running was sufficient; not adding a `xcodebuild clean` step in the Makefile because the cost (full rebuild on every generate) outweighs the rare flake.
 - **2026-04-28 (review): five real bugs that `bash -n` cannot catch.** The `agent-skills:code-reviewer` pass on the M1–M5 commits found:
   1. `release.sh` piped xcodebuild output through `"$(mise_xcbeautify_cmd)" --is-ci` — the `$()` returned the multi-word string `mise exec -- xcbeautify`, which bash quoted into a single argv that no binary on disk matches. Every credentialed archive would have failed at the pipe. Fixed by replacing the helper with a `beautify` function called directly. Lesson: any helper that returns a command string must be called as `eval`, or it must be a function called by name — never `"$(helper)"` followed by extra args.
@@ -41,8 +41,8 @@ The pipeline must also embed the `tc` CLI inside the app bundle so [c4-cli.md §
 ## Decision Log
 
 - **DEC-1: DMG, not zip, as the primary artifact.** A signed+notarized DMG is the convention macOS users expect from a Developer ID app, and the `/Applications` drop-target inside the DMG removes the most common "users run the app from Downloads" support issue. Cost is one extra `hdiutil` step over a flat zip.
-- **DEC-2: Embed `tc` inside `Touch Code.app/Contents/Resources/bin/tc`, not `Contents/MacOS/`.** Apple convention reserves `Contents/MacOS/` for binaries Launch Services can run; helper CLIs commonly live in `Resources/`. The first-launch installer in [c4-cli.md §D3](../design-docs/c4-cli.md) symlinks to `~/.local/bin/tc`, so the canonical inside-bundle path is what the symlink target needs to be stable. Putting it under `Resources/bin/` keeps it grouped with `Resources/git-wt/wt`.
-- **DEC-3: Set `productName: "Touch Code"` so the bundle is `Touch Code.app`, not `touch-code.app`.** `CFBundleDisplayName=Touch Code` already makes Finder show the right name, but the on-disk filename inside the DMG and in `/Applications` is what users actually see when dragging. The Mach-O executable inside `Contents/MacOS/` will then also be `Touch Code` — that is harmless but noted.
+- **DEC-2: Embed `tc` inside `TouchCode.app/Contents/Resources/bin/tc`, not `Contents/MacOS/`.** Apple convention reserves `Contents/MacOS/` for binaries Launch Services can run; helper CLIs commonly live in `Resources/`. The first-launch installer in [c4-cli.md §D3](../design-docs/c4-cli.md) symlinks to `~/.local/bin/tc`, so the canonical inside-bundle path is what the symlink target needs to be stable. Putting it under `Resources/bin/` keeps it grouped with `Resources/git-wt/wt`.
+- **DEC-3 (revised by DEC-11): Set `productName: "TouchCode"` so the bundle filename has no space.** Originally proposed as `"Touch Code"` to match the user-facing brand 1:1; reverted before first release per DEC-11 — too many downstream tools (codesign, notarytool, hdiutil, gh release upload) misbehave on spaced paths in subtle ways. User-facing identity stays "Touch Code" via `CFBundleDisplayName` + `CFBundleName`, which is what Finder, Dock, and the menu bar read. Only the on-disk `TouchCode.app` filename and the `Contents/MacOS/TouchCode` executable name change.
 - **DEC-4: One Release.xcconfig holding `DEVELOPMENT_TEAM` + `CODE_SIGN_IDENTITY`, gitignored.** The Tuist-generated pbxproj must not bake a team ID into version-controlled files because (a) a different contributor with a different Apple ID could not regenerate, and (b) the team ID is mildly sensitive. Local devs override locally; CI provides the values via env vars consumed by the release script.
 - **DEC-5: Notarize via App Store Connect API key (not app-specific password).** API keys are revocable, scoped, and the only credential type that works cleanly in headless CI without 2FA prompts. The local maintainer flow uses `xcrun notarytool store-credentials` to cache the same key in the login keychain, so `release.sh` reads from `--keychain-profile touch-code-notary` locally and from env vars (`AC_API_KEY_ID`, `AC_API_ISSUER_ID`, `AC_API_KEY_P8`) in CI.
 - **DEC-6: Sparkle deferred to a separate plan.** Sparkle adds an appcast, a public EdDSA key in Info.plist, hosted XML, and a UI surface for "Check for updates." None of that is needed to produce a v0.x DMG that users can download manually. Recording this as DEC-6 so the omission is explicit, not accidental.
@@ -50,6 +50,7 @@ The pipeline must also embed the `tc` CLI inside the app bundle so [c4-cli.md §
 - **DEC-8 (M1): tc CLI signed for Release via `CODE_SIGNING_ALLOWED[config=Debug]=NO`, not by removing the override.** Tuist accepts the `[config=Debug]` modifier directly in the settings dict and passes it through to xcconfig syntax. Removing the line entirely would force-sign tc in Debug too — contributors without a Developer ID would then fail to build the CLI for local development.
 - **DEC-9 (M2): ExportOptions.plist uses `__DEVELOPMENT_TEAM__` placeholder substituted by `sed` at script time, not `$(DEVELOPMENT_TEAM)`.** `xcodebuild -exportArchive` does not expand environment variables inside the plist, so `$(DEVELOPMENT_TEAM)` would be passed through literally and the export would fail. Sed substitution into a tempfile (cleaned by `trap`) is the documented Apple workaround.
 - **DEC-10 (M5): `mac-bump-version` always increments `CURRENT_PROJECT_VERSION` by 1, even when `MARKETING_VERSION` is repeated.** Apple requires strictly increasing build numbers per bundle-id in the App Store, and even off-store the monotonic counter is what Sparkle and the macOS update plumbing key on. Resetting the counter on a marketing-version change would silently regress that invariant.
+- **DEC-11 (post-review): Drop the space from `productName`; ship `TouchCode.app` instead of `Touch Code.app`.** Tuist warned at generate time, the M1 Debug build still produced `Touch Code.app`, and three lint runs were green — so the original "warning is benign at the xcodebuild layer" verdict (Surprise §1) was correct in narrow scope. But before the first credentialed release, on reflection: every script in the pipeline (`release.sh`, `make-dmg.sh`, `notarize.sh`) hardcodes the path with quoted strings, and *one* future helper that forgets to quote will silently break with no useful diagnostic. The cost of the rename is low (one Tuist setting, three scripts, two doc lines) and the cost of a broken DMG hours into a release flow is high. DMG filename also moves from `Touch Code <version>.dmg` to `TouchCode-<version>.dmg` for the same reason. Volume name (DMG mount label) stays `Touch Code` — that string is user-facing, not a path.
 
 ## Outcomes & Retrospective
 
@@ -59,10 +60,10 @@ The pipeline must also embed the `tc` CLI inside the app bundle so [c4-cli.md §
 
 **Verification:**
 - `mise exec -- tuist generate --no-open` succeeds (with a Tuist style warning about the space in productName — see Surprises).
-- `xcodebuild ... build` produces `Touch Code.app` at `~/Library/Developer/Xcode/DerivedData/touch-code-*/Build/Products/Debug/Touch Code.app`.
+- `xcodebuild ... build` produces `TouchCode.app` at `~/Library/Developer/Xcode/DerivedData/touch-code-*/Build/Products/Debug/TouchCode.app`.
 - `/usr/libexec/PlistBuddy -c "Print CFBundleIdentifier"` returns `com.gumpw.touch-agent-mac`; `CFBundleDisplayName` and `CFBundleName` both `Touch Code`.
 - `codesign -d --entitlements -` shows the (Debug-injected) `get-task-allow=true` only — the empty Release entitlements file is intact.
-- `Touch Code.app/Contents/Resources/bin/tc --version` runs from the embedded location.
+- `TouchCode.app/Contents/Resources/bin/tc --version` runs from the embedded location.
 
 **Carry-forward to M2:** Release configuration is now structurally ready for Developer ID signing — the entitlements file exists, tc will sign in Release, and the bundle filename is final. M2 needs `Release.xcconfig` (gitignored) + `ExportOptions.plist` + `release.sh archive`.
 
@@ -82,7 +83,7 @@ The pipeline must also embed the `tc` CLI inside the app bundle so [c4-cli.md §
 - `bash -n` syntax-clean on all four shell scripts.
 - `apps/mac/scripts/release.sh --help` prints the documented usage.
 - `apps/mac/scripts/release.sh archive` aborts with "missing Release.xcconfig" — preflight works.
-- `apps/mac/scripts/release.sh notarize` aborts with "missing Touch Code.app" — chain dependency wiring works.
+- `apps/mac/scripts/release.sh notarize` aborts with "missing TouchCode.app" — chain dependency wiring works.
 - `make mac-bump-version` — no VERSION → actionable error; dirty Configurations → refusal; clean tree + VERSION=0.1.1 → updates Project.xcconfig to MARKETING_VERSION=0.1.1, CURRENT_PROJECT_VERSION=2 as designed (then reverted to keep 0.1.0/1).
 - Debug build re-verified after the Info.plist `$(MARKETING_VERSION)` substitution: `PlistBuddy` reads `0.1.0` / `1` from the embedded Info.plist.
 
@@ -115,7 +116,7 @@ New files this plan creates:
 - `apps/mac/Configurations/touch-code.entitlements` — Hardened Runtime entitlements for the app.
 - `apps/mac/Configurations/Release.xcconfig` — Local `DEVELOPMENT_TEAM` + `CODE_SIGN_IDENTITY` (gitignored). A `Release.xcconfig.example` is checked in.
 - `apps/mac/Configurations/ExportOptions.plist` — `xcodebuild -exportArchive` options for `developer-id` method.
-- `apps/mac/scripts/embed-tc.sh` — Post-action: copy `tc` into `Touch Code.app/Contents/Resources/bin/tc`.
+- `apps/mac/scripts/embed-tc.sh` — Post-action: copy `tc` into `TouchCode.app/Contents/Resources/bin/tc`.
 - `apps/mac/scripts/release.sh` — Orchestrator: archive → export → sign → notarize → staple → DMG.
 - `apps/mac/scripts/make-dmg.sh` — Pure `hdiutil`-based DMG builder, no `brew install create-dmg` dep.
 - `apps/mac/scripts/notarize.sh` — Wraps `xcrun notarytool submit --wait` + `stapler`.
@@ -133,11 +134,11 @@ The work splits into seven milestones. M1–M5 are local-only — a maintainer c
 
 ### Milestone 1: Identity, productName, entitlements, embedded `tc`
 
-By the end of this milestone, `make mac-build` produces `apps/mac/.build/Build/Products/Debug/Touch Code.app` (note the renamed bundle) with `tc` already inside `Contents/Resources/bin/tc`. Hardened Runtime entitlements live in version-controlled XML.
+By the end of this milestone, `make mac-build` produces `apps/mac/.build/Build/Products/Debug/TouchCode.app` (note the renamed bundle) with `tc` already inside `Contents/Resources/bin/tc`. Hardened Runtime entitlements live in version-controlled XML.
 
 Work:
 
-1. In `apps/mac/Project.swift` at the `touch-code` app target (line 190-247), add `productName: "Touch Code"` so the build product is `Touch Code.app`. Update the `OTHER_LDFLAGS` line if needed; nothing else changes.
+1. In `apps/mac/Project.swift` at the `touch-code` app target (line 190-247), add `productName: "Touch Code"` so the build product is `TouchCode.app`. Update the `OTHER_LDFLAGS` line if needed; nothing else changes.
 2. Create `apps/mac/Configurations/touch-code.entitlements` with the minimum Hardened Runtime entitlements: empty `<dict/>` is the starting point. If notarization in M3 reveals libghostty needs `com.apple.security.cs.allow-unsigned-executable-memory` or `com.apple.security.cs.allow-jit`, add them then with a comment recording the symptom that prompted the addition.
 3. In `Project.swift` settings for the app target, add `"CODE_SIGN_ENTITLEMENTS": "Configurations/touch-code.entitlements"`.
 4. Lift `tc`'s blanket `CODE_SIGNING_ALLOWED=NO` (`Project.swift:178`) — switch to `CODE_SIGNING_ALLOWED[config=Debug]=NO`-style scoping so Release builds sign `tc` with the same identity as the app. Concretely: drop the unconditional override and let xcconfig handle it (Release will pick up the Developer ID identity once M2 wires it in; Debug builds still produce an ad-hoc-signed `tc` because `CODE_SIGN_STYLE=Automatic` falls back to `-` when no team is set).
@@ -145,7 +146,7 @@ Work:
 6. In `Project.swift`, add a `.post` script entry to the `touch-code` target's `scripts:` array (next to `Embed git-wt`) that runs `scripts/embed-tc.sh`, with input `$(CONFIGURATION_BUILD_DIR)/tc` and output `$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/tc`. `basedOnDependencyAnalysis: true` here — unlike git-wt, the input is a build product so dependency analysis works.
 7. Update [docs/architecture.md](../architecture.md) Codemap to record that `tc` is now embedded inside the app bundle, not just side-by-side in DerivedData.
 
-Acceptance: `make mac-generate && make mac-build` succeeds. `find apps/mac/.build -name "Touch Code.app" -prune` finds the bundle. `ls "<found-path>/Contents/Resources/bin/tc"` shows the embedded CLI. `codesign -dv "<found-path>"` shows ad-hoc signature in Debug. The app still launches.
+Acceptance: `make mac-generate && make mac-build` succeeds. `find apps/mac/.build -name "TouchCode.app" -prune` finds the bundle. `ls "<found-path>/Contents/Resources/bin/tc"` shows the embedded CLI. `codesign -dv "<found-path>"` shows ad-hoc signature in Debug. The app still launches.
 
 ### Milestone 2: Local archive + Developer ID signing
 
@@ -172,10 +173,10 @@ Work:
    which runs `xcodebuild archive -workspace touch-code.xcworkspace -scheme touch-code -configuration Release -archivePath .build/release/TouchCode.xcarchive -destination "generic/platform=macOS" SKIP_INSTALL=NO`, then `xcodebuild -exportArchive -archivePath .build/release/TouchCode.xcarchive -exportPath .build/release/export -exportOptionsPlist Configurations/ExportOptions.plist`.
 
    Pre-flight checks: assert `Release.xcconfig` exists, assert `security find-identity -v -p codesigning` lists "Developer ID Application", assert `xcrun --find xcodebuild` succeeds. Fail with actionable messages.
-5. After `exportArchive`, the script verifies `codesign --verify --strict --deep --verbose=2 ".build/release/export/Touch Code.app"` and `spctl -a -v -t exec ".build/release/export/Touch Code.app"` (latter will say "rejected — not notarized" — that's expected and not an error here; M3 fixes it).
+5. After `exportArchive`, the script verifies `codesign --verify --strict --deep --verbose=2 ".build/release/export/TouchCode.app"` and `spctl -a -v -t exec ".build/release/export/TouchCode.app"` (latter will say "rejected — not notarized" — that's expected and not an error here; M3 fixes it).
 6. Add `apps/mac/Makefile` target `mac-archive` that calls `./scripts/release.sh archive`.
 
-Acceptance: With a valid `Release.xcconfig`, `make mac-archive` produces `.build/release/export/Touch Code.app` whose `codesign -dv` shows `Authority=Developer ID Application: <name> (TEAM)`, `Authority=Developer ID Certification Authority`, `Authority=Apple Root CA`, and `Runtime Version` non-empty. `spctl` returns the not-notarized status (expected).
+Acceptance: With a valid `Release.xcconfig`, `make mac-archive` produces `.build/release/export/TouchCode.app` whose `codesign -dv` shows `Authority=Developer ID Application: <name> (TEAM)`, `Authority=Developer ID Certification Authority`, `Authority=Apple Root CA`, and `Runtime Version` non-empty. `spctl` returns the not-notarized status (expected).
 
 ### Milestone 3: Notarization + stapling
 
@@ -190,17 +191,17 @@ Work:
    - Call `xcrun notarytool submit "$1" --wait` and capture the JSON. On `status: Accepted`, call `xcrun stapler staple "$1"`. On any other status, dump the log via `xcrun notarytool log <submission-id>` and exit non-zero.
 3. Extend `release.sh` with a `notarize` subcommand and a top-level `release` subcommand that runs `archive` → `notarize` → (M4: `dmg`) end-to-end.
 
-Acceptance: `./scripts/release.sh archive && ./scripts/release.sh notarize ".build/release/export/Touch Code.app"` exits 0 on a valid binary. `stapler validate ".build/release/export/Touch Code.app"` says "The validate action worked!". `spctl -a -v -t exec` now says "accepted".
+Acceptance: `./scripts/release.sh archive && ./scripts/release.sh notarize ".build/release/export/TouchCode.app"` exits 0 on a valid binary. `stapler validate ".build/release/export/TouchCode.app"` says "The validate action worked!". `spctl -a -v -t exec` now says "accepted".
 
 ### Milestone 4: DMG packaging (signed + notarized)
 
-By the end of this milestone, `make mac-release VERSION=0.2.0` produces `Touch Code 0.2.0.dmg` that opens with the app on the left and an `/Applications` symlink on the right.
+By the end of this milestone, `make mac-release VERSION=0.2.0` produces `TouchCode-0.2.0.dmg` that opens with the app on the left and an `/Applications` symlink on the right.
 
 Work:
 
 1. Add `apps/mac/scripts/make-dmg.sh` using `hdiutil` (no `brew` dep). Steps:
    - Create a staging dir `mktemp -d`.
-   - Copy `Touch Code.app` into it.
+   - Copy `TouchCode.app` into it.
    - `ln -s /Applications` inside the staging dir.
    - `hdiutil create -volname "Touch Code" -srcfolder <stage> -ov -format UDZO <out>.dmg`.
    - `codesign --sign "Developer ID Application: <name> (TEAM)" --timestamp <out>.dmg`.
@@ -210,7 +211,7 @@ Work:
 2. Extend `release.sh` with a `dmg` subcommand and call it from `release` after `notarize` (and notarize the DMG too — Apple notarizes both the inner `.app` and the DMG separately; the DMG ticket is stapled to the DMG, the `.app` ticket to the `.app`).
 3. Add `Makefile` target `mac-release` that takes `VERSION` (defaults to `MARKETING_VERSION` from xcconfig) and calls `./scripts/release.sh release`.
 
-Acceptance: `make mac-release` produces `apps/mac/.build/release/Touch Code <version>.dmg` plus `Touch Code <version>.dmg.sha256`. Open the DMG by hand on the development Mac — drag to `/Applications`, launch, no Gatekeeper prompt. `xcrun stapler validate` passes on both the DMG and the inner app.
+Acceptance: `make mac-release` produces `apps/mac/.build/release/TouchCode-<version>.dmg` plus `TouchCode-<version>.dmg.sha256`. Open the DMG by hand on the development Mac — drag to `/Applications`, launch, no Gatekeeper prompt. `xcrun stapler validate` passes on both the DMG and the inner app.
 
 ### Milestone 5: Single-source version + Makefile front door
 
@@ -256,7 +257,7 @@ Required GitHub Secrets (documented in `docs/operations/release-secrets.md` writ
 - `AC_API_KEY_ID`, `AC_API_ISSUER_ID`, `AC_API_KEY_P8` (base64-encoded `.p8` contents)
 - `KEYCHAIN_PASSWORD` — random per-run password for the temp keychain
 
-Acceptance: `git tag v0.2.0 && git push origin v0.2.0` triggers the workflow; within ~25 minutes a draft release `v0.2.0` exists with `Touch Code 0.2.0.dmg` and `Touch Code 0.2.0.dmg.sha256` attached. Downloading and opening the DMG on a clean Mac shows no Gatekeeper warning.
+Acceptance: `git tag v0.2.0 && git push origin v0.2.0` triggers the workflow; within ~25 minutes a draft release `v0.2.0` exists with `TouchCode-0.2.0.dmg` and `TouchCode-0.2.0.dmg.sha256` attached. Downloading and opening the DMG on a clean Mac shows no Gatekeeper warning.
 
 ### Milestone 7: Sparkle auto-update (deferred)
 
@@ -282,15 +283,15 @@ The full local release flow after all milestones land:
     make mac-bump-version VERSION=0.2.0
     git commit -am "chore(mac): bump version to 0.2.0"
     git tag v0.2.0
-    make mac-release      # locally — produces .build/release/Touch Code 0.2.0.dmg
+    make mac-release      # locally — produces .build/release/TouchCode-0.2.0.dmg
     git push && git push --tags    # CI picks up the tag and re-produces the same DMG
 
 Expected output of `make mac-release` (last lines):
 
     Notarization status: Accepted
-    Stapled: .build/release/export/Touch Code.app
-    Stapled: .build/release/Touch Code 0.2.0.dmg
-    sha256: <hex>  Touch Code 0.2.0.dmg
+    Stapled: .build/release/export/TouchCode.app
+    Stapled: .build/release/TouchCode-0.2.0.dmg
+    sha256: <hex>  TouchCode-0.2.0.dmg
     Done.
 
 ## Validation and Acceptance
@@ -313,7 +314,7 @@ End-to-end acceptance, exercised once on the maintainer's Mac and once via CI:
 
 Notable transcript fragments to keep for verification:
 
-- `codesign -dv --verbose=4 "Touch Code.app"` should show:
+- `codesign -dv --verbose=4 "TouchCode.app"` should show:
 
       Authority=Developer ID Application: <name> (TEAMID)
       Authority=Developer ID Certification Authority
@@ -322,7 +323,7 @@ Notable transcript fragments to keep for verification:
       Runtime Version=<macos sdk>
       Sealed Resources version=2 rules=…
 
-- `spctl -a -v -t exec "Touch Code.app"` should print `accepted` after stapling.
+- `spctl -a -v -t exec "TouchCode.app"` should print `accepted` after stapling.
 
 - `xcrun notarytool log <submission-id>` JSON for the first run is worth pasting into the Surprises section if anything fails — the `issues` array is the diagnostic, not the human-readable summary.
 
@@ -363,4 +364,4 @@ All three questions raised at draft time were resolved by Gump on 2026-04-28 and
 
 1. **Apple Developer ID provisioned? — Yes.** Team ID, Developer ID Application `.p12`, and App Store Connect API key are available on the maintainer's Mac. M2–M5 unblocked.
 2. **GitHub repo for releases? — No.** No GitHub-hosted release channel for v1; M6 deferred per DEC-7. Local `make mac-release` is the distribution path.
-3. **PRODUCT_NAME with a space — accepted.** M1 sets `productName: "Touch Code"`; the on-disk bundle is `Touch Code.app`. M1 acceptance confirms no xcodebuild/Tuist regression from the embedded space.
+3. **PRODUCT_NAME with a space — accepted.** M1 sets `productName: "Touch Code"`; the on-disk bundle is `TouchCode.app`. M1 acceptance confirms no xcodebuild/Tuist regression from the embedded space.

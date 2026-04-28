@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# make-dmg.sh — package a signed Touch Code.app into a Developer-ID-
+# make-dmg.sh — package a signed TouchCode.app into a Developer-ID-
 # signed DMG using only hdiutil + codesign (no brew dependency).
 #
 # Usage:
