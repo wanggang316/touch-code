@@ -1184,50 +1184,43 @@ private struct ProjectTagDots: View {
   }
 }
 
-/// Inline tag controls for the project header ⋯ menu. Renders the catalog
-/// tags as a `ControlGroup(.palette)` of always-filled colored circles
-/// that flip to `checkmark.circle.fill` when the project carries the tag.
-/// Color comes from `.tint(...)` on the Button (NSMenu's palette renderer
-/// honours per-item tint; `.foregroundStyle` on the inner Label is
-/// silently dropped). Below the palette sits a plain "Tags…" entry that
-/// opens the global TagManager via the sidebar's `.openTagManager`
-/// delegate. When the catalog has no tags, only the "Tags…" entry
-/// renders so users can still discover the manager.
-///
-/// `Picker(.palette)` is the more idiomatic API but its
-/// `paletteSelectionEffect` only switches symbol variants (hollow ↔
-/// filled) — there's no built-in path to a checkmark overlay, so we
-/// drive the symbol manually here.
+/// Tag controls for the project header ⋯ menu, rendered as a native
+/// NSMenu submenu. Each row inside the submenu shows the tag's colored
+/// circle plus its name; a `checkmark.circle.fill` variant indicates
+/// the project already carries that tag. Color comes from `.tint(...)`
+/// on the Button — NSMenu's renderer honours per-item tint (foreground
+/// style on the inner Label is silently dropped). The trailing "Tags…"
+/// entry opens the global TagManager via `.openTagManager`. When the
+/// catalog has no tags, the submenu collapses to a single "Tags…"
+/// entry so users can still discover the manager.
 private struct ProjectTagsMenu: View {
   let project: Project
   @Bindable var store: StoreOf<HierarchySidebarFeature>
   @Environment(HierarchyManager.self) private var hierarchyManager
 
   var body: some View {
-    let tags = hierarchyManager.catalog.tags
-    if !tags.isEmpty {
-      ControlGroup {
-        ForEach(tags) { tag in
-          let isOn = project.tagIDs.contains(tag.id)
-          Button {
-            store.send(.toggleTagOnProject(project.id, tag.id))
-          } label: {
-            Label(
-              tag.name,
-              systemImage: isOn ? "checkmark.circle.fill" : "circle.fill"
-            )
-            .labelStyle(.iconOnly)
-          }
-          .tint(swiftUIColor(for: tag.color))
-          .help(tag.name)
+    Menu {
+      let tags = hierarchyManager.catalog.tags
+      ForEach(tags) { tag in
+        let isOn = project.tagIDs.contains(tag.id)
+        Button {
+          store.send(.toggleTagOnProject(project.id, tag.id))
+        } label: {
+          Label(
+            tag.name,
+            systemImage: isOn ? "checkmark.circle.fill" : "circle.fill"
+          )
         }
+        .tint(swiftUIColor(for: tag.color))
       }
-      .controlGroupStyle(.palette)
-    }
-    Button {
-      store.send(.delegate(.openTagManager))
+      if !tags.isEmpty { Divider() }
+      Button {
+        store.send(.delegate(.openTagManager))
+      } label: {
+        Label("Tags…", systemImage: "tag")
+      }
     } label: {
-      Label("Tags…", systemImage: "tag")
+      Label("Tags", systemImage: "tag")
     }
   }
 }
