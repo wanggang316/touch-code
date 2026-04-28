@@ -38,6 +38,17 @@ struct LazyPaneHost: View {
         // underneath), producing a visible black band behind the sidebar's
         // translucent layer in light mode.
         PaneHostView(surface: surface)
+          // 2pt progress strip pinned to the top edge of the surface,
+          // driven by libghostty's OSC 9;4 reports (winget, gh,
+          // Claude Code, etc.). `surface.info` is `@Observable`, so the
+          // overlay appears/disappears purely from the read site here.
+          .overlay(alignment: .top) {
+            PaneSurfaceProgressOverlay(surface: surface)
+          }
+          .animation(
+            .easeInOut(duration: 0.2),
+            value: surface.info.progressState
+          )
       } else {
         // Should not happen — `phase == .ready` is set by the reducer
         // only together with a non-nil `surface`. Render the loading
@@ -53,11 +64,21 @@ struct LazyPaneHost: View {
   }
 
   private var loadingPlaceholder: some View {
-    VStack(spacing: 6) {
+    // Spinner + a shimmering caption match supacode's launch beat for
+    // panes that are still negotiating with the engine. Background is
+    // `underPageBackgroundColor` so the pane reads as "not yet a
+    // terminal" instead of fighting Ghostty's eventual black canvas.
+    VStack(spacing: 8) {
+      Image(systemName: "apple.terminal.on.rectangle")
+        .font(.title2)
+        .foregroundStyle(.secondary)
+        .accessibilityHidden(true)
       ProgressView()
-      Text("Creating surface…")
+        .controlSize(.small)
+      Text("Spinning up shell…")
         .font(.caption)
         .foregroundStyle(.secondary)
+        .shimmer(isActive: true)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(Color(nsColor: .underPageBackgroundColor))

@@ -45,22 +45,19 @@ struct TouchCodeApp: App {
           .environment(\.resolvedShortcuts, appState.shortcutsStore.resolved)
         } else {
           // Initial loading state while appState.bringUp runs.
-          VStack(spacing: 12) {
-            ProgressView()
-            Text("Starting touch-code…")
-              .font(.callout)
-              .foregroundStyle(.secondary)
-          }
-          .frame(minWidth: 800, minHeight: 600)
-          // Idempotency guard on bringUp (store == nil check) is
-          // load-bearing — SwiftUI re-runs .task on scene reattach.
-          .task {
-            appDelegate.appState = appState
-            appState.openSettingsWindowAction = {
-              openWindow(id: TouchCodeApp.settingsWindowID)
+          // The view itself is intentionally cosmetic — bringUp is
+          // kicked off from `.task` below, and the idempotency guard
+          // (`store == nil` check inside bringUp) is load-bearing
+          // because SwiftUI re-runs `.task` on scene reattach.
+          AppBootstrapView()
+            .frame(minWidth: 800, minHeight: 600)
+            .task {
+              appDelegate.appState = appState
+              appState.openSettingsWindowAction = {
+                openWindow(id: TouchCodeApp.settingsWindowID)
+              }
+              appState.bringUp()
             }
-            appState.bringUp()
-          }
         }
       }
     }
