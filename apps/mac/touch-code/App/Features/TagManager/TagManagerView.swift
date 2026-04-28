@@ -2,9 +2,12 @@ import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
 
-/// CRUD sheet for catalog tags. NavigationStack-hosted List driven by
-/// `hierarchyManager.catalog.tags` (single source of truth — the reducer
-/// owns no tag values, only the rename / removal transients).
+/// CRUD sheet for catalog tags. Plain `VStack` (no `NavigationStack`)
+/// driven by `hierarchyManager.catalog.tags` (single source of truth —
+/// the reducer owns no tag values, only the rename / removal transients).
+///
+/// Layout, top → bottom: header (icon + "Tags") · tag list · bottom bar
+/// (collapsed `+` button or expanded create-form) · footer (Done).
 ///
 /// Replaces the deleted `SpaceManagerSheet`. See
 /// `docs/design-docs/project-tags.md` §3.4 for the wire-frame.
@@ -22,58 +25,58 @@ struct TagManagerSheet: View {
   @FocusState private var renameFocused: Bool
   @FocusState private var newTagFocused: Bool
 
+  /// Horizontal padding shared by header, bottom bar, and footer so the
+  /// first column (icon / swatch / button label) aligns vertically with
+  /// the swatches inside the list rows.
+  private static let edgeX: CGFloat = 18
+
   var body: some View {
-    NavigationStack {
-      VStack(spacing: 0) {
-        header
-        Divider()
-        tagList
-        Divider()
-        bottomBar
+    VStack(spacing: 0) {
+      header
+      Divider()
+      tagList
+      Divider()
+      bottomBar
+      Divider()
+      doneFooter
+    }
+    .frame(minWidth: 460, minHeight: 380)
+    .confirmationDialog(
+      confirmationTitle,
+      isPresented: Binding(
+        get: { store.pendingRemoval != nil },
+        set: { if !$0 { store.send(.removeCancelled) } }
+      ),
+      titleVisibility: .visible
+    ) {
+      Button("Remove Tag", role: .destructive) {
+        store.send(.removeConfirmed)
       }
-      .frame(minWidth: 420, minHeight: 380)
-      .navigationTitle("Tags")
-      .toolbar {
-        ToolbarItem(placement: .confirmationAction) {
-          Button("Done") { dismissEnv() }
-        }
+      Button("Cancel", role: .cancel) {
+        store.send(.removeCancelled)
       }
-      .confirmationDialog(
-        confirmationTitle,
-        isPresented: Binding(
-          get: { store.pendingRemoval != nil },
-          set: { if !$0 { store.send(.removeCancelled) } }
-        ),
-        titleVisibility: .visible
-      ) {
-        Button("Remove Tag", role: .destructive) {
-          store.send(.removeConfirmed)
-        }
-        Button("Cancel", role: .cancel) {
-          store.send(.removeCancelled)
-        }
-      } message: {
-        Text(confirmationMessage)
-      }
+    } message: {
+      Text(confirmationMessage)
     }
   }
 
   // MARK: - Header
 
-  /// Minimal header: a single accent-tinted tag glyph leading the sheet.
-  /// The sheet's textual title lives in `navigationTitle` so we don't
-  /// repeat it here.
+  /// Single header band — accent-tinted tag glyph + "Tags" title. Replaces
+  /// the prior NavigationStack title bar so the sheet only owns one header.
   private var header: some View {
-    HStack(spacing: 0) {
+    HStack(spacing: 8) {
       Image(systemName: "tag.fill")
-        .font(.system(size: 20, weight: .regular))
+        .font(.system(size: 16, weight: .regular))
         .foregroundStyle(Color.accentColor)
         .accessibilityHidden(true)
+      Text("Tags")
+        .font(.headline)
       Spacer()
     }
-    .padding(.horizontal, 18)
-    .padding(.top, 12)
-    .padding(.bottom, 10)
+    .padding(.horizontal, Self.edgeX)
+    .padding(.top, 14)
+    .padding(.bottom, 12)
   }
 
   // MARK: - Tag list
@@ -88,7 +91,7 @@ struct TagManagerSheet: View {
           ForEach(tags) { tag in
             tagRow(tag)
               .listRowSeparator(.hidden)
-              .listRowInsets(EdgeInsets(top: 3, leading: 14, bottom: 3, trailing: 14))
+              .listRowInsets(EdgeInsets(top: 3, leading: 10, bottom: 3, trailing: 10))
           }
         }
         .listStyle(.inset)
@@ -194,30 +197,36 @@ struct TagManagerSheet: View {
       .buttonStyle(.borderless)
       Spacer()
     }
-    .padding(.horizontal, 12)
+    .padding(.horizontal, Self.edgeX)
     .padding(.vertical, 8)
   }
 
+  /// Expanded create-form. The seven palette colors are shown inline
+  /// as a horizontal strip — no popover hop while creating; you can see
+  /// every option at once and pick directly. The text field auto-focuses
+  /// on entry.
   private var addingForm: some View {
-    HStack(spacing: 10) {
-      ColorSwatchPicker(
+    VStack(alignment: .leading, spacing: 8) {
+      ColorRowPicker(
         selected: newTagColor,
         onPick: { newTagColor = $0 }
       )
-      TextField("New tag name", text: $newTagName)
-        .textFieldStyle(.plain)
-        .focused($newTagFocused)
-        .onSubmit(commitNewTag)
-        .onExitCommand { cancelAdding() }
-      Button("Cancel", action: cancelAdding)
-        .buttonStyle(.borderless)
-        .keyboardShortcut(.cancelAction)
-      Button("Add", action: commitNewTag)
-        .keyboardShortcut(.defaultAction)
-        .disabled(newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      HStack(spacing: 8) {
+        TextField("New tag name", text: $newTagName)
+          .textFieldStyle(.roundedBorder)
+          .focused($newTagFocused)
+          .onSubmit(commitNewTag)
+          .onExitCommand { cancelAdding() }
+        Button("Cancel", action: cancelAdding)
+          .buttonStyle(.borderless)
+          .keyboardShortcut(.cancelAction)
+        Button("Add", action: commitNewTag)
+          .keyboardShortcut(.defaultAction)
+          .disabled(newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      }
     }
-    .padding(.horizontal, 12)
-    .padding(.vertical, 8)
+    .padding(.horizontal, Self.edgeX)
+    .padding(.vertical, 10)
   }
 
   private func beginAdding() {
@@ -241,6 +250,18 @@ struct TagManagerSheet: View {
     isAdding = false
   }
 
+  // MARK: - Footer (Done)
+
+  private var doneFooter: some View {
+    HStack {
+      Spacer()
+      Button("Done") { dismissEnv() }
+        .keyboardShortcut(.defaultAction)
+    }
+    .padding(.horizontal, Self.edgeX)
+    .padding(.vertical, 10)
+  }
+
   // MARK: - Confirmation strings
 
   private var confirmationTitle: String {
@@ -257,11 +278,12 @@ struct TagManagerSheet: View {
   }
 }
 
-// MARK: - Color swatch picker
+// MARK: - Color swatch picker (popover)
 
 /// Single colored disc that opens a popover with the seven palette
-/// colors when tapped. The current color carries an accent ring +
-/// inner checkmark in the popover so the active hue is unambiguous.
+/// colors when tapped. Used for editing the color of an existing tag,
+/// where always-visible 7 dots per row would clutter the steady-state
+/// list.
 private struct ColorSwatchPicker: View {
   let selected: TagColor
   let onPick: (TagColor) -> Void
@@ -320,6 +342,52 @@ private struct ColorSwatchPicker: View {
       }
     }
     .frame(width: 28, height: 28)
+    .contentShape(Rectangle())
+  }
+}
+
+// MARK: - Inline color row picker (used by the create-form)
+
+/// Horizontal strip of every `TagColor`. Tapping a disc commits the
+/// color immediately. The current selection draws a 1.5pt dark ring
+/// around itself so the active hue stays unambiguous against same-hue
+/// neighbors.
+private struct ColorRowPicker: View {
+  let selected: TagColor
+  let onPick: (TagColor) -> Void
+
+  var body: some View {
+    HStack(spacing: 8) {
+      ForEach(TagColor.allCases, id: \.self) { color in
+        Button {
+          if color != selected { onPick(color) }
+        } label: {
+          swatchCell(color: color, isSelected: color == selected)
+        }
+        .buttonStyle(.plain)
+        .help(color.rawValue.capitalized)
+        .accessibilityLabel(color.rawValue.capitalized)
+        .accessibilityAddTraits(color == selected ? [.isSelected] : [])
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func swatchCell(color: TagColor, isSelected: Bool) -> some View {
+    ZStack {
+      Circle()
+        .fill(swiftUIColor(for: color))
+        .frame(width: 16, height: 16)
+        .overlay(
+          Circle().strokeBorder(Color.black.opacity(0.10), lineWidth: 0.5)
+        )
+      if isSelected {
+        Circle()
+          .strokeBorder(Color.primary.opacity(0.85), lineWidth: 1.5)
+          .frame(width: 22, height: 22)
+      }
+    }
+    .frame(width: 24, height: 24)
     .contentShape(Rectangle())
   }
 }
