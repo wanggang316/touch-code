@@ -19,10 +19,10 @@ The pipeline must also embed the `tc` CLI inside the app bundle so [c4-cli.md §
 ## Progress
 
 - [x] M1 — Identity, productName, entitlements, embedded `tc` — 2026-04-28
-- [ ] M2 — Local archive + Developer ID signing script
-- [ ] M3 — Notarization + stapling
-- [ ] M4 — DMG packaging (signed + notarized)
-- [ ] M5 — Single-source version bump + Makefile front door
+- [x] M2 — Local archive + Developer ID signing script — 2026-04-28 (script + preflight verified; end-to-end archive needs Developer ID identity in keychain)
+- [x] M3 — Notarization + stapling — 2026-04-28 (script written; live notarytool round-trip needs App Store Connect API key)
+- [x] M4 — DMG packaging (signed + notarized) — 2026-04-28 (script written; full chain needs M2/M3 credentials present)
+- [x] M5 — Single-source version bump + Makefile front door — 2026-04-28
 - [ ] M6 — (Deferred) GitHub Actions release workflow on tag — no GitHub-hosted release channel in v1; revisit when a distribution repo exists
 - [ ] M7 — (Deferred) Sparkle auto-update — captured as ADR only, no code
 
@@ -40,6 +40,9 @@ The pipeline must also embed the `tc` CLI inside the app bundle so [c4-cli.md §
 - **DEC-5: Notarize via App Store Connect API key (not app-specific password).** API keys are revocable, scoped, and the only credential type that works cleanly in headless CI without 2FA prompts. The local maintainer flow uses `xcrun notarytool store-credentials` to cache the same key in the login keychain, so `release.sh` reads from `--keychain-profile touch-code-notary` locally and from env vars (`AC_API_KEY_ID`, `AC_API_ISSUER_ID`, `AC_API_KEY_P8`) in CI.
 - **DEC-6: Sparkle deferred to a separate plan.** Sparkle adds an appcast, a public EdDSA key in Info.plist, hosted XML, and a UI surface for "Check for updates." None of that is needed to produce a v0.x DMG that users can download manually. Recording this as DEC-6 so the omission is explicit, not accidental.
 - **DEC-7: GitHub Actions release workflow deferred.** There is no GitHub-hosted release channel for touch-code in v1 (confirmed with Gump on 2026-04-28). The local `make mac-release` flow (M1–M5) covers the maintainer's actual distribution path. A workflow file is value-add only when a distribution repo exists; writing it now risks bit-rot before first use. M6 stays in the plan as a stub so the future maintainer doesn't have to re-derive the secret list and the keychain-import dance.
+- **DEC-8 (M1): tc CLI signed for Release via `CODE_SIGNING_ALLOWED[config=Debug]=NO`, not by removing the override.** Tuist accepts the `[config=Debug]` modifier directly in the settings dict and passes it through to xcconfig syntax. Removing the line entirely would force-sign tc in Debug too — contributors without a Developer ID would then fail to build the CLI for local development.
+- **DEC-9 (M2): ExportOptions.plist uses `__DEVELOPMENT_TEAM__` placeholder substituted by `sed` at script time, not `$(DEVELOPMENT_TEAM)`.** `xcodebuild -exportArchive` does not expand environment variables inside the plist, so `$(DEVELOPMENT_TEAM)` would be passed through literally and the export would fail. Sed substitution into a tempfile (cleaned by `trap`) is the documented Apple workaround.
+- **DEC-10 (M5): `mac-bump-version` always increments `CURRENT_PROJECT_VERSION` by 1, even when `MARKETING_VERSION` is repeated.** Apple requires strictly increasing build numbers per bundle-id in the App Store, and even off-store the monotonic counter is what Sparkle and the macOS update plumbing key on. Resetting the counter on a marketing-version change would silently regress that invariant.
 
 ## Outcomes & Retrospective
 
@@ -55,6 +58,34 @@ The pipeline must also embed the `tc` CLI inside the app bundle so [c4-cli.md §
 - `Touch Code.app/Contents/Resources/bin/tc --version` runs from the embedded location.
 
 **Carry-forward to M2:** Release configuration is now structurally ready for Developer ID signing — the entitlements file exists, tc will sign in Release, and the bundle filename is final. M2 needs `Release.xcconfig` (gitignored) + `ExportOptions.plist` + `release.sh archive`.
+
+### M2-M5 — Local release pipeline scripts (2026-04-28)
+
+**What landed:**
+- `apps/mac/Configurations/Release.xcconfig.example` — template for per-maintainer Developer ID identity. Real `Release.xcconfig` is gitignored.
+- `apps/mac/Configurations/ExportOptions.plist` — Developer ID export options with a `__DEVELOPMENT_TEAM__` placeholder substituted by sed at script time (DEC-9).
+- `apps/mac/Configurations/Project.xcconfig` — `#include? "Release.xcconfig"` for optional injection of signing identity into the build.
+- `apps/mac/scripts/release.sh` — orchestrator with `archive` / `notarize` / `dmg` / `release` subcommands plus preflight checks for Release.xcconfig presence, DEVELOPMENT_TEAM validity, and "Developer ID Application" identity in keychain.
+- `apps/mac/scripts/notarize.sh` — `xcrun notarytool submit --wait` + `stapler staple` worker. Credentials via App Store Connect API key (env vars in CI shape: `AC_API_KEY_ID`/`AC_API_ISSUER_ID`/`AC_API_KEY_P8`) or `--keychain-profile` (default `touch-code-notary`) seeded once with `xcrun notarytool store-credentials`.
+- `apps/mac/scripts/make-dmg.sh` — pure `hdiutil`-based DMG builder, no `brew install create-dmg` dep. Stages app + `/Applications` symlink, signs DMG, writes sibling `.sha256`.
+- `apps/mac/Configurations/mac-Info.plist` — `CFBundleShortVersionString=$(MARKETING_VERSION)`, `CFBundleVersion=$(CURRENT_PROJECT_VERSION)`. Single source of version truth is now `Project.xcconfig`.
+- `apps/mac/Makefile` + top-level `Makefile` — new targets `mac-archive`, `mac-release`, `mac-bump-version`. `bump-version` refuses on missing `VERSION=` and on a dirty `apps/mac/Configurations/` working tree.
+
+**Verification (what was actually exercised here):**
+- `bash -n` syntax-clean on all four shell scripts.
+- `apps/mac/scripts/release.sh --help` prints the documented usage.
+- `apps/mac/scripts/release.sh archive` aborts with "missing Release.xcconfig" — preflight works.
+- `apps/mac/scripts/release.sh notarize` aborts with "missing Touch Code.app" — chain dependency wiring works.
+- `make mac-bump-version` — no VERSION → actionable error; dirty Configurations → refusal; clean tree + VERSION=0.1.1 → updates Project.xcconfig to MARKETING_VERSION=0.1.1, CURRENT_PROJECT_VERSION=2 as designed (then reverted to keep 0.1.0/1).
+- Debug build re-verified after the Info.plist `$(MARKETING_VERSION)` substitution: `PlistBuddy` reads `0.1.0` / `1` from the embedded Info.plist.
+
+**Not yet exercised (limited by environment):**
+- `xcodebuild archive` end-to-end with a real Developer ID identity — requires the maintainer to import the cert into the keychain and create `Release.xcconfig`.
+- `xcrun notarytool submit` round-trip with Apple's notary service — requires API key + network.
+- `make-dmg.sh` against a real signed app — gated on the above.
+- `make mac-release` end-to-end — gated on all of the above.
+
+These can only be exercised by Gump on his own Mac; the scripts' arg shapes and preflight messages are designed so a first run surfaces credential gaps without producing partial artifacts.
 
 ## Context and Orientation
 
