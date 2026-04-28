@@ -2,25 +2,19 @@ import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
 
-/// Settings window sidebar. Fixed-order global sections at the top, then a "Projects"
-/// `Section` containing one `DisclosureGroup` per open Project (sorted by name). Each
-/// disclosure's sub-rows depend on the Project's `ProjectKind` (derived from `gitRoot`):
-/// `git_repo` renders six sub-rows (General, Git & Worktree, GitHub, Scripts, Hooks,
-/// Environment), `plain_dir` renders four (General, Scripts, Hooks, Environment). Kind
-/// itself is **never** surfaced in the UI — no icon, no badge. The available sub-rows are
-/// the only signal.
+/// Settings window sidebar. Fixed-order global sections at the top, then one
+/// `Section` per open Project (sorted by name) carrying its sub-rows directly —
+/// no DisclosureGroup chevron, the project name acts as the section header.
+/// Sub-rows are `General`, `Scripts`, `Hooks`; kind difference (`git_repo` vs
+/// `plain_dir`) is encoded as Section-level conditional rendering inside
+/// `ProjectGeneralSettingsView`, never surfaced in the sidebar.
 ///
-/// The Project list comes from the live `HierarchyManager` catalog; adding or removing a
-/// Project in the main window reflects here without any explicit refresh (@Observable
-/// subscription).
-///
-/// Disclosure open/close state lives in a local `@State` dictionary so Projects keep their
-/// expansion across sidebar selection changes. This state is intentionally *not* persisted —
-/// closing the window drops session state.
+/// The Project list comes from the live `HierarchyManager` catalog; adding or
+/// removing a Project in the main window reflects here without any explicit
+/// refresh (@Observable subscription).
 struct SettingsSidebarView: View {
   @Binding var selection: SettingsSection?
   @Environment(HierarchyManager.self) private var hierarchyManager
-  @State private var expandedProjects: [ProjectID: Bool] = [:]
 
   var body: some View {
     List(selection: $selection) {
@@ -31,16 +25,16 @@ struct SettingsSidebarView: View {
         }
       }
 
-      Section("Projects") {
-        let projects = sortedProjects(in: hierarchyManager.catalog)
-        if projects.isEmpty {
+      let projects = sortedProjects(in: hierarchyManager.catalog)
+      if projects.isEmpty {
+        Section("Projects") {
           Text("No open projects")
             .font(.caption)
             .foregroundStyle(.tertiary)
-        } else {
-          ForEach(projects) { project in
-            projectDisclosure(project: project)
-          }
+        }
+      } else {
+        ForEach(projects) { project in
+          projectSection(for: project)
         }
       }
     }
@@ -51,32 +45,13 @@ struct SettingsSidebarView: View {
   // MARK: - Rows
 
   @ViewBuilder
-  private func projectDisclosure(project: Project) -> some View {
-    let binding = Binding<Bool>(
-      get: { expandedProjects[project.id] ?? false },
-      set: { expandedProjects[project.id] = $0 }
-    )
+  private func projectSection(for project: Project) -> some View {
     let subrows = SettingsSection.subrows(for: project.kind, projectID: project.id)
-    DisclosureGroup(isExpanded: binding) {
+    Section(project.name) {
       ForEach(subrows, id: \.self) { subrow in
         Label(subrow.projectSubrowTitle ?? "", systemImage: subrowIcon(for: subrow))
           .tag(Optional(subrow))
       }
-    } label: {
-      // A tap on the Project name selects its General pane when the disclosure is
-      // currently collapsed (and expand it to reveal the sub-rows). `simultaneousGesture`
-      // runs alongside DisclosureGroup's built-in label tap so the expansion toggle still
-      // happens — we only add the selection write.
-      Label(project.name, systemImage: "folder")
-        .contentShape(Rectangle())
-        .accessibilityAddTraits(.isButton)
-        .simultaneousGesture(
-          TapGesture().onEnded {
-            if !(expandedProjects[project.id] ?? false) {
-              selection = .projectGeneral(project.id)
-            }
-          }
-        )
     }
   }
 
