@@ -27,7 +27,6 @@ struct TagFilterPopoverFooter: View {
 
   var body: some View {
     HStack(spacing: 0) {
-      Spacer()
       Button {
         isPopoverPresented.toggle()
       } label: {
@@ -55,6 +54,7 @@ struct TagFilterPopoverFooter: View {
           }
         )
       }
+      Spacer()
     }
     .padding(.horizontal, 8)
     .padding(.vertical, 4)
