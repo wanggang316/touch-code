@@ -1,6 +1,6 @@
 # ExecPlan: Unified Keyboard Shortcut Management
 
-**Status:** In Progress
+**Status:** Completed
 **Author:** Gump
 **Date:** 2026-04-28
 
@@ -12,16 +12,21 @@ After this change, a touch-code user opens **Settings → Shortcuts** and sees e
 
 ## Progress
 
-- [ ] M1 — TouchCodeCore: `CommandID` enum, `ShortcutBinding`, `ModifierMask`, `ShortcutScope`, `ShortcutSchema` with defaults table; schema audit unit test pinning today's literals
-- [ ] M2 — TouchCodeCore: `ShortcutOverrideStore`, `ShortcutResolver`, `ShortcutResetPlanner`, three `ConflictDetectors`; unit coverage for each (parallelizable across sub-agents once M1 lands)
-- [ ] M3 — App: `ShortcutsStore` (`@MainActor @Observable`, `AtomicFileStore`, 500 ms debounce, broken-file backup); store unit tests
-- [ ] M4 — App: `ShortcutDisplay` (UCKeyTranslate keycap + KeyEquivalent conversion + input-source-change observer); display unit tests under fixed layout fixture
-- [ ] M5 — App: `ShortcutEnvironment` + `View+appKeyboardShortcut` modifier (two forms — `Commands`-friendly explicit-map and view-friendly env-driven)
-- [ ] M6 — App wiring: instantiate `ShortcutsStore` in `TouchCodeApp`, inject environment, rewrite `MainWindowCommands` thirteen bindings to read from registry, migrate `StatusMotivationalView` and `CommandPaletteItems` palette-hint consumers, delete `CommandPaletteShortcut.swift`
-- [ ] M7 — `HierarchySidebarView` row-hotkey rewrite: nine `⌃⌘1..9` invisible buttons read from registry; delete `hotkeyModifiers` constant
-- [ ] M8 — `HotkeyRecorderNSView` + SwiftUI wrapper; conflict feedback (system/AppKit reject + internal-conflict popover)
-- [ ] M9 — `ShortcutsSettingsView` replacing `ComingSoonPane(title: "Shortcuts")`; search, category groups, recorder cell, disable, per-row reset with cascade dialog, restore-all
-- [ ] M10 — `agent-skills:code-reviewer` pass + follow-up fix commits; final lint + three-target test run
+- [x] M1 — TouchCodeCore: `CommandID` enum, `ShortcutBinding`, `ModifierMask`, `ShortcutScope`, `ShortcutSchema` with defaults table; schema audit unit test pinning today's literals (commit `3892403`, 2026-04-28)
+- [x] M2 — TouchCodeCore: `ShortcutOverrideStore`, `ShortcutResolver`, `ShortcutResetPlanner`, three `ConflictDetectors`; unit coverage for each (27/27 tests pass, 2026-04-28)
+  - [x] M2.0 prefix — override store + resolver (commit `095d55a`)
+  - [x] M2.A — `ShortcutResetPlanner` (commit `cd4e3bd`)
+  - [x] M2.B — `SystemReservedDetector` (commit `04ee2de`)
+  - [x] M2.C — `AppKitReservedDetector` (commit `4e25624`)
+  - [x] M2.D — `InternalConflictDetector` (commit `30191c6`)
+- [x] M3 — App: `ShortcutsStore` (`@MainActor @Observable`, `AtomicFileStore`, 500 ms debounce, broken-file backup); store unit tests (commit `f17742a`, 10/10 tests pass, 2026-04-28)
+- [x] M4 — App: `ShortcutDisplay` (UCKeyTranslate keycap + KeyEquivalent conversion); display unit tests (commit `1abc7a5`, 10/10 tests pass, 2026-04-28)
+- [x] M5 — App: `ShortcutEnvironment` + `View+appKeyboardShortcut` modifier (two forms) (commit `ac50e08`, 4/4 tests pass, 2026-04-28)
+- [x] M6 — App wiring: instantiate `ShortcutsStore` in `TouchCodeApp`, inject environment, rewrite `MainWindowCommands` thirteen bindings to read from registry, migrate `StatusMotivationalView` and `CommandPaletteItems` palette-hint consumers, delete `CommandPaletteShortcut.swift` (commit `02bef09`, schema audit + palette tests pass; pre-existing `commandEDispatchesOpenDefaultForCurrentWorktreeAndForwardsToEditor` flake unrelated, 2026-04-28)
+- [x] M7 — `HierarchySidebarView` row-hotkey rewrite: nine `⌃⌘1..9` invisible buttons read from registry; delete `hotkeyModifiers` constant (commit `321bc35`, audit + build pass, 2026-04-28)
+- [x] M8 — `HotkeyRecorderNSView` + SwiftUI wrapper; validation (missing-modifier + modifier-only reject) (commit `0e4f6ae`, 7/7 tests pass, 2026-04-28). Internal-conflict popover lives in M9 since it depends on the resolved map.
+- [x] M9 — `ShortcutsSettingsView` replacing `ComingSoonPane(title: "Shortcuts")`; search, category groups, recorder cell, disable, per-row reset with cascade dialog, restore-all (commit `433221c`, TouchCodeCore 369/369 + app-tier shortcut suites 32/32 pass, 2026-04-28)
+- [x] M10 — `agent-skills:code-reviewer` pass + follow-up fix commits; final lint + three-target test run (commit `3f6a698`, TouchCodeCore 370/370 + app-tier shortcut suites pass, 2026-04-28)
 
 ## Surprises & Discoveries
 
@@ -38,7 +43,53 @@ After this change, a touch-code user opens **Settings → Shortcuts** and sees e
 
 ## Outcomes & Retrospective
 
-(To be filled at milestone completion)
+Shipped end-to-end on 2026-04-28 across 14 commits (`c0ce289` docs → `3f6a698` review fixups). All ten milestones landed, with M2 splitting into M2.0 (sequential prefix) plus four parallel sub-agent leaves (M2.A–M2.D) as planned.
+
+**What we got**:
+
+- A closed `CommandID` enum and a single `ShortcutSchema.app` defaults table covering 28 user-bindable commands (13 main-window + 9 sidebar + 6 system/general).
+- A persistent `~/.config/touch-code/shortcuts.json` overrides layer with 500 ms debounced atomic writes and broken-file backup.
+- Three-tier conflict detection: macOS system-reserved (read at runtime from `com.apple.symbolichotkeys`), AppKit standard-menu reserved (hardcoded six-entry set), and app-internal (configurable-vs-configurable).
+- Cascading reset planning that handles swap conflicts and three-way cycles deterministically.
+- A SwiftUI `Settings → Shortcuts` pane with search, category grouping, an `NSViewRepresentable`-backed chord recorder, source pills, per-row reset, restore-all, and disable.
+- Layout-aware display rendering via `UCKeyTranslate` plus stable SwiftUI bindings against the user's ASCII-capable layout.
+- 64 unit tests across 11 suites — 6 in TouchCodeCoreTests/Shortcuts, 4 in touch-codeTests, plus the existing palette suites that now exercise the registry-aware row renderer.
+
+**What changed during execution vs. the plan**:
+
+- **D7 (M2.0 fix)**: `CommandID` needed an explicit `CodingKeyRepresentable` conformance for `[CommandID: ShortcutBinding]` to encode as a JSON object instead of a flat key/value array. Caught by the round-trip test in M2.0; one-line fix.
+- **D8 (M4 conflict)**: `Carbon.HIToolbox.EventModifiers` (a `UInt32` typedef) collided with SwiftUI's `EventModifiers` struct. Fully qualified to `SwiftUI.EventModifiers` at every annotated call site; dropped the unnecessary AppKit import in `ShortcutDisplay.swift`.
+- **D9 (M6 scope refinement)**: rather than threading a new dependency through `CommandPaletteFeature.appeared(...)` to give the palette its registry-aware shortcut hint, added an optional `commandID: CommandID?` field on `CommandPaletteItem` and let `CommandPaletteView.row(...)` derive the chord from `@Environment(\.resolvedShortcuts)` at render time. Avoids touching any TCA action/test signatures and keeps the build pure-additive.
+- **D10 (M8 typing fix)**: `HotkeyRecorderNSView.RejectionReason` had to conform to `Error` so it could be the `Failure` type in `Result<…, RejectionReason>`. One-line addition.
+- **D11 (M10 review)**: code-reviewer agent flagged five blocking/should-fix items; resolved in `3f6a698`:
+  1. **(blocking)** wired `SystemReservedDetector` into `ShortcutsSettingsView.handleCapture` — it had been built and tested but never invoked from the user-facing flow;
+  2. defensive guard on `parameters[2] < 0` in `SystemReservedDetector` (sentinel "no chord" markers no longer decode every modifier);
+  3. `ShortcutsStore.deinit` cancels `pendingSaveTask`; recheck-on-cancellation hardened the debounce race window;
+  4. `ShortcutsStore.update(_:to:)` now coalesces a no-op revert (override == schema default) into a `clear`, and a new `resolveConflict(disabling:assigning:to:)` batches the replace flow into a single observable mutation;
+  5. `ShortcutSchemaAuditTests` swapped `kVK_ANSI_*` constants for numeric literals so the audit no longer tautologically reads from the same Carbon header the production schema imports.
+
+  The `ShortcutDisplay` "US-QWERTY vs ASCII-capable" point was resolved as a doc alignment (the code's behavior — accept the user's chosen ASCII layout — is the right product call; the comment now states it accurately).
+
+**Carryovers / non-blocking nits not addressed**:
+
+- `HotkeyRecorderNSView.modifierKeyCodes` uses numeric `0x37` literals where it could use `kVK_Command` constants — cosmetic, deferred.
+- A more defensive `DispatchQueue.main.async` wrapping inside `HotkeyRecorderView`'s closures — none of the existing call paths would actually race during `updateNSView`; deferred unless we see SwiftUI's runtime warnings.
+- An explicit US-QWERTY layout lookup (instead of the user's ASCII-capable layout) — design decision punt; revisit if a Dvorak user reports surprise.
+
+**Pre-existing test failure observed**:
+
+- `MainWindowCommandsTests.commandEDispatchesOpenDefaultForCurrentWorktreeAndForwardsToEditor` records 3 issues at `await store.send(.openDefaultForCurrentWorktreeRequested)`. Confirmed pre-existing on `M5 baseline (ac50e08)`; unrelated to the shortcut feature; left for a separate fix in the touch-code test infra.
+
+**Unrelated working-copy drift not committed by this branch**:
+
+- `apps/mac/touch-code/App/Features/HierarchySidebar/TagChipFooter.swift` carries swift-format whitespace changes from a sub-agent's `make check` run; not part of this feature's diff.
+- `apps/mac/touch-code/App/AppIcon.icon/Assets/Image 1.png` is an untracked asset file unrelated to this work.
+
+**Lessons**:
+
+- M2's parallel-leaf dispatch worked cleanly: 4 independent `general-purpose` agents finished within ~3 minutes of each other and all returned with green tests on first try. The shared types (M1 + M2.0) were small enough that the agents' isolated reading of the design doc plus type files was sufficient.
+- The schema audit + golden-table pinning is the right safety net for migrations like this: M6/M7 each rewrote a chunk of literal `.keyboardShortcut(...)` calls and the audit caught zero drift, exactly because no drift happened.
+- The reviewer's blocking finding (missing `SystemReservedDetector` wire) was a milestone-level miss that no test had a chance to catch (the detector's own tests asserted its behavior in isolation; the settings pane's behavior wasn't unit-tested at the integration level). Worth budgeting an integration test for the recorder→detector→store path next time a similar three-tier validator is built.
 
 ## Context and Orientation
 
