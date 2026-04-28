@@ -1316,9 +1316,11 @@ private struct PopoverMenuRow: View {
     .buttonStyle(.plain)
     .foregroundStyle(textColor)
     .background(
-      RoundedRectangle(cornerRadius: 3)
+      // Native NSMenu hover highlight on macOS 14+: ~4 pt corner radius,
+      // ~5 pt inset from the menu's left/right edges.
+      RoundedRectangle(cornerRadius: 4)
         .fill(isHovered ? Color.accentColor : Color.clear)
-        .padding(.horizontal, 4)
+        .padding(.horizontal, 5)
     )
     .onHover { isHovered = $0 }
   }
