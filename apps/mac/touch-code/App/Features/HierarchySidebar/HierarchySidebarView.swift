@@ -880,14 +880,9 @@ private struct ProjectHeaderRow: View {
   /// expanded). The parent Button still owns the tap, so this is display-only.
   var isExpanded: Bool = false
   @Bindable var store: StoreOf<HierarchySidebarFeature>
-  @Environment(HierarchyManager.self) private var hierarchyManager
   @State private var isHovering = false
   @State private var isPlusHovering = false
   @State private var isMenuHovering = false
-  /// Captured by `ProjectOptionsMenuAnchor` so the ⋯ button has an
-  /// `NSView` to anchor the manually-presented `NSMenu` against — that
-  /// view doubles as the position reference for `NSMenu.popUp`.
-  @State private var menuAnchorView: NSView?
 
   var body: some View {
     HStack(spacing: 6) {
@@ -932,22 +927,51 @@ private struct ProjectHeaderRow: View {
           .buttonStyle(.plain)
           .onHover { isPlusHovering = $0 }
         }
-        Button {
-          guard let anchor = menuAnchorView else { return }
-          presentProjectOptionsMenu(
-            anchor: anchor,
-            project: project,
-            store: store,
-            hierarchyManager: hierarchyManager
-          )
+        Menu {
+          Button {
+            store.send(.projectOptionsTapped(projectID: project.id))
+          } label: {
+            Label("Project Options…", systemImage: "slider.horizontal.3")
+          }
+          let archivedCount = project.worktrees.filter { $0.archived }.count
+          Button {
+            store.send(.projectShowArchivedTapped(projectID: project.id))
+          } label: {
+            Label(
+              archivedCount > 0
+                ? "Archived Worktrees (\(archivedCount))…"
+                : "Archived Worktrees…",
+              systemImage: "archivebox"
+            )
+          }
+          Button {
+            store.send(.projectPruneTapped(projectID: project.id))
+          } label: {
+            Label("Prune Stale Worktrees", systemImage: "wand.and.sparkles")
+          }
+          Divider()
+          // M5 (project-tags): inline color palette + "Tags…" entry.
+          // ControlGroup(.palette) gives the native NSMenu color row;
+          // "Tags…" opens the global TagManager via the sidebar's
+          // `.openTagManager` delegate.
+          ProjectTagsMenu(project: project, store: store)
+          Divider()
+          Button(role: .destructive) {
+            store.send(
+              .projectRemoveTapped(projectID: project.id, name: project.name)
+            )
+          } label: {
+            Label("Remove Project", systemImage: "trash")
+          }
         } label: {
           iconLabel(systemName: "ellipsis", isHovering: isMenuHovering)
             .accessibilityLabel("Project options")
         }
+        .menuStyle(.button)
         .buttonStyle(.plain)
+        .menuIndicator(.hidden)
         .fixedSize()
         .onHover { isMenuHovering = $0 }
-        .background(ProjectOptionsMenuAnchor(view: $menuAnchorView))
       }
       .opacity(isHovering ? 1 : 0)
     }
@@ -1151,563 +1175,50 @@ private struct ProjectTagDots: View {
   }
 }
 
-// MARK: - Project options native menu (NSPanel-backed)
-
-/// Captures the underlying `NSView` for a SwiftUI element so a sibling
-/// click handler has a real AppKit view to anchor the popup against.
-/// SwiftUI doesn't expose its backing view by default, so we drop a
-/// zero-sized `NSView` into the same coordinate space and read its
-/// window position when the click handler runs.
-private struct ProjectOptionsMenuAnchor: NSViewRepresentable {
-  @Binding var view: NSView?
-
-  func makeNSView(context: Context) -> NSView {
-    let v = NSView()
-    DispatchQueue.main.async { view = v }
-    return v
-  }
-
-  func updateNSView(_ nsView: NSView, context: Context) {}
-}
-
-/// Borderless, non-activating panel styled to match the system NSMenu.
-/// On macOS 26 (Tahoe / Liquid Glass) the backdrop is `NSGlassEffectView`
-/// — Apple's first-class glass container with a direct `cornerRadius`
-/// property and the same material AppKit uses for system menus on that
-/// release. On macOS 14–15 we fall back to `NSVisualEffectView` with
-/// `material = .menu`, which is the closest pre-Tahoe equivalent.
-/// SwiftUI doesn't expose either backdrop through its public Material
-/// API, so bridging to AppKit is the only way to land the system look.
-private final class ProjectOptionsMenuPanel: NSPanel {
-  /// Pre-Tahoe NSMenu corner radius — matches the Big Sur → Sequoia
-  /// menu contour by eye. Apple doesn't publish the exact value.
-  static let legacyCornerRadius: CGFloat = 6
-  /// Tahoe's Liquid-Glass menu / popover curvature. Matches the WWDC25
-  /// "Adopting Liquid Glass" sample's grouped-glass examples and the
-  /// system menus on macOS 26.
-  static let liquidGlassCornerRadius: CGFloat = 12
-  /// Pixel margin around the glass inside the panel frame, leaving room
-  /// for the custom CALayer shadow to render without being clipped at
-  /// the window edge. AppKit's auto-shadow follows window alpha (which
-  /// would draw a rectangle past the rounded backdrop), so on Tahoe we
-  /// disable that and paint our own rounded shadow on the layer
-  /// instead.
-  private static let liquidGlassShadowMargin: CGFloat = 16
-
-  override var canBecomeKey: Bool { true }
-  override var canBecomeMain: Bool { false }
-
-  /// Rectangle (in panel-content coords) that the visible menu chrome
-  /// occupies. On pre-Tahoe this is the full panel; on Tahoe the glass
-  /// is inset by `liquidGlassShadowMargin` to leave room for the layer
-  /// shadow, so the controller has to anchor positioning against this
-  /// rect rather than the panel frame.
-  let visibleContentRect: NSRect
-
-  init(rootView: some View) {
-    let host = NSHostingView(rootView: AnyView(rootView))
-    host.frame.size = host.fittingSize
-
-    let usesLiquidGlass: Bool
-    if #available(macOS 26, *) { usesLiquidGlass = true } else { usesLiquidGlass = false }
-
-    let contentSize: NSSize
-    if usesLiquidGlass {
-      contentSize = NSSize(
-        width: host.frame.width + Self.liquidGlassShadowMargin * 2,
-        height: host.frame.height + Self.liquidGlassShadowMargin * 2
-      )
-      self.visibleContentRect = NSRect(
-        x: Self.liquidGlassShadowMargin,
-        y: Self.liquidGlassShadowMargin,
-        width: host.frame.width,
-        height: host.frame.height
-      )
-    } else {
-      contentSize = host.frame.size
-      self.visibleContentRect = NSRect(origin: .zero, size: host.frame.size)
-    }
-
-    super.init(
-      contentRect: NSRect(origin: .zero, size: contentSize),
-      styleMask: [.borderless, .nonactivatingPanel],
-      backing: .buffered,
-      defer: false
-    )
-    self.contentView = Self.makeMenuBackdrop(host: host, panelSize: contentSize)
-    self.isOpaque = false
-    self.backgroundColor = .clear
-    // On Tahoe we paint our own rounded layer shadow; AppKit's auto
-    // shadow would still trace the rectangular window frame past the
-    // rounded glass. On older macOS, the masksToBounds wrapper clips
-    // alpha to the rounded shape so AppKit's auto shadow follows it.
-    self.hasShadow = !usesLiquidGlass
-    self.level = .popUpMenu
-    self.isMovable = false
-    self.hidesOnDeactivate = false
-    self.collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary]
-  }
-
-  /// Builds the OS-appropriate glass / vibrancy backdrop and embeds the
-  /// SwiftUI hosting view inside it.
-  ///
-  /// On macOS 26 (Tahoe) we hand `NSGlassEffectView` direct ownership
-  /// of the SwiftUI host through `contentView`. Wrapping the glass in
-  /// a `masksToBounds` `NSView` would clip alpha to the rounded shape
-  /// but flatten the layer tree — Liquid Glass needs the live blur
-  /// pipeline and the wrapper's offscreen render kills it. Instead we
-  /// paint a CALayer shadow with a rounded `shadowPath` and let the
-  /// glass live in a transparent margin so the shadow has room.
-  ///
-  /// On older macOS, `NSVisualEffectView`'s vibrancy isn't a live blur
-  /// the way Liquid Glass is, so the masksToBounds clip costs nothing
-  /// visible and we keep the simpler auto-shadow path.
-  private static func makeMenuBackdrop(
-    host: NSHostingView<AnyView>,
-    panelSize: NSSize
-  ) -> NSView {
-    if #available(macOS 26, *) {
-      let glassFrame = NSRect(
-        x: liquidGlassShadowMargin,
-        y: liquidGlassShadowMargin,
-        width: host.frame.width,
-        height: host.frame.height
-      )
-
-      // Stage carries the rounded layer shadow as a `shadowPath` —
-      // setting the shadow on `glass.layer` directly is unreliable
-      // because NSGlassEffectView's cornerRadius may toggle its own
-      // `masksToBounds` to clip the live-blur material, which would
-      // also clip away the shadow. The stage doesn't clip and
-      // doesn't host the live blur, so the shadow renders cleanly
-      // outside the rounded silhouette.
-      let stage = NSView(frame: NSRect(origin: .zero, size: panelSize))
-      stage.autoresizingMask = [.width, .height]
-      stage.wantsLayer = true
-      stage.layer?.shadowColor = NSColor.black.cgColor
-      stage.layer?.shadowOpacity = 0.28
-      stage.layer?.shadowRadius = 12
-      stage.layer?.shadowOffset = CGSize(width: 0, height: -3)
-      stage.layer?.shadowPath = CGPath(
-        roundedRect: glassFrame,
-        cornerWidth: liquidGlassCornerRadius,
-        cornerHeight: liquidGlassCornerRadius,
-        transform: nil
-      )
-
-      let glass = NSGlassEffectView(frame: glassFrame)
-      glass.cornerRadius = liquidGlassCornerRadius
-      glass.contentView = host
-      glass.autoresizingMask = []
-      stage.addSubview(glass)
-      return stage
-    }
-
-    let effect = NSVisualEffectView(
-      frame: NSRect(origin: .zero, size: host.frame.size)
-    )
-    effect.material = .menu
-    effect.blendingMode = .behindWindow
-    effect.state = .active
-    effect.autoresizingMask = [.width, .height]
-
-    host.frame = effect.bounds
-    host.autoresizingMask = [.width, .height]
-    effect.addSubview(host)
-
-    let clip = NSView(frame: effect.frame)
-    clip.wantsLayer = true
-    clip.layer?.cornerRadius = legacyCornerRadius
-    clip.layer?.cornerCurve = .continuous
-    clip.layer?.masksToBounds = true
-    clip.autoresizingMask = [.width, .height]
-    effect.frame = clip.bounds
-    effect.autoresizingMask = [.width, .height]
-    clip.addSubview(effect)
-    return clip
-  }
-}
-
-/// Owns the lifecycle of a single project-options menu panel: outside-
-/// click monitors, Esc, and final teardown. `MainActor` because
-/// `NSEvent.addLocalMonitorForEvents` returns on the calling actor and
-/// the closures touch AppKit state.
-@MainActor
-private final class ProjectOptionsMenuController {
-  private var panel: ProjectOptionsMenuPanel?
-  private weak var anchor: NSView?
-  private var localMonitor: Any?
-  private var globalMonitor: Any?
-
-  static let shared = ProjectOptionsMenuController()
-
-  /// `true` while a panel is on screen. Used by the trigger button to
-  /// decide whether the click should dismiss instead of present.
-  var isPresented: Bool { panel != nil }
-
-  /// Returns true and dismisses the panel when the click on `anchor`
-  /// should be treated as a toggle-close (i.e. the panel is open and
-  /// anchored to the same view). The trigger button calls this before
-  /// invoking `present` so that a second click on ⋯ closes the menu
-  /// rather than re-opening it.
-  func toggleOff(forAnchor anchor: NSView) -> Bool {
-    guard isPresented, self.anchor === anchor else { return false }
-    dismiss()
-    return true
-  }
-
-  func present(
-    anchor: NSView,
-    project: Project,
-    store: StoreOf<HierarchySidebarFeature>,
-    hierarchyManager: HierarchyManager
-  ) {
-    dismiss()  // anything stale from a prior open
-
-    guard let anchorWindow = anchor.window else { return }
-    self.anchor = anchor
-
-    let content = ProjectOptionsMenuContent(
-      project: project,
-      store: store,
-      hierarchyManager: hierarchyManager,
-      dismiss: { [weak self] in self?.dismiss() }
-    )
-
-    let panel = ProjectOptionsMenuPanel(rootView: content)
-    self.panel = panel
-
-    // Position so the *visible* menu — not the panel frame — sits 4 pt
-    // below the anchor's bottom-left. The panel may be larger than the
-    // visible content (Tahoe leaves a margin for the layer shadow),
-    // so we offset by `visibleContentRect.minX/maxY` inside the panel.
-    let anchorScreenOrigin = anchorWindow.convertPoint(
-      toScreen: anchor.convert(NSPoint.zero, to: nil)
-    )
-    let visible = panel.visibleContentRect
-    let panelOrigin = NSPoint(
-      x: anchorScreenOrigin.x - visible.minX,
-      y: anchorScreenOrigin.y - 4 - visible.maxY
-    )
-    panel.setFrameOrigin(panelOrigin)
-
-    panel.orderFront(nil)
-    panel.makeKey()
-    // Recompute the shadow against the now-rendered alpha mask so it
-    // traces the rounded contour instead of the rectangular window
-    // bounds. Doing this after `orderFront` is what makes it stick.
-    panel.invalidateShadow()
-
-    // Outside click + Esc dismissal.
-    //
-    // We swallow the event when it would re-trigger the same anchor's
-    // SwiftUI button — otherwise mouseDown dismisses the panel and
-    // mouseUp re-opens it, defeating the toggle UX. Clicks elsewhere
-    // pass through so the user can act on what they intended to click.
-    localMonitor = NSEvent.addLocalMonitorForEvents(
-      matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown]
-    ) { [weak self] event in
-      guard let self else { return event }
-      if event.type == .keyDown {
-        if event.keyCode == 53 {  // Escape
-          self.dismiss()
-          return nil
-        }
-        return event
-      }
-      if event.window === self.panel { return event }
-      if let anchor = self.anchor,
-        event.window === anchor.window
-      {
-        let hitWindow = event.locationInWindow
-        let anchorRect = anchor.convert(anchor.bounds, to: nil)
-        if anchorRect.contains(hitWindow) {
-          // Click on the trigger — close and swallow so the SwiftUI
-          // Button doesn't reopen the panel on mouseUp.
-          self.dismiss()
-          return nil
-        }
-      }
-      self.dismiss()
-      return event
-    }
-    globalMonitor = NSEvent.addGlobalMonitorForEvents(
-      matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
-    ) { [weak self] _ in
-      self?.dismiss()
-    }
-  }
-
-  func dismiss() {
-    if let lm = localMonitor {
-      NSEvent.removeMonitor(lm)
-      localMonitor = nil
-    }
-    if let gm = globalMonitor {
-      NSEvent.removeMonitor(gm)
-      globalMonitor = nil
-    }
-    panel?.orderOut(nil)
-    panel = nil
-    anchor = nil
-  }
-}
-
-/// Entry point used by the project header ⋯ button. Returns `true` when
-/// the click was handled as a toggle-close (caller should not present
-/// again); otherwise the controller has been told to present and the
-/// caller is done.
-@MainActor
-private func presentProjectOptionsMenu(
-  anchor: NSView,
-  project: Project,
-  store: StoreOf<HierarchySidebarFeature>,
-  hierarchyManager: HierarchyManager
-) {
-  // The local-event monitor inside the controller already swallows the
-  // click that lands on the anchor while a panel is open, so the
-  // trigger button's action only fires when there's nothing to toggle
-  // off. This entry just always presents.
-  ProjectOptionsMenuController.shared.present(
-    anchor: anchor,
-    project: project,
-    store: store,
-    hierarchyManager: hierarchyManager
-  )
-}
-
-/// SwiftUI body of the project ⋯ menu. Hosted inside the borderless
-/// `ProjectOptionsMenuPanel`, which paints the system menu material
-/// (Liquid Glass on macOS 26, vibrant `.menu` on older). The panel
-/// background takes care of vibrancy and rounded clip — this view only
-/// draws rows. `dismiss` tears the panel down via the controller; the
-/// tag swatches deliberately don't dismiss so toggling tags stays
-/// inline.
-private struct ProjectOptionsMenuContent: View {
+/// Inline tag controls for the project header ⋯ menu. Renders the catalog
+/// tags as a `ControlGroup(.palette)` of always-filled colored circles
+/// that flip to `checkmark.circle.fill` when the project carries the tag.
+/// Color comes from `.tint(...)` on the Button (NSMenu's palette renderer
+/// honours per-item tint; `.foregroundStyle` on the inner Label is
+/// silently dropped). Below the palette sits a plain "Tags…" entry that
+/// opens the global TagManager via the sidebar's `.openTagManager`
+/// delegate. When the catalog has no tags, only the "Tags…" entry
+/// renders so users can still discover the manager.
+///
+/// `Picker(.palette)` is the more idiomatic API but its
+/// `paletteSelectionEffect` only switches symbol variants (hollow ↔
+/// filled) — there's no built-in path to a checkmark overlay, so we
+/// drive the symbol manually here.
+private struct ProjectTagsMenu: View {
   let project: Project
   @Bindable var store: StoreOf<HierarchySidebarFeature>
-  /// Treated as the live source of project + tag truth. `Project` is a
-  /// value snapshot; we read `tagIDs` and the rest off the catalog so
-  /// inline toggles (and external mutations) re-render the swatches.
-  let hierarchyManager: HierarchyManager
-  let dismiss: () -> Void
-
-  /// Drives the live preview of the hovered tag's name in the "Tags…" row.
-  /// Cleared whenever the cursor leaves the palette.
-  @State private var hoveredTagID: TagID?
-
-  /// Hover corner radius for an interior row. System NSMenu rows on
-  /// both Sonoma/Sequoia and Tahoe land near 6 pt — measured against
-  /// the screenshot the user supplied of the Finder right-click menu.
-  private static let rowHoverCornerRadius: CGFloat = 6
-
-  /// Live `tagIDs` snapshot for the current project, read off the
-  /// observed catalog so the swatches reflect toggles in real time.
-  private var liveTagIDs: Set<TagID> {
-    hierarchyManager.catalog.projects
-      .first(where: { $0.id == project.id })?.tagIDs ?? []
-  }
+  @Environment(HierarchyManager.self) private var hierarchyManager
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      menuRow(title: "Project Options…", systemImage: "slider.horizontal.3") {
-        store.send(.projectOptionsTapped(projectID: project.id))
-        dismiss()
-      }
-      menuRow(title: archivedTitle, systemImage: "archivebox") {
-        store.send(.projectShowArchivedTapped(projectID: project.id))
-        dismiss()
-      }
-      menuRow(title: "Prune Stale Worktrees", systemImage: "wand.and.sparkles") {
-        store.send(.projectPruneTapped(projectID: project.id))
-        dismiss()
-      }
-
-      menuDivider
-
-      tagPalette
-      menuRow(title: tagsRowTitle, systemImage: "tag") {
-        store.send(.delegate(.openTagManager))
-        dismiss()
-      }
-
-      menuDivider
-
-      menuRow(
-        title: "Remove Project",
-        systemImage: "trash",
-        role: .destructive
-      ) {
-        store.send(
-          .projectRemoveTapped(projectID: project.id, name: project.name)
-        )
-        dismiss()
-      }
-    }
-    .padding(.vertical, 8)
-    .frame(width: 260)
-    // No background here — `ProjectOptionsMenuPanel.contentView` is the
-    // OS-appropriate menu material (NSGlassEffectView on Tahoe,
-    // NSVisualEffectView .menu earlier). Drawing a SwiftUI material on
-    // top would double-tint the glass and block the live blur.
-  }
-
-  private var archivedTitle: String {
-    let count = project.worktrees.filter { $0.archived }.count
-    return count > 0 ? "Archived Worktrees (\(count))…" : "Archived Worktrees…"
-  }
-
-  private var tagsRowTitle: String {
-    if let id = hoveredTagID,
-      let tag = hierarchyManager.catalog.tags.first(where: { $0.id == id })
-    {
-      return tag.name
-    }
-    return "Tags…"
-  }
-
-  @ViewBuilder
-  private var tagPalette: some View {
     let tags = hierarchyManager.catalog.tags
     if !tags.isEmpty {
-      // Reuse the menu row's `Label` layout with a hidden icon shim so
-      // the swatches inherit the row title's leading column alignment —
-      // this is what produces the "left-to-right" feel under the title
-      // column instead of being centred / distributed across the menu
-      // width.
-      Label {
-        HStack(spacing: 6) {
-          ForEach(tags) { tag in
-            tagSwatch(tag)
+      ControlGroup {
+        ForEach(tags) { tag in
+          let isOn = project.tagIDs.contains(tag.id)
+          Button {
+            store.send(.toggleTagOnProject(project.id, tag.id))
+          } label: {
+            Label(
+              tag.name,
+              systemImage: isOn ? "checkmark.circle.fill" : "circle.fill"
+            )
+            .labelStyle(.iconOnly)
           }
-          Spacer(minLength: 0)
+          .tint(swiftUIColor(for: tag.color))
+          .help(tag.name)
         }
-      } icon: {
-        Image(systemName: "tag")
-          .opacity(0)
-          .accessibilityHidden(true)
       }
-      .labelStyle(MenuRowLabelStyle())
-      .font(.system(size: 13))
-      .padding(.horizontal, 14)
-      .padding(.vertical, 5)
+      .controlGroupStyle(.palette)
     }
-  }
-
-  @ViewBuilder
-  private func tagSwatch(_ tag: Tag) -> some View {
-    let isSelected = liveTagIDs.contains(tag.id)
-    let isHovered = hoveredTagID == tag.id
     Button {
-      store.send(.toggleTagOnProject(project.id, tag.id))
+      store.send(.delegate(.openTagManager))
     } label: {
-      ZStack {
-        Circle()
-          .fill(swiftUIColor(for: tag.color))
-          .frame(width: 16, height: 16)
-        if isSelected {
-          Image(systemName: "checkmark")
-            .font(.system(size: 9, weight: .bold))
-            .foregroundStyle(.white)
-        }
-      }
-      .padding(3)
-      .overlay {
-        Circle()
-          .strokeBorder(Color.primary.opacity(0.7), lineWidth: 1.5)
-          .opacity(isHovered ? 1 : 0)
-      }
-      .contentShape(Circle())
+      Label("Tags…", systemImage: "tag")
     }
-    .buttonStyle(.plain)
-    .onHover { hovering in
-      if hovering {
-        hoveredTagID = tag.id
-      } else if hoveredTagID == tag.id {
-        hoveredTagID = nil
-      }
-    }
-    .accessibilityLabel(tag.name)
-    .accessibilityAddTraits(isSelected ? .isSelected : [])
-  }
-
-  @ViewBuilder
-  private var menuDivider: some View {
-    Divider()
-      .padding(.horizontal, 14)
-      .padding(.vertical, 6)
-  }
-
-  @ViewBuilder
-  private func menuRow(
-    title: String,
-    systemImage: String,
-    role: ButtonRole? = nil,
-    action: @escaping () -> Void
-  ) -> some View {
-    ProjectOptionsMenuRow(
-      title: title,
-      systemImage: systemImage,
-      role: role,
-      cornerRadius: Self.rowHoverCornerRadius,
-      action: action
-    )
-  }
-}
-
-/// Custom `LabelStyle` that lays out the icon in a fixed-width slot
-/// followed by the title with an explicit gap. SwiftUI's default
-/// `.titleAndIcon` style packs the two too tightly for a menu row, and
-/// the icon column doesn't align across rows when symbol widths vary
-/// (e.g. `archivebox` vs `tag`). A fixed 16 pt slot + 12 pt gap gives
-/// the same column rhythm as the system NSMenu.
-private struct MenuRowLabelStyle: LabelStyle {
-  func makeBody(configuration: Configuration) -> some View {
-    HStack(spacing: 12) {
-      configuration.icon
-        .frame(width: 16, alignment: .center)
-      configuration.title
-    }
-  }
-}
-
-/// One row inside `ProjectOptionsMenuContent`. Visually matches a native
-/// macOS menu item: 13 pt label with leading SF Symbol, rounded hover
-/// highlight on `accentColor` inset from the menu's edges, white text
-/// while hovered, red text for destructive entries. The hover corner
-/// radius is supplied by the parent so it tracks the menu's outer
-/// curvature on each macOS release.
-private struct ProjectOptionsMenuRow: View {
-  let title: String
-  let systemImage: String
-  var role: ButtonRole?
-  var cornerRadius: CGFloat = 4
-  let action: () -> Void
-  @State private var isHovered = false
-
-  var body: some View {
-    Button(action: action) {
-      Label(title, systemImage: systemImage)
-        .labelStyle(MenuRowLabelStyle())
-        .font(.system(size: 13))
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 6)
-        .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
-    .foregroundStyle(textColor)
-    .background(
-      RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        .fill(isHovered ? Color.accentColor : Color.clear)
-        .padding(.horizontal, 6)
-    )
-    .onHover { isHovered = $0 }
-  }
-
-  private var textColor: Color {
-    if isHovered { return .white }
-    if role == .destructive { return .red }
-    return .primary
   }
 }
