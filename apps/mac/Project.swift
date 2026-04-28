@@ -36,6 +36,7 @@ let project = Project(
         "TouchCodeCore/Hooks",
         "TouchCodeCore/GitHub",
         "TouchCodeCore/Shortcuts",
+        "TouchCodeCore/Shortcuts/ConflictDetectors",
         "TouchCodeCore/StatusBar",
       ],
       settings: .settings(
