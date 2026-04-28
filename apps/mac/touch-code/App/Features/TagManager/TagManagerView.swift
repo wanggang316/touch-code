@@ -102,7 +102,11 @@ struct TagManagerSheet: View {
             tagRow(tag)
               .listRowSeparator(.hidden)
               .listRowBackground(
-                Color.primary.opacity(index.isMultiple(of: 2) ? 0 : 0.05)
+                Color(
+                  nsColor: NSColor.alternatingContentBackgroundColors[
+                    index.isMultiple(of: 2) ? 1 : 0
+                  ]
+                )
               )
               .listRowInsets(
                 EdgeInsets(
