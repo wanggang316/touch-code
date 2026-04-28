@@ -1225,13 +1225,24 @@ private struct ProjectOptionsPopover: View {
   private var tagPalette: some View {
     let tags = hierarchyManager.catalog.tags
     if !tags.isEmpty {
-      HStack(spacing: 6) {
-        ForEach(tags) { tag in
-          tagSwatch(tag)
+      // Reuse the menu row's `Label` layout with a hidden icon shim so
+      // the swatches inherit the row title's leading column alignment —
+      // SwiftUI Label sizes the icon slot to match the surrounding rows.
+      Label {
+        HStack(spacing: 6) {
+          ForEach(tags) { tag in
+            tagSwatch(tag)
+          }
+          Spacer(minLength: 0)
         }
-        Spacer(minLength: 0)
+      } icon: {
+        Image(systemName: "tag")
+          .opacity(0)
+          .accessibilityHidden(true)
       }
-      .padding(.horizontal, 12)
+      .labelStyle(.titleAndIcon)
+      .font(.system(size: 13))
+      .padding(.horizontal, 10)
       .padding(.vertical, 4)
     }
   }
