@@ -272,6 +272,7 @@ struct HierarchySidebarView: View {
         Label("Add Project", systemImage: "plus")
       }
       .help("Add Project")
+      .commandKeyHint(.addProject)
     }
   }
 
@@ -360,6 +361,7 @@ struct HierarchySidebarView: View {
         Label("Add Project", systemImage: "plus")
       }
       .buttonStyle(.borderedProminent)
+      .commandKeyHint(.addProject)
       Spacer()
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
