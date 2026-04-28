@@ -1172,20 +1172,21 @@ private struct ProjectOptionsMenuAnchor: NSViewRepresentable {
 }
 
 /// Borderless, non-activating panel styled to match the system NSMenu.
-/// Its `contentView` is an `NSVisualEffectView` with `material = .menu`
-/// (the same vibrancy backdrop AppKit uses for real menus, popovers,
-/// etc.) and a layer-level corner radius. The SwiftUI body sits inside
-/// this view; we don't draw any background in SwiftUI. That lets
-/// AppKit's window shadow follow the rounded mask automatically and
-/// gives us the exact glass material of a real menu — neither
-/// reachable through SwiftUI's `Material.regularMaterial` substitute.
+/// On macOS 26 (Tahoe / Liquid Glass) the backdrop is `NSGlassEffectView`
+/// — Apple's first-class glass container with a direct `cornerRadius`
+/// property and the same material AppKit uses for system menus on that
+/// release. On macOS 14–15 we fall back to `NSVisualEffectView` with
+/// `material = .menu`, which is the closest pre-Tahoe equivalent.
+/// SwiftUI doesn't expose either backdrop through its public Material
+/// API, so bridging to AppKit is the only way to land the system look.
 private final class ProjectOptionsMenuPanel: NSPanel {
-  /// Sonoma's NSMenu corner radius rounded to a 1 pt grid. Apple
-  /// doesn't publish the exact value; this matches the system menu by
-  /// eye and stays consistent with the Big Sur → Sonoma family.
-  /// macOS 26 (Tahoe) shifts to a much larger radius — that path is
-  /// not yet wired up because we deploy to 14.
-  static let cornerRadius: CGFloat = 6
+  /// Pre-Tahoe NSMenu corner radius — matches the Big Sur → Sequoia
+  /// menu contour by eye. Apple doesn't publish the exact value.
+  private static let legacyCornerRadius: CGFloat = 6
+  /// Tahoe's Liquid-Glass menu / popover curvature. Matches the WWDC25
+  /// "Adopting Liquid Glass" sample's grouped-glass examples and the
+  /// system menus on macOS 26.
+  private static let liquidGlassCornerRadius: CGFloat = 12
 
   override var canBecomeKey: Bool { true }
   override var canBecomeMain: Bool { false }
@@ -1194,23 +1195,7 @@ private final class ProjectOptionsMenuPanel: NSPanel {
     let host = NSHostingView(rootView: AnyView(rootView))
     host.frame.size = host.fittingSize
 
-    let effect = NSVisualEffectView(
-      frame: NSRect(origin: .zero, size: host.frame.size)
-    )
-    effect.material = .menu
-    effect.blendingMode = .behindWindow
-    effect.state = .active
-    effect.wantsLayer = true
-    effect.layer?.cornerRadius = Self.cornerRadius
-    // Continuous corners track macOS Big Sur+ corner styling — sharper
-    // contour than circular at the same radius.
-    effect.layer?.cornerCurve = .continuous
-    effect.layer?.masksToBounds = true
-    effect.autoresizingMask = [.width, .height]
-
-    host.frame = effect.bounds
-    host.autoresizingMask = [.width, .height]
-    effect.addSubview(host)
+    let backdrop = Self.makeMenuBackdrop(host: host)
 
     super.init(
       contentRect: NSRect(origin: .zero, size: host.frame.size),
@@ -1218,7 +1203,7 @@ private final class ProjectOptionsMenuPanel: NSPanel {
       backing: .buffered,
       defer: false
     )
-    self.contentView = effect
+    self.contentView = backdrop
     self.isOpaque = false
     self.backgroundColor = .clear
     self.hasShadow = true
@@ -1230,6 +1215,38 @@ private final class ProjectOptionsMenuPanel: NSPanel {
     // it doesn't briefly draw against the rectangular window bounds on
     // first show.
     self.invalidateShadow()
+  }
+
+  /// Builds the OS-appropriate glass / vibrancy backdrop and embeds the
+  /// SwiftUI hosting view inside it. Splitting this out keeps the
+  /// version branch out of the panel's main initializer.
+  private static func makeMenuBackdrop(host: NSHostingView<AnyView>) -> NSView {
+    if #available(macOS 26, *) {
+      let glass = NSGlassEffectView(
+        frame: NSRect(origin: .zero, size: host.frame.size)
+      )
+      glass.cornerRadius = liquidGlassCornerRadius
+      glass.contentView = host
+      glass.autoresizingMask = [.width, .height]
+      return glass
+    }
+
+    let effect = NSVisualEffectView(
+      frame: NSRect(origin: .zero, size: host.frame.size)
+    )
+    effect.material = .menu
+    effect.blendingMode = .behindWindow
+    effect.state = .active
+    effect.wantsLayer = true
+    effect.layer?.cornerRadius = legacyCornerRadius
+    effect.layer?.cornerCurve = .continuous
+    effect.layer?.masksToBounds = true
+    effect.autoresizingMask = [.width, .height]
+
+    host.frame = effect.bounds
+    host.autoresizingMask = [.width, .height]
+    effect.addSubview(host)
+    return effect
   }
 }
 
