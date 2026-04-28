@@ -1152,26 +1152,13 @@ private struct ProjectTagDots: View {
   }
 }
 
-// MARK: - Project options native menu (NSHostingView-backed)
-
-/// `NSHostingView` subclass that opts into the first-click. While an
-/// `NSMenu` is tracking, its overlay panel is the key window — the
-/// original window (and our hosting view's responder chain) is no
-/// longer key. The default `NSView.acceptsFirstMouse(for:)` returns
-/// `false`, which causes AppKit to swallow the very first mouse-down
-/// inside our hosted view as a "make-key" click instead of forwarding
-/// it to the SwiftUI Button hit-test, so taps on rows / swatches
-/// silently do nothing. Returning `true` here forwards the click and
-/// SwiftUI's normal Button + onHover plumbing then behaves as expected.
-private final class ProjectOptionsMenuHostingView<Content: View>: NSHostingView<Content> {
-  override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-}
+// MARK: - Project options native menu (NSPanel-backed)
 
 /// Captures the underlying `NSView` for a SwiftUI element so a sibling
-/// click handler can use it as the anchor passed to `NSMenu.popUp`.
-/// We need a real `NSView` because NSMenu measures its popup position
-/// in window-coordinates relative to a host view, and SwiftUI doesn't
-/// expose its backing view by default.
+/// click handler has a real AppKit view to anchor the popup against.
+/// SwiftUI doesn't expose its backing view by default, so we drop a
+/// zero-sized `NSView` into the same coordinate space and read its
+/// window position when the click handler runs.
 private struct ProjectOptionsMenuAnchor: NSViewRepresentable {
   @Binding var view: NSView?
 
@@ -1184,13 +1171,116 @@ private struct ProjectOptionsMenuAnchor: NSViewRepresentable {
   func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
-/// Build a native `NSMenu` whose only `NSMenuItem.view` is an
-/// `NSHostingView` wrapping `ProjectOptionsMenuContent`, then pop it up
-/// just below the ⋯ button. NSMenu owns the chrome (corner radius,
-/// shadow, animation, keyboard dismissal); the SwiftUI subtree owns
-/// layout, hover, and `@State`-driven dynamic content. NSHostingMenu
-/// would do the same in a single call, but it requires macOS 15 — this
-/// form works on macOS 14, our deployment target.
+/// Borderless, non-activating panel styled like a context menu.
+/// `nonactivatingPanel` keeps the parent window key (so the project list
+/// stays selected); `popUpMenu` window level keeps it above ordinary
+/// windows. We render a transparent panel and let the inner SwiftUI view
+/// draw a `Material.menu` background — that produces the exact same
+/// vibrancy / corner radius / shadow combination NSMenu uses, without
+/// inheriting NSMenu's tracking-loop event-routing problems (the reason
+/// this isn't a hand-rolled `NSMenu` + `NSHostingView`).
+private final class ProjectOptionsMenuPanel: NSPanel {
+  override var canBecomeKey: Bool { true }
+  override var canBecomeMain: Bool { false }
+
+  init(rootView: some View) {
+    let host = NSHostingView(rootView: AnyView(rootView))
+    host.frame.size = host.fittingSize
+    super.init(
+      contentRect: NSRect(origin: .zero, size: host.frame.size),
+      styleMask: [.borderless, .nonactivatingPanel],
+      backing: .buffered,
+      defer: false
+    )
+    self.contentView = host
+    self.isOpaque = false
+    self.backgroundColor = .clear
+    self.hasShadow = true
+    self.level = .popUpMenu
+    self.isMovable = false
+    self.hidesOnDeactivate = false
+    self.collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary]
+  }
+}
+
+/// Owns the lifecycle of a single project-options menu panel: outside-
+/// click monitors, Esc, and final teardown. `MainActor` because
+/// `NSEvent.addLocalMonitorForEvents` returns on the calling actor and
+/// the closures touch AppKit state.
+@MainActor
+private final class ProjectOptionsMenuController {
+  private var panel: ProjectOptionsMenuPanel?
+  private var localMonitor: Any?
+  private var globalMonitor: Any?
+
+  static let shared = ProjectOptionsMenuController()
+
+  func present(
+    anchor: NSView,
+    project: Project,
+    store: StoreOf<HierarchySidebarFeature>,
+    hierarchyManager: HierarchyManager
+  ) {
+    dismiss()  // anything stale from a prior open
+
+    guard let anchorWindow = anchor.window else { return }
+
+    let content = ProjectOptionsMenuContent(
+      project: project,
+      store: store,
+      hierarchyManager: hierarchyManager,
+      dismiss: { [weak self] in self?.dismiss() }
+    )
+
+    let panel = ProjectOptionsMenuPanel(rootView: content)
+    self.panel = panel
+
+    // Position just below the anchor in screen coordinates.
+    let anchorScreenOrigin = anchorWindow.convertPoint(
+      toScreen: anchor.convert(NSPoint.zero, to: nil)
+    )
+    let panelOrigin = NSPoint(
+      x: anchorScreenOrigin.x,
+      y: anchorScreenOrigin.y - panel.frame.height - 4
+    )
+    panel.setFrameOrigin(panelOrigin)
+
+    panel.orderFront(nil)
+    panel.makeKey()
+
+    // Dismiss on click outside the panel.
+    localMonitor = NSEvent.addLocalMonitorForEvents(
+      matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+    ) { [weak self] event in
+      if event.window !== self?.panel {
+        self?.dismiss()
+      }
+      return event
+    }
+    globalMonitor = NSEvent.addGlobalMonitorForEvents(
+      matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+    ) { [weak self] _ in
+      self?.dismiss()
+    }
+  }
+
+  func dismiss() {
+    if let lm = localMonitor {
+      NSEvent.removeMonitor(lm)
+      localMonitor = nil
+    }
+    if let gm = globalMonitor {
+      NSEvent.removeMonitor(gm)
+      globalMonitor = nil
+    }
+    panel?.orderOut(nil)
+    panel = nil
+  }
+}
+
+/// Entry point used by the project header ⋯ button. Hands off to the
+/// shared controller so the panel and its event monitors have a single
+/// owner across re-opens.
 @MainActor
 private func presentProjectOptionsMenu(
   anchor: NSView,
@@ -1198,37 +1288,20 @@ private func presentProjectOptionsMenu(
   store: StoreOf<HierarchySidebarFeature>,
   hierarchyManager: HierarchyManager
 ) {
-  let menu = NSMenu()
-  menu.autoenablesItems = false
-
-  let item = NSMenuItem()
-  item.isEnabled = true
-
-  // NSHostingView built outside SwiftUI's body doesn't inherit the
-  // surrounding `@Environment`, so pass `HierarchyManager` in
-  // explicitly. `dismiss` calls `NSMenu.cancelTracking()` which is the
-  // documented way to close a custom-view menu from inside its own view.
-  let content = ProjectOptionsMenuContent(
+  ProjectOptionsMenuController.shared.present(
+    anchor: anchor,
     project: project,
     store: store,
-    hierarchyManager: hierarchyManager,
-    dismiss: { [weak menu] in menu?.cancelTracking() }
+    hierarchyManager: hierarchyManager
   )
-  let host = ProjectOptionsMenuHostingView(rootView: content)
-  host.frame.size = host.fittingSize
-  item.view = host
-  menu.addItem(item)
-
-  let location = NSPoint(x: 0, y: anchor.bounds.height + 4)
-  menu.popUp(positioning: nil, at: location, in: anchor)
 }
 
-/// SwiftUI body of the project ⋯ menu. Lives inside an `NSHostingView`
-/// installed as the sole `NSMenuItem.view`, so the surrounding `NSMenu`
-/// supplies chrome while we own layout + interaction. The trailing
-/// `dismiss` closure is wired through to `NSMenu.cancelTracking` so each
-/// row can close the menu after dispatching its action; the tag swatches
-/// don't dismiss, allowing multi-select without re-opening.
+/// SwiftUI body of the project ⋯ menu. Hosted inside the borderless
+/// `ProjectOptionsMenuPanel`, which renders transparent so this view's
+/// `Material.menu` background + 6 pt rounded corners produce the
+/// NSMenu-look. Each row's `dismiss` closure tears the panel down via
+/// `ProjectOptionsMenuController`; the tag swatches deliberately don't
+/// dismiss, so toggling tags stays inline.
 private struct ProjectOptionsMenuContent: View {
   let project: Project
   @Bindable var store: StoreOf<HierarchySidebarFeature>
@@ -1277,6 +1350,20 @@ private struct ProjectOptionsMenuContent: View {
     }
     .padding(.vertical, 5)
     .frame(width: 240)
+    .background(
+      // Mimic NSMenu chrome: vibrant menu material with a 6 pt corner
+      // radius. The panel itself is transparent and shadowed by AppKit,
+      // so this background draws everything visible. `.menu` material
+      // would be more accurate but is iOS-17-only; `.regularMaterial`
+      // is the macOS-14-compatible substitute.
+      RoundedRectangle(cornerRadius: 6)
+        .fill(.regularMaterial)
+    )
+    .overlay(
+      // Hairline border tightens the edge against light walls.
+      RoundedRectangle(cornerRadius: 6)
+        .stroke(Color.primary.opacity(0.06), lineWidth: 0.5)
+    )
   }
 
   private var archivedTitle: String {
