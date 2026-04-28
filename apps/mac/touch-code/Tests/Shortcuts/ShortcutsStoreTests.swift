@@ -35,7 +35,8 @@ struct ShortcutsStoreTests {
     let url = Self.temporaryURL()
     defer { try? FileManager.default.removeItem(at: url) }
 
-    let custom = ShortcutBinding(keyCode: 5, modifiers: [.command, .shift])
+    // Distinct from the schema default `⌘⇧G` so the coalescing path doesn't drop it.
+    let custom = ShortcutBinding(keyCode: 5, modifiers: [.command, .control])
     let writer = ShortcutsStore(fileURL: url, debounceWindow: .milliseconds(10))
     writer.update(.toggleGitViewer, to: custom)
     writer.flush()
@@ -44,6 +45,39 @@ struct ShortcutsStoreTests {
     #expect(reader.overrides.overrides[.toggleGitViewer] == custom)
     #expect(reader.resolved[.toggleGitViewer]?.binding == custom)
     #expect(reader.resolved[.toggleGitViewer]?.source == .userOverride)
+  }
+
+  @Test
+  func updateWithSchemaDefaultBindingDropsOverride() {
+    let url = Self.temporaryURL()
+    defer { try? FileManager.default.removeItem(at: url) }
+
+    let store = ShortcutsStore(fileURL: url, debounceWindow: .milliseconds(10))
+    let custom = ShortcutBinding(keyCode: 99, modifiers: [.command, .control])
+    store.update(.toggleGitViewer, to: custom)
+    #expect(store.overrides.overrides[.toggleGitViewer] == custom)
+
+    let schemaDefault = ShortcutSchema.app.entry(for: .toggleGitViewer)!.defaultBinding!
+    store.update(.toggleGitViewer, to: schemaDefault)
+
+    #expect(store.overrides.overrides[.toggleGitViewer] == nil)
+    #expect(store.resolved[.toggleGitViewer]?.source == .schemaDefault)
+  }
+
+  @Test
+  func resolveConflictDisablesOldRowAndAssignsTarget() {
+    let url = Self.temporaryURL()
+    defer { try? FileManager.default.removeItem(at: url) }
+
+    let store = ShortcutsStore(fileURL: url, debounceWindow: .milliseconds(10))
+    let conflicting = ShortcutBinding(keyCode: 17, modifiers: [.command]) // ⌘T equivalent
+    store.resolveConflict(disabling: .newTab, assigning: .toggleGitViewer, to: conflicting)
+
+    #expect(store.resolved[.newTab]?.isEnabled == false)
+    #expect(store.resolved[.newTab]?.source == .userOverride)
+    #expect(store.resolved[.toggleGitViewer]?.binding == conflicting)
+    #expect(store.resolved[.toggleGitViewer]?.isEnabled == true)
+    #expect(store.resolved[.toggleGitViewer]?.source == .userOverride)
   }
 
   @Test

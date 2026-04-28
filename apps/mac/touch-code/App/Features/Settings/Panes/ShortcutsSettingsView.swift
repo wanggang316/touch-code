@@ -73,8 +73,11 @@ struct ShortcutsSettingsView: View {
     ) {
       Button("Replace", role: .destructive) {
         if let pending = pendingConflict {
-          store.disable(pending.conflictingID)
-          store.update(pending.target, to: pending.binding)
+          store.resolveConflict(
+            disabling: pending.conflictingID,
+            assigning: pending.target,
+            to: pending.binding
+          )
         }
         pendingConflict = nil
       }
@@ -170,6 +173,9 @@ struct ShortcutsSettingsView: View {
     }
   }
 
+  /// The recorder NSView captures `keyDown` only; the SwiftUI button overlaid on top is
+  /// what receives mouse clicks and drives `recordingID`. The recorder's mouse-handling
+  /// paths are therefore intentionally unused.
   @ViewBuilder
   private func chordCell(entry: ShortcutSchema.Entry, resolved: ResolvedShortcut?) -> some View {
     if entry.scope == .configurable {
@@ -261,6 +267,15 @@ struct ShortcutsSettingsView: View {
   // MARK: - Mutations
 
   private func handleCapture(_ binding: ShortcutBinding, for id: CommandID) {
+    let symbolicHotkeyDefaults = UserDefaults(suiteName: "com.apple.symbolichotkeys") ?? .standard
+    if SystemReservedDetector.isReserved(
+      keyCode: binding.keyCode,
+      modifiers: binding.modifiers,
+      in: symbolicHotkeyDefaults
+    ) {
+      rejectionMessage = "That chord is claimed by a macOS system shortcut."
+      return
+    }
     if AppKitReservedDetector.isReserved(keyCode: binding.keyCode, modifiers: binding.modifiers) {
       rejectionMessage = "That chord is reserved by macOS standard menus."
       return

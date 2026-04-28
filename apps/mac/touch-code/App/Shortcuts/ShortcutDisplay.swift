@@ -12,9 +12,13 @@ import TouchCodeCore
 ///   strings on next render and the menu items pick up the new glyphs without explicit
 ///   invalidation.
 /// - **Binding** (`keyEquivalent(for:)`) translates against the *ASCII-capable* keyboard
-///   layout (typically `com.apple.keylayout.US`). SwiftUI's `.keyboardShortcut` matches
-///   against the *typed character* the user produces, so binding to the US-mapped character
-///   keeps the chord stable when the user trains muscle memory on a physical key.
+///   layout that macOS pairs with the active input source (typically
+///   `com.apple.keylayout.US` for English / Pinyin / Hangul; the user's chosen ASCII layout
+///   for Dvorak / UK English). SwiftUI's `.keyboardShortcut` matches against the *typed
+///   character* the user produces, so binding to this layout keeps the chord stable when
+///   the user is in a non-ASCII input source. Note: a Dvorak user binding `⌘P` will fire on
+///   the Dvorak `P` position, not the QWERTY `P` position — accepting the user's chosen
+///   ASCII layout as the canonical mapping.
 public enum ShortcutDisplay {
   // MARK: - Display
 

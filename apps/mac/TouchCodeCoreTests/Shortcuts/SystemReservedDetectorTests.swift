@@ -129,6 +129,22 @@ struct SystemReservedDetectorTests {
   }
 
   @Test
+  func negativeFlagsSentinelIsSkipped() {
+    // `parameters[2] == -1` is a "no chord" marker the OS occasionally writes alongside
+    // `enabled == false`. Defense-in-depth: even when paired with `enabled == true` the
+    // detector must skip the entry rather than decoding the bit-pattern as
+    // 0xFFFF…FFFF and reporting every modifier as set.
+    let suite = DefaultsSuite()
+    suite.install([
+      "AppleSymbolicHotKeys": [
+        "99": entry(enabled: true, character: 0, keyCode: Int(kVKSpace), flags: -1),
+      ] as [String: Any],
+    ])
+
+    #expect(SystemReservedDetector.reservedChords(in: suite.defaults).isEmpty)
+  }
+
+  @Test
   func multipleModifierBitsDecodeIntoUnion() {
     let suite = DefaultsSuite()
     let optCmd = optBit | cmdBit

@@ -74,9 +74,13 @@ public enum SystemReservedDetector {
     guard let keyCodeInt = intValue(parameters[1]) else { return nil }
     guard keyCodeInt >= 0, keyCodeInt < 0xFFFF else { return nil }
     guard let flagsInt = intValue(parameters[2]) else { return nil }
+    // Negative flag values surface in the plist as "no chord" markers (paired with
+    // `enabled == false` in practice). Reject them defensively so the bit-reinterpret
+    // below doesn't light up every modifier on a sentinel.
+    guard flagsInt >= 0 else { return nil }
 
     let keyCode = UInt16(keyCodeInt)
-    let modifiers = decodeModifiers(rawFlags: UInt(bitPattern: Int(flagsInt)))
+    let modifiers = decodeModifiers(rawFlags: UInt(flagsInt))
     return ReservedChord(keyCode: keyCode, modifiers: modifiers)
   }
 

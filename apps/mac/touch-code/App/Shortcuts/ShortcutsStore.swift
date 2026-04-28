@@ -44,6 +44,10 @@ final class ShortcutsStore {
     self.resolved = ShortcutResolver.resolve(overrides: loaded)
   }
 
+  deinit {
+    pendingSaveTask?.cancel()
+  }
+
   /// Canonical on-disk location: `~/.config/touch-code/shortcuts.json`.
   static func defaultURL(
     home: URL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
@@ -58,8 +62,40 @@ final class ShortcutsStore {
 
   /// Replace the override for `id`. Caller is responsible for conflict resolution; the store
   /// does not run conflict detection on its own.
+  ///
+  /// When the supplied binding is byte-equal to the schema default, the override is dropped
+  /// instead of stored — the persisted file stays slim and the Settings pane's "Custom"
+  /// pill / reset glyph stay consistent with the user's intent (a deliberate revert to
+  /// default lands on `.schemaDefault` source rather than a no-op `.userOverride`).
   func update(_ id: CommandID, to binding: ShortcutBinding) {
+    let schemaDefault = ShortcutSchema.app.entry(for: id)?.defaultBinding
+    if let schemaDefault, binding == schemaDefault {
+      clear(id)
+      return
+    }
     overrides.overrides[id] = binding
+    rebuildResolved()
+    scheduleSave()
+  }
+
+  /// Atomically disable one shortcut and assign a new binding to another. Used by the
+  /// settings pane when the user opts to replace a conflicting binding. Coalesces both
+  /// mutations into a single resolved-map rebuild and a single debounced save so observers
+  /// never see the intermediate "both disabled / both unbound" state.
+  func resolveConflict(disabling conflicting: CommandID, assigning target: CommandID, to binding: ShortcutBinding) {
+    if let existing = overrides.overrides[conflicting] ?? ShortcutSchema.app.entry(for: conflicting)?.defaultBinding {
+      overrides.overrides[conflicting] = ShortcutBinding(
+        keyCode: existing.keyCode,
+        modifiers: existing.modifiers,
+        isEnabled: false
+      )
+    }
+    let schemaDefault = ShortcutSchema.app.entry(for: target)?.defaultBinding
+    if let schemaDefault, binding == schemaDefault {
+      overrides.overrides.removeValue(forKey: target)
+    } else {
+      overrides.overrides[target] = binding
+    }
     rebuildResolved()
     scheduleSave()
   }
@@ -134,6 +170,8 @@ final class ShortcutsStore {
     pendingSaveTask = Task { [weak self] in
       let window = self?.debounceWindow ?? Self.debounceWindow
       try? await Task.sleep(for: window)
+      // Re-check cancellation after the sleep so a `flush()` / `saveNow()` that fired
+      // during the debounce window cannot be raced by this task's stale snapshot.
       guard !Task.isCancelled else { return }
       guard let self else { return }
       do {
