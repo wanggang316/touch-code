@@ -92,11 +92,15 @@ struct TouchCodeApp: App {
     Window("Settings", id: TouchCodeApp.settingsWindowID) {
       AppAppearanceView(settingsStore: appState.settingsStore) {
         if let store = appState.settingsWindowStore {
-          SettingsWindowView(store: store, settingsStore: appState.settingsStore)
-            .environment(appState.hierarchyManager)
-            .environment(appState.settingsStore)
-            .environment(appState.developerPaneDependencies)
-            .environment(\.resolvedShortcuts, appState.shortcutsStore.resolved)
+          SettingsWindowView(
+            store: store,
+            settingsStore: appState.settingsStore,
+            shortcutsStore: appState.shortcutsStore
+          )
+          .environment(appState.hierarchyManager)
+          .environment(appState.settingsStore)
+          .environment(appState.developerPaneDependencies)
+          .environment(\.resolvedShortcuts, appState.shortcutsStore.resolved)
         } else {
           // Settings window can be opened before AppState.bringUp completes (rare but
           // possible during launch). Render a transient placeholder; SwiftUI will
