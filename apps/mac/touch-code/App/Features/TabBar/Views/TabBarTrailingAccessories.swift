@@ -23,6 +23,7 @@ struct TabBarTrailingAccessories: View {
           .accessibilityLabel("New Tab")
       }
       .buttonStyle(.borderless)
+      .commandKeyHint(.newTab)
 
       SplitAccessoryButton(
         systemImage: "rectangle.split.2x1",

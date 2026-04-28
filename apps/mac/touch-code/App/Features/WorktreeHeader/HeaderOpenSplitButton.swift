@@ -35,6 +35,7 @@ struct HeaderOpenSplitButton: View {
     }
     .accessibilityLabel(primaryDescription)
     .help(primaryDescription)
+    .commandKeyHint(.openInDefaultEditor)
     .task { editorStore.send(.onAppear) }
   }
 

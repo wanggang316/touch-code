@@ -22,5 +22,6 @@ struct HeaderGitViewerToggle: View {
     }
     .accessibilityLabel(visible ? "Hide Git Viewer" : "Show Git Viewer")
     .help(visible ? "Hide Git Viewer" : "Show Git Viewer")
+    .commandKeyHint(.toggleGitViewer)
   }
 }
