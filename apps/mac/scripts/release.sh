@@ -143,6 +143,12 @@ cmd_archive() {
   log "archive ready at ${app_path}"
 }
 
+cmd_notarize() {
+  local target="${1:-${app_path}}"
+  [ -e "${target}" ] || die "missing ${target}. Run release.sh archive first."
+  "${script_dir}/notarize.sh" "${target}"
+}
+
 mise_xcbeautify_cmd() {
   # Best effort — falls back to cat when xcbeautify is missing so the
   # script still works on a runner that has not run mise install.
@@ -158,7 +164,7 @@ mise_xcbeautify_cmd() {
 main() {
   case "${1:-}" in
     archive)   shift; cmd_archive "$@" ;;
-    notarize)  die "notarize: not yet wired (M3)." ;;
+    notarize)  shift; cmd_notarize "$@" ;;
     dmg)       die "dmg: not yet wired (M4)." ;;
     release)   die "release: not yet wired (M4)." ;;
     -h|--help|help|"") print_usage ;;
