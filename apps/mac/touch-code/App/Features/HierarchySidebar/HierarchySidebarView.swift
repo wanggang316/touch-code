@@ -1213,22 +1213,18 @@ private final class ProjectOptionsMenuPanel: NSPanel {
   }
 
   /// Builds the OS-appropriate glass / vibrancy backdrop and embeds the
-  /// SwiftUI hosting view inside it.
-  ///
-  /// On macOS 26 we hand `NSGlassEffectView` direct ownership of the
-  /// hosting view through its `contentView` property. The view's
-  /// `cornerRadius` already clips the live-blur material to a rounded
-  /// shape; wrapping it in an `NSView` with `masksToBounds = true`
-  /// flattens the layer tree and silently kills the live blur (the
-  /// glass turned into a flat translucent rectangle in earlier tries).
-  /// `panel.invalidateShadow()` after `orderFront` is what makes the
-  /// window shadow follow the rounded mask.
-  ///
-  /// On older macOS, `NSVisualEffectView`'s cornerRadius only clips the
-  /// material, so we still wrap it in a `masksToBounds` container —
-  /// vibrancy isn't a live blur the way Liquid Glass is, so the
-  /// flattening cost doesn't apply.
+  /// SwiftUI hosting view inside it. Wraps in a `masksToBounds`
+  /// container in both branches: NSGlassEffectView's `cornerRadius`
+  /// clips the visible *material* but the view's alpha mask stays
+  /// rectangular, so AppKit's window shadow draws a faint rectangle
+  /// past each rounded corner. The container forces the alpha mask to
+  /// match the rounded silhouette. Tahoe's Liquid Glass loses some live
+  /// blur quality through the extra compositing pass; that's the cost
+  /// of getting a system-correct rounded silhouette without a private
+  /// API.
   private static func makeMenuBackdrop(host: NSHostingView<AnyView>) -> NSView {
+    let cornerRadius: CGFloat
+    let backdrop: NSView
     if #available(macOS 26, *) {
       let glass = NSGlassEffectView(
         frame: NSRect(origin: .zero, size: host.frame.size)
@@ -1236,30 +1232,33 @@ private final class ProjectOptionsMenuPanel: NSPanel {
       glass.cornerRadius = liquidGlassCornerRadius
       glass.contentView = host
       glass.autoresizingMask = [.width, .height]
-      return glass
+      cornerRadius = liquidGlassCornerRadius
+      backdrop = glass
+    } else {
+      let effect = NSVisualEffectView(
+        frame: NSRect(origin: .zero, size: host.frame.size)
+      )
+      effect.material = .menu
+      effect.blendingMode = .behindWindow
+      effect.state = .active
+      effect.autoresizingMask = [.width, .height]
+
+      host.frame = effect.bounds
+      host.autoresizingMask = [.width, .height]
+      effect.addSubview(host)
+      cornerRadius = legacyCornerRadius
+      backdrop = effect
     }
 
-    let effect = NSVisualEffectView(
-      frame: NSRect(origin: .zero, size: host.frame.size)
-    )
-    effect.material = .menu
-    effect.blendingMode = .behindWindow
-    effect.state = .active
-    effect.autoresizingMask = [.width, .height]
-
-    host.frame = effect.bounds
-    host.autoresizingMask = [.width, .height]
-    effect.addSubview(host)
-
-    let clip = NSView(frame: effect.frame)
+    let clip = NSView(frame: backdrop.frame)
     clip.wantsLayer = true
-    clip.layer?.cornerRadius = legacyCornerRadius
+    clip.layer?.cornerRadius = cornerRadius
     clip.layer?.cornerCurve = .continuous
     clip.layer?.masksToBounds = true
     clip.autoresizingMask = [.width, .height]
-    effect.frame = clip.bounds
-    effect.autoresizingMask = [.width, .height]
-    clip.addSubview(effect)
+    backdrop.frame = clip.bounds
+    backdrop.autoresizingMask = [.width, .height]
+    clip.addSubview(backdrop)
     return clip
   }
 }
@@ -1428,22 +1427,10 @@ private struct ProjectOptionsMenuContent: View {
   /// Cleared whenever the cursor leaves the palette.
   @State private var hoveredTagID: TagID?
 
-  /// Outer corner radius — used to round the hover highlight to half of
-  /// the menu's own radius, which mirrors what NSMenu does on each
-  /// release. Liquid Glass menus have larger highlights than the
-  /// pre-Tahoe 4 pt look.
-  private var outerCornerRadius: CGFloat {
-    if #available(macOS 26, *) {
-      return ProjectOptionsMenuPanel.liquidGlassCornerRadius
-    }
-    return ProjectOptionsMenuPanel.legacyCornerRadius
-  }
-
-  /// Hover corner radius for an interior row. Half the outer radius +
-  /// inset matches the system menu visual on both Tahoe and pre-Tahoe.
-  private var rowHoverCornerRadius: CGFloat {
-    max(outerCornerRadius - 4, 4)
-  }
+  /// Hover corner radius for an interior row. System NSMenu rows on
+  /// both Sonoma/Sequoia and Tahoe land near 6 pt — measured against
+  /// the screenshot the user supplied of the Finder right-click menu.
+  private static let rowHoverCornerRadius: CGFloat = 6
 
   /// Live `tagIDs` snapshot for the current project, read off the
   /// observed catalog so the swatches reflect toggles in real time.
@@ -1488,8 +1475,8 @@ private struct ProjectOptionsMenuContent: View {
         dismiss()
       }
     }
-    .padding(.vertical, 6)
-    .frame(width: 240)
+    .padding(.vertical, 8)
+    .frame(width: 260)
     // No background here — `ProjectOptionsMenuPanel.contentView` is the
     // OS-appropriate menu material (NSGlassEffectView on Tahoe,
     // NSVisualEffectView .menu earlier). Drawing a SwiftUI material on
@@ -1531,9 +1518,9 @@ private struct ProjectOptionsMenuContent: View {
           .opacity(0)
           .accessibilityHidden(true)
       }
-      .labelStyle(.titleAndIcon)
+      .labelStyle(MenuRowLabelStyle())
       .font(.system(size: 13))
-      .padding(.horizontal, 12)
+      .padding(.horizontal, 14)
       .padding(.vertical, 5)
     }
   }
@@ -1578,8 +1565,8 @@ private struct ProjectOptionsMenuContent: View {
   @ViewBuilder
   private var menuDivider: some View {
     Divider()
-      .padding(.horizontal, 8)
-      .padding(.vertical, 5)
+      .padding(.horizontal, 14)
+      .padding(.vertical, 6)
   }
 
   @ViewBuilder
@@ -1593,9 +1580,25 @@ private struct ProjectOptionsMenuContent: View {
       title: title,
       systemImage: systemImage,
       role: role,
-      cornerRadius: rowHoverCornerRadius,
+      cornerRadius: Self.rowHoverCornerRadius,
       action: action
     )
+  }
+}
+
+/// Custom `LabelStyle` that lays out the icon in a fixed-width slot
+/// followed by the title with an explicit gap. SwiftUI's default
+/// `.titleAndIcon` style packs the two too tightly for a menu row, and
+/// the icon column doesn't align across rows when symbol widths vary
+/// (e.g. `archivebox` vs `tag`). A fixed 16 pt slot + 12 pt gap gives
+/// the same column rhythm as the system NSMenu.
+private struct MenuRowLabelStyle: LabelStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    HStack(spacing: 12) {
+      configuration.icon
+        .frame(width: 16, alignment: .center)
+      configuration.title
+    }
   }
 }
 
@@ -1616,11 +1619,11 @@ private struct ProjectOptionsMenuRow: View {
   var body: some View {
     Button(action: action) {
       Label(title, systemImage: systemImage)
-        .labelStyle(.titleAndIcon)
+        .labelStyle(MenuRowLabelStyle())
         .font(.system(size: 13))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 5)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
         .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
