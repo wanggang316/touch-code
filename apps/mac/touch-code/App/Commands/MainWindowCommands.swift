@@ -1,3 +1,4 @@
+import AppKit
 import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
@@ -81,10 +82,20 @@ struct MainWindowCommands: Commands {
       .disabled(!hasActiveWorktree)
 
       Button("Close Tab") {
-        store()?.send(.closeActiveTabForCurrentWorktree)
+        // ⌘W is global menu chord; SwiftUI Commands aren't scene-scoped, so the
+        // same accelerator fires regardless of which window is key. Route on the
+        // current key window: Settings (or any future SwiftUI utility window
+        // tagged via `SettingsWindowTagger`) closes itself; the main `touch-code`
+        // window forwards to TabFeature. Without this dispatch the chord pressed
+        // inside Settings would close the foreground worktree's tab.
+        if let key = NSApp.keyWindow, SettingsWindowTagger.matches(key) {
+          key.performClose(nil)
+        } else {
+          store()?.send(.closeActiveTabForCurrentWorktree)
+        }
       }
       .appKeyboardShortcut(.closeTab, in: shortcuts)
-      .disabled(!hasActiveWorktree)
+      .disabled(store() == nil)
 
       Divider()
 
