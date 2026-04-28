@@ -30,6 +30,16 @@ struct TagManagerSheet: View {
   /// the swatches inside the list rows.
   private static let edgeX: CGFloat = 18
 
+  /// HoverableTagRow's inner horizontal padding. Used in the inset math
+  /// below — keep in sync with the value in `HoverableTagRow.body`.
+  private static let rowInnerPad: CGFloat = 6
+
+  /// Visual offset of a 14pt disc inside its 22pt swatch cell —
+  /// `(22 - 14) / 2`. Subtracted from the list's leading inset so the
+  /// disc's *visible* left edge lines up with the header glyph instead
+  /// of the cell's invisible bounding box.
+  private static let swatchCellOffset: CGFloat = 4
+
   var body: some View {
     VStack(spacing: 0) {
       header
@@ -91,10 +101,18 @@ struct TagManagerSheet: View {
           ForEach(tags) { tag in
             tagRow(tag)
               .listRowSeparator(.hidden)
-              .listRowInsets(EdgeInsets(top: 3, leading: 10, bottom: 3, trailing: 10))
+              .listRowBackground(Color.clear)
+              .listRowInsets(
+                EdgeInsets(
+                  top: 2,
+                  leading: Self.edgeX - Self.rowInnerPad - Self.swatchCellOffset,
+                  bottom: 2,
+                  trailing: Self.edgeX - Self.rowInnerPad
+                )
+              )
           }
         }
-        .listStyle(.inset)
+        .listStyle(.plain)
         .scrollContentBackground(.hidden)
       }
     }
@@ -204,7 +222,9 @@ struct TagManagerSheet: View {
   /// Expanded create-form. The seven palette colors are shown inline
   /// as a horizontal strip — no popover hop while creating; you can see
   /// every option at once and pick directly. The text field auto-focuses
-  /// on entry.
+  /// on entry. Horizontal padding compensates for the swatch cell's
+  /// internal offset so the first disc's visible left edge aligns with
+  /// the header glyph above and the list-row swatches.
   private var addingForm: some View {
     VStack(alignment: .leading, spacing: 8) {
       ColorRowPicker(
@@ -225,7 +245,8 @@ struct TagManagerSheet: View {
           .disabled(newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
       }
     }
-    .padding(.horizontal, Self.edgeX)
+    .padding(.leading, Self.edgeX - Self.swatchCellOffset)
+    .padding(.trailing, Self.edgeX)
     .padding(.vertical, 10)
   }
 
@@ -409,13 +430,20 @@ private struct HoverableTagRow<Leading: View, Trailing: View>: View {
       trailing()
         .opacity(isHovering ? 1 : 0)
     }
-    .padding(.horizontal, 8)
-    .padding(.vertical, 4)
+    .padding(.horizontal, 6)
+    .padding(.vertical, 6)
     .background(
-      RoundedRectangle(cornerRadius: 6)
-        .fill(isHovering ? Color.primary.opacity(0.05) : Color.clear)
+      RoundedRectangle(cornerRadius: 7, style: .continuous)
+        .fill(rowFill)
     )
     .contentShape(Rectangle())
     .onHover { isHovering = $0 }
+  }
+
+  /// Subtle always-on tint per row gives the list visible "card"
+  /// rhythm so the eye can scan rows without relying on separators;
+  /// hover state deepens it slightly to confirm interactivity.
+  private var rowFill: Color {
+    isHovering ? Color.primary.opacity(0.08) : Color.primary.opacity(0.04)
   }
 }
