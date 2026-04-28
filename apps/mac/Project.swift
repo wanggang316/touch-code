@@ -59,6 +59,7 @@ let project = Project(
         "TouchCodeCoreTests/Hooks",
         "TouchCodeCoreTests/IPC",
         "TouchCodeCoreTests/GitHubTests",
+        "TouchCodeCoreTests/Shortcuts",
       ],
       dependencies: [
         .target(name: "TouchCodeCore"),
