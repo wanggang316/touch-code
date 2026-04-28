@@ -122,12 +122,12 @@ struct HierarchySidebarView: View {
     let visibleProjects = filteredProjects(catalog: catalog)
     let untaggedExists = catalog.projects.contains { $0.tagIDs.isEmpty }
 
-    // Sidebar body is the List, with a Tag chip footer mounted at the
-    // bottom `.safeAreaInset` (replaces the prior Space footer slot — see
-    // docs/design-docs/project-tags.md §3.4 for the layout rationale).
+    // Sidebar body is the List, with a compact filter footer mounted at
+    // the bottom `.safeAreaInset` — a single trailing glyph that opens an
+    // upward popover listing the available tag filters.
     treeBody(projects: visibleProjects, paneIndex: paneIndex, inbox: inbox)
       .safeAreaInset(edge: .bottom, spacing: 0) {
-        TagChipFooter(
+        TagFilterPopoverFooter(
           tags: catalog.tags,
           activeFilter: catalog.activeTagFilter,
           showUntaggedChip: untaggedExists,

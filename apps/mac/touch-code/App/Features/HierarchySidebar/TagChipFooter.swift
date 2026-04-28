@@ -1,80 +1,179 @@
 import SwiftUI
 import TouchCodeCore
 
-/// Footer view mounted at the sidebar's `.safeAreaInset(edge: .bottom)`
-/// (formerly the Space footer slot — see docs/design-docs/project-tags.md
-/// §3.4). One pill per Tag plus implicit `[All]` and conditional
-/// `[Untagged]` chips. Multi-select on `[Tag]` chips is OR-semantics.
-/// `[All]` clears the filter; `[Untagged]` is mutually exclusive with
-/// `[Tag]` selection.
-struct TagChipFooter: View {
+/// Compact footer mounted at the sidebar's `.safeAreaInset(edge: .bottom)`.
+/// Shows a single trailing filter glyph; tapping the glyph opens a popover
+/// (anchored above the button via `arrowEdge: .bottom`) that lists the
+/// available tag filters: implicit `[All]`, one row per Tag, optional
+/// `[Untagged]` when any project carries no tag, and an `Edit Tags…`
+/// shortcut to the catalog manager.
+///
+/// The icon flips to its `.fill` variant tinted with `Color.accentColor`
+/// whenever the active filter is anything other than `.all`, so the user
+/// can tell at a glance that the project list is being filtered without
+/// opening the popover.
+struct TagFilterPopoverFooter: View {
   let tags: [Tag]
   let activeFilter: TagFilter
   let showUntaggedChip: Bool
   let onAllTapped: () -> Void
   let onTagTapped: (TagID) -> Void
   let onUntaggedTapped: () -> Void
-  /// M5 (project-tags): trailing "+" chip opens the TagManager sheet.
-  /// Optional so callers that have no manager wiring (tests, previews)
-  /// can omit it without forcing a placeholder closure.
+  /// Trailing "Edit Tags…" entry — opens the TagManager sheet.
+  /// Optional so previews / tests without manager wiring can omit it.
   var onEditTagsTapped: (() -> Void)?
-  /// Bound to ⌘F via the parent's `tagFilterFocusRequested` action — the
-  /// chip footer takes keyboard focus when the user invokes the binding.
-  @FocusState private var focused: Bool
+
+  @State private var isPopoverPresented = false
 
   var body: some View {
-    ScrollView(.horizontal, showsIndicators: false) {
-      HStack(spacing: 6) {
-        chip(
-          label: "All",
-          color: nil,
-          isSelected: isAllSelected,
-          action: onAllTapped
+    HStack(spacing: 0) {
+      Spacer()
+      Button {
+        isPopoverPresented.toggle()
+      } label: {
+        Image(systemName: hasActiveFilter
+          ? "line.3.horizontal.decrease.circle.fill"
+          : "line.3.horizontal.decrease.circle")
+          .font(.system(size: 15, weight: .regular))
+          .foregroundStyle(hasActiveFilter ? Color.accentColor : .secondary)
+          .frame(width: 22, height: 22)
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .help(hasActiveFilter ? "Filtered by tag — click to change" : "Filter by tag")
+      .accessibilityLabel("Filter by tag")
+      .popover(isPresented: $isPopoverPresented, arrowEdge: .bottom) {
+        TagFilterList(
+          tags: tags,
+          activeFilter: activeFilter,
+          showUntaggedChip: showUntaggedChip,
+          onAllTapped: { onAllTapped() },
+          onTagTapped: { onTagTapped($0) },
+          onUntaggedTapped: { onUntaggedTapped() },
+          onEditTagsTapped: onEditTagsTapped.map { handler in
+            { handler() }
+          }
         )
+      }
+    }
+    .padding(.horizontal, 8)
+    .padding(.vertical, 4)
+    .background(.bar)
+  }
+
+  private var hasActiveFilter: Bool {
+    switch activeFilter {
+    case .all: return false
+    case .tags(let set): return !set.isEmpty
+    case .untagged: return true
+    }
+  }
+}
+
+/// Vertical list of filter rows shown inside the footer's popover. Each
+/// row is a tappable `Button` styled with a leading colored dot (when the
+/// row corresponds to a Tag), the row label, and a trailing checkmark when
+/// the row is part of the active filter. `[All]` and `[Untagged]` rows
+/// have no dot. The popover does NOT auto-dismiss on tap so the user can
+/// toggle multiple tags in one pass; `[All]` still clears the filter
+/// because the reducer treats it as a hard reset.
+private struct TagFilterList: View {
+  let tags: [Tag]
+  let activeFilter: TagFilter
+  let showUntaggedChip: Bool
+  let onAllTapped: () -> Void
+  let onTagTapped: (TagID) -> Void
+  let onUntaggedTapped: () -> Void
+  var onEditTagsTapped: (() -> Void)?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      filterRow(
+        label: "All",
+        color: nil,
+        isSelected: isAllSelected,
+        action: onAllTapped
+      )
+      if !tags.isEmpty {
+        Divider().padding(.vertical, 2)
         ForEach(tags) { tag in
-          chip(
+          filterRow(
             label: tag.name,
             color: tag.color,
             isSelected: isTagSelected(tag.id),
             action: { onTagTapped(tag.id) }
           )
         }
-        if showUntaggedChip {
-          chip(
-            label: "Untagged",
-            color: nil,
-            isSelected: isUntaggedSelected,
-            action: onUntaggedTapped
-          )
-        }
-        if let onEditTagsTapped {
-          editChip(action: onEditTagsTapped)
-        }
       }
-      .padding(.horizontal, 10)
-      .padding(.vertical, 6)
+      if showUntaggedChip {
+        Divider().padding(.vertical, 2)
+        filterRow(
+          label: "Untagged",
+          color: nil,
+          isSelected: isUntaggedSelected,
+          action: onUntaggedTapped
+        )
+      }
+      if let onEditTagsTapped {
+        Divider().padding(.vertical, 2)
+        Button(action: onEditTagsTapped) {
+          HStack(spacing: 8) {
+            Image(systemName: "pencil")
+              .font(.system(size: 11))
+              .frame(width: 12)
+              .foregroundStyle(.secondary)
+            Text("Edit Tags…")
+              .font(.callout)
+              .foregroundStyle(.primary)
+            Spacer(minLength: 0)
+          }
+          .padding(.horizontal, 8)
+          .padding(.vertical, 5)
+          .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+      }
     }
-    .background(.bar)
-    .focusable()
-    .focused($focused)
+    .padding(6)
+    .frame(minWidth: 200)
   }
 
-  /// Trailing "+" chip — opens the TagManager sheet. Styled like the
-  /// other chips for visual rhythm but never shows a selected state and
-  /// uses a glyph instead of a label.
   @ViewBuilder
-  private func editChip(action: @escaping () -> Void) -> some View {
+  private func filterRow(
+    label: String,
+    color: TagColor?,
+    isSelected: Bool,
+    action: @escaping () -> Void
+  ) -> some View {
     Button(action: action) {
-      Image(systemName: "plus")
-        .font(.caption.weight(.medium))
-        .frame(minWidth: 16, minHeight: 14)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
-        .background(Capsule().fill(Color.secondary.opacity(0.10)))
-        .contentShape(Capsule())
+      HStack(spacing: 8) {
+        if let color {
+          Circle()
+            .fill(swiftUIColor(for: color))
+            .frame(width: 10, height: 10)
+        } else {
+          Color.clear.frame(width: 10, height: 10)
+        }
+        Text(label)
+          .font(.callout)
+          .foregroundStyle(.primary)
+          .lineLimit(1)
+        Spacer(minLength: 8)
+        if isSelected {
+          Image(systemName: "checkmark")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(Color.accentColor)
+        }
+      }
+      .padding(.horizontal, 8)
+      .padding(.vertical, 5)
+      .background(
+        RoundedRectangle(cornerRadius: 5)
+          .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
+      )
+      .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
-    .help("Edit Tags…")
   }
 
   private var isAllSelected: Bool {
@@ -91,39 +190,6 @@ struct TagChipFooter: View {
   private func isTagSelected(_ id: TagID) -> Bool {
     if case .tags(let set) = activeFilter { return set.contains(id) }
     return false
-  }
-
-  @ViewBuilder
-  private func chip(
-    label: String,
-    color: TagColor?,
-    isSelected: Bool,
-    action: @escaping () -> Void
-  ) -> some View {
-    Button(action: action) {
-      HStack(spacing: 5) {
-        if let color {
-          Circle()
-            .fill(swiftUIColor(for: color))
-            .frame(width: 8, height: 8)
-        }
-        Text(label)
-          .font(.caption)
-          .lineLimit(1)
-      }
-      .padding(.horizontal, 9)
-      .padding(.vertical, 4)
-      .background(
-        Capsule()
-          .fill(isSelected ? Color.accentColor.opacity(0.20) : Color.secondary.opacity(0.10))
-      )
-      .overlay(
-        Capsule()
-          .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 1)
-      )
-      .contentShape(Capsule())
-    }
-    .buttonStyle(.plain)
   }
 }
 
