@@ -38,10 +38,29 @@ struct WorktreeDetailView: View {
   /// to fire `toolbarAddProjectTapped` — same pattern as the editor toast
   /// that surfaces sidebar outcomes without a back-channel store.
   let onAddProject: () -> Void
+  /// `RootFeature.activePendingWorktreeID` resolved to its row in
+  /// `sidebar.pendingWorktrees`, plus the parent Project's display
+  /// name. Non-nil → the detail pane shows `WorktreeLoadingView`
+  /// regardless of `selection`; the resolver in `ContentView` already
+  /// drops back to nil when the pending row leaves the array (success
+  /// / cancel / discard), so this view doesn't have to track state
+  /// transitions itself. Failure mode keeps the row in the array with
+  /// `.failed` status and is surfaced as the `failed(message:)` kind.
+  let activePendingWorktree: PendingWorktreeBinding?
   @Environment(HierarchyManager.self) private var hierarchyManager
 
+  /// View-only projection of the in-flight pending row plus the
+  /// repository-side context the loading view needs. Built by
+  /// `ContentView` so this struct doesn't depend on TCA state shapes.
+  struct PendingWorktreeBinding: Equatable {
+    let pending: PendingWorktree
+    let repositoryName: String?
+  }
+
   var body: some View {
-    if let address = resolveAddress() {
+    if let pending = activePendingWorktree {
+      WorktreeLoadingView(info: loadingInfo(for: pending))
+    } else if let address = resolveAddress() {
       let info = worktreeInfo(for: address)
       VStack(spacing: 0) {
         tabBarRow(address: address)
@@ -373,6 +392,31 @@ struct WorktreeDetailView: View {
 
   private var placeholder: some View {
     EmptyProjectStateView(onAddProject: onAddProject)
+  }
+
+  /// Maps a `PendingWorktree` row to the view-layer struct the loading
+  /// view consumes. Running rows surface the streaming git tail; failed
+  /// rows surface `humanReadable(_:)` of the wrapped error so the
+  /// detail view shows the same copy the sidebar tooltip already uses.
+  private func loadingInfo(for binding: PendingWorktreeBinding) -> WorktreeLoadingInfo {
+    let pending = binding.pending
+    let kind: WorktreeLoadingInfo.Kind
+    switch pending.status {
+    case .running:
+      kind = .creating(
+        WorktreeLoadingInfo.Progress(
+          statusCommand: "git worktree add",
+          statusLines: pending.progressLines
+        )
+      )
+    case .failed(let err):
+      kind = .failed(message: humanReadable(err))
+    }
+    return WorktreeLoadingInfo(
+      name: pending.displayName,
+      repositoryName: binding.repositoryName,
+      kind: kind
+    )
   }
 }
 

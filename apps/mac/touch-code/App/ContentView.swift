@@ -79,7 +79,13 @@ struct ContentView: View {
         // external API) re-renders this view without needing a reducer
         // projection to stay in sync.
         overlayVisible: store.state.gitViewerOverlayVisible(in: hierarchyManager.catalog),
-        onAddProject: { store.send(.sidebar(.toolbarAddProjectTapped)) }
+        onAddProject: { store.send(.sidebar(.toolbarAddProjectTapped)) },
+        // Resolve the root-level focus id to its sidebar row each render. The
+        // pending row is the source of truth for streaming output; when it
+        // leaves `pendingWorktrees` (cancel / discard), this resolves to nil
+        // and the detail pane falls back to the regular selection-driven
+        // render without a dedicated reducer transition.
+        activePendingWorktree: resolveActivePendingWorktree()
       )
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .overlay(alignment: .bottom) { editorToastOverlay }
@@ -134,6 +140,23 @@ struct ContentView: View {
 }
 
 extension ContentView {
+  /// Resolves `RootFeature.activePendingWorktreeID` to the sidebar row it
+  /// references plus the parent project's display name. The Project lookup
+  /// goes through the live `HierarchyManager.catalog` rather than the
+  /// reducer state so the view picks up renames without a reducer round-trip.
+  fileprivate func resolveActivePendingWorktree() -> WorktreeDetailView.PendingWorktreeBinding? {
+    guard
+      let id = store.activePendingWorktreeID,
+      let pending = store.sidebar.pendingWorktrees[id: id]
+    else { return nil }
+    let repositoryName = hierarchyManager.catalog
+      .projects.first(where: { $0.id == pending.projectID })?.name
+    return WorktreeDetailView.PendingWorktreeBinding(
+      pending: pending,
+      repositoryName: repositoryName
+    )
+  }
+
   @ViewBuilder
   fileprivate var editorToastOverlay: some View {
     if let toast = lastEditorToast {

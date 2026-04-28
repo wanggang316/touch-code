@@ -46,6 +46,17 @@ struct RootFeature {
     /// 0008: router for window/app-level intents decoded from ghostty keybinds.
     var windowActionRouter: WindowActionRouterFeature.State = .init()
 
+    /// In-flight `wt sw` whose detail-pane WorktreeLoadingView should
+    /// take precedence over the resolved selection. Set when the user
+    /// triggers `beginPendingWorktreeCreation`; cleared when the
+    /// resolved selection lands on a real Worktree (success path) or
+    /// when the user discards/cancels the row from the sidebar (the
+    /// pending entry leaves `sidebar.pendingWorktrees`, so the resolver
+    /// in `ContentView` falls back to the selection-based render).
+    /// `.failed` keeps the id around so the detail view can surface
+    /// the error until the user takes action.
+    var activePendingWorktreeID: PendingWorktreeID?
+
     /// Command Palette overlay presentation. `nil` = hidden; non-nil
     /// renders the floating search card on top of the main split. Cleared
     /// on activation (the child emits `.delegate(.activate(…))`, the root
@@ -365,6 +376,14 @@ struct RootFeature {
       case .selectionChanged(let selection):
         let priorProjectID = state.selection.projectID
         state.selection = selection
+        // Selection landed on a real Worktree → drop the pending-loading
+        // overlay so the detail pane reverts to the regular terminal
+        // surface. The success path of `pendingWorktreeFinished` calls
+        // `selectWorktree(realID)` after the catalog write, which is
+        // the moment we want the overlay to retire.
+        if selection.worktreeID != nil {
+          state.activePendingWorktreeID = nil
+        }
         // Auto-seed a Tab + Pane when the selected Worktree has none so
         // switching to a brand-new Worktree immediately shows a live
         // terminal rooted at `worktree.path` instead of a placeholder that
@@ -521,6 +540,17 @@ struct RootFeature {
 
       case .sidebar(.delegate(.openTagManager)):
         state.tagManagerSheet = TagManagerFeature.State()
+        return .none
+
+      // Pending-worktree focus: when the user kicks off creation, snap
+      // the detail pane to the WorktreeLoadingView. The child reducer
+      // appends the row to `sidebar.pendingWorktrees` first; we mark it
+      // as the active overlay so `ContentView` resolves it ahead of the
+      // selection-based render. Cleared from `.selectionChanged` when
+      // a real worktree lands, or implicitly when the row leaves
+      // `pendingWorktrees` (cancel / discard).
+      case .sidebar(.beginPendingWorktreeCreation(let pending)):
+        state.activePendingWorktreeID = pending.id
         return .none
 
       case .sidebar:

@@ -617,6 +617,14 @@ struct HierarchySidebarFeature {
       // line drained from the stream.
       guard state.pendingWorktrees[id: id] != nil else { return .none }
       state.pendingWorktrees[id: id]?.lastProgressLine = line
+      // Streaming tail for the WorktreeLoadingView. Cap on append so the
+      // array stays bounded even on long clones; the detail view shows
+      // the last `progressLineWindow` lines.
+      state.pendingWorktrees[id: id]?.progressLines.append(line)
+      let window = PendingWorktree.progressLineWindow
+      if let count = state.pendingWorktrees[id: id]?.progressLines.count, count > window {
+        state.pendingWorktrees[id: id]?.progressLines.removeFirst(count - window)
+      }
       return .none
 
     case .pendingWorktreeFinished(let id, let path):
@@ -675,6 +683,11 @@ struct HierarchySidebarFeature {
       guard case .failed = pending.status else { return .none }
       state.pendingWorktrees[id: id]?.status = .running
       state.pendingWorktrees[id: id]?.lastProgressLine = nil
+      // Streaming tail is rebuilt from the new attempt's stdout/stderr;
+      // keeping the previous run's lines around would mislead the
+      // detail-pane WorktreeLoadingView (the user is looking at the
+      // *current* attempt, not the failed one).
+      state.pendingWorktrees[id: id]?.progressLines = []
       // Re-read the (now-updated) row so the effect sees `status == .running`.
       guard let restarted = state.pendingWorktrees[id: id] else { return .none }
       return runPendingStream(restarted)
