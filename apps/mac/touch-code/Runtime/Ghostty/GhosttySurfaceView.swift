@@ -150,6 +150,17 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
   /// File → Close Window eats Cmd+W, closing the whole app instead of
   /// the surface. We ask libghostty whether the key is a configured
   /// binding and route it into `keyDown` if so.
+  ///
+  /// One exception: if the app's main menu already has a matching key
+  /// equivalent (touch-code's File / Touch Code / Edit menus bind ⌘E, ⌘,,
+  /// ⌘P, ⌘T, ⌘W, ⌥⌘1..9 etc. to first-class app actions), defer to that
+  /// menu first. Without this hand-off the chord lands on a libghostty
+  /// binding the touch-code action decoder doesn't translate (e.g. ⌘, →
+  /// `OPEN_CONFIG`) and the keystroke is silently swallowed instead of
+  /// opening Settings or the editor. `NSMenu.performKeyEquivalent`
+  /// dispatches via the responder chain, so menu items wired to
+  /// first-responder selectors (Edit > Copy → `copy:` → this surface's
+  /// `copy_to_clipboard` binding) still resolve through Ghostty.
   override func performKeyEquivalent(with event: NSEvent) -> Bool {
     guard event.type == .keyDown, let surface else { return false }
     let chars = event.charactersIgnoringModifiers ?? ""
@@ -161,6 +172,11 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     // background surface must not eat Cmd+V intended for a text field
     // elsewhere in the window.
     guard isFR else { return false }
+
+    if NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
+      ghosttyViewLogger.debug("perfKE: menu handled chord")
+      return true
+    }
 
     var key = ghostty_input_key_s()
     key.action = GHOSTTY_ACTION_PRESS
