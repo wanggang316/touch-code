@@ -558,65 +558,79 @@ struct HierarchySidebarView: View {
       if worktree.isPinned { return .orange }
       return .secondary
     }()
-    let button = Button {
-      store.send(.worktreeRowTapped(worktree.id, inProject: project.id))
-    } label: {
-      HStack(spacing: 6) {
-        WorktreeRowIcon(
-          snapshot: snapshot, rollup: rollup, isSelected: isSelected, roleTint: roleTint
-        )
-        VStack(alignment: .leading, spacing: 0) {
-          HStack(spacing: 2) {
-            Text(worktree.name)
-            // Explicit pinned marker — keeps the "this row is pinned" signal visible
-            // even when the row-icon's role tint is overridden by a PR-state color.
-            if worktree.isPinned && !isMainCheckout {
-              Image(systemName: "pin.fill")
-                .font(.caption2)
-                .foregroundStyle(.orange)
-                .accessibilityLabel("Pinned")
-            }
-          }
-          // Suppress the secondary branch line when it restates the worktree name —
-          // the common case (main/main, test0003/test0003) otherwise doubles every
-          // row height for zero information.
-          if let branch = worktree.branch, branch != worktree.name {
-            Text(branch)
-              .font(.caption.monospaced())
-              .foregroundStyle(.secondary)
+    // Plain content (no Button wrapping). With native `List(selection:)`,
+    // the row's tap is owned by AppKit's NSTableView so the click also
+    // promotes the table to first responder — that's what flips the
+    // selection chrome from unemphasized grey to emphasized blue. A
+    // SwiftUI Button at the row's leading area would intercept the
+    // click, leave the table off-responder, and the row would stay grey
+    // even though state moved.
+    let content = HStack(spacing: 6) {
+      WorktreeRowIcon(
+        snapshot: snapshot, rollup: rollup, isSelected: isSelected, roleTint: roleTint
+      )
+      VStack(alignment: .leading, spacing: 0) {
+        HStack(spacing: 2) {
+          Text(worktree.name)
+          // Explicit pinned marker — keeps the "this row is pinned" signal visible
+          // even when the row-icon's role tint is overridden by a PR-state color.
+          if worktree.isPinned && !isMainCheckout {
+            Image(systemName: "pin.fill")
+              .font(.caption2)
+              .foregroundStyle(.orange)
+              .accessibilityLabel("Pinned")
           }
         }
-        Spacer()
-        if unreadCount > 0 {
-          Circle()
-            .fill(Color.orange)
-            .frame(width: 6, height: 6)
-            .accessibilityLabel("Has \(unreadCount) unread notifications")
-        }
-        if let hotkeyNumber, commandKeyObserver.isCommandHeld {
-          Text("⌃⌘\(hotkeyNumber)")
-            .font(.caption2.monospaced())
+        // Suppress the secondary branch line when it restates the worktree name —
+        // the common case (main/main, test0003/test0003) otherwise doubles every
+        // row height for zero information.
+        if let branch = worktree.branch, branch != worktree.name {
+          Text(branch)
+            .font(.caption.monospaced())
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 4)
-            .padding(.vertical, 1)
-            .overlay(
-              RoundedRectangle(cornerRadius: 3)
-                .stroke(Color.secondary.opacity(0.35), lineWidth: 1)
-            )
-            .accessibilityHidden(true)
         }
       }
-      .contentShape(Rectangle())
+      Spacer()
+      if unreadCount > 0 {
+        Circle()
+          .fill(Color.orange)
+          .frame(width: 6, height: 6)
+          .accessibilityLabel("Has \(unreadCount) unread notifications")
+      }
+      if let hotkeyNumber, commandKeyObserver.isCommandHeld {
+        Text("⌃⌘\(hotkeyNumber)")
+          .font(.caption2.monospaced())
+          .foregroundStyle(.secondary)
+          .padding(.horizontal, 4)
+          .padding(.vertical, 1)
+          .overlay(
+            RoundedRectangle(cornerRadius: 3)
+              .stroke(Color.secondary.opacity(0.35), lineWidth: 1)
+          )
+          .accessibilityHidden(true)
+      }
     }
-    .buttonStyle(.plain)
+    .contentShape(Rectangle())
 
+    // The `⌃⌘N` shortcut still requires a Button to bind to. Mount a
+    // 0×0 invisible Button via `.background` so the shortcut lives in
+    // the responder chain without painting pixels or competing with
+    // List's hit-test for clicks (zero frame == zero hit area).
     if let hotkeyNumber {
-      button.keyboardShortcut(
-        KeyEquivalent(Character("\(hotkeyNumber)")),
-        modifiers: Self.hotkeyModifiers
-      )
+      content.background(alignment: .topLeading) {
+        Button {
+          store.send(.worktreeRowTapped(worktree.id, inProject: project.id))
+        } label: { EmptyView() }
+        .keyboardShortcut(
+          KeyEquivalent(Character("\(hotkeyNumber)")),
+          modifiers: Self.hotkeyModifiers
+        )
+        .frame(width: 0, height: 0)
+        .opacity(0)
+        .accessibilityHidden(true)
+      }
     } else {
-      button
+      content
     }
   }
 
