@@ -16,13 +16,6 @@ final class HierarchyHandlers {
   private let manager: HierarchyManager
   private let logger = Logger(subsystem: "com.touch-code.ipc", category: "hierarchy")
 
-  /// Hook fired after a successful `focusPane` mutation. Bootstrap wires
-  /// it to `InboxStore.markRead(forPane:)` so `tc focus` (and any other
-  /// focus path that lands here) acknowledges unread for the targeted
-  /// pane (v2 D13 / B11). nil is safe — a tested handler can be built
-  /// without an inbox.
-  var onPaneFocused: (@MainActor (PaneID) -> Void)?
-
   init(manager: HierarchyManager) {
     self.manager = manager
   }
@@ -377,7 +370,6 @@ final class HierarchyHandlers {
         in: req.worktreeID,
         in: req.projectID
       )
-      onPaneFocused?(req.id)
       return .unary(.object([:]))
     } catch {
       return failure(for: error, fallbackKind: "pane", fallbackID: req.id.description)

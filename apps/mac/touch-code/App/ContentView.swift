@@ -3,27 +3,14 @@ import SwiftUI
 import TouchCodeCore
 
 /// Root SwiftUI host for the TCA shell. Holds the `StoreOf<RootFeature>`
-/// that composes sidebar + detail sub-features (M3 + M4) and presents a
-/// two-column `NavigationSplitView`. The `HierarchyManager` is injected
-/// through `@Environment` so descendant views can read `@Observable`
-/// state directly — TCA state stays focused on selection + transient UI.
-///
-/// The leading column always renders `HierarchySidebarView` (T0 removed
-/// the Hierarchy ↔ Inbox Picker; T1 removed the dead `sidebarMode` /
-/// `.inbox` scope plumbing `RootFeature` carried forward). Notifications
-/// are reached through the Header bell (T2), which is a fresh
-/// `WorktreeHeader`-owned feature rather than a reuse of
-/// `InboxSidebarFeature`.
-/// `inboxStore` is injected alongside `hierarchyManager` so the sidebar
-/// view can read `inbox.inbox` directly for Worktree / Project unread dots.
+/// that composes sidebar + detail sub-features and presents a two-column
+/// `NavigationSplitView`. The `HierarchyManager` is injected through
+/// `@Environment` so descendant views can read `@Observable` state
+/// directly — TCA state stays focused on selection + transient UI.
 struct ContentView: View {
   @Bindable var store: StoreOf<RootFeature>
   let hierarchyManager: HierarchyManager
   let settingsStore: SettingsStore
-  /// Injected so `HierarchySidebarView` can read `inboxStore.inbox` directly
-  /// for Worktree / Project unread-dot aggregation — matches the
-  /// `HierarchyManager`-through-`@Environment` pattern already in use.
-  let inboxStore: InboxStore
   /// Per-Worktree dirty-tree cache threaded into the sidebar so each row can decide
   /// whether to paint a pending-work dot without owning its own `git status` fetch.
   let worktreeStatusMonitor: WorktreeStatusMonitor
@@ -74,7 +61,14 @@ struct ContentView: View {
         statusBarStore: store.scope(state: \.statusBar, action: \.statusBar),
         gitHubStore: store.scope(state: \.gitHub, action: \.gitHub),
         diffStore: store.scope(state: \.diff, action: \.diff),
-        inspectorVisible: store.state.diffInspectorVisible(in: hierarchyManager.catalog)
+        inspectorVisible: store.state.diffInspectorVisible(in: hierarchyManager.catalog),
+        onAddProject: { store.send(.sidebar(.toolbarAddProjectTapped)) },
+        // Resolve the root-level focus id to its sidebar row each render. The
+        // pending row is the source of truth for streaming output; when it
+        // leaves `pendingWorktrees` (cancel / discard), this resolves to nil
+        // and the detail pane falls back to the regular selection-driven
+        // render without a dedicated reducer transition.
+        activePendingWorktree: resolveActivePendingWorktree()
       )
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .overlay(alignment: .bottom) { editorToastOverlay }
@@ -91,7 +85,6 @@ struct ContentView: View {
     }
     .environment(hierarchyManager)
     .environment(settingsStore)
-    .environment(inboxStore)
     .environment(worktreeStatusMonitor)
     .task {
       store.send(.onLaunch)
@@ -129,6 +122,23 @@ struct ContentView: View {
 }
 
 extension ContentView {
+  /// Resolves `RootFeature.activePendingWorktreeID` to the sidebar row it
+  /// references plus the parent project's display name. The Project lookup
+  /// goes through the live `HierarchyManager.catalog` rather than the
+  /// reducer state so the view picks up renames without a reducer round-trip.
+  fileprivate func resolveActivePendingWorktree() -> WorktreeDetailView.PendingWorktreeBinding? {
+    guard
+      let id = store.activePendingWorktreeID,
+      let pending = store.sidebar.pendingWorktrees[id: id]
+    else { return nil }
+    let repositoryName = hierarchyManager.catalog
+      .projects.first(where: { $0.id == pending.projectID })?.name
+    return WorktreeDetailView.PendingWorktreeBinding(
+      pending: pending,
+      repositoryName: repositoryName
+    )
+  }
+
   @ViewBuilder
   fileprivate var editorToastOverlay: some View {
     if let toast = lastEditorToast {

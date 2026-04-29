@@ -1,3 +1,4 @@
+import AppKit
 import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
@@ -7,17 +8,21 @@ import TouchCodeCore
 /// modifier — defaults match what was previously hardcoded inline, but a user can rebind
 /// any of them via Settings → Shortcuts and the menu rebinds without restart.
 ///
+/// `store` is a closure rather than the resolved `Store` because this `Commands` struct is
+/// instantiated once at scene build, before `AppState.bringUp()` has produced the live
+/// store. Reading the store lazily on each button press lets the parent render
+/// `MainWindowCommands` unconditionally — see the matching note in `TouchCodeApp.body`.
+///
 /// Collision notes for the registry-default chords below:
 ///
-/// - `⌘E` (Open in Default Editor) and `⌘⇧G` (Toggle Git Viewer) shadow AppKit defaults
-///   ("Use Selection for Find" / "Find Previous") in editable-text contexts. The app has no
-///   editable text fields at the window scope today, so the menu binding wins in the common
-///   case. In-GitViewer keybindings (`j / k / g / G / …`) gate on `press.modifiers.isEmpty`
-///   and are never shadowed by these ⌘-modified chords.
+/// - `⌘⇧G` shadows AppKit's default "Find Previous" in editable-text contexts. The app has
+///   no editable text fields at the window scope today, so the menu binding wins in the
+///   common case. In-GitViewer keybindings (`j / k / g / G / …`) gate on
+///   `press.modifiers.isEmpty` and are never shadowed by these ⌘-modified chords.
 /// - The app delegate guards `⌘Q` quit with a confirmation when running terminal sessions
 ///   exist; the registry tracks `.quit` as `.systemFixed` for display only.
 struct MainWindowCommands: Commands {
-  let store: StoreOf<RootFeature>
+  let store: () -> StoreOf<RootFeature>?
   /// Snapshot of the live `ShortcutsStore.resolved` map. Re-injected from `TouchCodeApp.body`
   /// on every render; SwiftUI's `Commands` participates in observation, so an override
   /// rebinds the menu items without a manual refresh path.
@@ -26,28 +31,42 @@ struct MainWindowCommands: Commands {
   var body: some Commands {
     CommandGroup(after: .newItem) {
       Button("Quick Action…") {
-        store.send(.commandPaletteToggle(nil))
+        store()?.send(.commandPaletteToggle(nil))
       }
       .appKeyboardShortcut(.commandPaletteToggle, in: shortcuts)
+      .disabled(store() == nil)
 
       Divider()
 
       Button("Open in Default Editor") {
-        store.send(.openDefaultForCurrentWorktreeRequested)
+        store()?.send(.openDefaultForCurrentWorktreeRequested)
       }
       .appKeyboardShortcut(.openInDefaultEditor, in: shortcuts)
       .disabled(!hasActiveWorktree)
 
       Button("Toggle Git Viewer") {
-        store.send(.diffInspectorToggledForCurrentWorktree)
+        store()?.send(.diffInspectorToggledForCurrentWorktree)
       }
       .appKeyboardShortcut(.toggleDiffInspector, in: shortcuts)
       .disabled(!hasActiveWorktree)
 
       Button("Filter Tags") {
-        store.send(.sidebar(.tagFilterFocusRequested))
+        store()?.send(.sidebar(.tagFilterFocusRequested))
       }
       .appKeyboardShortcut(.filterTags, in: shortcuts)
+      .disabled(store() == nil)
+
+      Button("Add Project…") {
+        store()?.send(.sidebar(.toolbarAddProjectTapped))
+      }
+      .appKeyboardShortcut(.addProject, in: shortcuts)
+      .disabled(store() == nil)
+
+      Button("Open PR on GitHub") {
+        store()?.send(.openCurrentPRRequested)
+      }
+      .appKeyboardShortcut(.openCurrentPR, in: shortcuts)
+      .disabled(!hasPRForCurrentWorktree)
     }
 
     // Tab-bar uplift (M2-T2.9). Lands in its own CommandGroup — placed
@@ -57,37 +76,47 @@ struct MainWindowCommands: Commands {
     // removed in M2).
     CommandGroup(after: .newItem) {
       Button("New Tab") {
-        store.send(.newTabForCurrentWorktree)
+        store()?.send(.newTabForCurrentWorktree)
       }
       .appKeyboardShortcut(.newTab, in: shortcuts)
       .disabled(!hasActiveWorktree)
 
       Button("Close Tab") {
-        store.send(.closeActiveTabForCurrentWorktree)
+        // ⌘W is global menu chord; SwiftUI Commands aren't scene-scoped, so the
+        // same accelerator fires regardless of which window is key. Route on the
+        // current key window: Settings (or any future SwiftUI utility window
+        // tagged via `SettingsWindowTagger`) closes itself; the main `touch-code`
+        // window forwards to TabFeature. Without this dispatch the chord pressed
+        // inside Settings would close the foreground worktree's tab.
+        if let key = NSApp.keyWindow, SettingsWindowTagger.matches(key) {
+          key.performClose(nil)
+        } else {
+          store()?.send(.closeActiveTabForCurrentWorktree)
+        }
       }
       .appKeyboardShortcut(.closeTab, in: shortcuts)
-      .disabled(!hasActiveWorktree)
+      .disabled(store() == nil)
 
       Divider()
 
       Button("Previous Tab") {
-        store.send(.selectAdjacentTabForCurrentWorktree(.previous))
+        store()?.send(.selectAdjacentTabForCurrentWorktree(.previous))
       }
       .appKeyboardShortcut(.previousTab, in: shortcuts)
       .disabled(!hasActiveWorktree)
 
       Button("Next Tab") {
-        store.send(.selectAdjacentTabForCurrentWorktree(.next))
+        store()?.send(.selectAdjacentTabForCurrentWorktree(.next))
       }
       .appKeyboardShortcut(.nextTab, in: shortcuts)
       .disabled(!hasActiveWorktree)
 
       Divider()
 
-      ForEach(1...9, id: \.self) { n in
+      ForEach(1...10, id: \.self) { n in
         if let id = CommandID.switchToTab(index: n) {
           Button("Switch to Tab \(n)") {
-            store.send(.selectTabAtIndexForCurrentWorktree(n))
+            store()?.send(.selectTabAtIndexForCurrentWorktree(n))
           }
           .appKeyboardShortcut(id, in: shortcuts)
           .disabled(!hasActiveWorktree)
@@ -96,5 +125,19 @@ struct MainWindowCommands: Commands {
     }
   }
 
-  private var hasActiveWorktree: Bool { store.state.selection.worktreeID != nil }
+  private var hasActiveWorktree: Bool {
+    store()?.state.selection.worktreeID != nil
+  }
+
+  /// `true` when the current Worktree has a PR snapshot in the GitHub feature's cache.
+  /// Drives the `.disabled` state of the "Open PR on GitHub" menu item — a Worktree
+  /// without a fetched PR (non-GitHub repo, fresh branch with no PR yet, GitHub auth
+  /// not configured) silently exposes a useless chord otherwise.
+  private var hasPRForCurrentWorktree: Bool {
+    guard
+      let worktreeID = store()?.state.selection.worktreeID,
+      store()?.state.gitHub.snapshots[worktreeID] != nil
+    else { return false }
+    return true
+  }
 }

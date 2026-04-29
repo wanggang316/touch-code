@@ -7,8 +7,9 @@ import TouchCodeCore
 /// Interactions:
 ///   * plain click → opens the PR on github.com (same dispatch the sidebar
 ///     badge uses)
-///   * ⌘-hold → summary text swaps to `Open on GitHub ⌘↵`, hinting the
-///     click will open the browser
+///   * ⌘-hold → summary text swaps to `Open on GitHub <chord>`, hinting the
+///     keyboard binding registered for `.openCurrentPR` (registry default
+///     ⌘⇧G; respects user override).
 ///
 /// The click intentionally does not host `PullRequestPopover` today — see
 /// ExecPlan 0014 Decision Log, 2026-04-24 (M4.C) for the tradeoff and
@@ -20,6 +21,7 @@ struct StatusPullRequestView: View {
   /// the slot still carries the CI health signal at a glance.
   var compact: Bool = false
   @Environment(CommandKeyObserver.self) private var commandKeyObserver
+  @Environment(\.resolvedShortcuts) private var resolvedShortcuts
 
   var body: some View {
     Button {
@@ -58,12 +60,28 @@ struct StatusPullRequestView: View {
   @ViewBuilder
   private var detailText: some View {
     if commandKeyObserver.isCommandHeld {
-      Text("Open on GitHub \u{2318}\u{21A9}")  // ⌘↵
+      Text("Open on GitHub \(openPRHintChord)")
         .lineLimit(1)
     } else {
       Text(Self.summaryText(snapshot: snapshot))
         .lineLimit(1)
     }
+  }
+
+  /// Live chord display for the `.openCurrentPR` registry entry — falls back to the schema
+  /// default when no resolved entry is injected (previews / tests). Without this, the hint
+  /// would silently lie when the user rebinds the chord or disables it.
+  private var openPRHintChord: String {
+    if let resolved = resolvedShortcuts[.openCurrentPR],
+      resolved.isEnabled,
+      let binding = resolved.binding
+    {
+      return ShortcutDisplay.chord(for: binding)
+    }
+    if let fallback = ShortcutSchema.app.entry(for: .openCurrentPR)?.defaultBinding {
+      return ShortcutDisplay.chord(for: fallback)
+    }
+    return ""
   }
 
   /// Simple-line summary, in priority order:

@@ -37,7 +37,6 @@ struct SettingsMigrationTests {
     #expect(settings.version == Settings.currentVersion)
     #expect(settings.general.defaultEditorID == "vscode")
     // C8a dropped `customEditors`; any legacy entries in the v1 file are ignored on migrate.
-    #expect(settings.notifications == .default)
     #expect(settings.developer == .default)
     #expect(settings.projects.isEmpty)
     #expect(backupURL.lastPathComponent.hasPrefix("settings.json.v1-"))
@@ -88,81 +87,6 @@ struct SettingsMigrationTests {
   }
 
   @Test
-  func migratesNotificationsOnlyV1() throws {
-    let harness = MigrationHarness()
-    defer { harness.cleanup() }
-
-    let json = #"""
-      {
-        "version": 1,
-        "notifications": {
-          "mute": {
-            "enabled": true,
-            "badgeEnabled": false,
-            "surfaceIdle": false,
-            "redactBodies": false,
-            "mutedRuleIDs": ["noisy-rule"],
-            "mutedPaneIDs": []
-          },
-          "authStatus": "denied",
-          "neverPrompt": true,
-          "notNowUntil": null
-        }
-      }
-      """#
-    try Data(json.utf8).write(to: harness.fileURL)
-
-    let outcome = try SettingsMigration.load(from: harness.fileURL, clock: harness.clock)
-    guard case .migratedFromV1(let settings, _) = outcome else {
-      Issue.record("Expected .migratedFromV1, got \(outcome)")
-      return
-    }
-
-    #expect(settings.notifications.mute.mutedRuleIDs == ["noisy-rule"])
-    #expect(settings.notifications.authStatus == .denied)
-    #expect(settings.notifications.neverPrompt == true)
-    #expect(settings.notifications.dockBadgeEnabled == false, "v1 mute.badgeEnabled=false must carry into dockBadgeEnabled")
-    #expect(settings.general == .default)
-  }
-
-  @Test
-  func migratesCombinedV1() throws {
-    let harness = MigrationHarness()
-    defer { harness.cleanup() }
-
-    let json = #"""
-      {
-        "version": 1,
-        "defaultEditorID": "zed",
-        "customEditors": [],
-        "notifications": {
-          "mute": {
-            "enabled": true,
-            "badgeEnabled": true,
-            "surfaceIdle": false,
-            "redactBodies": false,
-            "mutedRuleIDs": [],
-            "mutedPaneIDs": []
-          },
-          "authStatus": "authorized",
-          "neverPrompt": false
-        }
-      }
-      """#
-    try Data(json.utf8).write(to: harness.fileURL)
-
-    let outcome = try SettingsMigration.load(from: harness.fileURL, clock: harness.clock)
-    guard case .migratedFromV1(let settings, _) = outcome else {
-      Issue.record("Expected .migratedFromV1, got \(outcome)")
-      return
-    }
-
-    #expect(settings.general.defaultEditorID == "zed")
-    #expect(settings.notifications.authStatus == .authorized)
-    #expect(settings.notifications.dockBadgeEnabled == true)
-  }
-
-  @Test
   func backsUpUnsupportedVersion() throws {
     let harness = MigrationHarness()
     defer { harness.cleanup() }
@@ -203,7 +127,6 @@ struct SettingsMigrationTests {
     let fixture = Settings(
       version: Settings.currentVersion,
       general: GeneralSettings(defaultEditorID: "cursor"),
-      notifications: .default,
       developer: .default,
       projects: [:]
     )

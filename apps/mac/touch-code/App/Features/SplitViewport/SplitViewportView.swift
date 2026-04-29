@@ -212,9 +212,11 @@ private struct LeafView: View {
         .id(paneID)
     } else {
       // One-frame gap between pane entering the catalog and the sync
-      // action landing `paneHosts[id: paneID]` in state. Render a
-      // neutral placeholder rather than blanking the pane.
+      // action landing `paneHosts[id: paneID]` in state. Match
+      // `LazyPaneHost.loadingPlaceholder`'s background so the swap is
+      // visually seamless when the scoped store materialises.
       ProgressView()
+        .controlSize(.small)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .underPageBackgroundColor))
     }

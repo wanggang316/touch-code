@@ -19,15 +19,36 @@ nonisolated struct FolderPickerClient: Sendable {
 extension FolderPickerClient: DependencyKey {
   static let liveValue = FolderPickerClient(
     pick: { prompt in
-      await MainActor.run {
-        let pane = NSOpenPanel()
-        pane.prompt = prompt
-        pane.canChooseFiles = false
-        pane.canChooseDirectories = true
-        pane.allowsMultipleSelection = false
-        pane.canCreateDirectories = false
-        guard pane.runModal() == .OK else { return Optional<URL>.none }
-        return pane.url
+      await withCheckedContinuation { (continuation: CheckedContinuation<URL?, Never>) in
+        Task { @MainActor in
+          let panel = NSOpenPanel()
+          panel.prompt = prompt
+          panel.canChooseFiles = false
+          panel.canChooseDirectories = true
+          panel.allowsMultipleSelection = false
+          panel.canCreateDirectories = false
+
+          // Prefer attaching the panel as a sheet on the active window so the
+          // picker visually belongs to the requesting context (touch-code's
+          // main window in the common Add-Project flow). `runModal` would
+          // float a free-standing window that can be dragged behind other
+          // apps and dismissed without closing — supacode uses the same
+          // sheet posture via SwiftUI's `.fileImporter`. We stay on AppKit
+          // so the existing `FolderPickerClient` interface (`async URL?`)
+          // doesn't have to migrate to a SwiftUI binding.
+          let parent = NSApp.keyWindow ?? NSApp.mainWindow
+          if let parent {
+            panel.beginSheetModal(for: parent) { response in
+              continuation.resume(returning: response == .OK ? panel.url : nil)
+            }
+          } else {
+            // No window to anchor to (e.g. picker invoked before scene
+            // attached). Fall back to a free-standing modal so the user
+            // still gets a picker rather than the call hanging forever.
+            let response = panel.runModal()
+            continuation.resume(returning: response == .OK ? panel.url : nil)
+          }
+        }
       }
     }
   )

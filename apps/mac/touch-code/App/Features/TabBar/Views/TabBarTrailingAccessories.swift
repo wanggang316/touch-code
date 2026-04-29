@@ -21,6 +21,7 @@ struct TabBarTrailingAccessories: View {
       Button(action: onNewTab) {
         Image(systemName: "plus")
           .accessibilityLabel("New Tab")
+          .commandKeyHint(.newTab)
       }
       .buttonStyle(.borderless)
 

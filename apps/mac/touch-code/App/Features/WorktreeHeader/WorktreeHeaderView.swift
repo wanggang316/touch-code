@@ -3,9 +3,7 @@ import SwiftUI
 import TouchCodeCore
 
 /// Top Header row above the terminal Tab bar. Left: read-only branch label.
-/// Right cluster (in order): notification bell, Open-in split button,
-/// Git Viewer toggle. Replaces the ad-hoc `worktreeHeader(address:)` strip
-/// previously inlined in `WorktreeDetailView`.
+/// Right cluster: Open-in split button, Git Viewer toggle.
 struct WorktreeHeaderView: View {
   @Bindable var store: StoreOf<WorktreeHeaderFeature>
   let editorStore: StoreOf<EditorFeature>
@@ -31,7 +29,6 @@ struct WorktreeHeaderView: View {
       }
 
       HStack(spacing: 6) {
-        HeaderBellView(store: store)
         HeaderOpenSplitButton(
           store: store,
           editorStore: editorStore,

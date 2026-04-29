@@ -23,6 +23,10 @@ struct SettingsWindowView: View {
     )
     NavigationSplitView {
       SettingsSidebarView(selection: selection)
+        // Drop the auto-injected sidebar collapse toggle from the toolbar so the
+        // Settings window matches macOS System Settings, which keeps the sidebar
+        // permanently visible.
+        .toolbar(removing: .sidebarToggle)
     } detail: {
       detailView(for: store.state.effectiveSection)
     }
@@ -75,8 +79,6 @@ struct SettingsWindowView: View {
       )
     case .github:
       GitHubSettingsView(settingsStore: settingsStore)
-    case .notifications:
-      NotificationsSettingsView(settingsStore: settingsStore)
     case .terminal:
       SettingsTerminalView(store: store.scope(state: \.terminal, action: \.terminal))
     case .developer:
@@ -101,15 +103,6 @@ struct SettingsWindowView: View {
         // State entry is lazily instantiated in `selectionChanged`; this arm is a
         // belt-and-suspenders placeholder for the single frame between a user click
         // landing and the reducer run finishing.
-        ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-      }
-    case .projectHooks(let projectID):
-      if let paneStore = store.scope(
-        state: \.projectPanes[id: projectID],
-        action: \.projectPanes[id: projectID]
-      ) {
-        ProjectHooksSettingsView(projectID: projectID, store: paneStore)
-      } else {
         ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
       }
     case .projectScripts(let projectID):

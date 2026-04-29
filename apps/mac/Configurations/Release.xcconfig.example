@@ -1,0 +1,16 @@
+// Local Developer ID identity for Release builds. Copy to
+// `Release.xcconfig` (gitignored) and fill in. release.sh refuses to
+// archive without it.
+//
+// DEVELOPMENT_TEAM is the 10-character team ID from
+// developer.apple.com → Membership. CODE_SIGN_IDENTITY is the
+// human-readable certificate name shown by:
+//
+//     security find-identity -v -p codesigning
+//
+// Stick with "Developer ID Application" unless distributing through
+// channels other than direct download (Mac App Store uses a different
+// identity and a different exec-plan).
+
+DEVELOPMENT_TEAM = XXXXXXXXXX
+CODE_SIGN_IDENTITY = Developer ID Application

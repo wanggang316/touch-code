@@ -5,38 +5,78 @@ import TouchCodeCore
 /// category, lets the user record a new chord, disable a chord, reset one row, or restore
 /// every row to its default. Conflict feedback during recording surfaces inline; cascading
 /// resets present a confirmation dialog before applying.
+///
+/// Layout follows the macOS System-Settings convention used by supacode's
+/// `KeyboardShortcutsSettingsView`: a hierarchical `Table` with `DisclosureTableRow` group
+/// headers, alternating row backgrounds, search routed through `.searchable(.toolbar)`,
+/// and a primary toolbar action for "Restore Defaults". The behavioural surface (recording,
+/// conflict resolution, reset planning) is unchanged from the previous custom-painted pane.
 struct ShortcutsSettingsView: View {
   @Bindable var store: ShortcutsStore
   @State private var query: String = ""
-  @State private var recordingID: CommandID?
-  @State private var rejectionMessage: String?
   @State private var pendingConflict: PendingConflict?
   @State private var pendingReset: ShortcutResetPlan?
   @State private var showRestoreAllConfirmation: Bool = false
+  /// Categories that are expanded in the outline. Defaults to "all expanded" so the pane
+  /// opens fully populated; subsequent collapses persist for the lifetime of the window.
+  @State private var expandedCategories: Set<String> = Set(
+    ShortcutSchema.Category.allCases.map(\.rawValue)
+  )
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 0) {
-        header
-          .padding(.horizontal, 24)
-          .padding(.top, 18)
-          .padding(.bottom, 12)
-
-        if let rejectionMessage {
-          Text(rejectionMessage)
-            .font(.callout)
-            .foregroundStyle(.red)
-            .padding(.horizontal, 24)
-            .padding(.bottom, 8)
-        }
-
-        ForEach(visibleCategories, id: \.self) { category in
-          section(for: category)
+    Table(of: ShortcutTableItem.self) {
+      TableColumn("Name") { item in
+        NameCell(item: item)
+      }
+      TableColumn("Shortcut") { item in
+        HotkeyCell(
+          item: item,
+          store: store,
+          validate: validate,
+          onCommit: commit,
+          onReset: requestReset
+        )
+      }
+      .width(min: 160, ideal: 200, max: 260)
+      TableColumn("Enabled") { item in
+        EnabledCell(item: item, store: store)
+      }
+      .width(min: 60, max: 90)
+    } rows: {
+      ForEach(tableItems) { group in
+        DisclosureTableRow(
+          group,
+          isExpanded: Binding(
+            get: { expandedCategories.contains(group.id) },
+            set: { expanded in
+              if expanded {
+                expandedCategories.insert(group.id)
+              } else {
+                expandedCategories.remove(group.id)
+              }
+            }
+          )
+        ) {
+          if let children = group.children {
+            ForEach(children) { TableRow($0) }
+          }
         }
       }
-      .padding(.bottom, 24)
     }
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    .alternatingRowBackgrounds()
+    .searchable(text: $query, placement: .toolbar, prompt: "Search shortcuts")
+    .toolbar {
+      ToolbarItem(placement: .primaryAction) {
+        Button {
+          showRestoreAllConfirmation = true
+        } label: {
+          Image(systemName: "arrow.counterclockwise")
+            .accessibilityLabel("Restore Defaults")
+        }
+        .help("Restore all shortcuts to their default values.")
+        .disabled(store.overrides.overrides.isEmpty)
+      }
+    }
     .confirmationDialog(
       restoreAllTitle,
       isPresented: $showRestoreAllConfirmation,
@@ -89,208 +129,57 @@ struct ShortcutsSettingsView: View {
     }
   }
 
-  // MARK: - Sections
+  // MARK: - Table model
 
-  @ViewBuilder
-  private var header: some View {
-    HStack(alignment: .firstTextBaseline) {
-      TextField("Search shortcuts", text: $query)
-        .textFieldStyle(.roundedBorder)
-        .frame(maxWidth: 320)
-      Spacer()
-      Button("Restore All Defaults") {
-        showRestoreAllConfirmation = true
-      }
-      .disabled(store.overrides.overrides.isEmpty)
-    }
-  }
-
-  @ViewBuilder
-  private func section(for category: ShortcutSchema.Category) -> some View {
-    let entries = filteredEntries(for: category)
-    if !entries.isEmpty {
-      VStack(alignment: .leading, spacing: 0) {
-        Text(category.title.uppercased())
-          .font(.caption.weight(.semibold))
-          .foregroundStyle(.secondary)
-          .padding(.horizontal, 24)
-          .padding(.top, 18)
-          .padding(.bottom, 6)
-
-        VStack(spacing: 0) {
-          ForEach(entries, id: \.id) { entry in
-            row(for: entry)
-              .padding(.horizontal, 24)
-              .padding(.vertical, 8)
-            Divider().padding(.leading, 24)
-          }
-        }
-      }
-    }
-  }
-
-  @ViewBuilder
-  private func row(for entry: ShortcutSchema.Entry) -> some View {
-    let resolved = store.resolved[entry.id]
-    HStack(spacing: 12) {
-      VStack(alignment: .leading, spacing: 2) {
-        Text(entry.title).font(.body)
-        Text(scopeDescription(entry.scope))
-          .font(.caption)
-          .foregroundStyle(.secondary)
-      }
-      Spacer(minLength: 12)
-
-      sourcePill(resolved)
-
-      chordCell(entry: entry, resolved: resolved)
-        .frame(width: 140)
-
-      if entry.scope == .configurable, resolved?.source == .userOverride {
-        Button {
-          requestReset(for: entry.id)
-        } label: {
-          Image(systemName: "arrow.uturn.backward.circle")
-            .help("Restore default")
-        }
-        .buttonStyle(.borderless)
-      } else {
-        // Reserve space so rows align even when the reset glyph is hidden.
-        Color.clear.frame(width: 24, height: 1)
-      }
-    }
-    .contextMenu {
-      if entry.scope == .configurable, let resolved {
-        if resolved.isEnabled {
-          Button("Disable Shortcut") { store.disable(entry.id) }
-        } else {
-          Button("Enable Shortcut") { restoreEnabled(for: entry.id) }
-        }
-        if resolved.source == .userOverride {
-          Button("Restore Default") { requestReset(for: entry.id) }
-        }
-      }
-    }
-  }
-
-  /// The recorder NSView captures `keyDown` only; the SwiftUI button overlaid on top is
-  /// what receives mouse clicks and drives `recordingID`. The recorder's mouse-handling
-  /// paths are therefore intentionally unused.
-  @ViewBuilder
-  private func chordCell(entry: ShortcutSchema.Entry, resolved: ResolvedShortcut?) -> some View {
-    if entry.scope == .configurable {
-      let isThisRowRecording = recordingID == entry.id
-      HotkeyRecorderView(
-        isRecording: Binding(
-          get: { isThisRowRecording },
-          set: { newValue in
-            if newValue {
-              recordingID = entry.id
-              rejectionMessage = nil
-            } else if recordingID == entry.id {
-              recordingID = nil
-            }
-          }
-        ),
-        onCapture: { binding in
-          handleCapture(binding, for: entry.id)
-        },
-        onReject: { reason in
-          rejectionMessage = rejectionText(reason)
-        },
-        onCancel: {
-          rejectionMessage = nil
+  /// Group → entries projection for the outline table. Filtered by `query`.
+  private var tableItems: [ShortcutTableItem] {
+    visibleCategories.map { category in
+      ShortcutTableItem(
+        id: category.rawValue,
+        kind: .group(category),
+        children: filteredEntries(for: category).map { entry in
+          ShortcutTableItem(
+            id: entry.id.rawValue,
+            kind: .entry(entry),
+            children: nil
+          )
         }
       )
-      .overlay(alignment: .leading) {
-        Button {
-          if recordingID == entry.id {
-            recordingID = nil
-          } else {
-            recordingID = entry.id
-            rejectionMessage = nil
-          }
-        } label: {
-          chordLabel(resolved: resolved, isRecording: isThisRowRecording)
-            .frame(maxWidth: .infinity, alignment: .center)
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-      }
-      .frame(height: 24)
-    } else {
-      // System-fixed: render the chord as a non-interactive label.
-      HStack {
-        chordLabel(resolved: resolved, isRecording: false)
-        Spacer()
-      }
-      .padding(.horizontal, 8)
-      .padding(.vertical, 3)
-      .overlay(
-        RoundedRectangle(cornerRadius: 5)
-          .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-      )
     }
-  }
-
-  @ViewBuilder
-  private func chordLabel(resolved: ResolvedShortcut?, isRecording: Bool) -> some View {
-    if isRecording {
-      Text("Type a chord…")
-        .font(.system(size: 11, design: .monospaced))
-        .foregroundStyle(.secondary)
-    } else if let resolved, let binding = resolved.binding {
-      Text(ShortcutDisplay.chord(for: binding))
-        .font(.system(size: 12, design: .monospaced))
-        .foregroundStyle(resolved.isEnabled ? .primary : .secondary)
-        .strikethrough(!resolved.isEnabled)
-    } else {
-      Text("Unassigned")
-        .font(.system(size: 11))
-        .foregroundStyle(.secondary)
-    }
-  }
-
-  @ViewBuilder
-  private func sourcePill(_ resolved: ResolvedShortcut?) -> some View {
-    let label = sourceLabel(resolved)
-    Text(label.text)
-      .font(.caption2.weight(.medium))
-      .padding(.horizontal, 6)
-      .padding(.vertical, 2)
-      .background(
-        RoundedRectangle(cornerRadius: 4).fill(label.color.opacity(0.18))
-      )
-      .foregroundStyle(label.color)
   }
 
   // MARK: - Mutations
 
-  private func handleCapture(_ binding: ShortcutBinding, for id: CommandID) {
+  /// Hard rejections that surface as in-popover red text + shake. Internal conflicts
+  /// (`commit` below) are *not* checked here — those land in a Replace-existing dialog
+  /// instead so the user can promote the new chord by demoting the holder.
+  private func validate(_ binding: ShortcutBinding, for _: CommandID) -> HotkeyRecorderPopover.ValidationResult {
     let symbolicHotkeyDefaults = UserDefaults(suiteName: "com.apple.symbolichotkeys") ?? .standard
     if SystemReservedDetector.isReserved(
       keyCode: binding.keyCode,
       modifiers: binding.modifiers,
       in: symbolicHotkeyDefaults
     ) {
-      rejectionMessage = "That chord is claimed by a macOS system shortcut."
-      return
+      return .rejected(message: "Reserved by macOS system.")
     }
     if AppKitReservedDetector.isReserved(keyCode: binding.keyCode, modifiers: binding.modifiers) {
-      rejectionMessage = "That chord is reserved by macOS standard menus."
-      return
+      return .rejected(message: "Reserved by macOS standard menus.")
     }
+    return .ok
+  }
+
+  /// Run after `validate` returns `.ok`. Routes through the internal-conflict planner so
+  /// chords already used by another command surface the Replace dialog instead of silently
+  /// overwriting; otherwise commits straight to the override store.
+  private func commit(_ binding: ShortcutBinding, for id: CommandID) {
     if let conflictingID = InternalConflictDetector.conflicts(
       in: store.resolved, candidate: binding, excluding: id
     ) {
       pendingConflict = PendingConflict(
         target: id, binding: binding, conflictingID: conflictingID
       )
-      recordingID = nil
       return
     }
-    rejectionMessage = nil
-    recordingID = nil
     store.update(id, to: binding)
   }
 
@@ -299,18 +188,6 @@ struct ShortcutsSettingsView: View {
       resetting: id, schema: .app, overrides: store.overrides
     )
     pendingReset = plan
-  }
-
-  private func restoreEnabled(for id: CommandID) {
-    guard let resolved = store.resolved[id], let binding = resolved.binding else { return }
-    let enabled = ShortcutBinding(
-      keyCode: binding.keyCode, modifiers: binding.modifiers, isEnabled: true
-    )
-    if resolved.source == .userOverride {
-      store.update(id, to: enabled)
-    } else {
-      store.clear(id)
-    }
   }
 
   // MARK: - Filtering
@@ -327,14 +204,17 @@ struct ShortcutsSettingsView: View {
         guard !trimmed.isEmpty else { return true }
         if entry.title.lowercased().contains(trimmed) { return true }
         if let binding = store.resolved[entry.id]?.binding,
-           ShortcutDisplay.chord(for: binding).lowercased().contains(trimmed) { return true }
+          ShortcutDisplay.chord(for: binding).lowercased().contains(trimmed)
+        {
+          return true
+        }
         return false
       }
   }
 
   // MARK: - Dialogs
 
-  private struct PendingConflict: Equatable {
+  fileprivate struct PendingConflict: Equatable {
     let target: CommandID
     let binding: ShortcutBinding
     let conflictingID: CommandID
@@ -352,7 +232,7 @@ struct ShortcutsSettingsView: View {
   private var conflictDialogTitle: String { "Replace Existing Shortcut?" }
   private var conflictDialogMessage: String {
     guard let pending = pendingConflict,
-          let conflictingTitle = ShortcutSchema.app.entry(for: pending.conflictingID)?.title
+      let conflictingTitle = ShortcutSchema.app.entry(for: pending.conflictingID)?.title
     else { return "" }
     return "This chord is currently bound to ‘\(conflictingTitle)’. Replacing will disable that shortcut."
   }
@@ -382,8 +262,42 @@ struct ShortcutsSettingsView: View {
   }
 
   private var restoreAllTitle: String { "Restore All Defaults?" }
+}
 
-  // MARK: - Display helpers
+// MARK: - Table model
+
+/// Row model for the outline `Table`. Categories are group rows with `children`; individual
+/// shortcuts are leaf rows. Mirrors the supacode model so the call-site reads similarly.
+struct ShortcutTableItem: Identifiable {
+  enum Kind {
+    case group(ShortcutSchema.Category)
+    case entry(ShortcutSchema.Entry)
+  }
+  let id: String
+  let kind: Kind
+  let children: [ShortcutTableItem]?
+}
+
+// MARK: - Cells
+
+private struct NameCell: View {
+  let item: ShortcutTableItem
+
+  var body: some View {
+    switch item.kind {
+    case .group(let category):
+      Text(category.title)
+        .font(.body.weight(.semibold))
+    case .entry(let entry):
+      VStack(alignment: .leading, spacing: 2) {
+        Text(entry.title)
+          .font(.body)
+        Text(scopeDescription(entry.scope))
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+    }
+  }
 
   private func scopeDescription(_ scope: ShortcutScope) -> String {
     switch scope {
@@ -391,6 +305,123 @@ struct ShortcutsSettingsView: View {
     case .systemFixed: return "System default"
     case .localOnly: return "Context-specific"
     }
+  }
+}
+
+private struct HotkeyCell: View {
+  let item: ShortcutTableItem
+  @Bindable var store: ShortcutsStore
+  let validate: (ShortcutBinding, CommandID) -> HotkeyRecorderPopover.ValidationResult
+  let onCommit: (ShortcutBinding, CommandID) -> Void
+  let onReset: (CommandID) -> Void
+
+  /// One popover per cell. Tapping the chord button toggles this on; the popover dismisses
+  /// itself on capture / cancel via the recorder's own task scheduling. Keeping the state
+  /// per-cell (instead of pane-wide) means closing one row's popover doesn't disturb any
+  /// other row, and the popover's `.popover` anchor naturally re-targets when rows
+  /// re-order under search filtering.
+  @State private var isRecording = false
+
+  var body: some View {
+    switch item.kind {
+    case .group:
+      EmptyView()
+    case .entry(let entry):
+      let resolved = store.resolved[entry.id]
+      HStack(spacing: 8) {
+        chordButton(entry: entry, resolved: resolved)
+          .frame(maxWidth: .infinity, alignment: .leading)
+        sourcePill(resolved)
+        if entry.scope == .configurable, resolved?.source == .userOverride {
+          Button {
+            onReset(entry.id)
+          } label: {
+            Image(systemName: "arrow.uturn.backward.circle")
+              .accessibilityLabel("Restore default")
+          }
+          .buttonStyle(.borderless)
+          .help("Restore default")
+        }
+      }
+      .contextMenu {
+        if entry.scope == .configurable {
+          Button("Change Shortcut…") { isRecording = true }
+          if let resolved {
+            Divider()
+            if resolved.isEnabled {
+              Button("Disable Shortcut") { store.disable(entry.id) }
+            } else {
+              Button("Enable Shortcut") {
+                EnabledCell.restoreEnabled(for: entry.id, resolved: resolved, store: store)
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /// Configurable rows are buttons that toggle a `HotkeyRecorderPopover`; non-configurable
+  /// rows ("System default" — `.openSettings`, `.quit`) render the chord as a static
+  /// bordered cell since the user cannot rebind them.
+  @ViewBuilder
+  private func chordButton(entry: ShortcutSchema.Entry, resolved: ResolvedShortcut?) -> some View {
+    if entry.scope == .configurable {
+      Button {
+        isRecording = true
+      } label: {
+        chordLabel(resolved: resolved)
+          .frame(maxWidth: .infinity, alignment: .center)
+      }
+      .buttonStyle(.bordered)
+      .controlSize(.small)
+      .popover(isPresented: $isRecording, arrowEdge: .bottom) {
+        HotkeyRecorderPopover(
+          title: entry.title,
+          validate: { validate($0, entry.id) },
+          onCommit: { onCommit($0, entry.id) },
+          onCancel: { isRecording = false }
+        )
+      }
+    } else {
+      HStack {
+        chordLabel(resolved: resolved)
+        Spacer()
+      }
+      .padding(.horizontal, 8)
+      .padding(.vertical, 3)
+      .overlay(
+        RoundedRectangle(cornerRadius: 5)
+          .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+      )
+    }
+  }
+
+  @ViewBuilder
+  private func chordLabel(resolved: ResolvedShortcut?) -> some View {
+    if let resolved, let binding = resolved.binding {
+      Text(ShortcutDisplay.chord(for: binding))
+        .font(.system(size: 12, design: .monospaced))
+        .foregroundStyle(resolved.isEnabled ? .primary : .secondary)
+        .strikethrough(!resolved.isEnabled)
+    } else {
+      Text("Unassigned")
+        .font(.system(size: 11))
+        .foregroundStyle(.secondary)
+    }
+  }
+
+  @ViewBuilder
+  private func sourcePill(_ resolved: ResolvedShortcut?) -> some View {
+    let label = sourceLabel(resolved)
+    Text(label.text)
+      .font(.caption2.weight(.medium))
+      .padding(.horizontal, 6)
+      .padding(.vertical, 2)
+      .background(
+        RoundedRectangle(cornerRadius: 4).fill(label.color.opacity(0.18))
+      )
+      .foregroundStyle(label.color)
   }
 
   private func sourceLabel(_ resolved: ResolvedShortcut?) -> (text: String, color: Color) {
@@ -401,11 +432,57 @@ struct ShortcutsSettingsView: View {
     case .userOverride: return ("Custom", .accentColor)
     }
   }
+}
 
-  private func rejectionText(_ reason: HotkeyRecorderNSView.RejectionReason) -> String {
-    switch reason {
-    case .missingPrimaryModifier: return "Add a ⌘, ⌥, or ⌃ modifier."
-    case .modifierOnly: return "Press a non-modifier key."
+private struct EnabledCell: View {
+  let item: ShortcutTableItem
+  @Bindable var store: ShortcutsStore
+
+  var body: some View {
+    switch item.kind {
+    case .group:
+      EmptyView()
+    case .entry(let entry):
+      if entry.scope == .configurable {
+        let resolved = store.resolved[entry.id]
+        Toggle(
+          "",
+          isOn: Binding(
+            get: { resolved?.isEnabled ?? true },
+            set: { newValue in
+              if newValue, let resolved {
+                Self.restoreEnabled(for: entry.id, resolved: resolved, store: store)
+              } else {
+                store.disable(entry.id)
+              }
+            }
+          )
+        )
+        .toggleStyle(.checkbox)
+        .labelsHidden()
+        .frame(maxWidth: .infinity, alignment: .center)
+      } else {
+        EmptyView()
+      }
+    }
+  }
+
+  /// Re-enable `id`. If the row currently has a user override, flip its `isEnabled` flag back
+  /// to true; otherwise the row inherits the schema default and `clear` is a no-op safeguard.
+  /// Exposed as a static so the chord cell's context menu can share the same recovery path.
+  static func restoreEnabled(
+    for id: CommandID,
+    resolved: ResolvedShortcut,
+    store: ShortcutsStore
+  ) {
+    guard let binding = resolved.binding else { return }
+    let enabled = ShortcutBinding(
+      keyCode: binding.keyCode, modifiers: binding.modifiers, isEnabled: true
+    )
+    if resolved.source == .userOverride {
+      store.update(id, to: enabled)
+    } else {
+      store.clear(id)
     }
   }
 }

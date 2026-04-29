@@ -7,33 +7,29 @@ import Foundation
 public nonisolated struct LegacyV2Settings: Decodable, Sendable {
   public let version: Int
   public let general: GeneralSettings?
-  public let notifications: NotificationsSettings?
   public let developer: DeveloperSettings?
   public let repositories: [String: LegacyV2RepositorySettings]
 
   public init(
     version: Int,
     general: GeneralSettings? = nil,
-    notifications: NotificationsSettings? = nil,
     developer: DeveloperSettings? = nil,
     repositories: [String: LegacyV2RepositorySettings] = [:]
   ) {
     self.version = version
     self.general = general
-    self.notifications = notifications
     self.developer = developer
     self.repositories = repositories
   }
 
   private enum CodingKeys: String, CodingKey {
-    case version, general, notifications, developer, repositories
+    case version, general, developer, repositories
   }
 
   public init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     self.version = try c.decode(Int.self, forKey: .version)
     self.general = try c.decodeIfPresent(GeneralSettings.self, forKey: .general)
-    self.notifications = try c.decodeIfPresent(NotificationsSettings.self, forKey: .notifications)
     self.developer = try c.decodeIfPresent(DeveloperSettings.self, forKey: .developer)
     self.repositories = try c.decodeIfPresent([String: LegacyV2RepositorySettings].self, forKey: .repositories) ?? [:]
   }

@@ -113,8 +113,6 @@ struct TerminalHandlersTests {
   // MARK: - Harness
 
   static func makeHarness(sink: TerminalHandlers.InputSink?) -> InMemoryIPCServer {
-    let (store, dispatcher) = InMemoryIPCServerTests.makeDispatcher(existing: nil)
-    let hookHandlers = HookHandlers(dispatcher: dispatcher, store: store)
     let systemHandlers = SystemHandlers(
       versions: .init(server: "0.4.0", appBundle: "0.4.0+test")
     )
@@ -128,7 +126,6 @@ struct TerminalHandlersTests {
     let hierarchyHandlers = HierarchyHandlers(manager: hierarchy)
     let terminalHandlers = TerminalHandlers(sink: sink) { hierarchy.catalog }
     let router = MethodRouter(
-      hookHandlers: hookHandlers,
       systemHandlers: systemHandlers,
       hierarchyHandlers: hierarchyHandlers,
       terminalHandlers: terminalHandlers

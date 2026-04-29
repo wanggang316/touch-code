@@ -85,6 +85,15 @@ nonisolated struct GitWorktreeClient: Sendable {
   /// to refuse. The trash directory is rm-rf'd asynchronously so a
   /// large `.git` (e.g. submodule history) does not block the caller.
   var removeWorktree: @Sendable (_ repoRoot: URL, _ path: URL) async throws -> Void
+  /// Best-effort `git branch -D <branch>` on the project's main repo —
+  /// used to clean up the local branch left behind by `git worktree
+  /// remove`, which intentionally keeps the ref so the user can recover
+  /// it. Touch Code's UX is "delete the worktree means delete its
+  /// branch too" (matches `wt rm`), so we drop it here. Errors are
+  /// swallowed: git refuses if the branch is checked out elsewhere
+  /// (main / shared branch) or never existed, neither of which should
+  /// surface as a remove-worktree failure.
+  var deleteBranchIfExists: @Sendable (_ repoRoot: URL, _ branch: String) async -> Void
   var pruneWorktrees: @Sendable (_ repoRoot: URL) async throws -> Int
 
   var fetchRemote: @Sendable (_ repoRoot: URL, _ remote: String) async throws -> Void
@@ -748,6 +757,22 @@ nonisolated extension GitWorktreeClient {
         try await forceRemoveWorktree(repoRoot: repoRoot, path: path)
       },
 
+      deleteBranchIfExists: { repoRoot, branch in
+        // Best-effort: git refuses if the branch is checked out by
+        // another worktree (e.g. it's the project's main branch) or
+        // simply doesn't exist. Either case shouldn't fail the remove
+        // flow — the worktree has already been pulled out of the user's
+        // hierarchy by the caller.
+        _ = await GitWorktreeShell.run(
+          executable: GitWorktreeShell.gitURL,
+          arguments: [
+            "-C", repoRoot.path(percentEncoded: false),
+            "branch", "-D", branch,
+          ],
+          cwd: repoRoot
+        )
+      },
+
       pruneWorktrees: { repoRoot in
         // Diff lsWorktrees before/after so the caller can surface an accurate
         // toast. `git worktree prune` itself prints nothing on success.
@@ -950,6 +975,7 @@ extension GitWorktreeClient: DependencyKey {
       AsyncThrowingStream { $0.finish() }
     },
     removeWorktree: unimplemented("GitWorktreeClient.removeWorktree"),
+    deleteBranchIfExists: { _, _ in },
     pruneWorktrees: unimplemented("GitWorktreeClient.pruneWorktrees", placeholder: 0),
     fetchRemote: unimplemented("GitWorktreeClient.fetchRemote"),
     changedFiles: unimplemented("GitWorktreeClient.changedFiles", placeholder: [])

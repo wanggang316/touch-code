@@ -17,7 +17,6 @@ public enum RouterOutcome: Sendable {
 /// the method-to-handler mapping.
 @MainActor
 public final class MethodRouter {
-  private let hookHandlers: HookHandlers
   private let systemHandlers: SystemHandlers
   private let hierarchyHandlers: HierarchyHandlers?
   private let terminalHandlers: TerminalHandlers?
@@ -25,13 +24,11 @@ public final class MethodRouter {
   private let logger = Logger(subsystem: "com.touch-code.ipc", category: "router")
 
   init(
-    hookHandlers: HookHandlers,
     systemHandlers: SystemHandlers,
     hierarchyHandlers: HierarchyHandlers? = nil,
     terminalHandlers: TerminalHandlers? = nil,
     editorHandlers: EditorHandlers? = nil
   ) {
-    self.hookHandlers = hookHandlers
     self.systemHandlers = systemHandlers
     self.hierarchyHandlers = hierarchyHandlers
     self.terminalHandlers = terminalHandlers
@@ -44,7 +41,6 @@ public final class MethodRouter {
   public func route(_ request: IPC.Request) async -> RouterOutcome {
     logger.debug("route \(request.method.rawValue, privacy: .public) id=\(request.id, privacy: .public)")
     if let outcome = await routeSystem(request) { return outcome }
-    if let outcome = await routeHook(request) { return outcome }
     if let outcome = await routeHierarchy(request) { return outcome }
     if let outcome = await routeTerminal(request) { return outcome }
     if let outcome = await routeEditor(request) { return outcome }
@@ -216,22 +212,6 @@ public final class MethodRouter {
     // `notWired(.unsupported)` without this branch; reviewer flagged
     // (M3.0.1 nit #1) as acceptable for now — a proper fix would split
     // `IPC.Method` into per-namespace sub-enums, tracked for M3.1.
-    default: return nil
-    }
-  }
-
-  private func routeHook(_ request: IPC.Request) async -> RouterOutcome? {
-    switch request.method {
-    case .hookList: return await hookHandlers.list(request.params)
-    case .hookInstall: return await hookHandlers.install(request.params)
-    case .hookRemove: return await hookHandlers.remove(request.params)
-    case .hookEnable: return await hookHandlers.enable(request.params)
-    case .hookReload: return await hookHandlers.reload(request.params)
-    case .hookTest: return await hookHandlers.test(request.params)
-    case .hookFire: return await hookHandlers.fire(request.params)
-    case .hookRecent: return await hookHandlers.recent(request.params)
-    case .hookEvents: return hookHandlers.events(request.params)
-    // See routeSystem note.
     default: return nil
     }
   }

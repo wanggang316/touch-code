@@ -53,30 +53,34 @@ struct ShortcutSchemaAuditTests {
     (.openSettings, (0x2B, [.command])),                    // ,
     (.quit, (0x0C, [.command])),                            // q
     (.commandPaletteToggle, (0x23, [.command])),            // p
-    (.openInDefaultEditor, (0x0E, [.command])),             // e
-    (.toggleDiffInspector, (0x05, [.command, .shift])),         // g
+    (.openInDefaultEditor, (0x1F, [.command])),             // o
+    (.toggleDiffInspector, (0x05, [.command, .option])),    // g
     (.filterTags, (0x03, [.command])),                      // f
+    (.addProject, (0x1F, [.command, .shift])),              // ⇧O
+    (.openCurrentPR, (0x05, [.command, .shift])),           // g
     (.newTab, (0x11, [.command])),                          // t
     (.closeTab, (0x0D, [.command])),                        // w
     (.previousTab, (0x21, [.command, .shift])),             // [
     (.nextTab, (0x1E, [.command, .shift])),                 // ]
-    (.switchToTab1, (0x12, [.command, .option])),
-    (.switchToTab2, (0x13, [.command, .option])),
-    (.switchToTab3, (0x14, [.command, .option])),
-    (.switchToTab4, (0x15, [.command, .option])),
-    (.switchToTab5, (0x17, [.command, .option])),           // kVK_ANSI_5 == 0x17 (not 0x16!)
-    (.switchToTab6, (0x16, [.command, .option])),           // kVK_ANSI_6 == 0x16
-    (.switchToTab7, (0x1A, [.command, .option])),
-    (.switchToTab8, (0x1C, [.command, .option])),
-    (.switchToTab9, (0x19, [.command, .option])),
-    (.selectWorktreeAt1, (0x12, [.command, .control])),
-    (.selectWorktreeAt2, (0x13, [.command, .control])),
-    (.selectWorktreeAt3, (0x14, [.command, .control])),
-    (.selectWorktreeAt4, (0x15, [.command, .control])),
-    (.selectWorktreeAt5, (0x17, [.command, .control])),
-    (.selectWorktreeAt6, (0x16, [.command, .control])),
-    (.selectWorktreeAt7, (0x1A, [.command, .control])),
-    (.selectWorktreeAt8, (0x1C, [.command, .control])),
-    (.selectWorktreeAt9, (0x19, [.command, .control])),
+    (.switchToTab1, (0x12, [.command])),
+    (.switchToTab2, (0x13, [.command])),
+    (.switchToTab3, (0x14, [.command])),
+    (.switchToTab4, (0x15, [.command])),
+    (.switchToTab5, (0x17, [.command])),                    // kVK_ANSI_5 == 0x17 (not 0x16!)
+    (.switchToTab6, (0x16, [.command])),                    // kVK_ANSI_6 == 0x16
+    (.switchToTab7, (0x1A, [.command])),
+    (.switchToTab8, (0x1C, [.command])),
+    (.switchToTab9, (0x19, [.command])),
+    (.switchToTab10, (0x1D, [.command])),                   // 0
+    (.selectWorktreeAt1, (0x12, [.control])),
+    (.selectWorktreeAt2, (0x13, [.control])),
+    (.selectWorktreeAt3, (0x14, [.control])),
+    (.selectWorktreeAt4, (0x15, [.control])),
+    (.selectWorktreeAt5, (0x17, [.control])),
+    (.selectWorktreeAt6, (0x16, [.control])),
+    (.selectWorktreeAt7, (0x1A, [.control])),
+    (.selectWorktreeAt8, (0x1C, [.control])),
+    (.selectWorktreeAt9, (0x19, [.control])),
+    (.selectWorktreeAt10, (0x1D, [.control])),                // 0
   ]
 }

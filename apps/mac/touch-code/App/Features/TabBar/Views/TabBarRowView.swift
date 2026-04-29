@@ -59,6 +59,7 @@ struct TabBarRowView: View {
           onRenameRequested: { onRenameRequested(tab.id) },
           onCacheLiveTitle: { title in onCacheLiveTitle(tab.id, title) }
         )
+        .modifier(TabChordHintModifier(tabIndex: index + 1))
         .id(tab.id)
         .onDrag {
           NSItemProvider(object: tab.id.raw.uuidString as NSString)
@@ -189,6 +190,23 @@ private struct ResolvingTabChipView: View {
       if !basename.isEmpty { return basename }
     }
     return ""
+  }
+}
+
+/// Overlays the `⌘N` keycap on a chip while ⌘ is held — only for the first ten chips,
+/// since the registry binds `switchToTab1..switchToTab10` (⌘1..⌘9 / ⌘0) and beyond
+/// that nothing fires. Implemented as a `ViewModifier` so we don't have to widen
+/// `TabChipView`'s parameter surface; `commandKeyHint` already reads the resolved
+/// shortcut map from the environment.
+private struct TabChordHintModifier: ViewModifier {
+  let tabIndex: Int
+
+  func body(content: Content) -> some View {
+    if let commandID = CommandID.switchToTab(index: tabIndex) {
+      content.commandKeyHint(commandID)
+    } else {
+      content
+    }
   }
 }
 

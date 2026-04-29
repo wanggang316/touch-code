@@ -47,7 +47,7 @@ struct EditorFeature {
     case openRequested(editorID: EditorID?, worktreePath: String, projectID: ProjectID?)
     case openSucceeded(editorID: EditorID, displayName: String)
     case openFailed(reason: String)
-    /// T3 (⌘E): resolve the Worktree's default editor via per-Project override → global
+    /// T3 (⌘O): resolve the Worktree's default editor via per-Project override → global
     /// default → priority walk, then forward to `.openRequested` with a concrete preferred.
     case openDefaultInCurrentWorktreeRequested(
       projectID: ProjectID,

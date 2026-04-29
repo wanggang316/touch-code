@@ -10,10 +10,7 @@ import TouchCodeCore
 ///   - `hierarchyClient.selectionChanges()` — drives worktree-scoped
 ///     features (C7 diff viewer, M4 detail column swap)
 ///
-/// T1 removed the T0-era `SidebarMode` plumbing (the sidebar unconditionally
-/// renders the hierarchy tree; T2's Header bell is its own feature on
-/// `WorktreeHeader`, not a reuse of `InboxSidebarFeature`). `InboxSidebar`
-/// source files remain in the tree but are no longer mounted in `RootFeature`.
+/// The sidebar unconditionally renders the hierarchy tree.
 @Reducer
 struct RootFeature {
   @ObservableState
@@ -45,6 +42,17 @@ struct RootFeature {
     var paneActionRouter: PaneActionRouterFeature.State = .init()
     /// 0008: router for window/app-level intents decoded from ghostty keybinds.
     var windowActionRouter: WindowActionRouterFeature.State = .init()
+
+    /// In-flight `wt sw` whose detail-pane WorktreeLoadingView should
+    /// take precedence over the resolved selection. Set when the user
+    /// triggers `beginPendingWorktreeCreation`; cleared when the
+    /// resolved selection lands on a real Worktree (success path) or
+    /// when the user discards/cancels the row from the sidebar (the
+    /// pending entry leaves `sidebar.pendingWorktrees`, so the resolver
+    /// in `ContentView` falls back to the selection-based render).
+    /// `.failed` keeps the id around so the detail view can surface
+    /// the error until the user takes action.
+    var activePendingWorktreeID: PendingWorktreeID?
 
     /// Command Palette overlay presentation. `nil` = hidden; non-nil
     /// renders the floating search card on top of the main split. Cleared
@@ -137,12 +145,19 @@ struct RootFeature {
     /// flips `state.diffInspectorVisible` and fires
     /// `HierarchyClient.setWorktreeDiffInspectorVisible` to persist.
     case diffInspectorToggledForCurrentWorktree
-    /// T3: ⌘E entry point. Resolves the current Worktree's path from the
+    /// T3: ⌘O entry point. Resolves the current Worktree's path from the
     /// catalog snapshot (via `hierarchyClient` — reducer-scoped dependency,
     /// unlike SwiftUI `Commands` structs where `@Dependency` falls through
     /// to `liveValue` and crashes on the stubbed `snapshot` accessor) and
     /// dispatches `.editor(.openDefaultInCurrentWorktreeRequested)`.
     case openDefaultForCurrentWorktreeRequested
+    /// ⌘⇧G entry point. Looks up the current Worktree's PR snapshot in
+    /// `state.gitHub.snapshots` and forwards the URL through
+    /// `.gitHub(.delegate(.openURL(...)))` — the same hop the status-bar
+    /// PR badge uses on click. No-op when no Worktree is selected or no
+    /// PR snapshot has been fetched for it yet (typical for non-GitHub
+    /// repos or freshly created branches).
+    case openCurrentPRRequested
     /// Tab-bar uplift: `⌘T` menu binding. Resolves the current Worktree
     /// and forwards `.detail(.tabBar(.newTabButtonTapped))`.
     case newTabForCurrentWorktree
@@ -358,6 +373,14 @@ struct RootFeature {
       case .selectionChanged(let selection):
         let priorProjectID = state.selection.projectID
         state.selection = selection
+        // Selection landed on a real Worktree → drop the pending-loading
+        // overlay so the detail pane reverts to the regular terminal
+        // surface. The success path of `pendingWorktreeFinished` calls
+        // `selectWorktree(realID)` after the catalog write, which is
+        // the moment we want the overlay to retire.
+        if selection.worktreeID != nil {
+          state.activePendingWorktreeID = nil
+        }
         // Auto-seed a Tab + Pane when the selected Worktree has none so
         // switching to a brand-new Worktree immediately shows a live
         // terminal rooted at `worktree.path` instead of a placeholder that
@@ -483,7 +506,7 @@ struct RootFeature {
 
       case .sidebar(.delegate(.openInDefaultEditor(let path, let projectID))):
         // Route through the shared `resolveInstalledPreference` helper so the sidebar
-        // context menu, the Header Open-in button, and the ⌘E shortcut use one resolution
+        // context menu, the Header Open-in button, and the ⌘O shortcut use one resolution
         // path. When neither override nor global default is installed, pass `nil` so the
         // service's priority cascade picks the first installed editor (Cursor / Zed /
         // VSCode / …) before falling through to Finder. Passing `"finder"` here short-
@@ -527,6 +550,17 @@ struct RootFeature {
 
       case .sidebar(.delegate(.openTagManager)):
         state.tagManagerSheet = TagManagerFeature.State()
+        return .none
+
+      // Pending-worktree focus: when the user kicks off creation, snap
+      // the detail pane to the WorktreeLoadingView. The child reducer
+      // appends the row to `sidebar.pendingWorktrees` first; we mark it
+      // as the active overlay so `ContentView` resolves it ahead of the
+      // selection-based render. Cleared from `.selectionChanged` when
+      // a real worktree lands, or implicitly when the row leaves
+      // `pendingWorktrees` (cancel / discard).
+      case .sidebar(.beginPendingWorktreeCreation(let pending)):
+        state.activePendingWorktreeID = pending.id
         return .none
 
       case .sidebar:
@@ -826,6 +860,13 @@ struct RootFeature {
               worktreeID: worktreeID,
               worktreePath: path
             )))
+
+      case .openCurrentPRRequested:
+        guard
+          let worktreeID = state.selection.worktreeID,
+          let snapshot = state.gitHub.snapshots[worktreeID]
+        else { return .none }
+        return .send(.gitHub(.delegate(.openURL(snapshot.url))))
 
       case .openShellEditorInWorktree(let worktreePath, let projectIDHint):
         let catalog = hierarchyClient.snapshot()

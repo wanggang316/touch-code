@@ -1,2 +1,8 @@
 MARKETING_VERSION = 0.1.0
 CURRENT_PROJECT_VERSION = 1
+
+// Optional include — ignored when missing. Keeps Developer ID identity
+// (DEVELOPMENT_TEAM, CODE_SIGN_IDENTITY) per-maintainer; see
+// Release.xcconfig.example for the template. CI runs that don't need
+// signing leave the file absent and the include silently no-ops.
+#include? "Release.xcconfig"

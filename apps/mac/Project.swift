@@ -33,7 +33,6 @@ let project = Project(
       infoPlist: .default,
       buildableFolders: [
         "TouchCodeCore",
-        "TouchCodeCore/Hooks",
         "TouchCodeCore/GitHub",
         "TouchCodeCore/Shortcuts",
         "TouchCodeCore/Shortcuts/ConflictDetectors",
@@ -57,7 +56,6 @@ let project = Project(
       infoPlist: .default,
       buildableFolders: [
         "TouchCodeCoreTests",
-        "TouchCodeCoreTests/Hooks",
         "TouchCodeCoreTests/IPC",
         "TouchCodeCoreTests/GitHubTests",
         "TouchCodeCoreTests/Shortcuts",
@@ -177,7 +175,12 @@ let project = Project(
       ],
       settings: .settings(
         base: [
-          "CODE_SIGNING_ALLOWED": "NO",
+          // Debug builds intentionally skip signing so contributors without
+          // a Developer ID can build the CLI. Release builds sign tc with
+          // the same identity as the app — the CLI ships embedded inside
+          // the .app bundle (see embed-tc.sh) and a notarized app cannot
+          // contain an unsigned executable.
+          "CODE_SIGNING_ALLOWED[config=Debug]": "NO",
           "PRODUCT_NAME": "tc",
           "SWIFT_DEFAULT_ACTOR_ISOLATION": "nonisolated",
         ],
@@ -191,6 +194,7 @@ let project = Project(
       name: "touch-code",
       destinations: .macOS,
       product: .app,
+      productName: "TouchCode",
       bundleId: "com.gumpw.touch-agent-mac",
       deploymentTargets: .macOS("14.0"),
       infoPlist: .file(path: "Configurations/mac-Info.plist"),
@@ -202,12 +206,11 @@ let project = Project(
         "touch-code/App/Features/GitHub/Theme",
         "touch-code/App/Features/GitHub/Views",
         "touch-code/Runtime",
-        "touch-code/Hooks",
         "touch-code/Process",
         "touch-code/Git",
         "touch-code/GitHub",
-        "touch-code/Notifications",
       ],
+      entitlements: .file(path: "Configurations/touch-code.entitlements"),
       // git-wt submodule wiring. Pre-script fails the build cleanly when
       // the submodule is not checked out; post-script copies only the `wt`
       // file into Resources/git-wt/wt so Bundle.main.url(forResource:
@@ -228,6 +231,22 @@ let project = Project(
             "$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/git-wt/wt",
           ],
           basedOnDependencyAnalysis: false
+        ),
+        // tc CLI embedding. Copies the tc binary built by its sibling
+        // target into Resources/bin/tc so the app can ship a single
+        // self-contained .app and `tc skill install` / first-launch
+        // installer (c4-cli D3) have a stable inside-bundle path to
+        // symlink from ~/.local/bin/tc.
+        .post(
+          script: "\"${SRCROOT}/scripts/embed-tc.sh\"",
+          name: "Embed tc",
+          inputPaths: [
+            "$(CONFIGURATION_BUILD_DIR)/tc",
+          ],
+          outputPaths: [
+            "$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/tc",
+          ],
+          basedOnDependencyAnalysis: true
         ),
       ],
       dependencies: [
@@ -258,11 +277,9 @@ let project = Project(
       infoPlist: .default,
       buildableFolders: [
         "touch-code/Tests",
-        "touch-code/Tests/Hooks",
         "touch-code/Tests/Socket",
         "touch-code/Tests/Harness",
         "touch-code/Tests/Integration",
-        "touch-code/Tests/NotificationsTests",
         "touch-code/Tests/GitHubTests",
         "touch-code/Tests/StatusBarTests",
         "touch-code/Tests/Shortcuts",

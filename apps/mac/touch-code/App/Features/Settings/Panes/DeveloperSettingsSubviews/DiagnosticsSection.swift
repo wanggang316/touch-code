@@ -20,13 +20,6 @@ struct DiagnosticsSection: View {
         .buttonStyle(.bordered)
 
         Button {
-          deps.revealInFinder(HookConfig.defaultURL())
-        } label: {
-          Label("Reveal hooks.json", systemImage: "folder")
-        }
-        .buttonStyle(.bordered)
-
-        Button {
           let version = deps.bundleVersion().display
           deps.copyToPasteboard(version)
           copyFeedback = "Copied \(version)"

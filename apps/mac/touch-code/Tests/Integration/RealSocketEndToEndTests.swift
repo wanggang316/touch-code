@@ -77,30 +77,16 @@ final class RealSocketEndToEndTests: XCTestCase {
 
   struct ServerStack {
     let server: SocketServer
-    let dispatcher: HookDispatcher
   }
 
   @MainActor
   static func makeServerStack(path: String) -> ServerStack {
-    let hookURL = URL(fileURLWithPath: NSTemporaryDirectory())
-      .appendingPathComponent("touch-code-real-sock-\(UUID().uuidString).json")
-    let hookStore = HookConfigStore(fileURL: hookURL)
-    let dispatcher = HookDispatcher(
-      config: .empty,
-      store: hookStore,
-      executor: FakeHookExecutor(),
-      actionDispatcher: RecordingHookActionDispatcher()
-    )
-    let hookHandlers = HookHandlers(dispatcher: dispatcher, store: hookStore)
     let systemHandlers = SystemHandlers(
       versions: .init(server: "0.3.0", appBundle: "0.3.0+test")
     )
-    let router = MethodRouter(
-      hookHandlers: hookHandlers,
-      systemHandlers: systemHandlers
-    )
+    let router = MethodRouter(systemHandlers: systemHandlers)
     let server = SocketServer(path: path, router: router)
-    return ServerStack(server: server, dispatcher: dispatcher)
+    return ServerStack(server: server)
   }
 
   static func makeSocketPath() throws -> String {

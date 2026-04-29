@@ -35,18 +35,18 @@ struct MainWindowCommandsTests {
   @Test
   func mainWindowCommandsHasNoDependencyFields() {
     let store = Store(initialState: RootFeature.State()) { RootFeature() }
-    let commands = MainWindowCommands(store: store, shortcuts: [:])
+    let commands = MainWindowCommands(store: { store }, shortcuts: [:])
     let mirror = Mirror(reflecting: commands)
     let labels = mirror.children.compactMap(\.label)
     #expect(mirror.children.count == 2)
     #expect(Set(labels) == ["store", "shortcuts"])
   }
 
-  // MARK: - ⌘E (Open in Default Editor)
+  // MARK: - ⌘O (Open in Default Editor)
 
   @Test
-  func commandEDispatchesOpenDefaultForCurrentWorktreeAndForwardsToEditor() async {
-    // Mirrors the ⌘E button body: `store.send(.openDefaultForCurrentWorktreeRequested)`.
+  func commandODispatchesOpenDefaultForCurrentWorktreeAndForwardsToEditor() async {
+    // Mirrors the ⌘O button body: `store.send(.openDefaultForCurrentWorktreeRequested)`.
     // The reducer resolves the Worktree path from selection + the catalog
     // snapshot and forwards to `EditorFeature.Action.openDefaultInCurrentWorktreeRequested`.
     let projectID = ProjectID()
@@ -95,11 +95,11 @@ struct MainWindowCommandsTests {
   }
 
   @Test
-  func commandEIsNoOpWhenNoWorktreeSelected() async {
-    // The ⌘E button is `.disabled(!hasActiveWorktree)` in the view, but
+  func commandOIsNoOpWhenNoWorktreeSelected() async {
+    // The ⌘O button is `.disabled(!hasActiveWorktree)` in the view, but
     // the reducer must also be defensive: a stale selection without a
     // worktreeID short-circuits to `.none`, never reaching the snapshot
-    // read. Proves the reducer guard that makes ⌘E crash-proof even if
+    // read. Proves the reducer guard that makes ⌘O crash-proof even if
     // the view-level `disabled` drifts.
     let store = TestStore(initialState: RootFeature.State()) {
       RootFeature()

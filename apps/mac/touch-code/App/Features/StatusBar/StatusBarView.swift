@@ -3,23 +3,11 @@ import SwiftUI
 import TouchCodeCore
 
 /// Root SwiftUI view for the Worktree Status Bar's center slot. Picks a
-/// form by priority:
-///   toast (reducer-owned) → PR (derived from GitHubFeature.snapshots)
-///   → motivational (M5) / empty (M1 skeleton).
-///
-/// Mounted via `ToolbarItem(placement: .principal)` in `WorktreeDetailView`
-/// with `ToolbarSpacer(.flexible)` on either side to keep the slot centered.
-///
-/// Background is intentionally not drawn here — macOS 26 wraps the
-/// `ToolbarItem` in the standard glass capsule. Layout is form on the
-/// left, vertical hairline divider, and the notification bell on the
-/// right; horizontal padding is widened so the form and bell each get
-/// breathing room from the capsule edge.
+/// form by priority: toast (reducer-owned) → PR (derived from
+/// GitHubFeature.snapshots) → motivational / empty.
 struct StatusBarView: View {
   @Bindable var store: StoreOf<StatusBarFeature>
   let gitHubStore: StoreOf<GitHubFeature>
-  /// Header feature store. Owns the trailing notification bell.
-  let headerStore: StoreOf<WorktreeHeaderFeature>
   /// Active Worktree identifier, nil when selection doesn't resolve one
   /// (sidebar placeholder state). Drives the PR form's snapshot lookup.
   let worktreeID: WorktreeID?
@@ -32,9 +20,6 @@ struct StatusBarView: View {
         Color.clear.frame(width: 0, height: 0)
       }
       .animation(.easeInOut(duration: 0.2), value: formIdentity)
-      Divider()
-        .frame(height: 14)
-      HeaderBellView(store: headerStore)
     }
     .padding(.horizontal, 12)
     .accessibilityElement(children: .contain)

@@ -1079,3 +1079,21 @@ enum TagAliasResolver {
     ).exitProcess()
   }
 }
+
+/// Wraps a `JSONValue` so `Renderer.emit(_:mode:)` can print it both as
+/// pretty JSON and as a human-readable description.
+struct JSONValueRenderable: Encodable, CustomStringConvertible {
+  let value: JSONValue
+  init(_ value: JSONValue) { self.value = value }
+
+  func encode(to encoder: Encoder) throws {
+    try value.encode(to: encoder)
+  }
+
+  var description: String {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+    let data = (try? encoder.encode(value)) ?? Data()
+    return String(bytes: data, encoding: .utf8) ?? "(unprintable)"
+  }
+}

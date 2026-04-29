@@ -1,20 +1,18 @@
+import AppKit
 import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
 
-/// Renders the sidebar per `docs/product-specs/ui-main-window-redesign.md`:
-/// a sticky toolbar with "+ Add Project" and a "⋯" menu; the catalog's
-/// Projects as collapsible sections with hover-revealed `+` / `⋯` chrome;
-/// Worktree rows with a leading `●`/`○` selection dot and a trailing
-/// unread-notification dot; a Tag chip footer pinned at the bottom safe
-/// area for filtering by Tag; and empty-state + confirmation / stub-sheet
-/// presentations.
+/// Renders the sidebar: a sticky toolbar with "+ Add Project" and a "⋯"
+/// menu; the catalog's Projects as collapsible sections with hover-revealed
+/// `+` / `⋯` chrome; Worktree rows with a leading `●`/`○` selection dot;
+/// a Tag chip footer pinned at the bottom safe area for filtering by Tag;
+/// and empty-state + confirmation / stub-sheet presentations.
 ///
 /// Structural data is NOT held in reducer state — the view reads the active
-/// `Catalog` from `HierarchyManager` and the `NotificationInbox` from
-/// `InboxStore` through SwiftUI's environment, so row lists and unread dots
-/// update whenever the underlying `@Observable` stores mutate. The TCA
-/// reducer owns only local view state (expansion sets, popover / sheet /
+/// `Catalog` from `HierarchyManager` through SwiftUI's environment, so row
+/// lists update whenever the underlying `@Observable` stores mutate. The
+/// TCA reducer owns only local view state (expansion sets, popover / sheet /
 /// confirmation payloads) and dispatches side effects through
 /// `HierarchyClient` (plus delegate actions for Finder / editor open that
 /// `RootFeature` routes).
@@ -26,12 +24,11 @@ struct HierarchySidebarView: View {
   /// previews / tests that don't exercise the integration.
   var gitHubStore: StoreOf<GitHubFeature>?
   @Environment(HierarchyManager.self) private var hierarchyManager
-  @Environment(InboxStore.self) private var inboxStore
   @Environment(SettingsStore.self) private var settingsStore
   @Environment(WorktreeStatusMonitor.self) private var worktreeStatusMonitor
 
   /// Tracks whether the `.command` modifier is currently pressed. When held the sidebar
-  /// reveals per-row `⌃⌘N` hotkey hints (and the matching `⌃⌘1`–`⌃⌘9` bindings).
+  /// reveals per-row `⌃N` hotkey hints (and the matching `⌃1`–`⌃9` / `⌃0` bindings).
   @Environment(CommandKeyObserver.self) private var commandKeyObserver
   @Environment(\.resolvedShortcuts) private var resolvedShortcuts
 
@@ -114,7 +111,7 @@ struct HierarchySidebarView: View {
   /// which only assigns slots to real worktrees. Derived from
   /// `orderedSidebarRows` so the segment ordering stays in one place; the
   /// `pendings: []` argument is correct for hotkey purposes — pending rows
-  /// never claim a `⌃⌘N` slot per design doc §pending 段 用户操作.
+  /// never claim a `⌃N` slot per design doc §pending 段 用户操作.
   static func orderedVisibleWorktrees(in project: Project) -> [Worktree] {
     orderedSidebarRows(project: project, pendings: []).compactMap { row in
       if case .worktree(let w) = row { return w } else { return nil }
@@ -123,16 +120,6 @@ struct HierarchySidebarView: View {
 
   var body: some View {
     let catalog = hierarchyManager.catalog
-    // Build the PaneID→WorktreeID index once per render pass. Worktree rows
-    // and Project headers both fold over `inbox.notifications` using this
-    // shared index instead of calling `NotificationInbox.unreadCount(
-    // forWorktree:in:)` / `.hasUnread(forProject:in:)` per row — those
-    // helpers each rebuild the index internally (see the doc-comment in
-    // `NotificationInboxAggregation.swift`), which is O(rows × panes) per
-    // render. The inline fold is the deliberate amortization the T1 design
-    // calls out in §View Composition / §Unread-dot index caching.
-    let paneIndex = catalog.paneWorktreeIndex()
-    let inbox = inboxStore.inbox
 
     // Filter the project list by the catalog's active tag filter (M4).
     // OR semantics on `.tags(set)`; `.untagged` shows projects with no
@@ -143,7 +130,7 @@ struct HierarchySidebarView: View {
     // Sidebar body is the List, with a compact filter footer mounted at
     // the bottom `.safeAreaInset` — a single trailing glyph that opens an
     // upward popover listing the available tag filters.
-    treeBody(projects: visibleProjects, paneIndex: paneIndex, inbox: inbox)
+    treeBody(projects: visibleProjects)
       .safeAreaInset(edge: .bottom, spacing: 0) {
         TagFilterPopoverFooter(
           tags: catalog.tags,
@@ -269,6 +256,7 @@ struct HierarchySidebarView: View {
         store.send(.toolbarAddProjectTapped)
       } label: {
         Label("Add Project", systemImage: "plus")
+          .commandKeyHint(.addProject)
       }
       .help("Add Project")
     }
@@ -297,24 +285,20 @@ struct HierarchySidebarView: View {
   // MARK: - Tree
 
   @ViewBuilder
-  private func treeBody(
-    projects: [Project],
-    paneIndex: [PaneID: WorktreeID],
-    inbox: NotificationInbox
-  ) -> some View {
+  private func treeBody(projects: [Project]) -> some View {
     if projects.isEmpty {
       emptyState
     } else {
       // Top-down flat enumeration of visible worktrees across projects, following the
       // same main → pinned → others partition the rows themselves render in. Used to
-      // assign `⌃⌘1`…`⌃⌘9` and reveal matching hints while ⌘ is held. Archived rows
-      // live in a separate sheet and never claim a hotkey slot.
+      // assign `⌃1`…`⌃9` plus `⌃0` (10th slot) and reveal matching hints while ⌘ is
+      // held. Archived rows live in a separate sheet and never claim a hotkey slot.
       let hotkeyIndex: [WorktreeID: Int] = {
         var map: [WorktreeID: Int] = [:]
         var slot = 0
         for project in projects {
           for worktree in Self.orderedVisibleWorktrees(in: project) {
-            if slot >= 9 { return map }
+            if slot >= 10 { return map }
             map[worktree.id] = slot
             slot += 1
           }
@@ -329,12 +313,7 @@ struct HierarchySidebarView: View {
       // tolerate the default indicator posture here.
       List(selection: nativeSelectionBinding) {
         ForEach(projects) { project in
-          projectSection(
-            project,
-            paneIndex: paneIndex,
-            inbox: inbox,
-            hotkeyIndex: hotkeyIndex
-          )
+          projectSection(project, hotkeyIndex: hotkeyIndex)
         }
       }
       .listStyle(.sidebar)
@@ -357,6 +336,7 @@ struct HierarchySidebarView: View {
         store.send(.toolbarAddProjectTapped)
       } label: {
         Label("Add Project", systemImage: "plus")
+          .commandKeyHint(.addProject)
       }
       .buttonStyle(.borderedProminent)
       Spacer()
@@ -369,17 +349,8 @@ struct HierarchySidebarView: View {
 
   private func projectSection(
     _ project: Project,
-    paneIndex: [PaneID: WorktreeID],
-    inbox: NotificationInbox,
     hotkeyIndex: [WorktreeID: Int]
   ) -> some View {
-    let projectHasUnread = inbox.notifications.contains { notification in
-      guard notification.isUnread,
-        let worktreeID = paneIndex[notification.paneID]
-      else { return false }
-      return project.worktrees.contains(where: { $0.id == worktreeID })
-    }
-
     let isExpanded = project.isExpanded
     return Group {
       switch project.loadState {
@@ -414,7 +385,6 @@ struct HierarchySidebarView: View {
         } label: {
           ProjectHeaderRow(
             project: project,
-            hasUnread: projectHasUnread,
             isLoading: project.loadState == .loading,
             isExpanded: isExpanded,
             store: store
@@ -435,16 +405,10 @@ struct HierarchySidebarView: View {
           let unpinnedRows = visible.filter { !$0.isPinned && $0.path != project.rootPath }
           let pendingRows = store.pendingWorktrees.filter { $0.projectID == project.id }
           ForEach(mainRows) { worktree in
-            worktreeRow(
-              worktree, in: project, paneIndex: paneIndex, inbox: inbox,
-              hotkeySlot: hotkeyIndex[worktree.id]
-            )
+            worktreeRow(worktree, in: project, hotkeySlot: hotkeyIndex[worktree.id])
           }
           ForEach(pinnedRows) { worktree in
-            worktreeRow(
-              worktree, in: project, paneIndex: paneIndex, inbox: inbox,
-              hotkeySlot: hotkeyIndex[worktree.id]
-            )
+            worktreeRow(worktree, in: project, hotkeySlot: hotkeyIndex[worktree.id])
           }
           .onMove { source, destination in
             store.send(
@@ -458,10 +422,7 @@ struct HierarchySidebarView: View {
             pendingRow(pending)
           }
           ForEach(unpinnedRows) { worktree in
-            worktreeRow(
-              worktree, in: project, paneIndex: paneIndex, inbox: inbox,
-              hotkeySlot: hotkeyIndex[worktree.id]
-            )
+            worktreeRow(worktree, in: project, hotkeySlot: hotkeyIndex[worktree.id])
           }
           .onMove { source, destination in
             store.send(
@@ -496,17 +457,9 @@ struct HierarchySidebarView: View {
   private func worktreeRow(
     _ worktree: Worktree,
     in project: Project,
-    paneIndex: [PaneID: WorktreeID],
-    inbox: NotificationInbox,
     hotkeySlot: Int?
   ) -> some View {
     let isSelected = currentSelection.worktreeID == worktree.id
-    let unreadCount = inbox.notifications.reduce(into: 0) { total, notification in
-      guard notification.isUnread,
-        paneIndex[notification.paneID] == worktree.id
-      else { return }
-      total += 1
-    }
     let snapshot = gitHubStore?.snapshots[worktree.id]
     let rollup: PullRequestBadge.CheckRollup = {
       // 0013 M5: rollup data travels with the snapshot now (filled by the batched
@@ -527,10 +480,25 @@ struct HierarchySidebarView: View {
       rowSelectionButton(
         worktree: worktree, project: project,
         snapshot: snapshot, rollup: rollup,
-        unreadCount: unreadCount, hotkeyNumber: hotkeyNumber,
+        hotkeyNumber: hotkeyNumber,
         isSelected: isSelected
       )
       gitHubBadge(for: worktree, in: project)
+      // Trailing chord hint, after both the row content and the optional PR pill so it
+      // always pins to the right edge of the row instead of being shoved leftwards by
+      // the pill's intrinsic width. Visible only while ⌘ is held.
+      if let hotkeyNumber, commandKeyObserver.isCommandHeld {
+        Text("⌃\(hotkeyNumber == 10 ? "0" : String(hotkeyNumber))")
+          .font(.caption2.monospaced())
+          .foregroundStyle(.secondary)
+          .padding(.horizontal, 4)
+          .padding(.vertical, 1)
+          .overlay(
+            RoundedRectangle(cornerRadius: 3)
+              .stroke(Color.secondary.opacity(0.35), lineWidth: 1)
+          )
+          .accessibilityHidden(true)
+      }
     }
     // Worktree rows are real List children. Selection chrome is owned by
     // SwiftUI's native `List(selection:)` (see `nativeSelectionBinding`):
@@ -562,7 +530,7 @@ struct HierarchySidebarView: View {
   private func rowSelectionButton(
     worktree: Worktree, project: Project,
     snapshot: PullRequestSnapshot?, rollup: PullRequestBadge.CheckRollup,
-    unreadCount: Int, hotkeyNumber: Int?,
+    hotkeyNumber: Int?,
     isSelected: Bool
   ) -> some View {
     let isMainCheckout = worktree.path == project.rootPath
@@ -604,24 +572,12 @@ struct HierarchySidebarView: View {
         }
       }
       Spacer()
-      if unreadCount > 0 {
-        Circle()
-          .fill(Color.orange)
-          .frame(width: 6, height: 6)
-          .accessibilityLabel("Has \(unreadCount) unread notifications")
-      }
-      if let hotkeyNumber, commandKeyObserver.isCommandHeld {
-        Text("⌃⌘\(hotkeyNumber)")
-          .font(.caption2.monospaced())
-          .foregroundStyle(.secondary)
-          .padding(.horizontal, 4)
-          .padding(.vertical, 1)
-          .overlay(
-            RoundedRectangle(cornerRadius: 3)
-              .stroke(Color.secondary.opacity(0.35), lineWidth: 1)
-          )
-          .accessibilityHidden(true)
-      }
+      // The chord hint used to sit here, but the GitHub PR badge is a *sibling* HStack
+      // member outside `rowSelectionButton` (so the badge's Button isn't a child of the
+      // row Button); rendering the hint inline meant the trailing PR pill always pushed
+      // the hint left of itself. Hint moved to the outer HStack — see
+      // `worktreeRow(...)` in this file — so it sticks to the trailing edge regardless
+      // of whether a PR pill is present.
     }
     .contentShape(Rectangle())
 
@@ -629,9 +585,8 @@ struct HierarchySidebarView: View {
     // 0×0 invisible Button via `.background` so the shortcut lives in
     // the responder chain without painting pixels or competing with
     // List's hit-test for clicks (zero frame == zero hit area). The
-    // chord itself comes from the shortcut registry — defaults match
-    // the prior `⌃⌘N` literal but a user rebind takes effect here
-    // without restart.
+    // chord itself comes from the shortcut registry — defaults are
+    // ⌃1..⌃9 / ⌃0 but a user rebind takes effect here without restart.
     if let hotkeyNumber, let commandID = CommandID.selectWorktreeAt(index: hotkeyNumber) {
       content.background(alignment: .topLeading) {
         Button {
@@ -871,10 +826,9 @@ struct HierarchySidebarView: View {
 /// view-local concern — not worth promoting to reducer state.
 private struct ProjectHeaderRow: View {
   let project: Project
-  let hasUnread: Bool
-  /// When `true`, a small inline `ProgressView` replaces the unread dot so
-  /// the user can see a reconcile pass is in flight without blocking the
-  /// window (P-Q3: inline spinner, never modal).
+  /// When `true`, a small inline `ProgressView` indicates a reconcile pass
+  /// is in flight without blocking the window (P-Q3: inline spinner,
+  /// never modal).
   var isLoading: Bool = false
   /// Drives the leading disclosure chevron (`chevron.right` collapsed, `chevron.down`
   /// expanded). The parent Button still owns the tap, so this is display-only.
@@ -905,11 +859,6 @@ private struct ProjectHeaderRow: View {
           .scaleEffect(0.5)
           .frame(width: 12, height: 12)
           .accessibilityLabel("Loading Project")
-      } else if hasUnread {
-        Circle()
-          .fill(Color.accentColor)
-          .frame(width: 6, height: 6)
-          .accessibilityLabel("Has unread notifications")
       }
       // Keep the hover chrome from collapsing row width when hidden —
       // use opacity, not conditional rendering.
@@ -950,11 +899,10 @@ private struct ProjectHeaderRow: View {
             Label("Prune Stale Worktrees", systemImage: "wand.and.sparkles")
           }
           Divider()
-          // M5 (project-tags): inline color palette + "Tags…" entry. The
-          // palette is a `Picker(.palette)` whose `Set<TagID>` setter
-          // routes through `setProjectTagsBulk`; "Tags…" opens the
-          // global TagManager sheet via the sidebar's `.openTagManager`
-          // delegate. Apple's Notes / Reminders use this same pattern.
+          // M5 (project-tags): inline color palette + "Tags…" entry.
+          // ControlGroup(.palette) gives the native NSMenu color row;
+          // "Tags…" opens the global TagManager via the sidebar's
+          // `.openTagManager` delegate.
           ProjectTagsMenu(project: project, store: store)
           Divider()
           Button(role: .destructive) {
@@ -1176,50 +1124,43 @@ private struct ProjectTagDots: View {
   }
 }
 
-/// Inline tag controls for the project header ⋯ menu. Renders the catalog
-/// tags as a `ControlGroup(.palette)` of always-filled colored circles
-/// that flip to `checkmark.circle.fill` when the project carries the tag.
-/// Color comes from `.tint(...)` on the Button (NSMenu's palette renderer
-/// honours per-item tint; `.foregroundStyle` on the inner Label is
-/// silently dropped). Below the palette sits a plain "Tags…" entry that
-/// opens the global TagManager via the sidebar's `.openTagManager`
-/// delegate. When the catalog has no tags, only the "Tags…" entry
-/// renders so users can still discover the manager.
-///
-/// `Picker(.palette)` is the more idiomatic API but its
-/// `paletteSelectionEffect` only switches symbol variants (hollow ↔
-/// filled) — there's no built-in path to a checkmark overlay, so we
-/// drive the symbol manually here.
+/// Tag controls for the project header ⋯ menu, rendered as a native
+/// NSMenu submenu. Each row inside the submenu shows the tag's colored
+/// circle plus its name; a `checkmark.circle.fill` variant indicates
+/// the project already carries that tag. Color comes from `.tint(...)`
+/// on the Button — NSMenu's renderer honours per-item tint (foreground
+/// style on the inner Label is silently dropped). The trailing "Tags…"
+/// entry opens the global TagManager via `.openTagManager`. When the
+/// catalog has no tags, the submenu collapses to a single "Tags…"
+/// entry so users can still discover the manager.
 private struct ProjectTagsMenu: View {
   let project: Project
   @Bindable var store: StoreOf<HierarchySidebarFeature>
   @Environment(HierarchyManager.self) private var hierarchyManager
 
   var body: some View {
-    let tags = hierarchyManager.catalog.tags
-    if !tags.isEmpty {
-      ControlGroup {
-        ForEach(tags) { tag in
-          let isOn = project.tagIDs.contains(tag.id)
-          Button {
-            store.send(.toggleTagOnProject(project.id, tag.id))
-          } label: {
-            Label(
-              tag.name,
-              systemImage: isOn ? "checkmark.circle.fill" : "circle.fill"
-            )
-            .labelStyle(.iconOnly)
-          }
-          .tint(swiftUIColor(for: tag.color))
-          .help(tag.name)
+    Menu {
+      let tags = hierarchyManager.catalog.tags
+      ForEach(tags) { tag in
+        let isOn = project.tagIDs.contains(tag.id)
+        Button {
+          store.send(.toggleTagOnProject(project.id, tag.id))
+        } label: {
+          Label(
+            tag.name,
+            systemImage: isOn ? "checkmark.circle.fill" : "circle.fill"
+          )
         }
+        .tint(swiftUIColor(for: tag.color))
       }
-      .controlGroupStyle(.palette)
-    }
-    Button {
-      store.send(.delegate(.openTagManager))
+      if !tags.isEmpty { Divider() }
+      Button {
+        store.send(.delegate(.openTagManager))
+      } label: {
+        Label("Tags…", systemImage: "tag")
+      }
     } label: {
-      Label("Tags…", systemImage: "tag")
+      Label("Tags", systemImage: "tag")
     }
   }
 }

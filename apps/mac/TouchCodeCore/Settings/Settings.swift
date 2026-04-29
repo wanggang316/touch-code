@@ -18,20 +18,17 @@ public nonisolated struct Settings: Equatable, Sendable {
 
   public var version: Int
   public var general: GeneralSettings
-  public var notifications: NotificationsSettings
   public var developer: DeveloperSettings
   public var projects: [ProjectID: ProjectSettings]
 
   public init(
     version: Int = Settings.currentVersion,
     general: GeneralSettings = .default,
-    notifications: NotificationsSettings = .default,
     developer: DeveloperSettings = .default,
     projects: [ProjectID: ProjectSettings] = [:]
   ) {
     self.version = version
     self.general = general
-    self.notifications = notifications
     self.developer = developer
     self.projects = projects
   }
@@ -98,7 +95,7 @@ extension Settings: Codable {
   }
 
   private enum CodingKeys: String, CodingKey {
-    case version, general, notifications, developer, projects
+    case version, general, developer, projects
   }
 
   public init(from decoder: Decoder) throws {
@@ -111,7 +108,6 @@ extension Settings: Codable {
     }
     self.version = version
     self.general = try container.decodeIfPresent(GeneralSettings.self, forKey: .general) ?? .default
-    self.notifications = try container.decodeIfPresent(NotificationsSettings.self, forKey: .notifications) ?? .default
     self.developer = try container.decodeIfPresent(DeveloperSettings.self, forKey: .developer) ?? .default
 
     // `projects` is encoded as a JSON object keyed by the ProjectID UUID string so the file
@@ -147,7 +143,6 @@ extension Settings: Codable {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(version, forKey: .version)
     try container.encode(general, forKey: .general)
-    try container.encode(notifications, forKey: .notifications)
     try container.encode(developer, forKey: .developer)
     var stringKeyed: [String: ProjectSettings] = [:]
     stringKeyed.reserveCapacity(projects.count)
