@@ -66,10 +66,14 @@ After this plan completes, a touch-code user can:
   with fixed 280 pt column width. Binding routes through the shared
   `.diffInspectorToggledForCurrentWorktree` reducer branch (D21). Build
   green; full suite stable at 47 baseline issues. (2026-04-29)
-- [ ] M6 — Drawer view: implement `DiffDrawerView` + `DiffStylePicker`;
-  attach via `.overlay { ... }` on `terminalRegion`; AppStorage
-  `diffStyle` persists; row-tap → drawer-open and `×`-or-chevron →
-  drawer-close work; manual smoke pass.
+- [x] M6 — Drawer view: `DiffDrawerView` + `DiffStylePicker` added under
+  `App/Features/Diff/Views/`. `WorktreeDetailView` accepts a
+  `diffStore: StoreOf<DiffFeature>` parameter and overlays the drawer on
+  `terminalRegion` whenever `presentedFilePath != nil`, with
+  `.move(edge: .trailing)` + `.opacity` transition and a spring
+  animation. `@AppStorage("diffStyle")` persists the unified ↔ split
+  toggle (D22). Build green; full suite stable at 47 baseline issues.
+  (2026-04-29)
 - [ ] M7 — End-to-end + review: full manual smoke walkthrough; XCUITest
   WebView smoke; spawn `agent-skills:code-reviewer` against the
   cumulative diff; address blockers; PR ready.

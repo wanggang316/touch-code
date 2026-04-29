@@ -27,6 +27,10 @@ struct WorktreeDetailView: View {
   /// `snapshots[worktreeID]` lookup. Same store the sidebar badge reads so
   /// the two surfaces stay in sync by construction.
   let gitHubStore: StoreOf<GitHubFeature>
+  /// M6: diff feature store — owns `presentedFilePath` + `diffsByPath`.
+  /// Mounted as an overlay on `terminalRegion` so the drawer covers the
+  /// terminal area without re-flowing the toolbar / tab-bar layout.
+  let diffStore: StoreOf<DiffFeature>
   @Environment(HierarchyManager.self) private var hierarchyManager
 
   var body: some View {
@@ -35,6 +39,17 @@ struct WorktreeDetailView: View {
       VStack(spacing: 0) {
         tabBarRow(address: address)
         terminalRegion(address: address)
+          .overlay {
+            if diffStore.state.presentedFilePath != nil {
+              DiffDrawerView(store: diffStore)
+                .zIndex(80)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+          }
+          .animation(
+            .spring(response: 0.32, dampingFraction: 0.85),
+            value: diffStore.state.presentedFilePath
+          )
       }
       // On macOS 15+ remove the title slot entirely so default-placement
       // toolbar items can flow leading-to-trailing with `ToolbarSpacer`

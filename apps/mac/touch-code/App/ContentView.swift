@@ -72,7 +72,8 @@ struct ContentView: View {
         editorStore: store.scope(state: \.editor, action: \.editor),
         headerStore: store.scope(state: \.worktreeHeader, action: \.worktreeHeader),
         statusBarStore: store.scope(state: \.statusBar, action: \.statusBar),
-        gitHubStore: store.scope(state: \.gitHub, action: \.gitHub)
+        gitHubStore: store.scope(state: \.gitHub, action: \.gitHub),
+        diffStore: store.scope(state: \.diff, action: \.diff)
       )
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .overlay(alignment: .bottom) { editorToastOverlay }
