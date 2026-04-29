@@ -60,9 +60,12 @@ After this plan completes, a touch-code user can:
   `--name-status -z`, `RootFeature.State.diff` mounted with selection
   forwarding through `.diff(.worktreeSelected(...))`. `DiffFeatureTests`
   (6 tests) pass; full suite drops from 48 → 47 issues. (2026-04-29)
-- [ ] M5 — Inspector view: implement `DiffInspectorView` + `DiffFileRow`;
-  mount via `.inspector(isPresented:)` at the detail-column subtree;
-  ⌘⇧G toggles visibility end-to-end; manual smoke pass.
+- [x] M5 — Inspector view: `DiffInspectorView` + `DiffFileRow` added
+  under `App/Features/Diff/Views/`. `ContentView` mounts via
+  `.inspector(isPresented: diffInspectorBinding)` on the detail subtree
+  with fixed 280 pt column width. Binding routes through the shared
+  `.diffInspectorToggledForCurrentWorktree` reducer branch (D21). Build
+  green; full suite stable at 47 baseline issues. (2026-04-29)
 - [ ] M6 — Drawer view: implement `DiffDrawerView` + `DiffStylePicker`;
   attach via `.overlay { ... }` on `terminalRegion`; AppStorage
   `diffStyle` persists; row-tap → drawer-open and `×`-or-chevron →

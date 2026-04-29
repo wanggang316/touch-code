@@ -76,6 +76,10 @@ struct ContentView: View {
       )
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .overlay(alignment: .bottom) { editorToastOverlay }
+      .inspector(isPresented: diffInspectorBinding) {
+        DiffInspectorView(store: store.scope(state: \.diff, action: \.diff))
+          .inspectorColumnWidth(min: 280, ideal: 280, max: 280)
+      }
       .sheet(
         item: $store.scope(state: \.lifecycleScriptToast, action: \.lifecycleScriptToast)
       ) { toastStore in
@@ -124,6 +128,25 @@ struct ContentView: View {
     // expansion set to maintain.
   }
 
+  /// Drives the third-column `.inspector(isPresented:)` mount. Source of
+  /// truth is `Worktree.diffInspectorVisible` (read via the live catalog
+  /// snapshot inside `RootFeature.State.diffInspectorVisible(in:)`); the
+  /// setter routes through `.diffInspectorToggledForCurrentWorktree` so
+  /// the same reducer branch the Header GV button + ⌘⇧G use also handles
+  /// SwiftUI-driven dismiss (e.g. user clicks the system-supplied
+  /// inspector toggle in the toolbar). The "diverges from current value"
+  /// guard avoids echoing identical writes when SwiftUI re-asks for the
+  /// binding during layout.
+  private var diffInspectorBinding: Binding<Bool> {
+    Binding<Bool>(
+      get: { store.state.diffInspectorVisible(in: hierarchyManager.catalog) },
+      set: { newValue in
+        let current = store.state.diffInspectorVisible(in: hierarchyManager.catalog)
+        guard newValue != current else { return }
+        store.send(.diffInspectorToggledForCurrentWorktree)
+      }
+    )
+  }
 }
 
 extension ContentView {
