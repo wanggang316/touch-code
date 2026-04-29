@@ -12,9 +12,9 @@ After this change, a user clicking **Install** in Settings → Developer enters 
 
 ## Progress
 
-- [x] M1 — Repoint paths to `/usr/local/bin`, drop PATH advisory, update probe
-- [x] M2 — `PrivilegedShell` protocol, `AppleScriptPrivilegedShell` real impl, fake for tests
-- [x] M3 — Rewrite `install()` / `uninstall()` to compose one privileged shell script
+- [x] M1 — Repoint paths to `/usr/local/bin`, drop PATH advisory, update probe (2026-04-29 23:13, commit d1fc652)
+- [x] M2 — `PrivilegedShell` protocol, `AppleScriptPrivilegedShell` real impl, fake for tests (2026-04-29 23:14, commit be22dab)
+- [x] M3 — Rewrite `install()` / `uninstall()` to compose one privileged shell script (2026-04-29 23:18)
 - [x] M4 — Legacy `~/.local/bin/{tc,tcode}` cleanup baked into install script
 - [x] M5 — Settings card copy + error surfaces for new error cases
 - [x] M6 — Update unit tests; add script-composer tests; update existing assertions
