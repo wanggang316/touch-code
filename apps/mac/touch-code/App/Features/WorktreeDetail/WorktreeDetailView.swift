@@ -27,31 +27,44 @@ struct WorktreeDetailView: View {
   /// `snapshots[worktreeID]` lookup. Same store the sidebar badge reads so
   /// the two surfaces stay in sync by construction.
   let gitHubStore: StoreOf<GitHubFeature>
-  /// M6: diff feature store — owns `presentedFilePath` + `diffsByPath`.
-  /// Mounted as an overlay on the whole detail VStack so the drawer
-  /// covers both the tab bar and the terminal region without re-flowing
-  /// the toolbar layout.
+  /// M6: diff feature store — drives the Diff inspector column and the
+  /// drawer overlay that fills the detail body when a file row is open.
   let diffStore: StoreOf<DiffFeature>
+  /// M5: drives the inline Diff inspector column rendered to the right
+  /// of the detail body. Sourced from `Worktree.diffInspectorVisible` via
+  /// `RootFeature.State.diffInspectorVisible(in:)` in `ContentView`.
+  let inspectorVisible: Bool
   @Environment(HierarchyManager.self) private var hierarchyManager
 
   var body: some View {
     if let address = resolveAddress() {
       let info = worktreeInfo(for: address)
-      VStack(spacing: 0) {
-        tabBarRow(address: address)
-        terminalRegion(address: address)
-      }
-      .overlay {
-        if diffStore.state.presentedFilePath != nil {
-          DiffDrawerView(store: diffStore)
-            .zIndex(80)
-            .transition(.move(edge: .trailing).combined(with: .opacity))
+      HStack(spacing: 0) {
+        VStack(spacing: 0) {
+          tabBarRow(address: address)
+          terminalRegion(address: address)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay {
+          if diffStore.state.presentedFilePath != nil {
+            DiffDrawerView(store: diffStore)
+              .zIndex(80)
+              .transition(.move(edge: .trailing).combined(with: .opacity))
+          }
+        }
+        .animation(
+          .spring(response: 0.32, dampingFraction: 0.85),
+          value: diffStore.state.presentedFilePath
+        )
+
+        if inspectorVisible {
+          Divider()
+          DiffInspectorView(store: diffStore)
+            .frame(width: 280)
+            .transition(.move(edge: .trailing))
         }
       }
-      .animation(
-        .spring(response: 0.32, dampingFraction: 0.85),
-        value: diffStore.state.presentedFilePath
-      )
+      .animation(.easeInOut(duration: 0.18), value: inspectorVisible)
       // On macOS 15+ remove the title slot entirely so default-placement
       // toolbar items can flow leading-to-trailing with `ToolbarSpacer`
       // controlling the layout (same pattern supacode uses).
