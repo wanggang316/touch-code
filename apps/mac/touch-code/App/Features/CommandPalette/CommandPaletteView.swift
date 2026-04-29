@@ -20,25 +20,16 @@ struct CommandPaletteView: View {
   @FocusState private var queryFocused: Bool
 
   var body: some View {
-    ZStack {
-      Color.black.opacity(0.08)
-        .ignoresSafeArea()
-        .contentShape(Rectangle())
-        .onTapGesture { onDismiss() }
-        .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("Dismiss Command Palette")
-
-      VStack(spacing: 0) {
-        queryField
-        Divider()
-        resultList
-      }
-      .frame(maxWidth: 560)
-      .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
-      .shadow(radius: 20, y: 8)
-      .padding(.top, 80)
-      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    VStack(spacing: 0) {
+      queryField
+      Divider()
+      resultList
     }
+    .frame(maxWidth: 560)
+    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+    .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
+    .padding(.top, 80)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     .onAppear { queryFocused = true }
   }
 
@@ -81,19 +72,31 @@ struct CommandPaletteView: View {
         .padding(24)
         .frame(maxWidth: .infinity)
     } else {
-      ScrollView {
-        VStack(spacing: 0) {
-          ForEach(store.filtered) { item in
-            row(item, selected: item.id == store.selectionID)
-              .contentShape(Rectangle())
-              .onTapGesture { store.send(.rowTapped(item.id)) }
-              .accessibilityAddTraits(.isButton)
-              .accessibilityLabel(item.title)
-              .accessibilityHint(item.subtitle ?? "")
+      ScrollViewReader { proxy in
+        ScrollView {
+          VStack(spacing: 1) {
+            ForEach(store.filtered) { item in
+              row(item, selected: item.id == store.selectionID)
+                .id(item.id)
+                .contentShape(Rectangle())
+                .onTapGesture { store.send(.rowTapped(item.id)) }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel(item.title)
+                .accessibilityHint(item.subtitle ?? "")
+            }
+          }
+          .padding(.horizontal, 6)
+          .padding(.vertical, 6)
+        }
+        .scrollIndicators(.hidden)
+        .frame(maxHeight: 360)
+        .onChange(of: store.selectionID) { _, newID in
+          guard let newID else { return }
+          withAnimation(.easeOut(duration: 0.12)) {
+            proxy.scrollTo(newID, anchor: .center)
           }
         }
       }
-      .frame(maxHeight: 360)
     }
   }
 
@@ -116,9 +119,12 @@ struct CommandPaletteView: View {
           .foregroundStyle(selected ? AnyShapeStyle(.white.opacity(0.85)) : AnyShapeStyle(.secondary))
       }
     }
-    .padding(.horizontal, 14)
+    .padding(.horizontal, 10)
     .padding(.vertical, 8)
-    .background(selected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(Color.clear))
+    .background(
+      RoundedRectangle(cornerRadius: 6, style: .continuous)
+        .fill(selected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(Color.clear))
+    )
     .foregroundStyle(selected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
   }
 
