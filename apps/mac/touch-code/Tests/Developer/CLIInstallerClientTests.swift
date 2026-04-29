@@ -38,10 +38,13 @@ struct CLIInstallerClientTests {
 
     func paths(overridingLocalBin: URL? = nil) -> CLIInstallerClient.Paths {
       let localBin = overridingLocalBin ?? root.appending(component: ".local/bin", directoryHint: .isDirectory)
+      let legacyDir = root.appending(component: ".local/bin", directoryHint: .isDirectory)
       return CLIInstallerClient.Paths(
         localBin: localBin,
         tcSymlink: localBin.appending(component: "tc", directoryHint: .notDirectory),
         tcodeSymlink: localBin.appending(component: "tcode", directoryHint: .notDirectory),
+        legacyLocalBinTc: legacyDir.appending(component: "tc", directoryHint: .notDirectory),
+        legacyLocalBinTcode: legacyDir.appending(component: "tcode", directoryHint: .notDirectory),
         bundledTcBinary: bundledTc,
         homeDirectory: root
       )
@@ -52,7 +55,7 @@ struct CLIInstallerClientTests {
     paths: CLIInstallerClient.Paths,
     fileSystem: CLIFilesystem = RealCLIFilesystem()
   ) -> CLIInstallerClient {
-    CLIInstallerClient(paths: paths, fileSystem: fileSystem, pathLookup: { [] })
+    CLIInstallerClient(paths: paths, fileSystem: fileSystem)
   }
 
   private func assertInstalled(_ status: CLIInstallerClient.InstallStatus) {

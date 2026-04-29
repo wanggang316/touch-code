@@ -21,9 +21,6 @@ struct CLIInstallStatusCard: View {
       if let error = lastError {
         ErrorRow(error: error)
       }
-      if shouldShowPathAdvisory {
-        pathAdvisory
-      }
     }
     .task { refreshStatus() }
   }
@@ -98,28 +95,6 @@ struct CLIInstallStatusCard: View {
         .buttonStyle(.borderedProminent)
         .disabled(isBusy)
     }
-  }
-
-  // MARK: - PATH advisory
-
-  private var shouldShowPathAdvisory: Bool {
-    guard case .installed = status else { return false }
-    return !installer.isLocalBinOnPath()
-  }
-
-  private var pathAdvisory: some View {
-    HStack(alignment: .top, spacing: 6) {
-      Image(systemName: "exclamationmark.triangle.fill")
-        .foregroundStyle(.orange)
-        .accessibilityHidden(true)
-      Text(
-        "`tc` installed, but ~/.local/bin is not on PATH. Add `export PATH=\"$HOME/.local/bin:$PATH\"` to your shell profile to run `tc` directly."
-      )
-      .font(.caption)
-      .foregroundStyle(.secondary)
-    }
-    .padding(8)
-    .background(Color.orange.opacity(0.08), in: .rect(cornerRadius: 6))
   }
 
   // MARK: - Actions

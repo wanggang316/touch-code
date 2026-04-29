@@ -17,25 +17,37 @@ import os.log
 @MainActor
 final class CLIInstallerClient {
   /// URLs that parameterise the installer. Tests override everything; production
-  /// uses the defaults which resolve under the real `$HOME`.
+  /// uses the defaults pointing at `/usr/local/bin`.
   struct Paths: Equatable {
+    /// Parent directory for `tcSymlink` / `tcodeSymlink`. Used by the existing
+    /// (about to be replaced in M3) unprivileged install path. The privileged
+    /// installer will encode `/usr/local/bin` as a literal in its shell script.
     var localBin: URL
     var tcSymlink: URL
     var tcodeSymlink: URL
+    /// Legacy `~/.local/bin/{tc,tcode}` paths from prior versions. The
+    /// privileged install script in M4 will `rm` these only when they resolve
+    /// to our bundled binary.
+    var legacyLocalBinTc: URL
+    var legacyLocalBinTcode: URL
     /// Bundled `tc` binary to symlink to. Resolved via `CLIBundleLocator`.
     /// `nil` when no bundled binary can be located — probe / install surface
     /// this as `.bundleMissing`.
     var bundledTcBinary: URL?
     /// `$HOME` root. Overridable so unit tests can run against a tmp directory.
+    /// Currently unused at runtime (M3 removes the last consumer).
     var homeDirectory: URL
 
     static var `default`: Paths {
       let home = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-      let localBin = home.appendingPathComponent(".local/bin", isDirectory: true)
+      let usrLocalBin = URL(fileURLWithPath: "/usr/local/bin", isDirectory: true)
+      let legacyLocalBin = home.appendingPathComponent(".local/bin", isDirectory: true)
       return Paths(
-        localBin: localBin,
-        tcSymlink: localBin.appendingPathComponent("tc", isDirectory: false),
-        tcodeSymlink: localBin.appendingPathComponent("tcode", isDirectory: false),
+        localBin: usrLocalBin,
+        tcSymlink: usrLocalBin.appendingPathComponent("tc", isDirectory: false),
+        tcodeSymlink: usrLocalBin.appendingPathComponent("tcode", isDirectory: false),
+        legacyLocalBinTc: legacyLocalBin.appendingPathComponent("tc", isDirectory: false),
+        legacyLocalBinTcode: legacyLocalBin.appendingPathComponent("tcode", isDirectory: false),
         bundledTcBinary: try? CLIBundleLocator.locateBinary(),
         homeDirectory: home
       )
@@ -69,17 +81,14 @@ final class CLIInstallerClient {
   /// different `Paths` through the initializer.
   let paths: Paths
   private let fileSystem: CLIFilesystem
-  private let pathLookup: () -> [URL]
   private let logger = Logger(subsystem: "com.touch-code.ui", category: "cli-installer")
 
   init(
     paths: Paths = .default,
-    fileSystem: CLIFilesystem = RealCLIFilesystem(),
-    pathLookup: @escaping () -> [URL] = CLIInstallerClient.defaultPathEntries
+    fileSystem: CLIFilesystem = RealCLIFilesystem()
   ) {
     self.paths = paths
     self.fileSystem = fileSystem
-    self.pathLookup = pathLookup
   }
 
   // MARK: - Probe
@@ -215,24 +224,6 @@ final class CLIInstallerClient {
 
     logger.info("tc uninstalled at \(self.paths.tcSymlink.path, privacy: .public)")
     return .success(.notInstalled)
-  }
-
-  // MARK: - PATH advisory
-
-  /// True when the canonicalised `paths.localBin` is one of the entries in the
-  /// current process's `PATH`. Used only for the amber "not on PATH" advisory.
-  func isLocalBinOnPath() -> Bool {
-    let localBinPath = paths.localBin.standardizedFileURL.path
-    return pathLookup().contains { $0.standardizedFileURL.path == localBinPath }
-  }
-
-  nonisolated static func defaultPathEntries() -> [URL] {
-    let raw = ProcessInfo.processInfo.environment["PATH"] ?? ""
-    return
-      raw
-      .split(separator: ":", omittingEmptySubsequences: true)
-      .map { String($0) }
-      .map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
   }
 
   // MARK: - Helpers
