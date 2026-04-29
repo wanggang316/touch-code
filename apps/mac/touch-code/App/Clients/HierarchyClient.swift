@@ -787,10 +787,20 @@ extension HierarchyClient {
       throw HierarchyError.notFound("Worktree \(worktreeID)")
     }
     manager.tearDownWorktreeSurfaces(worktreeID: worktreeID)
+    let gitRootURL = URL(fileURLWithPath: gitRoot)
     try await gitWorktreeClient.removeWorktree(
-      URL(fileURLWithPath: gitRoot),
+      gitRootURL,
       URL(fileURLWithPath: worktree.path)
     )
+    // Drop the branch the worktree was tracking. `git worktree remove`
+    // intentionally leaves the ref behind, so re-creating a worktree
+    // with the same name afterwards trips Touch Code's "branch already
+    // exists" guard. Best-effort: git refuses if the branch is checked
+    // out elsewhere (main / shared) — which is exactly when we DON'T
+    // want to delete it — so swallowing the error is the safe default.
+    if let branch = worktree.branch, !branch.isEmpty {
+      await gitWorktreeClient.deleteBranchIfExists(gitRootURL, branch)
+    }
     try manager.removeWorktree(worktreeID, from: projectID)
   }
 
