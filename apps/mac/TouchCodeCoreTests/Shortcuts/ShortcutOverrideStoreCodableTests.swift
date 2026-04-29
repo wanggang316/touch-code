@@ -17,7 +17,7 @@ struct ShortcutOverrideStoreCodableTests {
   func sparseOverridesRoundTrip() throws {
     let store = ShortcutOverrideStore(overrides: [
       .newTab: .init(keyCode: 17, modifiers: [.command, .option], isEnabled: true),
-      .toggleGitViewer: .init(keyCode: 5, modifiers: .command, isEnabled: false),
+      .toggleDiffInspector: .init(keyCode: 5, modifiers: .command, isEnabled: false),
     ])
     let data = try JSONEncoder.touchCodeDefault.encode(store)
     let decoded = try JSONDecoder.touchCodeDefault.decode(ShortcutOverrideStore.self, from: data)
@@ -63,12 +63,12 @@ struct ShortcutOverrideStoreCodableTests {
     {
       "version": 1,
       "overrides": {
-        "toggleGitViewer": { "keyCode": 5, "modifiers": ["shift", "command"], "isEnabled": true }
+        "toggleDiffInspector": { "keyCode": 5, "modifiers": ["shift", "command"], "isEnabled": true }
       }
     }
     """.data(using: .utf8)!
 
     let decoded = try JSONDecoder.touchCodeDefault.decode(ShortcutOverrideStore.self, from: json)
-    #expect(decoded.overrides[.toggleGitViewer]?.modifiers == [.command, .shift])
+    #expect(decoded.overrides[.toggleDiffInspector]?.modifiers == [.command, .shift])
   }
 }

@@ -124,8 +124,8 @@ enum CommandPaletteItems {
         subtitle: worktreeName,
         icon: "doc.text.magnifyingglass",
         shortcut: .command("G", shift: true),
-        commandID: .toggleGitViewer,
-        kind: .toggleGitViewer
+        commandID: .toggleDiffInspector,
+        kind: .toggleDiffInspector
       ),
       CommandPaletteItem(
         id: "editor.reveal-in-finder",

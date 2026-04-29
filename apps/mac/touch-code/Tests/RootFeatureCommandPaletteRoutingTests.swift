@@ -31,12 +31,12 @@ struct RootFeatureCommandPaletteRoutingTests {
   }
 
   @Test
-  func activateToggleGitViewerRoutesToRoot() async {
+  func activateToggleDiffInspectorRoutesToRoot() async {
     let store = Self.stubbedStore()
     // Prime the palette so the delegate has a parent to bubble through.
     await store.send(.commandPaletteToggle(nil))
-    await store.send(.commandPalette(.presented(.delegate(.activate(.toggleGitViewer)))))
-    await store.receive(\.gitViewerToggledForCurrentWorktree)
+    await store.send(.commandPalette(.presented(.delegate(.activate(.toggleDiffInspector)))))
+    await store.receive(\.diffInspectorToggledForCurrentWorktree)
   }
 
   @Test

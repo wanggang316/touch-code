@@ -120,16 +120,16 @@ struct MainWindowCommandsTests {
   // MARK: - ⌘⇧G (Toggle Git Viewer)
 
   @Test
-  func commandShiftGDispatchesGitViewerToggleForCurrentWorktree() async {
+  func commandShiftGDispatchesDiffInspectorToggleForCurrentWorktree() async {
     // Mirrors the ⌘⇧G button body:
-    // `store.send(.gitViewerToggledForCurrentWorktree)`. The reducer reads
+    // `store.send(.diffInspectorToggledForCurrentWorktree)`. The reducer reads
     // current visibility from the catalog and writes the flipped value via
-    // `hierarchyClient.setWorktreeGitViewerVisible`.
+    // `hierarchyClient.setWorktreeDiffInspectorVisible`.
     let projectID = ProjectID()
     let worktreeID = WorktreeID()
     let worktree = Worktree(
       id: worktreeID, name: "w", path: "/repo",
-      gitViewerVisible: false
+      diffInspectorVisible: false
     )
     let project = Project(
       id: projectID, name: "p", rootPath: "/repo", gitRoot: "/repo",
@@ -147,12 +147,12 @@ struct MainWindowCommandsTests {
       RootFeature()
     } withDependencies: {
       $0.hierarchyClient.snapshot = { catalog }
-      $0.hierarchyClient.setWorktreeGitViewerVisible = { wt, v in
+      $0.hierarchyClient.setWorktreeDiffInspectorVisible = { wt, v in
         recorded.withValue { $0.append((wt, v)) }
       }
     }
 
-    await store.send(.gitViewerToggledForCurrentWorktree)
+    await store.send(.diffInspectorToggledForCurrentWorktree)
     await store.finish()
     #expect(recorded.value.count == 1)
     #expect(recorded.value.first?.0 == worktreeID)

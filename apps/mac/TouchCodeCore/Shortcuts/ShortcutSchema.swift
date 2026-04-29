@@ -94,7 +94,7 @@ extension ShortcutSchema {
         defaultBinding: .init(keyCode: UInt16(kVK_ANSI_E), modifiers: .command)
       ),
       .init(
-        id: .toggleGitViewer,
+        id: .toggleDiffInspector,
         title: "Toggle Git Viewer",
         category: .general,
         scope: .configurable,

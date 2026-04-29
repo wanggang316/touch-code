@@ -57,12 +57,12 @@ struct WorktreeHeaderFeature {
     /// inline). Also persists the pick as the per-Project default.
     case pickEditorFromMenuTapped(EditorID)
     case customEditorsTapped
-    /// Header GV button tapped. Emits `.delegate(.gitViewerToggleRequested)`
+    /// Header GV button tapped. Emits `.delegate(.diffInspectorToggleRequested)`
     /// so `RootFeature` performs the flip through the same
-    /// `.gitViewerToggledForCurrentWorktree` reducer branch that ⌘⇧G uses.
+    /// `.diffInspectorToggledForCurrentWorktree` reducer branch that ⌘⇧G uses.
     /// Keeping the write on one path avoids the view-supplied visibility
     /// drifting from the catalog snapshot the reducer reads.
-    case gitViewerToggleTapped
+    case diffInspectorToggleTapped
     case setProjectDefaultEditorTapped(projectID: ProjectID, editorID: EditorID?)
     /// Run script split-button — primary or menu activation. Phase 2.
     case runScriptTapped(scriptID: UUID, projectID: ProjectID, worktreeID: WorktreeID)
@@ -87,8 +87,8 @@ struct WorktreeHeaderFeature {
       /// the worktree with that editor.
       case pickEditorFromMenu(EditorID)
       /// GV button tapped. Parent flips the current Worktree's visibility
-      /// via `.gitViewerToggledForCurrentWorktree` (shared with ⌘⇧G).
-      case gitViewerToggleRequested
+      /// via `.diffInspectorToggledForCurrentWorktree` (shared with ⌘⇧G).
+      case diffInspectorToggleRequested
       /// Run a user-defined Project script. RootFeature dispatches to
       /// `HierarchyClient.runScript`.
       case runScriptRequested(scriptID: UUID, projectID: ProjectID, worktreeID: WorktreeID)
@@ -157,8 +157,8 @@ struct WorktreeHeaderFeature {
       case .customEditorsTapped:
         return .send(.delegate(.showCustomEditorsSettings))
 
-      case .gitViewerToggleTapped:
-        return .send(.delegate(.gitViewerToggleRequested))
+      case .diffInspectorToggleTapped:
+        return .send(.delegate(.diffInspectorToggleRequested))
 
       case .setProjectDefaultEditorTapped(let projectID, let editorID):
         return .send(

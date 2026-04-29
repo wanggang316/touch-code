@@ -34,9 +34,12 @@ After this plan completes, a touch-code user can:
   points in `RootFeature` / `ContentView` / `WorktreeDetailView`; one
   RootFeatureTests case removed and one trimmed. Build green; full
   suite shows only pre-existing baseline failures. (2026-04-29)
-- [ ] M1 — Rename: `gitViewer*` Swift identifiers and the `Worktree`
-  Codable key migrate to `diff*` / `diffInspector*` per Design's Renamed
-  table; project compiles; touched tests pass.
+- [x] M1 — Rename: bulk perl rename across 28 .swift files moves all
+  `gitViewer*` Swift identifiers + the `Worktree.gitViewerVisible`
+  Codable key to `diff*` / `diffInspector*` per Design's Renamed table.
+  Build green; full suite shows 48 issues (same as M0 baseline). Comments
+  / docstrings referencing the historical `GitViewer` name kept as-is —
+  only functional identifiers renamed. (2026-04-29)
 - [ ] M2 — Vendor web bundle + Public API skeleton: copy YiTong v0.1.0
   web assets into `App/Features/Diff/WebAssets/`; create `Public.swift`
   with the public types from Design; register resources via Tuist.

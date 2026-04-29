@@ -171,19 +171,19 @@ struct WorktreeHeaderFeatureTests {
   // MARK: - GV toggle
 
   @Test
-  func gitViewerToggleTappedEmitsDelegate() async {
+  func diffInspectorToggleTappedEmitsDelegate() async {
     // Nit 1 convergence: the Header GV button no longer writes the catalog
-    // directly. It emits `.delegate(.gitViewerToggleRequested)` so
+    // directly. It emits `.delegate(.diffInspectorToggleRequested)` so
     // `RootFeature` performs the flip through the same
-    // `.gitViewerToggledForCurrentWorktree` branch ⌘⇧G uses.
+    // `.diffInspectorToggledForCurrentWorktree` branch ⌘⇧G uses.
     let store = TestStore(initialState: WorktreeHeaderFeature.State()) {
       WorktreeHeaderFeature()
     } withDependencies: {
       $0[InboxClient.self] = .testValue
       $0.hierarchyClient = HierarchyClient.testValue
     }
-    await store.send(.gitViewerToggleTapped)
-    await store.receive(.delegate(.gitViewerToggleRequested))
+    await store.send(.diffInspectorToggleTapped)
+    await store.receive(.delegate(.diffInspectorToggleRequested))
   }
 
   // MARK: - Delegates

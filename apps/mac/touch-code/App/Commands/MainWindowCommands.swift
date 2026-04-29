@@ -39,9 +39,9 @@ struct MainWindowCommands: Commands {
       .disabled(!hasActiveWorktree)
 
       Button("Toggle Git Viewer") {
-        store.send(.gitViewerToggledForCurrentWorktree)
+        store.send(.diffInspectorToggledForCurrentWorktree)
       }
-      .appKeyboardShortcut(.toggleGitViewer, in: shortcuts)
+      .appKeyboardShortcut(.toggleDiffInspector, in: shortcuts)
       .disabled(!hasActiveWorktree)
 
       Button("Filter Tags") {

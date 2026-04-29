@@ -58,22 +58,22 @@ struct RootFeature {
     /// `.sidebar(.delegate(.openTagManager))`.
     @Presents var tagManagerSheet: TagManagerFeature.State?
 
-    /// T3: live read of the current Worktree's `gitViewerVisible` against
+    /// T3: live read of the current Worktree's `diffInspectorVisible` against
     /// a catalog snapshot. Not a cached field — views pass in
     /// `hierarchyManager.catalog` so SwiftUI's `@Observable` tracking
     /// re-renders on catalog mutation from any writer (⌘⇧G, Header GV
     /// button, external API). This avoids the state-divergence risk of
     /// caching the value on State: both toggle entry points write through
-    /// `HierarchyClient.setWorktreeGitViewerVisible`, and the view reads
+    /// `HierarchyClient.setWorktreeDiffInspectorVisible`, and the view reads
     /// the authoritative catalog each render.
-    func gitViewerOverlayVisible(in catalog: Catalog) -> Bool {
+    func diffInspectorVisible(in catalog: Catalog) -> Bool {
       guard
         let projectID = selection.projectID,
         let worktreeID = selection.worktreeID,
         let project = catalog.projects.first(where: { $0.id == projectID }),
         let worktree = project.worktrees.first(where: { $0.id == worktreeID })
       else { return false }
-      return worktree.gitViewerVisible
+      return worktree.diffInspectorVisible
     }
   }
 
@@ -130,9 +130,9 @@ struct RootFeature {
     case paneLifecycleExited(PaneID)
     /// T3: Toggles the Git Viewer overlay for the current Worktree.
     /// Sources: Header GV button (T2) + ⌘⇧G (T3 Commands). Optimistically
-    /// flips `state.gitViewerOverlayVisible` and fires
-    /// `HierarchyClient.setWorktreeGitViewerVisible` to persist.
-    case gitViewerToggledForCurrentWorktree
+    /// flips `state.diffInspectorVisible` and fires
+    /// `HierarchyClient.setWorktreeDiffInspectorVisible` to persist.
+    case diffInspectorToggledForCurrentWorktree
     /// T3: ⌘E entry point. Resolves the current Worktree's path from the
     /// catalog snapshot (via `hierarchyClient` — reducer-scoped dependency,
     /// unlike SwiftUI `Commands` structs where `@Dependency` falls through
@@ -598,11 +598,11 @@ struct RootFeature {
                 )))
           )
 
-        case .gitViewerToggleRequested:
+        case .diffInspectorToggleRequested:
           // Route through the same reducer branch ⌘⇧G uses so both entry
           // points share one write path (reads current visibility from the
           // catalog, writes the flipped value).
-          return .send(.gitViewerToggledForCurrentWorktree)
+          return .send(.diffInspectorToggledForCurrentWorktree)
 
         case .runScriptRequested(let scriptID, let projectID, let worktreeID):
           let client = hierarchyClient
@@ -766,15 +766,15 @@ struct RootFeature {
       case .lifecycleScriptToast:
         return .none
 
-      case .gitViewerToggledForCurrentWorktree:
+      case .diffInspectorToggledForCurrentWorktree:
         guard let worktreeID = state.selection.worktreeID else { return .none }
         // Read the current visibility from the live catalog — the view
-        // layer's `State.gitViewerOverlayVisible(in:)` reads the same
+        // layer's `State.diffInspectorVisible(in:)` reads the same
         // source, so flipping from here and from the Header button
         // (which writes the catalog directly) can't diverge.
         let catalog = hierarchyClient.snapshot()
-        let target = !state.gitViewerOverlayVisible(in: catalog)
-        let setter = hierarchyClient.setWorktreeGitViewerVisible
+        let target = !state.diffInspectorVisible(in: catalog)
+        let setter = hierarchyClient.setWorktreeDiffInspectorVisible
         return .run { _ in
           await MainActor.run { setter(worktreeID, target) }
         }
@@ -963,8 +963,8 @@ struct RootFeature {
       return .run { [projectReconciler] _ in
         await projectReconciler.reconcile(projectID: projectID)
       }
-    case .toggleGitViewer:
-      return .send(.gitViewerToggledForCurrentWorktree)
+    case .toggleDiffInspector:
+      return .send(.diffInspectorToggledForCurrentWorktree)
 
     // Editor
     case .openCurrentWorktreeInDefaultEditor:

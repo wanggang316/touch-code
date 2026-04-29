@@ -151,9 +151,9 @@ struct WorktreeDetailView: View {
           )
           .buttonStyle(.plain)
           if info.project.supportsWorktrees {
-            HeaderGitViewerToggle(
+            HeaderDiffInspectorToggle(
               store: headerStore,
-              visible: info.worktree.gitViewerVisible
+              visible: info.worktree.diffInspectorVisible
             )
             .buttonStyle(.plain)
           }
@@ -230,9 +230,9 @@ struct WorktreeDetailView: View {
     if info.project.supportsWorktrees {
       ToolbarSpacer(.fixed)
       ToolbarItem {
-        HeaderGitViewerToggle(
+        HeaderDiffInspectorToggle(
           store: headerStore,
-          visible: info.worktree.gitViewerVisible
+          visible: info.worktree.diffInspectorVisible
         )
       }
     }

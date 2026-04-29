@@ -214,24 +214,24 @@ struct HierarchyManagerTests {
   // coverage.
 
   @Test
-  func setWorktreeGitViewerVisiblePersists() throws {
+  func setWorktreeDiffInspectorVisiblePersists() throws {
     let projectID = manager.addProject(name: "project", rootPath: "/tmp", gitRoot: "/tmp")
     let worktreeID = try manager.createWorktree(
       in: projectID, name: "main", path: "/repo", branch: "main"
     )
-    #expect(manager.catalog.projects[0].worktrees[0].gitViewerVisible == false)
+    #expect(manager.catalog.projects[0].worktrees[0].diffInspectorVisible == false)
 
-    manager.setWorktreeGitViewerVisible(worktreeID: worktreeID, visible: true)
-    #expect(manager.catalog.projects[0].worktrees[0].gitViewerVisible == true)
+    manager.setWorktreeDiffInspectorVisible(worktreeID: worktreeID, visible: true)
+    #expect(manager.catalog.projects[0].worktrees[0].diffInspectorVisible == true)
 
-    manager.setWorktreeGitViewerVisible(worktreeID: worktreeID, visible: false)
-    #expect(manager.catalog.projects[0].worktrees[0].gitViewerVisible == false)
+    manager.setWorktreeDiffInspectorVisible(worktreeID: worktreeID, visible: false)
+    #expect(manager.catalog.projects[0].worktrees[0].diffInspectorVisible == false)
   }
 
   @Test
-  func setWorktreeGitViewerVisibleMissingWorktreeIsSilentNoOp() {
+  func setWorktreeDiffInspectorVisibleMissingWorktreeIsSilentNoOp() {
     let bogus = WorktreeID()
-    manager.setWorktreeGitViewerVisible(worktreeID: bogus, visible: true)
+    manager.setWorktreeDiffInspectorVisible(worktreeID: bogus, visible: true)
     #expect(manager.catalog.projects.isEmpty)
   }
 

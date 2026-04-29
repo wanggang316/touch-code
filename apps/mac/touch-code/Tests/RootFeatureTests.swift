@@ -91,8 +91,8 @@ struct RootFeatureTests {
   }
 
   // `inspectorVisibilityTogglesBothWays` removed in T3: replaced by the
-  // per-Worktree `gitViewerOverlayVisible` projection and
-  // `.gitViewerToggledForCurrentWorktree` action — covered below.
+  // per-Worktree `diffInspectorVisible` projection and
+  // `.diffInspectorToggledForCurrentWorktree` action — covered below.
 
   // MARK: - T3 overlay projection + shortcuts
 
@@ -106,11 +106,11 @@ struct RootFeatureTests {
   ) -> Catalog {
     let wtA = Worktree(
       id: worktreeA, name: "A", path: "/a", branch: "a",
-      tabs: [], selectedTabID: nil, gitViewerVisible: aVisible
+      tabs: [], selectedTabID: nil, diffInspectorVisible: aVisible
     )
     let wtB = Worktree(
       id: worktreeB, name: "B", path: "/b", branch: "b",
-      tabs: [], selectedTabID: nil, gitViewerVisible: bVisible
+      tabs: [], selectedTabID: nil, diffInspectorVisible: bVisible
     )
     let project = Project(
       id: projectID, name: "p", rootPath: "/", gitRoot: "/",
@@ -121,11 +121,11 @@ struct RootFeatureTests {
   }
 
   @Test
-  func gitViewerOverlayVisibleTracksSelectionAgainstCatalog() async {
+  func diffInspectorVisibleTracksSelectionAgainstCatalog() async {
     // With the T3-REV2 single-source-of-truth rewrite, the view reads
-    // `State.gitViewerOverlayVisible(in: catalog)` directly. After a
+    // `State.diffInspectorVisible(in: catalog)` directly. After a
     // `.selectionChanged`, that read returns the target Worktree's
-    // persisted `gitViewerVisible` — no reducer projection in between.
+    // persisted `diffInspectorVisible` — no reducer projection in between.
     let projectID = ProjectID()
     let worktreeA = WorktreeID()
     let worktreeB = WorktreeID()
@@ -153,23 +153,23 @@ struct RootFeatureTests {
     store.exhaustivity = .off
 
     // Initially no selection → helper returns false.
-    #expect(store.state.gitViewerOverlayVisible(in: catalog) == false)
+    #expect(store.state.diffInspectorVisible(in: catalog) == false)
 
     let selectionA = HierarchySelection(
       projectID: projectID, worktreeID: worktreeA
     )
     await store.send(.selectionChanged(selectionA)) { $0.selection = selectionA }
-    #expect(store.state.gitViewerOverlayVisible(in: catalog) == true)
+    #expect(store.state.diffInspectorVisible(in: catalog) == true)
 
     let selectionB = HierarchySelection(
       projectID: projectID, worktreeID: worktreeB
     )
     await store.send(.selectionChanged(selectionB)) { $0.selection = selectionB }
-    #expect(store.state.gitViewerOverlayVisible(in: catalog) == false)
+    #expect(store.state.diffInspectorVisible(in: catalog) == false)
   }
 
   @Test
-  func gitViewerOverlayVisibleFollowsCatalogMutationWithSameSelection() {
+  func diffInspectorVisibleFollowsCatalogMutationWithSameSelection() {
     // Second half of the single-source-of-truth contract: flipping the
     // catalog value (T2 Header button path) must flip the helper read
     // without any selection change and without any reducer projection.
@@ -195,12 +195,12 @@ struct RootFeatureTests {
       worktreeA: worktreeA, worktreeB: worktreeB,
       aVisible: true, bVisible: false
     )
-    #expect(store.state.gitViewerOverlayVisible(in: hidden) == false)
-    #expect(store.state.gitViewerOverlayVisible(in: shown) == true)
+    #expect(store.state.diffInspectorVisible(in: hidden) == false)
+    #expect(store.state.diffInspectorVisible(in: shown) == true)
   }
 
   @Test
-  func gitViewerToggleInvokesHierarchyClientWithFlippedValue() async {
+  func diffInspectorToggleInvokesHierarchyClientWithFlippedValue() async {
     // The reducer now reads the current value from the catalog snapshot
     // and writes the flipped value; no state mutation. Both entry points
     // (⌘⇧G + Header button) share a single write path.
@@ -223,32 +223,32 @@ struct RootFeatureTests {
       RootFeature()
     } withDependencies: {
       $0.hierarchyClient.snapshot = { catalog }
-      $0.hierarchyClient.setWorktreeGitViewerVisible = { wt, visible in
+      $0.hierarchyClient.setWorktreeDiffInspectorVisible = { wt, visible in
         recorded.withValue { $0.append((wt, visible)) }
       }
     }
 
-    await store.send(.gitViewerToggledForCurrentWorktree)
+    await store.send(.diffInspectorToggledForCurrentWorktree)
     await store.finish()
     #expect(recorded.value.count == 1)
     #expect(recorded.value.first?.0 == worktreeA)
-    // Starting from `gitViewerVisible: false`, toggle writes `true`.
+    // Starting from `diffInspectorVisible: false`, toggle writes `true`.
     #expect(recorded.value.first?.1 == true)
   }
 
   @Test
-  func gitViewerToggleWithoutSelectionIsNoOp() async {
+  func diffInspectorToggleWithoutSelectionIsNoOp() async {
     // When no Worktree is selected, the toggle must not fire the setter.
     let recorded = LockIsolated<[(WorktreeID, Bool)]>([])
     let store = TestStore(initialState: RootFeature.State()) {
       RootFeature()
     } withDependencies: {
       $0.hierarchyClient.snapshot = { Catalog() }
-      $0.hierarchyClient.setWorktreeGitViewerVisible = { wt, visible in
+      $0.hierarchyClient.setWorktreeDiffInspectorVisible = { wt, visible in
         recorded.withValue { $0.append((wt, visible)) }
       }
     }
-    await store.send(.gitViewerToggledForCurrentWorktree)
+    await store.send(.diffInspectorToggledForCurrentWorktree)
     await store.finish()
     #expect(recorded.value.isEmpty)
   }
@@ -388,12 +388,12 @@ struct RootFeatureTests {
     #expect(openCount.value == 1)
   }
   @Test
-  func headerGitViewerToggleDelegateRoutesThroughToggleBranch() async {
+  func headerDiffInspectorToggleDelegateRoutesThroughToggleBranch() async {
     // Nit 1 convergence: the Header GV delegate is consumed by the root
-    // reducer and re-dispatched as `.gitViewerToggledForCurrentWorktree`
+    // reducer and re-dispatched as `.diffInspectorToggledForCurrentWorktree`
     // — the same action ⌘⇧G sends. This proves both entry points share
     // one write path (the hierarchyClient mutation is covered by the
-    // dedicated `gitViewerToggleInvokesHierarchyClientWithFlippedValue`
+    // dedicated `diffInspectorToggleInvokesHierarchyClientWithFlippedValue`
     // test; here we only need to prove routing).
     let projectID = ProjectID()
     let worktreeA = WorktreeID()
@@ -415,14 +415,14 @@ struct RootFeatureTests {
       $0.terminalClient.events = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
       $0.hierarchyClient.snapshot = { catalog }
-      $0.hierarchyClient.setWorktreeGitViewerVisible = { wt, v in
+      $0.hierarchyClient.setWorktreeDiffInspectorVisible = { wt, v in
         recorded.withValue { $0.append((wt, v)) }
       }
     }
     store.exhaustivity = .off
 
-    await store.send(.worktreeHeader(.delegate(.gitViewerToggleRequested)))
-    await store.receive(\.gitViewerToggledForCurrentWorktree)
+    await store.send(.worktreeHeader(.delegate(.diffInspectorToggleRequested)))
+    await store.receive(\.diffInspectorToggledForCurrentWorktree)
     await store.finish()
     #expect(recorded.value.count == 1)
     #expect(recorded.value.first?.0 == worktreeA)

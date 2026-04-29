@@ -7,11 +7,11 @@ public nonisolated struct Worktree: Equatable, Sendable, Identifiable {
   public var branch: String?
   public var tabs: [Tab]
   public var selectedTabID: TabID?
-  /// Whether the right-side Git Viewer overlay is visible for this Worktree.
-  /// Persists across app restarts; each Worktree remembers its own
-  /// visibility. Defaults to `false` — pre-T0 catalogs also decode to
-  /// `false` via the Codable `decodeIfPresent` path.
-  public var gitViewerVisible: Bool
+  /// Whether the Diff inspector is visible for this Worktree. Persists
+  /// across app restarts; each Worktree remembers its own visibility.
+  /// Defaults to `false` — pre-feature catalogs also decode to `false` via
+  /// the Codable `decodeIfPresent` path.
+  public var diffInspectorVisible: Bool
   /// App-layer soft-hide. `true` removes the Worktree from the main sidebar
   /// list without touching disk or git refs (see the Worktree Management
   /// spec). Defaults to `false`; pre-archive catalogs decode to `false` via
@@ -32,7 +32,7 @@ public nonisolated struct Worktree: Equatable, Sendable, Identifiable {
     branch: String? = nil,
     tabs: [Tab] = [],
     selectedTabID: TabID? = nil,
-    gitViewerVisible: Bool = false,
+    diffInspectorVisible: Bool = false,
     archived: Bool = false,
     isPinned: Bool = false
   ) {
@@ -42,7 +42,7 @@ public nonisolated struct Worktree: Equatable, Sendable, Identifiable {
     self.branch = branch
     self.tabs = tabs
     self.selectedTabID = selectedTabID
-    self.gitViewerVisible = gitViewerVisible
+    self.diffInspectorVisible = diffInspectorVisible
     self.archived = archived
     self.isPinned = isPinned
   }
@@ -50,7 +50,7 @@ public nonisolated struct Worktree: Equatable, Sendable, Identifiable {
 
 extension Worktree: Codable {
   private enum CodingKeys: String, CodingKey {
-    case id, name, path, branch, tabs, selectedTabID, gitViewerVisible, archived, isPinned
+    case id, name, path, branch, tabs, selectedTabID, diffInspectorVisible, archived, isPinned
   }
 
   public init(from decoder: Decoder) throws {
@@ -61,7 +61,7 @@ extension Worktree: Codable {
     self.branch = try container.decodeIfPresent(String.self, forKey: .branch)
     self.tabs = try container.decodeIfPresent([Tab].self, forKey: .tabs) ?? []
     self.selectedTabID = try container.decodeIfPresent(TabID.self, forKey: .selectedTabID)
-    self.gitViewerVisible = try container.decodeIfPresent(Bool.self, forKey: .gitViewerVisible) ?? false
+    self.diffInspectorVisible = try container.decodeIfPresent(Bool.self, forKey: .diffInspectorVisible) ?? false
     self.archived = try container.decodeIfPresent(Bool.self, forKey: .archived) ?? false
     self.isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
   }
@@ -74,15 +74,15 @@ extension Worktree: Codable {
     try container.encodeIfPresent(branch, forKey: .branch)
     try container.encode(tabs, forKey: .tabs)
     try container.encodeIfPresent(selectedTabID, forKey: .selectedTabID)
-    // Only emit `gitViewerVisible` when it's non-default. Decode path uses
-    // `decodeIfPresent ?? false`, so omitting the key for default-visibility
-    // Worktrees (the common case) shrinks on-disk catalogs and keeps
-    // pre-T0 catalogs round-trip-identical.
-    if gitViewerVisible {
-      try container.encode(true, forKey: .gitViewerVisible)
+    // Only emit `diffInspectorVisible` when it's non-default. Decode path
+    // uses `decodeIfPresent ?? false`, so omitting the key for
+    // default-visibility Worktrees (the common case) shrinks on-disk
+    // catalogs.
+    if diffInspectorVisible {
+      try container.encode(true, forKey: .diffInspectorVisible)
     }
-    // Same rationale as `gitViewerVisible`: omit when false so pre-archive
-    // catalogs round-trip identically.
+    // Same rationale as `diffInspectorVisible`: omit when false so
+    // pre-archive catalogs round-trip identically.
     if archived {
       try container.encode(true, forKey: .archived)
     }

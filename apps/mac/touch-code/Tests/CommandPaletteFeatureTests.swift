@@ -88,13 +88,13 @@ struct CommandPaletteFeatureTests {
   func rowTappedActivatesAndRecords() async {
     var state = CommandPaletteFeature.State()
     state.filtered = [
-      Self.testItem(id: "git.toggle-viewer", title: "Toggle Git Viewer", kind: .toggleGitViewer)
+      Self.testItem(id: "git.toggle-viewer", title: "Toggle Git Viewer", kind: .toggleDiffInspector)
     ]
     let store = TestStore(initialState: state) { CommandPaletteFeature() }
     store.exhaustivity = .off
     await store.send(.rowTapped("git.toggle-viewer"))
     #expect(store.state.recency["git.toggle-viewer"] != nil)
-    await store.receive(.delegate(.activate(.toggleGitViewer)))
+    await store.receive(.delegate(.activate(.toggleDiffInspector)))
   }
 
   // MARK: - Selection navigation
@@ -104,7 +104,7 @@ struct CommandPaletteFeatureTests {
     var state = CommandPaletteFeature.State()
     state.filtered = [
       Self.testItem(id: "a", title: "A"),
-      Self.testItem(id: "b", title: "B", kind: .toggleGitViewer),
+      Self.testItem(id: "b", title: "B", kind: .toggleDiffInspector),
     ]
     state.selectionID = "a"
     let store = TestStore(initialState: state) { CommandPaletteFeature() }
