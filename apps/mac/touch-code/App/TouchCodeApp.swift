@@ -175,10 +175,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 /// Holds the shell-wide runtime objects. `AppState` lives for the duration
 /// of the app; `bringUp()` constructs the full stack (including optional
-/// `GhosttyRuntime` and the `SocketServer` + `HookDispatcher` IPC stack)
-/// and assembles the TCA `Store` with live clients. Before `bringUp()`
-/// runs, `store` and `terminalEngine` are nil — the app renders a loading
-/// placeholder.
+/// `GhosttyRuntime` and the `SocketServer` IPC stack) and assembles the
+/// TCA `Store` with live clients. Before `bringUp()` runs, `store` and
+/// `terminalEngine` are nil — the app renders a loading placeholder.
 @MainActor
 @Observable
 final class AppState {
@@ -191,10 +190,9 @@ final class AppState {
   /// store — and its in-memory editor-pane state — survives open/close cycles of the
   /// window (spec M16).
   private(set) var settingsWindowStore: StoreOf<SettingsWindowFeature>?
-  /// Shared dependency container for the Developer pane (T3 — spec M6). Built
-  /// at the tail of `bringUp()` once `hookConfigStore` is available so the
-  /// pane's hook-reload closure captures the live store; nil until then, which
-  /// is why the Settings scene body renders a `ProgressView` placeholder.
+  /// Shared dependency container for the Developer pane. Built at the tail
+  /// of `bringUp()`; nil until then, which is why the Settings scene body
+  /// renders a `ProgressView` placeholder.
   private(set) var developerPaneDependencies: DeveloperPaneDependencies?
 
   private let catalogStore: CatalogStore
@@ -204,9 +202,6 @@ final class AppState {
   /// refreshes this lazily; a small dot is drawn next to the row name when dirty.
   let worktreeStatusMonitor: WorktreeStatusMonitor
 
-  // IPC stack: HookDispatcher + SocketServer + handlers.
-  private var hookConfigStore: HookConfigStore?
-  private var hookDispatcher: HookDispatcher?
   private var socketServer: SocketServer?
   // EditorClient is built inside bringUp() alongside the TCA dependency
   // wiring and then threaded into startIPC() so EditorHandlers and the
@@ -297,9 +292,6 @@ final class AppState {
       $0.projectReconciler = ProjectReconciler(client: hierarchy)
     }
 
-    let hookConfigStore = HookConfigStore()
-    self.hookConfigStore = hookConfigStore
-
     self.settingsWindowStore = Store(initialState: SettingsWindowFeature.State()) {
       SettingsWindowFeature()
     } withDependencies: {
@@ -311,8 +303,7 @@ final class AppState {
 
     startIPC(
       hierarchy: manager, editor: editor, hierarchyClient: hierarchy,
-      settingsStore: settings,
-      hookConfigStore: hookConfigStore
+      settingsStore: settings
     )
 
     self.developerPaneDependencies = DeveloperPaneDependencies.live(
@@ -326,33 +317,21 @@ final class AppState {
   /// forwards `.open()` through this closure.
   @ObservationIgnored var openSettingsWindowAction: (@MainActor () -> Void)?
 
-  /// Wires the HookDispatcher + SocketServer so `tc` CLI can talk to the
-  /// running app. Uses `FakeHookExecutor` + `RecordingHookActionDispatcher`
-  /// for M3 scope; M2.1.1+ wires the real `ProcessHookExecutor` and
-  /// attaches to `engine.events()` via `HookDispatcher.attach(to:)`.
-  /// Skipped under XCTest — tests build their own in-memory harnesses
-  /// and binding a shared Unix socket racing parallel runs makes the
-  /// runner hang.
+  /// Wires the SocketServer so `tc` CLI can talk to the running app.
+  /// Skipped under XCTest — tests build their own in-memory harnesses and
+  /// binding a shared Unix socket racing parallel runs makes the runner
+  /// hang.
   private func startIPC(
     hierarchy: HierarchyManager,
     editor: EditorClient,
     hierarchyClient: HierarchyClient,
-    settingsStore: SettingsStore,
-    hookConfigStore: HookConfigStore
+    settingsStore: SettingsStore
   ) {
     if ProcessInfo.processInfo.environment["XCTestBundlePath"] != nil
       || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     {
       return
     }
-    let config = (try? hookConfigStore.load()) ?? .empty
-    let dispatcher = HookDispatcher(
-      config: config,
-      store: hookConfigStore,
-      executor: FakeHookExecutor(),
-      actionDispatcher: RecordingHookActionDispatcher()
-    )
-    self.hookDispatcher = dispatcher
 
     let systemHandlers = SystemHandlers(
       versions: .init(

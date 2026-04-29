@@ -208,7 +208,6 @@ let project = Project(
         "touch-code/App/Features/GitHub/Theme",
         "touch-code/App/Features/GitHub/Views",
         "touch-code/Runtime",
-        "touch-code/Hooks",
         "touch-code/Process",
         "touch-code/Git",
         "touch-code/GitHub",
@@ -280,7 +279,6 @@ let project = Project(
       infoPlist: .default,
       buildableFolders: [
         "touch-code/Tests",
-        "touch-code/Tests/Hooks",
         "touch-code/Tests/Socket",
         "touch-code/Tests/Harness",
         "touch-code/Tests/Integration",
