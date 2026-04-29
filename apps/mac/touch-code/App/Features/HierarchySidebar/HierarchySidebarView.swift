@@ -677,7 +677,9 @@ struct HierarchySidebarView: View {
   /// available and a default editor resolves (project override → global
   /// default → first installed in the priority cascade), the entry's
   /// title carries that editor's display name. Otherwise we fall back
-  /// to "Open in Default Editor".
+  /// to "Open in Default Editor". Uses `arrow.up.forward.app` — the
+  /// "open in external app" glyph — instead of the prior pencil-edit
+  /// icon, which read as "edit / rename" rather than "launch".
   @ViewBuilder
   private func openInDefaultButton(
     worktree: Worktree, project: Project
@@ -694,15 +696,19 @@ struct HierarchySidebarView: View {
           worktreeID: worktree.id, projectID: project.id, path: worktree.path
         ))
     } label: {
-      Label(title, systemImage: "square.and.pencil")
+      Label(title, systemImage: "arrow.up.forward.app")
     }
   }
 
   /// "Open in" submenu listing every installed editor returned by the
-  /// editor service's `describe()`. Each row dispatches
-  /// `worktreeOpenInEditorTapped` with the explicit ID so the service
-  /// bypasses the priority cascade. Hidden when the editor store is
-  /// nil (preview / test path) since there's nothing to enumerate.
+  /// editor service's `describe()`. Each row carries the editor's real
+  /// app icon (via `NSWorkspace.shared.icon(forFile:)` against the
+  /// `EditorDescriptor.appURL`) — same glyph the user sees in the Dock
+  /// or Spotlight, which is more recognisable than a generic SF Symbol.
+  /// Tapping dispatches `worktreeOpenInEditorTapped` with the explicit
+  /// ID so the service bypasses the priority cascade. Hidden when the
+  /// editor store is nil (preview / test path) since there's nothing
+  /// to enumerate.
   @ViewBuilder
   private func openInSubmenu(
     worktree: Worktree, project: Project
@@ -719,13 +725,51 @@ struct HierarchySidebarView: View {
                 editorID: descriptor.id
               ))
           } label: {
-            Text(descriptor.displayName)
+            editorMenuLabel(for: descriptor)
           }
         }
       } label: {
         Label("Open in", systemImage: "arrow.up.forward.app")
       }
     }
+  }
+
+  /// Builds a `Label` for an `EditorDescriptor` whose icon is the
+  /// editor's actual app icon when one is available (the descriptor
+  /// resolved against an installed bundle), and a sensible SF Symbol
+  /// fallback otherwise — `terminal` for `.shellEditor` (no bundle),
+  /// `app.dashed` for descriptors whose Launch Services lookup didn't
+  /// resolve. The icon is resized to 16×16 so NSMenu's rendering doesn't
+  /// stretch the bundle's largest representation.
+  @ViewBuilder
+  private func editorMenuLabel(
+    for descriptor: EditorDescriptor
+  ) -> some View {
+    if let appURL = descriptor.appURL {
+      let icon = appIcon(at: appURL)
+      Label {
+        Text(descriptor.displayName)
+      } icon: {
+        Image(nsImage: icon)
+      }
+    } else if descriptor.launchMode == .shellEditor {
+      Label(descriptor.displayName, systemImage: "terminal")
+    } else {
+      Label(descriptor.displayName, systemImage: "app.dashed")
+    }
+  }
+
+  /// Reads a 16×16 copy of the bundle's icon. The `NSWorkspace` cache
+  /// returns a multi-representation image; we copy and rescale so
+  /// neither our menu rendering nor any other consumer of the cached
+  /// icon ends up with a one-off size mutation.
+  private func appIcon(at appURL: URL) -> NSImage {
+    let icon = NSWorkspace.shared.icon(
+      forFile: appURL.path(percentEncoded: false)
+    )
+    let copy = (icon.copy() as? NSImage) ?? icon
+    copy.size = NSSize(width: 16, height: 16)
+    return copy
   }
 
   /// Resolves which editor would actually launch for the project today,
