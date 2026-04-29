@@ -20,16 +20,30 @@ struct CommandPaletteView: View {
   @FocusState private var queryFocused: Bool
 
   var body: some View {
-    VStack(spacing: 0) {
-      queryField
-      Divider()
-      resultList
+    ZStack(alignment: .top) {
+      // Invisible click-catcher: no visible tint, but takes hit-testing so taps
+      // outside the card dismiss the palette (cf. supacode's CommandPaletteOverlayView).
+      Color.clear
+        .contentShape(.rect)
+        .onTapGesture { onDismiss() }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("Dismiss Command Palette")
+
+      VStack(spacing: 0) {
+        queryField
+        Divider()
+        resultList
+      }
+      .frame(maxWidth: 560)
+      .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+      .overlay(
+        RoundedRectangle(cornerRadius: 10)
+          .stroke(Color(nsColor: .tertiaryLabelColor).opacity(0.5), lineWidth: 0.5)
+      )
+      .shadow(radius: 32, y: 12)
+      .padding(.top, 80)
     }
-    .frame(maxWidth: 560)
-    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
-    .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
-    .padding(.top, 80)
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
     .onAppear { queryFocused = true }
   }
 
@@ -122,7 +136,7 @@ struct CommandPaletteView: View {
     .padding(.horizontal, 10)
     .padding(.vertical, 8)
     .background(
-      RoundedRectangle(cornerRadius: 6, style: .continuous)
+      RoundedRectangle(cornerRadius: 8, style: .continuous)
         .fill(selected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(Color.clear))
     )
     .foregroundStyle(selected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
