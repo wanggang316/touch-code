@@ -14,9 +14,10 @@ struct DiffStylePicker: View {
       Image(systemName: "text.alignleft").tag(DiffStyle.unified)
       Image(systemName: "rectangle.split.2x1").tag(DiffStyle.split)
     } label: {
-      Text("Diff style")
+      EmptyView()
     }
     .pickerStyle(.segmented)
+    .labelsHidden()
     .frame(width: 84)
     .accessibilityLabel("Diff style")
     .onAppear {
