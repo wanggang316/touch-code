@@ -30,6 +30,7 @@ public enum CommandID: String, CaseIterable, Hashable, Sendable, Codable, Coding
   case filterTags
   case addProject
   case openCurrentPR
+  case newWorktree
 
   // Window — tabs.
   case newTab

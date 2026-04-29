@@ -158,6 +158,12 @@ struct RootFeature {
     /// PR snapshot has been fetched for it yet (typical for non-GitHub
     /// repos or freshly created branches).
     case openCurrentPRRequested
+    /// ⌘N entry point. Looks up the current Project from `state.selection`
+    /// and forwards `.sidebar(.projectAddWorktreeTapped(projectID:))` so
+    /// `HierarchySidebarFeature` opens its `CreateWorktreeFeature` sheet —
+    /// same path the per-Project hover `+` button drives. No-op when no
+    /// project is selected.
+    case newWorktreeForCurrentProjectRequested
     /// Tab-bar uplift: `⌘T` menu binding. Resolves the current Worktree
     /// and forwards `.detail(.tabBar(.newTabButtonTapped))`.
     case newTabForCurrentWorktree
@@ -867,6 +873,10 @@ struct RootFeature {
           let snapshot = state.gitHub.snapshots[worktreeID]
         else { return .none }
         return .send(.gitHub(.delegate(.openURL(snapshot.url))))
+
+      case .newWorktreeForCurrentProjectRequested:
+        guard let projectID = state.selection.projectID else { return .none }
+        return .send(.sidebar(.projectAddWorktreeTapped(projectID: projectID)))
 
       case .openShellEditorInWorktree(let worktreePath, let projectIDHint):
         let catalog = hierarchyClient.snapshot()

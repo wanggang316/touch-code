@@ -121,6 +121,13 @@ extension ShortcutSchema {
         scope: .configurable,
         defaultBinding: .init(keyCode: UInt16(kVK_ANSI_G), modifiers: [.command, .shift])
       ),
+      .init(
+        id: .newWorktree,
+        title: "New Worktree…",
+        category: .general,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_N), modifiers: .command)
+      ),
 
       // Tabs scope.
       .init(

@@ -62,6 +62,12 @@ struct MainWindowCommands: Commands {
       .appKeyboardShortcut(.addProject, in: shortcuts)
       .disabled(store() == nil)
 
+      Button("New Worktree…") {
+        store()?.send(.newWorktreeForCurrentProjectRequested)
+      }
+      .appKeyboardShortcut(.newWorktree, in: shortcuts)
+      .disabled(!hasCurrentProject)
+
       Button("Open PR on GitHub") {
         store()?.send(.openCurrentPRRequested)
       }
@@ -139,5 +145,14 @@ struct MainWindowCommands: Commands {
       store()?.state.gitHub.snapshots[worktreeID] != nil
     else { return false }
     return true
+  }
+
+  /// `true` when there is a selected Project. Drives `.disabled` for "New Worktree…".
+  /// Doesn't gate on `gitRoot` (non-git Project ⇒ chord silently no-ops in the reducer)
+  /// because exposing that gating in the Commands struct would require a
+  /// `HierarchyManager` snapshot read — which inside SwiftUI `Commands` resolves against
+  /// `liveValue` and crashes (PR-#13 trap). Reducer's guard is sufficient.
+  private var hasCurrentProject: Bool {
+    store()?.state.selection.projectID != nil
   }
 }
