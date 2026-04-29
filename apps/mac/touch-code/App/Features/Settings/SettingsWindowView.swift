@@ -107,15 +107,6 @@ struct SettingsWindowView: View {
         // landing and the reducer run finishing.
         ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
       }
-    case .projectHooks(let projectID):
-      if let paneStore = store.scope(
-        state: \.projectPanes[id: projectID],
-        action: \.projectPanes[id: projectID]
-      ) {
-        ProjectHooksSettingsView(projectID: projectID, store: paneStore)
-      } else {
-        ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-      }
     case .projectScripts(let projectID):
       if let paneStore = store.scope(
         state: \.projectPanes[id: projectID],

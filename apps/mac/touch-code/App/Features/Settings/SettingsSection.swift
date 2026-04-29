@@ -3,11 +3,7 @@ import TouchCodeCore
 
 /// One row in the Settings window sidebar. The global cases are fixed-order; the
 /// Project-scoped cases carry the `ProjectID` they bind to and are surfaced under the
-/// sidebar's "Projects" DisclosureGroup. Phase 2 collapsed the per-Project sub-panes
-/// from six to three: `General` absorbs editor / shell / worktree / GitHub /
-/// environment Sections (with kind-conditional Section rendering inside the pane);
-/// `Scripts` and `Hooks` keep their own sub-rows. `SettingsWindowView` switches on
-/// this enum to decide which pane to render in the detail column.
+/// sidebar's "Projects" DisclosureGroup.
 public enum SettingsSection: Hashable, Sendable {
   case general
   case github
@@ -26,8 +22,6 @@ public enum SettingsSection: Hashable, Sendable {
   case projectGeneral(ProjectID)
   /// User-defined scripts + worktree-lifecycle scripts (git-only Section).
   case projectScripts(ProjectID)
-  /// Hook subscriptions tagged Global / Project; inline-editable rows.
-  case projectHooks(ProjectID)
 
   /// Canonical iteration order for global sidebar rows (GitHub appears between
   /// General and Notifications per earlier GitHub integration wireframe).
@@ -48,7 +42,7 @@ public enum SettingsSection: Hashable, Sendable {
     case .shortcuts: return "Shortcuts"
     case .updates: return "Updates"
     case .about: return "About"
-    case .projectGeneral, .projectScripts, .projectHooks:
+    case .projectGeneral, .projectScripts:
       return nil
     }
   }
@@ -57,8 +51,7 @@ public enum SettingsSection: Hashable, Sendable {
   public var projectID: ProjectID? {
     switch self {
     case .projectGeneral(let pid),
-      .projectScripts(let pid),
-      .projectHooks(let pid):
+      .projectScripts(let pid):
       return pid
     default:
       return nil
@@ -67,17 +60,15 @@ public enum SettingsSection: Hashable, Sendable {
 }
 
 extension SettingsSection {
-  /// Sub-rows rendered under a Project. Phase 2 returns the same three rows for both
-  /// `gitRepo` and `plainDir` Projects — kind difference is now encoded as Section-level
-  /// conditional rendering inside `ProjectGeneralSettingsView`, not as separate sub-rows.
-  /// The `kind` parameter is preserved for future uses (and so callers do not need a
-  /// signature change if the policy ever splits again).
+  /// Sub-rows rendered under a Project. Same set for `gitRepo` and `plainDir` —
+  /// kind difference is encoded as Section-level conditional rendering inside
+  /// `ProjectGeneralSettingsView`. The `kind` parameter is preserved so callers
+  /// do not need a signature change if the policy ever splits again.
   public static func subrows(for kind: ProjectKind, projectID: ProjectID) -> [SettingsSection] {
     _ = kind
     return [
       .projectGeneral(projectID),
       .projectScripts(projectID),
-      .projectHooks(projectID),
     ]
   }
 
@@ -87,7 +78,6 @@ extension SettingsSection {
     switch self {
     case .projectGeneral: return "General"
     case .projectScripts: return "Scripts"
-    case .projectHooks: return "Hooks"
     default: return nil
     }
   }

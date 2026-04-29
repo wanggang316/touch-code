@@ -26,24 +26,17 @@ struct BundleVersion: Equatable, Sendable {
 @Observable
 final class DeveloperPaneDependencies {
   let installer: CLIInstallerClient
-  /// Loads the user hook config on demand. **Propagates** decode errors so the
-  /// Developer pane can preserve its previously loaded snapshot and render an
-  /// inline reload error, rather than silently replacing the user's hook list
-  /// with an empty one on JSON corruption.
-  let loadHookConfig: @MainActor () throws -> HookConfig
   let revealInFinder: @MainActor (URL) -> Void
   let copyToPasteboard: @MainActor (String) -> Void
   let bundleVersion: @MainActor () -> BundleVersion
 
   init(
     installer: CLIInstallerClient,
-    loadHookConfig: @escaping @MainActor () throws -> HookConfig,
     revealInFinder: @escaping @MainActor (URL) -> Void,
     copyToPasteboard: @escaping @MainActor (String) -> Void,
     bundleVersion: @escaping @MainActor () -> BundleVersion
   ) {
     self.installer = installer
-    self.loadHookConfig = loadHookConfig
     self.revealInFinder = revealInFinder
     self.copyToPasteboard = copyToPasteboard
     self.bundleVersion = bundleVersion
@@ -51,25 +44,16 @@ final class DeveloperPaneDependencies {
 }
 
 extension DeveloperPaneDependencies {
-  /// Production factory. `hookStore` is captured weakly because it is not
-  /// constructed until `startIPC()` has run and we do not want the Developer
-  /// pane to keep the IPC stack alive past quit. `settingsStore` is threaded
-  /// through so pane writes (e.g. `lastInstallAttemptAt`) land on the single
-  /// writer.
+  /// Production factory. `settingsURL` is threaded through so the Reveal-in-Finder
+  /// action can materialise a missing settings file before opening Finder.
   @MainActor
   static func live(
-    hookStore: HookConfigStore?,
-    settingsURL: URL,
-    hooksURL: URL
+    settingsURL: URL
   ) -> DeveloperPaneDependencies {
     DeveloperPaneDependencies(
       installer: CLIInstallerClient(),
-      loadHookConfig: { [weak hookStore] in
-        guard let store = hookStore else { return .empty }
-        return try store.load()
-      },
       revealInFinder: { url in
-        Self.revealInFinderEnsuringExists(url, settingsURL: settingsURL, hooksURL: hooksURL)
+        Self.revealInFinderEnsuringExists(url, settingsURL: settingsURL)
       },
       copyToPasteboard: { value in
         let pasteboard = NSPasteboard.general
@@ -85,24 +69,18 @@ extension DeveloperPaneDependencies {
     )
   }
 
-  /// Reveals `url` in Finder. If `url` is one of the two canonical config
-  /// files and does not exist, materialises it through the same atomic-rename
-  /// writer the live stores use — so the user sees a real file to edit rather
-  /// than a dangling path. Any other URL is revealed as-is.
+  /// Reveals `url` in Finder. If `url` is the canonical settings file and does
+  /// not exist, materialises it through the same atomic-rename writer the live
+  /// store uses — so the user sees a real file to edit rather than a dangling
+  /// path. Any other URL is revealed as-is.
   @MainActor
   private static func revealInFinderEnsuringExists(
     _ url: URL,
-    settingsURL: URL,
-    hooksURL: URL
+    settingsURL: URL
   ) {
     if !FileManager.default.fileExists(atPath: url.path) {
       if url == settingsURL {
         try? AtomicFileStore.write(Settings.default, to: settingsURL)
-      } else if url == hooksURL {
-        try? AtomicFileStore.write(HookConfig.empty, to: hooksURL)
-      } else {
-        // Unknown URL and it does not exist — still let NSWorkspace try; it
-        // will open the containing folder.
       }
     }
     NSWorkspace.shared.activateFileViewerSelecting([url])

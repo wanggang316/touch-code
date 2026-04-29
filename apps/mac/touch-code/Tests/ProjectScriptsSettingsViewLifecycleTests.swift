@@ -37,7 +37,6 @@ struct ProjectScriptsSettingsViewLifecycleTests {
       ProjectSettingsFeature()
     } withDependencies: {
       $0.hierarchyClient = .testValue
-      $0.hookConfigClient = .testValue
       $0.finderClient = .testValue
       $0.settingsWriter = .testValue
       $0.settingsWriter.setProjectLifecycleScript = { pid, phase, command in

@@ -324,10 +324,6 @@ final class AppState {
       $0.projectReconciler = ProjectReconciler(client: hierarchy)
     }
 
-    // T4: HookConfigStore must exist before `settingsWindowStore` so the Repository
-    // Hooks pane's reducer closes over the same instance the IPC stack uses. Created
-    // here (not inside startIPC) so XCTest builds — which skip startIPC — can still
-    // back the settings window.
     let hookConfigStore = HookConfigStore()
     self.hookConfigStore = hookConfigStore
 
@@ -337,7 +333,6 @@ final class AppState {
       $0.editorClient = editor
       $0.settingsWriter = .live(settings)
       $0.hierarchyClient = hierarchy
-      $0[HookConfigClient.self] = .live(store: hookConfigStore)
       $0[GhosttyTerminalSettingsClient.self] = .appLive()
     }
 
@@ -348,14 +343,8 @@ final class AppState {
     )
     startNotifications(hierarchy: manager)
 
-    // Developer pane dependencies are built last so the HookConfigStore
-    // instance (created inside `startIPC`) is threaded into the live hook
-    // loader. Captured weakly so quitting the IPC stack doesn't keep a stale
-    // reference.
     self.developerPaneDependencies = DeveloperPaneDependencies.live(
-      hookStore: hookConfigStore,
-      settingsURL: Settings.defaultURL(),
-      hooksURL: HookConfig.defaultURL()
+      settingsURL: Settings.defaultURL()
     )
   }
 
