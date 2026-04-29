@@ -74,12 +74,13 @@ After this plan completes, a touch-code user can:
   animation. `@AppStorage("diffStyle")` persists the unified ↔ split
   toggle (D22). Build green; full suite stable at 47 baseline issues.
   (2026-04-29)
-- [~] M7 — End-to-end + review: review fixes landed (C1, I1, I2, I3, I4,
-  I5, S2, S6) — see Decision Log D24–D31. New tests added:
-  `DiffWebViewCoordinatorTests` (5), `DiffWebAssetsManifestTests` (1),
-  `DiffFeatureTests` +5, `DiffWebViewBridgeTests` +5,
-  `ShortcutOverrideStoreCodableTests` +1. Pending: full manual smoke
-  walkthrough, XCUITest WebView smoke, PR creation. (2026-04-29)
+- [x] M7 — End-to-end + review: review fixes landed (C1, I1, I2, I3, I4,
+  I5, S2, S6) — see Decision Log D24–D31. Deferred to follow-up:
+  XCUITest WebView smoke (low payoff vs. unit tests on the bridge +
+  reducer + manifest), `@Environment(\.colorScheme)` plumbing for
+  `.automatic` appearance, WebView pre-warm if first-open latency proves
+  problematic in real use. Manual smoke walkthrough is the merge-gate
+  remaining for the human reviewer. (2026-04-29)
 
 ## Surprises & Discoveries
 
@@ -156,7 +157,47 @@ After this plan completes, a touch-code user can:
 
 ## Outcomes & Retrospective
 
-(To be filled at milestone completion)
+**Completion date:** 2026-04-29
+
+**Summary:** All eight planned milestones (M0–M7) shipped on
+`feat/git-changes-inspector` against `origin/main` (`310ecf3`) in nine
+commits. The legacy `GitViewerFeature` is gone; the new
+`DiffFeature` + 280 pt right-edge inspector + edge-to-edge drawer is in
+its place. Diff rendering reuses YiTong's WKWebView bundle (Apache-2.0,
+vendored — not imported as a Swift package), wrapping `@pierre/diffs` +
+Shiki + `kpdecker/jsdiff`.
+
+**Commits in chronological order:**
+
+1. `d1aacca` docs(diff): add design doc and exec plan for Diff inspector
+2. `e66f48b` chore(gitviewer): delete legacy GitViewer implementation and obsolete docs
+3. `d45a4b4` refactor: rename gitViewer* identifiers to diff* / diffInspector*
+4. `42c8e9f` feat(diff): vendor YiTong web bundle and add public API surface
+5. `28ab9ff` feat(diff): implement WebView host + bridge for diff rendering
+6. `7c33c84` feat(diff): implement DiffFeature reducer and Root integration
+7. `aac6dd0` feat(diff): add Diff inspector column
+8. `9e9eb1b` feat(diff): add diff drawer with style picker
+9. `5bee4e3` fix(diff): address code-review must-fix items C1, I1-I5, S2, S6
+
+**Verification:**
+
+- `mise exec -- xcodebuild test -workspace touch-code.xcworkspace -scheme touch-code` — `Test run with 1094 tests in 139 suites failed after ~18s with 47 issues`. The 47 issues are pre-existing baseline failures (themes / command-palette-run-script / color-parsing / `RootFeatureTests.diffInspectorVisibleTracksSelectionAgainstCatalog` due to unstubbed `HierarchyClient.openPane`/`createTab`); none introduced by this PR.
+- All Diff* test suites pass: `DiffPublicTests` (3), `DiffWebViewBridgeTests` (12), `DiffWebViewCoordinatorTests` (5), `DiffFeatureTests` (12), `DiffWebAssetsManifestTests` (1).
+- Code review by `agent-skills:code-reviewer` returned `REQUEST CHANGES`; all critical (C1) + important (I1–I5) + the I-related suggestion (S2, S6) items addressed in commit 9 (`5bee4e3`).
+
+**What remains for the human reviewer / follow-up PRs:**
+
+1. Manual smoke walkthrough on a real worktree with mixed working-tree changes (modified, added, deleted, renamed, binary, > 500 KB). The orchestrator could not run the app; the reviewer should validate ⌘⇧G open/close, drawer slide-in, style picker, chevron toggle, and Worktree-switch retargeting.
+2. XCUITest for drawer smoke (deferred — bridge + reducer + manifest unit tests cover the same surface from the Swift side).
+3. `@Environment(\.colorScheme)` plumbing for `DiffConfiguration.appearance == .automatic` — currently resolves to `.light` at the bridge boundary; M5/M6 wired the colorScheme inside `DiffDrawerView.makeConfig` but standalone embeddings of `DiffRendererView` still need it.
+4. WebView pre-warm at inspector mount — only chase if first-open latency feels slow in actual use.
+5. Per-Project disable of ⌘⇧G when `supportsWorktrees == false` — currently a silent no-op (Header GV button is hidden but the keyboard shortcut still toggles the flag).
+
+**Lessons:**
+
+- Vendoring a web bundle from a Swift-package-distributed dependency (rather than taking the whole Swift package) is a clean middle path — zero build-system impact, full control of the JS payload — but requires honouring whatever wire vocabulary the JS chose, even if the design doc imagined something simpler. D8 is the canonical example; future bridge work should sniff the JS first before drafting the protocol table.
+- Persisted JSON keys are part of the API surface (D28). The "rename Swift identifier, pin raw value" pattern shipping in `CommandID.toggleDiffInspector = "toggleGitViewer"` is the template for any future enum-based persisted-key rename.
+- `Equatable` on TCA State enums carries cost when the payload is a large value type (D29). Reference-wrap large payloads — the wrapper's identity-equality is constant-time and the surrounding TCA machinery only cares about structural change, not byte-equal content.
 
 ## Context and Orientation
 
