@@ -23,13 +23,15 @@ struct SettingsWindowView: View {
     )
     NavigationSplitView {
       SettingsSidebarView(selection: selection)
-        // Drop the auto-injected sidebar collapse toggle from the toolbar so the
-        // Settings window matches macOS System Settings, which keeps the sidebar
-        // permanently visible.
-        .toolbar(removing: .sidebarToggle)
     } detail: {
       detailView(for: store.state.effectiveSection)
     }
+    // Drop the auto-injected sidebar collapse toggle so the Settings window
+    // matches macOS System Settings (sidebar permanently visible). Applied at
+    // the split-view root rather than on the sidebar column — column-level
+    // placement makes SwiftUI reserve toolbar height inside the column and
+    // pushes the list contents down.
+    .toolbar(removing: .sidebarToggle)
     .frame(minWidth: 750, minHeight: 500)
     .navigationTitle(title(for: store.state.effectiveSection))
     .onChange(of: projectIDs, initial: true) { _, current in
