@@ -23,6 +23,11 @@ struct HierarchySidebarView: View {
   /// badge (silent when no PR is matched) and the row hosts the PR popover. Nil in
   /// previews / tests that don't exercise the integration.
   var gitHubStore: StoreOf<GitHubFeature>?
+  /// Optional editor store. Drives the worktree context menu's "Open in
+  /// <Editor>" entry (resolved default) and "Open in" submenu (every
+  /// installed editor). Nil in previews — the submenu falls back to the
+  /// shared "Open in Default Editor" entry alone.
+  var editorStore: StoreOf<EditorFeature>?
   @Environment(HierarchyManager.self) private var hierarchyManager
   @Environment(SettingsStore.self) private var settingsStore
   @Environment(WorktreeStatusMonitor.self) private var worktreeStatusMonitor
@@ -612,7 +617,24 @@ struct HierarchySidebarView: View {
     worktree: Worktree, project: Project
   ) -> some View {
     let isMainCheckout = worktree.path == project.rootPath
+
+    // Group 1 — Open / Reveal. Top-level "Open in <Default>" surfaces
+    // the resolved editor by name (project override → global default →
+    // priority cascade); the "Open in" submenu lists every installed
+    // editor for explicit overrides; "Reveal in Finder" rounds out the
+    // navigation group.
+    openInDefaultButton(worktree: worktree, project: project)
+    openInSubmenu(worktree: worktree, project: project)
+    Button {
+      store.send(.worktreeRevealInFinderTapped(path: worktree.path))
+    } label: {
+      Label("Reveal in Finder", systemImage: "folder")
+    }
+
+    // Group 2 — Worktree lifecycle. Hidden for the main checkout (W-Q3
+    // guard: cannot pin / archive / remove the project's root worktree).
     if !isMainCheckout {
+      Divider()
       Button {
         store.send(.worktreePinToggleTapped(worktreeID: worktree.id, current: worktree.isPinned))
       } label: {
@@ -649,19 +671,91 @@ struct HierarchySidebarView: View {
         Label("Remove Worktree", systemImage: "trash")
       }
     }
-    Button {
-      store.send(.worktreeRevealInFinderTapped(path: worktree.path))
-    } label: {
-      Label("Reveal in Finder", systemImage: "folder")
-    }
+  }
+
+  /// "Open in <Resolved Editor>" entry. When the editor store is
+  /// available and a default editor resolves (project override → global
+  /// default → first installed in the priority cascade), the entry's
+  /// title carries that editor's display name. Otherwise we fall back
+  /// to "Open in Default Editor".
+  @ViewBuilder
+  private func openInDefaultButton(
+    worktree: Worktree, project: Project
+  ) -> some View {
+    let title: String = {
+      if let descriptor = resolvedDefaultEditor(for: project.id) {
+        return "Open in \(descriptor.displayName)"
+      }
+      return "Open in Default Editor"
+    }()
     Button {
       store.send(
         .worktreeOpenInDefaultEditorTapped(
           worktreeID: worktree.id, projectID: project.id, path: worktree.path
         ))
     } label: {
-      Label("Open in Default Editor", systemImage: "square.and.pencil")
+      Label(title, systemImage: "square.and.pencil")
     }
+  }
+
+  /// "Open in" submenu listing every installed editor returned by the
+  /// editor service's `describe()`. Each row dispatches
+  /// `worktreeOpenInEditorTapped` with the explicit ID so the service
+  /// bypasses the priority cascade. Hidden when the editor store is
+  /// nil (preview / test path) since there's nothing to enumerate.
+  @ViewBuilder
+  private func openInSubmenu(
+    worktree: Worktree, project: Project
+  ) -> some View {
+    if let editorStore, !editorStore.descriptors.isEmpty {
+      Menu {
+        ForEach(editorStore.descriptors) { descriptor in
+          Button {
+            store.send(
+              .worktreeOpenInEditorTapped(
+                worktreeID: worktree.id,
+                projectID: project.id,
+                path: worktree.path,
+                editorID: descriptor.id
+              ))
+          } label: {
+            Text(descriptor.displayName)
+          }
+        }
+      } label: {
+        Label("Open in", systemImage: "arrow.up.forward.app")
+      }
+    }
+  }
+
+  /// Resolves which editor would actually launch for the project today,
+  /// matching the cascade in `RootFeature.sidebar(.delegate(.openInDefaultEditor))`:
+  /// project override → global default → first installed in
+  /// `EditorRegistry.defaultPriority`. Returns nil when nothing is
+  /// installed at all (no descriptor to render the submenu) or when
+  /// the editor store wasn't injected.
+  private func resolvedDefaultEditor(
+    for projectID: ProjectID
+  ) -> EditorDescriptor? {
+    guard let editorStore else { return nil }
+    let descriptors = editorStore.descriptors
+    let projectOverride = settingsStore.settings.projects[projectID]?.defaultEditor
+    if let preferredID = EditorFeature.resolveInstalledPreference(
+      projectOverride: projectOverride,
+      globalDefault: editorStore.globalDefault,
+      descriptors: descriptors
+    ) {
+      return descriptors.first(where: { $0.id == preferredID })
+    }
+    // Priority-cascade fallback — pick the first installed editor in
+    // the registry's default order so the menu label matches what the
+    // service would actually open.
+    for id in EditorRegistry.defaultPriority {
+      if let descriptor = descriptors.first(where: { $0.id == id }) {
+        return descriptor
+      }
+    }
+    return nil
   }
 
   // MARK: - Stub sheets

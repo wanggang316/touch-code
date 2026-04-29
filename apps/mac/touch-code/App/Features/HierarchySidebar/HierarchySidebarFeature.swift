@@ -166,6 +166,17 @@ struct HierarchySidebarFeature {
       projectID: ProjectID,
       path: String
     )
+    /// Right-click menu's "Open in" submenu — picks an explicit editor
+    /// out of the installed list, bypassing the project-override /
+    /// global-default cascade. Routed through the `openInEditor`
+    /// delegate so RootFeature owns the `EditorFeature.openRequested`
+    /// dispatch.
+    case worktreeOpenInEditorTapped(
+      worktreeID: WorktreeID,
+      projectID: ProjectID,
+      path: String,
+      editorID: EditorID
+    )
 
     // Pending-worktree lifecycle. See worktree-sidebar-ordering.md §pending 段.
     case beginPendingWorktreeCreation(PendingWorktree)
@@ -206,6 +217,10 @@ struct HierarchySidebarFeature {
     @CasePathable
     enum Delegate: Equatable {
       case openInDefaultEditor(worktreePath: String, projectID: ProjectID?)
+      /// Sidebar's "Open in <Editor>" submenu — RootFeature dispatches
+      /// `.editor(.openRequested)` directly with the explicit editor ID
+      /// instead of letting the priority cascade pick one.
+      case openInEditor(worktreePath: String, projectID: ProjectID?, editorID: EditorID)
       case revealInFinder(path: String)
       /// Emitted after a Project is added (or via Retry on a `.failed` row).
       /// `RootFeature` forwards to `ProjectReconciler.reconcile`.
@@ -580,6 +595,11 @@ struct HierarchySidebarFeature {
 
     case .worktreeOpenInDefaultEditorTapped(_, let projectID, let path):
       return .send(.delegate(.openInDefaultEditor(worktreePath: path, projectID: projectID)))
+
+    case .worktreeOpenInEditorTapped(_, let projectID, let path, let editorID):
+      return .send(
+        .delegate(.openInEditor(worktreePath: path, projectID: projectID, editorID: editorID))
+      )
 
     // MARK: Project Options — scoped child
 

@@ -530,6 +530,18 @@ struct RootFeature {
               projectID: projectID
             )))
 
+      case .sidebar(.delegate(.openInEditor(let path, let projectID, let editorID))):
+        // Sidebar's "Open in <Editor>" submenu picked an explicit
+        // editor — bypass the project-override / global-default cascade
+        // and ask the service to open with that ID directly.
+        return .send(
+          .editor(
+            .openRequested(
+              editorID: editorID,
+              worktreePath: path,
+              projectID: projectID
+            )))
+
       case .sidebar(.delegate(.revealInFinder(let path))):
         let client = finderClient
         return .run { _ in

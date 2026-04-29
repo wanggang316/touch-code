@@ -49,7 +49,8 @@ struct ContentView: View {
       HierarchySidebarView(
         store: store.scope(state: \.sidebar, action: \.sidebar),
         currentSelection: store.selection,
-        gitHubStore: store.scope(state: \.gitHub, action: \.gitHub)
+        gitHubStore: store.scope(state: \.gitHub, action: \.gitHub),
+        editorStore: store.scope(state: \.editor, action: \.editor)
       )
       .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
     } detail: {
