@@ -20,10 +20,6 @@ struct WorktreeDetailView: View {
   /// T2 Header feature — scoped by `ContentView` from the root. Drives the bell
   /// badge, the Open-in split button's delegate routing, and the Git Viewer toggle.
   let headerStore: StoreOf<WorktreeHeaderFeature>
-  /// T3: scoped Git Viewer store, hosted as a right-edge overlay on the terminal region
-  /// when `overlayVisible == true` AND the terminal has enough width to keep the
-  /// overlay + the minimum terminal gutter side-by-side.
-  let gitViewerStore: StoreOf<GitViewerFeature>
   /// 0014: titlebar-center Worktree Status Bar store. Owns the toast slot; PR /
   /// motivational forms are view-level projections of other scopes (added in M4/M5).
   let statusBarStore: StoreOf<StatusBarFeature>
@@ -31,8 +27,6 @@ struct WorktreeDetailView: View {
   /// `snapshots[worktreeID]` lookup. Same store the sidebar badge reads so
   /// the two surfaces stay in sync by construction.
   let gitHubStore: StoreOf<GitHubFeature>
-  /// T3: derived from `RootFeature.State.gitViewerOverlayVisible`; never assigned locally.
-  let overlayVisible: Bool
   @Environment(HierarchyManager.self) private var hierarchyManager
 
   var body: some View {
@@ -41,8 +35,6 @@ struct WorktreeDetailView: View {
       VStack(spacing: 0) {
         tabBarRow(address: address)
         terminalRegion(address: address)
-          .overlay(alignment: .trailing) { overlayContent }
-          .animation(.easeInOut(duration: 0.15), value: overlayVisible)
       }
       // On macOS 15+ remove the title slot entirely so default-placement
       // toolbar items can flow leading-to-trailing with `ToolbarSpacer`
@@ -107,46 +99,6 @@ struct WorktreeDetailView: View {
     } else {
       emptyTab
     }
-  }
-
-  /// T3 overlay content: the Git Viewer occupies a fixed-width slot on the trailing edge
-  /// when there's room, otherwise a compact suppressed-hint badge nudges the user to
-  /// widen the window. Width clamp logic lives in `shouldShowOverlay(totalWidth:)` so
-  /// the threshold is unit-testable independently of SwiftUI layout.
-  @ViewBuilder
-  private var overlayContent: some View {
-    if overlayVisible {
-      GeometryReader { proxy in
-        if Self.shouldShowOverlay(totalWidth: proxy.size.width) {
-          GitViewerView(store: gitViewerStore)
-            .frame(width: MainWindowConstants.gvOverlayWidth)
-            .frame(maxWidth: .infinity, alignment: .trailing)
-            .transition(.move(edge: .trailing).combined(with: .opacity))
-        } else {
-          overlaySuppressedHint
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-            .padding(8)
-        }
-      }
-    }
-  }
-
-  private var overlaySuppressedHint: some View {
-    Text("Widen window to show Git Viewer")
-      .font(.caption)
-      .foregroundStyle(.secondary)
-      .padding(.horizontal, 10)
-      .padding(.vertical, 5)
-      .background(.thinMaterial, in: .capsule)
-  }
-
-  /// Pure width-clamp helper. The overlay only renders when the host has room to keep
-  /// the overlay at its fixed width AND leave at least `gvOverlayMinTerminalWidth` for
-  /// the terminal. Equivalence with `>=` keeps the exact threshold inclusive — matches
-  /// the paired unit tests in `WorktreeDetailViewLayoutTests`.
-  static func shouldShowOverlay(totalWidth: CGFloat) -> Bool {
-    totalWidth >= MainWindowConstants.gvOverlayMinTerminalWidth
-      + MainWindowConstants.gvOverlayWidth
   }
 
   /// Window-titlebar toolbar content for the active Worktree. Branch label

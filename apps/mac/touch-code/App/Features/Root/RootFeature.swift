@@ -28,10 +28,6 @@ struct RootFeature {
 
     var sidebar: HierarchySidebarFeature.State = .init()
     var detail: WorktreeDetailFeature.State = .init()
-    /// C7 M3/M4 (0005): read-only git viewer hosted in the trailing
-    /// inspector slot. Selection is forwarded by the `.selectionChanged`
-    /// reducer branch so the feature always tracks the active Worktree.
-    var gitViewer: GitViewerFeature.State = .init()
     /// C8 M6b (0005): editor preferences + per-Project override state.
     var editor: EditorFeature.State = .init()
     /// T2: Header feature (bell + Open-in split button + GV toggle).
@@ -191,7 +187,6 @@ struct RootFeature {
     case tagManagerSheetShown
     case sidebar(HierarchySidebarFeature.Action)
     case detail(WorktreeDetailFeature.Action)
-    case gitViewer(GitViewerFeature.Action)
     case editor(EditorFeature.Action)
     case worktreeHeader(WorktreeHeaderFeature.Action)
     case gitHub(GitHubFeature.Action)
@@ -220,7 +215,6 @@ struct RootFeature {
   private var sidebarAndDetailScopes: some Reducer<State, Action> {
     Scope(state: \.sidebar, action: \.sidebar) { HierarchySidebarFeature() }
     Scope(state: \.detail, action: \.detail) { WorktreeDetailFeature() }
-    Scope(state: \.gitViewer, action: \.gitViewer) { GitViewerFeature() }
   }
 
   @ReducerBuilder<State, Action>
@@ -381,16 +375,9 @@ struct RootFeature {
         reconcilePaneHosts(
           &state.detail.splitViewport, selection: selection, tabID: tabID
         )
-        // Forward the (projectID, worktreeID) pair to GitViewerFeature so
-        // the inspector always reflects the current selection.
-        var effects: [Effect<Action>] = [
-          .send(
-            .gitViewer(
-              .worktreeSelected(
-                projectID: selection.projectID,
-                worktreeID: selection.worktreeID
-              )))
-        ]
+        // M0 stub: the GitViewer feature has been removed; the future Diff
+        // feature (replacing it) will receive selection forwarding here.
+        var effects: [Effect<Action>] = []
         // v2 GitHub integration (0013 M4): when the active Project changes, ask
         // GitHubFeature to batch-fetch PR data for every branch in that Project.
         // The reducer runs one `gh api graphql` for the whole repo instead of
@@ -527,9 +514,6 @@ struct RootFeature {
         return .none
 
       case .detail:
-        return .none
-
-      case .gitViewer:
         return .none
 
       // 0014 M2: surface editor-open outcomes in the titlebar status bar.

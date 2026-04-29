@@ -35,43 +35,9 @@ struct RootFeatureTests {
     await store.send(.onQuit)
   }
 
-  @Test
-  func selectionChangedUpdatesStateAndForwardsToGitViewer() async {
-    let store = TestStore(initialState: RootFeature.State()) {
-      RootFeature()
-    } withDependencies: {
-      $0.terminalClient.events = { AsyncStream { $0.finish() } }
-      $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
-      // Snapshot drives both (a) `resolveActiveTab` in this reducer and (b)
-      // `GitViewerFeature.worktreePath(in:worktreeID:)` downstream. Return an empty catalog —
-      // the test selection points at unknown IDs. resolveActiveTab returns nil; the
-      // downstream diff effect discovers no path and dispatches .diffFailed with a clear
-      // reason.
-      $0.hierarchyClient.snapshot = { Catalog() }
-      $0.gitService = GitServiceClient.testValue
-      $0.editorClient = EditorClient.testValue
-    }
-
-    let selection = HierarchySelection(projectID: ProjectID(), worktreeID: WorktreeID())
-    await store.send(.selectionChanged(selection)) { state in
-      state.selection = selection
-    }
-    // Forwarding step: RootFeature turns .selectionChanged into a
-    // `.gitViewer(.worktreeSelected)` action. The Header feature does
-    // not need a dispatched signal — its badge count reads the live
-    // `hierarchyManager.catalog` via `State.unreadCount(in:)`.
-    await store.receive(\.gitViewer.worktreeSelected) { state in
-      state.gitViewer.projectID = selection.projectID
-      state.gitViewer.worktreeID = selection.worktreeID
-      state.gitViewer.diffState = .loading
-    }
-    // Downstream effect: diffRequest fails because the snapshot doesn't contain the
-    // worktree, which proves both the forwarding AND the GitViewerFeature is correctly
-    // scoped into RootFeature (the reducer ran, not just the action routing).
-    await store.receive(\.gitViewer.diffFailed) { state in
-      state.gitViewer.diffState = .error(.invalidInput("no worktree path available"))
-    }
-  }
+  // M0 cleanup: `selectionChangedUpdatesStateAndForwardsToGitViewer` removed —
+  // the GitViewer feature no longer exists; the future Diff feature
+  // (replacing it) will own its own forwarding test.
 
   @Test
   func selectionChangedMirrorsActiveTabFromSnapshot() async {
@@ -525,11 +491,9 @@ struct RootFeatureTests {
     await store.receive(\.selectionChanged) { state in
       state.selection = selection
     }
-    // Forwarding reaches GitViewerFeature. Both IDs are nil; state was already all-nil,
-    // so the reducer's equality guard at the top of the handler short-circuits with no
-    // state mutation. `store.receive` without a mutation closure is still exhaustive —
-    // TestStore asserts the action was dispatched, and the state stayed unchanged.
-    await store.receive(\.gitViewer.worktreeSelected)
+    // M0 cleanup: the `.gitViewer(.worktreeSelected)` forwarding step is gone
+    // until the Diff feature lands. `selectionChanged` no longer dispatches a
+    // child action for nil-worktree selections.
 
     selectionContinuation.finish()
     await store.send(.onQuit)

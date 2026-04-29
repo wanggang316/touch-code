@@ -29,8 +29,11 @@ After this plan completes, a touch-code user can:
 
 ## Progress
 
-- [ ] M0 — Cleanup: delete old `GitViewer/` tree, related tests, obsolete
-  docs; stub remaining entry points so the project compiles.
+- [x] M0 — Cleanup: deleted `App/Features/GitViewer/`, 5 GitViewer test
+  files, `MainWindowConstants.swift`, 3 obsolete docs; stubbed entry
+  points in `RootFeature` / `ContentView` / `WorktreeDetailView`; one
+  RootFeatureTests case removed and one trimmed. Build green; full
+  suite shows only pre-existing baseline failures. (2026-04-29)
 - [ ] M1 — Rename: `gitViewer*` Swift identifiers and the `Worktree`
   Codable key migrate to `diff*` / `diffInspector*` per Design's Renamed
   table; project compiles; touched tests pass.
@@ -61,7 +64,10 @@ After this plan completes, a touch-code user can:
 
 ## Decision Log
 
-(None yet)
+- **D1** (M0, 2026-04-29): Kept `Tests/Performance/DiffParsePerformanceBaselineTests.swift` and its fixture. Reason: `DiffParser` is defined in `apps/mac/touch-code/Git/DiffParser.swift` (the git-domain module), not in the deleted GitViewer feature; the perf test exercises that domain parser, which still lives.
+- **D2** (M0, 2026-04-29): Kept `docs/exec-plans/0005-git-viewer-and-editor.md`. Reason: Status: `Completed (2026-04-20)`. The doc is a historical archive that covers both GitViewer (M1–M4, M8 — superseded) and Editor (M5–M7 — still load-bearing reference). Per plan's "decided per editor-portion at execution" guidance, leave the file as-is.
+- **D3** (M0, 2026-04-29): Deleted `docs/design-docs/c7-git-viewer.md`. Reason: 100% GitViewer content with no editor cross-cuts.
+- **D4** (M0, 2026-04-29): Deleted `apps/mac/touch-code/App/Theme/MainWindowConstants.swift` (only contained `gvOverlayWidth` / `gvOverlayMinTerminalWidth`). Plan didn't list it explicitly but its sole consumers are gone.
 
 ## Outcomes & Retrospective
 
