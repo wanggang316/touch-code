@@ -84,7 +84,8 @@ struct ProjectRemove: AsyncParsableCommand {
     abstract: "Remove a project."
   )
   @OptionGroup var globals: GlobalOptions
-  @Argument var id: String
+  @Argument(help: "Project id (UUID, 'current', or unique name).")
+  var id: String
 
   func run() async throws {
     let client = CLISession.connect(globals: globals)
@@ -210,7 +211,8 @@ struct WorktreeRemove: AsyncParsableCommand {
   @OptionGroup var globals: GlobalOptions
   @Option(name: .long, help: "Project id (UUID or 'current').")
   var project: String = "current"
-  @Argument var id: String
+  @Argument(help: "Worktree id (UUID or 'current').")
+  var id: String
 
   func run() async throws {
     let client = CLISession.connect(globals: globals)
@@ -244,7 +246,8 @@ struct WorktreeActivate: AsyncParsableCommand {
     abstract: "Activate a worktree by id or 'current'."
   )
   @OptionGroup var globals: GlobalOptions
-  @Argument var id: String
+  @Argument(help: "Worktree id (UUID or 'current').")
+  var id: String
 
   func run() async throws {
     let client = CLISession.connect(globals: globals)
@@ -278,8 +281,10 @@ struct TabList: AsyncParsableCommand {
     abstract: "List tabs in a worktree."
   )
   @OptionGroup var globals: GlobalOptions
-  @Option(name: .long) var project: String = "current"
-  @Option(name: .long) var worktree: String = "current"
+  @Option(name: .long, help: "Project id (UUID or 'current').")
+  var project: String = "current"
+  @Option(name: .long, help: "Worktree id (UUID or 'current').")
+  var worktree: String = "current"
 
   func run() async throws {
     let client = CLISession.connect(globals: globals)
@@ -327,9 +332,12 @@ struct TabClose: AsyncParsableCommand {
     abstract: "Close a tab."
   )
   @OptionGroup var globals: GlobalOptions
-  @Option(name: .long) var project: String = "current"
-  @Option(name: .long) var worktree: String = "current"
-  @Argument var id: String
+  @Option(name: .long, help: "Project id (UUID or 'current').")
+  var project: String = "current"
+  @Option(name: .long, help: "Worktree id (UUID or 'current').")
+  var worktree: String = "current"
+  @Argument(help: "Tab id (UUID or 'current').")
+  var id: String
 
   func run() async throws {
     let client = CLISession.connect(globals: globals)
@@ -366,7 +374,8 @@ struct TabActivate: AsyncParsableCommand {
     abstract: "Activate a tab by id or 'current'."
   )
   @OptionGroup var globals: GlobalOptions
-  @Argument var id: String
+  @Argument(help: "Tab id (UUID or 'current').")
+  var id: String
 
   func run() async throws {
     let client = CLISession.connect(globals: globals)
@@ -400,9 +409,12 @@ struct PaneList: AsyncParsableCommand {
     abstract: "List panes in a tab."
   )
   @OptionGroup var globals: GlobalOptions
-  @Option(name: .long) var project: String = "current"
-  @Option(name: .long) var worktree: String = "current"
-  @Option(name: .long) var tab: String = "current"
+  @Option(name: .long, help: "Project id (UUID or 'current').")
+  var project: String = "current"
+  @Option(name: .long, help: "Worktree id (UUID or 'current').")
+  var worktree: String = "current"
+  @Option(name: .long, help: "Tab id (UUID or 'current').")
+  var tab: String = "current"
 
   func run() async throws {
     let client = CLISession.connect(globals: globals)
@@ -451,10 +463,14 @@ struct PaneListRenderable: Encodable, CustomStringConvertible {
 }
 
 struct PaneLocatorArgs: ParsableArguments {
-  @Option(name: .long) var project: String = "current"
-  @Option(name: .long) var worktree: String = "current"
-  @Option(name: .long) var tab: String = "current"
-  @Argument var id: String
+  @Option(name: .long, help: "Project id (UUID or 'current').")
+  var project: String = "current"
+  @Option(name: .long, help: "Worktree id (UUID or 'current').")
+  var worktree: String = "current"
+  @Option(name: .long, help: "Tab id (UUID or 'current').")
+  var tab: String = "current"
+  @Argument(help: "Pane id (UUID, 'current', or @label).")
+  var id: String
 }
 
 struct PaneClose: AsyncParsableCommand {
@@ -581,8 +597,13 @@ struct SendCommand: AsyncParsableCommand {
     abstract: "Send text input to a specific pane (by UUID, @label, or 'current')."
   )
   @OptionGroup var globals: GlobalOptions
-  @Argument var target: String
-  @Argument(parsing: .remaining) var textPieces: [String]
+  @Argument(help: "Target pane (UUID, 'current', or @label).")
+  var target: String
+  @Argument(
+    parsing: .remaining,
+    help: "Text to deliver. Multiple words are joined with single spaces."
+  )
+  var textPieces: [String]
 
   func run() async throws {
     let client = CLISession.connect(globals: globals)
@@ -619,7 +640,11 @@ struct BroadcastCommand: AsyncParsableCommand {
   @Option(name: .long, help: "Tab id.") var tab: String?
   @Option(name: .long, help: "Worktree id.") var worktree: String?
   @Option(name: .long, help: "Label string.") var label: String?
-  @Argument(parsing: .remaining) var textPieces: [String]
+  @Argument(
+    parsing: .remaining,
+    help: "Text to fan out. Multiple words are joined with single spaces."
+  )
+  var textPieces: [String]
 
   func run() async throws {
     let scopeCount = [tab, worktree, label].compactMap { $0 }.count
