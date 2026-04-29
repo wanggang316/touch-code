@@ -71,16 +71,5 @@ extension IPC {
     case terminalSendInput = "terminal.sendInput"
     case terminalBroadcastInput = "terminal.broadcastInput"
     case terminalRetryPane = "terminal.retryPane"
-
-    // hook
-    case hookList = "hook.list"
-    case hookInstall = "hook.install"
-    case hookRemove = "hook.remove"
-    case hookEnable = "hook.enable"
-    case hookReload = "hook.reload"
-    case hookTest = "hook.test"
-    case hookFire = "hook.fire"
-    case hookRecent = "hook.recent"
-    case hookEvents = "hook.events"  // streaming
   }
 }

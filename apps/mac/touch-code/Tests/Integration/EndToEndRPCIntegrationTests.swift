@@ -177,16 +177,6 @@ struct EndToEndRPCIntegrationTests {
   /// `RouterBackedTransport`. The server is a real `MethodRouter` with
   /// every handler wired; the client is a real `RPCClient`.
   func makeStack() throws -> (RPCClient, RouterBackedTransport) {
-    let hookConfigURL = URL(fileURLWithPath: NSTemporaryDirectory())
-      .appendingPathComponent("touch-code-integ-\(UUID().uuidString).json")
-    let hookStore = HookConfigStore(fileURL: hookConfigURL)
-    let dispatcher = HookDispatcher(
-      config: .empty,
-      store: hookStore,
-      executor: FakeHookExecutor(),
-      actionDispatcher: RecordingHookActionDispatcher()
-    )
-    let hookHandlers = HookHandlers(dispatcher: dispatcher, store: hookStore)
     let systemHandlers = SystemHandlers(
       versions: .init(server: "0.3.0", appBundle: "0.3.0+test")
     )
@@ -204,7 +194,6 @@ struct EndToEndRPCIntegrationTests {
     let terminalHandlers = TerminalHandlers(sink: nil, catalog: { hierarchy.catalog })
 
     let router = MethodRouter(
-      hookHandlers: hookHandlers,
       systemHandlers: systemHandlers,
       hierarchyHandlers: hierarchyHandlers,
       terminalHandlers: terminalHandlers

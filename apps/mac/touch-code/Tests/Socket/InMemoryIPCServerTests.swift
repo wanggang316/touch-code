@@ -49,15 +49,10 @@ struct InMemoryIPCServerTests {
     // `.overloaded` branch — proves the wire contract for DEC-9
     // backpressure even while actor-serialized handling keeps real
     // inflight at ≤ 1 in production.
-    let (store, dispatcher) = Self.makeDispatcher(existing: nil)
-    let hookHandlers = HookHandlers(dispatcher: dispatcher, store: store)
     let systemHandlers = SystemHandlers(
       versions: .init(server: "0.3.0", appBundle: "0.3.0+test")
     )
-    let router = MethodRouter(
-      hookHandlers: hookHandlers,
-      systemHandlers: systemHandlers
-    )
+    let router = MethodRouter(systemHandlers: systemHandlers)
     let server = InMemoryIPCServer(router: router, inflightLimit: 0)
     server.start()
     defer { server.stop() }
@@ -107,45 +102,14 @@ struct InMemoryIPCServerTests {
 
   // MARK: - Harness helpers
 
-  static func makeHarness(
-    dispatcher: HookDispatcher? = nil
-  ) -> InMemoryIPCServer {
-    let (store, dispatcher) = Self.makeDispatcher(existing: dispatcher)
-    let hookHandlers = HookHandlers(dispatcher: dispatcher, store: store)
+  static func makeHarness() -> InMemoryIPCServer {
     let systemHandlers = SystemHandlers(
       versions: .init(server: "0.3.0", appBundle: "0.3.0+test")
     )
-    let router = MethodRouter(
-      hookHandlers: hookHandlers,
-      systemHandlers: systemHandlers
-    )
+    let router = MethodRouter(systemHandlers: systemHandlers)
     let server = InMemoryIPCServer(router: router)
     server.start()
     return server
-  }
-
-  static func makeDispatcher(
-    existing: HookDispatcher?
-  ) -> (HookConfigStore, HookDispatcher) {
-    let url = Self.tempURL()
-    let store = HookConfigStore(fileURL: url)
-    if let existing {
-      return (store, existing)
-    }
-    let dispatcher = HookDispatcher(
-      config: .empty,
-      store: store,
-      executor: FakeHookExecutor(),
-      actionDispatcher: RecordingHookActionDispatcher()
-    )
-    return (store, dispatcher)
-  }
-
-  static func tempURL() -> URL {
-    let dir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-      .appendingPathComponent("touch-code-ipc-tests-\(UUID().uuidString)", isDirectory: true)
-    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    return dir.appendingPathComponent("hooks.json")
   }
 
   static func sendHello(_ server: InMemoryIPCServer, id: String = "hello-1") throws {

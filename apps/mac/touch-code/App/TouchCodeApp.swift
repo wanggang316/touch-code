@@ -428,7 +428,6 @@ final class AppState {
     )
     self.hookDispatcher = dispatcher
 
-    let hookHandlers = HookHandlers(dispatcher: dispatcher, store: hookConfigStore)
     let systemHandlers = SystemHandlers(
       versions: .init(
         server: Self.bundleVersion(),
@@ -453,7 +452,6 @@ final class AppState {
       settings: settingsStore
     )
     let router = MethodRouter(
-      hookHandlers: hookHandlers,
       systemHandlers: systemHandlers,
       hierarchyHandlers: hierarchyHandlers,
       terminalHandlers: terminalHandlers,

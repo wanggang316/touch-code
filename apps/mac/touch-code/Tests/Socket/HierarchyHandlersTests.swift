@@ -84,8 +84,6 @@ struct HierarchyHandlersTests {
   }
 
   static func makeHarnessWithHierarchy() -> HarnessBundle {
-    let (store, dispatcher) = InMemoryIPCServerTests.makeDispatcher(existing: nil)
-    let hookHandlers = HookHandlers(dispatcher: dispatcher, store: store)
     let systemHandlers = SystemHandlers(
       versions: .init(server: "0.4.0", appBundle: "0.4.0+test")
     )
@@ -102,7 +100,6 @@ struct HierarchyHandlersTests {
     let hierarchyHandlers = HierarchyHandlers(manager: hierarchy)
 
     let router = MethodRouter(
-      hookHandlers: hookHandlers,
       systemHandlers: systemHandlers,
       hierarchyHandlers: hierarchyHandlers
     )
