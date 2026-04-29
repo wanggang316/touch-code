@@ -21,7 +21,6 @@ struct SettingsCodableTests {
     let data = Data(#"{"version":3}"#.utf8)
     let decoded = try JSONDecoder.touchCodeDefault.decode(Settings.self, from: data)
     #expect(decoded.general == .default)
-    #expect(decoded.notifications == .default)
     #expect(decoded.developer == .default)
     #expect(decoded.projects.isEmpty)
   }

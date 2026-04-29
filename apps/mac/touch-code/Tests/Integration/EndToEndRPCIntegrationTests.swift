@@ -8,20 +8,10 @@ import tcKit
 
 /// End-to-end integration tests: a real `RPCClient` (with its pipelined
 /// handshake, inbound-pump actor, and typed Codable decode) driving a
-/// real `MethodRouter` + real app-side handlers (`HookHandlers`,
-/// `HierarchyHandlers`, `SystemHandlers`, `TerminalHandlers`) over a
-/// `RouterBackedTransport`. The transport preserves the full wire stack
-/// — Framing (DEC-3) + `SocketConnection`'s read-dispatch-write loop —
-/// and skips only the Unix socket fd itself.
-///
-/// These tests assert multi-step scenarios (install → list → fire →
-/// recent; create-space → activate → describe) through the same typed
-/// `client.call(_:params:)` API the `tc` CLI uses in production. A
-/// regression in Codable alignment between request params / response
-/// payloads / CLI decoders surfaces here, not just at the individual
-/// handler-unit-test level. `UnixSocketTransport`'s accept / read / fd
-/// lifecycle is covered by manual validation in M8's §M8 steps and
-/// remains untested at the Swift-Testing level (tracked under M8.1).
+/// real `MethodRouter` + real app-side handlers (`HierarchyHandlers`,
+/// `SystemHandlers`, `TerminalHandlers`) over a `RouterBackedTransport`.
+/// The transport preserves the full wire stack — Framing + `SocketConnection`'s
+/// read-dispatch-write loop — and skips only the Unix socket fd itself.
 @MainActor
 struct EndToEndRPCIntegrationTests {
   // MARK: - System verbs
@@ -45,51 +35,6 @@ struct EndToEndRPCIntegrationTests {
       let version: Version = try await client.call(.systemVersion, params: Empty())
       #expect(version.server == "0.3.0")
       #expect(version.appBundle == "0.3.0+test")
-    }
-  }
-
-  // MARK: - Hook lifecycle
-
-  @Test
-  func hookInstallListFireRecentFullLifecycle() async throws {
-    try await withStack { client in
-      let sub = HookSubscription(event: .paneReady, command: "echo ready")
-
-      // 1. install
-      struct InstallParams: Codable { let subscription: HookSubscription }
-      struct InstallResult: Codable { let id: String }
-      let installed: InstallResult = try await client.call(
-        .hookInstall,
-        params: InstallParams(subscription: sub)
-      )
-      #expect(installed.id == sub.id.uuidString)
-
-      // 2. list — should see our hook
-      struct ListResult: Codable { let subscriptions: [HookSubscription] }
-      let listed: ListResult = try await client.call(.hookList, params: Empty())
-      #expect(listed.subscriptions.map(\.id).contains(sub.id))
-
-      // 3. fire — triggers the FakeHookExecutor
-      let envelope = HookEnvelope(
-        event: .paneReady,
-        data: .paneReady(pid: nil, shell: "bash")
-      )
-      struct FireParams: Codable { let envelope: HookEnvelope }
-      struct FireResult: Codable { let handlersRun: Int }
-      let fired: FireResult = try await client.call(
-        .hookFire,
-        params: FireParams(envelope: envelope)
-      )
-      #expect(fired.handlersRun >= 1)
-
-      // 4. recent — the fire should appear in the ring buffer
-      struct RecentParams: Codable { let limit: Int? }
-      struct RecentResult: Codable { let fires: [HookFireRecord] }
-      let recent: RecentResult = try await client.call(
-        .hookRecent,
-        params: RecentParams(limit: 5)
-      )
-      #expect(!recent.fires.isEmpty)
     }
   }
 

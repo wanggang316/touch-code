@@ -33,7 +33,6 @@ let project = Project(
       infoPlist: .default,
       buildableFolders: [
         "TouchCodeCore",
-        "TouchCodeCore/Hooks",
         "TouchCodeCore/GitHub",
         "TouchCodeCore/Shortcuts",
         "TouchCodeCore/Shortcuts/ConflictDetectors",
@@ -57,7 +56,6 @@ let project = Project(
       infoPlist: .default,
       buildableFolders: [
         "TouchCodeCoreTests",
-        "TouchCodeCoreTests/Hooks",
         "TouchCodeCoreTests/IPC",
         "TouchCodeCoreTests/GitHubTests",
         "TouchCodeCoreTests/Shortcuts",

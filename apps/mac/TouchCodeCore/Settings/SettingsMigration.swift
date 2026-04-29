@@ -161,21 +161,9 @@ public nonisolated enum SettingsMigration {
     general.defaultEditorID = legacy.defaultEditorID
     // C8a: legacy `customEditors` array is ignored on migration — see GeneralSettings doc.
 
-    var notifications = NotificationsSettings.default
-    if let legacyNotif = legacy.notifications {
-      notifications.mute = legacyNotif.mute ?? .defaults
-      notifications.authStatus = legacyNotif.authStatus ?? .notDetermined
-      notifications.neverPrompt = legacyNotif.neverPrompt ?? false
-      notifications.notNowUntil = legacyNotif.notNowUntil
-      // v1 had `mute.badgeEnabled` as the Dock-badge proxy. Pull that through to the v2
-      // dedicated toggle so existing "I turned off the dock badge" preferences are preserved.
-      notifications.dockBadgeEnabled = legacyNotif.mute?.badgeEnabled ?? true
-    }
-
     return Settings(
       version: Settings.currentVersion,
       general: general,
-      notifications: notifications,
       developer: .default,
       projects: [:]
     )
@@ -250,7 +238,6 @@ public nonisolated enum SettingsMigration {
     let migrated = Settings(
       version: Settings.currentVersion,
       general: legacy.general ?? .default,
-      notifications: legacy.notifications ?? .default,
       developer: legacy.developer ?? .default,
       projects: projects
     )
