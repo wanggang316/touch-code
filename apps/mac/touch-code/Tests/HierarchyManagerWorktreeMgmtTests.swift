@@ -91,6 +91,98 @@ struct HierarchyManagerWorktreeMgmtTests {
     #expect(fakeRuntime.closeSurfaceCalls == [paneID])
   }
 
+  @Test
+  func archiveAdvancesSelectionWhenItPointsAtTheArchivedRow() throws {
+    let projectID = manager.addProject(
+      name: "p", rootPath: "/repo", gitRoot: "/repo"
+    )
+    let mainID = try manager.createWorktree(
+      in: projectID, name: "main", path: "/repo", branch: "main"
+    )
+    let featureID = try manager.createWorktree(
+      in: projectID, name: "feature", path: "/repo/feat", branch: "feature"
+    )
+    try manager.selectWorktree(featureID, in: projectID)
+    #expect(manager.catalog.projects[0].selectedWorktreeID == featureID)
+
+    try manager.setWorktreeArchived(worktreeID: featureID, archived: true)
+    #expect(manager.catalog.projects[0].selectedWorktreeID == mainID)
+  }
+
+  @Test
+  func archiveLeavesSelectionAloneWhenItPointsElsewhere() throws {
+    let projectID = manager.addProject(
+      name: "p", rootPath: "/repo", gitRoot: "/repo"
+    )
+    let mainID = try manager.createWorktree(
+      in: projectID, name: "main", path: "/repo", branch: "main"
+    )
+    let featureID = try manager.createWorktree(
+      in: projectID, name: "feature", path: "/repo/feat", branch: "feature"
+    )
+    try manager.selectWorktree(mainID, in: projectID)
+
+    try manager.setWorktreeArchived(worktreeID: featureID, archived: true)
+    #expect(manager.catalog.projects[0].selectedWorktreeID == mainID)
+  }
+
+  @Test
+  func archiveDropsSelectionWhenNoOtherVisibleWorktreeRemains() throws {
+    let projectID = manager.addProject(
+      name: "p", rootPath: "/repo", gitRoot: "/repo"
+    )
+    let onlyID = try manager.createWorktree(
+      in: projectID, name: "feature", path: "/repo/feat", branch: "feature"
+    )
+    try manager.selectWorktree(onlyID, in: projectID)
+
+    try manager.setWorktreeArchived(worktreeID: onlyID, archived: true)
+    #expect(manager.catalog.projects[0].selectedWorktreeID == nil)
+  }
+
+  @Test
+  func unarchiveDoesNotDisturbSelection() throws {
+    let projectID = manager.addProject(
+      name: "p", rootPath: "/repo", gitRoot: "/repo"
+    )
+    let mainID = try manager.createWorktree(
+      in: projectID, name: "main", path: "/repo", branch: "main"
+    )
+    let featureID = try manager.createWorktree(
+      in: projectID, name: "feature", path: "/repo/feat", branch: "feature"
+    )
+    try manager.setWorktreeArchived(worktreeID: featureID, archived: true)
+    try manager.selectWorktree(mainID, in: projectID)
+
+    try manager.setWorktreeArchived(worktreeID: featureID, archived: false)
+    #expect(manager.catalog.projects[0].selectedWorktreeID == mainID)
+  }
+
+  // MARK: - removeWorktree selection advance
+
+  @Test
+  func removeAdvancesSelectionToFirstNonArchivedSibling() throws {
+    let projectID = manager.addProject(
+      name: "p", rootPath: "/repo", gitRoot: "/repo"
+    )
+    let mainID = try manager.createWorktree(
+      in: projectID, name: "main", path: "/repo", branch: "main"
+    )
+    let archivedID = try manager.createWorktree(
+      in: projectID, name: "archived", path: "/repo/archived", branch: "archived"
+    )
+    let activeID = try manager.createWorktree(
+      in: projectID, name: "feature", path: "/repo/feat", branch: "feature"
+    )
+    try manager.setWorktreeArchived(worktreeID: archivedID, archived: true)
+    try manager.selectWorktree(activeID, in: projectID)
+
+    try manager.removeWorktree(activeID, from: projectID)
+    // `mainID` is `worktrees.first { !$0.archived }` after the remove —
+    // before this fix the fallback would have picked `archivedID`.
+    #expect(manager.catalog.projects[0].selectedWorktreeID == mainID)
+  }
+
   // MARK: - reconcileDiscoveredWorktrees
 
   @Test

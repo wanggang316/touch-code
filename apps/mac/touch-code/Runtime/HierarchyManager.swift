@@ -320,8 +320,13 @@ final class HierarchyManager {
 
     catalog.projects[projectIndex].worktrees.remove(at: worktreeIndex)
     if catalog.projects[projectIndex].selectedWorktreeID == id {
+      // Advance to the next visible (non-archived) worktree so the detail
+      // pane doesn't get pinned to a row the user can't see. `first` was
+      // already a fallback; the extra `!archived` filter matters when the
+      // removed row sat above an archived sibling that would otherwise
+      // become the new selection.
       catalog.projects[projectIndex].selectedWorktreeID =
-        catalog.projects[projectIndex].worktrees.first?.id
+        catalog.projects[projectIndex].worktrees.first { !$0.archived }?.id
     }
     store.scheduleSave(catalog)
   }
@@ -357,6 +362,20 @@ final class HierarchyManager {
         }
       }
       catalog.projects[projectIndex].worktrees[worktreeIndex].archived = archived
+      // After flipping archived → true, the row vanishes from the sidebar but
+      // the detail view is still bound to its WorktreeID. Advance the
+      // project's selection to the next visible sibling so the detail pane
+      // jumps to a real surface (or empties cleanly when no sibling remains).
+      // Skip on unarchive — flipping archived → false should never disturb
+      // the active selection.
+      if archived,
+        catalog.projects[projectIndex].selectedWorktreeID == worktreeID
+      {
+        catalog.projects[projectIndex].selectedWorktreeID =
+          catalog.projects[projectIndex].worktrees.first {
+            $0.id != worktreeID && !$0.archived
+          }?.id
+      }
       store.scheduleSave(catalog)
       return
     }
