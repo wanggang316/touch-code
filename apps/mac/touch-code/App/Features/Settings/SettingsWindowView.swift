@@ -21,17 +21,22 @@ struct SettingsWindowView: View {
       get: { store.state.selection },
       set: { store.send(.selectionChanged($0)) }
     )
-    NavigationSplitView {
+    // Lock column visibility so SwiftUI stops auto-injecting the sidebar
+    // collapse toggle; the remaining `.toolbar(removing: .sidebarToggle)` on the
+    // sidebar column scrubs the placeholder, and the invisible principal item
+    // below pins the toolbar height so the sidebar list does not slide down
+    // when the toggle disappears. Pattern lifted from supacode's `SettingsView`.
+    NavigationSplitView(columnVisibility: .constant(.all)) {
       SettingsSidebarView(selection: selection)
+        .toolbar(removing: .sidebarToggle)
     } detail: {
       detailView(for: store.state.effectiveSection)
     }
-    // Drop the auto-injected sidebar collapse toggle so the Settings window
-    // matches macOS System Settings (sidebar permanently visible). Applied at
-    // the split-view root rather than on the sidebar column — column-level
-    // placement makes SwiftUI reserve toolbar height inside the column and
-    // pushes the list contents down.
-    .toolbar(removing: .sidebarToggle)
+    .toolbar {
+      ToolbarItem(placement: .principal) {
+        Color.clear.frame(width: 0, height: 0)
+      }
+    }
     .frame(minWidth: 750, minHeight: 500)
     .navigationTitle(title(for: store.state.effectiveSection))
     .onChange(of: projectIDs, initial: true) { _, current in
