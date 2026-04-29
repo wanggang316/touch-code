@@ -42,7 +42,7 @@ struct SettingsSidebarView: View {
       }
     }
     .listStyle(.sidebar)
-    .navigationSplitViewColumnWidth(min: 220, ideal: 240)
+    .navigationSplitViewColumnWidth(min: 180, ideal: 200)
   }
 
   // MARK: - Rows
