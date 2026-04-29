@@ -33,7 +33,7 @@ struct OpenCommand: AsyncParsableCommand {
   var path: String?
 
   func run() async throws {
-    let client = try CLISession.connect(globals: globals)
+    let client = CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
       let request = Self.buildRequest(path: self.path, editor: self.in)

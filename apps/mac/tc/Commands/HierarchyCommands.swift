@@ -37,7 +37,7 @@ struct ProjectList: AsyncParsableCommand {
         message: "pass at most one of --tag / --untagged"
       ).exitProcess()
     }
-    let client = try CLISession.connect(globals: globals)
+    let client = CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
       struct Params: Codable {
@@ -87,7 +87,7 @@ struct ProjectRemove: AsyncParsableCommand {
   @Argument var id: String
 
   func run() async throws {
-    let client = try CLISession.connect(globals: globals)
+    let client = CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
       let projectUUID = try await AliasResolver.resolve(id, kind: .project, client: client)
@@ -119,7 +119,7 @@ struct ProjectAdd: AsyncParsableCommand {
   var path: String
 
   func run() async throws {
-    let client = try CLISession.connect(globals: globals)
+    let client = CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
       struct Params: Codable {
@@ -165,7 +165,7 @@ struct WorktreeList: AsyncParsableCommand {
   var project: String = "current"
 
   func run() async throws {
-    let client = try CLISession.connect(globals: globals)
+    let client = CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
       let projectUUID = try await AliasResolver.resolve(project, kind: .project, client: client)
@@ -213,7 +213,7 @@ struct WorktreeRemove: AsyncParsableCommand {
   @Argument var id: String
 
   func run() async throws {
-    let client = try CLISession.connect(globals: globals)
+    let client = CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
       let projectUUID = try await AliasResolver.resolve(project, kind: .project, client: client)
@@ -247,7 +247,7 @@ struct WorktreeActivate: AsyncParsableCommand {
   @Argument var id: String
 
   func run() async throws {
-    let client = try CLISession.connect(globals: globals)
+    let client = CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
       let uuid = try await AliasResolver.resolve(id, kind: .worktree, client: client)
@@ -282,7 +282,7 @@ struct TabList: AsyncParsableCommand {
   @Option(name: .long) var worktree: String = "current"
 
   func run() async throws {
-    let client = try CLISession.connect(globals: globals)
+    let client = CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
       let projectUUID = try await AliasResolver.resolve(project, kind: .project, client: client)
@@ -332,7 +332,7 @@ struct TabClose: AsyncParsableCommand {
   @Argument var id: String
 
   func run() async throws {
-    let client = try CLISession.connect(globals: globals)
+    let client = CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
       let projectUUID = try await AliasResolver.resolve(project, kind: .project, client: client)
@@ -369,7 +369,7 @@ struct TabActivate: AsyncParsableCommand {
   @Argument var id: String
 
   func run() async throws {
-    let client = try CLISession.connect(globals: globals)
+    let client = CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
       let uuid = try await AliasResolver.resolve(id, kind: .tab, client: client)
@@ -405,7 +405,7 @@ struct PaneList: AsyncParsableCommand {
   @Option(name: .long) var tab: String = "current"
 
   func run() async throws {
-    let client = try CLISession.connect(globals: globals)
+    let client = CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
       let projectUUID = try await AliasResolver.resolve(project, kind: .project, client: client)
@@ -509,7 +509,7 @@ enum PaneLocatorFlow {
     method: IPC.Method,
     verbLabel: String
   ) async throws {
-    let client = try CLISession.connect(globals: globals)
+    let client = CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
       let projectUUID = try await AliasResolver.resolve(args.project, kind: .project, client: client)
@@ -548,7 +548,7 @@ struct PaneLabel: AsyncParsableCommand {
   var replace: Bool = false
 
   func run() async throws {
-    let client = try CLISession.connect(globals: globals)
+    let client = CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
       let uuid = try await AliasResolver.resolve(pane, kind: .pane, client: client)
@@ -585,7 +585,7 @@ struct SendCommand: AsyncParsableCommand {
   @Argument(parsing: .remaining) var textPieces: [String]
 
   func run() async throws {
-    let client = try CLISession.connect(globals: globals)
+    let client = CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     let text = textPieces.joined(separator: " ")
     do {
@@ -629,7 +629,7 @@ struct BroadcastCommand: AsyncParsableCommand {
         message: "broadcast requires exactly one of --tab / --worktree / --label"
       ).exitProcess()
     }
-    let client = try CLISession.connect(globals: globals)
+    let client = CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     let text = textPieces.joined(separator: " ")
     do {
@@ -694,7 +694,7 @@ struct RPCCommand: AsyncParsableCommand {
     } catch {
       CLIError(code: .userError, message: "invalid JSON params: \(error)").exitProcess()
     }
-    let client = try CLISession.connect(globals: globals)
+    let client = CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
       let result = try await client.callRaw(ipcMethod, params: json)
@@ -746,7 +746,7 @@ struct TagList: AsyncParsableCommand {
   @OptionGroup var globals: GlobalOptions
 
   func run() async throws {
-    let client = try CLISession.connect(globals: globals)
+    let client = CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
       struct Result: Codable { let tags: [Tag] }
@@ -780,7 +780,7 @@ struct TagCreate: AsyncParsableCommand {
         message: "unknown color '\(color)'; expected one of \(valid)"
       ).exitProcess()
     }
-    let client = try CLISession.connect(globals: globals)
+    let client = CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
       struct Params: Codable {
@@ -814,7 +814,7 @@ struct TagRename: AsyncParsableCommand {
   var newName: String
 
   func run() async throws {
-    let client = try CLISession.connect(globals: globals)
+    let client = CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
       let uuid = try await TagAliasResolver.resolve(id, client: client)
@@ -855,7 +855,7 @@ struct TagRecolor: AsyncParsableCommand {
         message: "unknown color '\(color)'; expected one of \(valid)"
       ).exitProcess()
     }
-    let client = try CLISession.connect(globals: globals)
+    let client = CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
       let uuid = try await TagAliasResolver.resolve(id, client: client)
@@ -887,7 +887,7 @@ struct TagRemove: AsyncParsableCommand {
   var id: String
 
   func run() async throws {
-    let client = try CLISession.connect(globals: globals)
+    let client = CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
       let uuid = try await TagAliasResolver.resolve(id, client: client)
@@ -980,7 +980,7 @@ enum ProjectTagMutator {
     mode: Mode,
     verbLabel: String
   ) async throws {
-    let client = try CLISession.connect(globals: globals)
+    let client = CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
       let projectUUID = try await AliasResolver.resolve(project, kind: .project, client: client)

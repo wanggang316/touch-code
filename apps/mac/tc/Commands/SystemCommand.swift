@@ -61,7 +61,7 @@ struct PingCommand: AsyncParsableCommand {
   @OptionGroup var globals: GlobalOptions
 
   func run() async throws {
-    let client = try CLISession.connect(globals: globals)
+    let client = CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     struct Pong: Codable { let pong: Bool }
     do {
@@ -88,7 +88,7 @@ struct VersionCommand: AsyncParsableCommand {
   @OptionGroup var globals: GlobalOptions
 
   func run() async throws {
-    let client = try CLISession.connect(globals: globals)
+    let client = CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     struct ServerVersion: Codable {
       let server: String
@@ -127,7 +127,7 @@ struct StatusCommand: AsyncParsableCommand {
   @OptionGroup var globals: GlobalOptions
 
   func run() async throws {
-    let client = try CLISession.connect(globals: globals)
+    let client = CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     struct Status: Codable {
       let server: String
@@ -169,7 +169,7 @@ struct QuitCommand: AsyncParsableCommand {
   @OptionGroup var globals: GlobalOptions
 
   func run() async throws {
-    let client = try CLISession.connect(globals: globals)
+    let client = CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     do {
       _ = try await client.callRaw(.systemQuit, params: EmptyParams())
@@ -286,14 +286,20 @@ struct EmptyParams: Codable, Sendable {}
 
 /// Shared session helper — opens a transport + builds the `RPCClient`
 /// with the correct client-version info.
+///
+/// On failure, `connect` prints to stderr and exits with `CLIExitCode.noSocket`
+/// directly. Letting the error propagate out of `run() async throws` would hand
+/// it to ArgumentParser's default handler, which prints `Error: …` and exits
+/// with code 1 — bypassing the documented exit-code contract (D8) and the
+/// lowercase `error: …` prefix every other CLI error path uses.
 enum CLISession {
-  static func connect(globals: GlobalOptions) throws -> RPCClient {
+  static func connect(globals: GlobalOptions) -> RPCClient {
     let path = globals.resolvedSocketPath
     let transport: Transport
     do {
       transport = try UnixSocketTransport(path: path)
     } catch {
-      throw CLIError(code: .noSocket, message: "touch-code is not running at \(path)")
+      CLIError(code: .noSocket, message: "touch-code is not running at \(path)").exitProcess()
     }
     return RPCClient(
       transport: transport,
