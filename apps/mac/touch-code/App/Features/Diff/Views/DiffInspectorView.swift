@@ -10,41 +10,21 @@ struct DiffInspectorView: View {
   @Bindable var store: StoreOf<DiffFeature>
 
   var body: some View {
-    VStack(spacing: 0) {
-      header
-      Divider()
-      content
-    }
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    .background(Color(nsColor: .windowBackgroundColor))
-  }
-
-  // MARK: - Header
-
-  private var header: some View {
-    HStack(spacing: 8) {
-      Text(headerTitle)
-        .font(.headline)
-      Spacer()
-      Button {
-        store.send(.refreshRequested)
-      } label: {
-        Image(systemName: "arrow.clockwise")
+    content
+      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+      .background(Color(nsColor: .windowBackgroundColor))
+      .toolbar {
+        ToolbarItem(placement: .primaryAction) {
+          Button {
+            store.send(.refreshRequested)
+          } label: {
+            Image(systemName: "arrow.clockwise")
+          }
+          .disabled(isRefreshing)
+          .help("Refresh changed files")
+          .accessibilityLabel("Refresh changed files")
+        }
       }
-      .buttonStyle(.borderless)
-      .disabled(isRefreshing)
-      .help("Refresh changed files")
-      .accessibilityLabel("Refresh changed files")
-    }
-    .padding(.horizontal, 12)
-    .padding(.vertical, 8)
-  }
-
-  private var headerTitle: String {
-    switch store.changedFiles {
-    case .loaded(let files): return "Changes (\(files.count))"
-    default: return "Changes"
-    }
   }
 
   private var isRefreshing: Bool {

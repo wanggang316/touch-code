@@ -13,20 +13,55 @@ struct DiffFileRow: View {
 
   private var displayPath: String { file.newPath ?? file.oldPath ?? "" }
 
+  /// Last path component, e.g. "DiffFeature.swift" from
+  /// "apps/mac/.../DiffFeature.swift". Falls back to the full path when
+  /// no directory separator is present (file at repo root).
+  private var fileName: String {
+    let p = displayPath
+    if let slash = p.lastIndex(of: "/") {
+      return String(p[p.index(after: slash)...])
+    }
+    return p
+  }
+
+  /// Directory portion (everything before the last `/`). Empty when the
+  /// file lives at the repo root — we hide the second row in that case.
+  private var directoryPath: String {
+    let p = displayPath
+    if let slash = p.lastIndex(of: "/") {
+      return String(p[p.startIndex..<slash])
+    }
+    return ""
+  }
+
   var body: some View {
-    HStack(spacing: 8) {
+    HStack(alignment: .top, spacing: 8) {
       statusBadge
-      Text(displayPath)
-        .font(.system(.callout, design: .monospaced))
-        .lineLimit(1)
-        .truncationMode(.head)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .help(displayPath)
-      addRemoveColumn
+        .padding(.top, 2)
+      VStack(alignment: .leading, spacing: 2) {
+        Text(fileName)
+          .font(.system(.callout, design: .monospaced))
+          .lineLimit(1)
+          .truncationMode(.middle)
+        if !directoryPath.isEmpty {
+          Text(directoryPath)
+            .font(.system(.caption, design: .monospaced))
+            .foregroundStyle(.secondary)
+            .lineLimit(nil)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .help(displayPath)
+      VStack(alignment: .trailing, spacing: 4) {
+        addRemoveColumn
+        Spacer(minLength: 0)
+      }
       chevron
+        .padding(.top, 2)
     }
     .padding(.horizontal, 12)
-    .padding(.vertical, 6)
+    .padding(.vertical, 8)
     .contentShape(Rectangle())
     .background(isPresented ? Color.accentColor.opacity(0.18) : Color.clear)
     .onTapGesture { onOpenTap() }
