@@ -8,6 +8,14 @@ import SwiftUI
 /// Installs an `NSEvent` local monitor for `.flagsChanged` at init. The monitor fires on
 /// the main thread, so `isCommandHeld` is mutated on the same thread SwiftUI reads from.
 ///
+/// **Press-debounce.** Hints widen the chrome of every button they decorate (chord text
+/// laid out inline with the label), so toggling them on every transient ⌘ tap — quick
+/// chord triggers, finger glances, modifier-only chord prefixes — produces a lot of
+/// distracting layout churn. We delay flipping `isCommandHeld → true` by
+/// `pressActivationDelay` (default 280 ms): only sustained holds light up the hints. The
+/// delay is one-way; releases flip back to `false` immediately so a chord that fires and
+/// briefly grabs focus doesn't leave hints lingering after the user has let go.
+///
 /// **Active-state coupling.** When a chord like ⌘O fires a menu action that opens an
 /// external editor, the OS hands focus to that editor. Any `flagsChanged` event that fires
 /// for the ⌘ release while another app is frontmost is delivered to *that* app, not ours,
@@ -21,16 +29,30 @@ import SwiftUI
 /// observer's nonisolated `deinit` can tear them down without tripping Swift 6 strict
 /// concurrency.
 @Observable
+@MainActor
 final class CommandKeyObserver {
-  /// `true` whenever the `.command` flag is reported by the most recent flagsChanged event.
+  /// `true` once the `.command` modifier has been continuously held for `pressActivationDelay`.
   private(set) var isCommandHeld: Bool = false
 
   @ObservationIgnored
   private let storage = MonitorStorage()
+  /// Pending "promote ⌘ to held after delay" task. Cancelled if the user releases ⌘
+  /// before the delay elapses, or if the app loses focus.
+  @ObservationIgnored
+  private var activationTask: Task<Void, Never>?
 
-  init() {
+  /// Sustained-hold threshold before hints render. Short enough that a deliberate "hover
+  /// over ⌘" still feels live; long enough to filter quick ⌘+key chords and finger
+  /// brushes. Configurable per-instance for tests.
+  let pressActivationDelay: Duration
+
+  init(pressActivationDelay: Duration = .milliseconds(280)) {
+    self.pressActivationDelay = pressActivationDelay
     storage.monitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-      self?.isCommandHeld = event.modifierFlags.contains(.command)
+      let down = event.modifierFlags.contains(.command)
+      Task { @MainActor in
+        self?.handleCommandFlag(down: down)
+      }
       return event
     }
     storage.resignToken = NotificationCenter.default.addObserver(
@@ -41,12 +63,39 @@ final class CommandKeyObserver {
       // App lost focus: a chord that fires an external app (⌘O → editor, ⌘⇧G → browser)
       // releases its modifier in *that* app, so `flagsChanged` never reaches us. Clear
       // the held flag now so the hint chrome doesn't get stuck on.
-      self?.isCommandHeld = false
+      MainActor.assumeIsolated {
+        self?.handleCommandFlag(down: false)
+      }
     }
   }
 
   deinit {
+    activationTask?.cancel()
     storage.teardown()
+  }
+
+  /// Routes a raw `.command`-down boolean through the press-debounce. Down transitions
+  /// schedule a delayed promotion to `isCommandHeld == true`; up transitions cancel any
+  /// pending promotion and flip the flag false synchronously.
+  private func handleCommandFlag(down: Bool) {
+    if down {
+      // Already held (e.g. flagsChanged fired again with command still set) — no need
+      // to re-arm. The earlier task either already promoted or is still pending.
+      guard !isCommandHeld else { return }
+      activationTask?.cancel()
+      let delay = pressActivationDelay
+      activationTask = Task { @MainActor [weak self] in
+        try? await Task.sleep(for: delay)
+        guard !Task.isCancelled else { return }
+        self?.isCommandHeld = true
+      }
+    } else {
+      activationTask?.cancel()
+      activationTask = nil
+      if isCommandHeld {
+        isCommandHeld = false
+      }
+    }
   }
 }
 
