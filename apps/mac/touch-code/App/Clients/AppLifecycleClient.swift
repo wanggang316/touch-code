@@ -7,18 +7,17 @@ import Foundation
 /// `.closeAll` through `terminate`; keeping the two seams distinct lets a
 /// future quit-confirmation presenter interpose on `requestQuit` without
 /// the hard `terminate` callers (e.g. an IPC `system.shutdown` handler)
-/// accidentally going through the confirmation dialog.
+/// accidentally going through that flow.
 ///
 /// `NSApp.terminate(_:)` routes through `NSApplicationDelegate`'s
 /// `applicationShouldTerminate(_:)`; `AppDelegate` in `TouchCodeApp.swift`
-/// does not override that, so the current behavior of both closures is
-/// the macOS default (immediate terminate after app delegate consent). The
+/// does not override that, so both closures terminate immediately. The
 /// two-closure shape is forward-compatible with a future override that
 /// distinguishes user-initiated from caller-initiated quits.
 nonisolated struct AppLifecycleClient: Sendable {
-  /// User-initiated quit; should route through a confirmation flow if one
-  /// is wired. Today calls `NSApp.terminate(nil)` — `AppDelegate` owns
-  /// the consent surface via `applicationShouldTerminate`.
+  /// User-initiated quit. Today calls `NSApp.terminate(nil)` directly —
+  /// no confirmation surface; if one is reintroduced it should hook in
+  /// here, leaving `terminate` as the unconditional escape hatch.
   var requestQuit: @MainActor @Sendable () -> Void
   /// Unconditional terminate. Use only after a confirmation path has
   /// already run, or when the caller is non-user-facing.

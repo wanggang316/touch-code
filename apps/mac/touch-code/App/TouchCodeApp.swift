@@ -147,30 +147,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     false
   }
 
-  /// Confirmation prompt before quit when at least one Pane is open. The
-  /// alert is suppressed on an empty catalog so users without a session
-  /// aren't nagged. See docs/design-docs/project-tags.md §3.8 (OQ-4).
-  nonisolated func applicationShouldTerminate(
-    _ sender: NSApplication
-  ) -> NSApplication.TerminateReply {
-    MainActor.assumeIsolated {
-      let hasOpenPanes =
-        appState?.hierarchyManager.catalog.projects.contains { project in
-          project.worktrees.contains { worktree in
-            worktree.tabs.contains { tab in !tab.panes.isEmpty }
-          }
-        } ?? false
-      guard hasOpenPanes else { return .terminateNow }
-      let alert = NSAlert()
-      alert.messageText = "Quit touch-code?"
-      alert.informativeText = "Running terminal sessions will end."
-      alert.addButton(withTitle: "Quit")
-      alert.addButton(withTitle: "Cancel")
-      alert.alertStyle = .warning
-      return alert.runModal() == .alertFirstButtonReturn
-        ? .terminateNow : .terminateCancel
-    }
-  }
 }
 
 /// Holds the shell-wide runtime objects. `AppState` lives for the duration
