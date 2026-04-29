@@ -79,8 +79,6 @@ struct SettingsWindowView: View {
       )
     case .github:
       GitHubSettingsView(settingsStore: settingsStore)
-    case .notifications:
-      NotificationsSettingsView(settingsStore: settingsStore)
     case .terminal:
       SettingsTerminalView(store: store.scope(state: \.terminal, action: \.terminal))
     case .developer:

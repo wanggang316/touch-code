@@ -3,19 +3,16 @@ import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
 
-/// Renders the sidebar per `docs/product-specs/ui-main-window-redesign.md`:
-/// a sticky toolbar with "+ Add Project" and a "⋯" menu; the catalog's
-/// Projects as collapsible sections with hover-revealed `+` / `⋯` chrome;
-/// Worktree rows with a leading `●`/`○` selection dot and a trailing
-/// unread-notification dot; a Tag chip footer pinned at the bottom safe
-/// area for filtering by Tag; and empty-state + confirmation / stub-sheet
-/// presentations.
+/// Renders the sidebar: a sticky toolbar with "+ Add Project" and a "⋯"
+/// menu; the catalog's Projects as collapsible sections with hover-revealed
+/// `+` / `⋯` chrome; Worktree rows with a leading `●`/`○` selection dot;
+/// a Tag chip footer pinned at the bottom safe area for filtering by Tag;
+/// and empty-state + confirmation / stub-sheet presentations.
 ///
 /// Structural data is NOT held in reducer state — the view reads the active
-/// `Catalog` from `HierarchyManager` and the `NotificationInbox` from
-/// `InboxStore` through SwiftUI's environment, so row lists and unread dots
-/// update whenever the underlying `@Observable` stores mutate. The TCA
-/// reducer owns only local view state (expansion sets, popover / sheet /
+/// `Catalog` from `HierarchyManager` through SwiftUI's environment, so row
+/// lists update whenever the underlying `@Observable` stores mutate. The
+/// TCA reducer owns only local view state (expansion sets, popover / sheet /
 /// confirmation payloads) and dispatches side effects through
 /// `HierarchyClient` (plus delegate actions for Finder / editor open that
 /// `RootFeature` routes).
@@ -27,7 +24,6 @@ struct HierarchySidebarView: View {
   /// previews / tests that don't exercise the integration.
   var gitHubStore: StoreOf<GitHubFeature>?
   @Environment(HierarchyManager.self) private var hierarchyManager
-  @Environment(InboxStore.self) private var inboxStore
   @Environment(SettingsStore.self) private var settingsStore
   @Environment(WorktreeStatusMonitor.self) private var worktreeStatusMonitor
 
@@ -124,16 +120,6 @@ struct HierarchySidebarView: View {
 
   var body: some View {
     let catalog = hierarchyManager.catalog
-    // Build the PaneID→WorktreeID index once per render pass. Worktree rows
-    // and Project headers both fold over `inbox.notifications` using this
-    // shared index instead of calling `NotificationInbox.unreadCount(
-    // forWorktree:in:)` / `.hasUnread(forProject:in:)` per row — those
-    // helpers each rebuild the index internally (see the doc-comment in
-    // `NotificationInboxAggregation.swift`), which is O(rows × panes) per
-    // render. The inline fold is the deliberate amortization the T1 design
-    // calls out in §View Composition / §Unread-dot index caching.
-    let paneIndex = catalog.paneWorktreeIndex()
-    let inbox = inboxStore.inbox
 
     // Filter the project list by the catalog's active tag filter (M4).
     // OR semantics on `.tags(set)`; `.untagged` shows projects with no
@@ -144,7 +130,7 @@ struct HierarchySidebarView: View {
     // Sidebar body is the List, with a compact filter footer mounted at
     // the bottom `.safeAreaInset` — a single trailing glyph that opens an
     // upward popover listing the available tag filters.
-    treeBody(projects: visibleProjects, paneIndex: paneIndex, inbox: inbox)
+    treeBody(projects: visibleProjects)
       .safeAreaInset(edge: .bottom, spacing: 0) {
         TagFilterPopoverFooter(
           tags: catalog.tags,
@@ -299,11 +285,7 @@ struct HierarchySidebarView: View {
   // MARK: - Tree
 
   @ViewBuilder
-  private func treeBody(
-    projects: [Project],
-    paneIndex: [PaneID: WorktreeID],
-    inbox: NotificationInbox
-  ) -> some View {
+  private func treeBody(projects: [Project]) -> some View {
     if projects.isEmpty {
       emptyState
     } else {
@@ -331,12 +313,7 @@ struct HierarchySidebarView: View {
       // tolerate the default indicator posture here.
       List(selection: nativeSelectionBinding) {
         ForEach(projects) { project in
-          projectSection(
-            project,
-            paneIndex: paneIndex,
-            inbox: inbox,
-            hotkeyIndex: hotkeyIndex
-          )
+          projectSection(project, hotkeyIndex: hotkeyIndex)
         }
       }
       .listStyle(.sidebar)
@@ -372,17 +349,8 @@ struct HierarchySidebarView: View {
 
   private func projectSection(
     _ project: Project,
-    paneIndex: [PaneID: WorktreeID],
-    inbox: NotificationInbox,
     hotkeyIndex: [WorktreeID: Int]
   ) -> some View {
-    let projectHasUnread = inbox.notifications.contains { notification in
-      guard notification.isUnread,
-        let worktreeID = paneIndex[notification.paneID]
-      else { return false }
-      return project.worktrees.contains(where: { $0.id == worktreeID })
-    }
-
     let isExpanded = project.isExpanded
     return Group {
       switch project.loadState {
@@ -417,7 +385,6 @@ struct HierarchySidebarView: View {
         } label: {
           ProjectHeaderRow(
             project: project,
-            hasUnread: projectHasUnread,
             isLoading: project.loadState == .loading,
             isExpanded: isExpanded,
             store: store
@@ -438,16 +405,10 @@ struct HierarchySidebarView: View {
           let unpinnedRows = visible.filter { !$0.isPinned && $0.path != project.rootPath }
           let pendingRows = store.pendingWorktrees.filter { $0.projectID == project.id }
           ForEach(mainRows) { worktree in
-            worktreeRow(
-              worktree, in: project, paneIndex: paneIndex, inbox: inbox,
-              hotkeySlot: hotkeyIndex[worktree.id]
-            )
+            worktreeRow(worktree, in: project, hotkeySlot: hotkeyIndex[worktree.id])
           }
           ForEach(pinnedRows) { worktree in
-            worktreeRow(
-              worktree, in: project, paneIndex: paneIndex, inbox: inbox,
-              hotkeySlot: hotkeyIndex[worktree.id]
-            )
+            worktreeRow(worktree, in: project, hotkeySlot: hotkeyIndex[worktree.id])
           }
           .onMove { source, destination in
             store.send(
@@ -461,10 +422,7 @@ struct HierarchySidebarView: View {
             pendingRow(pending)
           }
           ForEach(unpinnedRows) { worktree in
-            worktreeRow(
-              worktree, in: project, paneIndex: paneIndex, inbox: inbox,
-              hotkeySlot: hotkeyIndex[worktree.id]
-            )
+            worktreeRow(worktree, in: project, hotkeySlot: hotkeyIndex[worktree.id])
           }
           .onMove { source, destination in
             store.send(
@@ -499,17 +457,9 @@ struct HierarchySidebarView: View {
   private func worktreeRow(
     _ worktree: Worktree,
     in project: Project,
-    paneIndex: [PaneID: WorktreeID],
-    inbox: NotificationInbox,
     hotkeySlot: Int?
   ) -> some View {
     let isSelected = currentSelection.worktreeID == worktree.id
-    let unreadCount = inbox.notifications.reduce(into: 0) { total, notification in
-      guard notification.isUnread,
-        paneIndex[notification.paneID] == worktree.id
-      else { return }
-      total += 1
-    }
     let snapshot = gitHubStore?.snapshots[worktree.id]
     let rollup: PullRequestBadge.CheckRollup = {
       // 0013 M5: rollup data travels with the snapshot now (filled by the batched
@@ -530,7 +480,7 @@ struct HierarchySidebarView: View {
       rowSelectionButton(
         worktree: worktree, project: project,
         snapshot: snapshot, rollup: rollup,
-        unreadCount: unreadCount, hotkeyNumber: hotkeyNumber,
+        hotkeyNumber: hotkeyNumber,
         isSelected: isSelected
       )
       gitHubBadge(for: worktree, in: project)
@@ -580,7 +530,7 @@ struct HierarchySidebarView: View {
   private func rowSelectionButton(
     worktree: Worktree, project: Project,
     snapshot: PullRequestSnapshot?, rollup: PullRequestBadge.CheckRollup,
-    unreadCount: Int, hotkeyNumber: Int?,
+    hotkeyNumber: Int?,
     isSelected: Bool
   ) -> some View {
     let isMainCheckout = worktree.path == project.rootPath
@@ -622,12 +572,6 @@ struct HierarchySidebarView: View {
         }
       }
       Spacer()
-      if unreadCount > 0 {
-        Circle()
-          .fill(Color.orange)
-          .frame(width: 6, height: 6)
-          .accessibilityLabel("Has \(unreadCount) unread notifications")
-      }
       // The chord hint used to sit here, but the GitHub PR badge is a *sibling* HStack
       // member outside `rowSelectionButton` (so the badge's Button isn't a child of the
       // row Button); rendering the hint inline meant the trailing PR pill always pushed
@@ -882,10 +826,9 @@ struct HierarchySidebarView: View {
 /// view-local concern — not worth promoting to reducer state.
 private struct ProjectHeaderRow: View {
   let project: Project
-  let hasUnread: Bool
-  /// When `true`, a small inline `ProgressView` replaces the unread dot so
-  /// the user can see a reconcile pass is in flight without blocking the
-  /// window (P-Q3: inline spinner, never modal).
+  /// When `true`, a small inline `ProgressView` indicates a reconcile pass
+  /// is in flight without blocking the window (P-Q3: inline spinner,
+  /// never modal).
   var isLoading: Bool = false
   /// Drives the leading disclosure chevron (`chevron.right` collapsed, `chevron.down`
   /// expanded). The parent Button still owns the tap, so this is display-only.
@@ -916,11 +859,6 @@ private struct ProjectHeaderRow: View {
           .scaleEffect(0.5)
           .frame(width: 12, height: 12)
           .accessibilityLabel("Loading Project")
-      } else if hasUnread {
-        Circle()
-          .fill(Color.accentColor)
-          .frame(width: 6, height: 6)
-          .accessibilityLabel("Has unread notifications")
       }
       // Keep the hover chrome from collapsing row width when hidden —
       // use opacity, not conditional rendering.

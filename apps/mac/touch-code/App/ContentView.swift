@@ -3,27 +3,14 @@ import SwiftUI
 import TouchCodeCore
 
 /// Root SwiftUI host for the TCA shell. Holds the `StoreOf<RootFeature>`
-/// that composes sidebar + detail sub-features (M3 + M4) and presents a
-/// two-column `NavigationSplitView`. The `HierarchyManager` is injected
-/// through `@Environment` so descendant views can read `@Observable`
-/// state directly — TCA state stays focused on selection + transient UI.
-///
-/// The leading column always renders `HierarchySidebarView` (T0 removed
-/// the Hierarchy ↔ Inbox Picker; T1 removed the dead `sidebarMode` /
-/// `.inbox` scope plumbing `RootFeature` carried forward). Notifications
-/// are reached through the Header bell (T2), which is a fresh
-/// `WorktreeHeader`-owned feature rather than a reuse of
-/// `InboxSidebarFeature`.
-/// `inboxStore` is injected alongside `hierarchyManager` so the sidebar
-/// view can read `inbox.inbox` directly for Worktree / Project unread dots.
+/// that composes sidebar + detail sub-features and presents a two-column
+/// `NavigationSplitView`. The `HierarchyManager` is injected through
+/// `@Environment` so descendant views can read `@Observable` state
+/// directly — TCA state stays focused on selection + transient UI.
 struct ContentView: View {
   @Bindable var store: StoreOf<RootFeature>
   let hierarchyManager: HierarchyManager
   let settingsStore: SettingsStore
-  /// Injected so `HierarchySidebarView` can read `inboxStore.inbox` directly
-  /// for Worktree / Project unread-dot aggregation — matches the
-  /// `HierarchyManager`-through-`@Environment` pattern already in use.
-  let inboxStore: InboxStore
   /// Per-Worktree dirty-tree cache threaded into the sidebar so each row can decide
   /// whether to paint a pending-work dot without owning its own `git status` fetch.
   let worktreeStatusMonitor: WorktreeStatusMonitor
@@ -102,7 +89,6 @@ struct ContentView: View {
     }
     .environment(hierarchyManager)
     .environment(settingsStore)
-    .environment(inboxStore)
     .environment(worktreeStatusMonitor)
     .task {
       store.send(.onLaunch)

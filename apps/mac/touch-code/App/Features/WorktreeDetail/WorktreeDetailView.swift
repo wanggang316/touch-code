@@ -340,7 +340,6 @@ struct WorktreeDetailView: View {
       StatusBarView(
         store: statusBarStore,
         gitHubStore: gitHubStore,
-        headerStore: headerStore,
         worktreeID: address.worktree
       )
     }
@@ -358,7 +357,6 @@ struct WorktreeDetailView: View {
       StatusBarView(
         store: statusBarStore,
         gitHubStore: gitHubStore,
-        headerStore: headerStore,
         worktreeID: address.worktree
       )
     }

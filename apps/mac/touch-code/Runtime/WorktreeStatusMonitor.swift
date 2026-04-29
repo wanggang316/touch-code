@@ -12,7 +12,7 @@ import os.log
 /// - Failures are silent: a missing `.git` dir or a git-index lock returns the last
 ///   cached value (if any) and leaves `isDirty[id]` unchanged. The sidebar has no good
 ///   surface for per-row git errors, and a stale dot is less harmful than a wrong one.
-/// - Lives in `Runtime/` next to `HierarchyManager` / `InboxStore` — same pattern: a
+/// - Lives in `Runtime/` next to `HierarchyManager` — same pattern: a
 ///   small observable service injected via `@Environment`, not TCA reducer state.
 @Observable
 @MainActor

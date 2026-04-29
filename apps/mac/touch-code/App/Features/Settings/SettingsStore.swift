@@ -4,16 +4,15 @@ import TouchCodeCore
 import os.log
 
 /// `@MainActor @Observable` owner of `~/.config/touch-code/settings.json` (v3). Single writer
-/// for the file — the former `NotificationSettingsStore` is deleted in this step. Mirrors the
-/// `CatalogStore` pattern: atomic-rename writes via `AtomicFileStore`, 500 ms trailing
-/// debounce on structural mutations, broken-file backup on decode failure. On first launch
-/// after a schema transition, the pre-current `settings.json` is routed through
-/// `SettingsMigration.load` and its original is preserved as `settings.json.v{N}-<ts>`.
+/// for the file. Mirrors the `CatalogStore` pattern: atomic-rename writes via
+/// `AtomicFileStore`, 500 ms trailing debounce on structural mutations, broken-file backup
+/// on decode failure. On first launch after a schema transition, the pre-current
+/// `settings.json` is routed through `SettingsMigration.load` and its original is preserved
+/// as `settings.json.v{N}-<ts>`.
 ///
 /// Mutations go through section-scoped `mutate*` closures or the editor-specific
 /// convenience methods; direct property assignment is not exposed. Views subscribe through
-/// the `@Observable` surface. Notifications consumers read through the
-/// `NotificationSettingsReader` conformance and write through `mutateNotifications`.
+/// the `@Observable` surface.
 @MainActor
 @Observable
 final class SettingsStore {
@@ -138,21 +137,6 @@ final class SettingsStore {
     scheduleSave()
   }
 
-  func mutateNotifications(_ transform: (inout NotificationsSettings) -> Void) {
-    transform(&settings.notifications)
-    scheduleSave()
-    for cont in notificationsListeners {
-      cont.yield()
-    }
-  }
-
-  // Listeners on the notifications sub-tree. We never explicitly remove
-  // continuations: subscribers in production are app-lifetime (the
-  // C6 coordinator), and `yield()` on a finished stream is a documented
-  // no-op, so a leaked entry stays harmless at process scope.
-  @ObservationIgnored
-  private var notificationsListeners: [AsyncStream<Void>.Continuation] = []
-
   func mutateDeveloper(_ transform: (inout DeveloperSettings) -> Void) {
     transform(&settings.developer)
     scheduleSave()
@@ -244,23 +228,3 @@ final class SettingsStore {
   }
 }
 
-// MARK: - NotificationSettingsReader
-
-extension SettingsStore: NotificationSettingsReader {
-  var enabled: Bool { settings.notifications.enabled }
-  var mute: MuteSettings { settings.notifications.mute }
-  var authStatus: AuthorizationStatusCache { settings.notifications.authStatus }
-  var neverPrompt: Bool { settings.notifications.neverPrompt }
-  var notNowUntil: Date? { settings.notifications.notNowUntil }
-  var inAppEnabled: Bool { settings.notifications.inAppEnabled }
-  var systemEnabled: Bool { settings.notifications.systemEnabled }
-  var soundEnabled: Bool { settings.notifications.soundEnabled }
-  var dockBadgeEnabled: Bool { settings.notifications.dockBadgeEnabled }
-  var moveNotifiedWorktreeToTop: Bool { settings.notifications.moveNotifiedWorktreeToTop }
-
-  func notificationsSettingsChanges() -> AsyncStream<Void> {
-    AsyncStream { continuation in
-      notificationsListeners.append(continuation)
-    }
-  }
-}

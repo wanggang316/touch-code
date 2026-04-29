@@ -10,10 +10,7 @@ import TouchCodeCore
 ///   - `hierarchyClient.selectionChanges()` — drives worktree-scoped
 ///     features (C7 diff viewer, M4 detail column swap)
 ///
-/// T1 removed the T0-era `SidebarMode` plumbing (the sidebar unconditionally
-/// renders the hierarchy tree; T2's Header bell is its own feature on
-/// `WorktreeHeader`, not a reuse of `InboxSidebarFeature`). `InboxSidebar`
-/// source files remain in the tree but are no longer mounted in `RootFeature`.
+/// The sidebar unconditionally renders the hierarchy tree.
 @Reducer
 struct RootFeature {
   @ObservableState

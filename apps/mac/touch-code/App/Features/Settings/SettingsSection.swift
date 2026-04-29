@@ -7,7 +7,6 @@ import TouchCodeCore
 public enum SettingsSection: Hashable, Sendable {
   case general
   case github
-  case notifications
   case terminal
   case developer
   case shortcuts
@@ -23,10 +22,9 @@ public enum SettingsSection: Hashable, Sendable {
   /// User-defined scripts + worktree-lifecycle scripts (git-only Section).
   case projectScripts(ProjectID)
 
-  /// Canonical iteration order for global sidebar rows (GitHub appears between
-  /// General and Notifications per earlier GitHub integration wireframe).
+  /// Canonical iteration order for global sidebar rows.
   public static let globals: [SettingsSection] = [
-    .general, .github, .notifications, .terminal, .developer, .shortcuts, .updates, .about,
+    .general, .github, .terminal, .developer, .shortcuts, .updates, .about,
   ]
 
   /// Display name for global sidebar rows. Project-scoped cases return `nil` because
@@ -36,7 +34,6 @@ public enum SettingsSection: Hashable, Sendable {
     switch self {
     case .general: return "General"
     case .github: return "GitHub"
-    case .notifications: return "Notifications"
     case .terminal: return "Terminal"
     case .developer: return "Developer"
     case .shortcuts: return "Shortcuts"

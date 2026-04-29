@@ -16,10 +16,7 @@ struct TouchCodeApp: App {
   @State private var commandKeyObserver = CommandKeyObserver()
   /// `SwiftUI.App` gives us no `applicationWillTerminate` hook on its own;
   /// the adaptor bridges AppKit's termination callback so we can flush
-  /// debounced writes from `SettingsStore` and `InboxStore` before the
-  /// process exits. `settings.json` has a single writer (`SettingsStore`);
-  /// consumers of notification preferences read through
-  /// `NotificationSettingsReader`.
+  /// debounced writes from `SettingsStore` before the process exits.
   @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
   @Environment(\.openWindow) private var openWindow
 
@@ -37,7 +34,6 @@ struct TouchCodeApp: App {
             store: store,
             hierarchyManager: appState.hierarchyManager,
             settingsStore: appState.settingsStore,
-            inboxStore: appState.inboxStore,
             worktreeStatusMonitor: appState.worktreeStatusMonitor
           )
           .frame(minWidth: 800, minHeight: 600)
@@ -204,16 +200,11 @@ final class AppState {
   private let catalogStore: CatalogStore
   private let hierarchyRuntime: GhosttyBackedHierarchyRuntime
   private var ghosttyRuntime: GhosttyRuntime?
-  /// Exposed to `ContentView` so the sidebar view can read
-  /// `inbox.inbox` directly for unread-dot aggregation — matches the
-  /// `HierarchyManager`-through-`@Environment` pattern the sidebar
-  /// already uses for structural data.
-  let inboxStore: InboxStore
   /// Per-Worktree "git status is non-clean" cache. The sidebar row's `.task(id:)`
   /// refreshes this lazily; a small dot is drawn next to the row name when dirty.
   let worktreeStatusMonitor: WorktreeStatusMonitor
 
-  // IPC stack (C3+C4): HookDispatcher + SocketServer + handlers.
+  // IPC stack: HookDispatcher + SocketServer + handlers.
   private var hookConfigStore: HookConfigStore?
   private var hookDispatcher: HookDispatcher?
   private var socketServer: SocketServer?
@@ -222,11 +213,6 @@ final class AppState {
   // in-app reducer stack share a single service instance.
   private var editorClient: EditorClient?
   private var hierarchyClient: HierarchyClient?
-
-  // C6 notification stack — constructed async after IPC stack in `bringUp()`.
-  // Retained so `applicationWillTerminate` can call `flushPendingWrites()`
-  // and `shutdown()`.
-  var notificationBootstrap: C6AppBootstrap?
 
   init() {
     let catalogStore = CatalogStore()
@@ -242,17 +228,9 @@ final class AppState {
     self.catalogStore = catalogStore
     self.hierarchyRuntime = runtime
     self.hierarchyManager = manager
-    // C6 stores — cheap to build up front so InboxClient.live has
-    // stable referents to bind its closures to. The inbox + settings
-    // files materialise during bringUp(). SettingsStore is constructed
-    // here so its `@Observable` surface is alive for the full app
-    // lifetime; views observe it via env injection.
-    self.inboxStore = InboxStore()
     self.settingsStore = SettingsStore()
     self.shortcutsStore = ShortcutsStore()
     self.worktreeStatusMonitor = .live()
-    // TerminalEngine is constructed in bringUp() once we know whether a
-    // GhosttyRuntime is available — this avoids a throwaway engine.
   }
 
   /// Idempotent: subsequent calls while `store` is already set are no-ops.
@@ -270,13 +248,9 @@ final class AppState {
     self.terminalEngine = engine
     hierarchyRuntime.attach(engine: engine)
 
-    // Load C6 + C8 state — best-effort; decode errors are logged inside each
-    // store and do not block the app from launching.
-    _ = try? inboxStore.load()
     // SettingsStore loads itself (with v1→v2 migration) during `init(fileURL:)`.
 
     let manager = hierarchyManager
-    let inbox = inboxStore
     let settings = settingsStore
     // Build the editor + hierarchy clients once so the reducer stack AND the IPC
     // handlers share the exact same live instances — avoids two parallel
@@ -315,7 +289,6 @@ final class AppState {
       // closes over `manager` (per-Project override).
       $0.editorClient = editor
       $0.settingsWriter = .live(settings)
-      $0[InboxClient.self] = .live(inbox: inbox, settings: settings)
       $0.settingsWindowPresenter = presenter
       // Project Management: reconciler captures the live HierarchyClient so
       // `.reconcileDiscoveredWorktrees` (consumed from T-WORKTREE) flows
@@ -341,7 +314,6 @@ final class AppState {
       settingsStore: settings,
       hookConfigStore: hookConfigStore
     )
-    startNotifications(hierarchy: manager)
 
     self.developerPaneDependencies = DeveloperPaneDependencies.live(
       settingsURL: Settings.defaultURL()
@@ -353,41 +325,6 @@ final class AppState {
   /// inside `TouchCodeApp.body`. The presenter dependency captures `self` weakly and
   /// forwards `.open()` through this closure.
   @ObservationIgnored var openSettingsWindowAction: (@MainActor () -> Void)?
-
-  /// Async-launches the C6 notification stack. Skipped under XCTest (mirrors
-  /// `startIPC`) and when `startIPC` was skipped or failed to bind (no
-  /// `hookDispatcher` / `hookConfigStore` available). Retains the bootstrap
-  /// on `self` so `applicationWillTerminate` can flush its debounced writes.
-  private func startNotifications(hierarchy: HierarchyManager) {
-    if ProcessInfo.processInfo.environment["XCTestBundlePath"] != nil
-      || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
-    {
-      return
-    }
-    guard notificationBootstrap == nil,
-      let dispatcher = hookDispatcher,
-      let hookStore = hookConfigStore
-    else { return }
-    let inbox = inboxStore
-    let settings = settingsStore
-    Task { @MainActor [weak self] in
-      do {
-        let bootstrap = try await C6AppBootstrap.start(
-          hierarchy: hierarchy,
-          hookDispatcher: dispatcher,
-          hookConfigStore: hookStore,
-          settingsStore: settings,
-          inboxStore: inbox,
-          osNotifier: UserNotificationsOSNotifier(),
-          badger: AppKitDockBadger(),
-          permissionDelegate: NullPermissionDelegate()
-        )
-        self?.notificationBootstrap = bootstrap
-      } catch {
-        print("C6AppBootstrap.start failed: \(error)")
-      }
-    }
-  }
 
   /// Wires the HookDispatcher + SocketServer so `tc` CLI can talk to the
   /// running app. Uses `FakeHookExecutor` + `RecordingHookActionDispatcher`
@@ -424,10 +361,6 @@ final class AppState {
       )
     )
     let hierarchyHandlers = HierarchyHandlers(manager: hierarchy)
-    // v2 D13 / B11: tc focus acknowledges unread for the focused pane.
-    hierarchyHandlers.onPaneFocused = { [weak inbox = inboxStore] paneID in
-      inbox?.markRead(forPane: paneID)
-    }
     // TerminalHandlers has no input sink until a real GhosttyRuntime is
     // bound — terminal.sendInput / broadcastInput return .unsupported
     // until then, which is the right behavior for the M6 scripted flow.
@@ -466,9 +399,6 @@ final class AppState {
   func flushAllPersistedState() {
     settingsStore.flush()
     shortcutsStore.flush()
-    try? inboxStore.saveNow()
-    try? notificationBootstrap?.flushPendingWrites()
-    notificationBootstrap?.shutdown()
     catalogStore.flushPending()
   }
 }

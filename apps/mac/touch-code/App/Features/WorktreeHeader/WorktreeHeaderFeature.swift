@@ -1,19 +1,9 @@
 import ComposableArchitecture
 import Foundation
 import TouchCodeCore
-import os.log
 
-/// T2 reducer backing the Worktree Header row: branch label + notification
-/// bell + Open-in split button + Git Viewer toggle.
-///
-/// Owns the cached inbox snapshot (from `InboxClient.observe()`) and the
-/// popover presentation bit. The bell badge count is **not** cached in
-/// state — views compute it via `State.unreadCount(in:)` passing the live
-/// `hierarchyManager.catalog` at render time. That keeps the badge and
-/// the popover grouping (which also reads the live catalog via
-/// `@Environment`) on one `PaneID -> WorktreeID` resolution *and* makes
-/// the badge react to catalog mutations (e.g. a Worktree being removed)
-/// without the reducer needing a separate `.catalogChanged` action.
+/// Reducer backing the Worktree Header row: branch label + Open-in split
+/// button + Git Viewer toggle.
 ///
 /// User-facing side effects stay in the reducer so TestStore can prove
 /// them. Editor opens are emitted as `.delegate(.openEditor(...))` rather
@@ -23,29 +13,10 @@ import os.log
 @Reducer
 struct WorktreeHeaderFeature {
   @ObservableState
-  struct State: Equatable {
-    /// Latest snapshot from `InboxClient.observe()`. `.empty` until `.onAppear`.
-    var inbox: NotificationInbox = .empty
-    /// Popover presentation state.
-    var popoverOpen: Bool = false
-
-    /// Catalog-resolvable total unread, computed against the caller-supplied
-    /// catalog. Views call this with the live `hierarchyManager.catalog`;
-    /// reducers can read it via `hierarchyClient.snapshot()`. Returning a
-    /// computed value rather than a stored field avoids a cache-invalidation
-    /// axis and guarantees badge / popover parity at the
-    /// `paneWorktreeIndex` level.
-    func unreadCount(in catalog: Catalog) -> Int {
-      inbox.totalUnread(in: catalog)
-    }
-  }
+  struct State: Equatable {}
 
   enum Action: Equatable {
     case onAppear
-    case inboxUpdated(NotificationInbox)
-    case popoverToggled(Bool)
-    case dismissAllTapped
-    case notificationTapped(projectID: ProjectID, worktreeID: WorktreeID)
     case openDefaultEditorTapped(worktreePath: String, projectID: ProjectID?)
     case openEditorTapped(editorID: EditorID, worktreePath: String, projectID: ProjectID?)
     /// Dropdown menu item tapped. Resolves the worktree path and projectID
@@ -100,49 +71,12 @@ struct WorktreeHeaderFeature {
     }
   }
 
-  nonisolated enum CancelID: Sendable { case observe }
-
-  @Dependency(InboxClient.self) var inboxClient
   @Dependency(HierarchyClient.self) var hierarchyClient
 
-  private static let logger = Logger(subsystem: "com.touch-code.header", category: "bell")
-
   var body: some Reducer<State, Action> {
-    Reduce { state, action in
+    Reduce { _, action in
       switch action {
       case .onAppear:
-        let stream = inboxClient.observe()
-        return .run { send in
-          for await snapshot in stream {
-            await send(.inboxUpdated(snapshot))
-          }
-        }
-        .cancellable(id: CancelID.observe, cancelInFlight: true)
-
-      case .inboxUpdated(let inbox):
-        state.inbox = inbox
-        return .none
-
-      case .popoverToggled(let open):
-        state.popoverOpen = open
-        return .none
-
-      case .dismissAllTapped:
-        inboxClient.clearAll()
-        state.popoverOpen = false
-        return .none
-
-      case .notificationTapped(let projectID, let worktreeID):
-        do {
-          try hierarchyClient.selectProject(projectID)
-          try hierarchyClient.selectWorktree(worktreeID, projectID)
-        } catch {
-          Self.logger.error(
-            "Stale popover row; selection chain failed: \(String(describing: error))"
-          )
-        }
-        inboxClient.markReadForWorktree(worktreeID, hierarchyClient.snapshot())
-        state.popoverOpen = false
         return .none
 
       case .openDefaultEditorTapped(let path, let pid):

@@ -212,7 +212,6 @@ let project = Project(
         "touch-code/Process",
         "touch-code/Git",
         "touch-code/GitHub",
-        "touch-code/Notifications",
       ],
       entitlements: .file(path: "Configurations/touch-code.entitlements"),
       // git-wt submodule wiring. Pre-script fails the build cleanly when
@@ -285,7 +284,6 @@ let project = Project(
         "touch-code/Tests/Socket",
         "touch-code/Tests/Harness",
         "touch-code/Tests/Integration",
-        "touch-code/Tests/NotificationsTests",
         "touch-code/Tests/GitHubTests",
         "touch-code/Tests/StatusBarTests",
         "touch-code/Tests/Shortcuts",
