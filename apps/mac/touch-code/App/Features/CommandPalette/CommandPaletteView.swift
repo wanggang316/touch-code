@@ -88,7 +88,7 @@ struct CommandPaletteView: View {
           .padding(.horizontal, 6)
           .padding(.vertical, 6)
         }
-        .scrollIndicators(.hidden)
+        .scrollIndicators(.never)
         .frame(maxHeight: 360)
         .onChange(of: store.selectionID) { _, newID in
           guard let newID else { return }
