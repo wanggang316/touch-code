@@ -310,6 +310,64 @@ struct CLIInstallerClientTests {
   }
 
   @Test
+  func composeInstallScript_withLegacyCleanup_appendsGuardedRmLines() {
+    let bundled = URL(fileURLWithPath: "/Applications/TouchCode.app/Contents/Resources/bin/tc")
+    let tc = URL(fileURLWithPath: "/usr/local/bin/tc")
+    let tcode = URL(fileURLWithPath: "/usr/local/bin/tcode")
+    let legacyTc = URL(fileURLWithPath: "/Users/test/.local/bin/tc")
+    let legacyTcode = URL(fileURLWithPath: "/Users/test/.local/bin/tcode")
+
+    let script = CLIInstallerClient.composeInstallScript(
+      bundled: bundled,
+      absentPaths: [tc, tcode],
+      legacyToCleanup: [legacyTc, legacyTcode]
+    )
+
+    #expect(script == """
+      set -e
+      mkdir -p /usr/local/bin
+      ln -s '/Applications/TouchCode.app/Contents/Resources/bin/tc' '/usr/local/bin/tc'
+      ln -s '/Applications/TouchCode.app/Contents/Resources/bin/tc' '/usr/local/bin/tcode'
+      [ -L '/Users/test/.local/bin/tc' ] && rm '/Users/test/.local/bin/tc'
+      [ -L '/Users/test/.local/bin/tcode' ] && rm '/Users/test/.local/bin/tcode'
+      """)
+  }
+
+  @Test
+  func install_includesLegacyCleanupWhenLegacyPathsAreOurs() throws {
+    let home = try TempHome()
+    let paths = home.paths()
+    // Pre-create legacy symlinks pointing at our bundle.
+    let legacyDir = paths.legacyLocalBinTc.deletingLastPathComponent()
+    try FileManager.default.createDirectory(at: legacyDir, withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(at: paths.legacyLocalBinTc, withDestinationURL: home.bundledTc)
+    try FileManager.default.createSymbolicLink(at: paths.legacyLocalBinTcode, withDestinationURL: home.bundledTc)
+    let (client, shell) = makeClient(paths: paths)
+
+    _ = client.install()
+
+    let script = shell.calls.first?.command ?? ""
+    #expect(script.contains("[ -L '\(paths.legacyLocalBinTc.path)' ] && rm '\(paths.legacyLocalBinTc.path)'"))
+    #expect(script.contains("[ -L '\(paths.legacyLocalBinTcode.path)' ] && rm '\(paths.legacyLocalBinTcode.path)'"))
+  }
+
+  @Test
+  func install_skipsLegacyCleanupWhenLegacyPathsAreForeign() throws {
+    let home = try TempHome()
+    let paths = home.paths()
+    // Pre-create a foreign regular file at the legacy path.
+    let legacyDir = paths.legacyLocalBinTc.deletingLastPathComponent()
+    try FileManager.default.createDirectory(at: legacyDir, withIntermediateDirectories: true)
+    try Data("#!/bin/sh\necho foreign\n".utf8).write(to: paths.legacyLocalBinTc)
+    let (client, shell) = makeClient(paths: paths)
+
+    _ = client.install()
+
+    let script = shell.calls.first?.command ?? ""
+    #expect(!script.contains(paths.legacyLocalBinTc.path), "Foreign legacy entry must not appear in cleanup")
+  }
+
+  @Test
   func composeUninstallScript_bothOurs_emitsRmLines() {
     let tc = URL(fileURLWithPath: "/usr/local/bin/tc")
     let tcode = URL(fileURLWithPath: "/usr/local/bin/tcode")

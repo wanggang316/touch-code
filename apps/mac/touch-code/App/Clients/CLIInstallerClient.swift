@@ -132,7 +132,12 @@ final class CLIInstallerClient {
     }
 
     let absentPaths = pair.all.compactMap { $0.1 == .absent ? $0.0 : nil }
-    let script = Self.composeInstallScript(bundled: bundled, absentPaths: absentPaths)
+    let legacyToCleanup = ourLegacyPaths()
+    let script = Self.composeInstallScript(
+      bundled: bundled,
+      absentPaths: absentPaths,
+      legacyToCleanup: legacyToCleanup
+    )
     do {
       try privilegedShell.run(
         script,
@@ -186,13 +191,23 @@ final class CLIInstallerClient {
 
   /// Composes the `do shell script` body for an install. Includes `mkdir -p`
   /// for `/usr/local/bin` (idempotent; admin priv covers the create on bare
-  /// macOS) and one `ln -s` per absent destination. M4 will append legacy
-  /// cleanup lines.
-  static func composeInstallScript(bundled: URL, absentPaths: [URL]) -> String {
+  /// macOS), one `ln -s` per absent destination, and one `rm` per legacy
+  /// `~/.local/bin/{tc,tcode}` that the unprivileged probe verified is our
+  /// own symlink. Foreign legacy entries are not touched.
+  static func composeInstallScript(
+    bundled: URL,
+    absentPaths: [URL],
+    legacyToCleanup: [URL] = []
+  ) -> String {
     var lines: [String] = ["set -e", "mkdir -p /usr/local/bin"]
     let target = shellEscape(bundled.path)
     for destination in absentPaths {
       lines.append("ln -s \(target) \(shellEscape(destination.path))")
+    }
+    for legacy in legacyToCleanup {
+      // [ -L ... ] guard keeps the line a no-op if the user manually removed
+      // the legacy entry between probe and the privileged execution.
+      lines.append("[ -L \(shellEscape(legacy.path)) ] && rm \(shellEscape(legacy.path))")
     }
     return lines.joined(separator: "\n")
   }
@@ -246,6 +261,13 @@ final class CLIInstallerClient {
       (paths.tcSymlink, inspect(paths.tcSymlink)),
       (paths.tcodeSymlink, inspect(paths.tcodeSymlink)),
     ])
+  }
+
+  /// Returns the legacy `~/.local/bin/{tc,tcode}` paths that resolve to our
+  /// bundled binary. Foreign or absent entries are excluded — only entries we
+  /// know we created in a prior version qualify for cleanup.
+  private func ourLegacyPaths() -> [URL] {
+    [paths.legacyLocalBinTc, paths.legacyLocalBinTcode].filter { inspect($0) == .ourSymlink }
   }
 
   /// Classifies the destination path without mutating the filesystem. A path is
