@@ -25,10 +25,6 @@ struct RootFeature {
 
     var sidebar: HierarchySidebarFeature.State = .init()
     var detail: WorktreeDetailFeature.State = .init()
-    /// C7 M3/M4 (0005): read-only git viewer hosted in the trailing
-    /// inspector slot. Selection is forwarded by the `.selectionChanged`
-    /// reducer branch so the feature always tracks the active Worktree.
-    var gitViewer: GitViewerFeature.State = .init()
     /// C8 M6b (0005): editor preferences + per-Project override state.
     var editor: EditorFeature.State = .init()
     /// T2: Header feature (bell + Open-in split button + GV toggle).
@@ -38,6 +34,10 @@ struct RootFeature {
     /// 0014: titlebar-center Worktree Status Bar — owns only the transient
     /// toast slot; PR / motivational forms are view-level projections.
     var statusBar: StatusBarFeature.State = .init()
+    /// Diff inspector + drawer. Receives `worktreeSelected` forwarding from
+    /// `selectionChanged` below so the changed-files list refreshes when the
+    /// user navigates between Worktrees.
+    var diff: DiffFeature.State = .init()
     /// 0008: router for tab/split intents decoded from ghostty keybinds.
     var paneActionRouter: PaneActionRouterFeature.State = .init()
     /// 0008: router for window/app-level intents decoded from ghostty keybinds.
@@ -70,22 +70,22 @@ struct RootFeature {
     /// `.sidebar(.delegate(.openTagManager))`.
     @Presents var tagManagerSheet: TagManagerFeature.State?
 
-    /// T3: live read of the current Worktree's `gitViewerVisible` against
+    /// T3: live read of the current Worktree's `diffInspectorVisible` against
     /// a catalog snapshot. Not a cached field — views pass in
     /// `hierarchyManager.catalog` so SwiftUI's `@Observable` tracking
     /// re-renders on catalog mutation from any writer (⌘⇧G, Header GV
     /// button, external API). This avoids the state-divergence risk of
     /// caching the value on State: both toggle entry points write through
-    /// `HierarchyClient.setWorktreeGitViewerVisible`, and the view reads
+    /// `HierarchyClient.setWorktreeDiffInspectorVisible`, and the view reads
     /// the authoritative catalog each render.
-    func gitViewerOverlayVisible(in catalog: Catalog) -> Bool {
+    func diffInspectorVisible(in catalog: Catalog) -> Bool {
       guard
         let projectID = selection.projectID,
         let worktreeID = selection.worktreeID,
         let project = catalog.projects.first(where: { $0.id == projectID }),
         let worktree = project.worktrees.first(where: { $0.id == worktreeID })
       else { return false }
-      return worktree.gitViewerVisible
+      return worktree.diffInspectorVisible
     }
   }
 
@@ -142,9 +142,9 @@ struct RootFeature {
     case paneLifecycleExited(PaneID)
     /// T3: Toggles the Git Viewer overlay for the current Worktree.
     /// Sources: Header GV button (T2) + ⌘⇧G (T3 Commands). Optimistically
-    /// flips `state.gitViewerOverlayVisible` and fires
-    /// `HierarchyClient.setWorktreeGitViewerVisible` to persist.
-    case gitViewerToggledForCurrentWorktree
+    /// flips `state.diffInspectorVisible` and fires
+    /// `HierarchyClient.setWorktreeDiffInspectorVisible` to persist.
+    case diffInspectorToggledForCurrentWorktree
     /// T3: ⌘O entry point. Resolves the current Worktree's path from the
     /// catalog snapshot (via `hierarchyClient` — reducer-scoped dependency,
     /// unlike SwiftUI `Commands` structs where `@Dependency` falls through
@@ -206,13 +206,13 @@ struct RootFeature {
     case tagManagerSheetShown
     case sidebar(HierarchySidebarFeature.Action)
     case detail(WorktreeDetailFeature.Action)
-    case gitViewer(GitViewerFeature.Action)
     case editor(EditorFeature.Action)
     case worktreeHeader(WorktreeHeaderFeature.Action)
     case gitHub(GitHubFeature.Action)
     case statusBar(StatusBarFeature.Action)
     case paneActionRouter(PaneActionRouterFeature.Action)
     case windowActionRouter(WindowActionRouterFeature.Action)
+    case diff(DiffFeature.Action)
   }
 
   nonisolated enum CancelID: Sendable {
@@ -235,7 +235,7 @@ struct RootFeature {
   private var sidebarAndDetailScopes: some Reducer<State, Action> {
     Scope(state: \.sidebar, action: \.sidebar) { HierarchySidebarFeature() }
     Scope(state: \.detail, action: \.detail) { WorktreeDetailFeature() }
-    Scope(state: \.gitViewer, action: \.gitViewer) { GitViewerFeature() }
+    Scope(state: \.diff, action: \.diff) { DiffFeature() }
   }
 
   @ReducerBuilder<State, Action>
@@ -404,16 +404,29 @@ struct RootFeature {
         reconcilePaneHosts(
           &state.detail.splitViewport, selection: selection, tabID: tabID
         )
-        // Forward the (projectID, worktreeID) pair to GitViewerFeature so
-        // the inspector always reflects the current selection.
-        var effects: [Effect<Action>] = [
+        // M4: forward the selection into the Diff feature so the changed-
+        // files list refreshes for the new Worktree. `nil` worktreeID resets
+        // DiffFeature.State to defaults (no fetch).
+        var effects: [Effect<Action>] = []
+        let resolvedWorktreePath: String? = {
+          guard
+            let projectID = selection.projectID,
+            let worktreeID = selection.worktreeID
+          else { return nil }
+          let snapshot = hierarchyClient.snapshot()
+          return snapshot
+            .projects.first(where: { $0.id == projectID })?
+            .worktrees.first(where: { $0.id == worktreeID })?.path
+        }()
+        effects.append(
           .send(
-            .gitViewer(
+            .diff(
               .worktreeSelected(
                 projectID: selection.projectID,
-                worktreeID: selection.worktreeID
+                worktreeID: selection.worktreeID,
+                path: resolvedWorktreePath
               )))
-        ]
+        )
         // v2 GitHub integration (0013 M4): when the active Project changes, ask
         // GitHubFeature to batch-fetch PR data for every branch in that Project.
         // The reducer runs one `gh api graphql` for the whole repo instead of
@@ -563,9 +576,6 @@ struct RootFeature {
       case .detail:
         return .none
 
-      case .gitViewer:
-        return .none
-
       // 0014 M2: surface editor-open outcomes in the titlebar status bar.
       // The child `Scope(state: \.editor, ...)` has already mutated
       // `lastOpenResult`; we only fan a toast out. Success shows the chosen
@@ -648,11 +658,11 @@ struct RootFeature {
                 )))
           )
 
-        case .gitViewerToggleRequested:
+        case .diffInspectorToggleRequested:
           // Route through the same reducer branch ⌘⇧G uses so both entry
           // points share one write path (reads current visibility from the
           // catalog, writes the flipped value).
-          return .send(.gitViewerToggledForCurrentWorktree)
+          return .send(.diffInspectorToggledForCurrentWorktree)
 
         case .runScriptRequested(let scriptID, let projectID, let worktreeID):
           let client = hierarchyClient
@@ -732,6 +742,9 @@ struct RootFeature {
         return .none
 
       case .windowActionRouter:
+        return .none
+
+      case .diff:
         return .none
 
       case .commandPaletteToggle(let sourcePaneID):
@@ -816,15 +829,15 @@ struct RootFeature {
       case .lifecycleScriptToast:
         return .none
 
-      case .gitViewerToggledForCurrentWorktree:
+      case .diffInspectorToggledForCurrentWorktree:
         guard let worktreeID = state.selection.worktreeID else { return .none }
         // Read the current visibility from the live catalog — the view
-        // layer's `State.gitViewerOverlayVisible(in:)` reads the same
+        // layer's `State.diffInspectorVisible(in:)` reads the same
         // source, so flipping from here and from the Header button
         // (which writes the catalog directly) can't diverge.
         let catalog = hierarchyClient.snapshot()
-        let target = !state.gitViewerOverlayVisible(in: catalog)
-        let setter = hierarchyClient.setWorktreeGitViewerVisible
+        let target = !state.diffInspectorVisible(in: catalog)
+        let setter = hierarchyClient.setWorktreeDiffInspectorVisible
         return .run { _ in
           await MainActor.run { setter(worktreeID, target) }
         }
@@ -1020,8 +1033,8 @@ struct RootFeature {
       return .run { [projectReconciler] _ in
         await projectReconciler.reconcile(projectID: projectID)
       }
-    case .toggleGitViewer:
-      return .send(.gitViewerToggledForCurrentWorktree)
+    case .toggleDiffInspector:
+      return .send(.diffInspectorToggledForCurrentWorktree)
 
     // Editor
     case .openCurrentWorktreeInDefaultEditor:

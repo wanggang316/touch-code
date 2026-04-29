@@ -31,10 +31,10 @@ struct ShortcutResolverTests {
   @Test
   func disabledOverrideKeepsBindingButReportsDisabled() {
     let disabled = ShortcutBinding(keyCode: 5, modifiers: [.command, .shift], isEnabled: false)
-    let store = ShortcutOverrideStore(overrides: [.toggleGitViewer: disabled])
+    let store = ShortcutOverrideStore(overrides: [.toggleDiffInspector: disabled])
     let map = ShortcutResolver.resolve(overrides: store)
 
-    let resolved = map[.toggleGitViewer]
+    let resolved = map[.toggleDiffInspector]
     #expect(resolved?.binding == disabled)
     #expect(resolved?.isEnabled == false)
     #expect(resolved?.source == .userOverride)
@@ -47,8 +47,8 @@ struct ShortcutResolverTests {
     ])
     let map = ShortcutResolver.resolve(overrides: store)
 
-    let untouched = map[.toggleGitViewer]
-    let schemaDefault = ShortcutSchema.app.entry(for: .toggleGitViewer)?.defaultBinding
+    let untouched = map[.toggleDiffInspector]
+    let schemaDefault = ShortcutSchema.app.entry(for: .toggleDiffInspector)?.defaultBinding
     #expect(untouched?.binding == schemaDefault)
     #expect(untouched?.source == .schemaDefault)
   }

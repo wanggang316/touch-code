@@ -10,7 +10,7 @@ struct WorktreeHeaderView: View {
   let projectID: ProjectID
   let worktreePath: String
   let branchLabel: String
-  let gitViewerVisible: Bool
+  let diffInspectorVisible: Bool
   /// Gates the branch label and the Git Viewer toggle for non-git Projects
   /// (P-Q4 = a). Defaults to `true` so existing call sites that haven't
   /// threaded the predicate still render the git chrome — new call sites on
@@ -36,9 +36,9 @@ struct WorktreeHeaderView: View {
           worktreePath: worktreePath
         )
         if supportsWorktrees {
-          HeaderGitViewerToggle(
+          HeaderDiffInspectorToggle(
             store: store,
-            visible: gitViewerVisible
+            visible: diffInspectorVisible
           )
         }
       }

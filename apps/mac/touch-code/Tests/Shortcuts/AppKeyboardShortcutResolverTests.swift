@@ -23,9 +23,9 @@ struct AppKeyboardShortcutResolverTests {
       modifiers: [.command, .shift],
       isEnabled: false
     )
-    let store = ShortcutOverrideStore(overrides: [.toggleGitViewer: disabled])
+    let store = ShortcutOverrideStore(overrides: [.toggleDiffInspector: disabled])
     let map = ShortcutResolver.resolve(overrides: store)
-    #expect(AppKeyboardShortcutResolver.resolve(.toggleGitViewer, in: map) == nil)
+    #expect(AppKeyboardShortcutResolver.resolve(.toggleDiffInspector, in: map) == nil)
   }
 
   @Test

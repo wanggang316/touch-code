@@ -58,14 +58,10 @@ struct ContentView: View {
         selection: store.selection,
         editorStore: store.scope(state: \.editor, action: \.editor),
         headerStore: store.scope(state: \.worktreeHeader, action: \.worktreeHeader),
-        gitViewerStore: store.scope(state: \.gitViewer, action: \.gitViewer),
         statusBarStore: store.scope(state: \.statusBar, action: \.statusBar),
         gitHubStore: store.scope(state: \.gitHub, action: \.gitHub),
-        // Live read against the observed `hierarchyManager.catalog` — any
-        // write to `Worktree.gitViewerVisible` (⌘⇧G, Header button, or
-        // external API) re-renders this view without needing a reducer
-        // projection to stay in sync.
-        overlayVisible: store.state.gitViewerOverlayVisible(in: hierarchyManager.catalog),
+        diffStore: store.scope(state: \.diff, action: \.diff),
+        inspectorVisible: store.state.diffInspectorVisible(in: hierarchyManager.catalog),
         onAddProject: { store.send(.sidebar(.toolbarAddProjectTapped)) },
         // Resolve the root-level focus id to its sidebar row each render. The
         // pending row is the source of truth for streaming output; when it

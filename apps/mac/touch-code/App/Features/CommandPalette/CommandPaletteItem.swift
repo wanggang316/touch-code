@@ -59,7 +59,7 @@ struct CommandPaletteItem: Equatable, Identifiable {
     case selectWorktree(ProjectID, WorktreeID)
     case closeCurrentWorktree
     case refreshCurrentWorktree
-    case toggleGitViewer
+    case toggleDiffInspector
 
     // Editor
     case openCurrentWorktreeInDefaultEditor

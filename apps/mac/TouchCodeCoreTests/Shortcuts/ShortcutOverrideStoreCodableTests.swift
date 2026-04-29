@@ -17,7 +17,7 @@ struct ShortcutOverrideStoreCodableTests {
   func sparseOverridesRoundTrip() throws {
     let store = ShortcutOverrideStore(overrides: [
       .newTab: .init(keyCode: 17, modifiers: [.command, .option], isEnabled: true),
-      .toggleGitViewer: .init(keyCode: 5, modifiers: .command, isEnabled: false),
+      .toggleDiffInspector: .init(keyCode: 5, modifiers: .command, isEnabled: false),
     ])
     let data = try JSONEncoder.touchCodeDefault.encode(store)
     let decoded = try JSONDecoder.touchCodeDefault.decode(ShortcutOverrideStore.self, from: data)
@@ -42,6 +42,20 @@ struct ShortcutOverrideStoreCodableTests {
   }
 
   @Test
+  func toggleDiffInspectorPersistsAsLegacyToggleGitViewerKey() throws {
+    // The Swift identifier renamed during the Diff inspector refactor, but
+    // the persisted JSON key must keep the original `toggleGitViewer`
+    // string so existing user overrides survive the rename.
+    let store = ShortcutOverrideStore(overrides: [
+      .toggleDiffInspector: .init(keyCode: 5, modifiers: [.command, .shift], isEnabled: true),
+    ])
+    let data = try JSONEncoder.touchCodeDefault.encode(store)
+    let json = String(data: data, encoding: .utf8) ?? ""
+    #expect(json.contains("\"toggleGitViewer\""))
+    #expect(!json.contains("\"toggleDiffInspector\""))
+  }
+
+  @Test
   func unknownModifierTokenFailsDecoding() throws {
     let bad = """
     {
@@ -59,6 +73,9 @@ struct ShortcutOverrideStoreCodableTests {
 
   @Test
   func modifierTokensDecodeRegardlessOfOrder() throws {
+    // JSON key remains `toggleGitViewer` even after the Swift identifier
+    // was renamed to `toggleDiffInspector` — pinned via `CommandID`'s raw
+    // value so existing user overrides of the ⌘⇧G binding aren't orphaned.
     let json = """
     {
       "version": 1,
@@ -69,6 +86,6 @@ struct ShortcutOverrideStoreCodableTests {
     """.data(using: .utf8)!
 
     let decoded = try JSONDecoder.touchCodeDefault.decode(ShortcutOverrideStore.self, from: json)
-    #expect(decoded.overrides[.toggleGitViewer]?.modifiers == [.command, .shift])
+    #expect(decoded.overrides[.toggleDiffInspector]?.modifiers == [.command, .shift])
   }
 }

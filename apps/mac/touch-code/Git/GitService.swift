@@ -27,6 +27,17 @@ public nonisolated protocol GitService: Sendable {
   /// and `(owner, repo)` variables. Throws `GitError.malformedRemoteURL` when the remote
   /// URL shape is not recognised.
   func remoteInfo(at path: URL) async throws -> RemoteInfo
+
+  /// `git diff --numstat -z` + `git diff --name-status -z` joined into the per-row
+  /// model the Diff inspector consumes. The two commands are combined here (rather
+  /// than in the feature) so the parser stays in the git-domain module and the
+  /// reducer remains a thin coordinator.
+  func diffNumstat(at worktreePath: URL) async throws -> [ChangedFile]
+
+  /// `git show HEAD:<path>` — UTF-8 contents of `path` at HEAD. Returns `nil` for
+  /// paths that don't exist at HEAD (newly-added files). All other errors throw
+  /// the standard `GitError` cases.
+  func showFileAtHEAD(_ path: String, at worktreePath: URL) async throws -> String?
 }
 
 extension GitService {

@@ -49,23 +49,23 @@ struct HierarchyClientTests {
   }
 
   @Test
-  func liveSetWorktreeGitViewerVisibleTogglesCatalog() throws {
+  func liveSetWorktreeDiffInspectorVisibleTogglesCatalog() throws {
     let (client, manager) = makeLiveClient()
     let projectID = client.addProject("p", "/tmp", "/tmp")
     let worktreeID = try client.createWorktree(projectID, "w", "/tmp/w", "main")
 
     // Default is false.
-    #expect(manager.catalog.projects[0].worktrees[0].gitViewerVisible == false)
+    #expect(manager.catalog.projects[0].worktrees[0].diffInspectorVisible == false)
 
-    client.setWorktreeGitViewerVisible(worktreeID, true)
-    #expect(manager.catalog.projects[0].worktrees[0].gitViewerVisible == true)
+    client.setWorktreeDiffInspectorVisible(worktreeID, true)
+    #expect(manager.catalog.projects[0].worktrees[0].diffInspectorVisible == true)
 
-    client.setWorktreeGitViewerVisible(worktreeID, false)
-    #expect(manager.catalog.projects[0].worktrees[0].gitViewerVisible == false)
+    client.setWorktreeDiffInspectorVisible(worktreeID, false)
+    #expect(manager.catalog.projects[0].worktrees[0].diffInspectorVisible == false)
 
     // Unknown worktreeID is a silent no-op; nothing should crash, state unchanged.
-    client.setWorktreeGitViewerVisible(WorktreeID(), true)
-    #expect(manager.catalog.projects[0].worktrees[0].gitViewerVisible == false)
+    client.setWorktreeDiffInspectorVisible(WorktreeID(), true)
+    #expect(manager.catalog.projects[0].worktrees[0].diffInspectorVisible == false)
   }
 
   @Test

@@ -20,10 +20,6 @@ struct WorktreeDetailView: View {
   /// T2 Header feature — scoped by `ContentView` from the root. Drives the bell
   /// badge, the Open-in split button's delegate routing, and the Git Viewer toggle.
   let headerStore: StoreOf<WorktreeHeaderFeature>
-  /// T3: scoped Git Viewer store, hosted as a right-edge overlay on the terminal region
-  /// when `overlayVisible == true` AND the terminal has enough width to keep the
-  /// overlay + the minimum terminal gutter side-by-side.
-  let gitViewerStore: StoreOf<GitViewerFeature>
   /// 0014: titlebar-center Worktree Status Bar store. Owns the toast slot; PR /
   /// motivational forms are view-level projections of other scopes (added in M4/M5).
   let statusBarStore: StoreOf<StatusBarFeature>
@@ -31,8 +27,13 @@ struct WorktreeDetailView: View {
   /// `snapshots[worktreeID]` lookup. Same store the sidebar badge reads so
   /// the two surfaces stay in sync by construction.
   let gitHubStore: StoreOf<GitHubFeature>
-  /// T3: derived from `RootFeature.State.gitViewerOverlayVisible`; never assigned locally.
-  let overlayVisible: Bool
+  /// M6: diff feature store — drives the Diff inspector column and the
+  /// drawer overlay that fills the detail body when a file row is open.
+  let diffStore: StoreOf<DiffFeature>
+  /// M5: drives the inline Diff inspector column rendered to the right
+  /// of the detail body. Sourced from `Worktree.diffInspectorVisible` via
+  /// `RootFeature.State.diffInspectorVisible(in:)` in `ContentView`.
+  let inspectorVisible: Bool
   /// Invoked from the empty-state Add Project button. Wired by `ContentView`
   /// so the detail view doesn't need to hold the sidebar's TCA scope just
   /// to fire `toolbarAddProjectTapped` — same pattern as the editor toast
@@ -62,12 +63,32 @@ struct WorktreeDetailView: View {
       WorktreeLoadingView(info: loadingInfo(for: pending))
     } else if let address = resolveAddress() {
       let info = worktreeInfo(for: address)
-      VStack(spacing: 0) {
-        tabBarRow(address: address)
-        terminalRegion(address: address)
-          .overlay(alignment: .trailing) { overlayContent }
-          .animation(.easeInOut(duration: 0.15), value: overlayVisible)
+      HStack(spacing: 0) {
+        VStack(spacing: 0) {
+          tabBarRow(address: address)
+          terminalRegion(address: address)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay {
+          if diffStore.state.presentedFilePath != nil {
+            DiffDrawerView(store: diffStore)
+              .zIndex(80)
+              .transition(.move(edge: .trailing).combined(with: .opacity))
+          }
+        }
+        .animation(
+          .spring(response: 0.32, dampingFraction: 0.85),
+          value: diffStore.state.presentedFilePath
+        )
+
+        if inspectorVisible {
+          Divider()
+          DiffInspectorView(store: diffStore)
+            .frame(width: 280)
+            .transition(.move(edge: .trailing))
+        }
       }
+      .animation(.easeInOut(duration: 0.18), value: inspectorVisible)
       // On macOS 15+ remove the title slot entirely so default-placement
       // toolbar items can flow leading-to-trailing with `ToolbarSpacer`
       // controlling the layout (same pattern supacode uses).
@@ -133,46 +154,6 @@ struct WorktreeDetailView: View {
     }
   }
 
-  /// T3 overlay content: the Git Viewer occupies a fixed-width slot on the trailing edge
-  /// when there's room, otherwise a compact suppressed-hint badge nudges the user to
-  /// widen the window. Width clamp logic lives in `shouldShowOverlay(totalWidth:)` so
-  /// the threshold is unit-testable independently of SwiftUI layout.
-  @ViewBuilder
-  private var overlayContent: some View {
-    if overlayVisible {
-      GeometryReader { proxy in
-        if Self.shouldShowOverlay(totalWidth: proxy.size.width) {
-          GitViewerView(store: gitViewerStore)
-            .frame(width: MainWindowConstants.gvOverlayWidth)
-            .frame(maxWidth: .infinity, alignment: .trailing)
-            .transition(.move(edge: .trailing).combined(with: .opacity))
-        } else {
-          overlaySuppressedHint
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-            .padding(8)
-        }
-      }
-    }
-  }
-
-  private var overlaySuppressedHint: some View {
-    Text("Widen window to show Git Viewer")
-      .font(.caption)
-      .foregroundStyle(.secondary)
-      .padding(.horizontal, 10)
-      .padding(.vertical, 5)
-      .background(.thinMaterial, in: .capsule)
-  }
-
-  /// Pure width-clamp helper. The overlay only renders when the host has room to keep
-  /// the overlay at its fixed width AND leave at least `gvOverlayMinTerminalWidth` for
-  /// the terminal. Equivalence with `>=` keeps the exact threshold inclusive — matches
-  /// the paired unit tests in `WorktreeDetailViewLayoutTests`.
-  static func shouldShowOverlay(totalWidth: CGFloat) -> Bool {
-    totalWidth >= MainWindowConstants.gvOverlayMinTerminalWidth
-      + MainWindowConstants.gvOverlayWidth
-  }
-
   /// Window-titlebar toolbar content for the active Worktree. Branch label
   /// on the leading edge (`.navigation` placement), bell / open-in / git
   /// viewer toggle on the trailing edge (`.primaryAction`). Mirrors the
@@ -223,9 +204,9 @@ struct WorktreeDetailView: View {
           )
           .buttonStyle(.plain)
           if info.project.supportsWorktrees {
-            HeaderGitViewerToggle(
+            HeaderDiffInspectorToggle(
               store: headerStore,
-              visible: info.worktree.gitViewerVisible
+              visible: info.worktree.diffInspectorVisible
             )
             .buttonStyle(.plain)
           }
@@ -302,9 +283,9 @@ struct WorktreeDetailView: View {
     if info.project.supportsWorktrees {
       ToolbarSpacer(.fixed)
       ToolbarItem {
-        HeaderGitViewerToggle(
+        HeaderDiffInspectorToggle(
           store: headerStore,
-          visible: info.worktree.gitViewerVisible
+          visible: info.worktree.diffInspectorVisible
         )
       }
     }

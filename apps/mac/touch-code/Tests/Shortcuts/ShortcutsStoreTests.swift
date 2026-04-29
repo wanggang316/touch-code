@@ -38,13 +38,13 @@ struct ShortcutsStoreTests {
     // Distinct from the schema default `⌘⇧G` so the coalescing path doesn't drop it.
     let custom = ShortcutBinding(keyCode: 5, modifiers: [.command, .control])
     let writer = ShortcutsStore(fileURL: url, debounceWindow: .milliseconds(10))
-    writer.update(.toggleGitViewer, to: custom)
+    writer.update(.toggleDiffInspector, to: custom)
     writer.flush()
 
     let reader = ShortcutsStore(fileURL: url, debounceWindow: .milliseconds(10))
-    #expect(reader.overrides.overrides[.toggleGitViewer] == custom)
-    #expect(reader.resolved[.toggleGitViewer]?.binding == custom)
-    #expect(reader.resolved[.toggleGitViewer]?.source == .userOverride)
+    #expect(reader.overrides.overrides[.toggleDiffInspector] == custom)
+    #expect(reader.resolved[.toggleDiffInspector]?.binding == custom)
+    #expect(reader.resolved[.toggleDiffInspector]?.source == .userOverride)
   }
 
   @Test
@@ -54,14 +54,14 @@ struct ShortcutsStoreTests {
 
     let store = ShortcutsStore(fileURL: url, debounceWindow: .milliseconds(10))
     let custom = ShortcutBinding(keyCode: 99, modifiers: [.command, .control])
-    store.update(.toggleGitViewer, to: custom)
-    #expect(store.overrides.overrides[.toggleGitViewer] == custom)
+    store.update(.toggleDiffInspector, to: custom)
+    #expect(store.overrides.overrides[.toggleDiffInspector] == custom)
 
-    let schemaDefault = ShortcutSchema.app.entry(for: .toggleGitViewer)!.defaultBinding!
-    store.update(.toggleGitViewer, to: schemaDefault)
+    let schemaDefault = ShortcutSchema.app.entry(for: .toggleDiffInspector)!.defaultBinding!
+    store.update(.toggleDiffInspector, to: schemaDefault)
 
-    #expect(store.overrides.overrides[.toggleGitViewer] == nil)
-    #expect(store.resolved[.toggleGitViewer]?.source == .schemaDefault)
+    #expect(store.overrides.overrides[.toggleDiffInspector] == nil)
+    #expect(store.resolved[.toggleDiffInspector]?.source == .schemaDefault)
   }
 
   @Test
@@ -71,13 +71,13 @@ struct ShortcutsStoreTests {
 
     let store = ShortcutsStore(fileURL: url, debounceWindow: .milliseconds(10))
     let conflicting = ShortcutBinding(keyCode: 17, modifiers: [.command]) // ⌘T equivalent
-    store.resolveConflict(disabling: .newTab, assigning: .toggleGitViewer, to: conflicting)
+    store.resolveConflict(disabling: .newTab, assigning: .toggleDiffInspector, to: conflicting)
 
     #expect(store.resolved[.newTab]?.isEnabled == false)
     #expect(store.resolved[.newTab]?.source == .userOverride)
-    #expect(store.resolved[.toggleGitViewer]?.binding == conflicting)
-    #expect(store.resolved[.toggleGitViewer]?.isEnabled == true)
-    #expect(store.resolved[.toggleGitViewer]?.source == .userOverride)
+    #expect(store.resolved[.toggleDiffInspector]?.binding == conflicting)
+    #expect(store.resolved[.toggleDiffInspector]?.isEnabled == true)
+    #expect(store.resolved[.toggleDiffInspector]?.source == .userOverride)
   }
 
   @Test
@@ -86,16 +86,16 @@ struct ShortcutsStoreTests {
     defer { try? FileManager.default.removeItem(at: url) }
 
     let store = ShortcutsStore(fileURL: url, debounceWindow: .milliseconds(10))
-    store.disable(.toggleGitViewer)
+    store.disable(.toggleDiffInspector)
     try store.saveNow()
 
-    let entry = store.overrides.overrides[.toggleGitViewer]
-    let schemaDefault = ShortcutSchema.app.entry(for: .toggleGitViewer)?.defaultBinding
+    let entry = store.overrides.overrides[.toggleDiffInspector]
+    let schemaDefault = ShortcutSchema.app.entry(for: .toggleDiffInspector)?.defaultBinding
     #expect(entry?.keyCode == schemaDefault?.keyCode)
     #expect(entry?.modifiers == schemaDefault?.modifiers)
     #expect(entry?.isEnabled == false)
 
-    #expect(store.resolved[.toggleGitViewer]?.isEnabled == false)
+    #expect(store.resolved[.toggleDiffInspector]?.isEnabled == false)
   }
 
   @Test
@@ -120,7 +120,7 @@ struct ShortcutsStoreTests {
 
     let store = ShortcutsStore(fileURL: url, debounceWindow: .milliseconds(10))
     store.update(.newTab, to: .init(keyCode: 17, modifiers: .command))
-    store.update(.toggleGitViewer, to: .init(keyCode: 5, modifiers: .command))
+    store.update(.toggleDiffInspector, to: .init(keyCode: 5, modifiers: .command))
     store.resetAll()
 
     #expect(store.overrides.overrides.isEmpty)

@@ -616,16 +616,16 @@ final class HierarchyManager {
   /// `projectID` argument is not required — the method scans all
   /// Worktrees in the catalog so the caller does not have to thread
   /// parent IDs through the UI-toggle path.
-  func setWorktreeGitViewerVisible(worktreeID: WorktreeID, visible: Bool) {
+  func setWorktreeDiffInspectorVisible(worktreeID: WorktreeID, visible: Bool) {
     for projectIndex in catalog.projects.indices {
       guard
         let worktreeIndex = catalog.projects[projectIndex]
           .worktrees.firstIndex(where: { $0.id == worktreeID })
       else { continue }
       guard
-        catalog.projects[projectIndex].worktrees[worktreeIndex].gitViewerVisible != visible
+        catalog.projects[projectIndex].worktrees[worktreeIndex].diffInspectorVisible != visible
       else { return }
-      catalog.projects[projectIndex].worktrees[worktreeIndex].gitViewerVisible = visible
+      catalog.projects[projectIndex].worktrees[worktreeIndex].diffInspectorVisible = visible
       store.scheduleSave(catalog)
       return
     }
