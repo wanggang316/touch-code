@@ -23,6 +23,10 @@ struct SettingsWindowView: View {
     )
     NavigationSplitView {
       SettingsSidebarView(selection: selection)
+        // Drop the auto-injected sidebar collapse toggle from the toolbar so the
+        // Settings window matches macOS System Settings, which keeps the sidebar
+        // permanently visible.
+        .toolbar(removing: .sidebarToggle)
     } detail: {
       detailView(for: store.state.effectiveSection)
     }
