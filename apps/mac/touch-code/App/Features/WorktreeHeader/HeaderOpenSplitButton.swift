@@ -26,6 +26,7 @@ struct HeaderOpenSplitButton: View {
         Text(primaryLabel)
           .lineLimit(1)
       }
+      .commandKeyHint(.openInDefaultEditor)
     } primaryAction: {
       store.send(
         .openDefaultEditorTapped(
@@ -35,7 +36,6 @@ struct HeaderOpenSplitButton: View {
     }
     .accessibilityLabel(primaryDescription)
     .help(primaryDescription)
-    .commandKeyHint(.openInDefaultEditor)
     .task { editorStore.send(.onAppear) }
   }
 

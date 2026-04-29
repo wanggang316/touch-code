@@ -19,9 +19,9 @@ struct HeaderGitViewerToggle: View {
     } label: {
       Image(systemName: "doc.text.magnifyingglass")
         .foregroundStyle(visible ? Color.accentColor : .primary)
+        .commandKeyHint(.toggleGitViewer)
     }
     .accessibilityLabel(visible ? "Hide Git Viewer" : "Show Git Viewer")
     .help(visible ? "Hide Git Viewer" : "Show Git Viewer")
-    .commandKeyHint(.toggleGitViewer)
   }
 }
