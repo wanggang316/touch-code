@@ -53,9 +53,13 @@ After this plan completes, a touch-code user can:
   `DiffRendererView` body update landed; `DiffWebViewBridgeTests`
   (8 tests) all pass. Build green. Bridge protocol diverged from the
   design's table; see Decision Log D8–D14. (2026-04-29)
-- [ ] M4 — `DiffFeature` reducer: implement state/actions/reducer; wire
-  the changed-files load and per-file diff load via `GitClient`; add
-  `RootFeature.State.diff` + scope; `TestStore` tests pass.
+- [x] M4 — `DiffFeature` reducer: 254-line `DiffFeature.swift` (state +
+  six action branches + cancellable per-path effects), `GitService` /
+  `GitServiceClient` extended with `diffNumstat` + `showFileAtHEAD`,
+  parser additions in `GitOutputParser` for `--numstat -z` /
+  `--name-status -z`, `RootFeature.State.diff` mounted with selection
+  forwarding through `.diff(.worktreeSelected(...))`. `DiffFeatureTests`
+  (6 tests) pass; full suite drops from 48 → 47 issues. (2026-04-29)
 - [ ] M5 — Inspector view: implement `DiffInspectorView` + `DiffFileRow`;
   mount via `.inspector(isPresented:)` at the detail-column subtree;
   ⌘⇧G toggles visibility end-to-end; manual smoke pass.
@@ -103,6 +107,11 @@ After this plan completes, a touch-code user can:
 - **D13** (M3, 2026-04-29): `DiffDocument.title` doubles as the renderer's required `document.identifier`; if `nil` we mint a `UUID().uuidString` per render.
 - **D14** (M3, 2026-04-29): The Coordinator queues outbound `renderDocument` / `updateConfiguration` messages until the `ready` event arrives, then flushes; stale `renderDocument`s in the queue are de-duped (only the latest survives) so we don't flash through outdated content during initial load.
 - **D15** (M3, 2026-04-29): `DiffConfiguration.appearance == .automatic` doesn't have a direct renderer equivalent — the JS expects `resolvedAppearance: "dark" | "light"`. M3 resolves `.automatic` → `"light"`. M5/M6 will plumb `@Environment(\.colorScheme)` to resolve this dynamically at the SwiftUI boundary before passing to `DiffWebView`.
+- **D16** (M4, 2026-04-29): `refreshRequested` re-fetches the changed-files list using the cached `worktreePath` and *preserves* the per-file diff cache (`diffsByPath` not cleared). Rationale: refresh is "I just edited files in the worktree, recompute the list," not "I switched Worktrees" — surviving file caches stay correct (the per-file diff is recomputed on row-tap if needed). Switching Worktrees still drops everything via `worktreeSelected`.
+- **D17** (M4, 2026-04-29): `ChangedFile` / `ChangeStatus` are `public nonisolated` so the `GitService` protocol (also `public`) can return `[ChangedFile]` from `diffNumstat`. Lives in `DiffFeature.swift` rather than `Public.swift` (sealed surface from M3) or a new file under `TouchCodeCore` — keeping the row model adjacent to the reducer that owns its lifecycle.
+- **D18** (M4, 2026-04-29): `loadDiff` reads the working-tree side via `String(contentsOf:)` (filesystem) rather than through a new `GitServiceClient` closure. The HEAD side goes through `showFileAtHEAD` because `git show HEAD:<path>` is the only correct way to read a non-current blob, but the working-tree side is just a file read — adding a client seam there would just be a `Process` round-trip via `git show :<path>` for no test benefit (tests use temp directories with real files).
+- **D19** (M4, 2026-04-29): `loadDiff` hops onto `MainActor` via `MainActor.run` to construct `DiffFile` / `DiffDocument`. Those types' initializers inherit the App target's MainActor default isolation (SwiftUI `View`-adjacent code in `Public.swift`), and the `.run` closure runs nonisolated. Per the constraint not to touch `Public.swift`, the hop lives in `DiffFeature` instead.
+- **D20** (M4, 2026-04-29): `RootFeatureTests.onLaunchExhaustivelyPropagatesSelectionFromStream` updated to receive the new `.diff(.worktreeSelected)` action and to drop the no-op state-change closure on `.selectionChanged` (TestStore reports "no observable modification" when the assigned value matches the existing default). Two other tests (`selectionChangedMirrorsActiveTabFromSnapshot`, `diffInspectorVisibleTracksSelectionAgainstCatalog`) had `gitService.diffNumstat = { _ in [] }` added to their dependency stubs — both run with `exhaustivity = .off`, so the change just neutralizes the new "Unimplemented" issues that the M4 forwarding triggered. Net: full-suite issue count drops from 48 (M3 baseline) to 47.
 
 ## Outcomes & Retrospective
 

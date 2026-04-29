@@ -37,6 +37,10 @@ struct RootFeature {
     /// 0014: titlebar-center Worktree Status Bar — owns only the transient
     /// toast slot; PR / motivational forms are view-level projections.
     var statusBar: StatusBarFeature.State = .init()
+    /// Diff inspector + drawer. Receives `worktreeSelected` forwarding from
+    /// `selectionChanged` below so the changed-files list refreshes when the
+    /// user navigates between Worktrees.
+    var diff: DiffFeature.State = .init()
     /// 0008: router for tab/split intents decoded from ghostty keybinds.
     var paneActionRouter: PaneActionRouterFeature.State = .init()
     /// 0008: router for window/app-level intents decoded from ghostty keybinds.
@@ -193,6 +197,7 @@ struct RootFeature {
     case statusBar(StatusBarFeature.Action)
     case paneActionRouter(PaneActionRouterFeature.Action)
     case windowActionRouter(WindowActionRouterFeature.Action)
+    case diff(DiffFeature.Action)
   }
 
   nonisolated enum CancelID: Sendable {
@@ -215,6 +220,7 @@ struct RootFeature {
   private var sidebarAndDetailScopes: some Reducer<State, Action> {
     Scope(state: \.sidebar, action: \.sidebar) { HierarchySidebarFeature() }
     Scope(state: \.detail, action: \.detail) { WorktreeDetailFeature() }
+    Scope(state: \.diff, action: \.diff) { DiffFeature() }
   }
 
   @ReducerBuilder<State, Action>
@@ -375,9 +381,29 @@ struct RootFeature {
         reconcilePaneHosts(
           &state.detail.splitViewport, selection: selection, tabID: tabID
         )
-        // M0 stub: the GitViewer feature has been removed; the future Diff
-        // feature (replacing it) will receive selection forwarding here.
+        // M4: forward the selection into the Diff feature so the changed-
+        // files list refreshes for the new Worktree. `nil` worktreeID resets
+        // DiffFeature.State to defaults (no fetch).
         var effects: [Effect<Action>] = []
+        let resolvedWorktreePath: String? = {
+          guard
+            let projectID = selection.projectID,
+            let worktreeID = selection.worktreeID
+          else { return nil }
+          let snapshot = hierarchyClient.snapshot()
+          return snapshot
+            .projects.first(where: { $0.id == projectID })?
+            .worktrees.first(where: { $0.id == worktreeID })?.path
+        }()
+        effects.append(
+          .send(
+            .diff(
+              .worktreeSelected(
+                projectID: selection.projectID,
+                worktreeID: selection.worktreeID,
+                path: resolvedWorktreePath
+              )))
+        )
         // v2 GitHub integration (0013 M4): when the active Project changes, ask
         // GitHubFeature to batch-fetch PR data for every branch in that Project.
         // The reducer runs one `gh api graphql` for the whole repo instead of
@@ -682,6 +708,9 @@ struct RootFeature {
         return .none
 
       case .windowActionRouter:
+        return .none
+
+      case .diff:
         return .none
 
       case .commandPaletteToggle(let sourcePaneID):

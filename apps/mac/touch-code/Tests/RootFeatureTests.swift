@@ -70,6 +70,10 @@ struct RootFeatureTests {
       // Worktree path resolves to a live directory in this catalog, so GitViewer reaches
       // `workingTreeDiff`. Stub it with an empty diff — the test is not about the diff.
       $0.gitService.workingTreeDiff = { _, _ in UnifiedDiff(scope: .working, files: []) }
+      // M4: `.selectionChanged` now forwards into `.diff(.worktreeSelected(...))`,
+      // which kicks a `diffNumstat` load. Stub empty so the effect resolves without
+      // hitting `unimplemented`.
+      $0.gitService.diffNumstat = { _ in [] }
       // 0013 M4 wired a `.gitHub(.projectActivated)` dispatch on projectID transitions.
       // This test is exhaustivity=off and not about GitHub, but the fetch effect still
       // runs and touches .date + remoteInfo + batchPullRequests — stub each to no-op.
@@ -143,6 +147,9 @@ struct RootFeatureTests {
       $0.hierarchyClient.snapshot = { catalog }
       $0.gitService = GitServiceClient.testValue
       $0.gitService.workingTreeDiff = { _, _ in UnifiedDiff(scope: .working, files: []) }
+      // M4: `.selectionChanged` forwards into `.diff(.worktreeSelected(...))` which
+      // kicks `diffNumstat`; stub empty so the effect terminates cleanly.
+      $0.gitService.diffNumstat = { _ in [] }
       // 0013 M4: selectionChanged now dispatches .gitHub(.projectActivated) when the
       // Project changes. Stub the downstream deps so exhaustivity=off still runs.
       $0.date = .constant(Date(timeIntervalSince1970: 0))
@@ -488,12 +495,15 @@ struct RootFeatureTests {
       worktreeID: nil
     )
     selectionContinuation.yield(selection)
-    await store.receive(\.selectionChanged) { state in
-      state.selection = selection
-    }
-    // M0 cleanup: the `.gitViewer(.worktreeSelected)` forwarding step is gone
-    // until the Diff feature lands. `selectionChanged` no longer dispatches a
-    // child action for nil-worktree selections.
+    // `selection.empty == State.selection.default` so the assignment is a
+    // no-op observable change; we omit the trailing closure to satisfy the
+    // strict no-change check.
+    await store.receive(\.selectionChanged)
+    // M4: `.selectionChanged` now forwards into `.diff(.worktreeSelected(...))`
+    // unconditionally so DiffFeature can reset its state for the new (or absent)
+    // Worktree. With `worktreeID: nil`, DiffFeature returns `.cancel(...)` —
+    // no further actions follow.
+    await store.receive(\.diff.worktreeSelected)
 
     selectionContinuation.finish()
     await store.send(.onQuit)

@@ -25,6 +25,13 @@ nonisolated struct GitServiceClient: Sendable {
   /// for the GitHub integration's batched PR fetcher. Throws `GitError.malformedRemoteURL`
   /// on an unrecognised remote shape.
   var remoteInfo: @Sendable (URL) async throws -> RemoteInfo
+  /// `(worktreePath) -> [ChangedFile]`. Drives the Diff inspector. Closure takes a
+  /// String path (rather than URL) because the reducer caches the worktree path as
+  /// String and the call site stays one conversion lighter.
+  var diffNumstat: @Sendable (String) async throws -> [ChangedFile]
+  /// `(path, worktreePath) -> oldContents?`. Reads `<path>` at HEAD via `git show`.
+  /// Returns `nil` for paths that don't yet exist at HEAD (newly-added files).
+  var showFileAtHEAD: @Sendable (String, String) async throws -> String?
 }
 
 extension GitServiceClient {
@@ -42,7 +49,13 @@ extension GitServiceClient {
         try await service.commitDiff(at: url, sha: sha, ignoreWhitespace: ignoreWhitespace)
       },
       status: { url in try await service.status(at: url) },
-      remoteInfo: { url in try await service.remoteInfo(at: url) }
+      remoteInfo: { url in try await service.remoteInfo(at: url) },
+      diffNumstat: { path in
+        try await service.diffNumstat(at: URL(fileURLWithPath: path))
+      },
+      showFileAtHEAD: { path, worktreePath in
+        try await service.showFileAtHEAD(path, at: URL(fileURLWithPath: worktreePath))
+      }
     )
   }
 }
@@ -74,6 +87,14 @@ extension GitServiceClient: DependencyKey {
     remoteInfo: unimplemented(
       "GitServiceClient.remoteInfo",
       placeholder: RemoteInfo(host: "github.com", owner: "example", repo: "example")
+    ),
+    diffNumstat: unimplemented(
+      "GitServiceClient.diffNumstat",
+      placeholder: []
+    ),
+    showFileAtHEAD: unimplemented(
+      "GitServiceClient.showFileAtHEAD",
+      placeholder: nil
     )
   )
 }

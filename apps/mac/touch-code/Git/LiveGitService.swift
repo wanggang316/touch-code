@@ -76,6 +76,64 @@ nonisolated final class LiveGitService: GitService {
     return try GitOutputParser.parseStatus(out)
   }
 
+  func diffNumstat(at worktreePath: URL) async throws -> [ChangedFile] {
+    try await ensureIsRepo(at: worktreePath)
+    // Two parallel reads — one for line counts (`numstat`) and one for status letters
+    // (`name-status`). Both use `-z` so paths with embedded whitespace round-trip cleanly.
+    async let numstatBytes = run(
+      arguments: [
+        "-c", "core.quotePath=false",
+        "diff", "--no-color", "--no-ext-diff", "-M", "-C", "--numstat", "-z",
+      ],
+      cwd: worktreePath
+    )
+    async let nameStatusBytes = run(
+      arguments: [
+        "-c", "core.quotePath=false",
+        "diff", "--no-color", "--no-ext-diff", "-M", "-C", "--name-status", "-z",
+      ],
+      cwd: worktreePath
+    )
+    let (n, s) = try await (numstatBytes, nameStatusBytes)
+    let numstat = try GitOutputParser.parseDiffNumstatZ(n)
+    let nameStatus = try GitOutputParser.parseDiffNameStatusZ(s)
+    return GitOutputParser.joinDiffNumstatNameStatus(numstat: numstat, nameStatus: nameStatus)
+  }
+
+  func showFileAtHEAD(_ path: String, at worktreePath: URL) async throws -> String? {
+    try await ensureIsRepo(at: worktreePath)
+    let outcome = await runner.run(
+      executable: gitExecutable,
+      arguments: ["show", "HEAD:\(path)"],
+      env: GitProcessEnv.build(),
+      cwd: worktreePath,
+      timeout: Self.defaultTimeout,
+      maxOutputBytes: Self.maxOutputBytes
+    )
+    switch outcome {
+    case .exited(let code, let stdout, let stderr, let overflow):
+      if code != 0 {
+        let text = String(data: stderr, encoding: .utf8) ?? ""
+        // `path exists on disk, but not in 'HEAD'` / `does not exist` for newly-added files —
+        // surface as nil rather than throwing so the caller treats it as an additions-only diff.
+        if text.contains("exists on disk, but not in")
+          || text.contains("does not exist")
+          || text.contains("bad object")
+        {
+          return nil
+        }
+        throw GitError.exec(code: code, stderr: text)
+      }
+      if overflow { throw GitError.outputTooLarge }
+      return String(data: stdout, encoding: .utf8) ?? ""
+    case .timedOut:
+      throw GitError.timedOut
+    case .spawnFailed(let reason):
+      if reason.contains("binary not found") { throw GitError.gitMissing }
+      throw GitError.unparsable(context: "spawn failed: \(reason)")
+    }
+  }
+
   func remoteInfo(at path: URL) async throws -> RemoteInfo {
     try await ensureIsRepo(at: path)
     let out = try await run(arguments: GitCommand.remoteGetUrl(), cwd: path)

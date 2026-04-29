@@ -124,4 +124,139 @@ nonisolated enum GitOutputParser {
     }
     return WorkingTreeStatus(entries: entries)
   }
+
+  // MARK: - Diff numstat / name-status
+
+  /// Intermediate row from `git diff --numstat -z`. Binary files emit `-\t-\tpath`
+  /// (`addedLines = -1`, `removedLines = -1`).
+  struct NumstatRow: Equatable, Sendable {
+    var oldPath: String?
+    var newPath: String
+    var addedLines: Int
+    var removedLines: Int
+    var isBinary: Bool { addedLines < 0 && removedLines < 0 }
+  }
+
+  /// Intermediate row from `git diff --name-status -z`. Status letter is the first
+  /// character of the record (`M`, `A`, `D`, `R`, `C`, …). Renames and copies emit
+  /// `R<score>` / `C<score>` followed by old + new paths as separate NUL records.
+  struct NameStatusRow: Equatable, Sendable {
+    var status: Character
+    var oldPath: String?
+    var newPath: String
+  }
+
+  /// Parse `git diff --numstat -z` output. Records are NUL-separated. Rename / copy
+  /// records emit `<adds>\t<dels>\t\0<old>\0<new>\0` (the path field is empty before the
+  /// first NUL); the rename detection here matches that shape.
+  static func parseDiffNumstatZ(_ bytes: Data) throws -> [NumstatRow] {
+    guard let text = String(data: bytes, encoding: .utf8) else {
+      throw GitError.unparsable(context: "numstat output was not UTF-8")
+    }
+    if text.isEmpty { return [] }
+    var fields = text.components(separatedBy: "\0")
+    if fields.last == "" { fields.removeLast() }
+    var rows: [NumstatRow] = []
+    var idx = fields.startIndex
+    while idx < fields.endIndex {
+      let head = fields[idx]
+      idx += 1
+      // Each numstat row begins with `<adds>\t<dels>\t<path-or-empty>`. Tabs survive
+      // the `-z` split because `-z` only changes the inter-record separator.
+      let parts = head.split(separator: "\t", maxSplits: 2, omittingEmptySubsequences: false)
+      guard parts.count == 3 else {
+        throw GitError.unparsable(context: "numstat record too short: '\(head)'")
+      }
+      let addsRaw = String(parts[0])
+      let delsRaw = String(parts[1])
+      let pathField = String(parts[2])
+      let adds = addsRaw == "-" ? -1 : (Int(addsRaw) ?? 0)
+      let dels = delsRaw == "-" ? -1 : (Int(delsRaw) ?? 0)
+      if pathField.isEmpty {
+        // Rename/copy: next two NUL records are old + new path.
+        guard idx + 1 < fields.endIndex else {
+          throw GitError.unparsable(context: "numstat rename missing old/new path")
+        }
+        let oldPath = fields[idx]
+        let newPath = fields[idx + 1]
+        idx += 2
+        rows.append(
+          NumstatRow(oldPath: oldPath, newPath: newPath, addedLines: adds, removedLines: dels)
+        )
+      } else {
+        rows.append(
+          NumstatRow(oldPath: nil, newPath: pathField, addedLines: adds, removedLines: dels)
+        )
+      }
+    }
+    return rows
+  }
+
+  /// Parse `git diff --name-status -z` output. Each record is `<STATUS>\0<path>\0` for
+  /// `M` / `A` / `D` / `T`; rename / copy records are `<STATUS><score>\0<old>\0<new>\0`.
+  static func parseDiffNameStatusZ(_ bytes: Data) throws -> [NameStatusRow] {
+    guard let text = String(data: bytes, encoding: .utf8) else {
+      throw GitError.unparsable(context: "name-status output was not UTF-8")
+    }
+    if text.isEmpty { return [] }
+    var fields = text.components(separatedBy: "\0")
+    if fields.last == "" { fields.removeLast() }
+    var rows: [NameStatusRow] = []
+    var idx = fields.startIndex
+    while idx < fields.endIndex {
+      let raw = fields[idx]
+      idx += 1
+      guard let status = raw.first else {
+        throw GitError.unparsable(context: "empty name-status record")
+      }
+      if status == "R" || status == "C" {
+        guard idx + 1 < fields.endIndex else {
+          throw GitError.unparsable(context: "name-status rename missing old/new path")
+        }
+        let oldPath = fields[idx]
+        let newPath = fields[idx + 1]
+        idx += 2
+        rows.append(NameStatusRow(status: status, oldPath: oldPath, newPath: newPath))
+      } else {
+        guard idx < fields.endIndex else {
+          throw GitError.unparsable(context: "name-status missing path for status '\(status)'")
+        }
+        let path = fields[idx]
+        idx += 1
+        rows.append(NameStatusRow(status: status, oldPath: nil, newPath: path))
+      }
+    }
+    return rows
+  }
+
+  /// Inner-join numstat and name-status rows on `newPath`. Status letters map to
+  /// `ChangeStatus`: `A → .added`, `D → .deleted`, `R → .renamed`, anything else
+  /// (`M`, `T`, `C`) → `.modified`.
+  static func joinDiffNumstatNameStatus(
+    numstat: [NumstatRow],
+    nameStatus: [NameStatusRow]
+  ) -> [ChangedFile] {
+    let byPath = Dictionary(uniqueKeysWithValues: nameStatus.map { ($0.newPath, $0) })
+    return numstat.map { row in
+      let nameStatus = byPath[row.newPath]
+      let mappedStatus: ChangeStatus = {
+        guard let s = nameStatus?.status else { return .modified }
+        switch s {
+        case "A": return .added
+        case "D": return .deleted
+        case "R": return .renamed
+        default: return .modified
+        }
+      }()
+      let oldPath = row.oldPath ?? nameStatus?.oldPath
+      return ChangedFile(
+        oldPath: oldPath,
+        newPath: row.newPath,
+        status: mappedStatus,
+        addedLines: max(0, row.addedLines),
+        removedLines: max(0, row.removedLines),
+        isBinary: row.isBinary
+      )
+    }
+  }
 }
