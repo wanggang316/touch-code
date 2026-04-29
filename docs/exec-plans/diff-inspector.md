@@ -48,10 +48,11 @@ After this plan completes, a touch-code user can:
   a placeholder `DiffRendererView.body`; `DiffPublicTests` (3 tests)
   pin the configuration defaults. Build green; bundle verified to
   ship the assets at `Contents/Resources/`. (2026-04-29)
-- [ ] M3 — WebView host + bridge: implement `DiffWebView`,
-  `DiffWebViewBridge`, `DiffWebViewCoordinator`, `DiffRendererView`;
-  bridge round-trip unit tests pass; standalone SwiftUI preview renders a
-  hardcoded patch.
+- [x] M3 — WebView host + bridge: `DiffWebViewBridge` (276 lines),
+  `DiffWebViewCoordinator` (69 lines), `DiffWebView` (87 lines), and
+  `DiffRendererView` body update landed; `DiffWebViewBridgeTests`
+  (8 tests) all pass. Build green. Bridge protocol diverged from the
+  design's table; see Decision Log D8–D14. (2026-04-29)
 - [ ] M4 — `DiffFeature` reducer: implement state/actions/reducer; wire
   the changed-files load and per-file diff load via `GitClient`; add
   `RootFeature.State.diff` + scope; `TestStore` tests pass.
@@ -68,7 +69,22 @@ After this plan completes, a touch-code user can:
 
 ## Surprises & Discoveries
 
-(None yet)
+- **M3 — Bridge protocol divergence (2026-04-29)**: The design doc's
+  Bridge Protocol v1 table (`setOptions` / `render`) does not match the
+  actual vendored JS in renderer.js, which expects `updateConfiguration`
+  / `renderDocument` / `initialize` / `teardown`. Discovered while
+  inspecting `apps/mac/touch-code/App/Features/Diff/WebAssets/renderer.js`
+  before writing `DiffWebViewBridge`. We honour the JS — the bundle is
+  Apache-2.0 NOTICE-clean and we agreed not to patch it. Captured in
+  Decision Log D8–D11.
+- **M3 — `DiffConfiguration.appearance` projection (2026-04-29)**: The
+  JS reads `resolvedAppearance: "dark" | "light"`, not
+  `appearance: "automatic" | …`. The bridge resolves `.automatic` to
+  `"light"` for now (D15); proper `@Environment(\.colorScheme)` plumbing
+  is a follow-up at the SwiftUI boundary in M5/M6.
+- **M2 — YiTong tag is `0.1.0`, not `v0.1.0` (2026-04-29)**: GitHub's
+  contents-API rejects `--ref v0.1.0` with 404; the working URL pattern
+  is `repos/onevcat/YiTong/contents/<path>?ref=0.1.0`.
 
 ## Decision Log
 
@@ -79,6 +95,14 @@ After this plan completes, a touch-code user can:
 - **D5** (M2, 2026-04-29): YiTong's git tag is `0.1.0` (not `v0.1.0` as the design doc said). The `--ref v0.1.0` form via `gh api` 404s; the working URL is `repos/onevcat/YiTong/contents/<path>?ref=0.1.0`. Plan's Concrete Steps M2 transcript updated implicitly — runners on this plan should use `0.1.0` (no `v` prefix).
 - **D6** (M2, 2026-04-29): `Public.swift`'s `DiffRendererView` ships an inert SwiftUI placeholder body in M2 (M3 wires the WKWebView). The placeholder lets `Public.swift` compile + ship the public surface independently of the bridge work, which keeps M2 a self-contained commit.
 - **D7** (M2, 2026-04-29): `DiffPublicTests` is annotated `@MainActor` because the project compiles with main-actor-default isolation (SwiftUI `View` types push the isolation onto sibling types in the same import graph). The test alternative — `nonisolated` initializers on `DiffConfiguration` — would have leaked into the public surface contract.
+- **D8** (M3, 2026-04-29): The vendored renderer.js's inbound vocabulary is `initialize` / `renderDocument` / `updateConfiguration` / `teardown` — NOT the design doc's `setOptions` / `render`. Because the bundle is NOTICE-clean (we cannot patch), the wire `type` strings match the JS; Swift API names (`encodeRender`, `encodeSetOptions`) keep the design's vocabulary. Design doc Bridge Protocol table is now superseded by the actual JS contract — followers should reference the live JS.
+- **D9** (M3, 2026-04-29): `renderStateChanged` payload shape is `{state, documentIdentifier, summary?, error?}` — not `{phase, fileCount?, error?}`. Bridge maps `state == "rendered"` + `summary.fileCount` → `.didRender(fileCount:)`.
+- **D10** (M3, 2026-04-29): `lineActivated` payload uses `number` (not `lineNumber`). Bridge maps `number` → `DiffEvent.didClickLine(lineNumber:)`.
+- **D11** (M3, 2026-04-29): `selectionChanged` JS payload carries per-side `start`/`end` (each with `side` + `number`). When `start.side == end.side` we map to `.additions` / `.deletions`; mismatched sides collapse to `.both`.
+- **D12** (M3, 2026-04-29): Protocol-version mismatch surfaces as `.didFail(code: "protocol_mismatch", ...)` rather than throwing, so the host UI can render an error rather than silently dropping the message.
+- **D13** (M3, 2026-04-29): `DiffDocument.title` doubles as the renderer's required `document.identifier`; if `nil` we mint a `UUID().uuidString` per render.
+- **D14** (M3, 2026-04-29): The Coordinator queues outbound `renderDocument` / `updateConfiguration` messages until the `ready` event arrives, then flushes; stale `renderDocument`s in the queue are de-duped (only the latest survives) so we don't flash through outdated content during initial load.
+- **D15** (M3, 2026-04-29): `DiffConfiguration.appearance == .automatic` doesn't have a direct renderer equivalent — the JS expects `resolvedAppearance: "dark" | "light"`. M3 resolves `.automatic` → `"light"`. M5/M6 will plumb `@Environment(\.colorScheme)` to resolve this dynamically at the SwiftUI boundary before passing to `DiffWebView`.
 
 ## Outcomes & Retrospective
 

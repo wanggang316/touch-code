@@ -146,15 +146,10 @@ public struct DiffRendererView: View {
   }
 
   public var body: some View {
-    // M2 placeholder. M3 replaces this with the WKWebView-backed view.
-    VStack(spacing: 8) {
-      Text("DiffRendererView")
-        .font(.headline)
-      Text("\(document.files.count) file(s) — placeholder until M3")
-        .font(.caption)
-        .foregroundStyle(.secondary)
-    }
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .background(.background)
+    DiffWebView(
+      document: document,
+      configuration: configuration,
+      onEvent: onEvent
+    )
   }
 }
