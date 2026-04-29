@@ -328,8 +328,8 @@ struct CLIInstallerClientTests {
       mkdir -p /usr/local/bin
       ln -s '/Applications/TouchCode.app/Contents/Resources/bin/tc' '/usr/local/bin/tc'
       ln -s '/Applications/TouchCode.app/Contents/Resources/bin/tc' '/usr/local/bin/tcode'
-      [ -L '/Users/test/.local/bin/tc' ] && rm '/Users/test/.local/bin/tc'
-      [ -L '/Users/test/.local/bin/tcode' ] && rm '/Users/test/.local/bin/tcode'
+      [ -L '/Users/test/.local/bin/tc' ] && [ "$(readlink '/Users/test/.local/bin/tc')" = '/Applications/TouchCode.app/Contents/Resources/bin/tc' ] && rm '/Users/test/.local/bin/tc' || true
+      [ -L '/Users/test/.local/bin/tcode' ] && [ "$(readlink '/Users/test/.local/bin/tcode')" = '/Applications/TouchCode.app/Contents/Resources/bin/tc' ] && rm '/Users/test/.local/bin/tcode' || true
       """)
   }
 
@@ -346,9 +346,16 @@ struct CLIInstallerClientTests {
 
     _ = client.install()
 
-    let script = shell.calls.first?.command ?? ""
-    #expect(script.contains("[ -L '\(paths.legacyLocalBinTc.path)' ] && rm '\(paths.legacyLocalBinTc.path)'"))
-    #expect(script.contains("[ -L '\(paths.legacyLocalBinTcode.path)' ] && rm '\(paths.legacyLocalBinTcode.path)'"))
+    let bundled = home.bundledTc.path
+    let expected = """
+      set -e
+      mkdir -p /usr/local/bin
+      ln -s '\(bundled)' '\(paths.tcSymlink.path)'
+      ln -s '\(bundled)' '\(paths.tcodeSymlink.path)'
+      [ -L '\(paths.legacyLocalBinTc.path)' ] && [ "$(readlink '\(paths.legacyLocalBinTc.path)')" = '\(bundled)' ] && rm '\(paths.legacyLocalBinTc.path)' || true
+      [ -L '\(paths.legacyLocalBinTcode.path)' ] && [ "$(readlink '\(paths.legacyLocalBinTcode.path)')" = '\(bundled)' ] && rm '\(paths.legacyLocalBinTcode.path)' || true
+      """
+    #expect(shell.calls.first?.command == expected)
   }
 
   @Test
@@ -365,6 +372,34 @@ struct CLIInstallerClientTests {
 
     let script = shell.calls.first?.command ?? ""
     #expect(!script.contains(paths.legacyLocalBinTc.path), "Foreign legacy entry must not appear in cleanup")
+  }
+
+  // MARK: - AppleScript source assembly
+
+  @Test
+  func composeSource_multilineCommand_usesLinefeedConcatenation() {
+    // AppleScript string literals reject raw newlines; every `\n` must be
+    // split out and rejoined with `& linefeed &` in the source.
+    let source = AppleScriptPrivilegedShell.composeSource(
+      command: "set -e\nmkdir -p /usr/local/bin\nln -s '/a' '/b'",
+      prompt: "Need admin"
+    )
+
+    #expect(source == #"do shell script "set -e" & linefeed & "mkdir -p /usr/local/bin" & linefeed & "ln -s '/a' '/b'" with prompt "Need admin" with administrator privileges"#)
+    #expect(!source.contains("\n"), "Source must contain no raw newlines — AppleScript literals reject them")
+  }
+
+  @Test
+  func composeSource_escapesEmbeddedDoubleQuotes() {
+    // A path containing a double-quote must be escaped or the AppleScript
+    // string literal terminates early. shellEscape's single-quote wrapping
+    // protects /bin/sh, but the AppleScript layer is independent.
+    let source = AppleScriptPrivilegedShell.composeSource(
+      command: "echo \"hi\"",
+      prompt: "p"
+    )
+
+    #expect(source.contains("\\\"hi\\\""))
   }
 
   @Test

@@ -205,9 +205,14 @@ final class CLIInstallerClient {
       lines.append("ln -s \(target) \(shellEscape(destination.path))")
     }
     for legacy in legacyToCleanup {
-      // [ -L ... ] guard keeps the line a no-op if the user manually removed
-      // the legacy entry between probe and the privileged execution.
-      lines.append("[ -L \(shellEscape(legacy.path)) ] && rm \(shellEscape(legacy.path))")
+      // The TOCTOU window between the unprivileged probe and the privileged
+      // execution lets a foreign symlink replace our legacy entry. The
+      // [ -L ... ] guard alone would happily `rm` the foreign symlink.
+      // Re-verify the target equals the bundled binary before deleting.
+      let path = shellEscape(legacy.path)
+      lines.append(
+        "[ -L \(path) ] && [ \"$(readlink \(path))\" = \(target) ] && rm \(path) || true"
+      )
     }
     return lines.joined(separator: "\n")
   }
@@ -293,9 +298,14 @@ final class CLIInstallerClient {
     } else {
       resolvedTarget = destination.deletingLastPathComponent().appendingPathComponent(rawTarget)
     }
-    let resolvedPath = resolvedTarget.standardizedFileURL.path
+    // Use resolvingSymlinksInPath so the comparison survives Gatekeeper
+    // app-translocation aliases like /private/var/folders/.../AppTranslocation
+    // and the /private/var ⇄ /var private-tmp aliasing macOS injects between
+    // process startup and Bundle.main resolution. standardizedFileURL only
+    // collapses dot segments — it does not chase the underlying alias.
+    let resolvedPath = resolvedTarget.resolvingSymlinksInPath().path
     guard let bundled = paths.bundledTcBinary else { return .foreign }
-    let bundledPath = bundled.standardizedFileURL.path
+    let bundledPath = bundled.resolvingSymlinksInPath().path
     return resolvedPath == bundledPath ? .ourSymlink : .foreign
   }
 
