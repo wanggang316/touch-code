@@ -17,9 +17,9 @@ After this change, a user clicking **Install** in Settings → Developer enters 
 - [x] M3 — Rewrite `install()` / `uninstall()` to compose one privileged shell script (2026-04-29 23:18)
 - [x] M4 — Legacy `~/.local/bin/{tc,tcode}` cleanup baked into install script (2026-04-29 23:21)
 - [x] M5 — Settings card copy + error surfaces for new error cases (2026-04-29 23:23)
-- [x] M6 — Update unit tests; add script-composer tests; update existing assertions
-- [ ] M7 — Manual smoke verification: build app → install → `tc --version` in fresh terminal → uninstall
-- [ ] M8 — Update parent design doc (`c4-cli.md` §D3 amendment pointer + collision-section path)
+- [x] M6 — Update unit tests; add script-composer tests; update existing assertions (folded into M3+M4 commits)
+- [ ] M7 — Manual smoke verification: build app → install → `tc --version` in fresh terminal → uninstall (pending user action — requires admin auth dialog)
+- [x] M8 — Update parent design doc (`c4-cli.md` §D3 amendment pointer + collision-section path) (2026-04-29 23:25)
 
 ## Surprises & Discoveries
 
