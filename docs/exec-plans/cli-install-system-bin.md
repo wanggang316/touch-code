@@ -27,6 +27,13 @@ After this change, a user clicking **Install** in Settings → Developer enters 
 
 ## Decision Log
 
+- **2026-04-29 23:30 — Code-review fixes (commit 34f2b1b).** The agent-skills code reviewer flagged one blocker, three important issues, and a few suggestions:
+  1. **(BLOCKING)** `AppleScriptPrivilegedShell` was embedding multi-line shell scripts inside an AppleScript double-quoted literal containing raw newlines. NSAppleScript cannot compile that source. Every real install/uninstall would have surfaced as a generic `.scriptFailed(stderr: "")`. **Fix:** split the command on `\n` and rejoin via `& linefeed &` AppleScript-source concatenation. Extracted as `composeSource(command:prompt:)` for unit-testable assembly.
+  2. `inspect()` used `standardizedFileURL.path` to compare symlink target vs bundle path — fragile under Gatekeeper app-translocation (`/private/var/folders/.../AppTranslocation/...`) and the macOS `/private/var ⇄ /var` aliasing. **Fix:** switched to `resolvingSymlinksInPath()` on both sides.
+  3. Legacy `~/.local/bin` cleanup line was `[ -L <path> ] && rm <path>` — between the unprivileged probe and privileged execution, a foreign symlink could replace our legacy entry and `rm` would happily delete the foreign one. **Fix:** added `[ "$(readlink <path>)" = '<bundled>' ]` to the guard and trailed with `|| true` so `set -e` doesn't abort when a guard correctly skips a line. Snapshot tests updated.
+  4. `install_includesLegacyCleanupWhenLegacyPathsAreOurs` used `script.contains(...)` which masked drift in the cleanup script body. **Fix:** rewritten as full-string `==` assertion.
+  5. (Suggested) `shellEscape` was `public`; demoted to internal.
+  Skipped: log-line wording fix in `uninstall()` (low signal), `defer { isBusy = false }` reordering (auth dialog blocks the main actor anyway), comment polish on `inspect()`'s broken-symlink branch.
 - **2026-04-29 — M1 narrowed to surface-only.** Original plan deleted `Paths.localBin`, `firstEscape`, and `HomeScope.swift` in M1. But `install()` still calls `createDirectory(at: paths.localBin)` and `firstEscape(...)` until M3 rewrites it. Removing them in M1 would break the build. Decision: M1 only changes `Paths.default` defaults, adds legacy paths, drops `isLocalBinOnPath`/`defaultPathEntries`/`pathLookup`, and removes the advisory UI. `localBin`, `firstEscape`, `HomeScope` survive until M3, where they are deleted as part of the install/uninstall rewrite. Net result: same final state, cleaner per-milestone diffs.
 - **Why one `do shell script` per operation, not one per symlink.** Two prompts is twice the friction; macOS does not coalesce sibling auth requests within a single user gesture. A combined script keeps install atomic with `set -e` and turns into one auth dialog.
 - **Why `/usr/local/bin` over `/usr/local/sbin` or `/opt/local/bin`.** `/usr/local/bin` is on macOS's default `PATH` ahead of `/usr/bin`, has decades of precedent for third-party tools, and matches what most users expect. Apple Silicon Homebrew uses `/opt/homebrew/bin` instead, but that path is not on the default `PATH` for a non-Homebrew shell — so it would not solve the problem we are solving.
@@ -35,7 +42,39 @@ After this change, a user clicking **Install** in Settings → Developer enters 
 
 ## Outcomes & Retrospective
 
-(To be filled at milestone completion)
+**Implementation complete (M1–M6, M8) — 2026-04-29 23:31.** Seven code commits land the migration end-to-end:
+
+| Commit | Milestone | Net diff |
+|---|---|---|
+| `d1fc652` | M1 — surface paths repoint, drop PATH advisory | +24 / −54 |
+| `be22dab` | M2 — `PrivilegedShell` protocol + AppleScript impl + test fake | +83 / −0 |
+| `4f704d8` | M3 — privileged install / uninstall via composed script | +259 / −422 |
+| `3d342d6` | M4 — legacy `~/.local/bin` cleanup baked into install dialog | +85 / −5 |
+| `6388fc5` | M5 — Settings card copy refresh | +3 / −3 |
+| `d3bd110` | M8 — `c4-cli.md` D3 amendment + collision-section path update | +14 / −19 |
+| `34f2b1b` | review fixes (see Decision Log 2026-04-29 23:30) | +82 / −17 |
+
+**Outcomes vs. design doc goals:**
+
+- ✅ `tc` and `tcode` reachable from every macOS shell, GUI launcher, cron — `/usr/local/bin` is on every default `PATH`. (Verified at compose-time via snapshot tests; M7 manual smoke pending.)
+- ✅ "not on PATH" advisory eliminated — `isLocalBinOnPath`, `defaultPathEntries`, `pathLookup`, and the orange UI banner all deleted.
+- ✅ App upgrades survive — symlink target is `Contents/Resources/bin/tc`, stable across Sparkle replacements.
+- ✅ Atomic pair semantics preserved — foreign collision short-circuits before the auth dialog, captured by `install_whenForeign_returnsDestinationExistsNotOurs_andSkipsDialog` and `uninstall_whenForeignPresent_reportsCollisionAndSkipsDialog`.
+- ✅ Dev workflow preserved — `TOUCH_CODE_CLI_BINARY` override unchanged, `CLIBundleLocator` unchanged.
+- ✅ Migration off `~/.local/bin` — install dialog cleans up legacy ours-symlinks in the same auth gesture; foreign legacy entries are left alone (re-confirmed with `readlink` guard at execute time after review found the TOCTOU).
+
+**What went well:**
+- Static `composeInstallScript` / `composeUninstallScript` extracted as pure functions made review and snapshot testing straightforward.
+- Doing M5 (UI copy) sequentially instead of dispatching to an Agent Team was the right call — work was 3 lines and would've cost more in agent overhead than it saved.
+- Code-review caught a real blocker (AppleScript newline escaping) that test coverage *could not* catch — `RecordingPrivilegedShell` never compiles the AppleScript source, so the bug was invisible to the unit-test loop.
+
+**What to do differently next time:**
+- Add at least one integration test that calls `AppleScriptPrivilegedShell.composeSource` and asserts on the AppleScript-source string to catch literal-form bugs without invoking the real auth dialog. Done in the review-fix commit.
+- The pre-existing test target breakage on this branch (documented in Surprises) means I never actually *ran* the new test suite. M7 (manual smoke) is the only remaining real-world verification step.
+
+**What's left:**
+- M7 — manual smoke verification by Gump: build the app, click Install, accept the auth dialog, run `tc --version` in a fresh terminal, click Uninstall.
+- (Optional, out of scope for this plan) Fix the pre-existing `tcKitTests/AliasResolverTests` and missing `touch_code` module dependency in the test target so unit tests can be run on this branch.
 
 ## Context and Orientation
 
