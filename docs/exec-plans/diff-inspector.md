@@ -40,9 +40,14 @@ After this plan completes, a touch-code user can:
   Build green; full suite shows 48 issues (same as M0 baseline). Comments
   / docstrings referencing the historical `GitViewer` name kept as-is —
   only functional identifiers renamed. (2026-04-29)
-- [ ] M2 — Vendor web bundle + Public API skeleton: copy YiTong v0.1.0
-  web assets into `App/Features/Diff/WebAssets/`; create `Public.swift`
-  with the public types from Design; register resources via Tuist.
+- [x] M2 — Vendor web bundle + Public API skeleton: 4 web assets
+  (`index.html` / `renderer.js` / `renderer.css` / `manifest.json`)
+  copied from YiTong tag `0.1.0` (note: tag is `0.1.0`, not `v0.1.0`,
+  per upstream — D5); `LICENSE` + `NOTICES.md` added with Apache-2.0
+  attribution; `Public.swift` contains the design's public surface plus
+  a placeholder `DiffRendererView.body`; `DiffPublicTests` (3 tests)
+  pin the configuration defaults. Build green; bundle verified to
+  ship the assets at `Contents/Resources/`. (2026-04-29)
 - [ ] M3 — WebView host + bridge: implement `DiffWebView`,
   `DiffWebViewBridge`, `DiffWebViewCoordinator`, `DiffRendererView`;
   bridge round-trip unit tests pass; standalone SwiftUI preview renders a
@@ -71,6 +76,9 @@ After this plan completes, a touch-code user can:
 - **D2** (M0, 2026-04-29): Kept `docs/exec-plans/0005-git-viewer-and-editor.md`. Reason: Status: `Completed (2026-04-20)`. The doc is a historical archive that covers both GitViewer (M1–M4, M8 — superseded) and Editor (M5–M7 — still load-bearing reference). Per plan's "decided per editor-portion at execution" guidance, leave the file as-is.
 - **D3** (M0, 2026-04-29): Deleted `docs/design-docs/c7-git-viewer.md`. Reason: 100% GitViewer content with no editor cross-cuts.
 - **D4** (M0, 2026-04-29): Deleted `apps/mac/touch-code/App/Theme/MainWindowConstants.swift` (only contained `gvOverlayWidth` / `gvOverlayMinTerminalWidth`). Plan didn't list it explicitly but its sole consumers are gone.
+- **D5** (M2, 2026-04-29): YiTong's git tag is `0.1.0` (not `v0.1.0` as the design doc said). The `--ref v0.1.0` form via `gh api` 404s; the working URL is `repos/onevcat/YiTong/contents/<path>?ref=0.1.0`. Plan's Concrete Steps M2 transcript updated implicitly — runners on this plan should use `0.1.0` (no `v` prefix).
+- **D6** (M2, 2026-04-29): `Public.swift`'s `DiffRendererView` ships an inert SwiftUI placeholder body in M2 (M3 wires the WKWebView). The placeholder lets `Public.swift` compile + ship the public surface independently of the bridge work, which keeps M2 a self-contained commit.
+- **D7** (M2, 2026-04-29): `DiffPublicTests` is annotated `@MainActor` because the project compiles with main-actor-default isolation (SwiftUI `View` types push the isolation onto sibling types in the same import graph). The test alternative — `nonisolated` initializers on `DiffConfiguration` — would have leaked into the public surface contract.
 
 ## Outcomes & Retrospective
 
