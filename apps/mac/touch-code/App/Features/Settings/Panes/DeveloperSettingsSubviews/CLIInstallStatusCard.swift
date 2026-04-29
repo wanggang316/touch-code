@@ -42,9 +42,9 @@ struct CLIInstallStatusCard: View {
     case .unknown:
       return "Checking install status…"
     case .notInstalled:
-      return "Not installed. Click Install to symlink `tc` into ~/.local/bin."
+      return "Not installed. Click Install to symlink `tc` into /usr/local/bin (requires admin password)."
     case .installed(let url, _):
-      return "Installed at \(url.path)."
+      return "Installed at \(url.path). `tc` is reachable from any shell."
     case .collision(let owner):
       return
         "Another file is at \(owner.path). touch-code will not overwrite a tool it did not install."
