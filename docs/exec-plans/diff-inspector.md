@@ -74,9 +74,12 @@ After this plan completes, a touch-code user can:
   animation. `@AppStorage("diffStyle")` persists the unified ↔ split
   toggle (D22). Build green; full suite stable at 47 baseline issues.
   (2026-04-29)
-- [ ] M7 — End-to-end + review: full manual smoke walkthrough; XCUITest
-  WebView smoke; spawn `agent-skills:code-reviewer` against the
-  cumulative diff; address blockers; PR ready.
+- [~] M7 — End-to-end + review: review fixes landed (C1, I1, I2, I3, I4,
+  I5, S2, S6) — see Decision Log D24–D31. New tests added:
+  `DiffWebViewCoordinatorTests` (5), `DiffWebAssetsManifestTests` (1),
+  `DiffFeatureTests` +5, `DiffWebViewBridgeTests` +5,
+  `ShortcutOverrideStoreCodableTests` +1. Pending: full manual smoke
+  walkthrough, XCUITest WebView smoke, PR creation. (2026-04-29)
 
 ## Surprises & Discoveries
 
@@ -96,6 +99,29 @@ After this plan completes, a touch-code user can:
 - **M2 — YiTong tag is `0.1.0`, not `v0.1.0` (2026-04-29)**: GitHub's
   contents-API rejects `--ref v0.1.0` with 404; the working URL pattern
   is `repos/onevcat/YiTong/contents/<path>?ref=0.1.0`.
+- **M7 — Stale per-file diff load could leak across Worktree switches
+  (2026-04-29)**: `CancelID.diff(path:)` only cancelled re-taps of the
+  same row. A Worktree switch left in-flight per-file loads alive, so a
+  late `.diffSucceededFor` could write into the post-switch
+  `diffsByPath`. Fixed by collapsing `CancelID` to a flat `.diff` slot
+  and adding `.cancel(id: .diff)` to `worktreeSelected`'s effect. See
+  D24.
+- **M7 — `updateNSView` re-encode + re-send storms (2026-04-29)**:
+  SwiftUI runs `updateNSView` on every parent re-evaluation (geometry,
+  environment, sibling state). Without dedupe, every such tick
+  re-serialised the full `renderDocument` envelope and re-tokenised
+  Shiki on the JS side — visible jank on color-scheme toggles and
+  window resizes. Compounded by `WireDocument.identifier` being a fresh
+  UUID per call, which made byte-equality dedupe impossible. Fixed via
+  deterministic identifier (S2) plus a two-layer Coordinator dedupe
+  (queue dedupe + post-ready send-cache). See D25–D27.
+- **M7 — Persisted JSON keys are part of the API surface (2026-04-29)**:
+  M1's `toggleGitViewer` → `toggleDiffInspector` rename also rewrote the
+  `CommandID` raw value, which is the JSON key in
+  `~/.config/touch-code/shortcuts.json`. Renaming it would silently
+  orphan every existing user override of ⌘⇧G. Fixed by keeping the
+  Swift identifier renamed but pinning the raw value back to
+  `"toggleGitViewer"`. See D28.
 
 ## Decision Log
 
@@ -119,6 +145,14 @@ After this plan completes, a touch-code user can:
 - **D18** (M4, 2026-04-29): `loadDiff` reads the working-tree side via `String(contentsOf:)` (filesystem) rather than through a new `GitServiceClient` closure. The HEAD side goes through `showFileAtHEAD` because `git show HEAD:<path>` is the only correct way to read a non-current blob, but the working-tree side is just a file read — adding a client seam there would just be a `Process` round-trip via `git show :<path>` for no test benefit (tests use temp directories with real files).
 - **D19** (M4, 2026-04-29): `loadDiff` hops onto `MainActor` via `MainActor.run` to construct `DiffFile` / `DiffDocument`. Those types' initializers inherit the App target's MainActor default isolation (SwiftUI `View`-adjacent code in `Public.swift`), and the `.run` closure runs nonisolated. Per the constraint not to touch `Public.swift`, the hop lives in `DiffFeature` instead.
 - **D20** (M4, 2026-04-29): `RootFeatureTests.onLaunchExhaustivelyPropagatesSelectionFromStream` updated to receive the new `.diff(.worktreeSelected)` action and to drop the no-op state-change closure on `.selectionChanged` (TestStore reports "no observable modification" when the assigned value matches the existing default). Two other tests (`selectionChangedMirrorsActiveTabFromSnapshot`, `diffInspectorVisibleTracksSelectionAgainstCatalog`) had `gitService.diffNumstat = { _ in [] }` added to their dependency stubs — both run with `exhaustivity = .off`, so the change just neutralizes the new "Unimplemented" issues that the M4 forwarding triggered. Net: full-suite issue count drops from 48 (M3 baseline) to 47.
+- **D24** (M7 review fix C1, 2026-04-29): Collapsed `DiffFeature.CancelID` from `case diff(path: String)` to a flat `case diff` and added `.cancel(id: CancelID.diff)` to the `worktreeSelected` effect (both the empty-path and non-empty-path branches). A per-path slot was sufficient for re-tapping the same row but allowed a per-file load from the previous Worktree to survive a Worktree switch and write into the new Worktree's `diffsByPath`. Pinned by `staleDiffLoadIsCancelledOnWorktreeSwitch` in `DiffFeatureTests` — uses an actor-gated continuation to suspend `showFileAtHEAD`, switches Worktrees, and asserts no `.diffSucceededFor` is delivered post-switch.
+- **D25** (M7 review fix S2, 2026-04-29): `WireDocument.identifier` is now `doc.title ?? "doc-\(doc.files.map(\.id).joined(separator: ","))"` instead of `doc.title ?? UUID().uuidString`. The UUID-per-call form defeated the Coordinator's send-cache: every call produced a different envelope JSON, so `lastRenderScript == script` could never match. Pinned by `encodeRenderProducesByteIdenticalJSONForEqualInputs` in `DiffWebViewBridgeTests`.
+- **D26** (M7 review fix I1, 2026-04-29): Added a post-ready send-cache to `DiffWebViewCoordinator` keyed on `(SendKind, lastScript)`. SwiftUI's `updateNSView` runs on every parent re-evaluation; without this cache an unchanged document and configuration would still re-cross the bridge each tick, re-tokenising Shiki on color-scheme toggles, window resizes, etc. The cache lives behind a `resetSendCache()` hook called from `dismantleNSView` so a fresh WebView mount starts clean. Test-only `markReadyForTesting()` (DEBUG-gated) lets `DiffWebViewCoordinatorTests` exercise the dedupe without rigging up a `WKScriptMessage` round-trip.
+- **D27** (M7 review fix I2, 2026-04-29): Replaced the queue's substring-based dedupe (`script.contains("\"renderDocument\"")`) with explicit `(script, kind)` tuples. Substring matching against an opaque envelope JSON is fragile — a queued `.options` payload that happened to contain the literal `"renderDocument"` (e.g. inside a future config string) would have been wrongly evicted. Tuple-based queue dedupe and the post-ready send-cache act on different lifecycles (queue dedupe = before ready; sent-cache = after ready) so they compose cleanly.
+- **D28** (M7 review fix I3, 2026-04-29): Pinned `CommandID.toggleDiffInspector` raw value to `"toggleGitViewer"` (Swift identifier renamed during M1; JSON key kept). The override store persists `CommandID.rawValue` as the JSON key, so M1's rename would have silently orphaned every existing user override of ⌘⇧G. Caught by the post-shipping convention documented in `CommandID`'s docstring ("Raw values … must not change once shipped"). Updated `ShortcutOverrideStoreCodableTests`: the `modifierTokensDecodeRegardlessOfOrder` fixture now uses the legacy key, and a new `toggleDiffInspectorPersistsAsLegacyToggleGitViewerKey` test pins the encoded shape. Design doc Renamed table updated to flag this exception.
+- **D29** (M7 review fix I4, 2026-04-29): Wrapped `DiffEntryState.loaded` payload in a `LoadedDiffDocument` reference type with identity-based equality (`l === r`). The auto-Equatable on `DiffDocument` walked the full UTF-8 of `oldContents` + `newContents` on every State equality check — with the 500 KB cap that's ~1 MB per parent re-eval. Identity-based wrapper makes State equality O(1). DiffFeatureTests' `fileRowTappedLoadsAndCachesDiff` switched to `exhaustivity = .off` after `.diffSucceededFor` because the test cannot predict the reducer's wrapper instance; the document content is asserted via the live state instead. New `loadedStateEqualityIsConstantTime` pins both the same-instance-equal and different-instance-not-equal contracts.
+- **D30** (M7 review fix I5, 2026-04-29): Added `DiffFeatureTests` cases for refresh-preserves-cache, changed-files-failure path, cached-error-short-circuits-row-tap, and line-count-cap. Added `DiffWebViewBridgeTests` cases for fallback-patch round-trip, render-failed → didFail mapping, mixed-side selection collapsing to `.both`, malformed-JSON throwing path, and the deterministic-identifier pinning test. The earlier `mapRenderState` "loading" branch already returns `.didFail(code: "render_state", ...)`; we kept that behaviour because the host UI does not currently distinguish loading-in-progress from a hard failure, and surfacing it as `.didFail` keeps the signal addressable rather than dropping it.
+- **D31** (M7 review fix S6, 2026-04-29): Added `DiffWebAssetsManifestTests.manifestProtocolVersionMatchesBridgeExpectation` which decodes `manifest.json` from the app bundle and asserts `protocolVersion == DiffBridgeProtocol.version`. Drift here means every outbound bridge message would surface as `protocol_mismatch` at runtime; the test catches the mismatch in CI instead of in production logs.
 
 ## Outcomes & Retrospective
 

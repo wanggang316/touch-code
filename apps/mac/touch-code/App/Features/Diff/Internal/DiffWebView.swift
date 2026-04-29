@@ -62,6 +62,7 @@ struct DiffWebView: NSViewRepresentable {
     webView.configuration.userContentController.removeScriptMessageHandler(
       forName: DiffWebViewCoordinator.bridgeName
     )
+    coordinator.resetSendCache()
   }
 
   private static func indexURL() -> URL? {

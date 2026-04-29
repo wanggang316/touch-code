@@ -56,9 +56,23 @@ struct DiffFeature {
 
   enum DiffEntryState: Equatable {
     case loading
-    case loaded(DiffDocument)
+    case loaded(LoadedDiffDocument)
     case error(GitError)
     case tooLarge(reason: TooLargeReason, copyCommand: String)
+  }
+
+  /// Reference wrapper for a loaded `DiffDocument`. Equality is identity-
+  /// based (`===`) so `DiffEntryState.loaded` equality stays O(1) regardless
+  /// of file size. SwiftUI re-evaluations rebuild State around the same
+  /// instance, so a wrapper compares equal to itself by reference; a fresh
+  /// load produces a new instance which compares unequal — the only two
+  /// transitions we care about for view diffing.
+  final class LoadedDiffDocument: Equatable, @unchecked Sendable {
+    let document: DiffDocument
+    init(_ document: DiffDocument) { self.document = document }
+    static func == (lhs: LoadedDiffDocument, rhs: LoadedDiffDocument) -> Bool {
+      lhs === rhs
+    }
   }
 
   enum TooLargeReason: Equatable {
@@ -81,9 +95,13 @@ struct DiffFeature {
   }
 
   /// `nonisolated` because TCA's `.cancellable(id:)` requires `Hashable & Sendable`.
+  /// Flat enum without per-path payload — a single `.diff` slot ensures any
+  /// in-flight per-file load is cancelled both when a new row is tapped and
+  /// when the active Worktree changes, so a stale load can't write into the
+  /// fresh Worktree's `diffsByPath`.
   nonisolated enum CancelID: Hashable, Sendable {
     case changedFiles
-    case diff(path: String)
+    case diff
   }
 
   @Dependency(GitServiceClient.self) private var gitService
@@ -102,10 +120,16 @@ struct DiffFeature {
         guard worktreeID != nil, let path, !path.isEmpty else {
           state.changedFiles = .idle
           // Cancel any inflight loads from the previous worktree.
-          return .cancel(id: CancelID.changedFiles)
+          return .merge(
+            .cancel(id: CancelID.changedFiles),
+            .cancel(id: CancelID.diff)
+          )
         }
         state.changedFiles = .loading
-        return loadChangedFiles(at: path)
+        return .merge(
+          .cancel(id: CancelID.diff),
+          loadChangedFiles(at: path)
+        )
 
       case .refreshRequested:
         // Re-issue the changed-files load using the cached path. The
@@ -146,7 +170,7 @@ struct DiffFeature {
         return .none
 
       case let .diffSucceededFor(path, document):
-        state.diffsByPath[path] = .loaded(document)
+        state.diffsByPath[path] = .loaded(LoadedDiffDocument(document))
         return .none
 
       case let .diffFailedFor(path, error):
@@ -230,7 +254,7 @@ struct DiffFeature {
         await send(.diffFailedFor(path: path, error: .unparsable(context: "\(error)")))
       }
     }
-    .cancellable(id: CancelID.diff(path: path), cancelInFlight: true)
+    .cancellable(id: CancelID.diff, cancelInFlight: true)
   }
 
   // MARK: - Helpers

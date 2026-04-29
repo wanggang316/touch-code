@@ -10,7 +10,7 @@ import Foundation
 ///       "version": 1,
 ///       "overrides": {
 ///         "newTab": { "keyCode": 17, "modifiers": ["command", "option"], "isEnabled": true },
-///         "toggleDiffInspector": { "keyCode": 5, "modifiers": ["command"], "isEnabled": false }
+///         "toggleGitViewer": { "keyCode": 5, "modifiers": ["command"], "isEnabled": false }
 ///       }
 ///     }
 ///

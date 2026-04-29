@@ -42,6 +42,20 @@ struct ShortcutOverrideStoreCodableTests {
   }
 
   @Test
+  func toggleDiffInspectorPersistsAsLegacyToggleGitViewerKey() throws {
+    // The Swift identifier renamed during the Diff inspector refactor, but
+    // the persisted JSON key must keep the original `toggleGitViewer`
+    // string so existing user overrides survive the rename.
+    let store = ShortcutOverrideStore(overrides: [
+      .toggleDiffInspector: .init(keyCode: 5, modifiers: [.command, .shift], isEnabled: true),
+    ])
+    let data = try JSONEncoder.touchCodeDefault.encode(store)
+    let json = String(data: data, encoding: .utf8) ?? ""
+    #expect(json.contains("\"toggleGitViewer\""))
+    #expect(!json.contains("\"toggleDiffInspector\""))
+  }
+
+  @Test
   func unknownModifierTokenFailsDecoding() throws {
     let bad = """
     {
@@ -59,11 +73,14 @@ struct ShortcutOverrideStoreCodableTests {
 
   @Test
   func modifierTokensDecodeRegardlessOfOrder() throws {
+    // JSON key remains `toggleGitViewer` even after the Swift identifier
+    // was renamed to `toggleDiffInspector` — pinned via `CommandID`'s raw
+    // value so existing user overrides of the ⌘⇧G binding aren't orphaned.
     let json = """
     {
       "version": 1,
       "overrides": {
-        "toggleDiffInspector": { "keyCode": 5, "modifiers": ["shift", "command"], "isEnabled": true }
+        "toggleGitViewer": { "keyCode": 5, "modifiers": ["shift", "command"], "isEnabled": true }
       }
     }
     """.data(using: .utf8)!

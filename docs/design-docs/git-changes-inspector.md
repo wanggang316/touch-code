@@ -304,7 +304,7 @@ Diff/
 | `WorktreeHeaderFeature.Action.gitViewerToggleTapped` | `diffInspectorToggleTapped` |
 | `.delegate(.gitViewerToggleRequested)` | `.delegate(.diffInspectorToggleRequested)` |
 | `HeaderGitViewerToggle` view | `HeaderDiffInspectorToggle` |
-| ⌘⇧G shortcut catalog command-id `toggleGitViewer` | `toggleDiffInspector` |
+| ⌘⇧G shortcut catalog command-id `toggleGitViewer` | Swift identifier `toggleDiffInspector`; **JSON raw value pinned to `toggleGitViewer`** to avoid orphaning existing user shortcut overrides — the override store persists `CommandID.rawValue` as its key. (See ExecPlan Decision Log D24.) |
 | `RootFeature.State.gitViewer` | `RootFeature.State.diff` |
 | `RootFeature.Action.gitViewer(...)` | `RootFeature.Action.diff(...)` |
 

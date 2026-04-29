@@ -21,7 +21,12 @@ public enum CommandID: String, CaseIterable, Hashable, Sendable, Codable, Coding
 
   // Window — main commands.
   case openInDefaultEditor
-  case toggleDiffInspector
+  // Raw value pinned to the original `toggleGitViewer` string — the Swift
+  // identifier renamed during M1 of the Diff inspector work, but the JSON
+  // raw value is part of the persisted shortcut-overrides format and must
+  // not change once shipped (see this enum's docstring). Renaming it would
+  // orphan every existing user override of the ⌘⇧G binding.
+  case toggleDiffInspector = "toggleGitViewer"
   case filterTags
 
   // Window — tabs.

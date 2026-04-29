@@ -54,8 +54,8 @@ struct DiffDrawerView: View {
         ProgressView()
           .controlSize(.small)
           .frame(maxWidth: .infinity, maxHeight: .infinity)
-      case .loaded(let document)?:
-        DiffRendererView(document: document, configuration: makeConfig())
+      case .loaded(let wrapper)?:
+        DiffRendererView(document: wrapper.document, configuration: makeConfig())
       case .error(let error)?:
         errorBlock(path: path, error: error)
       case .tooLarge(let reason, let copyCommand)?:

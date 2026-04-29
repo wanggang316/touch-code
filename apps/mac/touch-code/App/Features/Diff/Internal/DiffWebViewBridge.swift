@@ -74,7 +74,10 @@ private struct WireRenderPayload: Encodable {
 enum DiffWebViewBridge {
   static let encoder: JSONEncoder = {
     let e = JSONEncoder()
-    e.outputFormatting = [.withoutEscapingSlashes]
+    // Sorted keys give us deterministic byte-output for byte-equal payloads.
+    // The Coordinator's send-cache keys on the script string, so unstable
+    // key ordering would defeat dedupe — see Decision Log D25 / D26.
+    e.outputFormatting = [.withoutEscapingSlashes, .sortedKeys]
     return e
   }()
 
@@ -147,7 +150,13 @@ enum DiffWebViewBridge {
   }
 
   private static func makeDocument(_ doc: DiffDocument) -> WireDocument {
-    let identifier = doc.title ?? UUID().uuidString
+    // Deterministic identifier so re-encoding the same `DiffDocument`
+    // yields byte-identical JSON — the Coordinator's send-cache uses
+    // string equality to suppress duplicate `renderDocument` envelopes
+    // on SwiftUI re-evaluations. Falling back to a UUID per-call would
+    // defeat that dedupe and re-tokenise on every parent re-render.
+    let identifier = doc.title
+      ?? "doc-\(doc.files.map { $0.id }.joined(separator: ","))"
     let files: [WireFile]? = doc.files.isEmpty
       ? nil
       : doc.files.map {

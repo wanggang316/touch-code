@@ -10,10 +10,21 @@ final class DiffWebViewCoordinator: NSObject, WKScriptMessageHandler, WKNavigati
   static let bridgeName = "yitongBridge"
 
   /// Queue of pending host→web messages while the renderer initialises.
-  /// Messages enqueued before the `ready` event are flushed in arrival
-  /// order; afterwards the queue stays empty and we forward immediately.
-  private var pendingScripts: [String] = []
+  /// Each entry pairs the script payload with its `SendKind` so we can
+  /// dedupe by kind without parsing the JSON. Entries enqueued before the
+  /// `ready` event are flushed in arrival order; afterwards the queue
+  /// stays empty and we forward immediately.
+  private var pendingScripts: [(script: String, kind: SendKind)] = []
   private var ready = false
+
+  /// Last script we actually evaluated for each `SendKind`. Acts as a
+  /// post-ready dedupe: SwiftUI's `updateNSView` runs on every parent
+  /// re-evaluation (geometry, environment, sibling state) and re-encodes
+  /// the same payload; without this cache we'd re-trigger Shiki tokenising
+  /// on every appearance toggle or window resize. Reset by
+  /// `dismantleNSView` so a fresh WebView mount starts clean.
+  private var lastOptionsScript: String?
+  private var lastRenderScript: String?
 
   var onEvent: ((DiffEvent) -> Void)?
 
@@ -42,24 +53,63 @@ final class DiffWebViewCoordinator: NSObject, WKScriptMessageHandler, WKNavigati
   }
 
   /// Either evaluates immediately (renderer is ready) or queues until the
-  /// `ready` event arrives. Drops stale `renderDocument` messages: only
-  /// the most recent one is meaningful, so we replace earlier queued
-  /// renders to avoid flashing through outdated states.
+  /// `ready` event arrives. Two layers of dedupe:
+  ///
+  /// 1. Pre-ready (queue): a fresh `.render` evicts any earlier `.render`
+  ///    so we don't flash through outdated documents on first paint.
+  /// 2. Post-ready (sent-cache): an identical script for the same kind is
+  ///    suppressed entirely — guards against `updateNSView` storms from
+  ///    SwiftUI re-evaluations re-shipping a byte-identical payload.
   func dispatch(script: String, kind: SendKind) {
     if ready {
+      switch kind {
+      case .options where lastOptionsScript == script: return
+      case .render where lastRenderScript == script: return
+      default: break
+      }
       evaluator?(script)
+      switch kind {
+      case .options: lastOptionsScript = script
+      case .render: lastRenderScript = script
+      }
       return
     }
     if kind == .render {
-      pendingScripts.removeAll(where: { $0.contains("\"renderDocument\"") })
+      pendingScripts.removeAll(where: { $0.kind == .render })
     }
-    pendingScripts.append(script)
+    pendingScripts.append((script, kind))
+  }
+
+  /// Test-only hook: flip the `ready` flag and flush any queued scripts
+  /// without rigging up a `WKScriptMessage` round-trip. Production code
+  /// only ever transitions to `ready` via the inbound `ready` event in
+  /// `userContentController(_:didReceive:)`.
+  #if DEBUG
+    func markReadyForTesting() {
+      ready = true
+      flushPending()
+    }
+  #endif
+
+  /// Drops the post-ready send-cache. Called from `DiffWebView.dismantleNSView`
+  /// so a fresh WebView mount starts with no remembered scripts.
+  func resetSendCache() {
+    lastOptionsScript = nil
+    lastRenderScript = nil
+    pendingScripts.removeAll(keepingCapacity: false)
+    ready = false
   }
 
   private func flushPending() {
     let queued = pendingScripts
     pendingScripts.removeAll(keepingCapacity: false)
-    for script in queued { evaluator?(script) }
+    for entry in queued {
+      evaluator?(entry.script)
+      switch entry.kind {
+      case .options: lastOptionsScript = entry.script
+      case .render: lastRenderScript = entry.script
+      }
+    }
   }
 
   enum SendKind {
