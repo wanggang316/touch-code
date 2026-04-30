@@ -34,6 +34,7 @@ let project = Project(
       buildableFolders: [
         "TouchCodeCore",
         "TouchCodeCore/GitHub",
+        "TouchCodeCore/Notifications",
         "TouchCodeCore/Shortcuts",
         "TouchCodeCore/Shortcuts/ConflictDetectors",
         "TouchCodeCore/StatusBar",

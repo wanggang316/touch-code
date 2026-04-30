@@ -34,3 +34,13 @@ public nonisolated struct TagID: HierarchyID {
   public let raw: UUID
   public init(raw: UUID) { self.raw = raw }
 }
+
+/// Identifier for a `Notification` row in the inbox. Distinct from
+/// `HierarchyID` because notifications are time-series records, not nodes
+/// in the project tree — keeping them separate avoids accidental mixing
+/// in stores keyed by hierarchy id.
+public nonisolated struct NotificationID: Codable, Hashable, Sendable, CustomStringConvertible {
+  public let raw: UUID
+  public init(raw: UUID = UUID()) { self.raw = raw }
+  public var description: String { raw.uuidString }
+}
