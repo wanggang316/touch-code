@@ -17,12 +17,6 @@ import TouchCodeCore
 /// single-consumer event loop and does not need its own subscription.
 @MainActor
 public final class NotificationDetector {
-  /// Idle threshold below which `paneIdle` events are ignored. Matches
-  /// `InboxStorage.dedupWindow` — the runtime emits idle ticks at a
-  /// shorter cadence than this for cursor-blink and similar non-events;
-  /// 30 s is the lower bound for "this pane has actually gone quiet".
-  public static let idleThreshold: TimeInterval = 30
-
   private let store: NotificationStore
   private let banner: OSNotifier
   private let catalogSnapshot: @MainActor () -> Catalog
@@ -49,99 +43,37 @@ public final class NotificationDetector {
   }
 
   /// Single entry point. Called for every `TerminalEvent` the runtime
-  /// emits. Internally fans into the relevant `InboxEntry.Kind`
-  /// translations and drops events that don't carry notification value.
+  /// emits. The translation table itself lives in
+  /// `TouchCodeCore.DetectionTranslator` (pure, fully unit-tested);
+  /// this method orchestrates: catalog walk → SourcePath, mute label
+  /// check, store.append, banner gating.
   public func handle(_ event: TerminalEvent) async {
-    switch event {
-    case .paneOutput(let paneID, _):
-      hasProducedOutput.insert(paneID)
+    let step = DetectionTranslator.translate(event, hasProducedOutput: hasProducedOutput)
 
-    case .paneInfoChanged(let paneID, let delta):
-      switch delta {
-      case .desktopNotification(let title, let body):
-        await emit(paneID: paneID, kind: classify(title: title, body: body), title: title, body: body)
-      case .bellRang:
-        await emit(
-          paneID: paneID,
-          kind: .waitingForInput,
-          title: "Pane bell",
-          body: "A pane rang the terminal bell."
-        )
-      case .commandFinished(let exitCode, _):
-        await emit(
-          paneID: paneID,
-          kind: .taskFinished,
-          title: "Command finished",
-          body: exitCode == 0
-            ? "Command completed successfully."
-            : "Command exited with status \(exitCode)."
-        )
-      default:
-        break
-      }
-
-    case .paneExited(let paneID, let code, let signal):
-      let body: String
-      if let signal {
-        body = "Pane terminated by signal \(signal)."
-      } else if code == 0 {
-        body = "Pane exited cleanly."
-      } else {
-        body = "Pane exited with status \(code)."
-      }
-      await emit(paneID: paneID, kind: .taskFinished, title: "Pane exited", body: body)
-      hasProducedOutput.remove(paneID)
-
-    case .paneCrashed(let paneID, let reason):
-      await emit(paneID: paneID, kind: .taskFinished, title: "Pane crashed", body: reason)
-      hasProducedOutput.remove(paneID)
-
-    case .paneIdle(let paneID, let duration):
-      guard duration >= Self.idleThreshold, hasProducedOutput.contains(paneID) else { return }
-      await emit(
-        paneID: paneID,
-        kind: .taskFinished,
-        title: "Pane idle",
-        body: "No output for \(Int(duration.rounded())) s."
-      )
-
-    case .paneClosedByTab, .paneCreated, .paneReady,
-      .tabActivated, .tabAutoClosed, .worktreeActivated, .hierarchyMutated,
-      .paneActionRequested, .windowActionRequested, .configChanged:
-      break
+    switch step.outputFlag {
+    case .markProduced(let paneID): hasProducedOutput.insert(paneID)
+    case .clearProduced(let paneID): hasProducedOutput.remove(paneID)
+    case .unchanged: break
     }
+
+    guard let entry = step.entry else { return }
+    await emit(entry)
   }
 
-  // MARK: - Translation
+  private func emit(_ translated: DetectionTranslator.Entry) async {
+    guard let source = resolveSource(paneID: translated.paneID) else { return }
+    if isMuted(paneID: translated.paneID) { return }
 
-  /// Maps a desktop-notification title/body onto an `InboxEntry.Kind`. The
-  /// heuristic is intentionally simple: matches the words "permission",
-  /// "approval", "approve", "input" or a trailing question mark — all of
-  /// which strongly imply the agent is blocked on the user. Anything else
-  /// becomes `.taskFinished`.
-  private func classify(title: String, body: String) -> InboxEntry.Kind {
-    let combined = (title + " " + body).lowercased()
-    let cues = ["permission", "approval", "approve", "input", "?"]
-    if cues.contains(where: combined.contains) {
-      return .waitingForInput
-    }
-    return .taskFinished
-  }
-
-  private func emit(
-    paneID: PaneID,
-    kind: InboxEntry.Kind,
-    title: String,
-    body: String
-  ) async {
-    guard let source = resolveSource(paneID: paneID) else { return }
-    if isMuted(paneID: paneID) { return }
-
-    let entry = InboxEntry(kind: kind, title: title, body: body, source: source)
-    store.append(entry)
+    let inbox = InboxEntry(
+      kind: translated.kind,
+      title: translated.title,
+      body: translated.body,
+      source: source
+    )
+    store.append(inbox)
 
     if shouldBanner(source: source) {
-      await banner.post(entry)
+      await banner.post(inbox)
     }
   }
 
