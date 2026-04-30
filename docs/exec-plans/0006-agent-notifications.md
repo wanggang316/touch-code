@@ -1,8 +1,15 @@
 # ExecPlan: Agent Notification Aggregation (C6)
 
-**Status:** Completed (2026-04-20)
+**Status:** Deprecated (2026-04-30 — superseded by [notifications.md](notifications.md))
 **Author:** Gump (with Claude)
 **Date:** 2026-04-20
+
+> **Superseded by [docs/exec-plans/notifications.md](notifications.md).**
+> This plan executed against the abandoned C6 design (FSM tracker, rule
+> DSL, ~24 files / ~2900 LOC). Code from M1a (commits 932e6b4 …
+> 96842f0) was reverted by `refactor(core): delete TouchCodeCore Hooks/
+> Notifications types and settings`; v1 was rebuilt fresh on `main`.
+> Retained here for historical context.
 
 This is a living document. The Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective sections must be kept up to date as work proceeds.
 

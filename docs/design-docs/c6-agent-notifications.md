@@ -1,8 +1,15 @@
 # Design Doc: Agent Notification Aggregation (C6)
 
-**Status:** Draft (v2.1 — aligned with C3 DEC-16 subscriber shape)
+**Status:** Deprecated (2026-04-30 — superseded by [notifications.md](notifications.md))
 **Author:** Gump (with Claude)
 **Date:** 2026-04-20
+
+> **Superseded by [docs/design-docs/notifications.md](notifications.md).**
+> This design line (Panel-based, FSM tracker, rule DSL, ~24 files / ~2900
+> LOC) was abandoned. v1 of the user-visible notification system landed
+> on `main` as a smaller, runtime-event-driven implementation that
+> consumes only structured TerminalEvent / PaneInfoDelta cases. Retained
+> here for historical context.
 
 ## Context and Scope
 

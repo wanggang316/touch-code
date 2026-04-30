@@ -1,8 +1,13 @@
 # Design Notes: C6 M5 — InboxSidebar UI
 
-**Status:** Implemented (2026-04-20, plan 0006 M5)
+**Status:** Deprecated (2026-04-30 — superseded by [notifications.md](notifications.md))
 **Author:** Gump (with Claude)
 **Date:** 2026-04-20
+
+> **Superseded by [docs/design-docs/notifications.md](notifications.md).**
+> v1 of the user-visible notification system uses a status-bar bell +
+> popover, not a sidebar inbox route. Retained here for historical
+> context.
 
 **Implementation note:** 0007 M3 landed DEC-2 option (b) — leading-column
 mode-swap between `HierarchySidebarView` and the C6 inbox. The sketch's

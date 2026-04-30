@@ -1,8 +1,12 @@
 # Design Doc: Agent Notifications v2 — Hardening & Cross-Source Robustness (C6.2)
 
-**Status:** Draft (v2.0 — incremental over [c6-agent-notifications.md](c6-agent-notifications.md))
+**Status:** Deprecated (2026-04-30 — superseded by [notifications.md](notifications.md))
 **Author:** Gump (with Claude)
 **Date:** 2026-04-25
+
+> **Superseded by [docs/design-docs/notifications.md](notifications.md).**
+> Hardening of an abandoned design line. Retained here for historical
+> context.
 
 ## Context
 
