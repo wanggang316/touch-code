@@ -1,0 +1,123 @@
+import AppKit
+import Foundation
+import TouchCodeCore
+@preconcurrency import UserNotifications
+
+/// Three-state mirror of `UNAuthorizationStatus` reduced to the cases the
+/// app actually distinguishes. `.provisional` collapses into `.authorized`
+/// because both states can deliver content; `.ephemeral` does the same.
+public enum AuthorizationStatus: String, Sendable, Codable {
+  case notDetermined
+  case authorized
+  case denied
+}
+
+/// Adapter protocol over `UNUserNotificationCenter` so the detector can be
+/// tested without a live notification daemon. `post` is a silent no-op when
+/// the status is `.denied`; the inbox + Dock badge continue to work.
+@MainActor
+public protocol OSNotifier: AnyObject {
+  func currentAuthorizationStatus() async -> AuthorizationStatus
+  func requestAuthorization() async -> AuthorizationStatus
+  func post(_ entry: InboxEntry) async
+}
+
+/// Production adapter. On the first `post` after a `.notDetermined` boot the
+/// system authorization prompt fires; subsequent posts respect the user's
+/// answer. Banner click forwards to `AppDelegate`'s
+/// `userNotificationCenter(_:didReceive:withCompletionHandler:)`, which
+/// parses `userInfo["deeplink"]` and dispatches `RootFeature.focusHierarchyPath`.
+@MainActor
+public final class UserNotificationsOSNotifier: OSNotifier {
+  private let center: UNUserNotificationCenter
+
+  public init(center: UNUserNotificationCenter = .current()) {
+    self.center = center
+    registerCategories()
+  }
+
+  public func currentAuthorizationStatus() async -> AuthorizationStatus {
+    let settings = await center.notificationSettings()
+    return Self.map(settings.authorizationStatus)
+  }
+
+  public func requestAuthorization() async -> AuthorizationStatus {
+    do {
+      _ = try await center.requestAuthorization(options: [.alert, .badge])
+    } catch {
+      // Authorization-request failure falls through to the status refetch
+      // below — the refetch is the source of truth for the final state.
+    }
+    return await currentAuthorizationStatus()
+  }
+
+  public func post(_ entry: InboxEntry) async {
+    var status = await currentAuthorizationStatus()
+    if status == .notDetermined {
+      status = await requestAuthorization()
+    }
+    guard status == .authorized else { return }
+
+    let content = UNMutableNotificationContent()
+    content.title = entry.title
+    content.body = entry.body
+    content.threadIdentifier = entry.source.paneID.raw.uuidString
+    content.categoryIdentifier = entry.kind.rawValue
+    content.userInfo = ["deeplink": Self.deeplink(for: entry.source).absoluteString]
+
+    let request = UNNotificationRequest(
+      identifier: entry.id.raw.uuidString,
+      content: content,
+      trigger: nil
+    )
+    try? await center.add(request)
+  }
+
+  // MARK: - Deeplink
+
+  /// `touch-code://focus?project=...&worktree=...&tab=...&pane=...`. Parsed
+  /// in `AppDelegate.userNotificationCenter(_:didReceive:...)` to recover the
+  /// originating `(projectID, worktreeID, tabID, paneID)` tuple.
+  public static func deeplink(for source: InboxEntry.SourcePath) -> URL {
+    var components = URLComponents()
+    components.scheme = "touch-code"
+    components.host = "focus"
+    components.queryItems = [
+      URLQueryItem(name: "project", value: source.projectID.raw.uuidString),
+      URLQueryItem(name: "worktree", value: source.worktreeID.raw.uuidString),
+      URLQueryItem(name: "tab", value: source.tabID.raw.uuidString),
+      URLQueryItem(name: "pane", value: source.paneID.raw.uuidString),
+    ]
+    // `URLComponents.url` cannot fail here — every component is statically
+    // valid — but the API is optional, so fall back to a non-encoded form.
+    return components.url ?? URL(string: "touch-code://focus")!
+  }
+
+  // MARK: - Category registration
+
+  private func registerCategories() {
+    // v1 has no per-banner action buttons; the only interaction is "click
+    // the banner". Categories exist solely so threadIdentifier grouping
+    // works; one category per `InboxEntry.Kind`.
+    let categories: Set<UNNotificationCategory> = Set(
+      InboxEntry.Kind.allCases.map { kind in
+        UNNotificationCategory(
+          identifier: kind.rawValue,
+          actions: [],
+          intentIdentifiers: [],
+          options: []
+        )
+      }
+    )
+    center.setNotificationCategories(categories)
+  }
+
+  private static func map(_ status: UNAuthorizationStatus) -> AuthorizationStatus {
+    switch status {
+    case .notDetermined: return .notDetermined
+    case .denied: return .denied
+    case .authorized, .ephemeral, .provisional: return .authorized
+    @unknown default: return .denied
+    }
+  }
+}
