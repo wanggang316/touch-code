@@ -1,6 +1,6 @@
 # Product Spec: Notifications
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Gump (with Claude)
 **Date:** 2026-04-30
 
