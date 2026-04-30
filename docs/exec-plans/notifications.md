@@ -64,7 +64,34 @@ Additional pre-existing breakage in `touch-codeTests` (the app-target test bundl
 
 ## Outcomes & Retrospective
 
-(To be filled at milestone completion)
+**Final tally (2026-04-30).** 6 milestones land in 21 commits since `0a1c42b`. Code: ~1300 LOC across 11 new files (vs. plan's ~600 budget — overshoot is M5's Settings panel + M4's popover + the Provider class + a salvaged OSNotifier). Pure detection / data-layer code (DetectionTranslator + InboxStorage + RollupIndex + InboxEntry) totals ~525 LOC, well inside target. Tests: **52 passing** in TouchCodeCoreTests (6 InboxEntry + 16 InboxStorage + 19 DetectionTranslator + 10 RollupIndex + 1 deeplink).
+
+**Code-review pass (`agent-skills:code-reviewer`)** flagged 1 Critical + 7 Important + ~10 suggestions. All Critical + Important items fixed in commits `df18e42` and `1de41fe`:
+- `RootFeature.focusHierarchyPath` now re-reads `hierarchyClient.snapshot()` between each `select*` mutation (G3 fallback path correct).
+- `RollupIndexProvider` and `AppState.observeDockBadge` recompute unconditionally at the top of each loop iteration before re-arming `withObservationTracking`, closing the burst-coalescing window.
+- `NotificationsSettingsView` reads the long-lived `UserNotificationsOSNotifier` via `@Environment` instead of spawning a fresh one per refresh + button tap (`UserNotificationsOSNotifier` gained `@Observable` to make `@Environment(Type.self)` work).
+- `NotificationDetector.resolve` merges source-path resolution + mute-label check + worktree-label lookup into one O(N) catalog walk (was three).
+- Mute label string lifted to `TouchCodeCore.InboxLabels.muted`.
+- `DetectionTranslator.classify` scopes the trailing-`?` cue to the title suffix only.
+- New test covers R1 boundary (focused-pane indicator persists until mark-read fires).
+- `paneClosedByTab` clears `hasProducedOutput` for symmetry with `paneExited` / `paneCrashed`.
+- Bell title now prepended with the originating worktree's name: `[feat/foo] Pane bell`.
+
+**What works headlessly**: the entire pure layer (translation + storage + roll-up + deeplink schema) is exhaustively unit-tested. `mac-build` green throughout.
+
+**What needs visual verification** (Gump's GUI smoke when next at the keyboard):
+1. M3 indicators render correctly (Project unread dot, Worktree bell glyph swap, Tab unread dot, Pane top-line green / amber).
+2. M4 status-bar bell renders in the right toolbar slot, badge formats `99+`, popover anchors and dismisses correctly, row click jumps focus.
+3. M5 Settings → Notifications pane reflects authorization status and the recovery buttons fire the right system flow.
+4. The full smoke from spec AC: `printf '\033]9;hello\007'` in a pane → expect banner (if not focused) + dock badge `1` + inbox row.
+
+**Deferred (not blockers, recorded for future iteration):**
+- Per-pane mute UI affordance — the label + detector gate are wired, but no toggle in the pane context menu yet. A future ticket lands the toggle and removes the "dead string" smell.
+- Persistence schema envelope (e.g. `{ "version": 1, "entries": [...] }`) — current `[InboxEntry]` is unwrapped; a future schema break would need a migration shim.
+- Detector / OSNotifier / DockBadger orchestrator unit tests — pinned to `touch-codeTests` whose target is broken on `main` for unrelated reasons (Surprises S1). Pure pieces are covered.
+- C6 worktree branch deletion held for explicit user approval per plan §Idempotence.
+
+**Plan-fidelity verdict**: Ship as-is for v1. The user-visible behaviour matches the spec, the data layer is well-tested, the review pass landed clean, and the surgical-edit philosophy held — no orthogonal refactors crept in.
 
 ## Context and Orientation
 
