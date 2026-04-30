@@ -1,4 +1,4 @@
-.PHONY: help bootstrap build-ghostty generate build run-app format lint check check-rename test clean build-cli archive release bump-version
+.PHONY: help bootstrap build-ghostty generate build run-app format lint check check-rename test clean build-cli archive release bump-version regen-completions
 
 # Use full Xcode.app when xcode-select points at Command Line Tools only.
 # See DEC-10 in docs/exec-plans/0001-bootstrap-monorepo.md.
@@ -15,6 +15,7 @@ help:
 	@echo "  archive          - Release archive + Developer ID export (needs Release.xcconfig)"
 	@echo "  release          - archive + notarize + DMG + notarize DMG + staple"
 	@echo "  bump-version     - Set MARKETING_VERSION (VERSION=x.y.z) and increment build number"
+	@echo "  regen-completions - Regenerate tc/Resources/completions/{tc.zsh,tc.bash,tc.fish} from the built CLI"
 	@echo "  format           - swift-format in-place"
 	@echo "  lint             - swiftlint"
 	@echo "  check            - format + lint"
@@ -37,6 +38,19 @@ build: generate
 
 build-cli: generate
 	xcodebuild -workspace touch-code.xcworkspace -scheme tc -configuration Debug build
+
+# Refresh the bundled shell completion scripts from the live subcommand
+# tree. Run after any change that adds/removes/renames a `tc` subcommand
+# so tc/Resources/completions/{tc.zsh,tc.bash,tc.fish} (shipped inside
+# the .app bundle) stay in sync. CI can `git diff --exit-code` after
+# this target to fail loudly when contributors forget.
+regen-completions: build-cli
+	@TC=$$(xcodebuild -workspace touch-code.xcworkspace -scheme tc -configuration Debug -showBuildSettings 2>/dev/null | awk '$$1=="BUILT_PRODUCTS_DIR"{d=$$3} END{print d "/tc"}') && \
+	  cd tc/Resources/completions && \
+	  "$$TC" system completions zsh  > tc.zsh  && \
+	  "$$TC" system completions bash > tc.bash && \
+	  "$$TC" system completions fish > tc.fish && \
+	  echo "==> regenerated tc.zsh / tc.bash / tc.fish"
 
 run-app: build
 	@APP=$$(xcodebuild -workspace touch-code.xcworkspace -scheme touch-code -configuration Debug -showBuildSettings 2>/dev/null | awk '$$1=="BUILT_PRODUCTS_DIR"{d=$$3} $$1=="FULL_PRODUCT_NAME"{p=$$3} END{print d "/" p}') && open "$$APP"

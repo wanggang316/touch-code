@@ -21,9 +21,6 @@ struct CLIInstallStatusCard: View {
       if let error = lastError {
         ErrorRow(error: error)
       }
-      if shouldShowPathAdvisory {
-        pathAdvisory
-      }
     }
     .task { refreshStatus() }
   }
@@ -45,9 +42,9 @@ struct CLIInstallStatusCard: View {
     case .unknown:
       return "Checking install status…"
     case .notInstalled:
-      return "Not installed. Click Install to symlink `tc` into ~/.local/bin."
+      return "Not installed. Click Install to symlink `tc` into /usr/local/bin (requires admin password)."
     case .installed(let url, _):
-      return "Installed at \(url.path)."
+      return "Installed at \(url.path). `tc` is reachable from any shell."
     case .collision(let owner):
       return
         "Another file is at \(owner.path). touch-code will not overwrite a tool it did not install."
@@ -98,28 +95,6 @@ struct CLIInstallStatusCard: View {
         .buttonStyle(.borderedProminent)
         .disabled(isBusy)
     }
-  }
-
-  // MARK: - PATH advisory
-
-  private var shouldShowPathAdvisory: Bool {
-    guard case .installed = status else { return false }
-    return !installer.isLocalBinOnPath()
-  }
-
-  private var pathAdvisory: some View {
-    HStack(alignment: .top, spacing: 6) {
-      Image(systemName: "exclamationmark.triangle.fill")
-        .foregroundStyle(.orange)
-        .accessibilityHidden(true)
-      Text(
-        "`tc` installed, but ~/.local/bin is not on PATH. Add `export PATH=\"$HOME/.local/bin:$PATH\"` to your shell profile to run `tc` directly."
-      )
-      .font(.caption)
-      .foregroundStyle(.secondary)
-    }
-    .padding(8)
-    .background(Color.orange.opacity(0.08), in: .rect(cornerRadius: 6))
   }
 
   // MARK: - Actions

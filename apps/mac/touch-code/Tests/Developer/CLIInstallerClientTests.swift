@@ -4,10 +4,10 @@ import tcKit
 
 @testable import touch_code
 
-/// Covers install / uninstall / probe state transitions plus the HomeScope
-/// escape rejection. Uses a real filesystem rooted at a fresh tmp directory so
-/// the symlink-introspection paths exercise the same code that runs in
-/// production.
+/// Covers install / uninstall / probe state transitions, the script composer,
+/// and the privileged-shell invocation contract. Probe uses a real filesystem
+/// rooted at a fresh tmp directory; install / uninstall use
+/// `RecordingPrivilegedShell` so no real `osascript` is invoked.
 @MainActor
 @Suite("CLIInstallerClient")
 struct CLIInstallerClientTests {
@@ -15,6 +15,7 @@ struct CLIInstallerClientTests {
 
   private final class TempHome {
     let root: URL
+    let installDir: URL
     let bundledTc: URL
 
     init() throws {
@@ -28,7 +29,10 @@ struct CLIInstallerClientTests {
       let binary = bundleDir.appending(component: "tc", directoryHint: .notDirectory)
       try Data("#!/bin/sh\n".utf8).write(to: binary)
       try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
+      let installDir = root.appending(component: "usr/local/bin", directoryHint: .isDirectory)
+      try FileManager.default.createDirectory(at: installDir, withIntermediateDirectories: true)
       self.root = root
+      self.installDir = installDir
       self.bundledTc = binary
     }
 
@@ -36,23 +40,25 @@ struct CLIInstallerClientTests {
       try? FileManager.default.removeItem(at: root)
     }
 
-    func paths(overridingLocalBin: URL? = nil) -> CLIInstallerClient.Paths {
-      let localBin = overridingLocalBin ?? root.appending(component: ".local/bin", directoryHint: .isDirectory)
+    func paths() -> CLIInstallerClient.Paths {
+      let legacyDir = root.appending(component: ".local/bin", directoryHint: .isDirectory)
       return CLIInstallerClient.Paths(
-        localBin: localBin,
-        tcSymlink: localBin.appending(component: "tc", directoryHint: .notDirectory),
-        tcodeSymlink: localBin.appending(component: "tcode", directoryHint: .notDirectory),
-        bundledTcBinary: bundledTc,
-        homeDirectory: root
+        tcSymlink: installDir.appending(component: "tc", directoryHint: .notDirectory),
+        tcodeSymlink: installDir.appending(component: "tcode", directoryHint: .notDirectory),
+        legacyLocalBinTc: legacyDir.appending(component: "tc", directoryHint: .notDirectory),
+        legacyLocalBinTcode: legacyDir.appending(component: "tcode", directoryHint: .notDirectory),
+        bundledTcBinary: bundledTc
       )
     }
   }
 
   private func makeClient(
     paths: CLIInstallerClient.Paths,
-    fileSystem: CLIFilesystem = RealCLIFilesystem()
-  ) -> CLIInstallerClient {
-    CLIInstallerClient(paths: paths, fileSystem: fileSystem, pathLookup: { [] })
+    fileSystem: CLIFilesystem = RealCLIFilesystem(),
+    privilegedShell: RecordingPrivilegedShell = RecordingPrivilegedShell()
+  ) -> (CLIInstallerClient, RecordingPrivilegedShell) {
+    let client = CLIInstallerClient(paths: paths, fileSystem: fileSystem, privilegedShell: privilegedShell)
+    return (client, privilegedShell)
   }
 
   private func assertInstalled(_ status: CLIInstallerClient.InstallStatus) {
@@ -68,59 +74,95 @@ struct CLIInstallerClientTests {
   @Test
   func probe_freshFilesystem_returnsNotInstalled() throws {
     let home = try TempHome()
-    let client = makeClient(paths: home.paths())
+    let (client, _) = makeClient(paths: home.paths())
 
     #expect(client.probe() == .notInstalled)
+  }
+
+  @Test
+  func probe_onlyTcPresent_returnsNotInstalled() throws {
+    // Partial state: tc is our symlink, tcode absent. Probe collapses to
+    // .notInstalled so a subsequent install() completes the pair.
+    let home = try TempHome()
+    let paths = home.paths()
+    try FileManager.default.createSymbolicLink(at: paths.tcSymlink, withDestinationURL: home.bundledTc)
+    let (client, _) = makeClient(paths: paths)
+
+    #expect(client.probe() == .notInstalled)
+  }
+
+  @Test
+  func probe_bothOurs_returnsInstalled() throws {
+    let home = try TempHome()
+    let paths = home.paths()
+    try FileManager.default.createSymbolicLink(at: paths.tcSymlink, withDestinationURL: home.bundledTc)
+    try FileManager.default.createSymbolicLink(at: paths.tcodeSymlink, withDestinationURL: home.bundledTc)
+    let (client, _) = makeClient(paths: paths)
+
+    assertInstalled(client.probe())
+  }
+
+  @Test
+  func probe_tcOursButTcodeForeign_returnsCollision() throws {
+    let home = try TempHome()
+    let paths = home.paths()
+    try FileManager.default.createSymbolicLink(at: paths.tcSymlink, withDestinationURL: home.bundledTc)
+    try Data("#!/bin/sh\necho foreign\n".utf8).write(to: paths.tcodeSymlink)
+    let (client, _) = makeClient(paths: paths)
+
+    if case .collision(let owner) = client.probe() {
+      #expect(owner == paths.tcodeSymlink)
+    } else {
+      Issue.record("Expected .collision, got \(client.probe())")
+    }
   }
 
   // MARK: - Install
 
   @Test
-  func install_createsBothSymlinks_statusBecomesInstalled() throws {
+  func install_freshMachine_callsPrivilegedShellOnceWithComposedScript() throws {
     let home = try TempHome()
     let paths = home.paths()
-    let client = makeClient(paths: paths)
+    let (client, shell) = makeClient(paths: paths)
 
     let result = client.install()
 
     switch result {
-    case .success(let status):
-      assertInstalled(status)
-    case .failure(let error):
-      Issue.record("Install failed: \(error)")
-    }
-    #expect(FileManager.default.fileExists(atPath: paths.tcSymlink.path))
-    #expect(FileManager.default.fileExists(atPath: paths.tcodeSymlink.path))
-    let tcTarget = try FileManager.default.destinationOfSymbolicLink(atPath: paths.tcSymlink.path)
-    #expect(URL(fileURLWithPath: tcTarget).standardizedFileURL == home.bundledTc.standardizedFileURL)
-    let tcodeTarget = try FileManager.default.destinationOfSymbolicLink(atPath: paths.tcodeSymlink.path)
-    #expect(URL(fileURLWithPath: tcodeTarget).standardizedFileURL == home.bundledTc.standardizedFileURL)
-  }
-
-  @Test
-  func install_isIdempotent() throws {
-    let home = try TempHome()
-    let paths = home.paths()
-    let client = makeClient(paths: paths)
-
-    _ = client.install()
-    let second = client.install()
-
-    switch second {
     case .success(let status): assertInstalled(status)
-    case .failure(let error): Issue.record("Second install failed: \(error)")
+    case .failure(let error): Issue.record("Install failed: \(error)")
     }
-    // Status is stable and no duplicate symlinks were created.
-    assertInstalled(client.probe())
+    #expect(shell.calls.count == 1)
+    let script = shell.calls.first?.command ?? ""
+    #expect(script.contains("set -e"))
+    #expect(script.contains("mkdir -p /usr/local/bin"))
+    #expect(script.contains("ln -s '\(home.bundledTc.path)' '\(paths.tcSymlink.path)'"))
+    #expect(script.contains("ln -s '\(home.bundledTc.path)' '\(paths.tcodeSymlink.path)'"))
+    #expect(shell.calls.first?.prompt.contains("administrator access") == true)
   }
 
   @Test
-  func install_whenDestExistsAndIsForeign_returnsDestinationExistsNotOurs() throws {
+  func install_whenAlreadyInstalled_skipsPrivilegedDialog() throws {
     let home = try TempHome()
     let paths = home.paths()
-    try FileManager.default.createDirectory(at: paths.localBin, withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(at: paths.tcSymlink, withDestinationURL: home.bundledTc)
+    try FileManager.default.createSymbolicLink(at: paths.tcodeSymlink, withDestinationURL: home.bundledTc)
+    let (client, shell) = makeClient(paths: paths)
+
+    let result = client.install()
+
+    switch result {
+    case .success(let status): assertInstalled(status)
+    case .failure(let error): Issue.record("Install failed: \(error)")
+    }
+    #expect(shell.calls.isEmpty)
+  }
+
+  @Test
+  func install_whenForeign_returnsDestinationExistsNotOurs_andSkipsDialog() throws {
+    let home = try TempHome()
+    let paths = home.paths()
     try Data("#!/bin/sh\necho foreign\n".utf8).write(to: paths.tcSymlink)
-    let client = makeClient(paths: paths)
+    let (client, shell) = makeClient(paths: paths)
 
     let result = client.install()
 
@@ -129,189 +171,113 @@ struct CLIInstallerClientTests {
     } else {
       Issue.record("Expected .destinationExistsNotOurs, got \(result)")
     }
-    // And the foreign file is untouched.
-    let contents = try String(contentsOf: paths.tcSymlink, encoding: .utf8)
-    #expect(contents.contains("foreign"))
+    #expect(shell.calls.isEmpty)
+  }
+
+  @Test
+  func install_userCancels_returnsUserCancelled() throws {
+    let home = try TempHome()
+    let shell = RecordingPrivilegedShell()
+    shell.result = .throwError(.userCancelled)
+    let (client, _) = makeClient(paths: home.paths(), privilegedShell: shell)
+
+    let result = client.install()
+
+    if case .failure(.userCancelled) = result {
+      // expected
+    } else {
+      Issue.record("Expected .userCancelled, got \(result)")
+    }
+  }
+
+  @Test
+  func install_scriptFailure_returnsScriptFailedWithStderr() throws {
+    let home = try TempHome()
+    let shell = RecordingPrivilegedShell()
+    shell.result = .throwError(.scriptFailed(stderr: "ln: permission denied"))
+    let (client, _) = makeClient(paths: home.paths(), privilegedShell: shell)
+
+    let result = client.install()
+
+    if case .failure(.scriptFailed(let stderr)) = result {
+      #expect(stderr == "ln: permission denied")
+    } else {
+      Issue.record("Expected .scriptFailed, got \(result)")
+    }
+  }
+
+  @Test
+  func install_bundleMissing_returnsBundleMissing() throws {
+    let home = try TempHome()
+    var paths = home.paths()
+    paths.bundledTcBinary = nil
+    let (client, shell) = makeClient(paths: paths)
+
+    let result = client.install()
+
+    if case .failure(.bundleMissing) = result {
+      // expected
+    } else {
+      Issue.record("Expected .bundleMissing, got \(result)")
+    }
+    #expect(shell.calls.isEmpty)
   }
 
   // MARK: - Uninstall
 
   @Test
-  func uninstall_whenInstalledByUs_removesBothAndReturnsNotInstalled() throws {
+  func uninstall_whenInstalledByUs_callsPrivilegedShellOnceWithRmScript() throws {
     let home = try TempHome()
     let paths = home.paths()
-    let client = makeClient(paths: paths)
-    _ = client.install()
+    try FileManager.default.createSymbolicLink(at: paths.tcSymlink, withDestinationURL: home.bundledTc)
+    try FileManager.default.createSymbolicLink(at: paths.tcodeSymlink, withDestinationURL: home.bundledTc)
+    let (client, shell) = makeClient(paths: paths)
 
     let result = client.uninstall()
 
     #expect(result == .success(.notInstalled))
-    #expect(!FileManager.default.fileExists(atPath: paths.tcSymlink.path))
-    #expect(!FileManager.default.fileExists(atPath: paths.tcodeSymlink.path))
+    #expect(shell.calls.count == 1)
+    let script = shell.calls.first?.command ?? ""
+    #expect(script.contains("set -e"))
+    #expect(script.contains("rm '\(paths.tcSymlink.path)'"))
+    #expect(script.contains("rm '\(paths.tcodeSymlink.path)'"))
   }
 
   @Test
-  func uninstall_whenForeignPresent_reportsCollisionAndRefuses() throws {
+  func uninstall_whenNothingPresent_skipsPrivilegedDialog() throws {
+    let home = try TempHome()
+    let (client, shell) = makeClient(paths: home.paths())
+
+    let result = client.uninstall()
+
+    #expect(result == .success(.notInstalled))
+    #expect(shell.calls.isEmpty)
+  }
+
+  @Test
+  func uninstall_whenForeignPresent_reportsCollisionAndSkipsDialog() throws {
     let home = try TempHome()
     let paths = home.paths()
-    try FileManager.default.createDirectory(at: paths.localBin, withIntermediateDirectories: true)
     try Data("#!/bin/sh\necho foreign\n".utf8).write(to: paths.tcSymlink)
-    let client = makeClient(paths: paths)
+    let (client, shell) = makeClient(paths: paths)
 
     let result = client.uninstall()
 
     if case .success(.collision(let owner)) = result {
       #expect(owner == paths.tcSymlink)
     } else {
-      Issue.record("Expected .collision, got \(result)")
+      Issue.record("Expected collision, got \(result)")
     }
-    // File remains.
-    #expect(FileManager.default.fileExists(atPath: paths.tcSymlink.path))
-  }
-
-  // MARK: - Retry after failure
-
-  /// `CLIFilesystem` fake that fails `createSymbolicLink` on a configurable
-  /// predicate, then delegates to the real filesystem. Covers both "first
-  /// attempt fails, retry succeeds" and "second symlink in a pair fails, first
-  /// rolled back" scenarios without relying on OS-level disk faults.
-  private final class FlakySymlinkFileSystem: CLIFilesystem, @unchecked Sendable {
-    private let real = RealCLIFilesystem()
-    private var shouldFail: (URL) -> Bool
-
-    init(shouldFail: @escaping (URL) -> Bool) {
-      self.shouldFail = shouldFail
-    }
-
-    convenience init(failFirstNCalls n: Int) {
-      var remaining = n
-      self.init(shouldFail: { _ in
-        guard remaining > 0 else { return false }
-        remaining -= 1
-        return true
-      })
-    }
-
-    func fileExists(atPath path: String) -> Bool { real.fileExists(atPath: path) }
-    func isDirectory(atPath path: String) -> Bool { real.isDirectory(atPath: path) }
-    func createDirectory(at url: URL, withIntermediateDirectories flag: Bool) throws {
-      try real.createDirectory(at: url, withIntermediateDirectories: flag)
-    }
-    func copyItem(at src: URL, to dst: URL) throws { try real.copyItem(at: src, to: dst) }
-    func removeItem(at url: URL) throws { try real.removeItem(at: url) }
-    func createSymbolicLink(at url: URL, withDestinationURL dst: URL) throws {
-      if shouldFail(url) {
-        throw NSError(
-          domain: "FakeFS", code: 1,
-          userInfo: [NSLocalizedDescriptionKey: "injected symlink failure"])
-      }
-      try real.createSymbolicLink(at: url, withDestinationURL: dst)
-    }
-    func destinationOfSymbolicLink(atPath path: String) throws -> String {
-      try real.destinationOfSymbolicLink(atPath: path)
-    }
-    func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
-      try real.attributesOfItem(atPath: path)
-    }
-    func contents(atPath path: String) -> Data? { real.contents(atPath: path) }
-    func subpathsOfDirectory(at url: URL) throws -> [String] {
-      try real.subpathsOfDirectory(at: url)
-    }
-    func writeData(_ data: Data, to url: URL) throws { try real.writeData(data, to: url) }
-  }
-
-  @Test
-  func install_failure_thenRetry_succeeds() throws {
-    let home = try TempHome()
-    let paths = home.paths()
-    let flaky = FlakySymlinkFileSystem(failFirstNCalls: 1)
-    let client = makeClient(paths: paths, fileSystem: flaky)
-
-    let first = client.install()
-    if case .failure(.symlinkFailed) = first {
-      // expected
-    } else {
-      Issue.record("Expected .symlinkFailed on first attempt, got \(first)")
-    }
-
-    let second = client.install()
-    switch second {
-    case .success(let status): assertInstalled(status)
-    case .failure(let error): Issue.record("Retry failed: \(error)")
-    }
-  }
-
-  // MARK: - Atomic install pair (B1 + B2)
-
-  @Test
-  func probe_onlyTcPresent_returnsNotInstalled() throws {
-    // Partially-installed state: tc is our symlink but tcode is absent. The
-    // pair treatment means the status is `.notInstalled` (not `.installed`),
-    // so a subsequent `install()` completes the missing side.
-    let home = try TempHome()
-    let paths = home.paths()
-    try FileManager.default.createDirectory(at: paths.localBin, withIntermediateDirectories: true)
-    try FileManager.default.createSymbolicLink(at: paths.tcSymlink, withDestinationURL: home.bundledTc)
-    let client = makeClient(paths: paths)
-
-    let status = client.probe()
-
-    #expect(status == .notInstalled)
-  }
-
-  @Test
-  func probe_tcOursButTcodeForeign_returnsCollision() throws {
-    let home = try TempHome()
-    let paths = home.paths()
-    try FileManager.default.createDirectory(at: paths.localBin, withIntermediateDirectories: true)
-    try FileManager.default.createSymbolicLink(at: paths.tcSymlink, withDestinationURL: home.bundledTc)
-    try Data("#!/bin/sh\necho foreign\n".utf8).write(to: paths.tcodeSymlink)
-    let client = makeClient(paths: paths)
-
-    let status = client.probe()
-
-    if case .collision(let owner) = status {
-      #expect(owner == paths.tcodeSymlink)
-    } else {
-      Issue.record("Expected .collision owner=tcode, got \(status)")
-    }
-  }
-
-  @Test
-  func install_whenSecondSymlinkFails_rollsBackFirst() throws {
-    // The tcode createSymbolicLink throws; the already-created tc must be
-    // removed before the error surfaces so no half-installed pair leaks.
-    let home = try TempHome()
-    let paths = home.paths()
-    let tcodePath = paths.tcodeSymlink.path
-    let flaky = FlakySymlinkFileSystem(shouldFail: { $0.path == tcodePath })
-    let client = makeClient(paths: paths, fileSystem: flaky)
-
-    let result = client.install()
-
-    if case .failure(.symlinkFailed(let url, _)) = result {
-      #expect(url == paths.tcodeSymlink)
-    } else {
-      Issue.record("Expected .symlinkFailed on tcode, got \(result)")
-    }
-    // The tc symlink was rolled back — neither side exists.
-    #expect(!FileManager.default.fileExists(atPath: paths.tcSymlink.path))
-    #expect(!FileManager.default.fileExists(atPath: paths.tcodeSymlink.path))
-    // Probe agrees: clean slate, ready for a retry.
-    #expect(client.probe() == .notInstalled)
+    #expect(shell.calls.isEmpty)
   }
 
   @Test
   func uninstall_whenTcodeIsForeign_refusesAndKeepsTc() throws {
-    // Pre-state: tc is our symlink, tcode is a foreign regular file. Uninstall
-    // must preflight the pair, refuse to delete anything, and surface the
-    // collision — tc is specifically preserved.
     let home = try TempHome()
     let paths = home.paths()
-    try FileManager.default.createDirectory(at: paths.localBin, withIntermediateDirectories: true)
     try FileManager.default.createSymbolicLink(at: paths.tcSymlink, withDestinationURL: home.bundledTc)
     try Data("#!/bin/sh\necho foreign\n".utf8).write(to: paths.tcodeSymlink)
-    let client = makeClient(paths: paths)
+    let (client, shell) = makeClient(paths: paths)
 
     let result = client.uninstall()
 
@@ -320,50 +286,133 @@ struct CLIInstallerClientTests {
     } else {
       Issue.record("Expected collision on tcode, got \(result)")
     }
-    // tc is still our symlink — uninstall did not touch it.
+    #expect(shell.calls.isEmpty)
+    // tc symlink still in place — uninstall did not touch it.
     #expect(FileManager.default.fileExists(atPath: paths.tcSymlink.path))
-    let resolvedTc = try FileManager.default.destinationOfSymbolicLink(atPath: paths.tcSymlink.path)
-    #expect(URL(fileURLWithPath: resolvedTc).standardizedFileURL == home.bundledTc.standardizedFileURL)
-    // Foreign tcode is untouched too.
-    let foreignContents = try String(contentsOf: paths.tcodeSymlink, encoding: .utf8)
-    #expect(foreignContents.contains("foreign"))
   }
 
-  // MARK: - HomeScope escape
+  // MARK: - Script composers (pure-function unit tests)
 
   @Test
-  func escape_attempt_is_rejected_by_HomeScope() throws {
+  func composeInstallScript_freshMachine_includesMkdirAndBothLnLines() {
+    let bundled = URL(fileURLWithPath: "/Applications/TouchCode.app/Contents/Resources/bin/tc")
+    let tc = URL(fileURLWithPath: "/usr/local/bin/tc")
+    let tcode = URL(fileURLWithPath: "/usr/local/bin/tcode")
+
+    let script = CLIInstallerClient.composeInstallScript(bundled: bundled, absentPaths: [tc, tcode])
+
+    #expect(script == """
+      set -e
+      mkdir -p /usr/local/bin
+      ln -s '/Applications/TouchCode.app/Contents/Resources/bin/tc' '/usr/local/bin/tc'
+      ln -s '/Applications/TouchCode.app/Contents/Resources/bin/tc' '/usr/local/bin/tcode'
+      """)
+  }
+
+  @Test
+  func composeInstallScript_withLegacyCleanup_appendsGuardedRmLines() {
+    let bundled = URL(fileURLWithPath: "/Applications/TouchCode.app/Contents/Resources/bin/tc")
+    let tc = URL(fileURLWithPath: "/usr/local/bin/tc")
+    let tcode = URL(fileURLWithPath: "/usr/local/bin/tcode")
+    let legacyTc = URL(fileURLWithPath: "/Users/test/.local/bin/tc")
+    let legacyTcode = URL(fileURLWithPath: "/Users/test/.local/bin/tcode")
+
+    let script = CLIInstallerClient.composeInstallScript(
+      bundled: bundled,
+      absentPaths: [tc, tcode],
+      legacyToCleanup: [legacyTc, legacyTcode]
+    )
+
+    #expect(script == """
+      set -e
+      mkdir -p /usr/local/bin
+      ln -s '/Applications/TouchCode.app/Contents/Resources/bin/tc' '/usr/local/bin/tc'
+      ln -s '/Applications/TouchCode.app/Contents/Resources/bin/tc' '/usr/local/bin/tcode'
+      [ -L '/Users/test/.local/bin/tc' ] && [ "$(readlink '/Users/test/.local/bin/tc')" = '/Applications/TouchCode.app/Contents/Resources/bin/tc' ] && rm '/Users/test/.local/bin/tc' || true
+      [ -L '/Users/test/.local/bin/tcode' ] && [ "$(readlink '/Users/test/.local/bin/tcode')" = '/Applications/TouchCode.app/Contents/Resources/bin/tc' ] && rm '/Users/test/.local/bin/tcode' || true
+      """)
+  }
+
+  @Test
+  func install_includesLegacyCleanupWhenLegacyPathsAreOurs() throws {
     let home = try TempHome()
-    // Build a fake `.local` directory structure where `.local` itself is a
-    // symlink pointing outside $HOME. HomeScope walks the ancestor chain
-    // and rejects any link whose real target escapes.
-    let outside = FileManager.default.temporaryDirectory.appending(
-      component: "tc-installer-outside-\(UUID().uuidString)",
-      directoryHint: .isDirectory
+    let paths = home.paths()
+    // Pre-create legacy symlinks pointing at our bundle.
+    let legacyDir = paths.legacyLocalBinTc.deletingLastPathComponent()
+    try FileManager.default.createDirectory(at: legacyDir, withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(at: paths.legacyLocalBinTc, withDestinationURL: home.bundledTc)
+    try FileManager.default.createSymbolicLink(at: paths.legacyLocalBinTcode, withDestinationURL: home.bundledTc)
+    let (client, shell) = makeClient(paths: paths)
+
+    _ = client.install()
+
+    let bundled = home.bundledTc.path
+    let expected = """
+      set -e
+      mkdir -p /usr/local/bin
+      ln -s '\(bundled)' '\(paths.tcSymlink.path)'
+      ln -s '\(bundled)' '\(paths.tcodeSymlink.path)'
+      [ -L '\(paths.legacyLocalBinTc.path)' ] && [ "$(readlink '\(paths.legacyLocalBinTc.path)')" = '\(bundled)' ] && rm '\(paths.legacyLocalBinTc.path)' || true
+      [ -L '\(paths.legacyLocalBinTcode.path)' ] && [ "$(readlink '\(paths.legacyLocalBinTcode.path)')" = '\(bundled)' ] && rm '\(paths.legacyLocalBinTcode.path)' || true
+      """
+    #expect(shell.calls.first?.command == expected)
+  }
+
+  @Test
+  func install_skipsLegacyCleanupWhenLegacyPathsAreForeign() throws {
+    let home = try TempHome()
+    let paths = home.paths()
+    // Pre-create a foreign regular file at the legacy path.
+    let legacyDir = paths.legacyLocalBinTc.deletingLastPathComponent()
+    try FileManager.default.createDirectory(at: legacyDir, withIntermediateDirectories: true)
+    try Data("#!/bin/sh\necho foreign\n".utf8).write(to: paths.legacyLocalBinTc)
+    let (client, shell) = makeClient(paths: paths)
+
+    _ = client.install()
+
+    let script = shell.calls.first?.command ?? ""
+    #expect(!script.contains(paths.legacyLocalBinTc.path), "Foreign legacy entry must not appear in cleanup")
+  }
+
+  // MARK: - AppleScript source assembly
+
+  @Test
+  func composeSource_multilineCommand_usesLinefeedConcatenation() {
+    // AppleScript string literals reject raw newlines; every `\n` must be
+    // split out and rejoined with `& linefeed &` in the source.
+    let source = AppleScriptPrivilegedShell.composeSource(
+      command: "set -e\nmkdir -p /usr/local/bin\nln -s '/a' '/b'",
+      prompt: "Need admin"
     )
-    try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: outside) }
 
-    let dotLocal = home.root.appending(component: ".local", directoryHint: .isDirectory)
-    try FileManager.default.createSymbolicLink(at: dotLocal, withDestinationURL: outside)
+    #expect(source == #"do shell script "set -e" & linefeed & "mkdir -p /usr/local/bin" & linefeed & "ln -s '/a' '/b'" with prompt "Need admin" with administrator privileges"#)
+    #expect(!source.contains("\n"), "Source must contain no raw newlines — AppleScript literals reject them")
+  }
 
-    let paths = home.paths(
-      overridingLocalBin: dotLocal.appending(component: "bin", directoryHint: .isDirectory)
+  @Test
+  func composeSource_escapesEmbeddedDoubleQuotes() {
+    // A path containing a double-quote must be escaped or the AppleScript
+    // string literal terminates early. shellEscape's single-quote wrapping
+    // protects /bin/sh, but the AppleScript layer is independent.
+    let source = AppleScriptPrivilegedShell.composeSource(
+      command: "echo \"hi\"",
+      prompt: "p"
     )
-    let client = makeClient(paths: paths)
 
-    let install = client.install()
-    if case .failure(.destinationOutsideHome) = install {
-      // expected
-    } else {
-      Issue.record("Expected .destinationOutsideHome, got \(install)")
-    }
+    #expect(source.contains("\\\"hi\\\""))
+  }
 
-    let probe = client.probe()
-    if case .failed(.destinationOutsideHome, _) = probe {
-      // expected — probe must flag the escape too.
-    } else {
-      Issue.record("Expected probe to return .failed(.destinationOutsideHome), got \(probe)")
-    }
+  @Test
+  func composeUninstallScript_bothOurs_emitsRmLines() {
+    let tc = URL(fileURLWithPath: "/usr/local/bin/tc")
+    let tcode = URL(fileURLWithPath: "/usr/local/bin/tcode")
+
+    let script = CLIInstallerClient.composeUninstallScript(paths: [tc, tcode])
+
+    #expect(script == """
+      set -e
+      rm '/usr/local/bin/tc'
+      rm '/usr/local/bin/tcode'
+      """)
   }
 }

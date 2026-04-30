@@ -19,7 +19,7 @@ Sibling components already defined:
 
 Open questions from the product spec and architecture that this doc resolves:
 - **Product-spec Open Q #1** — *CLI binary name.* Resolved: **keep `tc` as the primary; `tcode` as fallback installed automatically when `tc` is already claimed.** See [Decisions](#decisions) §D1 and the [Collision check](#collision-check-plan-for-tc--tcode) section.
-- **Architecture Open Q #3** — *CLI binary distribution.* Resolved: install into `~/.local/bin/tc` on first launch with a user-approval dialog; never touch `/usr/local/bin`. See [Decisions](#decisions) §D3.
+- **Architecture Open Q #3** — *CLI binary distribution.* Resolved: install into `/usr/local/bin/{tc,tcode}` from the Settings → Developer pane via a single macOS administrator-authorization dialog. See [Decisions](#decisions) §D3 and the dedicated design doc [`cli-install-system-bin.md`](cli-install-system-bin.md).
 - **Architecture Open Q #5** — *IPC backpressure for CLI clients.* Resolved: per-connection bounded in-flight queue of 64; additional requests block up to 2s then fail with `IPCError.overloaded`. See [Decisions](#decisions) §D11.
 
 Out of scope (owned elsewhere):
@@ -100,26 +100,21 @@ Out of scope (owned elsewhere):
 
 ### Collision check plan for `tc` / `tcode`
 
-**Surface.** The binary ships as `tc` with `tcode` as a *peer* symlink. Both are copied into `~/.local/bin/` by the first-run installer. The installer checks whether `tc` already exists on `PATH` before `~/.local/bin`; if it does, `tc` is not symlinked and `tcode` becomes the documented primary.
+**Surface.** The binary ships as `tc` with `tcode` as a *peer* symlink. Both are symlinked into `/usr/local/bin/` by the user from Settings → Developer; the privileged write is one admin-auth dialog. If a foreign `tc` already exists at `/usr/local/bin/tc`, the installer aborts with `.collision(owner:)` and no symlinks are written; the user removes the foreign tool or accepts using `tcode` only.
 
-**Detection (on app first launch and on every app update):**
+**Detection (read-only; runs on every Settings card render):**
 
-1. Run `which -a tc` via `Process`. For each returned path, check that it isn't `~/.local/bin/tc` (our own). Any hit means a collision.
-2. Compare `~/.local/bin/tcode` install timestamp. If missing, install it.
-3. Write the outcome to `settings.json.cliInstallation`:
-   ```jsonc
-   { "tc": { "installed": true|false, "reason": "collision"|"ok"|"user-declined" },
-     "tcode": { "installed": true },
-     "collidingPaths": ["/opt/homebrew/bin/tc"] }
-   ```
+1. Inspect `/usr/local/bin/tc` and `/usr/local/bin/tcode` without privileges via `lstat` / `readlink`. Classify each as `absent` / `ourSymlink` (resolves to our bundled binary) / `foreign`. See `CLIInstallerClient.inspect(_:)`.
+2. Any `foreign` classification is reported as `.collision(owner:)`; the install button retries (the user is expected to clear the collision themselves before retrying).
+3. `which -a tc` is no longer used; the unprivileged inspect on the canonical path is sufficient and avoids spawning a process per Settings render.
 
-**User prompt.** On collision, the first-run installer shows a one-time dialog: "`tc` is already used by another tool ({path}). touch-code will use `tcode` instead. You can rename the other tool or re-run `tcode install-cli --force-tc` to override." Default is "Use `tcode`". No recurring nag.
+**User prompt.** On collision the Settings card's `ErrorRow` reads: "Another file exists at `/usr/local/bin/tc`. Rename or remove it, then retry — touch-code will not overwrite a tool it did not install." (See `CLIInstallError.destinationExistsNotOurs.errorDescription`.) No system-level dialog appears for collisions — only for the actual privileged install.
 
-**Test matrix.** CI exercises four scenarios in isolated HOME directories: (a) no pre-existing `tc`, (b) `/opt/homebrew/bin/tc`, (c) `/usr/bin/tc` (Linux's iproute2-`tc`, not macOS-native but occurs on Linuxbrew hosts), (d) previous touch-code install — verify idempotent install.
+**Test matrix.** Unit tests cover four scenarios via `RecordingPrivilegedShell` in `CLIInstallerClientTests.swift`: (a) fresh machine, both absent, (b) collision on `tc` only, (c) collision on `tcode` only, (d) idempotent re-install when both already point at our bundle. Manual smoke verifies a real Homebrew `tc` collision case.
 
 **Documentation.** The published Skill and README use `tc` in examples but open with a one-line note: "If your system already has a `tc` command, use `tcode` — the subcommands are identical." All shell completion files ship with both names installed.
 
-**Removal.** `tc uninstall-cli` (or `tcode uninstall-cli`) removes both symlinks and optionally re-prompts removal of `~/.local/bin` from PATH if touch-code was the only thing in it.
+**Removal.** Settings → Developer's Uninstall button runs the symmetric privileged script (`rm /usr/local/bin/tc /usr/local/bin/tcode`) when both are ours. Foreign entries are refused with the same collision error. Legacy `~/.local/bin/{tc,tcode}` symlinks from prior versions are cleaned up automatically as part of Install (see [`cli-install-system-bin.md`](cli-install-system-bin.md) §Migration).
 
 ### API Design
 
@@ -570,7 +565,7 @@ Each namespace ships as its own binary; `tc` is a dispatcher.
 
 ### Migration & rollback
 
-- `tc` installs to `~/.local/bin`; uninstalling the app doesn't delete it (user files). First-run of the app offers uninstall guidance.
+- `tc` installs to `/usr/local/bin` via Settings → Developer (one admin auth dialog). Uninstalling the app does not remove the symlinks; the Developer pane's Uninstall button (or `sudo rm /usr/local/bin/{tc,tcode}` manually) clears them.
 - Schema-breaking change rollouts: ship the new server method under a new name (e.g., `hierarchy.createWorktree2`) while the old continues to work; deprecate the old on the next minor release; remove on the next major.
 - A broken `tc` release can be rolled back by the user running `tcode install-cli --reinstall --version <prev>` (sugar; actually a no-op because `tcode` is app-bundled — user rolls back the app itself, and `tc` follows).
 
@@ -578,7 +573,7 @@ Each namespace ships as its own binary; `tc` is a dispatcher.
 
 - **D1 — Primary binary name is `tc`; `tcode` ships as a peer fallback. (Resolves Open Q #1.)** *Partially supaterm-parallel (`sp`), supacode-parallel (`supacode`).* The ergonomic win is too large to cede; the collision-check installer handles the edge case (see [Collision check](#collision-check-plan-for-tc--tcode)).
 - **D2 — Single binary, ArgumentParser-rooted.** *Supacode- and supaterm-parallel.* ArgumentParser handles completion, help, subcommand dispatch, version — no reason to diverge.
-- **D3 — Install to `~/.local/bin`, not `/usr/local/bin`. (Resolves architecture Open Q #3.)** *Divergent from most macOS tools.* Respects SIP / system boundaries; requires no admin; ensures cleanup on app uninstall is trivial.
+- **D3 — Install to `/usr/local/bin/{tc,tcode}` via single admin auth dialog. (Resolves architecture Open Q #3.)** *Aligned with most macOS tools.* `/usr/local/bin` is on the default macOS `PATH`, so `tc` works in every shell, GUI launcher, and cron context without rc-file edits. The privileged write is one in-process `NSAppleScript` "do shell script with administrator privileges" call per install / uninstall — the auth dialog renders with the touch-code app icon and bundle name. Symlinks point at the bundled binary inside `Contents/Resources/bin/tc`, so app upgrades preserve the install. Full design and migration plan in [`cli-install-system-bin.md`](cli-install-system-bin.md). *(Amended 2026-04-29; original decision was `~/.local/bin` with a PATH advisory — superseded because the advisory was structurally noisy and the directory is not on the default `PATH`.)*
 - **D4 — `tc` errors when the app isn't running, except for `tc system launch` and `tc skill install`.** *Divergent from supaterm (which attempts best-effort).* The "`tc` is stateless" invariant is the most valuable property of this CLI; relaxing it means two code paths forever. `tc skill install` is explicitly a file-copy-only verb because the Skill exists independent of the app runtime.
 - **D5 — Convenience aliases (`current`, `.`, `@label`, index, path glob) resolve through `hierarchy.resolveAlias` on the server, not in the CLI.** *New.* Keeps name-resolution logic as the single source of truth; the client only validates UUID format locally.
 - **D6 — `tc send` / `tc broadcast` share one IPC method (`terminal.sendInput`) with a `scope` discriminator.** *New.* Reduces server surface and lets a single hook handler observe both the unicast and fan-out paths identically.

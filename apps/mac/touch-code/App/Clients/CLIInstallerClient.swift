@@ -2,66 +2,67 @@ import Foundation
 import TouchCodeCore
 import os.log
 
-/// Idempotent, sudo-free installer for the `tc` CLI. Writes only under `$HOME`
-/// (enforced by `HomeScope`) and never overwrites a file it did not create.
-/// `probe()` is safe to call on view-appear; `install()` / `uninstall()` return
-/// typed results that the Developer pane renders directly.
+/// Idempotent installer for the `tc` CLI. Symlinks `tc` and `tcode` from
+/// `/usr/local/bin/` to the bundled binary inside `touch-code.app`. The
+/// privileged write is a single `do shell script` invocation with admin
+/// privileges that runs `mkdir -p` + `ln -s` + (M4) legacy cleanup in one
+/// transaction. `probe()` is unprivileged and safe to call on view-appear;
+/// `install()` / `uninstall()` show the system auth dialog exactly once
+/// per call (or zero times when no work remains — both already-our or both
+/// already-absent paths).
 ///
-/// Design decisions (see `docs/design-docs/settings-developer.md`):
-/// - Target directory is `~/.local/bin`, with a `tc` symlink and a peer `tcode`
-///   symlink both pointing at the app-bundled binary.
-/// - A foreign file at either symlink destination is reported as a collision;
-///   we refuse to delete it and we refuse to overwrite it. The user renames it
-///   or clears it themselves.
-/// - PATH integration is only advisory — spec requires no rc-file edits in v1.
+/// `tc` and `tcode` are an atomic install pair. A foreign file at either
+/// destination short-circuits the operation with `.collision(owner:)` and
+/// no privileged dialog is shown.
 @MainActor
 final class CLIInstallerClient {
   /// URLs that parameterise the installer. Tests override everything; production
-  /// uses the defaults which resolve under the real `$HOME`.
+  /// uses the defaults pointing at `/usr/local/bin`.
   struct Paths: Equatable {
-    var localBin: URL
     var tcSymlink: URL
     var tcodeSymlink: URL
+    /// Legacy `~/.local/bin/{tc,tcode}` paths from prior versions. The
+    /// privileged install script in M4 will `rm` these only when they resolve
+    /// to our bundled binary.
+    var legacyLocalBinTc: URL
+    var legacyLocalBinTcode: URL
     /// Bundled `tc` binary to symlink to. Resolved via `CLIBundleLocator`.
-    /// `nil` when no bundled binary can be located — probe / install surface
-    /// this as `.bundleMissing`.
+    /// `nil` when no bundled binary can be located — install surfaces this
+    /// as `.bundleMissing`.
     var bundledTcBinary: URL?
-    /// `$HOME` root. Overridable so unit tests can run against a tmp directory.
-    var homeDirectory: URL
 
     static var `default`: Paths {
       let home = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-      let localBin = home.appendingPathComponent(".local/bin", isDirectory: true)
+      let usrLocalBin = URL(fileURLWithPath: "/usr/local/bin", isDirectory: true)
+      let legacyLocalBin = home.appendingPathComponent(".local/bin", isDirectory: true)
       return Paths(
-        localBin: localBin,
-        tcSymlink: localBin.appendingPathComponent("tc", isDirectory: false),
-        tcodeSymlink: localBin.appendingPathComponent("tcode", isDirectory: false),
-        bundledTcBinary: try? CLIBundleLocator.locateBinary(),
-        homeDirectory: home
+        tcSymlink: usrLocalBin.appendingPathComponent("tc", isDirectory: false),
+        tcodeSymlink: usrLocalBin.appendingPathComponent("tcode", isDirectory: false),
+        legacyLocalBinTc: legacyLocalBin.appendingPathComponent("tc", isDirectory: false),
+        legacyLocalBinTcode: legacyLocalBin.appendingPathComponent("tcode", isDirectory: false),
+        bundledTcBinary: try? CLIBundleLocator.locateBinary()
       )
     }
   }
 
-  /// Current state of the `tc` install under `~/.local/bin/`. Never persisted;
-  /// the pane re-`probe()`s on appear.
+  /// Current state of the `tc` / `tcode` symlink pair under
+  /// `/usr/local/bin/`. Never persisted; the pane re-`probe()`s on appear.
   enum InstallStatus: Equatable {
     case unknown
     case notInstalled
     /// Both symlinks present and resolve to our bundled binary.
     case installed(at: URL, pointsToBundle: Bool)
-    /// A file exists at `tcSymlink` but it is not our symlink. We never
-    /// overwrite it.
+    /// A file exists at `tcSymlink` or `tcodeSymlink` that is not our
+    /// symlink. We never overwrite it.
     case collision(owner: URL)
     case failed(CLIInstallError, lastAttempt: Date?)
   }
 
   enum CLIInstallError: Error, Equatable {
     case bundleMissing(URL?)
-    case directoryCreateFailed(URL, underlyingDescription: String)
     case destinationExistsNotOurs(URL)
-    case destinationOutsideHome(URL)
-    case symlinkFailed(URL, underlyingDescription: String)
-    case uninstallFailed(URL, underlyingDescription: String)
+    case userCancelled
+    case scriptFailed(stderr: String)
   }
 
   /// Surfaced so the Developer pane can point at the installed symlink for
@@ -69,17 +70,17 @@ final class CLIInstallerClient {
   /// different `Paths` through the initializer.
   let paths: Paths
   private let fileSystem: CLIFilesystem
-  private let pathLookup: () -> [URL]
+  private let privilegedShell: PrivilegedShell
   private let logger = Logger(subsystem: "com.touch-code.ui", category: "cli-installer")
 
   init(
     paths: Paths = .default,
     fileSystem: CLIFilesystem = RealCLIFilesystem(),
-    pathLookup: @escaping () -> [URL] = CLIInstallerClient.defaultPathEntries
+    privilegedShell: PrivilegedShell = AppleScriptPrivilegedShell()
   ) {
     self.paths = paths
     self.fileSystem = fileSystem
-    self.pathLookup = pathLookup
+    self.privilegedShell = privilegedShell
   }
 
   // MARK: - Probe
@@ -95,12 +96,6 @@ final class CLIInstallerClient {
   /// - every other mix (both absent / one ours + one absent) → `.notInstalled`
   ///   (running `install()` from there completes the pair idempotently).
   func probe() -> InstallStatus {
-    // Any escape from $HOME short-circuits with a dedicated error — even
-    // probing a foreign path risks traversing attacker-controlled symlinks.
-    if let escape = firstEscape(from: [paths.tcSymlink, paths.tcodeSymlink]) {
-      return .failed(.destinationOutsideHome(escape), lastAttempt: nil)
-    }
-
     let pair = inspectPair()
     if let collision = pair.firstForeign {
       return .collision(owner: collision)
@@ -113,18 +108,13 @@ final class CLIInstallerClient {
 
   // MARK: - Install
 
-  /// Creates `~/.local/bin` if missing, then symlinks `tc` and `tcode` at the
-  /// bundled binary.
+  /// Symlinks `tc` and `tcode` under `/usr/local/bin/` to the bundled binary
+  /// via a single privileged `do shell script` call. Atomic on the install
+  /// pair: a foreign file at either destination aborts before the auth dialog
+  /// opens, with **zero mutations**.
   ///
-  /// The operation is **atomic on the install pair**:
-  /// 1. Pre-flight: classify both destinations. Any foreign entry aborts with
-  ///    `.destinationExistsNotOurs(foreignURL)` and **zero mutations** are
-  ///    performed.
-  /// 2. Apply: only the destinations that were `.absent` get new symlinks; any
-  ///    already-our symlink is left alone (idempotent).
-  /// 3. Rollback: if the second symlink creation fails, the first one created
-  ///    during this call is removed before the error propagates — so a caller
-  ///    never observes a half-installed pair.
+  /// Skips the auth dialog entirely when both symlinks already resolve to our
+  /// bundled binary (idempotent re-install).
   func install() -> Result<InstallStatus, CLIInstallError> {
     guard let bundled = paths.bundledTcBinary else {
       return .failure(.bundleMissing(nil))
@@ -132,48 +122,31 @@ final class CLIInstallerClient {
     guard fileSystem.fileExists(atPath: bundled.path) else {
       return .failure(.bundleMissing(bundled))
     }
-    if let escape = firstEscape(from: [paths.tcSymlink, paths.tcodeSymlink, paths.localBin]) {
-      return .failure(.destinationOutsideHome(escape))
-    }
 
-    // Pre-flight classification — never writes.
     let pair = inspectPair()
     if let foreign = pair.firstForeign {
       return .failure(.destinationExistsNotOurs(foreign))
     }
-
-    // Ensure parent dir exists. `withIntermediateDirectories: true` is idempotent
-    // across existing directories; a failure is a real permission issue.
-    if !fileSystem.isDirectory(atPath: paths.localBin.path) {
-      do {
-        try fileSystem.createDirectory(at: paths.localBin, withIntermediateDirectories: true)
-      } catch {
-        return .failure(.directoryCreateFailed(paths.localBin, underlyingDescription: "\(error)"))
-      }
+    if pair.bothOurs {
+      return .success(.installed(at: paths.tcSymlink, pointsToBundle: true))
     }
 
-    // Build the plan: only destinations that are currently `.absent` need new
-    // symlinks. Already-our symlinks pass through as no-ops.
-    let plan: [URL] = pair.all.compactMap { (dest, state) in
-      state == .absent ? dest : nil
-    }
-
-    var rollbacks: [URL] = []
-    for destination in plan {
-      do {
-        try fileSystem.createSymbolicLink(at: destination, withDestinationURL: bundled)
-        rollbacks.append(destination)
-      } catch {
-        // Rollback: remove every symlink created during *this* call so the
-        // filesystem returns to its pre-install classification.
-        for created in rollbacks {
-          try? fileSystem.removeItem(at: created)
-        }
-        logger.error(
-          "install failed at \(destination.path, privacy: .public); rolled back \(rollbacks.count, privacy: .public) created link(s): \(String(describing: error), privacy: .public)"
-        )
-        return .failure(.symlinkFailed(destination, underlyingDescription: "\(error)"))
-      }
+    let absentPaths = pair.all.compactMap { $0.1 == .absent ? $0.0 : nil }
+    let legacyToCleanup = ourLegacyPaths()
+    let script = Self.composeInstallScript(
+      bundled: bundled,
+      absentPaths: absentPaths,
+      legacyToCleanup: legacyToCleanup
+    )
+    do {
+      try privilegedShell.run(
+        script,
+        prompt: "touch-code needs administrator access to install the `tc` command into /usr/local/bin."
+      )
+    } catch let error as PrivilegedShellError {
+      return .failure(Self.mapPrivilegedError(error))
+    } catch {
+      return .failure(.scriptFailed(stderr: "\(error)"))
     }
 
     logger.info("tc installed at \(self.paths.tcSymlink.path, privacy: .public)")
@@ -183,69 +156,87 @@ final class CLIInstallerClient {
   // MARK: - Uninstall
 
   /// Removes the `tc` and `tcode` symlinks iff both destinations are ours or
-  /// absent.
+  /// absent. A foreign file at either destination returns
+  /// `.success(.collision(owner:))` without showing the auth dialog.
   ///
-  /// Pre-flight: if **any** destination is `.foreign`, the call returns
-  /// `.success(.collision(owner: foreignURL))` without deleting anything. This
-  /// is the fix for the B2 non-atomicity bug where `tc` could be removed
-  /// before discovering that `tcode` is foreign.
+  /// Returns `.success(.notInstalled)` without showing the auth dialog when
+  /// nothing belongs to us (idempotent re-uninstall).
   func uninstall() -> Result<InstallStatus, CLIInstallError> {
-    if let escape = firstEscape(from: [paths.tcSymlink, paths.tcodeSymlink]) {
-      return .failure(.destinationOutsideHome(escape))
-    }
-
     let pair = inspectPair()
     if let foreign = pair.firstForeign {
-      // Refuse to delete anything when one of the slots is foreign. A future
-      // iteration could add a `--force` flag; v1 surfaces the collision and
-      // leaves both entries intact.
       return .success(.collision(owner: foreign))
     }
+    let oursToRemove = pair.all.compactMap { $0.1 == .ourSymlink ? $0.0 : nil }
+    if oursToRemove.isEmpty {
+      return .success(.notInstalled)
+    }
 
-    for (destination, state) in pair.all where state == .ourSymlink {
-      do {
-        try fileSystem.removeItem(at: destination)
-      } catch {
-        logger.error(
-          "uninstall remove failed at \(destination.path, privacy: .public): \(String(describing: error), privacy: .public)"
-        )
-        return .failure(.uninstallFailed(destination, underlyingDescription: "\(error)"))
-      }
+    let script = Self.composeUninstallScript(paths: oursToRemove)
+    do {
+      try privilegedShell.run(
+        script,
+        prompt: "touch-code needs administrator access to remove `tc` from /usr/local/bin."
+      )
+    } catch let error as PrivilegedShellError {
+      return .failure(Self.mapPrivilegedError(error))
+    } catch {
+      return .failure(.scriptFailed(stderr: "\(error)"))
     }
 
     logger.info("tc uninstalled at \(self.paths.tcSymlink.path, privacy: .public)")
     return .success(.notInstalled)
   }
 
-  // MARK: - PATH advisory
+  // MARK: - Script composers
 
-  /// True when the canonicalised `paths.localBin` is one of the entries in the
-  /// current process's `PATH`. Used only for the amber "not on PATH" advisory.
-  func isLocalBinOnPath() -> Bool {
-    let localBinPath = paths.localBin.standardizedFileURL.path
-    return pathLookup().contains { $0.standardizedFileURL.path == localBinPath }
+  /// Composes the `do shell script` body for an install. Includes `mkdir -p`
+  /// for `/usr/local/bin` (idempotent; admin priv covers the create on bare
+  /// macOS), one `ln -s` per absent destination, and one `rm` per legacy
+  /// `~/.local/bin/{tc,tcode}` that the unprivileged probe verified is our
+  /// own symlink. Foreign legacy entries are not touched.
+  static func composeInstallScript(
+    bundled: URL,
+    absentPaths: [URL],
+    legacyToCleanup: [URL] = []
+  ) -> String {
+    var lines: [String] = ["set -e", "mkdir -p /usr/local/bin"]
+    let target = shellEscape(bundled.path)
+    for destination in absentPaths {
+      lines.append("ln -s \(target) \(shellEscape(destination.path))")
+    }
+    for legacy in legacyToCleanup {
+      // The TOCTOU window between the unprivileged probe and the privileged
+      // execution lets a foreign symlink replace our legacy entry. The
+      // [ -L ... ] guard alone would happily `rm` the foreign symlink.
+      // Re-verify the target equals the bundled binary before deleting.
+      let path = shellEscape(legacy.path)
+      lines.append(
+        "[ -L \(path) ] && [ \"$(readlink \(path))\" = \(target) ] && rm \(path) || true"
+      )
+    }
+    return lines.joined(separator: "\n")
   }
 
-  nonisolated static func defaultPathEntries() -> [URL] {
-    let raw = ProcessInfo.processInfo.environment["PATH"] ?? ""
-    return
-      raw
-      .split(separator: ":", omittingEmptySubsequences: true)
-      .map { String($0) }
-      .map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
+  /// Composes the `do shell script` body for an uninstall — `rm` lines for
+  /// each path the unprivileged probe verified as our symlink.
+  static func composeUninstallScript(paths: [URL]) -> String {
+    var lines: [String] = ["set -e"]
+    for destination in paths {
+      lines.append("rm \(shellEscape(destination.path))")
+    }
+    return lines.joined(separator: "\n")
+  }
+
+  private static func mapPrivilegedError(_ error: PrivilegedShellError) -> CLIInstallError {
+    switch error {
+    case .userCancelled:
+      return .userCancelled
+    case .scriptFailed(let stderr):
+      return .scriptFailed(stderr: stderr)
+    }
   }
 
   // MARK: - Helpers
-
-  /// Returns the first URL in `candidates` that escapes `$HOME`, or nil if
-  /// every entry stays inside. Used by probe / install / uninstall so the
-  /// HomeScope check is visible at every mutating entry point.
-  private func firstEscape(from candidates: [URL]) -> URL? {
-    candidates.first {
-      !HomeScope.isInsideHome(
-        $0, fileSystem: fileSystem, homeDirectory: paths.homeDirectory)
-    }
-  }
 
   private enum LinkState: Equatable {
     case absent
@@ -277,6 +268,13 @@ final class CLIInstallerClient {
     ])
   }
 
+  /// Returns the legacy `~/.local/bin/{tc,tcode}` paths that resolve to our
+  /// bundled binary. Foreign or absent entries are excluded — only entries we
+  /// know we created in a prior version qualify for cleanup.
+  private func ourLegacyPaths() -> [URL] {
+    [paths.legacyLocalBinTc, paths.legacyLocalBinTcode].filter { inspect($0) == .ourSymlink }
+  }
+
   /// Classifies the destination path without mutating the filesystem. A path is
   /// "ours" iff it is a symlink and its resolved target (as absolute canonical
   /// path) equals the bundled binary's canonical path.
@@ -284,14 +282,10 @@ final class CLIInstallerClient {
     let attrs = try? fileSystem.attributesOfItem(atPath: destination.path)
     let isSymlink = (attrs?[.type] as? FileAttributeType) == .typeSymbolicLink
     if !isSymlink {
-      // `fileExists` returns false for a dangling symlink, so if we got here
-      // either the file really doesn't exist or it exists as a regular file /
-      // directory. Treat regular files as foreign.
       if fileSystem.fileExists(atPath: destination.path) {
         return .foreign
       }
       if attrs != nil {
-        // Non-symlink but stat-able (e.g. broken entry) — treat as foreign.
         return .foreign
       }
       return .absent
@@ -304,9 +298,14 @@ final class CLIInstallerClient {
     } else {
       resolvedTarget = destination.deletingLastPathComponent().appendingPathComponent(rawTarget)
     }
-    let resolvedPath = resolvedTarget.standardizedFileURL.path
+    // Use resolvingSymlinksInPath so the comparison survives Gatekeeper
+    // app-translocation aliases like /private/var/folders/.../AppTranslocation
+    // and the /private/var ⇄ /var private-tmp aliasing macOS injects between
+    // process startup and Bundle.main resolution. standardizedFileURL only
+    // collapses dot segments — it does not chase the underlying alias.
+    let resolvedPath = resolvedTarget.resolvingSymlinksInPath().path
     guard let bundled = paths.bundledTcBinary else { return .foreign }
-    let bundledPath = bundled.standardizedFileURL.path
+    let bundledPath = bundled.resolvingSymlinksInPath().path
     return resolvedPath == bundledPath ? .ourSymlink : .foreign
   }
 
@@ -322,17 +321,13 @@ extension CLIInstallerClient.CLIInstallError: LocalizedError {
         return "`tc` binary not found at \(url.path). Please reinstall touch-code."
       }
       return "`tc` binary not found in the app bundle. Please reinstall touch-code."
-    case .directoryCreateFailed(let url, let description):
-      return "Could not create \(url.path): \(description)"
     case .destinationExistsNotOurs(let url):
       return
         "Another file exists at \(url.path). Rename or remove it, then retry — touch-code will not overwrite a tool it did not install."
-    case .destinationOutsideHome(let url):
-      return "Refusing to write outside your home directory: \(url.path)"
-    case .symlinkFailed(let url, let description):
-      return "Could not link \(url.lastPathComponent): \(description)"
-    case .uninstallFailed(let url, let description):
-      return "Could not remove \(url.path): \(description)"
+    case .userCancelled:
+      return "Install cancelled. Click Install to retry."
+    case .scriptFailed(let stderr):
+      return "Install failed: \(stderr)"
     }
   }
 }
