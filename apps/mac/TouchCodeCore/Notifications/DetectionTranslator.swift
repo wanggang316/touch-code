@@ -141,7 +141,14 @@ public nonisolated enum DetectionTranslator {
         outputFlag: .unchanged
       )
 
-    case .paneClosedByTab, .paneCreated, .paneReady,
+    case .paneClosedByTab(let paneID, _):
+      // Tab autoclose tears down the pane without firing paneExited /
+      // paneCrashed (engine path bypasses both). Clear the produced-
+      // output flag so a recreated PaneID — defensive even though IDs
+      // are UUIDs and shouldn't recur — cannot inherit the prior gate.
+      return Step(entry: nil, outputFlag: .clearProduced(paneID))
+
+    case .paneCreated, .paneReady,
       .tabActivated, .tabAutoClosed, .worktreeActivated, .hierarchyMutated,
       .paneActionRequested, .windowActionRequested, .configChanged:
       return Step(entry: nil, outputFlag: .unchanged)

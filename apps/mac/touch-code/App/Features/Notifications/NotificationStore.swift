@@ -116,6 +116,12 @@ public final class NotificationStore {
   }
 
   private func scheduleSave() {
+    // Capture the in-memory snapshot up front so a debounced write
+    // serialises the value at the moment of mutation; subsequent
+    // mutations cancel-and-replace this Task. flush() bypasses the
+    // queue entirely and writes the *current* `entries` rather than
+    // any captured snapshot — that's the right call on app
+    // termination, where the latest state must reach disk.
     pendingSaveTask?.cancel()
     let snapshot = entries
     pendingSaveTask = Task { [weak self] in

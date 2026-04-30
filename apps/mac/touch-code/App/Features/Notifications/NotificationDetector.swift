@@ -64,9 +64,14 @@ public final class NotificationDetector {
     guard let resolved = resolve(paneID: translated.paneID) else { return }
     if resolved.muted { return }
 
+    // Enrich the title with the originating worktree's display name so
+    // a banner reads `[main] Pane bell` rather than just `Pane bell` —
+    // critical when the user has multiple worktrees backgrounded and
+    // needs to triage at a glance.
+    let enrichedTitle = resolved.worktreeLabel.map { "[\($0)] \(translated.title)" } ?? translated.title
     let inbox = InboxEntry(
       kind: translated.kind,
-      title: translated.title,
+      title: enrichedTitle,
       body: translated.body,
       source: resolved.source
     )
@@ -80,11 +85,13 @@ public final class NotificationDetector {
   // MARK: - Helpers
 
   /// Single-pass catalog walk that resolves `paneID` to its full source
-  /// path AND its mute state in one O(N) traversal — previously two
-  /// independent walks called per event. Returns nil when the pane is
-  /// not yet in the catalog (e.g. a stray event arriving before the
-  /// engine has wired the pane to a tab).
-  private func resolve(paneID: PaneID) -> (source: InboxEntry.SourcePath, muted: Bool)? {
+  /// path, its mute state, and the worktree's display label in one O(N)
+  /// traversal — previously two independent walks called per event.
+  /// Returns nil when the pane is not yet in the catalog (e.g. a stray
+  /// event arriving before the engine has wired the pane to a tab).
+  private func resolve(
+    paneID: PaneID
+  ) -> (source: InboxEntry.SourcePath, muted: Bool, worktreeLabel: String?)? {
     let catalog = catalogSnapshot()
     for project in catalog.projects {
       for worktree in project.worktrees {
@@ -96,7 +103,8 @@ public final class NotificationDetector {
             tabID: tab.id,
             paneID: pane.id
           )
-          return (source, pane.labels.contains(InboxLabels.muted))
+          let label = worktree.name.isEmpty ? nil : worktree.name
+          return (source, pane.labels.contains(InboxLabels.muted), label)
         }
       }
     }
