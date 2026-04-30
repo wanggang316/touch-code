@@ -31,6 +31,7 @@ struct HierarchySidebarView: View {
   @Environment(HierarchyManager.self) private var hierarchyManager
   @Environment(SettingsStore.self) private var settingsStore
   @Environment(WorktreeStatusMonitor.self) private var worktreeStatusMonitor
+  @Environment(RollupIndexProvider.self) private var notificationRollup: RollupIndexProvider?
 
   /// Tracks whether the `.command` modifier is currently pressed. When held the sidebar
   /// reveals per-row `⌃N` hotkey hints (and the matching `⌃1`–`⌃9` / `⌃0` bindings).
@@ -553,7 +554,8 @@ struct HierarchySidebarView: View {
     // even though state moved.
     let content = HStack(spacing: 6) {
       WorktreeRowIcon(
-        snapshot: snapshot, rollup: rollup, isSelected: isSelected, roleTint: roleTint
+        snapshot: snapshot, rollup: rollup, isSelected: isSelected, roleTint: roleTint,
+        hasUnreadNotification: notificationRollup?.current.unreadWorktrees.contains(worktree.id) == true
       )
       VStack(alignment: .leading, spacing: 0) {
         HStack(spacing: 2) {
@@ -972,6 +974,7 @@ private struct ProjectHeaderRow: View {
   /// expanded). The parent Button still owns the tap, so this is display-only.
   var isExpanded: Bool = false
   @Bindable var store: StoreOf<HierarchySidebarFeature>
+  @Environment(RollupIndexProvider.self) private var rollup: RollupIndexProvider?
   @State private var isHovering = false
   @State private var isPlusHovering = false
   @State private var isMenuHovering = false
@@ -987,6 +990,15 @@ private struct ProjectHeaderRow: View {
       Text(project.name)
         .font(.callout)
         .foregroundStyle(isHovering ? .primary : .secondary)
+      // L4 unread dot. Rendered only when this Project's id appears in
+      // RollupIndex.unreadProjects — which only happens when the project
+      // is collapsed and unread entries roll up to its level.
+      if rollup?.current.unreadProjects.contains(project.id) == true {
+        Circle()
+          .fill(Color.accentColor)
+          .frame(width: 5, height: 5)
+          .accessibilityLabel("Has unread notifications")
+      }
       // M5 (project-tags): up to 3 colored dots resolved from the
       // catalog's tag list. "+N" overflow when more than 3. Hidden
       // entirely when the project has no tags.

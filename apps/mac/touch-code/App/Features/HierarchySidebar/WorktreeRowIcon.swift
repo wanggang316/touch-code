@@ -22,6 +22,10 @@ struct WorktreeRowIcon: View {
   /// "role" in the Project — yellow for the main checkout, orange for pinned rows,
   /// secondary for everything else.
   var roleTint: Color = .secondary
+  /// L3 unread override. When `true`, the row icon swaps to a bell glyph
+  /// regardless of PR / branch state, and the role tint is replaced by
+  /// the accent colour. PR check rollup overlay still renders unchanged.
+  var hasUnreadNotification: Bool = false
 
   /// Native `List(selection:)` paints the selection chrome via NSTableView's
   /// `.sourceList` mode and sets `\.backgroundProminence = .increased` on
@@ -35,14 +39,24 @@ struct WorktreeRowIcon: View {
   @Environment(\.backgroundProminence) private var backgroundProminence
 
   var body: some View {
-    Image(assetName)
-      .renderingMode(.template)
-      .resizable()
-      .aspectRatio(contentMode: .fit)
-      .frame(width: 14, height: 14)
-      .foregroundStyle(tint)
-      .overlay(alignment: .bottomTrailing) { rollupBadge }
-      .accessibilityLabel(accessibilityLabel)
+    Group {
+      if hasUnreadNotification {
+        Image(systemName: "bell.fill")
+          .resizable()
+          .aspectRatio(contentMode: .fit)
+          .frame(width: 12, height: 12)
+          .foregroundStyle(Color.accentColor)
+      } else {
+        Image(assetName)
+          .renderingMode(.template)
+          .resizable()
+          .aspectRatio(contentMode: .fit)
+          .frame(width: 14, height: 14)
+          .foregroundStyle(tint)
+      }
+    }
+    .overlay(alignment: .bottomTrailing) { rollupBadge }
+    .accessibilityLabel(accessibilityLabel)
   }
 
   private var assetName: String {

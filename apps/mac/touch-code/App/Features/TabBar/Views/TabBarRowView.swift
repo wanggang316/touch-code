@@ -127,6 +127,7 @@ private struct ResolvingTabChipView: View {
   let onCacheLiveTitle: (String) -> Void
 
   @Environment(HierarchyManager.self) private var hierarchyManager
+  @Environment(RollupIndexProvider.self) private var notificationRollup: RollupIndexProvider?
   @Dependency(TerminalClient.self) private var terminalClient
 
   var body: some View {
@@ -137,6 +138,7 @@ private struct ResolvingTabChipView: View {
       isDirty: isDirty,
       isOnlyTab: isOnlyTab,
       isLastTab: isLastTab,
+      hasUnreadNotification: notificationRollup?.current.unreadTabs.contains(tab.id) == true,
       onSelect: onSelect,
       onClose: onClose,
       onMiddleClick: onMiddleClick,

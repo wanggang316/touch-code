@@ -196,6 +196,7 @@ private struct SubtreeView: View {
 private struct LeafView: View {
   let paneID: PaneID
   let store: StoreOf<SplitViewportFeature>
+  @Environment(RollupIndexProvider.self) private var notificationRollup: RollupIndexProvider?
 
   var body: some View {
     if let childStore = store.scope(
@@ -210,6 +211,7 @@ private struct LeafView: View {
       // terminal visually stays on the previously-shown worktree.
       LazyPaneHost(store: childStore)
         .id(paneID)
+        .overlay(alignment: .top) { paneIndicatorLine }
     } else {
       // One-frame gap between pane entering the catalog and the sync
       // action landing `paneHosts[id: paneID]` in state. Match
@@ -219,6 +221,20 @@ private struct LeafView: View {
         .controlSize(.small)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .underPageBackgroundColor))
+    }
+  }
+
+  /// L1 unread top-line. 2 px tall band overlaid on the top edge of the
+  /// pane chrome. Amber for waitingForInput (overrides green), green for
+  /// taskFinished. Absent from the rollup map → no line.
+  @ViewBuilder
+  private var paneIndicatorLine: some View {
+    if let indicator = notificationRollup?.current.paneIndicator[paneID] {
+      Rectangle()
+        .fill(indicator == .waitingForInput ? Color.orange : Color.green)
+        .frame(height: 2)
+        .accessibilityHidden(true)
+        .allowsHitTesting(false)
     }
   }
 }

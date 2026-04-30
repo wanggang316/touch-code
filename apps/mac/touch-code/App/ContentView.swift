@@ -14,6 +14,10 @@ struct ContentView: View {
   /// Per-Worktree dirty-tree cache threaded into the sidebar so each row can decide
   /// whether to paint a pending-work dot without owning its own `git status` fetch.
   let worktreeStatusMonitor: WorktreeStatusMonitor
+  /// v1 notifications roll-up. Threaded via `.environment` so sidebar
+  /// rows / tab bar / pane chrome can read per-level unread indicators
+  /// without each site owning its own derivation.
+  let notificationRollup: RollupIndexProvider?
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
   /// Transient toast for editor-open outcomes (success + failure). Non-nil = visible;
@@ -87,6 +91,7 @@ struct ContentView: View {
     .environment(hierarchyManager)
     .environment(settingsStore)
     .environment(worktreeStatusMonitor)
+    .environment(notificationRollup)
     .task {
       store.send(.onLaunch)
       store.send(.worktreeHeader(.onAppear))

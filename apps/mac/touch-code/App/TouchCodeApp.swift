@@ -34,7 +34,8 @@ struct TouchCodeApp: App {
             store: store,
             hierarchyManager: appState.hierarchyManager,
             settingsStore: appState.settingsStore,
-            worktreeStatusMonitor: appState.worktreeStatusMonitor
+            worktreeStatusMonitor: appState.worktreeStatusMonitor,
+            notificationRollup: appState.notificationRollup
           )
           .frame(minWidth: 800, minHeight: 600)
           .environment(commandKeyObserver)

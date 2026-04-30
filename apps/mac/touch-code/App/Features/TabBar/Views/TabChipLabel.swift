@@ -15,6 +15,9 @@ struct TabChipLabel: View {
   let title: String
   var isActive: Bool = false
   var isDirty: Bool = false
+  /// L2 unread dot. Rendered as a 4 px filled circle immediately before
+  /// the title text. Boolean only — no count, no kind distinction.
+  var hasUnreadNotification: Bool = false
 
   var body: some View {
     HStack(spacing: 4) {
@@ -22,6 +25,12 @@ struct TabChipLabel: View {
         ProgressView()
           .controlSize(.mini)
           .frame(width: 12, height: 12)
+      }
+      if hasUnreadNotification {
+        Circle()
+          .fill(Color.accentColor)
+          .frame(width: 4, height: 4)
+          .accessibilityLabel("Has unread notifications")
       }
       Text(title)
         .lineLimit(1)
