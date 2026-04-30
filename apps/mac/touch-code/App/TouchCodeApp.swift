@@ -164,6 +164,10 @@ final class AppState {
   /// debounced JSON write to `~/.config/touch-code/notifications.json` and
   /// the in-memory unread state outlive any individual scene transition.
   let notificationStore: NotificationStore
+  /// Per-level roll-up derivation; views read `notificationRollup.current`
+  /// to render indicators. Created in `bringUp` once `hierarchyManager`
+  /// can be queried for focus state.
+  private(set) var notificationRollup: RollupIndexProvider?
   /// Drains the engine's TerminalEvent stream into `notificationDetector`.
   /// Held so `flushAllPersistedState` / app shutdown can cancel it cleanly.
   @ObservationIgnored private var notificationDetectorTask: Task<Void, Never>?
@@ -261,6 +265,32 @@ final class AppState {
     self.dockBadgerTask = Task { @MainActor in
       await Self.observeDockBadge(store: inbox)
     }
+
+    // Roll-up provider — reads inbox + a hierarchy focus snapshot, recomputes
+    // on either input changing. View sites observe its `.current` property.
+    let rollup = RollupIndexProvider(
+      store: inbox,
+      focus: { [weak manager] in
+        guard let manager else { return RollupFocusState() }
+        return Self.focusState(from: manager.catalog, lastFocusedPane: { tabID in manager.lastFocusedPane(in: tabID) })
+      },
+      observe: { [weak manager] in
+        // Touch every Catalog field that participates in the focus
+        // computation so withObservationTracking captures them. Reads
+        // both top-level selection state and per-Project worktree
+        // selection / expansion.
+        guard let manager else { return }
+        _ = manager.catalog.selectedProjectID
+        for project in manager.catalog.projects {
+          _ = project.selectedWorktreeID
+          _ = project.isExpanded
+          for worktree in project.worktrees {
+            _ = worktree.selectedTabID
+          }
+        }
+      }
+    )
+    self.notificationRollup = rollup
 
     // Build the editor + hierarchy clients once so the reducer stack AND the IPC
     // handlers share the exact same live instances — avoids two parallel
@@ -400,6 +430,32 @@ final class AppState {
     shortcutsStore.flush()
     notificationStore.flush()
     catalogStore.flushPending()
+  }
+
+  /// Project the live `Catalog` plus `lastFocusedPane` lookup into a
+  /// `FocusState` for `RollupIndex.compute`. Reads:
+  /// - active project = `selectedProjectID`
+  /// - active worktree = the active project's `selectedWorktreeID`
+  /// - active tab = the active worktree's `selectedTabID`
+  /// - focused pane = `lastFocusedPane(activeTabID)`
+  /// - expanded projects = `Project.isExpanded` filtered to true
+  static func focusState(
+    from catalog: Catalog,
+    lastFocusedPane: @MainActor (TabID) -> PaneID?
+  ) -> RollupFocusState {
+    let activeProject = catalog.projects.first(where: { $0.id == catalog.selectedProjectID })
+    let activeWorktree = activeProject?.worktrees.first(where: { $0.id == activeProject?.selectedWorktreeID })
+    let activeTab = activeWorktree?.tabs.first(where: { $0.id == activeWorktree?.selectedTabID })
+    let focusedPane = activeTab.map { lastFocusedPane($0.id) } ?? nil
+    let expanded = Set(catalog.projects.filter(\.isExpanded).map(\.id))
+
+    return RollupFocusState(
+      focusedPaneID: focusedPane,
+      activeTabID: activeTab?.id,
+      activeWorktreeID: activeWorktree?.id,
+      activeProjectID: activeProject?.id,
+      expandedProjectIDs: expanded
+    )
   }
 
   /// Long-running mirror: pushes `store.unreadCount` to the Dock tile badge

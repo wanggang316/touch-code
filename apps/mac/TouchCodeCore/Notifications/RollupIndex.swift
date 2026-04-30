@@ -44,7 +44,7 @@ public nonisolated struct RollupIndex: Equatable, Sendable {
   /// per the visibility rules in the design doc, and accumulate.
   public static func compute(
     unread: [InboxEntry],
-    focus: FocusState
+    focus: RollupFocusState
   ) -> RollupIndex {
     var unreadProjects: Set<ProjectID> = []
     var unreadWorktrees: Set<WorktreeID> = []
@@ -92,7 +92,7 @@ public nonisolated struct RollupIndex: Equatable, Sendable {
   /// the first level the user cannot see into.
   private static func deepestHiddenLevel(
     for source: InboxEntry.SourcePath,
-    focus: FocusState
+    focus: RollupFocusState
   ) -> Level {
     if !focus.expandedProjectIDs.contains(source.projectID) {
       return .project
@@ -135,7 +135,7 @@ public nonisolated enum PaneIndicator: String, Codable, Sendable, Equatable {
 
 /// Snapshot of the data the user can currently see in the sidebar /
 /// tab-bar / pane chrome. Drives `RollupIndex.compute`'s visibility rule.
-public nonisolated struct FocusState: Equatable, Sendable {
+public nonisolated struct RollupFocusState: Equatable, Sendable {
   public let focusedPaneID: PaneID?
   public let activeTabID: TabID?
   public let activeWorktreeID: WorktreeID?

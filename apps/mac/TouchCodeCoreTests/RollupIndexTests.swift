@@ -47,7 +47,7 @@ struct RollupIndexTests {
       entry(project: p.projectA, worktree: p.worktreeA1, tab: p.tabA1Active, pane: p.paneA1ActiveTabFocused)
     ]
     // Project A is NOT in expandedProjectIDs.
-    let focus = FocusState(expandedProjectIDs: [])
+    let focus = RollupFocusState(expandedProjectIDs: [])
     let index = RollupIndex.compute(unread: unread, focus: focus)
 
     #expect(index.unreadProjects == [p.projectA])
@@ -62,7 +62,7 @@ struct RollupIndexTests {
     let unread = [
       entry(project: p.projectA, worktree: p.worktreeA1, tab: p.tabA1Active, pane: p.paneA1ActiveTabFocused)
     ]
-    let focus = FocusState(
+    let focus = RollupFocusState(
       activeProjectID: p.projectB,    // user is on a different project
       expandedProjectIDs: [p.projectA, p.projectB]
     )
@@ -81,7 +81,7 @@ struct RollupIndexTests {
       entry(project: p.projectA, worktree: p.worktreeA2, tab: p.tabA1Active, pane: p.paneA1ActiveTabFocused)
     ]
     // Project A active, but A2 isn't the active worktree (A1 is).
-    let focus = FocusState(
+    let focus = RollupFocusState(
       activeWorktreeID: p.worktreeA1,
       activeProjectID: p.projectA,
       expandedProjectIDs: [p.projectA]
@@ -98,7 +98,7 @@ struct RollupIndexTests {
     let unread = [
       entry(project: p.projectA, worktree: p.worktreeA1, tab: p.tabA1Inactive, pane: p.paneA1ActiveTabFocused)
     ]
-    let focus = FocusState(
+    let focus = RollupFocusState(
       activeTabID: p.tabA1Active,
       activeWorktreeID: p.worktreeA1,
       activeProjectID: p.projectA,
@@ -120,7 +120,7 @@ struct RollupIndexTests {
         pane: p.paneA1ActiveTabUnfocused
       )
     ]
-    let focus = FocusState(
+    let focus = RollupFocusState(
       focusedPaneID: p.paneA1ActiveTabFocused,
       activeTabID: p.tabA1Active,
       activeWorktreeID: p.worktreeA1,
@@ -144,7 +144,7 @@ struct RollupIndexTests {
       entry(kind: .waitingForInput, project: p.projectA, worktree: p.worktreeA1, tab: p.tabA1Active, pane: pane),
       entry(kind: .taskFinished, project: p.projectA, worktree: p.worktreeA1, tab: p.tabA1Active, pane: pane),
     ]
-    let focus = FocusState(
+    let focus = RollupFocusState(
       focusedPaneID: p.paneA1ActiveTabFocused,
       activeTabID: p.tabA1Active,
       activeWorktreeID: p.worktreeA1,
@@ -163,7 +163,7 @@ struct RollupIndexTests {
       entry(kind: .taskFinished, project: p.projectA, worktree: p.worktreeA1, tab: p.tabA1Active, pane: pane),
       entry(kind: .taskFinished, project: p.projectA, worktree: p.worktreeA1, tab: p.tabA1Active, pane: pane),
     ]
-    let focus = FocusState(
+    let focus = RollupFocusState(
       focusedPaneID: p.paneA1ActiveTabFocused,
       activeTabID: p.tabA1Active,
       activeWorktreeID: p.worktreeA1,
@@ -187,7 +187,7 @@ struct RollupIndexTests {
       entry(project: p.projectB, worktree: p.worktreeB1, tab: TabID(), pane: PaneID()),
       entry(project: p.projectB, worktree: p.worktreeB1, tab: TabID(), pane: PaneID()),
     ]
-    let focus = FocusState(
+    let focus = RollupFocusState(
       focusedPaneID: p.paneA1ActiveTabFocused,
       activeTabID: p.tabA1Active,
       activeWorktreeID: p.worktreeA1,
@@ -200,7 +200,7 @@ struct RollupIndexTests {
 
   @Test
   func emptyUnreadYieldsEmptyIndex() {
-    let index = RollupIndex.compute(unread: [], focus: FocusState())
+    let index = RollupIndex.compute(unread: [], focus: RollupFocusState())
     #expect(index == .empty)
   }
 }
