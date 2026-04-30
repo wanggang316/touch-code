@@ -138,6 +138,15 @@ private struct InboxRowView: View {
   let entry: InboxEntry
   let onTap: () -> Void
 
+  /// Formatter is allocated once for the whole popover lifetime; building
+  /// a fresh `RelativeDateTimeFormatter` per row would otherwise spin up
+  /// a CFLocale, calendar, and ICU context on every redraw.
+  private static let relativeFormatter: RelativeDateTimeFormatter = {
+    let f = RelativeDateTimeFormatter()
+    f.unitsStyle = .short
+    return f
+  }()
+
   @State private var isHovering = false
 
   var body: some View {
@@ -179,8 +188,6 @@ private struct InboxRowView: View {
   }
 
   private var relativeAge: String {
-    let formatter = RelativeDateTimeFormatter()
-    formatter.unitsStyle = .short
-    return formatter.localizedString(for: entry.createdAt, relativeTo: Date())
+    Self.relativeFormatter.localizedString(for: entry.createdAt, relativeTo: Date())
   }
 }

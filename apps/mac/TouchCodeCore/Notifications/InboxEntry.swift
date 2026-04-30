@@ -14,6 +14,16 @@ import Foundation
 /// time. Hierarchy nodes can be deleted afterwards; navigation re-resolves
 /// the path against the current `Catalog` and falls back to the deepest
 /// still-existing ancestor.
+///
+/// Reserved string keys for `Pane.labels` that drive this system are
+/// collected in `InboxLabels` (just below) so the detector and any
+/// future per-pane toggle UI agree on one constant.
+public nonisolated enum InboxLabels {
+  /// Per-pane mute. When the pane's `labels` contains this string, the
+  /// detector drops the event before any banner / store mutation.
+  public static let muted: String = "notifications:muted"
+}
+
 public nonisolated struct InboxEntry: Equatable, Codable, Sendable, Identifiable {
   public let id: NotificationID
   public let kind: Kind

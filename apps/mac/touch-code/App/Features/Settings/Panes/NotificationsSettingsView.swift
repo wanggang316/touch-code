@@ -15,6 +15,7 @@ import TouchCodeCore
 /// Authorization is re-read on every appear and on `applicationDidBecomeActive`
 /// so a flip in System Settings takes effect without a relaunch.
 struct NotificationsSettingsView: View {
+  @Environment(UserNotificationsOSNotifier.self) private var osNotifier: UserNotificationsOSNotifier?
   @State private var status: AuthorizationStatus = .notDetermined
   @State private var isRefreshing = false
 
@@ -67,11 +68,11 @@ struct NotificationsSettingsView: View {
     case .notDetermined:
       Button("Request permission…") {
         Task {
-          let notifier = UserNotificationsOSNotifier()
-          let result = await notifier.requestAuthorization()
-          status = result
+          guard let notifier = osNotifier else { return }
+          status = await notifier.requestAuthorization()
         }
       }
+      .disabled(osNotifier == nil)
     case .denied:
       Button("Open System Settings…") {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") {
@@ -112,8 +113,8 @@ struct NotificationsSettingsView: View {
   }
 
   private func refresh() async {
+    guard let notifier = osNotifier else { return }
     isRefreshing = true
-    let notifier = UserNotificationsOSNotifier()
     status = await notifier.currentAuthorizationStatus()
     isRefreshing = false
   }

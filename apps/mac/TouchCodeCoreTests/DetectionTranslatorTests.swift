@@ -41,12 +41,27 @@ struct DetectionTranslatorTests {
   }
 
   @Test
-  func desktopNotificationWithQuestionMarkIsWaitingForInput() {
+  func desktopNotificationWithTitleSuffixedQuestionMarkIsWaitingForInput() {
     let step = DetectionTranslator.translate(
-      .paneInfoChanged(PaneID(), .desktopNotification(title: "Continue", body: "Apply migration?")),
+      .paneInfoChanged(PaneID(), .desktopNotification(title: "Apply migration?", body: "")),
       hasProducedOutput: []
     )
     #expect(step.entry?.kind == .waitingForInput)
+  }
+
+  @Test
+  func desktopNotificationWithQuestionMarkOnlyInBodyIsTaskFinished() {
+    // "Add tests?" is rhetorical informational text in a build summary,
+    // not a prompt. The classifier scopes the `?` cue to the title
+    // suffix to avoid misclassifying these as waiting-for-input.
+    let step = DetectionTranslator.translate(
+      .paneInfoChanged(
+        PaneID(),
+        .desktopNotification(title: "Build done", body: "5 targets in 2.3s. Add tests?")
+      ),
+      hasProducedOutput: []
+    )
+    #expect(step.entry?.kind == .taskFinished)
   }
 
   @Test

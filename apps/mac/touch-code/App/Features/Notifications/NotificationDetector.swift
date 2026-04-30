@@ -61,58 +61,46 @@ public final class NotificationDetector {
   }
 
   private func emit(_ translated: DetectionTranslator.Entry) async {
-    guard let source = resolveSource(paneID: translated.paneID) else { return }
-    if isMuted(paneID: translated.paneID) { return }
+    guard let resolved = resolve(paneID: translated.paneID) else { return }
+    if resolved.muted { return }
 
     let inbox = InboxEntry(
       kind: translated.kind,
       title: translated.title,
       body: translated.body,
-      source: source
+      source: resolved.source
     )
     store.append(inbox)
 
-    if shouldBanner(source: source) {
+    if shouldBanner(source: resolved.source) {
       await banner.post(inbox)
     }
   }
 
   // MARK: - Helpers
 
-  /// Walks the catalog to recover the full `(P, W, T, Pn)` for `paneID`.
-  /// Returns nil when the pane is not yet in the catalog (e.g. a stray
-  /// event arriving before the engine has wired the pane to a tab).
-  private func resolveSource(paneID: PaneID) -> InboxEntry.SourcePath? {
-    let catalog = catalogSnapshot()
-    for project in catalog.projects {
-      for worktree in project.worktrees {
-        for tab in worktree.tabs where tab.flatPaneIDs.contains(paneID) {
-          return InboxEntry.SourcePath(
-            projectID: project.id,
-            worktreeID: worktree.id,
-            tabID: tab.id,
-            paneID: paneID
-          )
-        }
-      }
-    }
-    return nil
-  }
-
-  /// A pane is muted when its `Pane.labels` contains `"notifications:muted"`.
-  /// Per-pane mute is the only mute knob in v1.
-  private func isMuted(paneID: PaneID) -> Bool {
+  /// Single-pass catalog walk that resolves `paneID` to its full source
+  /// path AND its mute state in one O(N) traversal — previously two
+  /// independent walks called per event. Returns nil when the pane is
+  /// not yet in the catalog (e.g. a stray event arriving before the
+  /// engine has wired the pane to a tab).
+  private func resolve(paneID: PaneID) -> (source: InboxEntry.SourcePath, muted: Bool)? {
     let catalog = catalogSnapshot()
     for project in catalog.projects {
       for worktree in project.worktrees {
         for tab in worktree.tabs {
-          if let pane = tab.panes.first(where: { $0.id == paneID }) {
-            return pane.labels.contains("notifications:muted")
-          }
+          guard let pane = tab.panes.first(where: { $0.id == paneID }) else { continue }
+          let source = InboxEntry.SourcePath(
+            projectID: project.id,
+            worktreeID: worktree.id,
+            tabID: tab.id,
+            paneID: pane.id
+          )
+          return (source, pane.labels.contains(InboxLabels.muted))
         }
       }
     }
-    return false
+    return nil
   }
 
   /// Banner gating: deliver when **either** the app is not frontmost **or**

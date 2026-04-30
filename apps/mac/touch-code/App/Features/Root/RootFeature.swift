@@ -899,31 +899,38 @@ struct RootFeature {
         return .send(.sidebar(.projectAddWorktreeTapped(projectID: projectID)))
 
       case .focusHierarchyPath(let source):
-        // Walk the source path against the live catalog, falling back to
-        // the deepest still-existing ancestor when intermediate IDs have
-        // been deleted. Each `try?` lands cleanly even if the underlying
-        // catalog state has shifted; consumers expect best-effort.
-        let catalog = hierarchyClient.snapshot()
-        guard catalog.projects.contains(where: { $0.id == source.projectID }) else {
+        // Walk the source path against the *live* catalog, re-reading the
+        // snapshot between each `select*` mutation so a tab autoclose or
+        // pane teardown that lands mid-walk steers us to the deepest
+        // still-existing ancestor (G3 fallback) rather than an empty leaf.
+        // Holding a single `let catalog =` across mutations would tell us
+        // a deleted node still exists — see review notes.
+        guard hierarchyClient.snapshot().projects.contains(where: { $0.id == source.projectID }) else {
           return .none
         }
         try? hierarchyClient.selectProject(source.projectID)
 
-        guard let project = catalog.projects.first(where: { $0.id == source.projectID }),
+        guard let project = hierarchyClient.snapshot()
+          .projects.first(where: { $0.id == source.projectID }),
           project.worktrees.contains(where: { $0.id == source.worktreeID })
         else {
           return .none
         }
         try? hierarchyClient.selectWorktree(source.worktreeID, source.projectID)
 
-        guard let worktree = project.worktrees.first(where: { $0.id == source.worktreeID }),
+        guard let worktree = hierarchyClient.snapshot()
+          .projects.first(where: { $0.id == source.projectID })?
+          .worktrees.first(where: { $0.id == source.worktreeID }),
           worktree.tabs.contains(where: { $0.id == source.tabID })
         else {
           return .none
         }
         try? hierarchyClient.selectTab(source.tabID, source.worktreeID, source.projectID)
 
-        guard let tab = worktree.tabs.first(where: { $0.id == source.tabID }),
+        guard let tab = hierarchyClient.snapshot()
+          .projects.first(where: { $0.id == source.projectID })?
+          .worktrees.first(where: { $0.id == source.worktreeID })?
+          .tabs.first(where: { $0.id == source.tabID }),
           tab.flatPaneIDs.contains(source.paneID)
         else {
           return .none

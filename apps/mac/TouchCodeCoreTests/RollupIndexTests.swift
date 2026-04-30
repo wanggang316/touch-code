@@ -203,4 +203,29 @@ struct RollupIndexTests {
     let index = RollupIndex.compute(unread: [], focus: RollupFocusState())
     #expect(index == .empty)
   }
+
+  // MARK: - R1 (focus-clears-read) boundary
+
+  @Test
+  func paneIndicatorRemainsUntilEntryIsMarkedRead() {
+    // Even when the user is currently focused on the source pane, the
+    // entry surfaces as `.pane` in the rollup until R1 (the upstream
+    // mark-read pass on focus change) fires. This guards the in-between
+    // frame where the pane has just become focused but the store has
+    // not yet flipped readAt.
+    let p = Pathset()
+    let pane = p.paneA1ActiveTabFocused
+    let unread = [
+      entry(kind: .waitingForInput, project: p.projectA, worktree: p.worktreeA1, tab: p.tabA1Active, pane: pane)
+    ]
+    let focus = RollupFocusState(
+      focusedPaneID: pane,
+      activeTabID: p.tabA1Active,
+      activeWorktreeID: p.worktreeA1,
+      activeProjectID: p.projectA,
+      expandedProjectIDs: [p.projectA]
+    )
+    let index = RollupIndex.compute(unread: unread, focus: focus)
+    #expect(index.paneIndicator[pane] == .waitingForInput)
+  }
 }

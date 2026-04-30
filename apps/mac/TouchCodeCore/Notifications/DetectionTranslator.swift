@@ -150,12 +150,17 @@ public nonisolated enum DetectionTranslator {
 
   /// Heuristic: pick `.waitingForInput` for desktop notifications whose
   /// title or body suggests the agent needs the user (permission /
-  /// approval / input / trailing question mark). Anything else maps to
-  /// `.taskFinished`.
+  /// approval / input). The trailing question-mark cue applies only at
+  /// the very end of the title — body text routinely contains rhetorical
+  /// `?` characters (e.g. "Built 5 targets. Add tests?") which would
+  /// otherwise misclassify routine completion as input-required.
   public static func classify(title: String, body: String) -> InboxEntry.Kind {
     let combined = (title + " " + body).lowercased()
-    let cues = ["permission", "approval", "approve", "input", "?"]
-    if cues.contains(where: combined.contains) {
+    let lexicalCues = ["permission", "approval", "approve", "input"]
+    if lexicalCues.contains(where: combined.contains) {
+      return .waitingForInput
+    }
+    if title.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("?") {
       return .waitingForInput
     }
     return .taskFinished

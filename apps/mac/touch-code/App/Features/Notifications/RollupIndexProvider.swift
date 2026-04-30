@@ -39,17 +39,21 @@ public final class RollupIndexProvider {
 
   // MARK: - Internals
 
-  /// Re-arming Observation pump: each fired `onChange` recomputes and
-  /// re-registers a new tracking block. The observed reads happen inside
-  /// `withObservationTracking { }`; both `store.entries` and the focus
-  /// closure's reads are captured because the closure is invoked inside
-  /// the tracking block.
+  /// Re-arming Observation pump: every loop iteration recomputes
+  /// unconditionally and then re-registers a fresh tracking block.
+  /// Recomputing *before* re-arming is load-bearing — `withObservationTracking`
+  /// only fires `onChange` once per registration, and there is a small
+  /// window between the previous fire and the next arm during which any
+  /// further mutation would otherwise be missed. Recomputing in the loop
+  /// body collapses that gap so a burst (e.g. five OSC 9 notifications in
+  /// a few ms) is observed as the final settled state, not a stale one.
   private func armObservation() {
     let store = store
     let observe = observe
     task?.cancel()
     task = Task { @MainActor [weak self] in
       while !Task.isCancelled {
+        self?.recompute()
         let stream = AsyncStream<Void> { continuation in
           withObservationTracking {
             _ = store.entries
@@ -61,7 +65,6 @@ public final class RollupIndexProvider {
           }
         }
         for await _ in stream {
-          self?.recompute()
           break
         }
       }

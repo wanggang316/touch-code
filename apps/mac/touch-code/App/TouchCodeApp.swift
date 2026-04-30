@@ -37,7 +37,8 @@ struct TouchCodeApp: App {
             settingsStore: appState.settingsStore,
             worktreeStatusMonitor: appState.worktreeStatusMonitor,
             notificationRollup: appState.notificationRollup,
-            notificationStore: appState.notificationStore
+            notificationStore: appState.notificationStore,
+            osNotifier: appState.osNotifier
           )
           .frame(minWidth: 800, minHeight: 600)
           .environment(commandKeyObserver)
@@ -104,6 +105,7 @@ struct TouchCodeApp: App {
           .environment(appState.hierarchyManager)
           .environment(appState.settingsStore)
           .environment(appState.developerPaneDependencies)
+          .environment(appState.osNotifier)
           .environment(\.resolvedShortcuts, appState.shortcutsStore.resolved)
         } else {
           // Settings window can be opened before AppState.bringUp completes (rare but
@@ -242,8 +244,11 @@ final class AppState {
   /// via `withObservationTracking` re-registration.
   @ObservationIgnored private var dockBadgerTask: Task<Void, Never>?
   /// Live banner adapter; held so M5's Settings panel can call
-  /// `requestAuthorization()` from the recovery button.
-  @ObservationIgnored private var osNotifier: UserNotificationsOSNotifier?
+  /// `requestAuthorization()` from the recovery button. Single instance
+  /// per process — Settings panel reads via `@Environment` rather than
+  /// spawning its own (each `init` re-runs setNotificationCategories
+  /// on the shared center).
+  @ObservationIgnored private(set) var osNotifier: UserNotificationsOSNotifier?
   private(set) var terminalEngine: TerminalEngine?
   private(set) var store: StoreOf<RootFeature>?
   /// Long-lived store for the Settings window scene. Built during `bringUp()` so the
@@ -526,28 +531,26 @@ final class AppState {
   }
 
   /// Long-running mirror: pushes `store.unreadCount` to the Dock tile badge
-  /// every time the count changes. `withObservationTracking` only fires
-  /// once per registration, so the loop re-registers after each change.
-  /// Returns when the surrounding Task is cancelled.
+  /// every time the count changes. Each loop iteration writes the *current*
+  /// value before re-arming `withObservationTracking` so a burst of
+  /// mutations between the previous `onChange` fire and the next arm
+  /// settles to the final value rather than a stale one. Returns when
+  /// the surrounding Task is cancelled.
+  @MainActor
   private static func observeDockBadge(store: NotificationStore) async {
     while !Task.isCancelled {
-      let stream = AsyncStream<Int> { continuation in
-        let track: () -> Void = { [continuation] in
-          withObservationTracking {
-            _ = store.unreadCount
-          } onChange: {
-            Task { @MainActor [continuation] in
-              continuation.yield(store.unreadCount)
-            }
+      DockBadger.setBadge(store.unreadCount)
+      let stream = AsyncStream<Void> { continuation in
+        withObservationTracking {
+          _ = store.unreadCount
+        } onChange: {
+          Task { @MainActor [continuation] in
+            continuation.yield(())
           }
         }
-        track()
         continuation.onTermination = { _ in }
       }
-      for await count in stream {
-        DockBadger.setBadge(count)
-        // Break out so the outer while-loop re-arms a fresh observation
-        // tracker — `withObservationTracking` only fires once per call.
+      for await _ in stream {
         break
       }
     }

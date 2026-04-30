@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import Observation
 import TouchCodeCore
 @preconcurrency import UserNotifications
 
@@ -15,6 +16,11 @@ public enum AuthorizationStatus: String, Sendable, Codable {
 /// Adapter protocol over `UNUserNotificationCenter` so the detector can be
 /// tested without a live notification daemon. `post` is a silent no-op when
 /// the status is `.denied`; the inbox + Dock badge continue to work.
+///
+/// One live instance per app process — held by `AppState.osNotifier` and
+/// also forwarded to `NotificationsSettingsView` via `@Environment` so
+/// the recovery panel does not spawn a parallel notifier (each `init`
+/// re-runs `setNotificationCategories` on the shared center).
 @MainActor
 public protocol OSNotifier: AnyObject {
   func currentAuthorizationStatus() async -> AuthorizationStatus
@@ -28,8 +34,9 @@ public protocol OSNotifier: AnyObject {
 /// `userNotificationCenter(_:didReceive:withCompletionHandler:)`, which
 /// parses `userInfo["deeplink"]` and dispatches `RootFeature.focusHierarchyPath`.
 @MainActor
+@Observable
 public final class UserNotificationsOSNotifier: OSNotifier {
-  private let center: UNUserNotificationCenter
+  @ObservationIgnored private let center: UNUserNotificationCenter
 
   public init(center: UNUserNotificationCenter = .current()) {
     self.center = center

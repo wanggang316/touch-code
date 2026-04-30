@@ -21,6 +21,11 @@ struct ContentView: View {
   /// v1 inbox owner. Threaded so the InboxBellView's popover can read
   /// `entries`, mark rows read, and trigger a "Mark all read".
   let notificationStore: NotificationStore?
+  /// v1 banner adapter. Threaded so the Settings → Notifications pane
+  /// reuses the long-lived instance instead of spawning a fresh one
+  /// (each spawn re-runs `setNotificationCategories` on the shared
+  /// UN center).
+  let osNotifier: UserNotificationsOSNotifier?
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
   /// Transient toast for editor-open outcomes (success + failure). Non-nil = visible;
@@ -97,6 +102,7 @@ struct ContentView: View {
     .environment(worktreeStatusMonitor)
     .environment(notificationRollup)
     .environment(notificationStore)
+    .environment(osNotifier)
     .task {
       store.send(.onLaunch)
       store.send(.worktreeHeader(.onAppear))
