@@ -160,6 +160,19 @@ final class AppState {
   let hierarchyManager: HierarchyManager
   let settingsStore: SettingsStore
   let shortcutsStore: ShortcutsStore
+  /// v1 notifications inbox owner; survives the full app lifetime so the
+  /// debounced JSON write to `~/.config/touch-code/notifications.json` and
+  /// the in-memory unread state outlive any individual scene transition.
+  let notificationStore: NotificationStore
+  /// Drains the engine's TerminalEvent stream into `notificationDetector`.
+  /// Held so `flushAllPersistedState` / app shutdown can cancel it cleanly.
+  @ObservationIgnored private var notificationDetectorTask: Task<Void, Never>?
+  /// Mirrors `notificationStore.unreadCount` onto the macOS Dock tile badge
+  /// via `withObservationTracking` re-registration.
+  @ObservationIgnored private var dockBadgerTask: Task<Void, Never>?
+  /// Live banner adapter; held so M5's Settings panel can call
+  /// `requestAuthorization()` from the recovery button.
+  @ObservationIgnored private var osNotifier: UserNotificationsOSNotifier?
   private(set) var terminalEngine: TerminalEngine?
   private(set) var store: StoreOf<RootFeature>?
   /// Long-lived store for the Settings window scene. Built during `bringUp()` so the
@@ -201,6 +214,7 @@ final class AppState {
     self.hierarchyManager = manager
     self.settingsStore = SettingsStore()
     self.shortcutsStore = ShortcutsStore()
+    self.notificationStore = NotificationStore()
     self.worktreeStatusMonitor = .live()
   }
 
@@ -223,6 +237,31 @@ final class AppState {
 
     let manager = hierarchyManager
     let settings = settingsStore
+
+    // v1 notifications wiring — placed after `manager` is captured so the
+    // detector closures can hold it. The detector consumes a fresh
+    // `engine.events()` stream (broadcast-multi-consumer), so it runs in
+    // parallel with RootFeature's own subscription.
+    let osNotifier = UserNotificationsOSNotifier()
+    self.osNotifier = osNotifier
+    let detector = NotificationDetector(
+      store: notificationStore,
+      banner: osNotifier,
+      catalogSnapshot: { manager.catalog },
+      lastFocusedPane: { tabID in manager.lastFocusedPane(in: tabID) }
+    )
+    let detectorEvents = engine.events()
+    self.notificationDetectorTask = Task { @MainActor in
+      for await event in detectorEvents {
+        await detector.handle(event)
+      }
+    }
+    let inbox = notificationStore
+    DockBadger.setBadge(inbox.unreadCount)
+    self.dockBadgerTask = Task { @MainActor in
+      await Self.observeDockBadge(store: inbox)
+    }
+
     // Build the editor + hierarchy clients once so the reducer stack AND the IPC
     // handlers share the exact same live instances — avoids two parallel
     // `LiveEditorService`s with divergent settings captures.
@@ -354,7 +393,38 @@ final class AppState {
   func flushAllPersistedState() {
     settingsStore.flush()
     shortcutsStore.flush()
+    notificationStore.flush()
     catalogStore.flushPending()
+    notificationDetectorTask?.cancel()
+    dockBadgerTask?.cancel()
+  }
+
+  /// Long-running mirror: pushes `store.unreadCount` to the Dock tile badge
+  /// every time the count changes. `withObservationTracking` only fires
+  /// once per registration, so the loop re-registers after each change.
+  /// Returns when the surrounding Task is cancelled.
+  private static func observeDockBadge(store: NotificationStore) async {
+    while !Task.isCancelled {
+      let stream = AsyncStream<Int> { continuation in
+        let track: () -> Void = { [continuation] in
+          withObservationTracking {
+            _ = store.unreadCount
+          } onChange: {
+            Task { @MainActor [continuation] in
+              continuation.yield(store.unreadCount)
+            }
+          }
+        }
+        track()
+        continuation.onTermination = { _ in }
+      }
+      for await count in stream {
+        DockBadger.setBadge(count)
+        // Break out so the outer while-loop re-arms a fresh observation
+        // tracker — `withObservationTracking` only fires once per call.
+        break
+      }
+    }
   }
 }
 
