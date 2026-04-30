@@ -17,20 +17,6 @@ struct IPCEnvelopeCodableTests {
   }
 
   @Test
-  func streamingRequestPreservesStreamFlag() throws {
-    let req = IPC.Request(
-      id: "stream-1",
-      method: .hookEvents,
-      params: .object([:]),
-      stream: true
-    )
-    let data = try JSONEncoder().encode(req)
-    let decoded = try JSONDecoder().decode(IPC.Request.self, from: data)
-    #expect(decoded.stream == true)
-    #expect(decoded.method == .hookEvents)
-  }
-
-  @Test
   func responseWithResultRoundTrip() throws {
     let res = IPC.Response(
       id: "abc123",
@@ -64,8 +50,6 @@ struct IPCEnvelopeCodableTests {
   func methodStringIsStable() throws {
     // Catch accidental renames that would break the wire.
     #expect(IPC.Method.systemHello.rawValue == "system.hello")
-    #expect(IPC.Method.hookInstall.rawValue == "hook.install")
-    #expect(IPC.Method.hookEvents.rawValue == "hook.events")
     #expect(IPC.Method.terminalBroadcastInput.rawValue == "terminal.broadcastInput")
     #expect(IPC.Method.hierarchyResolveAlias.rawValue == "hierarchy.resolveAlias")
   }
