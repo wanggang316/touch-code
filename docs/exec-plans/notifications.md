@@ -19,7 +19,7 @@ This work replaces the abandoned C6 design line (`design+c6-agent-notifications`
 
 ## Progress
 
-- [ ] M1 — Core model + store + persistence (no UI; commit + tests)
+- [x] M1 — Core model + store + persistence (no UI; commit + tests) — 2026-04-30, commits 31eb5d4 (pre-flight) → 201931b → d7c08a3 (pre-flight) → 2ef449c → c10a982 → 83721bc. 22 tests pass.
 - [ ] M2 — Detector + OSNotifier + DockBadger; first end-to-end signal (commit + tests)
 - [ ] M3 — RollupIndex + per-level indicators on Project / Worktree / Tab / Pane (commit + tests)
 - [ ] M4 — Status-bar bell, popover inbox, click-to-navigate (commit + tests)
@@ -30,7 +30,15 @@ Update each entry to `[x]` with an ISO date and short commit hash on completion.
 
 ## Surprises & Discoveries
 
-(None yet)
+**S1 (2026-04-30, M1) — Pre-existing test infrastructure breakage on `main`.** While trying to run TouchCodeCoreTests for the new InboxEntry / InboxStorage tests, two distinct breakages surfaced:
+
+1. `apps/mac/TouchCodeCoreTests/AgentStateTests.swift` — orphan from c6 cleanup commit `96842f0` (it deleted `apps/mac/TouchCodeCore/Notifications/AgentState.swift` but missed this matching test file). Caused `cannot find 'AgentState' in scope` on every TouchCodeCoreTests build. Fixed in commit `31eb5d4` by deleting the file.
+
+2. `apps/mac/TouchCodeCoreTests/IPC/IPCEnvelopeCodableTests.swift` — assertions referencing removed `IPC.Method.hookEvents` / `.hookInstall` from a c3 cleanup. Two of seven test bodies broke compilation. Fixed in commit `d7c08a3` by trimming only the affected bodies.
+
+Additional pre-existing breakage in `touch-codeTests` (the app-target test bundle) was *not* fixed: `apps/mac/touch-code/Tests/Developer/CLIInstallerClientTests.swift` fails with `Unable to find module dependency: 'touch_code'` on every `xcodebuild build-for-testing`. The file uses the same `@testable import touch_code` as ~10 other tests in `touch-code/Tests/` that compile fine; the `Tests/Developer/` subfolder appears to be in an inconsistent build phase. Out of scope for the notifications work; recorded here so a future agent or Gump can address it. Workaround for M1: routed the bulk of testable logic into `TouchCodeCore.InboxStorage` (a `nonisolated` enum) so `TouchCodeCoreTests` covers it without depending on `touch-codeTests`.
+
+**S2 (2026-04-30, M1) — `make mac-lint` baseline has 54 pre-existing failures.** None on the new files; recording so the M1 commit messages' "lint shows only pre-existing failures" claim is auditable. Sample failures: `async_without_await` in ShortcutsStoreTests, `force_try` in InternalConflictDetectorTests, `non_optional_string_data_conversion` in ShortcutOverrideStoreCodableTests. Out of scope.
 
 ## Decision Log
 
@@ -42,7 +50,11 @@ Update each entry to `[x]` with an ISO date and short commit hash on completion.
 
 **DEC-4 — Cross-worktree navigation routes through `RootFeature`, not `PaneActionRouter`.** `PaneActionRouter` handles intra-pane intents; cross-worktree focus belongs to the feature that owns selection state.
 
-**DEC-5 — `OSNotifier` is the only file salvaged from the C6 worktree.** Approximately 110 LOC; needs a model swap from `AgentNotification` → `Notification` and `panelID` → `SourcePath`. All other C6 files are abandoned.
+**DEC-5 — `OSNotifier` is the only file salvaged from the C6 worktree.** Approximately 110 LOC; needs a model swap from `AgentNotification` → `InboxEntry` and `panelID` → `SourcePath`. All other C6 files are abandoned.
+
+**DEC-M1-1 (2026-04-30) — Public type renamed `Notification` → `InboxEntry`.** The plan's Interfaces section spelled the type `Notification`. Implementation surfaced a clash with `Foundation.Notification` (the value-type wrapper for `NotificationCenter`) at app-target call sites that import both `Foundation` and `TouchCodeCore`. supacode hit the same issue and went with `WorktreeTerminalNotification`; the abandoned C6 design used `AgentNotification`. Chose `InboxEntry` because it is also semantically more accurate — the persisted record is an *entry in the inbox*, not the broader concept of a "notification" (which spans banners, dock badge, etc.). Plan's Interfaces section retained as written for design intent; implementation files use `InboxEntry`. References in subsequent milestones (M2..M6) implicitly track the rename.
+
+**DEC-M1-2 (2026-04-30) — Inbox-mutation policy split into `TouchCodeCore.InboxStorage` (pure) + `NotificationStore` (`@MainActor @Observable` wrapper).** Plan put all of dedup / sweep / cap logic inside `NotificationStore` in the app target. `touch-codeTests` is broken on `main` (see Surprises S1), so a Store living there could not be unit-tested. Splitting the *pure* logic — `appending`, `aged`, `capped`, `markingRead`, `markingAllRead`, `unreadCount` — into a `nonisolated public enum InboxStorage` in `TouchCodeCore` puts the meaty cases under the working `TouchCodeCoreTests` target while leaving the `Store` itself in the app target as the plan prescribed. The Store becomes a thin wrapper (~140 LOC) doing `@Observable` + persistence + debounce. Net: 16 storage-policy tests cover the actual behaviour; the Store wrapper has no policy logic worth testing in isolation.
 
 ## Outcomes & Retrospective
 
