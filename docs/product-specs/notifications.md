@@ -60,21 +60,20 @@ This spec defines the v1 of the notification system: which events qualify as not
 
 #### Channels (how the user is alerted)
 
-- [ ] **C1 — Unread count.** A live integer count of currently-unread notifications, surfaced as a hierarchical badge (see Display).
-- [ ] **C2 — Inbox list.** A persistent, scrollable list of all notifications, newest first, with read/unread state and the originating `(projectID, worktreeID, tabID, paneID)` tuple. Reachable from the sidebar.
+- [ ] **C1 — Unread indicators.** A boolean unread indicator at each hierarchy level (Project / Worktree / Tab / Pane), plus a numeric unread count on the single status-bar bell entry. Per-level shape is defined in the Display section.
+- [ ] **C2 — Inbox popover.** A bell button in the worktree status bar opens a popover listing all notifications newest-first, with read/unread state and the originating `(projectID, worktreeID, tabID, paneID)` tuple. There is no sidebar route or dedicated inbox page.
 - [ ] **C3 — macOS system banner.** Sent through `UNUserNotificationCenter` only when **either** the app is not the frontmost app **or** the originating Pane is not the focused Pane in the focused Tab. When the user is already looking at the Pane, no banner fires (the in-pane output is the alert).
 - [ ] **C5 — Dock badge.** The Dock tile badge mirrors the global unread count. When the count is 0, the badge clears.
 
 #### Display (where unread state surfaces)
 
-- [ ] **L1–L4 — Hierarchical roll-up badges.** Unread count rolls up `Pane → Tab → Worktree → Project`. At each level, a numeric badge is displayed **only if that level is currently collapsed or not focused** in the sidebar / tab bar; if the user can already see deeper into that level, the badge is hidden at the higher level and shown only at the deepest still-hidden ancestor. Visualization rules:
-  - **L1 Pane** badge appears on the Pane's split-view chrome when the Pane is not the focused Pane in its Tab.
-  - **L2 Tab** badge appears on the Tab title when the Tab is not the active Tab in its Worktree.
-  - **L3 Worktree** badge appears on the Worktree row when the Worktree is collapsed in the sidebar or is not the active Worktree.
-  - **L4 Project** badge appears on the Project row when the Project is collapsed in the sidebar.
-- [ ] **L5 — Inbox view.** A dedicated sidebar tab / route that lists all notifications across all Projects in reverse-chronological order, with filtering by read/unread.
-- [ ] **Numeric format.** Counts display as integers; counts ≥ 100 display as `99+`.
-- [ ] **Visual distinction.** N1 (waiting for input) is visually distinguished from N2 (task finished) — color, icon, or both. The user can tell at a glance which kind needs them.
+- [ ] **L1–L4 — Hierarchical roll-up indicators.** Unread state rolls up `Pane → Tab → Worktree → Project`. Each level emits its indicator **only if that level is currently collapsed or not focused** — if the user can already see deeper, the indicator is suppressed at the higher level and shown only at the deepest still-hidden ancestor. Per-level visual:
+  - **L1 Pane** — a 2–4 px high coloured line across the top edge of the Pane's chrome. **Green** = task finished (N2). **Amber** = waiting for input (N1). When both kinds are unread on the same Pane, amber wins.
+  - **L2 Tab** — a small unread dot rendered immediately before the Tab title text. Boolean only (no count, no kind distinction).
+  - **L3 Worktree** — the row's leading icon is replaced by a bell glyph for the duration of the unread state. Boolean only.
+  - **L4 Project** — a small unread dot rendered immediately to the right of the Project name. Boolean only.
+- [ ] **L5 — Status-bar bell.** The single popover entry. The bell carries a numeric unread count (≥ 100 displays as `99+`). Hidden / unbadged when unread total is 0.
+- [ ] **Visual distinction (kind).** Kind distinction (N1 vs N2) is preserved only at L1 (Pane line colour) and inside the popover (kind icon per row). L2–L4 indicators are kind-agnostic — the user opens the popover or descends the hierarchy to learn which kind is waiting.
 
 #### Read / unread semantics
 
@@ -130,19 +129,20 @@ This spec defines the v1 of the notification system: which events qualify as not
 
 ### Channels
 
-- **AC-C1.** Given the app is frontmost and Pane P is the focused Pane, when an N1 fires for P, then no system banner is shown; only in-app badges and the inbox row update.
+- **AC-C1.** Given the app is frontmost and Pane P is the focused Pane, when an N1 fires for P, then no system banner is shown; only in-app indicators and the inbox row update.
 - **AC-C2.** Given the app is in the background, when an N1 fires, then a macOS banner is delivered.
 - **AC-C3.** Given the app is frontmost on Pane Q (different from N1's source Pane P), when N1 fires for P, then a macOS banner is delivered.
 - **AC-C4.** Given the global unread count is N, when the count changes, then the Dock tile badge reflects the new value within 1 s; at N = 0 the badge clears.
 
 ### Display roll-up
 
-- **AC-L1.** Given Project A is collapsed in the sidebar with 3 unread notifications inside, then the Project A row shows badge "3" and no descendant badge is rendered.
-- **AC-L2.** Given Project A is expanded but Worktree W1 (containing all 3 unread) is collapsed, then no badge on Project A; badge "3" on Worktree W1.
-- **AC-L3.** Given Worktree W1 is the active Worktree and Tab T1 (inactive) holds all 3 unread, then no badge on Worktree W1; badge "3" on Tab T1's title.
-- **AC-L4.** Given Tab T1 is active and Pane P (not focused) holds all 3 unread, then no badge on Tab T1; badge "3" on Pane P's chrome.
-- **AC-L5.** Given a Pane is focused and has unread notifications, when the user focuses it (R1), then all those unread are marked read and badges at every level update accordingly.
-- **AC-L6.** Given a count of 100, then the rendered badge text is `99+`.
+- **AC-L1.** Given Project A is collapsed in the sidebar with any unread notification inside, then the Project A row shows the unread dot to the right of its name and no descendant indicator is rendered.
+- **AC-L2.** Given Project A is expanded but Worktree W1 holds the unread, then no dot on Project A; W1's leading icon is the bell glyph.
+- **AC-L3.** Given W1 is the active Worktree and Tab T1 (inactive) holds the unread, then W1's leading icon is the normal git/PR icon; T1's title shows the unread dot prefix.
+- **AC-L4.** Given T1 is the active Tab and Pane P (not focused) holds the unread, then T1's title shows no dot; Pane P's chrome shows the coloured top line — green for an N2-only Pane, amber for a Pane with any N1.
+- **AC-L5.** Given a Pane is focused and has unread notifications, when the user focuses it (R1), then all those unread are marked read and indicators at every level update accordingly.
+- **AC-L6.** Given the global unread total is 100, then the status-bar bell badge text is `99+`. Per-level indicators (Project / Worktree / Tab / Pane) never render numeric counts.
+- **AC-L7.** Given a Pane has both an unread N1 and an unread N2, then its top line is amber.
 
 ### Navigation
 

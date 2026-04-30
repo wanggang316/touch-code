@@ -135,17 +135,33 @@ The 500-entry cap is also enforced on every append.
 
 Roll-up is computed in a TCA reducer derivation, not a separate background process. A small struct `RollupIndex` is rebuilt whenever either input changes:
 
-- **Input A:** the set of unread notifications (each carries a `SourcePath`).
+- **Input A:** the set of unread notifications (each carries a `SourcePath` and a `Kind`).
 - **Input B:** focus state from `RootFeature` — `(focusedPaneID, activeTabID, activeWorktreeID, expandedProjectIDs, expandedWorktreeIDs)`.
 
-The output is a flat `[ScopePath: Int]` keyed by hierarchy node, where a level emits a count only if it is *currently hidden* per the visibility rules:
+Per-level indicators are **boolean**, not numeric, except for one place: the status-bar bell carries a numeric global unread count. The Dock badge mirrors that same count. Per-hierarchy-level shape:
 
-- A Project shows a count if it is collapsed in the sidebar.
-- A Worktree shows a count if its Project is expanded but the Worktree is not the active one (or is collapsed in a sidebar that supports collapse).
-- A Tab shows a count if its Worktree is active but the Tab is not the active one.
-- A Pane shows a count if its Tab is active but the Pane is not the focused one.
+```swift
+struct RollupIndex {
+  var unreadProjects: Set<ProjectID>          // L4 dot
+  var unreadWorktrees: Set<WorktreeID>        // L3 bell glyph
+  var unreadTabs: Set<TabID>                  // L2 dot
+  var paneIndicator: [PaneID: PaneIndicator]  // L1 line colour
+  var globalUnreadCount: Int                  // status-bar bell + Dock badge
+}
 
-The rule is single-source: **each unread notification contributes its count to exactly one level — the deepest ancestor currently hidden from the user.** Sidebar / tab-bar / pane-chrome views read counts via key path; the global Dock badge mirrors `unread.total`.
+enum PaneIndicator { case taskFinished, waitingForInput }   // green / amber
+```
+
+Visibility rules — each unread notification contributes to **exactly one level**, the deepest hidden ancestor:
+
+- L4 Project: project is collapsed in the sidebar.
+- L3 Worktree: project is expanded but the worktree is not active (or its row is collapsed in a sidebar that supports collapse).
+- L2 Tab: worktree is active but the tab is not active.
+- L1 Pane: tab is active but the pane is not focused.
+
+For L1, when the same Pane has both unread N1 and unread N2, `PaneIndicator.waitingForInput` wins (amber overrides green) — N1 is the higher-priority signal.
+
+`globalUnreadCount` is the un-rolled-up total (every unread contributes), so the status-bar bell shows "every unread, regardless of whether you can see its source."
 
 Catalog size on the user side is small (tens of nodes), so an O(N) recompute on every input delta is fine. No incremental tree maintenance.
 
@@ -172,6 +188,22 @@ Handler walks the path:
 
 This action is *not* routed through `PaneActionRouter` — that router handles intra-pane / intra-tab intents. Cross-worktree navigation is `RootFeature`'s natural responsibility (it already owns selection state).
 
+### Per-Level Indicator Surfaces
+
+`RollupIndex` is the single source; each surface owns the rendering of its level.
+
+- **L4 Project — unread dot.** `HierarchySidebar` Project row reads `RollupIndex.unreadProjects`. When the project's `ProjectID` is in the set, render a small filled circle (4 px) immediately to the right of the project name. No count.
+- **L3 Worktree — bell glyph.** `WorktreeRowIcon` (`apps/mac/touch-code/App/Features/HierarchySidebar/WorktreeRowIcon.swift`) currently picks between branch / PR-state glyphs. Extend its inputs with `hasUnreadNotification: Bool` (sourced from `RollupIndex.unreadWorktrees`); when true, override the asset to a bell glyph and suppress the role tint. PR check-rollup overlay (the bottom-right circle) keeps working unchanged. When the worktree is read again, the icon falls back to its prior PR / branch state.
+- **L2 Tab — unread dot.** `TabBar` row prepends a small filled circle (4 px) before the tab title text when the tab's `TabID` is in `RollupIndex.unreadTabs`. No count, no kind distinction.
+- **L1 Pane — coloured top line.** Pane chrome renders a 2 px line across its top edge:
+  - `PaneIndicator.taskFinished` → green (`Color.systemGreen` at slightly desaturated opacity).
+  - `PaneIndicator.waitingForInput` → amber (`Color.systemOrange` at the same opacity).
+  - Absent from `paneIndicator` map → no line.
+
+  Line height is 2 px on Retina, scaled to the nearest pixel boundary. The line sits above any per-pane title chrome and below the surface content, so it never overlaps Ghostty's draw region.
+
+None of L1–L4 are interactive — they are visual-only. The single popover entry is the status-bar bell (next).
+
 ### Status-Bar Bell + Inbox Popover
 
 The existing `StatusBarFeature` (`apps/mac/touch-code/App/Features/StatusBar/`) currently fills a single center slot of the worktree status bar with one of `{toast, pullRequest, motivational}`. v1 adds a **right-anchored bell slot** that is independent of the center slot and always present:
@@ -184,12 +216,12 @@ The existing `StatusBarFeature` (`apps/mac/touch-code/App/Features/StatusBar/`) 
 
 `InboxBellFeature` owns:
 
-- The bell button (icon + small badge with global unread count, hidden when 0).
+- The bell button (icon + numeric badge showing `RollupIndex.globalUnreadCount`, capped to `99+`; hidden when 0).
 - The popover content: a vertical list of `Notification` rows newest-first, with two filter chips (All / Unread). Each row shows kind icon, title, body, "Project › Worktree › Tab" trail, relative time. Clicking dispatches `focusHierarchyPath`.
 - A "Mark all read" action in the popover header.
 - A "Settings…" link that opens the Settings Notifications panel.
 
-The bell button does **not** open a sidebar route or a separate window; the popover is the only entry into the inbox.
+The bell button is the **only** popover entry — Worktree-row bell glyphs and the Tab / Project / Pane indicators are visual-only and do not open scoped popovers. (Considered and rejected; see Alternatives A5.)
 
 ### Component Boundaries (DQ5)
 
@@ -201,13 +233,22 @@ TouchCodeCore/Notifications/
 touch-code/App/Features/Notifications/
   NotificationDetector.swift     // TerminalEvent → Notification
   NotificationStore.swift        // [Notification] + AtomicFileStore + sweep/cap
-  RollupIndex.swift              // [ScopePath: Int] derivation
+  RollupIndex.swift              // RollupIndex derivation (Sets + paneIndicator map)
   OSNotifier.swift               // UNUserNotificationCenter wrapper (salvaged from C6)
   DockBadger.swift               // dockTile.badgeLabel mirror, ~30 LOC
   InboxBellFeature.swift         // bell button + popover content + filter chips
 ```
 
-Dependency direction: `TouchCodeCore.Notification ← Detector → Store → RollupIndex → InboxBellFeature, OSNotifier, DockBadger`. The store has no knowledge of UI or OS facilities; UI components observe the store.
+The L1–L4 indicator surfaces are **edits to existing files**, not new ones:
+
+- `App/Features/HierarchySidebar/SidebarRow.swift` — Project unread dot.
+- `App/Features/HierarchySidebar/WorktreeRowIcon.swift` — bell glyph override.
+- `App/Features/TabBar/*` — Tab unread dot prefix.
+- pane chrome view (the small wrapper around `GhosttySurfaceView`) — top indicator line.
+
+Each of those reads from `RollupIndex` via a small Equatable view-store slice; no other behaviour changes.
+
+Dependency direction: `TouchCodeCore.Notification ← Detector → Store → RollupIndex → InboxBellFeature, OSNotifier, DockBadger, [sidebar/tabbar/pane edits]`. The store has no knowledge of UI or OS facilities; UI components observe the store.
 
 The Settings Notifications panel is a thin section added to the existing `App/Features/Settings/` reducer; it is not a separate file owned by Notifications.
 
@@ -238,6 +279,12 @@ Land the C6 design with cosmetic edits.
 **Why rejected:** The audit (this conversation, prior turns) found the C6 codebase to be ~3× the LOC needed for the v1 user surface, with most abstractions (`TrackerRegistry`, `TemplateRenderer`, `AgentStateTransition`, `BrokenFileBackup`, the `Bridging/` layer, `NotificationPermissionDelegate`, the rule-editor surface) carrying no v1 user value. Selectively extracting from it is more work than rewriting; ~80 % of its tests are coupled to the discarded abstractions.
 
 The one C6 artifact we keep: `OSNotifier.swift`, a thin `UNUserNotificationCenter` wrapper.
+
+### A5 — Per-level scoped popovers (supacode-style)
+
+Each L1–L4 indicator is also a click target that opens a popover scoped to that level (clicking the worktree bell shows only that worktree's notifications, etc.).
+
+**Why rejected:** Confirmed with the user. The status-bar bell already shows the global unread count; per-level indicators answer the question "where is the unread thing" by virtue of their position in the hierarchy, which is enough for v1. Scoped popovers would require each level to own popover anchor + presentation state + scope filter wiring (~150 LOC across four sites). The `RollupIndex` rule that "each unread contributes to exactly one level" already makes a scoped popover feel disorienting (clicking the project dot would show notifications that are nominally rolled up to that level, but their *actual* sources are several levels deeper). Single popover, hierarchy as the navigation device, is simpler and not less expressive.
 
 ## Cross-Cutting Concerns
 
