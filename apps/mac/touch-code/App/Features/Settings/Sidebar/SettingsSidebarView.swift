@@ -112,6 +112,7 @@ struct SettingsSidebarView: View {
     case .general: return "gearshape"
     case .github: return "arrow.triangle.pull"
     case .terminal: return "terminal"
+    case .notifications: return "bell"
     case .developer: return "hammer"
     case .shortcuts: return "command"
     case .updates: return "arrow.down.circle"
