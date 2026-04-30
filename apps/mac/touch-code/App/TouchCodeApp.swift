@@ -391,12 +391,15 @@ final class AppState {
   /// otherwise be dropped; each store below has its own debounce, so we
   /// drain them explicitly here.
   func flushAllPersistedState() {
+    // Cancel notification background Tasks first so neither can race the
+    // final flush by appending a new entry mid-write.
+    notificationDetectorTask?.cancel()
+    dockBadgerTask?.cancel()
+
     settingsStore.flush()
     shortcutsStore.flush()
     notificationStore.flush()
     catalogStore.flushPending()
-    notificationDetectorTask?.cancel()
-    dockBadgerTask?.cancel()
   }
 
   /// Long-running mirror: pushes `store.unreadCount` to the Dock tile badge
