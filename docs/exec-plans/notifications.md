@@ -22,6 +22,12 @@ This work replaces the abandoned C6 design line (`design+c6-agent-notifications`
 - [x] M1 — Core model + store + persistence (no UI; commit + tests) — 2026-04-30, commits 31eb5d4 (pre-flight) → 201931b → d7c08a3 (pre-flight) → 2ef449c → c10a982 → 83721bc. 22 tests pass.
 - [x] M2 — Detector + OSNotifier + DockBadger; first end-to-end signal (commit + tests) — 2026-04-30, commits 27aaab0 → a0d6073 → d743fea. mac-build green; no automated detector tests landed (see DEC-M2-1).
 - [ ] M3 — RollupIndex + per-level indicators on Project / Worktree / Tab / Pane (commit + tests)
+  - [x] M3.1 RollupIndex value type + compute() + FocusState + PaneIndicator — 2026-04-30, commit 9 tests pass
+  - [ ] M3.2 RollupIndexProvider (`@Observable`) + AppState wiring
+  - [ ] M3.3 Project unread dot in sidebar (HierarchySidebarView ProjectHeaderRow)
+  - [ ] M3.4 Worktree row icon swap to bell glyph (WorktreeRowIcon)
+  - [ ] M3.5 Tab unread dot prefix (TabBarView)
+  - [ ] M3.6 Pane top-line indicator (pane chrome view)
 - [ ] M4 — Status-bar bell, popover inbox, click-to-navigate (commit + tests)
 - [ ] M5 — Permission flow + Settings panel (commit + tests)
 - [ ] M6 — Deprecate C6 docs, delete C6 worktree branches, update spec/design status (commit)
