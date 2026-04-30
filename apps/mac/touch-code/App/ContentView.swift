@@ -18,6 +18,9 @@ struct ContentView: View {
   /// rows / tab bar / pane chrome can read per-level unread indicators
   /// without each site owning its own derivation.
   let notificationRollup: RollupIndexProvider?
+  /// v1 inbox owner. Threaded so the InboxBellView's popover can read
+  /// `entries`, mark rows read, and trigger a "Mark all read".
+  let notificationStore: NotificationStore?
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
   /// Transient toast for editor-open outcomes (success + failure). Non-nil = visible;
@@ -68,6 +71,7 @@ struct ContentView: View {
         diffStore: store.scope(state: \.diff, action: \.diff),
         inspectorVisible: store.state.diffInspectorVisible(in: hierarchyManager.catalog),
         onAddProject: { store.send(.sidebar(.toolbarAddProjectTapped)) },
+        onFocusHierarchyPath: { source in store.send(.focusHierarchyPath(source)) },
         // Resolve the root-level focus id to its sidebar row each render. The
         // pending row is the source of truth for streaming output; when it
         // leaves `pendingWorktrees` (cancel / discard), this resolves to nil
@@ -92,6 +96,7 @@ struct ContentView: View {
     .environment(settingsStore)
     .environment(worktreeStatusMonitor)
     .environment(notificationRollup)
+    .environment(notificationStore)
     .task {
       store.send(.onLaunch)
       store.send(.worktreeHeader(.onAppear))

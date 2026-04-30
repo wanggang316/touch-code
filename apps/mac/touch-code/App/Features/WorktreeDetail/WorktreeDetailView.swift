@@ -39,6 +39,10 @@ struct WorktreeDetailView: View {
   /// to fire `toolbarAddProjectTapped` — same pattern as the editor toast
   /// that surfaces sidebar outcomes without a back-channel store.
   let onAddProject: () -> Void
+  /// v1 notifications: dispatches `RootFeature.focusHierarchyPath` from
+  /// the InboxBellView's row-tap. Wired by `ContentView` so this view
+  /// doesn't need to hold the root TCA scope just to fire one action.
+  let onFocusHierarchyPath: (InboxEntry.SourcePath) -> Void
   /// `RootFeature.activePendingWorktreeID` resolved to its row in
   /// `sidebar.pendingWorktrees`, plus the parent Project's display
   /// name. Non-nil → the detail pane shows `WorktreeLoadingView`
@@ -210,6 +214,7 @@ struct WorktreeDetailView: View {
             )
             .buttonStyle(.plain)
           }
+          InboxBellView(onFocusHierarchyPath: onFocusHierarchyPath)
         }
       }
     }
@@ -288,6 +293,10 @@ struct WorktreeDetailView: View {
           visible: info.worktree.diffInspectorVisible
         )
       }
+    }
+    ToolbarSpacer(.fixed)
+    ToolbarItem {
+      InboxBellView(onFocusHierarchyPath: onFocusHierarchyPath)
     }
   }
 

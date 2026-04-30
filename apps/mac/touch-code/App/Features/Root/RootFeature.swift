@@ -210,6 +210,14 @@ struct RootFeature {
     /// actions and dismiss.
     case tagManagerSheet(PresentationAction<TagManagerFeature.Action>)
     case tagManagerSheetShown
+    /// v1 notifications navigation. Dispatched by InboxBellView's row tap
+    /// and by AppDelegate's macOS banner-click handler. Walks the path
+    /// (`projectID → worktreeID → tabID → paneID`) and lands selection
+    /// state at the deepest still-existing ancestor; missing ancestors
+    /// fall through silently rather than blocking. Routed through
+    /// RootFeature (rather than PaneActionRouter) because cross-worktree
+    /// focus belongs to the feature that owns selection state.
+    case focusHierarchyPath(InboxEntry.SourcePath)
     case sidebar(HierarchySidebarFeature.Action)
     case detail(WorktreeDetailFeature.Action)
     case editor(EditorFeature.Action)
@@ -889,6 +897,42 @@ struct RootFeature {
       case .newWorktreeForCurrentProjectRequested:
         guard let projectID = state.selection.projectID else { return .none }
         return .send(.sidebar(.projectAddWorktreeTapped(projectID: projectID)))
+
+      case .focusHierarchyPath(let source):
+        // Walk the source path against the live catalog, falling back to
+        // the deepest still-existing ancestor when intermediate IDs have
+        // been deleted. Each `try?` lands cleanly even if the underlying
+        // catalog state has shifted; consumers expect best-effort.
+        let catalog = hierarchyClient.snapshot()
+        guard catalog.projects.contains(where: { $0.id == source.projectID }) else {
+          return .none
+        }
+        try? hierarchyClient.selectProject(source.projectID)
+
+        guard let project = catalog.projects.first(where: { $0.id == source.projectID }),
+          project.worktrees.contains(where: { $0.id == source.worktreeID })
+        else {
+          return .none
+        }
+        try? hierarchyClient.selectWorktree(source.worktreeID, source.projectID)
+
+        guard let worktree = project.worktrees.first(where: { $0.id == source.worktreeID }),
+          worktree.tabs.contains(where: { $0.id == source.tabID })
+        else {
+          return .none
+        }
+        try? hierarchyClient.selectTab(source.tabID, source.worktreeID, source.projectID)
+
+        guard let tab = worktree.tabs.first(where: { $0.id == source.tabID }),
+          tab.flatPaneIDs.contains(source.paneID)
+        else {
+          return .none
+        }
+        try? hierarchyClient.focusPane(
+          source.paneID, source.tabID, source.worktreeID, source.projectID
+        )
+        hierarchyClient.focusSurfaceView(source.paneID)
+        return .none
 
       case .openShellEditorInWorktree(let worktreePath, let projectIDHint):
         let catalog = hierarchyClient.snapshot()

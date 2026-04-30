@@ -2,6 +2,7 @@ import AppKit
 import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
+@preconcurrency import UserNotifications
 
 @main
 struct TouchCodeApp: App {
@@ -35,7 +36,8 @@ struct TouchCodeApp: App {
             hierarchyManager: appState.hierarchyManager,
             settingsStore: appState.settingsStore,
             worktreeStatusMonitor: appState.worktreeStatusMonitor,
-            notificationRollup: appState.notificationRollup
+            notificationRollup: appState.notificationRollup,
+            notificationStore: appState.notificationStore
           )
           .frame(minWidth: 800, minHeight: 600)
           .environment(commandKeyObserver)
@@ -129,13 +131,77 @@ struct TouchCodeApp: App {
 /// been constructed — before that, `applicationWillTerminate` is a no-op,
 /// which is fine because nothing has been written yet.
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
   weak var appState: AppState?
+
+  override init() {
+    super.init()
+    // Wire up macOS notification banner click delegation. Without this, the
+    // taps on banners are silently ignored — clicking would activate the app
+    // (default behaviour) but our deeplink would never be parsed.
+    UNUserNotificationCenter.current().delegate = self
+  }
 
   nonisolated func applicationWillTerminate(_ notification: Notification) {
     MainActor.assumeIsolated {
       appState?.flushAllPersistedState()
     }
+  }
+
+  /// Handles a banner click. Parses the deeplink the OSNotifier embedded
+  /// in `userInfo["deeplink"]` and dispatches `RootFeature.focusHierarchyPath`
+  /// against the live root store.
+  nonisolated func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping () -> Void
+  ) {
+    let userInfo = response.notification.request.content.userInfo
+    let deeplink = userInfo["deeplink"] as? String
+    let source = deeplink
+      .flatMap(URL.init(string:))
+      .flatMap(Self.parseDeeplink(_:))
+    completionHandler()
+    Task { @MainActor in
+      guard let source else { return }
+      appState?.store?.send(.focusHierarchyPath(source))
+    }
+  }
+
+  /// Allow banners to fire while the app is foreground (default macOS
+  /// behaviour suppresses them). The detector already gates banner posting
+  /// on "either app not frontmost OR pane not focused", so by the time we
+  /// reach this delegate we already know the user can't see the source.
+  nonisolated func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    willPresent notification: UNNotification,
+    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+  ) {
+    completionHandler([.banner, .list])
+  }
+
+  /// `touch-code://focus?project=...&worktree=...&tab=...&pane=...`
+  /// → `(projectID, worktreeID, tabID, paneID)`.
+  nonisolated static func parseDeeplink(_ url: URL) -> InboxEntry.SourcePath? {
+    guard url.scheme == "touch-code", url.host == "focus" else { return nil }
+    let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+    let items = Dictionary(
+      uniqueKeysWithValues: components?.queryItems?.compactMap { item -> (String, String)? in
+        guard let value = item.value else { return nil }
+        return (item.name, value)
+      } ?? []
+    )
+    guard let projectStr = items["project"], let projectUUID = UUID(uuidString: projectStr),
+      let worktreeStr = items["worktree"], let worktreeUUID = UUID(uuidString: worktreeStr),
+      let tabStr = items["tab"], let tabUUID = UUID(uuidString: tabStr),
+      let paneStr = items["pane"], let paneUUID = UUID(uuidString: paneStr)
+    else { return nil }
+    return InboxEntry.SourcePath(
+      projectID: ProjectID(raw: projectUUID),
+      worktreeID: WorktreeID(raw: worktreeUUID),
+      tabID: TabID(raw: tabUUID),
+      paneID: PaneID(raw: paneUUID)
+    )
   }
 
   /// `false` keeps the app running in the dock when ⌘W closes the main
