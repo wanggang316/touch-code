@@ -1019,7 +1019,7 @@ private struct ProjectHeaderRow: View {
           .resizable()
           .aspectRatio(contentMode: .fit)
           .frame(width: 10, height: 10, alignment: .center)
-          .foregroundStyle(Color.yellow)
+          .foregroundStyle(Color.orange)
           .accessibilityLabel("Has unread notifications")
       } else {
         Image(systemName: "chevron.right")
@@ -1039,13 +1039,6 @@ private struct ProjectHeaderRow: View {
           .frame(width: 12, height: 12)
           .accessibilityLabel("Loading Project")
       }
-      // M5 (project-tags): up to 3 colored dots resolved from the
-      // catalog's tag list. "+N" overflow when more than 3. Hidden
-      // entirely when the project has no tags. Pinned to the trailing
-      // edge after the Spacer so the swatches always sit right-aligned,
-      // independent of the project name's width — matches Finder /
-      // Notes' tag placement convention.
-      ProjectTagDots(project: project)
       // Keep the hover chrome from collapsing row width when hidden —
       // use opacity, not conditional rendering.
       HStack(spacing: 2) {
@@ -1109,6 +1102,12 @@ private struct ProjectHeaderRow: View {
         .onHover { isMenuHovering = $0 }
       }
       .opacity(isHovering ? 1 : 0)
+      // M5 (project-tags): up to 3 colored dots resolved from the
+      // catalog's tag list. "+N" overflow when more than 3. Hidden
+      // entirely when the project has no tags. Sits after the +/⋯
+      // hover chrome so the swatches anchor to the absolute trailing
+      // edge of the row.
+      ProjectTagDots(project: project)
     }
     .contentShape(Rectangle())
     .onHover { isHovering = $0 }
