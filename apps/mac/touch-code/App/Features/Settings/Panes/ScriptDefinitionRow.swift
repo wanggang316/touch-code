@@ -186,6 +186,69 @@ struct ScriptDefinitionRow: View {
         }
       }
 
+      LabeledContent("Target") {
+        Picker(
+          "",
+          // Switching target is destructive for `onFinished` — the valid
+          // set differs per target — so reset it to `.none` on change.
+          selection: Binding(
+            get: { draft.target },
+            set: { newValue in
+              draft.target = newValue
+              draft.onFinished = .none
+            }
+          )
+        ) {
+          Text("New Tab").tag(ScriptTarget.newTab)
+          Text("Focused Pane").tag(ScriptTarget.focused)
+          Text("Split Pane").tag(ScriptTarget.split)
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+      }
+
+      if draft.target == .split {
+        LabeledContent("Split Direction") {
+          Picker(
+            "",
+            selection: Binding(
+              get: { draft.direction },
+              set: { draft.direction = $0 }
+            )
+          ) {
+            Text("Right").tag(ScriptSplitDirection.right)
+            Text("Left").tag(ScriptSplitDirection.left)
+            Text("Down").tag(ScriptSplitDirection.down)
+            Text("Up").tag(ScriptSplitDirection.up)
+          }
+          .labelsHidden()
+          .pickerStyle(.menu)
+        }
+      }
+
+      switch draft.target {
+      case .newTab:
+        Toggle(
+          "Close tab when finished",
+          isOn: Binding(
+            get: { draft.onFinished == .closeTab },
+            set: { draft.onFinished = $0 ? .closeTab : .none }
+          )
+        )
+      case .split:
+        Toggle(
+          "Close pane when finished",
+          isOn: Binding(
+            get: { draft.onFinished == .closePane },
+            set: { draft.onFinished = $0 ? .closePane : .none }
+          )
+        )
+      case .focused:
+        // sendInput has no observable "command finished" boundary, so
+        // there is nothing to act on. Field hidden by spec.
+        EmptyView()
+      }
+
       HStack {
         Spacer()
         Button("Cancel") {
