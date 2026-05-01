@@ -430,7 +430,8 @@ extension HierarchyClient {
   static func live(
     manager: HierarchyManager,
     settings: SettingsStore? = nil,
-    gitWorktreeClient: GitWorktreeClient = .makeLive()
+    gitWorktreeClient: GitWorktreeClient = .makeLive(),
+    terminalClient: TerminalClient? = nil
   ) -> HierarchyClient {
     HierarchyClient(
       createTag: { name, color in
@@ -633,7 +634,8 @@ extension HierarchyClient {
           projectID: projectID,
           worktreeID: worktreeID,
           manager: manager,
-          settings: settings
+          settings: settings,
+          terminalClient: terminalClient
         )
       },
       runWorktreeLifecycleScript: { [weak settings] phase, worktreeID, projectID in
@@ -674,19 +676,30 @@ extension HierarchyClient {
     )
   }
 
-  /// Looks up the script + worktree, opens a fresh tab named after the script,
-  /// and types the script's command into the new pane. Throws when the script
-  /// id was deleted between click and effect or the worktree is gone.
-  /// Project envVars injection lands in M8 (PaneSurface env hook); this
-  /// implementation already routes through `resolvedEnv` so the value is
-  /// computed once the runtime path consumes it.
+  /// Resolves the script + worktree, then dispatches according to the
+  /// script's `target`:
+  ///   - `.newTab` : open a fresh tab and run as the new pane's
+  ///                 `initialCommand`.
+  ///   - `.focused`: write the command (with trailing newline) to the
+  ///                 worktree's last-focused pane via `TerminalClient`.
+  ///                 No new pane / tab is created.
+  ///   - `.split`  : split the focused pane in `script.direction` and run
+  ///                 as the split's `initialCommand`.
+  ///
+  /// `.focused` and `.split` fall back to `.newTab` when no anchor pane is
+  /// available (empty worktree, no focused pane in the selected tab).
+  ///
+  /// When `target` spawned a pane and `resolvedOnFinished` is non-`.none`,
+  /// a detached observer waits for that pane's child to exit and then
+  /// applies the policy (`.closePane` / `.closeTab`).
   @MainActor
   private static func runScript(
     scriptID: UUID,
     projectID: ProjectID,
     worktreeID: WorktreeID,
     manager: HierarchyManager,
-    settings: SettingsStore?
+    settings: SettingsStore?,
+    terminalClient: TerminalClient?
   ) async throws {
     let snapshot = settings?.settings ?? .default
     guard let project = snapshot.projects[projectID],
@@ -704,21 +717,186 @@ extension HierarchyClient {
     guard let cwd = foundWorktreePath else {
       throw RunScriptError.missingWorktree(worktreeID)
     }
-    // M8: forward the resolved env into the spawn path so the new pane's
-    // pty inherits Project-defined envVars (project keys win over process
-    // env). PaneSurface threads this into ghostty_surface_config_s.env_vars.
     let env = HierarchyManager.resolvedEnv(for: projectID, in: snapshot)
 
-    let tabID = try manager.createTab(
-      in: worktreeID, in: projectID,
-      name: script.displayName
+    let spawnedPaneID = try dispatchScript(
+      script: script,
+      worktreeID: worktreeID,
+      projectID: projectID,
+      cwd: cwd,
+      env: env,
+      manager: manager,
+      terminalClient: terminalClient
     )
-    _ = try manager.openPane(
-      in: tabID, in: worktreeID, in: projectID,
-      workingDirectory: cwd,
-      initialCommand: script.command,
-      env: env
-    )
+
+    if let spawnedPaneID,
+      let terminalClient,
+      script.resolvedOnFinished != .none
+    {
+      scheduleOnFinishedAction(
+        paneID: spawnedPaneID,
+        policy: script.resolvedOnFinished,
+        manager: manager,
+        terminalClient: terminalClient
+      )
+    }
+  }
+
+  /// Materializes a `ScriptDefinition` into a runtime action and returns the
+  /// spawned `PaneID` if a new pane was created (`.newTab` / `.split`), or
+  /// `nil` for `.focused` (which writes into an existing pane). Falls back to
+  /// `.newTab` for `.focused` / `.split` when there is no anchor pane.
+  @MainActor
+  private static func dispatchScript(
+    script: ScriptDefinition,
+    worktreeID: WorktreeID,
+    projectID: ProjectID,
+    cwd: String,
+    env: [String: String],
+    manager: HierarchyManager,
+    terminalClient: TerminalClient?
+  ) throws -> PaneID? {
+    func openInNewTab() throws -> PaneID {
+      let tabID = try manager.createTab(
+        in: worktreeID, in: projectID,
+        name: script.displayName
+      )
+      return try manager.openPane(
+        in: tabID, in: worktreeID, in: projectID,
+        workingDirectory: cwd,
+        initialCommand: script.command,
+        env: env
+      )
+    }
+
+    switch script.target {
+    case .newTab:
+      return try openInNewTab()
+
+    case .focused:
+      // sendInput needs the focused pane and the terminal runtime; absent
+      // either, fall back to a fresh tab so the user always sees output.
+      if let terminalClient,
+        let anchor = focusedAnchor(worktreeID: worktreeID, in: manager)
+      {
+        terminalClient.sendInput(anchor.paneID, script.command + "\n")
+        return nil
+      }
+      return try openInNewTab()
+
+    case .split:
+      if let anchor = focusedAnchor(worktreeID: worktreeID, in: manager) {
+        return try manager.splitPane(
+          anchor.paneID,
+          direction: mapSplitDirection(script.direction),
+          in: anchor.tabID, in: worktreeID, in: projectID,
+          workingDirectory: cwd,
+          initialCommand: script.command,
+          env: env
+        )
+      }
+      return try openInNewTab()
+    }
+  }
+
+  /// Picks the worktree's selected (or first) tab and returns its
+  /// last-focused pane — the anchor for `.focused` / `.split` dispatch.
+  /// Falls back to the tab's first leaf when no pane has gained focus
+  /// since the tab was created.
+  @MainActor
+  private static func focusedAnchor(
+    worktreeID: WorktreeID,
+    in manager: HierarchyManager
+  ) -> (tabID: TabID, paneID: PaneID)? {
+    var foundWorktree: Worktree?
+    outer: for project in manager.catalog.projects {
+      if let wt = project.worktrees.first(where: { $0.id == worktreeID }) {
+        foundWorktree = wt
+        break outer
+      }
+    }
+    guard let worktree = foundWorktree else { return nil }
+    let tabID = worktree.selectedTabID ?? worktree.tabs.first?.id
+    guard let tabID else { return nil }
+    if let paneID = manager.lastFocusedPane(in: tabID) {
+      return (tabID, paneID)
+    }
+    if let tab = worktree.tabs.first(where: { $0.id == tabID }),
+      let firstPane = tab.panes.first
+    {
+      return (tabID, firstPane.id)
+    }
+    return nil
+  }
+
+  /// Maps the settings-layer `ScriptSplitDirection` onto the runtime's
+  /// `SplitTree.NewDirection`. The two enums are kept separate so the
+  /// JSON schema does not couple to the internal split-tree wire type.
+  nonisolated private static func mapSplitDirection(
+    _ direction: ScriptSplitDirection
+  ) -> SplitTree<PaneID>.NewDirection {
+    switch direction {
+    case .up: return .up
+    case .down: return .down
+    case .left: return .left
+    case .right: return .right
+    }
+  }
+
+  /// Subscribes to terminal events and, when the spawned pane's child
+  /// exits / crashes / is closed by tab-autoclose, applies the
+  /// `onFinished` policy on the main actor. Closes the pane only — for
+  /// `.closeTab` the address-resolved `tabID` is closed instead. Silent
+  /// no-op when the pane is no longer in the catalog by the time the
+  /// exit lands (already torn down by the user, etc.).
+  @MainActor
+  private static func scheduleOnFinishedAction(
+    paneID: PaneID,
+    policy: ScriptOnFinished,
+    manager: HierarchyManager,
+    terminalClient: TerminalClient
+  ) {
+    let stream = terminalClient.events()
+    Task.detached(priority: .userInitiated) {
+      for await event in stream {
+        let exited: Bool
+        switch event {
+        case .paneExited(let pid, _, _) where pid == paneID:
+          exited = true
+        case .paneCrashed(let pid, _) where pid == paneID:
+          exited = true
+        case .paneClosedByTab(let pid, _) where pid == paneID:
+          // Already torn down by autoclose — nothing to clean up.
+          return
+        default:
+          exited = false
+        }
+        if exited {
+          await MainActor.run {
+            applyOnFinished(policy: policy, paneID: paneID, manager: manager)
+          }
+          return
+        }
+      }
+    }
+  }
+
+  @MainActor
+  private static func applyOnFinished(
+    policy: ScriptOnFinished,
+    paneID: PaneID,
+    manager: HierarchyManager
+  ) {
+    guard let address = manager.addressOf(paneID: paneID) else { return }
+    let (projectID, worktreeID, tabID) = address
+    switch policy {
+    case .none:
+      return
+    case .closePane:
+      try? manager.closePane(paneID, in: tabID, in: worktreeID, in: projectID)
+    case .closeTab:
+      try? manager.closeTab(tabID, in: worktreeID, in: projectID)
+    }
   }
 
   /// Factored out so the closure body stays one-line-callable. Resolves

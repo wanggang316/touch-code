@@ -380,7 +380,11 @@ final class AppState {
     // handlers share the exact same live instances — avoids two parallel
     // `LiveEditorService`s with divergent settings captures.
     let editor = EditorClient.live(settings: settings)
-    let hierarchy = HierarchyClient.live(manager: manager, settings: settings)
+    let hierarchy = HierarchyClient.live(
+      manager: manager,
+      settings: settings,
+      terminalClient: .live(engine: engine)
+    )
     self.editorClient = editor
     self.hierarchyClient = hierarchy
     // SwiftUI views (e.g. `ProjectGeneralSettingsView`) read `@Dependency(SettingsWriter.self)`
