@@ -42,6 +42,28 @@ public final class NotificationDetector {
     self.isAppFrontmost = isAppFrontmost
   }
 
+  /// The single globally focused pane — the pane the user is *actually*
+  /// looking at right now. Composed from the active project → active
+  /// worktree → active tab → that tab's last-focused split, and only
+  /// when the app itself is frontmost. There is at most one such pane
+  /// at any moment; `nil` means "the user is not looking at any pane"
+  /// (app backgrounded, no selection, sidebar focus, etc.).
+  ///
+  /// Notifications whose source matches this pane are dropped entirely:
+  /// no inbox row, no banner, no badge — the user is already eyeballing
+  /// the in-pane output.
+  private func globallyFocusedPane() -> PaneID? {
+    guard isAppFrontmost() else { return nil }
+    let catalog = catalogSnapshot()
+    guard let activeProjectID = catalog.selectedProjectID,
+      let project = catalog.projects.first(where: { $0.id == activeProjectID }),
+      let worktreeID = project.selectedWorktreeID,
+      let worktree = project.worktrees.first(where: { $0.id == worktreeID }),
+      let tabID = worktree.selectedTabID
+    else { return nil }
+    return lastFocusedPane(tabID)
+  }
+
   /// Single entry point. Called for every `TerminalEvent` the runtime
   /// emits. The translation table itself lives in
   /// `TouchCodeCore.DetectionTranslator` (pure, fully unit-tested);
@@ -64,6 +86,19 @@ public final class NotificationDetector {
     guard let resolved = resolve(paneID: translated.paneID) else { return }
     if resolved.muted { return }
 
+    // Drop entirely when the source pane is the user's currently
+    // globally-focused pane: the user is already looking at the
+    // in-pane output, so an inbox row + dock badge bump + banner
+    // would all be noise. There is at most one globally-focused
+    // pane at any time (see `globallyFocusedPane` doc), so this is
+    // not symmetric with the per-tab last-focused behaviour: a
+    // notification fired from a non-active tab's last-focused
+    // split *will* notify, because by definition the user isn't
+    // looking at it.
+    if resolved.source.paneID == globallyFocusedPane() {
+      return
+    }
+
     // Enrich the title with the originating worktree's display name so
     // a banner reads `[main] Pane bell` rather than just `Pane bell` —
     // critical when the user has multiple worktrees backgrounded and
@@ -77,9 +112,12 @@ public final class NotificationDetector {
     )
     store.append(inbox)
 
-    if shouldBanner(source: resolved.source) {
-      await banner.post(inbox)
-    }
+    // Banner gating reduces to "always banner if we got past the
+    // global-focus drop above" — the focused-pane case is already
+    // suppressed. macOS will still suppress the banner UI itself
+    // when the app is foreground and presenting; the inbox + dock
+    // badge are the in-app surfaces.
+    await banner.post(inbox)
   }
 
   // MARK: - Helpers
@@ -111,13 +149,4 @@ public final class NotificationDetector {
     return nil
   }
 
-  /// Banner gating: deliver when **either** the app is not frontmost **or**
-  /// the source pane is not the user's currently focused pane. When the
-  /// user is already looking at the pane there's no benefit to banner-ing
-  /// them — the in-pane output is the alert.
-  private func shouldBanner(source: InboxEntry.SourcePath) -> Bool {
-    if !isAppFrontmost() { return true }
-    let focused = lastFocusedPane(source.tabID)
-    return focused != source.paneID
-  }
 }
