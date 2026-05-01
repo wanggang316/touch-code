@@ -12,9 +12,10 @@ import SwiftUI
 /// laid out inline with the label), so toggling them on every transient ⌘ tap — quick
 /// chord triggers, finger glances, modifier-only chord prefixes — produces a lot of
 /// distracting layout churn. We delay flipping `isCommandHeld → true` by
-/// `pressActivationDelay` (default 280 ms): only sustained holds light up the hints. The
-/// delay is one-way; releases flip back to `false` immediately so a chord that fires and
-/// briefly grabs focus doesn't leave hints lingering after the user has let go.
+/// `pressActivationDelay` (default 1 s): only a sustained "hold ⌘ to discover" gesture
+/// lights up the hints. The delay is one-way; releases flip back to `false` immediately
+/// so a chord that fires and briefly grabs focus doesn't leave hints lingering after the
+/// user has let go.
 ///
 /// **Active-state coupling.** When a chord like ⌘O fires a menu action that opens an
 /// external editor, the OS hands focus to that editor. Any `flagsChanged` event that fires
@@ -41,12 +42,14 @@ final class CommandKeyObserver {
   @ObservationIgnored
   private var activationTask: Task<Void, Never>?
 
-  /// Sustained-hold threshold before hints render. Short enough that a deliberate "hover
-  /// over ⌘" still feels live; long enough to filter quick ⌘+key chords and finger
-  /// brushes. Configurable per-instance for tests.
+  /// Sustained-hold threshold before hints render. Tuned long (1 s) deliberately:
+  /// shorter values still flickered every ⌘+key chord because the ⌘ key sits depressed
+  /// during the natural pause between modifier-down and the second key. 1 s is past the
+  /// average chord duration, so only a clear "hold ⌘ to discover bindings" gesture lights
+  /// up the hint chrome. Configurable per-instance for tests.
   let pressActivationDelay: Duration
 
-  init(pressActivationDelay: Duration = .milliseconds(280)) {
+  init(pressActivationDelay: Duration = .seconds(1)) {
     self.pressActivationDelay = pressActivationDelay
     storage.monitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
       let down = event.modifierFlags.contains(.command)
