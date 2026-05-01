@@ -30,6 +30,9 @@ struct CommandPaletteFeatureTests {
     }
     store.exhaustivity = .off
     await store.send(.appeared(Self.sampleSelection, Self.sampleCatalog, [], [:], nil, false))
+    // `.appeared` defers the build to a follow-up `.indexed` action so the
+    // search field can paint immediately on Cmd-K.
+    await store.receive(\.indexed)
     #expect(!store.state.items.isEmpty)
     #expect(store.state.filtered.first?.id == store.state.selectionID)
   }
@@ -45,6 +48,7 @@ struct CommandPaletteFeatureTests {
     }
     store.exhaustivity = .off
     await store.send(.appeared(Self.sampleSelection, Self.sampleCatalog, [], stale, nil, false))
+    await store.receive(\.indexed)
     // Static ID survives; dynamic ID pointing to a missing worktree is dropped.
     #expect(store.state.recency["app.open-settings"] == 1_700_000_100)
     #expect(store.state.recency["worktree.select.00000000-0000-0000-0000-000000000000"] == nil)

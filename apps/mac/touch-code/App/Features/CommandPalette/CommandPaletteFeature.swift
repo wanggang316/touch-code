@@ -17,6 +17,12 @@ struct CommandPaletteFeature {
     var selectionID: CommandPaletteItem.ID?
     var items: [CommandPaletteItem] = []
     var filtered: [CommandPaletteItem] = []
+    /// `false` between `.appeared` and `.indexed` — the view shows just the
+    /// query field while `CommandPaletteItems.build` runs in a follow-up
+    /// effect. This is the difference between "no matches" (rendered as a
+    /// hint) and "still indexing" (rendered as nothing) so the panel never
+    /// flashes a stale empty-state.
+    var isIndexed: Bool = false
     /// Read once from the parent on `.appeared`. Held here so filtering
     /// can blend the recency bonus into each keystroke without re-reading
     /// UserDefaults on the hot path. Writes land in the parent after
@@ -43,6 +49,11 @@ struct CommandPaletteFeature {
       PaneID?,
       Bool
     )
+    /// Follow-up of `.appeared` carrying the built item list. Splitting these
+    /// two phases lets the view render the query field on the same run-loop
+    /// tick the palette appears, while the (cheap but synchronous) item build
+    /// runs in a deferred Task — no perceived latency on Cmd-K.
+    case indexed([CommandPaletteItem])
     case queryChanged(String)
     case selectionMoved(Direction)
     case selectionCommitted
@@ -57,19 +68,38 @@ struct CommandPaletteFeature {
     Reduce { state, action in
       switch action {
       case .appeared(let selection, let catalog, let descriptors, let recency, let paneID, let precise):
-        state.items = CommandPaletteItems.build(
-          selection: selection,
-          catalog: catalog,
-          editorDescriptors: descriptors,
-          focusedPaneID: paneID,
-          paneFocusPrecise: precise
-        )
         state.focusedPaneID = paneID
+        state.recency = recency
+        state.isIndexed = false
+        state.items = []
+        state.filtered = []
+        state.selectionID = nil
+        // Defer the item build to the next run-loop tick. The build itself is
+        // in-memory but reads `SettingsWriter.readSnapshotSync` (MainActor) plus
+        // a catalog walk; ~ms but enough to make Cmd-K feel laggy. Yielding
+        // first lets SwiftUI paint the empty palette immediately.
+        return .run { send in
+          await Task.yield()
+          let items = await MainActor.run {
+            CommandPaletteItems.build(
+              selection: selection,
+              catalog: catalog,
+              editorDescriptors: descriptors,
+              focusedPaneID: paneID,
+              paneFocusPrecise: precise
+            )
+          }
+          await send(.indexed(items))
+        }
+
+      case .indexed(let items):
+        state.items = items
         state.recency = CommandPalettePruner.prune(
-          recency: recency, against: state.items
+          recency: state.recency, against: items
         )
-        state.filtered = filter(items: state.items, query: state.query, recency: state.recency)
+        state.filtered = filter(items: items, query: state.query, recency: state.recency)
         state.selectionID = state.filtered.first?.id
+        state.isIndexed = true
         return .none
 
       case .queryChanged(let query):

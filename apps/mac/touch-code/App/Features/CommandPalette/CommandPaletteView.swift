@@ -32,8 +32,13 @@ struct CommandPaletteView: View {
 
       VStack(spacing: 0) {
         queryField
-        Divider()
-        resultList
+        // Hide divider + list until indexing finishes. The card collapses to
+        // just the search field on first appear, which paints in one tick;
+        // rows slot in below once `.indexed` resolves.
+        if store.isIndexed {
+          Divider()
+          resultList
+        }
       }
       .frame(maxWidth: 560)
       .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
