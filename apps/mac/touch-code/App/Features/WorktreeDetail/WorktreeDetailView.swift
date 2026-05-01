@@ -310,10 +310,6 @@ struct WorktreeDetailView: View {
         )
       }
     }
-    ToolbarSpacer(.fixed)
-    ToolbarItem {
-      InboxBellView(onFocusHierarchyPath: onFocusHierarchyPath)
-    }
   }
 
   @ToolbarContentBuilder
