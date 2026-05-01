@@ -186,6 +186,11 @@ struct WorktreeDetailView: View {
         }
         ToolbarSpacer(.flexible)
         centeredStatusBarToolbarItem(address: address)
+        // Bell is intentionally placed *immediately* after the status
+        // capsule with no flexible spacer between them — keeps the
+        // status / bell pair visually grouped at the window's
+        // optical center.
+        inboxBellToolbarItem()
         ToolbarSpacer(.flexible)
         trailingButtonsDefault(address: address, info: info)
       } else {
@@ -193,6 +198,11 @@ struct WorktreeDetailView: View {
           branchToolbarItem(info: info)
         }
         statusBarToolbarItem(address: address)
+        // Same as the modern path: bell sits adjacent to the principal
+        // status item so the user reads "[status] [bell]" as one
+        // cluster rather than seeing the bell in the trailing button
+        // group with the action buttons.
+        inboxBellToolbarItem()
         ToolbarItemGroup(placement: .primaryAction) {
           HeaderOpenSplitButton(
             store: headerStore,
@@ -214,9 +224,15 @@ struct WorktreeDetailView: View {
             )
             .buttonStyle(.plain)
           }
-          InboxBellView(onFocusHierarchyPath: onFocusHierarchyPath)
         }
       }
+    }
+  }
+
+  @ToolbarContentBuilder
+  private func inboxBellToolbarItem() -> some ToolbarContent {
+    ToolbarItem {
+      InboxBellView(onFocusHierarchyPath: onFocusHierarchyPath)
     }
   }
 
