@@ -144,27 +144,45 @@ private struct InboxRowView: View {
     return f
   }()
 
+  @Environment(HierarchyManager.self) private var hierarchyManager: HierarchyManager?
   @State private var isHovering = false
 
   var body: some View {
     Button(action: onTap) {
       HStack(alignment: .top, spacing: 8) {
-        kindIcon
-          .padding(.top, 2)
+        // Leading 6 px slot. Filled circle on unread (yellow for
+        // taskFinished, orange for the more urgent waitingForInput);
+        // empty space on read so we never show a check-shaped icon
+        // in front of an unread row (the previous green
+        // checkmark.circle.fill read as 'already done' and was the
+        // bug Gump flagged).
+        unreadDot
+          .frame(width: 6, height: 6)
+          .padding(.top, 7)
         VStack(alignment: .leading, spacing: 2) {
           HStack(spacing: 6) {
             Text(entry.title)
               .font(.callout)
               .fontWeight(entry.isUnread ? .semibold : .regular)
+              .foregroundStyle(entry.isUnread ? Color.primary : Color.secondary)
               .lineLimit(1)
             Spacer()
+            if let projectName, !projectName.isEmpty {
+              Text(projectName)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+              Text("·")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            }
             Text(relativeAge)
               .font(.caption2)
               .foregroundStyle(.secondary)
           }
           Text(entry.body)
             .font(.caption)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(entry.isUnread ? Color.secondary : Color.secondary.opacity(0.7))
             .lineLimit(2)
         }
       }
@@ -178,10 +196,30 @@ private struct InboxRowView: View {
     .onHover { isHovering = $0 }
   }
 
-  private var kindIcon: some View {
-    Image(systemName: entry.kind == .waitingForInput ? "hand.raised.fill" : "checkmark.circle.fill")
-      .font(.caption)
-      .foregroundStyle(entry.kind == .waitingForInput ? Color.orange : Color.green)
+  /// Read state has no leading glyph (a check-shape next to a row reads
+  /// as "this is done/read" and conflicts with the unread row case).
+  /// Unread state shows a filled dot whose colour mirrors the kind:
+  /// orange for waitingForInput (more urgent), yellow for taskFinished
+  /// (matches the bell glyph theme).
+  @ViewBuilder
+  private var unreadDot: some View {
+    if entry.isUnread {
+      Circle()
+        .fill(entry.kind == .waitingForInput ? Color.orange : Color.yellow)
+        .accessibilityLabel(entry.kind == .waitingForInput ? "Waiting for input" : "Unread")
+    } else {
+      Color.clear
+    }
+  }
+
+  /// Project display name for the entry's source path. Resolved live
+  /// from `HierarchyManager.catalog` so a project rename reflects in
+  /// the popover without a save / reload cycle. Returns nil when the
+  /// project has been deleted (G3 dead-target case) — the row simply
+  /// omits the breadcrumb in that case.
+  private var projectName: String? {
+    guard let mgr = hierarchyManager else { return nil }
+    return mgr.catalog.projects.first(where: { $0.id == entry.source.projectID })?.name
   }
 
   private var relativeAge: String {
