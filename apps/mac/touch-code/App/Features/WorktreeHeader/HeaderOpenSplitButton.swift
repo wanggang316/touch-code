@@ -21,12 +21,18 @@ struct HeaderOpenSplitButton: View {
     Menu {
       openInMenu
     } label: {
+      // Chord hint rides on the primary half (icon + label) only — applying it on the
+      // outer HStack used to push the chord text to the trailing edge of the label
+      // group, where it visually merged with the system-rendered chevron and read as
+      // "the dropdown button's chord". Anchoring on `primaryIcon` keeps the chord
+      // tight against the icon, well left of the chevron, so it clearly belongs to
+      // the primary "Open in <Editor>" action.
       HStack(spacing: 4) {
         primaryIcon
+          .commandKeyHint(.openInDefaultEditor)
         Text(primaryLabel)
           .lineLimit(1)
       }
-      .commandKeyHint(.openInDefaultEditor)
     } primaryAction: {
       store.send(
         .openDefaultEditorTapped(
