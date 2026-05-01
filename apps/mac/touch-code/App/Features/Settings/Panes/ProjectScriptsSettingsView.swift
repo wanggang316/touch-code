@@ -92,7 +92,7 @@ struct ProjectScriptsSettingsView: View {
           icon: "truck.box.badge.clock",
           iconColor: .blue,
           example: "pnpm install",
-          text: git.setupScript,
+          text: git.createScript?.command ?? "",
           phase: .setup
         )
         lifecycleSection(
@@ -101,7 +101,7 @@ struct ProjectScriptsSettingsView: View {
           icon: "archivebox",
           iconColor: .orange,
           example: "docker compose down",
-          text: git.archiveScript,
+          text: git.archiveScript?.command ?? "",
           phase: .archive
         )
         lifecycleSection(
@@ -110,7 +110,7 @@ struct ProjectScriptsSettingsView: View {
           icon: "trash",
           iconColor: .red,
           example: "docker compose down",
-          text: git.deleteScript,
+          text: git.deleteScript?.command ?? "",
           phase: .delete
         )
       }

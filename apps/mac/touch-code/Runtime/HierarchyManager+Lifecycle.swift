@@ -52,9 +52,9 @@ extension HierarchyManager {
   ) -> String? {
     guard let git = settings.projects[projectID]?.git else { return nil }
     switch phase {
-    case .setup: return git.setupScript
-    case .archive: return git.archiveScript
-    case .delete: return git.deleteScript
+    case .setup: return git.createScript?.command
+    case .archive: return git.archiveScript?.command
+    case .delete: return git.deleteScript?.command
     }
   }
 

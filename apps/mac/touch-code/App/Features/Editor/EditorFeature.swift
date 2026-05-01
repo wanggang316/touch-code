@@ -402,13 +402,22 @@ extension SettingsWriter {
         await MainActor.run {
           store?.mutateProject(pid) { project in
             var git = project.git ?? GitProjectSettings()
+            // Empty `command` clears the slot back to nil; otherwise carry
+            // forward the existing ScriptDefinition (preserves UUID + any
+            // adjacent fields) and update its `command`.
+            func updated(_ existing: ScriptDefinition?) -> ScriptDefinition? {
+              guard !command.isEmpty else { return nil }
+              var def = existing ?? ScriptDefinition()
+              def.command = command
+              return def
+            }
             switch phase {
             case .setup:
-              git.setupScript = command
+              git.createScript = updated(git.createScript)
             case .archive:
-              git.archiveScript = command
+              git.archiveScript = updated(git.archiveScript)
             case .delete:
-              git.deleteScript = command
+              git.deleteScript = updated(git.deleteScript)
             }
             project.git = git
             project.collapseEmptyGit()

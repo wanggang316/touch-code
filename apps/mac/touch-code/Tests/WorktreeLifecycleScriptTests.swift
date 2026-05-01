@@ -34,9 +34,9 @@ struct WorktreeLifecycleScriptTests {
     var settings = Settings.default
     var project = ProjectSettings()
     var git = GitProjectSettings()
-    git.setupScript = setupScript
-    git.archiveScript = archiveScript
-    git.deleteScript = deleteScript
+    git.createScript = setupScript.isEmpty ? nil : ScriptDefinition(command: setupScript)
+    git.archiveScript = archiveScript.isEmpty ? nil : ScriptDefinition(command: archiveScript)
+    git.deleteScript = deleteScript.isEmpty ? nil : ScriptDefinition(command: deleteScript)
     project.git = git
     project.envVars = envVars
     settings.projects[projectID] = project

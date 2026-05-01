@@ -132,9 +132,9 @@ struct SettingsWriterPhase2Tests {
     await writer.setProjectLifecycleScript(pid, .archive, "git lfs prune")
     await writer.setProjectLifecycleScript(pid, .delete, "echo gone")
 
-    #expect(store.settings.projects[pid]?.git?.setupScript == "npm install")
-    #expect(store.settings.projects[pid]?.git?.archiveScript == "git lfs prune")
-    #expect(store.settings.projects[pid]?.git?.deleteScript == "echo gone")
+    #expect(store.settings.projects[pid]?.git?.createScript?.command == "npm install")
+    #expect(store.settings.projects[pid]?.git?.archiveScript?.command == "git lfs prune")
+    #expect(store.settings.projects[pid]?.git?.deleteScript?.command == "echo gone")
   }
 
   @Test
@@ -145,7 +145,7 @@ struct SettingsWriterPhase2Tests {
     let pid = ProjectID()
 
     await writer.setProjectLifecycleScript(pid, .setup, "npm install")
-    #expect(store.settings.projects[pid]?.git?.setupScript == "npm install")
+    #expect(store.settings.projects[pid]?.git?.createScript?.command == "npm install")
 
     await writer.setProjectLifecycleScript(pid, .setup, "")
     // Setup was the only field set; an empty git subtree collapses to nil.
@@ -182,6 +182,6 @@ struct SettingsWriterPhase2Tests {
     #expect(reloaded.settings.projects[pid]?.envVars["MY_VAR"] == "hello")
     #expect(reloaded.settings.projects[pid]?.scripts.count == 1)
     #expect(reloaded.settings.projects[pid]?.git?.githubDisabled == true)
-    #expect(reloaded.settings.projects[pid]?.git?.setupScript == "echo SETUP")
+    #expect(reloaded.settings.projects[pid]?.git?.createScript?.command == "echo SETUP")
   }
 }

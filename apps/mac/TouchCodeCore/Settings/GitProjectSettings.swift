@@ -17,22 +17,25 @@ public nonisolated struct GitProjectSettings: Equatable, Codable, Sendable {
   public var postMergeAction: MergedWorktreeAction?
   public var githubDisabled: Bool
 
-  /// Shell command run synchronously after a new worktree is created at
-  /// this Project's `worktreesDirectory`. Empty string skips. Non-zero
-  /// exit blocks worktree-create completion and surfaces the failure in
-  /// `LifecycleScriptToast`. cwd at execution = the new worktree path.
-  public var setupScript: String
+  /// Script run as the `initialCommand` of the worktree's first
+  /// auto-opened pane right after `git worktree add` completes.
+  /// `nil` means no script. The user sees realtime output in that
+  /// pane; there is no headless capture or toast.
+  public var createScript: ScriptDefinition?
 
-  /// Shell command run synchronously before a worktree is archived.
-  /// Empty string skips. Non-zero exit logs a warning but does not block
-  /// archive — the user already requested the action; the script's
-  /// output stays visible in `LifecycleScriptToast` for inspection.
-  public var archiveScript: String
+  /// Script run before a worktree is archived. Materializes in a fresh
+  /// tab on the worktree as the new pane's `initialCommand`. The
+  /// archived flag flips only after that pane's child process exits;
+  /// users typically end the script with `exit` or write a one-shot
+  /// command so the pty terminates cleanly.
+  public var archiveScript: ScriptDefinition?
 
-  /// Shell command run synchronously before a worktree is removed.
-  /// Empty string skips. Failure-warn semantics match `archiveScript`.
-  /// cwd at execution = the worktree path (files still on disk).
-  public var deleteScript: String
+  /// Script run before a worktree is removed from the sidebar list
+  /// (i.e. when the worktree is *not* archived yet). Same materialization
+  /// as `archiveScript`; the worktree teardown waits for the pane's
+  /// child to exit so the script can never be killed mid-run. Removal
+  /// from the archived list skips this script entirely.
+  public var deleteScript: ScriptDefinition?
 
   public init(
     worktreeBaseRef: String? = nil,
@@ -41,9 +44,9 @@ public nonisolated struct GitProjectSettings: Equatable, Codable, Sendable {
     defaultMergeStrategy: MergeStrategy? = nil,
     postMergeAction: MergedWorktreeAction? = nil,
     githubDisabled: Bool = false,
-    setupScript: String = "",
-    archiveScript: String = "",
-    deleteScript: String = ""
+    createScript: ScriptDefinition? = nil,
+    archiveScript: ScriptDefinition? = nil,
+    deleteScript: ScriptDefinition? = nil
   ) {
     self.worktreeBaseRef = worktreeBaseRef
     self.copyIgnoredOnWorktreeCreate = copyIgnoredOnWorktreeCreate
@@ -51,7 +54,7 @@ public nonisolated struct GitProjectSettings: Equatable, Codable, Sendable {
     self.defaultMergeStrategy = defaultMergeStrategy
     self.postMergeAction = postMergeAction
     self.githubDisabled = githubDisabled
-    self.setupScript = setupScript
+    self.createScript = createScript
     self.archiveScript = archiveScript
     self.deleteScript = deleteScript
   }
@@ -59,6 +62,8 @@ public nonisolated struct GitProjectSettings: Equatable, Codable, Sendable {
   /// True when every field is at its default. `ProjectSettings` clears
   /// its `git` child to `nil` when this is true before save, so
   /// `settings.json` does not accumulate useless `"git": {}` objects.
+  /// A lifecycle script counts as empty when nil **or** its `command`
+  /// is empty — the encoder skips both, so this stays symmetric.
   public var isEffectivelyEmpty: Bool {
     worktreeBaseRef == nil
       && copyIgnoredOnWorktreeCreate == nil
@@ -66,9 +71,9 @@ public nonisolated struct GitProjectSettings: Equatable, Codable, Sendable {
       && defaultMergeStrategy == nil
       && postMergeAction == nil
       && githubDisabled == false
-      && setupScript.isEmpty
-      && archiveScript.isEmpty
-      && deleteScript.isEmpty
+      && (createScript?.command.isEmpty ?? true)
+      && (archiveScript?.command.isEmpty ?? true)
+      && (deleteScript?.command.isEmpty ?? true)
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -78,7 +83,7 @@ public nonisolated struct GitProjectSettings: Equatable, Codable, Sendable {
     case defaultMergeStrategy
     case postMergeAction
     case githubDisabled
-    case setupScript
+    case createScript
     case archiveScript
     case deleteScript
   }
@@ -91,14 +96,14 @@ public nonisolated struct GitProjectSettings: Equatable, Codable, Sendable {
     self.defaultMergeStrategy = try c.decodeIfPresent(MergeStrategy.self, forKey: .defaultMergeStrategy)
     self.postMergeAction = try c.decodeIfPresent(MergedWorktreeAction.self, forKey: .postMergeAction)
     self.githubDisabled = try c.decodeIfPresent(Bool.self, forKey: .githubDisabled) ?? false
-    self.setupScript = try c.decodeIfPresent(String.self, forKey: .setupScript) ?? ""
-    self.archiveScript = try c.decodeIfPresent(String.self, forKey: .archiveScript) ?? ""
-    self.deleteScript = try c.decodeIfPresent(String.self, forKey: .deleteScript) ?? ""
+    self.createScript = try c.decodeIfPresent(ScriptDefinition.self, forKey: .createScript)
+    self.archiveScript = try c.decodeIfPresent(ScriptDefinition.self, forKey: .archiveScript)
+    self.deleteScript = try c.decodeIfPresent(ScriptDefinition.self, forKey: .deleteScript)
   }
 
-  /// Omit-when-default encoding — matches `RepositorySettings`' existing
-  /// shape so the migrated-from-v2 `git` subtree in `settings.json` stays
-  /// byte-stable over round-trips.
+  /// Omit-when-default encoding. A lifecycle script with an empty
+  /// `command` is treated as nil (the user effectively cleared it) so
+  /// the JSON does not retain a stale UUID for an empty entry.
   public func encode(to encoder: Encoder) throws {
     var c = encoder.container(keyedBy: CodingKeys.self)
     try c.encodeIfPresent(worktreeBaseRef, forKey: .worktreeBaseRef)
@@ -109,13 +114,13 @@ public nonisolated struct GitProjectSettings: Equatable, Codable, Sendable {
     if githubDisabled {
       try c.encode(true, forKey: .githubDisabled)
     }
-    if !setupScript.isEmpty {
-      try c.encode(setupScript, forKey: .setupScript)
+    if let createScript, !createScript.command.isEmpty {
+      try c.encode(createScript, forKey: .createScript)
     }
-    if !archiveScript.isEmpty {
+    if let archiveScript, !archiveScript.command.isEmpty {
       try c.encode(archiveScript, forKey: .archiveScript)
     }
-    if !deleteScript.isEmpty {
+    if let deleteScript, !deleteScript.command.isEmpty {
       try c.encode(deleteScript, forKey: .deleteScript)
     }
   }
