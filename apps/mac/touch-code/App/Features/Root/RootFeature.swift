@@ -884,10 +884,16 @@ struct RootFeature {
 
         guard let project = hierarchyClient.snapshot()
           .projects.first(where: { $0.id == source.projectID }),
-          project.worktrees.contains(where: { $0.id == source.worktreeID })
+          let targetWorktree = project.worktrees.first(where: { $0.id == source.worktreeID })
         else {
           return .none
         }
+        // Refuse to navigate into an archived worktree. The row is hidden
+        // from the sidebar and selecting it would persist a stale
+        // `project.selectedWorktreeID = <archived>` that snaps focus back
+        // to a closed pane on the next launch — and surfaces a non-
+        // navigable target via the StatusBar notification taps.
+        guard !targetWorktree.archived else { return .none }
         try? hierarchyClient.selectWorktree(source.worktreeID, source.projectID)
 
         guard let worktree = hierarchyClient.snapshot()

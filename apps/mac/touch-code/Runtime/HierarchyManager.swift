@@ -42,6 +42,25 @@ final class HierarchyManager {
     self.catalog = catalog
     self.store = store
     self.runtime = runtime
+    Self.normalizeArchivedSelection(in: &self.catalog)
+  }
+
+  /// Defensive sweep run at load: if any project's `selectedWorktreeID`
+  /// points to an archived worktree (a stale write from a now-fixed
+  /// inbox-navigation bug, or a future regression), advance it to the
+  /// first non-archived sibling. Keeps the active selection chain
+  /// reachable from the sidebar so the detail pane never restores to
+  /// a hidden, closed-surface row.
+  private static func normalizeArchivedSelection(in catalog: inout Catalog) {
+    for projectIndex in catalog.projects.indices {
+      let project = catalog.projects[projectIndex]
+      guard let selectedID = project.selectedWorktreeID,
+        let selected = project.worktrees.first(where: { $0.id == selectedID }),
+        selected.archived
+      else { continue }
+      catalog.projects[projectIndex].selectedWorktreeID =
+        project.worktrees.first(where: { !$0.archived })?.id
+    }
   }
 
   // MARK: - Tag mutations
