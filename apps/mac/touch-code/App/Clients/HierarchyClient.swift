@@ -911,6 +911,17 @@ extension HierarchyClient {
   /// gone, the tab/pane could not be created, or no `TerminalClient` is
   /// wired. Used by archive / delete lifecycle wrappers — both must wait
   /// for the user's script to finish before mutating catalog state.
+  ///
+  /// `initialCommand` is delivered to the pane via `sendInput`, i.e. it
+  /// is typed into an interactive shell rather than passed through
+  /// `sh -c`. A bare `npm install\n` would therefore leave the shell at
+  /// an interactive prompt and the await would block until the user
+  /// manually `exit`s — the archive flag would never flip. To make
+  /// lifecycle scripts terminate deterministically, the command is
+  /// wrapped as `<trimmed>; exit\n` so the shell exits after running
+  /// the user's script regardless of its outcome. The pane stays open
+  /// just long enough for the user to read any output before it
+  /// disappears with the worktree teardown.
   @MainActor
   private static func openNewTabAndAwaitExit(
     worktreeID: WorktreeID,
@@ -938,6 +949,9 @@ extension HierarchyClient {
     // archive/delete await would hang forever.
     let stream = terminalClient.events()
 
+    let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+    let wrapped = trimmed.isEmpty ? "exit" : "\(trimmed); exit"
+
     let paneID: PaneID
     do {
       let tabID = try manager.createTab(
@@ -946,7 +960,7 @@ extension HierarchyClient {
       paneID = try manager.openPane(
         in: tabID, in: worktreeID, in: projectID,
         workingDirectory: cwd,
-        initialCommand: command,
+        initialCommand: wrapped,
         env: env
       )
     } catch {
