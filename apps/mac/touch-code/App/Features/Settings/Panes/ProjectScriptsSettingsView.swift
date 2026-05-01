@@ -218,7 +218,7 @@ struct ProjectScriptsSettingsView: View {
     Section {
       UserScriptEditor(
         script: script,
-        onUpdate: { updated in saveEdit(updated) },
+        onSave: { updated in saveEdit(updated) },
         onRun: {
           if let wtID = resolvedWorktreeID {
             store.send(.runScriptTapped(scriptID: script.id, worktreeID: wtID))
