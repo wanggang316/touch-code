@@ -303,43 +303,36 @@ extension LabelStyle where Self == ScriptSectionHeaderLabelStyle {
   fileprivate static var scriptSectionHeader: ScriptSectionHeaderLabelStyle { .init() }
 }
 
-// MARK: - Lifecycle TextEditor with commit-on-blur
+// MARK: - Lifecycle TextEditor
 
-/// Tiny TextEditor wrapper that buffers user input locally and commits
-/// to the writer only when the field loses focus. Avoids the "write on
-/// every keystroke" storm that a direct `Binding` setter would cause
-/// against `SettingsStore.mutateProject`.
+/// Tiny TextEditor wrapper that commits the user's edit to the writer
+/// on each change. Per-keystroke calls are safe: the writer routes
+/// through `SettingsStore.scheduleSave`, which cancels and re-arms a
+/// debounced disk write so a burst of keystrokes only triggers a
+/// single `AtomicFileStore.write` once typing settles.
+///
+/// The previous commit-on-blur design lost the user's edit if the
+/// settings window closed (or the pane swapped to another Project)
+/// while focus was still on the field — `@FocusState` is not
+/// guaranteed to fire `false` before the view tears down.
 private struct LifecycleEditor: View {
   let initial: String
   let onCommit: (String) -> Void
 
-  @State private var draft: String
-  @FocusState private var focused: Bool
-
-  init(initial: String, onCommit: @escaping (String) -> Void) {
-    self.initial = initial
-    self.onCommit = onCommit
-    self._draft = State(initialValue: initial)
-  }
-
   var body: some View {
-    TextEditor(text: $draft)
-      .monospaced()
-      .textEditorStyle(.plain)
-      .autocorrectionDisabled()
-      .frame(height: 90)
-      .focused($focused)
-      .onChange(of: focused) { _, isFocused in
-        if !isFocused, draft != initial {
-          onCommit(draft)
+    TextEditor(
+      text: Binding(
+        get: { initial },
+        set: { newValue in
+          if newValue != initial {
+            onCommit(newValue)
+          }
         }
-      }
-      .onChange(of: initial) { _, newInitial in
-        // Upstream change while we are not editing — adopt it so the
-        // displayed value matches the latest persisted state.
-        if !focused {
-          draft = newInitial
-        }
-      }
+      )
+    )
+    .monospaced()
+    .textEditorStyle(.plain)
+    .autocorrectionDisabled()
+    .frame(height: 90)
   }
 }
