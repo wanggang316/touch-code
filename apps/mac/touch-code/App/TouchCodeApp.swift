@@ -243,6 +243,10 @@ final class AppState {
   /// Mirrors `notificationStore.unreadCount` onto the macOS Dock tile badge
   /// via `withObservationTracking` re-registration.
   @ObservationIgnored private var dockBadgerTask: Task<Void, Never>?
+  /// R1: re-marks unread entries as read whenever the user focuses the
+  /// pane they belong to. Observes catalog focus state via Observation
+  /// re-registration; held so shutdown can cancel cleanly.
+  @ObservationIgnored private var focusReadMarkerTask: Task<Void, Never>?
   /// Live banner adapter; held so M5's Settings panel can call
   /// `requestAuthorization()` from the recovery button. Single instance
   /// per process — Settings panel reads via `@Environment` rather than
@@ -336,6 +340,14 @@ final class AppState {
     DockBadger.setBadge(inbox.unreadCount)
     self.dockBadgerTask = Task { @MainActor in
       await Self.observeDockBadge(store: inbox)
+    }
+
+    // R1: clear unread on a pane when the user focuses it. Watches the
+    // catalog's globally-focused pane id and calls markReadForPane on
+    // every change. Idempotent at the store level — a re-fire with the
+    // same pane is a no-op.
+    self.focusReadMarkerTask = Task { @MainActor in
+      await Self.observeFocusedPaneForRead(catalog: { manager.catalog }, lastFocusedPane: { tabID in manager.lastFocusedPane(in: tabID) }, store: inbox)
     }
 
     // Roll-up provider — reads inbox + a hierarchy focus snapshot, recomputes
@@ -493,10 +505,11 @@ final class AppState {
   /// otherwise be dropped; each store below has its own debounce, so we
   /// drain them explicitly here.
   func flushAllPersistedState() {
-    // Cancel notification background Tasks first so neither can race the
-    // final flush by appending a new entry mid-write.
+    // Cancel notification background Tasks first so none can race the
+    // final flush by mutating store state mid-write.
     notificationDetectorTask?.cancel()
     dockBadgerTask?.cancel()
+    focusReadMarkerTask?.cancel()
 
     settingsStore.flush()
     shortcutsStore.flush()
@@ -528,6 +541,79 @@ final class AppState {
       activeProjectID: activeProject?.id,
       expandedProjectIDs: expanded
     )
+  }
+
+  /// Long-running R1 marker: every time the user focuses a different
+  /// pane, mark its unread entries read. Drives off the same Observation
+  /// re-arming pattern as the Dock badge mirror — each loop iteration
+  /// reads the current focused pane id and re-arms a tracker that fires
+  /// on any catalog mutation that could change that id (selectedProjectID
+  /// / selectedWorktreeID / selectedTabID / lastFocusedPane).
+  @MainActor
+  private static func observeFocusedPaneForRead(
+    catalog: @escaping @MainActor () -> Catalog,
+    lastFocusedPane: @escaping @MainActor (TabID) -> PaneID?,
+    store: NotificationStore
+  ) async {
+    while !Task.isCancelled {
+      if let paneID = currentlyFocusedPane(catalog: catalog(), lastFocusedPane: lastFocusedPane) {
+        store.markReadForPane(paneID)
+      }
+      let stream = AsyncStream<Void> { continuation in
+        withObservationTracking {
+          // Touch every catalog field the focused-pane composition reads
+          // so any one of them mutating fires onChange.
+          let snap = catalog()
+          _ = snap.selectedProjectID
+          for project in snap.projects {
+            _ = project.selectedWorktreeID
+            for worktree in project.worktrees {
+              _ = worktree.selectedTabID
+            }
+          }
+          // lastFocusedPane is read off HierarchyManager, which is
+          // @Observable upstream — touching the resolved id here keeps
+          // its observation registered alongside the catalog reads.
+          if let activeProjectID = snap.selectedProjectID,
+            let project = snap.projects.first(where: { $0.id == activeProjectID }),
+            let worktreeID = project.selectedWorktreeID,
+            let worktree = project.worktrees.first(where: { $0.id == worktreeID }),
+            let tabID = worktree.selectedTabID
+          {
+            _ = lastFocusedPane(tabID)
+          }
+        } onChange: {
+          Task { @MainActor [continuation] in
+            continuation.yield(())
+          }
+        }
+        continuation.onTermination = { _ in }
+      }
+      for await _ in stream {
+        break
+      }
+    }
+  }
+
+  /// Returns the single globally-focused pane id, computed the same way
+  /// `NotificationDetector.globallyFocusedPane` does. Kept here so both
+  /// the detector (drop-on-focus) and the R1 marker agree on the rule.
+  /// Note: app frontmost is intentionally NOT gated here — focusing a
+  /// pane in the app is the user's deliberate action regardless of
+  /// frontmost state, and we want a worktree-switch to clear unreads on
+  /// the newly-focused pane even if the user did it via a global hotkey
+  /// while another app held foreground.
+  static func currentlyFocusedPane(
+    catalog: Catalog,
+    lastFocusedPane: @MainActor (TabID) -> PaneID?
+  ) -> PaneID? {
+    guard let activeProjectID = catalog.selectedProjectID,
+      let project = catalog.projects.first(where: { $0.id == activeProjectID }),
+      let worktreeID = project.selectedWorktreeID,
+      let worktree = project.worktrees.first(where: { $0.id == worktreeID }),
+      let tabID = worktree.selectedTabID
+    else { return nil }
+    return lastFocusedPane(tabID)
   }
 
   /// Long-running mirror: pushes `store.unreadCount` to the Dock tile badge

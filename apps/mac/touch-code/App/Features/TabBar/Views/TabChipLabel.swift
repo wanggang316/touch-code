@@ -28,7 +28,7 @@ struct TabChipLabel: View {
       }
       if hasUnreadNotification {
         Circle()
-          .fill(Color.accentColor)
+          .fill(Color.red)
           .frame(width: 4, height: 4)
           .accessibilityLabel("Has unread notifications")
       }

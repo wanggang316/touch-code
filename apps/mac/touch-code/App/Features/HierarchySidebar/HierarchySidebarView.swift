@@ -992,10 +992,12 @@ private struct ProjectHeaderRow: View {
         .foregroundStyle(isHovering ? .primary : .secondary)
       // L4 unread dot. Rendered only when this Project's id appears in
       // RollupIndex.unreadProjects — which only happens when the project
-      // is collapsed and unread entries roll up to its level.
+      // is collapsed and unread entries roll up to its level. Red rather
+      // than the accent colour so the "needs attention" semantics read
+      // independently of the user's macOS accent preference.
       if rollup?.current.unreadProjects.contains(project.id) == true {
         Circle()
-          .fill(Color.accentColor)
+          .fill(Color.red)
           .frame(width: 5, height: 5)
           .accessibilityLabel("Has unread notifications")
       }

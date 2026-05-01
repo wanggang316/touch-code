@@ -45,7 +45,7 @@ struct WorktreeRowIcon: View {
           .resizable()
           .aspectRatio(contentMode: .fit)
           .frame(width: 12, height: 12)
-          .foregroundStyle(Color.accentColor)
+          .foregroundStyle(Color.red)
       } else {
         Image(assetName)
           .renderingMode(.template)

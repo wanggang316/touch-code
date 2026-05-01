@@ -101,6 +101,24 @@ public final class NotificationStore {
     scheduleSave()
   }
 
+  /// R1: when the user focuses a pane, every unread entry whose source
+  /// pane matches is marked read in one pass. Idempotent — a no-op when
+  /// the pane has no unread entries.
+  public func markReadForPane(_ paneID: PaneID, at readAt: Date = Date()) {
+    var didMutate = false
+    let updated = entries.map { entry -> InboxEntry in
+      guard entry.source.paneID == paneID, entry.isUnread else { return entry }
+      didMutate = true
+      var copy = entry
+      copy.readAt = readAt
+      return copy
+    }
+    guard didMutate else { return }
+    entries = updated
+    unreadCount = InboxStorage.unreadCount(entries)
+    scheduleSave()
+  }
+
   // MARK: - Persistence
 
   /// Cancels any pending debounced write and flushes immediately. Callers:
