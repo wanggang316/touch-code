@@ -49,10 +49,14 @@ struct ContentView: View {
             onDismiss: { store.send(.commandPaletteToggle(nil)) }
           )
           .zIndex(100)
-          .transition(.opacity.combined(with: .scale(scale: 0.97)))
+          // Pure opacity is the cheapest transition — no layout recomputation
+          // for the full-window NavigationSplitView while the palette appears,
+          // and no GPU scale interpolation on the (already heavy) shadow +
+          // material card. Scale was perceptually negligible at 0.97.
+          .transition(.opacity)
         }
       }
-      .animation(.easeOut(duration: 0.12), value: store.commandPalette != nil)
+      .animation(.easeOut(duration: 0.08), value: store.commandPalette != nil)
     }
   }
 

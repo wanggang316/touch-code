@@ -21,8 +21,9 @@ struct CommandPaletteView: View {
 
   var body: some View {
     ZStack(alignment: .top) {
-      // Invisible click-catcher: no visible tint, but takes hit-testing so taps
-      // outside the card dismiss the palette (cf. supacode's CommandPaletteOverlayView).
+      // Invisible click-catcher. No transition applied — the hit-area is already
+      // transparent, so animating its opacity is wasted work that delays the
+      // perceived appearance of the card.
       Color.clear
         .contentShape(.rect)
         .onTapGesture { onDismiss() }
@@ -40,7 +41,7 @@ struct CommandPaletteView: View {
         RoundedRectangle(cornerRadius: 10)
           .stroke(Color(nsColor: .tertiaryLabelColor).opacity(0.5), lineWidth: 0.5)
       )
-      .shadow(radius: 32, y: 12)
+      .shadow(color: .black.opacity(0.22), radius: 14, y: 5)
       .padding(.top, 80)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
