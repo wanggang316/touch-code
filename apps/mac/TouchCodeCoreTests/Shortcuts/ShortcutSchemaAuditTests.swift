@@ -59,6 +59,8 @@ struct ShortcutSchemaAuditTests {
     (.addProject, (0x1F, [.command, .shift])),              // ⇧O
     (.openCurrentPR, (0x05, [.command, .shift])),           // g
     (.newWorktree, (0x2D, [.command])),                     // n
+    (.splitRight, (0x02, [.command])),                      // d
+    (.splitDown, (0x02, [.command, .shift])),               // ⇧d
     (.newTab, (0x11, [.command])),                          // t
     (.closeTab, (0x0D, [.command])),                        // w
     (.previousTab, (0x21, [.command, .shift])),             // [

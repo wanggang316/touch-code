@@ -164,6 +164,12 @@ struct RootFeature {
     /// same path the per-Project hover `+` button drives. No-op when no
     /// project is selected.
     case newWorktreeForCurrentProjectRequested
+    /// `⌘D` / `⌘⇧D` menu bindings — split the active tab's leftmost leaf
+    /// pane in the requested direction. Silent no-op when no project / tab
+    /// is active. Equivalent to clicking the tab-bar trailing split
+    /// buttons; both routes land on `.detail(.tabBar(.trailingSplitRequested))`
+    /// so trees / hooks fire identically.
+    case splitCurrentPaneRequested(direction: SplitTree<PaneID>.NewDirection)
     /// Tab-bar uplift: `⌘T` menu binding. Resolves the current Worktree
     /// and forwards `.detail(.tabBar(.newTabButtonTapped))`.
     case newTabForCurrentWorktree
@@ -897,6 +903,19 @@ struct RootFeature {
       case .newWorktreeForCurrentProjectRequested:
         guard let projectID = state.selection.projectID else { return .none }
         return .send(.sidebar(.projectAddWorktreeTapped(projectID: projectID)))
+
+      case .splitCurrentPaneRequested(let direction):
+        guard
+          let projectID = state.selection.projectID,
+          let worktreeID = state.selection.worktreeID
+        else { return .none }
+        return .send(
+          .detail(
+            .tabBar(
+              .trailingSplitRequested(
+                direction: direction,
+                inWorktree: worktreeID, inProject: projectID
+              ))))
 
       case .focusHierarchyPath(let source):
         // Walk the source path against the *live* catalog, re-reading the

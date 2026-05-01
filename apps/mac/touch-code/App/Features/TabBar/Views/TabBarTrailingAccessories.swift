@@ -28,6 +28,7 @@ struct TabBarTrailingAccessories: View {
       SplitAccessoryButton(
         systemImage: "rectangle.split.2x1",
         accessibilityLabel: "Split Right",
+        chordCommandID: .splitRight,
         splitTree: activeTabSplitTree,
         action: onSplitRight
       )
@@ -35,6 +36,7 @@ struct TabBarTrailingAccessories: View {
       SplitAccessoryButton(
         systemImage: "rectangle.split.1x2",
         accessibilityLabel: "Split Down",
+        chordCommandID: .splitDown,
         splitTree: activeTabSplitTree,
         action: onSplitDown
       )
@@ -49,6 +51,10 @@ struct TabBarTrailingAccessories: View {
 private struct SplitAccessoryButton: View {
   let systemImage: String
   let accessibilityLabel: String
+  /// Registry chord this button mirrors (`.splitRight` / `.splitDown`). The image
+  /// surfaces the chord inline while ⌘ is held so the user can discover the
+  /// keyboard binding without opening the menu.
+  let chordCommandID: CommandID
   let splitTree: SplitTree<PaneID>?
   let action: () -> Void
 
@@ -59,6 +65,7 @@ private struct SplitAccessoryButton: View {
     Button(action: action) {
       Image(systemName: systemImage)
         .accessibilityLabel(accessibilityLabel)
+        .commandKeyHint(chordCommandID)
     }
     .buttonStyle(.borderless)
     .disabled(splitTree?.root == nil)

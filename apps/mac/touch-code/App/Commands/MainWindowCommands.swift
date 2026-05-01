@@ -87,6 +87,18 @@ struct MainWindowCommands: Commands {
       .appKeyboardShortcut(.newTab, in: shortcuts)
       .disabled(!hasActiveWorktree)
 
+      Button("Split Right") {
+        store()?.send(.splitCurrentPaneRequested(direction: .right))
+      }
+      .appKeyboardShortcut(.splitRight, in: shortcuts)
+      .disabled(!hasActiveWorktree)
+
+      Button("Split Down") {
+        store()?.send(.splitCurrentPaneRequested(direction: .down))
+      }
+      .appKeyboardShortcut(.splitDown, in: shortcuts)
+      .disabled(!hasActiveWorktree)
+
       Button("Close Tab") {
         // ⌘W is global menu chord; SwiftUI Commands aren't scene-scoped, so the
         // same accelerator fires regardless of which window is key. Route on the

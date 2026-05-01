@@ -128,6 +128,20 @@ extension ShortcutSchema {
         scope: .configurable,
         defaultBinding: .init(keyCode: UInt16(kVK_ANSI_N), modifiers: .command)
       ),
+      .init(
+        id: .splitRight,
+        title: "Split Right",
+        category: .tabs,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_D), modifiers: .command)
+      ),
+      .init(
+        id: .splitDown,
+        title: "Split Down",
+        category: .tabs,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_D), modifiers: [.command, .shift])
+      ),
 
       // Tabs scope.
       .init(

@@ -31,6 +31,8 @@ public enum CommandID: String, CaseIterable, Hashable, Sendable, Codable, Coding
   case addProject
   case openCurrentPR
   case newWorktree
+  case splitRight
+  case splitDown
 
   // Window — tabs.
   case newTab
