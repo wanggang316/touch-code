@@ -24,17 +24,21 @@ struct InboxBellView: View {
   var body: some View {
     let count = rollup?.current.globalUnreadCount ?? 0
     Button(action: { popoverShown.toggle() }) {
-      HStack(spacing: 3) {
+      HStack(spacing: 4) {
         Image(systemName: count > 0 ? "bell.fill" : "bell")
-          .font(.body)
+          .font(.title3)
           .foregroundStyle(count > 0 ? Color.orange : Color.primary)
         if count > 0 {
           Text(badgeLabel(count))
-            .font(.system(size: 11, weight: .semibold).monospacedDigit())
+            .font(.system(size: 12, weight: .semibold).monospacedDigit())
             .foregroundStyle(.primary)
         }
       }
-      .frame(minHeight: 20)
+      // Trailing inset gives the count digits breathing room before
+      // the toolbar's edge / next item — without it `99+` reads as
+      // crammed against the boundary on macOS 26's glass capsule.
+      .padding(.trailing, 6)
+      .frame(minHeight: 24)
     }
     .buttonStyle(.plain)
     .accessibilityLabel(accessibilityLabel)
