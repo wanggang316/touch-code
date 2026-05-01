@@ -74,7 +74,7 @@ struct HeaderRunScriptSplitButton: View {
   }
 
   private var primaryTint: Color {
-    Self.color(for: primaryScript?.resolvedTintColor ?? .green)
+    ScriptTintColorPalette.color(for: primaryScript?.resolvedTintColor ?? .green)
   }
 
   // MARK: - Caret menu
@@ -99,19 +99,4 @@ struct HeaderRunScriptSplitButton: View {
     }
   }
 
-  // MARK: - Helpers
-
-  /// Maps the model-layer `ScriptTintColor` to SwiftUI `Color`. Lives view-side
-  /// so `TouchCodeCore` stays UI-framework-free.
-  static func color(for tint: ScriptTintColor) -> Color {
-    switch tint {
-    case .green: return .green
-    case .yellow: return .yellow
-    case .red: return .red
-    case .blue: return .blue
-    case .teal: return .teal
-    case .purple: return .purple
-    case .gray: return .gray
-    }
-  }
 }

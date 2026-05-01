@@ -70,7 +70,7 @@ struct ScriptDefinitionRowExpansionTests {
       // Just exercise the static helper to ensure the switch is
       // exhaustive at runtime; SwiftUI Color comparison is unreliable
       // so we only check the call returns without trapping.
-      _ = ScriptDefinitionRow.color(for: tint)
+      _ = ScriptTintColorPalette.color(for: tint)
     }
     #expect(ScriptTintColor.allCases.count == 7)
   }

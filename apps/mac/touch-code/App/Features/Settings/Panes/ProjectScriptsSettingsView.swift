@@ -42,11 +42,6 @@ struct ProjectScriptsSettingsView: View {
     }
   }
 
-  /// Local set of script-IDs currently in expanded edit mode. Lives in
-  /// view state because expansion is a transient UI affordance, not
-  /// persisted settings.
-  @State private var expandedScriptIDs: Set<UUID> = []
-
   // MARK: - Derived state
 
   private var entry: ProjectSettings? {
@@ -116,7 +111,10 @@ struct ProjectScriptsSettingsView: View {
       }
 
       if visible.contains(.scripts) {
-        scriptsSection
+        scriptsHeaderSection
+        ForEach(scripts) { script in
+          scriptSection(for: script)
+        }
       }
 
       if let error = store.state.lastWriteFailure, !error.isEmpty {
@@ -171,46 +169,21 @@ struct ProjectScriptsSettingsView: View {
     }
   }
 
-  // MARK: - Scripts Section
+  // MARK: - Scripts Sections
 
+  /// Top "Scripts" section: title + add menu, plus the empty-state hint
+  /// when the project has no scripts yet. Each individual script lives
+  /// in its own grouped Section below this one (mirrors the lifecycle
+  /// scripts layout) so the visual rhythm is consistent across the
+  /// pane. Reordering via drag is not supported in the System-Settings-
+  /// style Form layout — scripts appear in array order.
   @ViewBuilder
-  private var scriptsSection: some View {
+  private var scriptsHeaderSection: some View {
     Section {
       if scripts.isEmpty {
         Text("No scripts yet — use the + menu to add one.")
           .font(.callout)
           .foregroundStyle(.secondary)
-      } else {
-        ForEach(scripts) { script in
-          ScriptDefinitionRow(
-            script: script,
-            isExpanded: Binding(
-              get: { expandedScriptIDs.contains(script.id) },
-              set: { expanded in
-                if expanded {
-                  expandedScriptIDs.insert(script.id)
-                } else {
-                  expandedScriptIDs.remove(script.id)
-                }
-              }
-            ),
-            onSave: { updated in
-              saveEdit(updated)
-            },
-            onRun: {
-              if let wtID = resolvedWorktreeID {
-                store.send(.runScriptTapped(scriptID: script.id, worktreeID: wtID))
-              }
-            },
-            onDelete: { deleteScript(id: script.id) },
-            canRun: resolvedWorktreeID != nil
-          )
-        }
-        .onMove { source, destination in
-          var reordered = scripts
-          reordered.move(fromOffsets: source, toOffset: destination)
-          store.send(.setProjectScripts(reordered))
-        }
       }
     } header: {
       HStack(spacing: 8) {
@@ -230,7 +203,48 @@ struct ProjectScriptsSettingsView: View {
         addScriptMenu
       }
     } footer: {
-      Text("Run from the toolbar, command palette, or keyboard shortcut.")
+      if !scripts.isEmpty {
+        Text("Run from the toolbar, command palette, or keyboard shortcut.")
+      }
+    }
+  }
+
+  /// Renders one script as its own Section: the header carries the
+  /// script's icon + display name + kind subtitle (matching the
+  /// lifecycle-script header layout), and the body hosts the
+  /// auto-saving `UserScriptEditor`.
+  @ViewBuilder
+  private func scriptSection(for script: ScriptDefinition) -> some View {
+    Section {
+      UserScriptEditor(
+        script: script,
+        onUpdate: { updated in saveEdit(updated) },
+        onRun: {
+          if let wtID = resolvedWorktreeID {
+            store.send(.runScriptTapped(scriptID: script.id, worktreeID: wtID))
+          }
+        },
+        onDelete: { deleteScript(id: script.id) },
+        canRun: resolvedWorktreeID != nil
+      )
+    } header: {
+      Label {
+        VStack(alignment: .leading, spacing: 0) {
+          Text(script.displayName)
+            .font(.body)
+            .bold()
+            .lineLimit(1)
+          Text(script.kind.defaultName)
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+        }
+      } icon: {
+        Image(systemName: script.resolvedSystemImage)
+          .foregroundStyle(ScriptTintColorPalette.color(for: script.resolvedTintColor))
+          .accessibilityHidden(true)
+      }
+      .labelStyle(.scriptSectionHeader)
     }
   }
 
@@ -263,7 +277,6 @@ struct ProjectScriptsSettingsView: View {
     let newScript = ScriptDefinition(kind: kind)
     var updated = scripts
     updated.insert(newScript, at: 0)
-    expandedScriptIDs.insert(newScript.id)
     store.send(.setProjectScripts(updated))
   }
 
@@ -274,13 +287,11 @@ struct ProjectScriptsSettingsView: View {
     } else {
       updated.insert(script, at: 0)
     }
-    expandedScriptIDs.remove(script.id)
     store.send(.setProjectScripts(updated))
   }
 
   private func deleteScript(id: UUID) {
     let updated = scripts.filter { $0.id != id }
-    expandedScriptIDs.remove(id)
     store.send(.setProjectScripts(updated))
   }
 }
