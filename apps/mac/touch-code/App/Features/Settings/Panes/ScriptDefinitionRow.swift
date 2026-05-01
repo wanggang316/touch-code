@@ -167,7 +167,7 @@ struct UserScriptEditor: View {
       Button("Save") {
         onSave(draft)
       }
-      .keyboardShortcut(.defaultAction)
+      .keyboardShortcut("s", modifiers: .command)
       .disabled(draft == script || draft.command.isEmpty)
     }
   }
