@@ -28,6 +28,14 @@ public final class NotificationDetector {
   /// pane that has never produced output cannot fire a `taskFinished`.
   private var hasProducedOutput: Set<PaneID> = []
 
+  /// Cached `(projectID, worktreeID, tabID, paneID)` per pane so a
+  /// terminal `paneExited` / `paneCrashed` event can still produce a
+  /// notification even when `RootFeature`'s parallel event consumer
+  /// has already called `closePane` and removed the pane from the
+  /// live catalog. Updated whenever a live catalog walk succeeds;
+  /// cleared on the pane's lifecycle teardown events.
+  private var paneSourceCache: [PaneID: InboxEntry.SourcePath] = [:]
+
   public init(
     store: NotificationStore,
     banner: OSNotifier,
@@ -73,16 +81,27 @@ public final class NotificationDetector {
     let step = DetectionTranslator.translate(event, hasProducedOutput: hasProducedOutput)
 
     switch step.outputFlag {
-    case .markProduced(let paneID): hasProducedOutput.insert(paneID)
-    case .clearProduced(let paneID): hasProducedOutput.remove(paneID)
-    case .unchanged: break
+    case .markProduced(let paneID):
+      hasProducedOutput.insert(paneID)
+      // Refresh the source-path cache while the pane is still live in
+      // the catalog. By the time a future paneExited event flows through
+      // here, RootFeature's parallel consumer may have removed the pane;
+      // the cache means we still know where it lived.
+      _ = liveResolve(paneID: paneID)
+    case .clearProduced(let paneID):
+      hasProducedOutput.remove(paneID)
+      // Don't drop cache here — `emit` for the same teardown event still
+      // needs to look up the source path. Cache is dropped at the end of
+      // `emit` once we've actually used it.
+    case .unchanged:
+      break
     }
 
     guard let entry = step.entry else { return }
-    await emit(entry)
+    await emit(entry, isTeardown: step.outputFlag.isTeardown)
   }
 
-  private func emit(_ translated: DetectionTranslator.Entry) async {
+  private func emit(_ translated: DetectionTranslator.Entry, isTeardown: Bool) async {
     guard let resolved = resolve(paneID: translated.paneID) else { return }
     if resolved.muted { return }
 
@@ -118,16 +137,44 @@ public final class NotificationDetector {
     // when the app is foreground and presenting; the inbox + dock
     // badge are the in-app surfaces.
     await banner.post(inbox)
+
+    // Drop the cache only after the entry has been emitted. A teardown
+    // event (paneExited / paneCrashed / paneClosedByTab) still needs
+    // the cached source path to resolve, but no future event for this
+    // pane id will ever arrive again — clean up.
+    if isTeardown {
+      paneSourceCache.removeValue(forKey: translated.paneID)
+    }
   }
 
   // MARK: - Helpers
 
-  /// Single-pass catalog walk that resolves `paneID` to its full source
-  /// path, its mute state, and the worktree's display label in one O(N)
-  /// traversal — previously two independent walks called per event.
-  /// Returns nil when the pane is not yet in the catalog (e.g. a stray
-  /// event arriving before the engine has wired the pane to a tab).
+  /// Resolve `paneID` to source path + mute state + worktree label.
+  /// Tries the live catalog first; falls back to `paneSourceCache` when
+  /// the pane has already been removed from the catalog (typical on
+  /// `paneExited`: `RootFeature.paneLifecycleExited` may have closed it
+  /// before this consumer runs). Returns nil only when both the live
+  /// catalog and the cache have nothing — meaning the pane never had
+  /// any prior catalog presence in this process. Cache fallback path
+  /// loses worktreeLabel + mute info; that's an acceptable trade for
+  /// not silently swallowing the final teardown notification.
   private func resolve(
+    paneID: PaneID
+  ) -> (source: InboxEntry.SourcePath, muted: Bool, worktreeLabel: String?)? {
+    if let live = liveResolve(paneID: paneID) {
+      return live
+    }
+    if let cached = paneSourceCache[paneID] {
+      return (cached, false, nil)
+    }
+    return nil
+  }
+
+  /// Live-catalog resolve. On success, refreshes `paneSourceCache` so
+  /// later teardown events still have a valid source after the pane
+  /// has been removed from the catalog.
+  @discardableResult
+  private func liveResolve(
     paneID: PaneID
   ) -> (source: InboxEntry.SourcePath, muted: Bool, worktreeLabel: String?)? {
     let catalog = catalogSnapshot()
@@ -141,6 +188,7 @@ public final class NotificationDetector {
             tabID: tab.id,
             paneID: pane.id
           )
+          paneSourceCache[paneID] = source
           let label = worktree.name.isEmpty ? nil : worktree.name
           return (source, pane.labels.contains(InboxLabels.muted), label)
         }

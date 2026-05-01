@@ -51,6 +51,16 @@ public nonisolated enum DetectionTranslator {
     case clearProduced(PaneID)
     /// No change to the output-produced map.
     case unchanged
+
+    /// Whether this flag corresponds to a terminal teardown event —
+    /// `paneExited` / `paneCrashed` / `paneClosedByTab`. Lets the
+    /// detector drop its source-path cache after the final emit.
+    public var isTeardown: Bool {
+      switch self {
+      case .clearProduced: return true
+      case .markProduced, .unchanged: return false
+      }
+    }
   }
 
   /// Translate a single event. Returns `Step(entry: nil, outputFlag:
