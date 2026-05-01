@@ -1032,10 +1032,6 @@ private struct ProjectHeaderRow: View {
       Text(project.name)
         .font(.callout)
         .foregroundStyle(isHovering ? .primary : .secondary)
-      // M5 (project-tags): up to 3 colored dots resolved from the
-      // catalog's tag list. "+N" overflow when more than 3. Hidden
-      // entirely when the project has no tags.
-      ProjectTagDots(project: project)
       Spacer()
       if isLoading {
         ProgressView()
@@ -1043,6 +1039,13 @@ private struct ProjectHeaderRow: View {
           .frame(width: 12, height: 12)
           .accessibilityLabel("Loading Project")
       }
+      // M5 (project-tags): up to 3 colored dots resolved from the
+      // catalog's tag list. "+N" overflow when more than 3. Hidden
+      // entirely when the project has no tags. Pinned to the trailing
+      // edge after the Spacer so the swatches always sit right-aligned,
+      // independent of the project name's width — matches Finder /
+      // Notes' tag placement convention.
+      ProjectTagDots(project: project)
       // Keep the hover chrome from collapsing row width when hidden —
       // use opacity, not conditional rendering.
       HStack(spacing: 2) {
