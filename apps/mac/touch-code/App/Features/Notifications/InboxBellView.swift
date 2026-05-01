@@ -22,22 +22,19 @@ struct InboxBellView: View {
   @State private var unreadOnly = false
 
   var body: some View {
+    let count = rollup?.current.globalUnreadCount ?? 0
     Button(action: { popoverShown.toggle() }) {
-      ZStack(alignment: .topTrailing) {
-        Image(systemName: "bell")
+      HStack(spacing: 3) {
+        Image(systemName: count > 0 ? "bell.fill" : "bell")
           .font(.body)
-          .foregroundStyle(.primary)
-        if let count = rollup?.current.globalUnreadCount, count > 0 {
+          .foregroundStyle(count > 0 ? Color.yellow : Color.primary)
+        if count > 0 {
           Text(badgeLabel(count))
-            .font(.system(size: 9, weight: .semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 4)
-            .padding(.vertical, 1)
-            .background(Capsule().fill(Color.red))
-            .offset(x: 6, y: -4)
+            .font(.system(size: 11, weight: .semibold).monospacedDigit())
+            .foregroundStyle(.primary)
         }
       }
-      .frame(minWidth: 24, minHeight: 20)
+      .frame(minHeight: 20)
     }
     .buttonStyle(.plain)
     .accessibilityLabel(accessibilityLabel)

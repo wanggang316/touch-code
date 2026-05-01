@@ -1007,27 +1007,31 @@ private struct ProjectHeaderRow: View {
   @State private var isMenuHovering = false
 
   var body: some View {
+    let hasUnread = rollup?.current.unreadProjects.contains(project.id) == true
     HStack(spacing: 6) {
-      Image(systemName: "chevron.right")
-        .font(.caption2.weight(.semibold))
-        .foregroundStyle(.secondary)
-        .rotationEffect(.degrees(isExpanded ? 90 : 0))
-        .frame(width: 10, alignment: .center)
-        .accessibilityHidden(true)
+      // L4 unread indicator. When the project is in `unreadProjects`
+      // (rollup rule = project collapsed + unread inside), the leading
+      // disclosure chevron swaps for a red bell glyph — same pattern as
+      // the worktree row icon. Click target / disclosure semantics are
+      // unchanged: the parent Button still owns the tap.
+      if hasUnread {
+        Image(systemName: "bell.fill")
+          .resizable()
+          .aspectRatio(contentMode: .fit)
+          .frame(width: 10, height: 10, alignment: .center)
+          .foregroundStyle(Color.yellow)
+          .accessibilityLabel("Has unread notifications")
+      } else {
+        Image(systemName: "chevron.right")
+          .font(.caption2.weight(.semibold))
+          .foregroundStyle(.secondary)
+          .rotationEffect(.degrees(isExpanded ? 90 : 0))
+          .frame(width: 10, alignment: .center)
+          .accessibilityHidden(true)
+      }
       Text(project.name)
         .font(.callout)
         .foregroundStyle(isHovering ? .primary : .secondary)
-      // L4 unread dot. Rendered only when this Project's id appears in
-      // RollupIndex.unreadProjects — which only happens when the project
-      // is collapsed and unread entries roll up to its level. Red rather
-      // than the accent colour so the "needs attention" semantics read
-      // independently of the user's macOS accent preference.
-      if rollup?.current.unreadProjects.contains(project.id) == true {
-        Circle()
-          .fill(Color.red)
-          .frame(width: 5, height: 5)
-          .accessibilityLabel("Has unread notifications")
-      }
       // M5 (project-tags): up to 3 colored dots resolved from the
       // catalog's tag list. "+N" overflow when more than 3. Hidden
       // entirely when the project has no tags.
