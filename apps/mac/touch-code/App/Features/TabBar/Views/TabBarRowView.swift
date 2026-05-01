@@ -41,6 +41,9 @@ struct TabBarRowView: View {
   /// don't care about cross-launch titles compiling without changes.
   var onCacheLiveTitle: (TabID, String) -> Void = { _, _ in }
 
+  @Environment(CommandKeyObserver.self) private var commandKeyObserver
+  @Environment(\.resolvedShortcuts) private var resolvedShortcuts
+
   var body: some View {
     HStack(spacing: 0) {
       ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
@@ -50,6 +53,7 @@ struct TabBarRowView: View {
           isDirty: isDirty(tab.id),
           isOnlyTab: tabs.count <= 1,
           isLastTab: index == tabs.count - 1,
+          chordHint: chordHint(for: index + 1),
           onSelect: { onSelect(tab.id) },
           onClose: { onClose(tab.id) },
           onMiddleClick: { onMiddleClick(tab.id) },
@@ -59,7 +63,6 @@ struct TabBarRowView: View {
           onRenameRequested: { onRenameRequested(tab.id) },
           onCacheLiveTitle: { title in onCacheLiveTitle(tab.id, title) }
         )
-        .modifier(TabChordHintModifier(tabIndex: index + 1))
         .id(tab.id)
         .onDrag {
           NSItemProvider(object: tab.id.raw.uuidString as NSString)
@@ -83,6 +86,19 @@ struct TabBarRowView: View {
       }
     }
     .animation(.spring(response: 0.3, dampingFraction: 0.85), value: tabs.map(\.id))
+  }
+
+  /// Resolves the registry chord (`switchToTabN`) to a display string while ⌘ is held.
+  /// Returned to `TabChipView.chordHint` so the chord renders inside the chip's trailing
+  /// slot (replacing the close button while held). Beyond ten tabs the schema has no
+  /// chord; returns nil and the chip keeps its close-button slot.
+  private func chordHint(for tabIndex: Int) -> String? {
+    guard commandKeyObserver.isCommandHeld,
+      let id = CommandID.switchToTab(index: tabIndex),
+      let resolved = resolvedShortcuts[id], resolved.isEnabled,
+      let binding = resolved.binding
+    else { return nil }
+    return ShortcutDisplay.chord(for: binding)
   }
 }
 
@@ -117,6 +133,9 @@ private struct ResolvingTabChipView: View {
   let isDirty: Bool
   let isOnlyTab: Bool
   let isLastTab: Bool
+  /// Forwarded to `TabChipView.chordHint`. Resolved at the row level so this view stays
+  /// out of the shortcut-environment plumbing.
+  let chordHint: String?
   let onSelect: () -> Void
   let onClose: () -> Void
   let onMiddleClick: () -> Void
@@ -139,6 +158,7 @@ private struct ResolvingTabChipView: View {
       isOnlyTab: isOnlyTab,
       isLastTab: isLastTab,
       hasUnreadNotification: notificationRollup?.current.unreadTabs.contains(tab.id) == true,
+      chordHint: chordHint,
       onSelect: onSelect,
       onClose: onClose,
       onMiddleClick: onMiddleClick,
@@ -192,23 +212,6 @@ private struct ResolvingTabChipView: View {
       if !basename.isEmpty { return basename }
     }
     return ""
-  }
-}
-
-/// Overlays the `⌘N` keycap on a chip while ⌘ is held — only for the first ten chips,
-/// since the registry binds `switchToTab1..switchToTab10` (⌘1..⌘9 / ⌘0) and beyond
-/// that nothing fires. Implemented as a `ViewModifier` so we don't have to widen
-/// `TabChipView`'s parameter surface; `commandKeyHint` already reads the resolved
-/// shortcut map from the environment.
-private struct TabChordHintModifier: ViewModifier {
-  let tabIndex: Int
-
-  func body(content: Content) -> some View {
-    if let commandID = CommandID.switchToTab(index: tabIndex) {
-      content.commandKeyHint(commandID)
-    } else {
-      content
-    }
   }
 }
 

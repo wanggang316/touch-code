@@ -21,6 +21,12 @@ struct TabChipView: View {
   /// L2 unread dot — set when this Tab's id appears in
   /// `RollupIndexProvider.current.unreadTabs`.
   let hasUnreadNotification: Bool
+  /// Pre-resolved chord text to display in the chip's trailing slot while ⌘ is held —
+  /// e.g. `"⌘1"` for the first chip, `"⌘0"` for the tenth, `nil` for the rest. The chord
+  /// temporarily takes the close-button slot so the hint sits inside the chip's rounded
+  /// rectangle rather than crowding the inter-chip gap. Resolved at the row level so
+  /// `TabChipView` stays free of environment-key dependencies.
+  var chordHint: String? = nil
   let onSelect: () -> Void
   let onClose: () -> Void
   let onMiddleClick: () -> Void
@@ -69,11 +75,23 @@ struct TabChipView: View {
         maxHeight: TabBarMetrics.chipHeight
       )
 
-      TabChipCloseButton(
-        isVisible: isHovering || isActive,
-        action: onClose
-      )
-      .padding(.trailing, TabBarMetrics.chipHorizontalPadding)
+      // Trailing slot: chord hint takes precedence while ⌘ is held; otherwise the
+      // standard hover/active-revealed close button. Splitting the slot rather than
+      // overlaying both avoids stacking glyphs and keeps the chip's hit budget honest.
+      if let chordHint {
+        Text(chordHint)
+          .font(.caption.monospaced())
+          .foregroundStyle(.secondary)
+          .padding(.trailing, TabBarMetrics.chipHorizontalPadding)
+          .accessibilityHidden(true)
+          .allowsHitTesting(false)
+      } else {
+        TabChipCloseButton(
+          isVisible: isHovering || isActive,
+          action: onClose
+        )
+        .padding(.trailing, TabBarMetrics.chipHorizontalPadding)
+      }
     }
     .background(
       TabChipBackground(
