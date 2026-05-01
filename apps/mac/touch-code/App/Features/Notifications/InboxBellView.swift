@@ -27,7 +27,7 @@ struct InboxBellView: View {
       HStack(spacing: 3) {
         Image(systemName: count > 0 ? "bell.fill" : "bell")
           .font(.body)
-          .foregroundStyle(count > 0 ? Color.yellow : Color.primary)
+          .foregroundStyle(count > 0 ? Color.orange : Color.primary)
         if count > 0 {
           Text(badgeLabel(count))
             .font(.system(size: 11, weight: .semibold).monospacedDigit())
