@@ -337,41 +337,28 @@ nonisolated struct HierarchyClient: Sendable {
       _ scriptID: UUID, _ projectID: ProjectID, _ worktreeID: WorktreeID
     ) async throws -> Void
 
-  // MARK: - Worktree lifecycle wrappers (M9)
+  // MARK: - Worktree lifecycle wrappers
 
-  /// Script-only entry for cases where the catalog row already exists —
-  /// notably the Create Worktree flow, where `wt sw` creates the
-  /// directory before the sidebar attaches the catalog row. Returns
-  /// `.skipped` when the configured `git.<phase>Script` is empty.
-  var runWorktreeLifecycleScript:
-    @MainActor @Sendable (
-      _ phase: SettingsWriter.WorktreeLifecycle,
-      _ worktreeID: WorktreeID,
-      _ projectID: ProjectID
-    ) async -> LifecycleScriptResult
-
-  /// Catalog-append step plus setup-script execution. On script failure the
-  /// catalog row is rolled back; the on-disk directory is left for inspection.
-  /// Mirrors `createWorktree` plus the lifecycle wrapper.
-  var createWorktreeWithLifecycle:
-    @MainActor @Sendable (
-      _ projectID: ProjectID,
-      _ name: String, _ path: String, _ branch: String?
-    ) async throws -> (WorktreeID, LifecycleScriptResult)
-
-  /// Sets `Worktree.archived` and (on `archived: true`) runs the archive
-  /// script first. Fail-warn: a non-zero exit does not block the flag flip.
+  /// Sets `Worktree.archived`. On `archived: true`, if the project has an
+  /// `archiveScript` configured, the script first materializes in a fresh
+  /// tab on the worktree as that pane's `initialCommand`; the archived
+  /// flag flips only after the pane's child process exits. `archived:
+  /// false` is a plain flag flip (no unarchive script hook).
   var setWorktreeArchivedWithLifecycle:
     @MainActor @Sendable (
       _ worktreeID: WorktreeID, _ inProject: ProjectID, _ archived: Bool
-    ) async throws -> LifecycleScriptResult
+    ) async throws -> Void
 
-  /// Drops the catalog row and runs the delete script. Fail-warn: the row
-  /// is removed regardless of script exit.
+  /// Removes a worktree from the sidebar list. If the project has a
+  /// `deleteScript` configured, it materializes in a fresh tab on the
+  /// worktree as that pane's `initialCommand`; the worktree teardown
+  /// (relocate-then-prune via `removeWorktreeWithGit`) waits for the
+  /// pane's child to exit. Removal of an already-archived worktree
+  /// goes through `removeWorktreeWithGit` directly and skips this hook.
   var removeWorktreeWithLifecycle:
     @MainActor @Sendable (
       _ worktreeID: WorktreeID, _ inProject: ProjectID
-    ) async throws -> LifecycleScriptResult
+    ) async throws -> Void
 
   // MARK: - Worktree sidebar ordering (worktree-sidebar-ordering.md task01)
 
@@ -638,33 +625,36 @@ extension HierarchyClient {
           terminalClient: terminalClient
         )
       },
-      runWorktreeLifecycleScript: { [weak settings] phase, worktreeID, projectID in
-        let snapshot = settings?.settings ?? .default
-        return await manager.runWorktreeLifecycleScript(
-          phase, for: worktreeID, in: projectID, settings: snapshot
-        )
-      },
-      createWorktreeWithLifecycle: { [weak settings] projectID, name, path, branch in
-        let snapshot = settings?.settings ?? .default
-        return try await manager.createWorktreeWithLifecycle(
-          in: projectID,
-          name: name, path: path, branch: branch,
-          settings: snapshot
-        )
-      },
       setWorktreeArchivedWithLifecycle: { [weak settings] worktreeID, projectID, archived in
         let snapshot = settings?.settings ?? .default
-        return try await manager.setWorktreeArchivedWithLifecycle(
-          worktreeID: worktreeID,
-          archived: archived,
-          in: projectID,
-          settings: snapshot
-        )
+        if archived,
+          let command = snapshot.projects[projectID]?.git?.archiveScript?.command,
+          !command.isEmpty
+        {
+          await openNewTabAndAwaitExit(
+            worktreeID: worktreeID, projectID: projectID,
+            command: command, tabName: "Archive",
+            manager: manager, terminalClient: terminalClient,
+            settings: snapshot
+          )
+        }
+        try manager.setWorktreeArchived(worktreeID: worktreeID, archived: archived)
       },
       removeWorktreeWithLifecycle: { [weak settings] worktreeID, projectID in
         let snapshot = settings?.settings ?? .default
-        return try await manager.removeWorktreeWithLifecycle(
-          worktreeID, from: projectID, settings: snapshot
+        if let command = snapshot.projects[projectID]?.git?.deleteScript?.command,
+          !command.isEmpty
+        {
+          await openNewTabAndAwaitExit(
+            worktreeID: worktreeID, projectID: projectID,
+            command: command, tabName: "Delete",
+            manager: manager, terminalClient: terminalClient,
+            settings: snapshot
+          )
+        }
+        try await removeWorktreeWithGit(
+          worktreeID: worktreeID, projectID: projectID,
+          manager: manager, gitWorktreeClient: gitWorktreeClient
         )
       },
       reorderWorktrees: { projectID, segment, from, to in
@@ -899,6 +889,61 @@ extension HierarchyClient {
     }
   }
 
+  /// Opens a fresh tab on the worktree, runs `command` as the new pane's
+  /// `initialCommand`, and suspends until that pane's child process exits
+  /// (or crashes). Returns immediately as a no-op when the worktree is
+  /// gone, the tab/pane could not be created, or no `TerminalClient` is
+  /// wired. Used by archive / delete lifecycle wrappers — both must wait
+  /// for the user's script to finish before mutating catalog state.
+  @MainActor
+  private static func openNewTabAndAwaitExit(
+    worktreeID: WorktreeID,
+    projectID: ProjectID,
+    command: String,
+    tabName: String,
+    manager: HierarchyManager,
+    terminalClient: TerminalClient?,
+    settings: Settings
+  ) async {
+    var foundWorktreePath: String?
+    outer: for project in manager.catalog.projects where project.id == projectID {
+      for worktree in project.worktrees where worktree.id == worktreeID {
+        foundWorktreePath = worktree.path
+        break outer
+      }
+    }
+    guard let cwd = foundWorktreePath else { return }
+    guard let terminalClient else { return }
+    let env = HierarchyManager.resolvedEnv(for: projectID, in: settings)
+
+    let paneID: PaneID
+    do {
+      let tabID = try manager.createTab(
+        in: worktreeID, in: projectID, name: tabName
+      )
+      paneID = try manager.openPane(
+        in: tabID, in: worktreeID, in: projectID,
+        workingDirectory: cwd,
+        initialCommand: command,
+        env: env
+      )
+    } catch {
+      return
+    }
+
+    let stream = terminalClient.events()
+    for await event in stream {
+      switch event {
+      case .paneExited(let pid, _, _) where pid == paneID,
+        .paneCrashed(let pid, _) where pid == paneID,
+        .paneClosedByTab(let pid, _) where pid == paneID:
+        return
+      default:
+        continue
+      }
+    }
+  }
+
   /// Factored out so the closure body stays one-line-callable. Resolves
   /// the Project's git root, lists on-disk worktrees via `wt ls --json`,
   /// and hands the result to `manager.reconcileDiscoveredWorktrees`.
@@ -1102,12 +1147,6 @@ extension HierarchyClient: DependencyKey {
     resizePane: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     unzoomTab: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     runScript: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
-    runWorktreeLifecycleScript: { _, _, _ in
-      fatalError("HierarchyClient.liveValue not configured")
-    },
-    createWorktreeWithLifecycle: { _, _, _, _ in
-      fatalError("HierarchyClient.liveValue not configured")
-    },
     setWorktreeArchivedWithLifecycle: { _, _, _ in
       fatalError("HierarchyClient.liveValue not configured")
     },
@@ -1181,21 +1220,11 @@ extension HierarchyClient: DependencyKey {
     resizePane: unimplemented("HierarchyClient.resizePane"),
     unzoomTab: unimplemented("HierarchyClient.unzoomTab"),
     runScript: unimplemented("HierarchyClient.runScript"),
-    runWorktreeLifecycleScript: unimplemented(
-      "HierarchyClient.runWorktreeLifecycleScript",
-      placeholder: .skipped
-    ),
-    createWorktreeWithLifecycle: unimplemented(
-      "HierarchyClient.createWorktreeWithLifecycle",
-      placeholder: (WorktreeID(), .skipped)
-    ),
     setWorktreeArchivedWithLifecycle: unimplemented(
-      "HierarchyClient.setWorktreeArchivedWithLifecycle",
-      placeholder: .skipped
+      "HierarchyClient.setWorktreeArchivedWithLifecycle"
     ),
     removeWorktreeWithLifecycle: unimplemented(
-      "HierarchyClient.removeWorktreeWithLifecycle",
-      placeholder: .skipped
+      "HierarchyClient.removeWorktreeWithLifecycle"
     ),
     reorderWorktrees: unimplemented("HierarchyClient.reorderWorktrees")
   )

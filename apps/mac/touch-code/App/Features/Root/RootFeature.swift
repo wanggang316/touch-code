@@ -60,11 +60,6 @@ struct RootFeature {
     /// routes it to a feature action and nils this slot in the same tick).
     @Presents var commandPalette: CommandPaletteFeature.State?
 
-    /// M9: lifecycle-script toast presentation. `nil` = hidden; non-nil
-    /// shows the transient sheet with the running / completed script
-    /// output anchored to the main window.
-    @Presents var lifecycleScriptToast: LifecycleScriptToastFeature.State?
-
     /// M5 (project-tags): Tag CRUD sheet. `nil` = hidden; non-nil hosts
     /// `TagManagerSheet`. Opened from the sidebar via
     /// `.sidebar(.delegate(.openTagManager))`.
@@ -198,18 +193,6 @@ struct RootFeature {
     /// split).
     case commandPaletteToggle(PaneID?)
     case commandPalette(PresentationAction<CommandPaletteFeature.Action>)
-    /// M9: surfaces a lifecycle-script result on the main window.
-    /// Sources: Add Worktree (setup), sidebar Archive (archive),
-    /// sidebar Remove (delete). The originating feature already ran
-    /// the wrapper variant and got the `LifecycleScriptResult` back;
-    /// this action presents the toast in its terminal state. Skipped
-    /// results (empty script) are silent — the toast does not show.
-    case runWorktreeLifecycleResult(
-      phase: SettingsWriter.WorktreeLifecycle,
-      worktreeName: String,
-      result: LifecycleScriptResult
-    )
-    case lifecycleScriptToast(PresentationAction<LifecycleScriptToastFeature.Action>)
     /// M5 (project-tags): Tag CRUD sheet presentation. Mirrors
     /// `projectOptions` on the sidebar — `tagManagerSheetShown`
     /// kicks the sheet visible, the `PresentationAction` carries child
@@ -577,9 +560,6 @@ struct RootFeature {
         try? hierarchyClient.selectProject(projectID)
         return .none
 
-      case .sidebar(.delegate(.lifecycleScriptResult(let phase, let name, let result))):
-        return .send(.runWorktreeLifecycleResult(phase: phase, worktreeName: name, result: result))
-
       case .sidebar(.delegate(.openTagManager)):
         state.tagManagerSheet = TagManagerFeature.State()
         return .none
@@ -834,33 +814,6 @@ struct RootFeature {
       case .commandPalette:
         return .none
 
-      case .runWorktreeLifecycleResult(let phase, let worktreeName, let result):
-        switch result {
-        case .skipped:
-          // Empty script — no toast needed.
-          return .none
-        case .success, .failure:
-          // "Latest wins" replacement: a fresh result while a toast is
-          // presenting overwrites the previous state. The auto-dismiss
-          // task on a previous .success uses `cancelInFlight: true`, so
-          // the prior timer is cancelled when the new .finished arm
-          // re-arms it. A failure toast carries no timer, so a new
-          // success toast simply schedules its own dismiss against the
-          // new presentation.
-          state.lifecycleScriptToast = LifecycleScriptToastFeature.State(
-            phase: phase, worktreeName: worktreeName
-          )
-          return .send(.lifecycleScriptToast(.presented(.finished(result))))
-        }
-
-      case .lifecycleScriptToast(.presented(.dismiss)),
-        .lifecycleScriptToast(.dismiss):
-        state.lifecycleScriptToast = nil
-        return .none
-
-      case .lifecycleScriptToast:
-        return .none
-
       case .diffInspectorToggledForCurrentWorktree:
         guard let worktreeID = state.selection.worktreeID else { return .none }
         // Read the current visibility from the live catalog — the view
@@ -1070,9 +1023,6 @@ struct RootFeature {
     }
     .ifLet(\.$commandPalette, action: \.commandPalette) {
       CommandPaletteFeature()
-    }
-    .ifLet(\.$lifecycleScriptToast, action: \.lifecycleScriptToast) {
-      LifecycleScriptToastFeature()
     }
     .ifLet(\.$tagManagerSheet, action: \.tagManagerSheet) {
       TagManagerFeature()

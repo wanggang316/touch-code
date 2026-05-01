@@ -85,11 +85,6 @@ struct ContentView: View {
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .overlay(alignment: .bottom) { editorToastOverlay }
       .sheet(
-        item: $store.scope(state: \.lifecycleScriptToast, action: \.lifecycleScriptToast)
-      ) { toastStore in
-        LifecycleScriptToast(store: toastStore)
-      }
-      .sheet(
         item: $store.scope(state: \.tagManagerSheet, action: \.tagManagerSheet)
       ) { tagStore in
         TagManagerSheet(store: tagStore)

@@ -229,15 +229,6 @@ struct HierarchySidebarFeature {
       /// registered. `RootFeature` selects the Project so the user lands
       /// on the existing row.
       case revealExistingProject(ProjectID)
-      /// M9: surfaces a lifecycle-script result on the main window. The
-      /// sidebar emits this after the Archive button drives the
-      /// `setWorktreeArchivedWithLifecycle` wrapper. RootFeature
-      /// presents the toast.
-      case lifecycleScriptResult(
-        phase: SettingsWriter.WorktreeLifecycle,
-        worktreeName: String,
-        result: LifecycleScriptResult
-      )
       /// M5 (project-tags): opens the Tag CRUD sheet at root level.
       /// Emitted from the project header's "Tags" submenu ("Edit Tags…")
       /// and from the chip footer's trailing "+" button.
@@ -676,19 +667,19 @@ struct HierarchySidebarFeature {
       state.pendingWorktrees.remove(id: id)
       hierarchyClient.selectProject(pid)
       try? hierarchyClient.selectWorktree(worktreeID, pid)
+      // Create script materializes as the auto-opened pane's
+      // initialCommand — user sees realtime output in that pane. Empty
+      // / unset script = a plain interactive shell.
+      let createCommand =
+        settingsWriter
+        .readSnapshotSync()
+        .projects[pid]?.git?.createScript?.command
       if let tabID = try? hierarchyClient.createTab(worktreeID, pid, nil) {
-        _ = try? hierarchyClient.openPane(tabID, worktreeID, pid, pathString, nil)
+        _ = try? hierarchyClient.openPane(
+          tabID, worktreeID, pid, pathString, createCommand
+        )
       }
-
-      // Setup script fires regardless of cosmetic-step outcomes — the
-      // worktree is real on disk + in catalog, its setup hook should run.
-      let client = hierarchyClient
-      return .run { send in
-        let result = await client.runWorktreeLifecycleScript(.setup, worktreeID, pid)
-        await send(
-          .delegate(
-            .lifecycleScriptResult(phase: .setup, worktreeName: branch, result: result)))
-      }
+      return .none
 
     case .pendingWorktreeFailed(let id, let err):
       // Race guard symmetric with progress / finished arms: a Cancel
@@ -766,45 +757,35 @@ struct HierarchySidebarFeature {
     .cancellable(id: CancelID.pending(id), cancelInFlight: true)
   }
 
-  /// M9: Archive button → wrapper variant. The wrapper runs the archive
-  /// script (fail-warn) and flips `Worktree.archived = true` regardless
-  /// of script exit. Surfaces the result as a delegate event so
-  /// `RootFeature` can present the toast.
+  /// Archive button → archive-script flow. The lifecycle wrapper opens a
+  /// new tab in the worktree, runs the script as that pane's
+  /// `initialCommand`, and waits for the pane's child to exit before
+  /// flipping `Worktree.archived = true`. Errors are swallowed; the user
+  /// is left in a state where the script either ran to completion or the
+  /// archive aborted with the worktree's pane still on screen.
   private func runArchiveWithLifecycle(
     wid: WorktreeID, pid: ProjectID, name: String
   ) -> Effect<Action> {
     let client = hierarchyClient
-    return .run { send in
-      let result =
-        (try? await client.setWorktreeArchivedWithLifecycle(wid, pid, true)) ?? .skipped
-      await send(
-        .delegate(
-          .lifecycleScriptResult(phase: .archive, worktreeName: name, result: result))
-      )
+    return .run { _ in
+      try? await client.setWorktreeArchivedWithLifecycle(wid, pid, true)
     }
   }
 
-  /// Remove button → run the configured `delete` lifecycle script (if
-  /// any), surface its result via the lifecycle toast, then drive the
-  /// relocate-then-prune git removal in `removeWorktreeWithGit`. The
-  /// git step has no "uncommitted changes" or "submodule" guard
-  /// anymore — the worktree directory is moved out of the way before
-  /// `git worktree prune` is asked to clean the metadata — so a single
-  /// confirmation in the UI is the only protection. Errors are
-  /// swallowed: a failed remove leaves the worktree in place but does
-  /// not surface a banner (mirrors supacode's `try?` semantics; see
-  /// design discussion 2026-04-27).
+  /// Remove button → delete-script flow. The lifecycle wrapper opens a
+  /// new tab in the worktree, runs the configured `deleteScript` as the
+  /// pane's `initialCommand`, waits for the pane's child to exit, then
+  /// drives the relocate-then-prune `removeWorktreeWithGit`. Removal of
+  /// an *already-archived* worktree goes through `removeWorktreeWithGit`
+  /// directly (skipping the script) — that path is owned by
+  /// `ArchivedWorktreesFeature`. Errors are swallowed: a failed remove
+  /// leaves the worktree in place but does not surface a banner.
   private func runRemoveWithDeleteScript(
     client: HierarchyClient,
     wid: WorktreeID, pid: ProjectID, name: String
   ) -> Effect<Action> {
-    .run { send in
-      let result = await client.runWorktreeLifecycleScript(.delete, wid, pid)
-      await send(
-        .delegate(
-          .lifecycleScriptResult(phase: .delete, worktreeName: name, result: result))
-      )
-      try? await client.removeWorktreeWithGit(wid, pid)
+    .run { _ in
+      try? await client.removeWorktreeWithLifecycle(wid, pid)
     }
   }
 }
