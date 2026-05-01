@@ -74,6 +74,12 @@ struct HierarchySidebarFeature {
     /// fires after the script finishes — e.g. `removeWorktreeWithGit`
     /// failing on a dirty index. `nil` = hidden.
     var lifecycleErrorToast: String?
+    /// Worktrees currently mid-archive / mid-delete. Lifecycle scripts
+    /// run in a real pane and we wait for `paneExited` before mutating
+    /// the catalog, which can take seconds (or longer) for cleanup
+    /// scripts. The sidebar row swaps its icon for a spinner while the
+    /// id is in this set so the user sees their click landed.
+    var lifecycleInProgressWorktrees: Set<WorktreeID> = []
     /// In-memory placeholders for in-flight `wt sw` creations. Each row
     /// renders inside its Project's section between pinned and unpinned
     /// segments. Not persisted; an app restart clears the set, and the
@@ -171,6 +177,12 @@ struct HierarchySidebarFeature {
     /// wrapper effect's catch arm; renders via `lifecycleErrorToast`.
     case lifecycleFailed(message: String)
     case lifecycleErrorToastDismissed
+    /// Wrapper-effect bookends — the row spinner is driven by the set
+    /// of worktree ids between `started` and `ended`. Always paired:
+    /// the wrapper sends `ended` whether the underlying call succeeded
+    /// or threw, so a stuck row should not be possible.
+    case lifecycleStarted(worktreeID: WorktreeID)
+    case lifecycleEnded(worktreeID: WorktreeID)
     case worktreeRevealInFinderTapped(path: String)
     case worktreeOpenInDefaultEditorTapped(
       worktreeID: WorktreeID,
@@ -592,6 +604,14 @@ struct HierarchySidebarFeature {
       state.lifecycleErrorToast = nil
       return .none
 
+    case .lifecycleStarted(let wid):
+      state.lifecycleInProgressWorktrees.insert(wid)
+      return .none
+
+    case .lifecycleEnded(let wid):
+      state.lifecycleInProgressWorktrees.remove(wid)
+      return .none
+
     case .archivedWorktreesSheet:
       // Routed through the top-level Reducer; unreachable here.
       return .none
@@ -783,11 +803,13 @@ struct HierarchySidebarFeature {
   ) -> Effect<Action> {
     let client = hierarchyClient
     return .run { send in
+      await send(.lifecycleStarted(worktreeID: wid))
       do {
         try await client.setWorktreeArchivedWithLifecycle(wid, pid, true)
       } catch {
         await send(.lifecycleFailed(message: "Archive failed: \(error.localizedDescription)"))
       }
+      await send(.lifecycleEnded(worktreeID: wid))
     }
   }
 
@@ -805,11 +827,13 @@ struct HierarchySidebarFeature {
     wid: WorktreeID, pid: ProjectID
   ) -> Effect<Action> {
     .run { send in
+      await send(.lifecycleStarted(worktreeID: wid))
       do {
         try await client.removeWorktreeWithLifecycle(wid, pid)
       } catch {
         await send(.lifecycleFailed(message: "Delete failed: \(error.localizedDescription)"))
       }
+      await send(.lifecycleEnded(worktreeID: wid))
     }
   }
 }

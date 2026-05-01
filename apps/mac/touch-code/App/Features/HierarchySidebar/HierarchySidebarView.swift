@@ -564,11 +564,26 @@ struct HierarchySidebarView: View {
     // SwiftUI Button at the row's leading area would intercept the
     // click, leave the table off-responder, and the row would stay grey
     // even though state moved.
+    let isLifecycleInProgress = store.lifecycleInProgressWorktrees.contains(worktree.id)
     let content = HStack(spacing: 6) {
-      WorktreeRowIcon(
-        snapshot: snapshot, rollup: rollup, isSelected: isSelected, roleTint: roleTint,
-        hasUnreadNotification: notificationRollup?.current.unreadWorktrees.contains(worktree.id) == true
-      )
+      Group {
+        if isLifecycleInProgress {
+          // Archive / delete is mid-flight (lifecycle script running in
+          // a pane, then the catalog mutation). Swap the row icon for a
+          // spinner so the click feels acknowledged; the row vanishes
+          // once the wrapper completes (archive → archived list, delete
+          // → gone).
+          ProgressView()
+            .controlSize(.small)
+            .frame(width: 14, height: 14)
+            .accessibilityLabel("Working")
+        } else {
+          WorktreeRowIcon(
+            snapshot: snapshot, rollup: rollup, isSelected: isSelected, roleTint: roleTint,
+            hasUnreadNotification: notificationRollup?.current.unreadWorktrees.contains(worktree.id) == true
+          )
+        }
+      }
       VStack(alignment: .leading, spacing: 0) {
         HStack(spacing: 2) {
           Text(worktree.name)
