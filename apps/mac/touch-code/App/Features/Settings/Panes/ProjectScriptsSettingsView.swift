@@ -331,7 +331,7 @@ private struct LifecycleEditor: View {
   let onCommit: (String) -> Void
 
   var body: some View {
-    TextEditor(
+    PlainCommandEditor(
       text: Binding(
         get: { initial },
         set: { newValue in
@@ -341,9 +341,6 @@ private struct LifecycleEditor: View {
         }
       )
     )
-    .monospaced()
-    .textEditorStyle(.plain)
-    .autocorrectionDisabled()
     .frame(height: 90)
   }
 }

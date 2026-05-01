@@ -45,10 +45,7 @@ struct UserScriptEditor: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      TextEditor(text: $draft.command)
-        .monospaced()
-        .textEditorStyle(.plain)
-        .autocorrectionDisabled()
+      PlainCommandEditor(text: $draft.command)
         .frame(height: 90)
 
       if draft.kind == .custom {
