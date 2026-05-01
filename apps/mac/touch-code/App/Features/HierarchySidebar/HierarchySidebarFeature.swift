@@ -68,6 +68,12 @@ struct HierarchySidebarFeature {
     var pendingArchiveExplainer: PendingArchiveExplainer?
     /// Transient toast after Prune completes.
     var pruneToast: String?
+    /// Transient toast surfacing an archive / delete lifecycle failure.
+    /// The wrapper effects swallow the script's own pane output (it lives
+    /// in the spawned tab); this toast covers the catalog / git step that
+    /// fires after the script finishes — e.g. `removeWorktreeWithGit`
+    /// failing on a dirty index. `nil` = hidden.
+    var lifecycleErrorToast: String?
     /// In-memory placeholders for in-flight `wt sw` creations. Each row
     /// renders inside its Project's section between pinned and unpinned
     /// segments. Not persisted; an app restart clears the set, and the
@@ -160,6 +166,11 @@ struct HierarchySidebarFeature {
     case projectPruneTapped(projectID: ProjectID)
     case projectPruneCompleted(pruned: Int, error: String?)
     case pruneToastDismissed
+    /// Surfaces a lifecycle wrapper failure (archive flag flip rejected,
+    /// delete-time `removeWorktreeWithGit` failed, etc.). Sent from the
+    /// wrapper effect's catch arm; renders via `lifecycleErrorToast`.
+    case lifecycleFailed(message: String)
+    case lifecycleErrorToastDismissed
     case worktreeRevealInFinderTapped(path: String)
     case worktreeOpenInDefaultEditorTapped(
       worktreeID: WorktreeID,
@@ -488,10 +499,7 @@ struct HierarchySidebarFeature {
       let client = hierarchyClient
       let wid = pending.worktreeID
       let pid = pending.projectID
-      let name = pending.displayName
-      return runRemoveWithDeleteScript(
-        client: client, wid: wid, pid: pid, name: name
-      )
+      return runRemoveWithDeleteScript(client: client, wid: wid, pid: pid)
 
     case .worktreeRemoveCancelled:
       state.pendingWorktreeRemoval = nil
@@ -499,7 +507,7 @@ struct HierarchySidebarFeature {
 
     case .worktreeArchiveTapped(let wid, let pid, let name):
       if state.hasShownArchiveExplainer {
-        return runArchiveWithLifecycle(wid: wid, pid: pid, name: name)
+        return runArchiveWithLifecycle(wid: wid, pid: pid)
       }
       state.pendingArchiveExplainer = PendingArchiveExplainer(
         worktreeID: wid, projectID: pid, name: name
@@ -511,8 +519,7 @@ struct HierarchySidebarFeature {
       state.hasShownArchiveExplainer = true
       state.pendingArchiveExplainer = nil
       return runArchiveWithLifecycle(
-        wid: pending.worktreeID, pid: pending.projectID,
-        name: pending.name
+        wid: pending.worktreeID, pid: pending.projectID
       )
 
     case .worktreeArchiveCancelled:
@@ -575,6 +582,14 @@ struct HierarchySidebarFeature {
 
     case .pruneToastDismissed:
       state.pruneToast = nil
+      return .none
+
+    case .lifecycleFailed(let message):
+      state.lifecycleErrorToast = message
+      return .none
+
+    case .lifecycleErrorToastDismissed:
+      state.lifecycleErrorToast = nil
       return .none
 
     case .archivedWorktreesSheet:
@@ -760,15 +775,19 @@ struct HierarchySidebarFeature {
   /// Archive button → archive-script flow. The lifecycle wrapper opens a
   /// new tab in the worktree, runs the script as that pane's
   /// `initialCommand`, and waits for the pane's child to exit before
-  /// flipping `Worktree.archived = true`. Errors are swallowed; the user
-  /// is left in a state where the script either ran to completion or the
-  /// archive aborted with the worktree's pane still on screen.
+  /// flipping `Worktree.archived = true`. The script's own output lives
+  /// in the spawned pane; only failures of the catalog flag flip
+  /// surface here, via `lifecycleErrorToast`.
   private func runArchiveWithLifecycle(
-    wid: WorktreeID, pid: ProjectID, name: String
+    wid: WorktreeID, pid: ProjectID
   ) -> Effect<Action> {
     let client = hierarchyClient
-    return .run { _ in
-      try? await client.setWorktreeArchivedWithLifecycle(wid, pid, true)
+    return .run { send in
+      do {
+        try await client.setWorktreeArchivedWithLifecycle(wid, pid, true)
+      } catch {
+        await send(.lifecycleFailed(message: "Archive failed: \(error.localizedDescription)"))
+      }
     }
   }
 
@@ -778,14 +797,19 @@ struct HierarchySidebarFeature {
   /// drives the relocate-then-prune `removeWorktreeWithGit`. Removal of
   /// an *already-archived* worktree goes through `removeWorktreeWithGit`
   /// directly (skipping the script) — that path is owned by
-  /// `ArchivedWorktreesFeature`. Errors are swallowed: a failed remove
-  /// leaves the worktree in place but does not surface a banner.
+  /// `ArchivedWorktreesFeature`. The script's own output lives in the
+  /// spawned pane; only `removeWorktreeWithGit` failures surface here,
+  /// via `lifecycleErrorToast`.
   private func runRemoveWithDeleteScript(
     client: HierarchyClient,
-    wid: WorktreeID, pid: ProjectID, name: String
+    wid: WorktreeID, pid: ProjectID
   ) -> Effect<Action> {
-    .run { _ in
-      try? await client.removeWorktreeWithLifecycle(wid, pid)
+    .run { send in
+      do {
+        try await client.removeWorktreeWithLifecycle(wid, pid)
+      } catch {
+        await send(.lifecycleFailed(message: "Delete failed: \(error.localizedDescription)"))
+      }
     }
   }
 }

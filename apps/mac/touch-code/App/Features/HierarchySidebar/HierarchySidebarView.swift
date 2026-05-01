@@ -251,6 +251,18 @@ struct HierarchySidebarView: View {
       } message: {
         Text(store.pruneToast ?? "")
       }
+      // Lifecycle wrapper failure (archive flag flip / delete teardown).
+      .alert(
+        "Worktree action failed",
+        isPresented: Binding(
+          get: { store.lifecycleErrorToast != nil },
+          set: { if !$0 { store.send(.lifecycleErrorToastDismissed) } }
+        )
+      ) {
+        Button("OK") { store.send(.lifecycleErrorToastDismissed) }
+      } message: {
+        Text(store.lifecycleErrorToast ?? "")
+      }
   }
 
   // MARK: - Toolbar

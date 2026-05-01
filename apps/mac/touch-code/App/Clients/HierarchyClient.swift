@@ -14,6 +14,14 @@ private let reconcileLogger = Logger(
   category: "reconcile"
 )
 
+/// Diagnostics for the user-script dispatch path. Useful when a user
+/// configures `.split` / `.focused` and gets a fresh tab instead — the
+/// breadcrumb names which fallback fired and why.
+private let runScriptLogger = Logger(
+  subsystem: "com.touch-code.hierarchy",
+  category: "runScript"
+)
+
 /// TCA dependency-injection bridge over `HierarchyManager`. Features depend
 /// on this struct's closures, not on the manager directly; the `liveValue`
 /// binds each closure to a concrete `HierarchyManager` instance at app
@@ -709,6 +717,14 @@ extension HierarchyClient {
     }
     let env = HierarchyManager.resolvedEnv(for: projectID, in: snapshot)
 
+    // Subscribe before spawn: events() is broadcast and does not
+    // replay. A one-shot script that exits before scheduleOnFinishedAction
+    // calls events() would otherwise miss the paneExited and the
+    // onFinished policy would never fire.
+    let onFinishedNeeded = script.resolvedOnFinished != .none
+    let preSubscribedStream: AsyncStream<TerminalEvent>? =
+      onFinishedNeeded ? terminalClient?.events() : nil
+
     let spawnedPaneID = try dispatchScript(
       script: script,
       worktreeID: worktreeID,
@@ -719,15 +735,12 @@ extension HierarchyClient {
       terminalClient: terminalClient
     )
 
-    if let spawnedPaneID,
-      let terminalClient,
-      script.resolvedOnFinished != .none
-    {
+    if let spawnedPaneID, let stream = preSubscribedStream {
       scheduleOnFinishedAction(
         paneID: spawnedPaneID,
         policy: script.resolvedOnFinished,
         manager: manager,
-        terminalClient: terminalClient
+        eventStream: stream
       )
     }
   }
@@ -772,6 +785,9 @@ extension HierarchyClient {
         terminalClient.sendInput(anchor.paneID, script.command + "\n")
         return nil
       }
+      runScriptLogger.info(
+        "target=.focused fell back to .newTab — \(terminalClient == nil ? "no TerminalClient" : "no focused pane in worktree", privacy: .public)"
+      )
       return try openInNewTab()
 
     case .split:
@@ -785,6 +801,9 @@ extension HierarchyClient {
           env: env
         )
       }
+      runScriptLogger.info(
+        "target=.split fell back to .newTab — no focused pane in worktree"
+      )
       return try openInNewTab()
     }
   }
@@ -838,34 +857,31 @@ extension HierarchyClient {
   /// `onFinished` policy on the main actor. Closes the pane only — for
   /// `.closeTab` the address-resolved `tabID` is closed instead. Silent
   /// no-op when the pane is no longer in the catalog by the time the
-  /// exit lands (already torn down by the user, etc.).
+  /// exit lands (already torn down by the user, etc.). The caller is
+  /// responsible for subscribing to `events()` *before* the pane spawn
+  /// so a one-shot script's `paneExited` is not missed.
   @MainActor
   private static func scheduleOnFinishedAction(
     paneID: PaneID,
     policy: ScriptOnFinished,
     manager: HierarchyManager,
-    terminalClient: TerminalClient
+    eventStream: AsyncStream<TerminalEvent>
   ) {
-    let stream = terminalClient.events()
     Task.detached(priority: .userInitiated) {
-      for await event in stream {
-        let exited: Bool
+      for await event in eventStream {
         switch event {
-        case .paneExited(let pid, _, _) where pid == paneID:
-          exited = true
-        case .paneCrashed(let pid, _) where pid == paneID:
-          exited = true
-        case .paneClosedByTab(let pid, _) where pid == paneID:
-          // Already torn down by autoclose — nothing to clean up.
-          return
-        default:
-          exited = false
-        }
-        if exited {
+        case .paneExited(let pid, _, _) where pid == paneID,
+          .paneCrashed(let pid, _) where pid == paneID:
           await MainActor.run {
             applyOnFinished(policy: policy, paneID: paneID, manager: manager)
           }
           return
+        case .paneClosedByTab(let pid, _) where pid == paneID:
+          // Already torn down by tab-autoclose — pane no longer exists,
+          // so neither closePane nor closeTab has anything to do.
+          return
+        default:
+          continue
         }
       }
     }
@@ -916,6 +932,12 @@ extension HierarchyClient {
     guard let terminalClient else { return }
     let env = HierarchyManager.resolvedEnv(for: projectID, in: settings)
 
+    // Subscribe before spawn: events() is broadcast and does not
+    // replay. A one-shot script that exits between createTab + openPane
+    // and a later events() call would otherwise be missed and the
+    // archive/delete await would hang forever.
+    let stream = terminalClient.events()
+
     let paneID: PaneID
     do {
       let tabID = try manager.createTab(
@@ -931,7 +953,6 @@ extension HierarchyClient {
       return
     }
 
-    let stream = terminalClient.events()
     for await event in stream {
       switch event {
       case .paneExited(let pid, _, _) where pid == paneID,
