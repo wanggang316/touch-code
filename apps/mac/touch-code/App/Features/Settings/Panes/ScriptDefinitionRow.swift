@@ -1,52 +1,83 @@
 import SwiftUI
 import TouchCodeCore
 
-/// Body of a single user-defined `ScriptDefinition` Section in the
-/// Project Scripts pane. Always expanded — each script lives in its own
-/// grouped Section, mirroring the lifecycle script layout. The header
-/// already shows the script's name + kind, so neither is repeated here.
+/// Modal sheet for adding or editing one user-defined `ScriptDefinition`.
 ///
-/// Edits accumulate in a local `draft` buffer so the `TextEditor`'s
-/// cursor position is preserved across keystrokes (binding the editor
-/// directly through to the upstream model would force a re-render and
-/// snap the caret to the end). The Save button commits the buffer to
-/// the writer; the buffer adopts upstream changes that arrive while the
-/// row is clean.
+/// Body is a System-Settings-style grouped `Form` with one field per
+/// row. Edits accumulate in a local `draft` buffer; Save commits the
+/// buffer through the upstream closure, Cancel discards. Sheet is
+/// dismissed by the parent in either case.
 ///
-/// `kind` is fixed at script-creation time (chosen from the `+` menu)
-/// and intentionally not editable here; users delete and re-add to
-/// change kind. The `.custom` kind exposes optional icon + tint
-/// overrides because that's the kind whose contract permits them.
-struct UserScriptEditor: View {
-  let script: ScriptDefinition
+/// `kind` is fixed at script-creation time — the only place to choose
+/// kind is the parent's "Add" menu — so this sheet shows it as a
+/// read-only badge in the title rather than a picker. Users delete and
+/// re-add to change kind.
+struct ScriptEditorSheet: View {
+  let initialScript: ScriptDefinition
+  /// True when the script does not yet exist in the project's
+  /// `[ScriptDefinition]`. Drives the sheet title (Add vs. Edit) and
+  /// the Save button's enabled rule (a brand-new script with empty
+  /// command shouldn't persist).
+  let isNew: Bool
   let onSave: (ScriptDefinition) -> Void
-  let onRun: () -> Void
-  let onDelete: () -> Void
-  /// When false the Run button is disabled (no resolvable worktree).
-  var canRun: Bool = true
+  let onCancel: () -> Void
 
   @State private var draft: ScriptDefinition
-  @State private var showDeleteConfirm = false
 
   init(
     script: ScriptDefinition,
+    isNew: Bool,
     onSave: @escaping (ScriptDefinition) -> Void,
-    onRun: @escaping () -> Void,
-    onDelete: @escaping () -> Void,
-    canRun: Bool = true
+    onCancel: @escaping () -> Void
   ) {
-    self.script = script
+    self.initialScript = script
+    self.isNew = isNew
     self.onSave = onSave
-    self.onRun = onRun
-    self.onDelete = onDelete
-    self.canRun = canRun
+    self.onCancel = onCancel
     self._draft = State(initialValue: script)
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      PlainCommandEditor(text: $draft.command)
-        .frame(height: 90)
+    NavigationStack {
+      Form {
+        identitySection
+        commandSection
+        runtimeSection
+      }
+      .formStyle(.grouped)
+      .navigationTitle(isNew ? "Add Script" : "Edit Script")
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Cancel", action: onCancel)
+        }
+        ToolbarItem(placement: .confirmationAction) {
+          Button("Save") {
+            onSave(draft)
+          }
+          .keyboardShortcut(.defaultAction)
+          .disabled(!canSave)
+        }
+      }
+    }
+    .frame(minWidth: 480, idealWidth: 540, minHeight: 420, idealHeight: 520)
+  }
+
+  // MARK: - Sections
+
+  /// Name + (custom-only) icon + tint. Each control on its own row via
+  /// `LabeledContent`, matching the System Settings layout.
+  @ViewBuilder
+  private var identitySection: some View {
+    Section {
+      LabeledContent("Name") {
+        TextField(
+          "",
+          text: $draft.name,
+          prompt: Text(draft.kind.defaultName)
+        )
+        .textFieldStyle(.roundedBorder)
+        .frame(minWidth: 160)
+      }
 
       if draft.kind == .custom {
         LabeledContent("Icon (SF Symbol)") {
@@ -60,45 +91,58 @@ struct UserScriptEditor: View {
             ),
             prompt: Text(ScriptKind.custom.defaultSystemImage)
           )
+          .textFieldStyle(.roundedBorder)
+          .frame(minWidth: 160)
         }
 
-        LabeledContent("Tint") {
-          Picker(
-            "",
-            selection: Binding(
-              get: { draft.tintColor ?? ScriptKind.custom.defaultTintColor },
-              set: { draft.tintColor = $0 }
-            )
-          ) {
-            ForEach(ScriptTintColor.allCases, id: \.self) { tint in
-              Text(tint.rawValue.capitalized).tag(tint)
-            }
+        Picker(
+          "Tint",
+          selection: Binding(
+            get: { draft.tintColor ?? ScriptKind.custom.defaultTintColor },
+            set: { draft.tintColor = $0 }
+          )
+        ) {
+          ForEach(ScriptTintColor.allCases, id: \.self) { tint in
+            Text(tint.rawValue.capitalized).tag(tint)
           }
-          .labelsHidden()
-          .pickerStyle(.menu)
         }
       }
+    } header: {
+      Text(isNew ? "New \(draft.kind.defaultName) script" : "Identity")
+    }
+  }
 
-      LabeledContent("Target") {
-        Picker("", selection: targetBinding) {
-          Text("Focused").tag(ScriptTarget.focused)
-          Text("New Tab").tag(ScriptTarget.newTab)
-          Text("Split").tag(ScriptTarget.split)
-        }
-        .labelsHidden()
-        .pickerStyle(.segmented)
+  /// Multi-line command body in its own grouped Section so the
+  /// PlainCommandEditor gets a full row with breathing room.
+  @ViewBuilder
+  private var commandSection: some View {
+    Section {
+      PlainCommandEditor(text: $draft.command)
+        .frame(minHeight: 120)
+    } header: {
+      Text("Command")
+    } footer: {
+      Text("Runs from the project's worktree directory.")
+    }
+  }
+
+  /// Target / direction / on-finished. Pickers default to `.menu`
+  /// (popup) style which renders as one-field-per-row in a Form.
+  @ViewBuilder
+  private var runtimeSection: some View {
+    Section {
+      Picker("Target", selection: targetBinding) {
+        Text("Focused Pane").tag(ScriptTarget.focused)
+        Text("New Tab").tag(ScriptTarget.newTab)
+        Text("Split").tag(ScriptTarget.split)
       }
 
       if draft.target == .split {
-        LabeledContent("Direction") {
-          Picker("", selection: $draft.direction) {
-            Text("Right").tag(ScriptSplitDirection.right)
-            Text("Down").tag(ScriptSplitDirection.down)
-            Text("Left").tag(ScriptSplitDirection.left)
-            Text("Up").tag(ScriptSplitDirection.up)
-          }
-          .labelsHidden()
-          .pickerStyle(.segmented)
+        Picker("Direction", selection: $draft.direction) {
+          Text("Right").tag(ScriptSplitDirection.right)
+          Text("Down").tag(ScriptSplitDirection.down)
+          Text("Left").tag(ScriptSplitDirection.left)
+          Text("Up").tag(ScriptSplitDirection.up)
         }
       }
 
@@ -108,64 +152,10 @@ struct UserScriptEditor: View {
       case .split:
         Toggle("Close pane when finished", isOn: closePaneBinding)
       case .focused:
-        // sendInput has no observable "command finished" boundary.
         EmptyView()
       }
-
-      actionRow
-    }
-    .padding(.vertical, 4)
-    .onChange(of: script) { _, newScript in
-      // Adopt upstream changes when our draft is clean (matches the
-      // prior upstream value). When the user has unsaved edits
-      // (`draft != script` already, before the upstream change), we
-      // keep the in-flight buffer rather than clobbering it. The
-      // single-writer settings model makes external mutations during
-      // editing unlikely — this is a defensive guard, not a primary
-      // path.
-      if newScript != draft {
-        draft = newScript
-      }
-    }
-  }
-
-  // MARK: - Action row
-
-  @ViewBuilder
-  private var actionRow: some View {
-    HStack {
-      Button(role: .destructive) {
-        showDeleteConfirm = true
-      } label: {
-        Image(systemName: "trash")
-      }
-      .buttonStyle(.borderless)
-      .foregroundStyle(.red)
-      .help("Delete script")
-      .confirmationDialog(
-        "Delete script \"\(script.displayName)\"?",
-        isPresented: $showDeleteConfirm,
-        titleVisibility: .visible
-      ) {
-        Button("Delete", role: .destructive) { onDelete() }
-        Button("Cancel", role: .cancel) {}
-      }
-
-      Spacer()
-
-      Button {
-        onRun()
-      } label: {
-        Label("Run", systemImage: "play.fill")
-      }
-      .disabled(!canRun)
-      .help(canRun ? "Run \(script.displayName)" : "No worktree available")
-
-      Button("Save") {
-        onSave(draft)
-      }
-      .keyboardShortcut("s", modifiers: .command)
-      .disabled(draft == script || draft.command.isEmpty)
+    } header: {
+      Text("Where to run")
     }
   }
 
@@ -176,9 +166,6 @@ struct UserScriptEditor: View {
   /// `.split` admits `.closePane` only, `.focused` forces `.none`).
   /// Carrying stale `onFinished` would silently produce an invalid
   /// combo until `resolvedOnFinished` validates it at dispatch time.
-  /// Lives on the binding (not on `.onChange(of: draft.target)`) so
-  /// programmatic upstream-sync that swaps target does not clobber a
-  /// validly-paired `onFinished`.
   private var targetBinding: Binding<ScriptTarget> {
     Binding(
       get: { draft.target },
@@ -201,5 +188,17 @@ struct UserScriptEditor: View {
       get: { draft.onFinished == .closePane },
       set: { isOn in draft.onFinished = isOn ? .closePane : .none }
     )
+  }
+
+  // MARK: - Validation
+
+  /// Save is enabled when the draft has a non-empty command AND either
+  /// the script is new (no upstream comparison meaningful) or the
+  /// draft has actually diverged from the original.
+  private var canSave: Bool {
+    guard !draft.command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      return false
+    }
+    return isNew || draft != initialScript
   }
 }

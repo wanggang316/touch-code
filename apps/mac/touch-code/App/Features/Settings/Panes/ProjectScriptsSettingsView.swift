@@ -2,17 +2,17 @@ import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
 
-/// Project Scripts sub-pane (M5). Rendered as a grouped `Form` so the
-/// pane shares the macOS System-Settings look used by every other
-/// project pane (General / Hooks).
+/// Project Scripts sub-pane (M5). Two tab modes selected by a top
+/// segmented picker (rendered centred and chrome-less so it reads as a
+/// macOS System-Settings tab strip rather than a Form Section header):
 ///
-/// Lifecycle scripts (git_repo only) each own a dedicated Section with
-/// an icon-led header and a footer example — this lets users tell
-/// Setup / Archive / Delete apart at a glance and keeps the layout
-/// consistent with `RepositoryScriptsSettingsView` in supacode. The
-/// user-defined `[ScriptDefinition]` list lives in a single Section so
-/// `.onMove` keeps working; the trailing `+` is a kind-aware menu that
-/// only offers predefined kinds the project doesn't already use.
+/// - **Worktree** — git-only setup / archive / delete lifecycle scripts,
+///   each in its own grouped Section with an inline editor (one body of
+///   text per phase, edited in place).
+/// - **Commands** — user-defined `[ScriptDefinition]` rendered as a
+///   compact list of rows (icon + name + first command line + edit /
+///   delete buttons). Add and edit both push a modal sheet whose body
+///   is a System-Settings-style Form (one field per row).
 ///
 /// Reads come from `@Environment(SettingsStore.self)` for live updates;
 /// writes always go through the TCA reducer so test stores can spy on
@@ -24,7 +24,7 @@ struct ProjectScriptsSettingsView: View {
   @Environment(HierarchyManager.self) private var hierarchyManager
   @Environment(SettingsStore.self) private var settingsStore
 
-  /// IDs for the two top-level Sections; pure visibility logic lives on
+  /// IDs for the two top-level tabs; pure visibility logic lives on
   /// `visibleSections(for:)` so kind-conditional rendering is testable
   /// without the SwiftUI view tree (mirrors `ProjectGeneralSettingsView`).
   enum SectionID: String, CaseIterable, Hashable {
@@ -42,16 +42,16 @@ struct ProjectScriptsSettingsView: View {
     }
   }
 
-  /// Top-level tab when both lifecycle and scripts apply. `git_repo`
-  /// projects show a segmented picker that toggles between the
-  /// Worktree (lifecycle) and Commands (user-defined) views;
-  /// `plain_dir` projects only have Commands so the picker hides.
   private enum Tab: String, CaseIterable, Hashable {
     case worktree
     case commands
   }
 
   @State private var selectedTab: Tab = .worktree
+  /// Sheet presentation for both Add and Edit. Non-nil = sheet visible
+  /// against this draft. `.sheet(item:)` requires Identifiable, which
+  /// `ScriptDefinition` already conforms to.
+  @State private var editingScript: ScriptDefinition?
 
   // MARK: - Derived state
 
@@ -71,9 +71,6 @@ struct ProjectScriptsSettingsView: View {
     Self.visibleSections(for: store.state.kind)
   }
 
-  /// Worktree the Run button targets. Prefers `state.lastFocusedWorktreeID`
-  /// when set; falls back to the first worktree of this Project. nil
-  /// disables every Run button.
   private var resolvedWorktreeID: WorktreeID? {
     if let id = store.state.lastFocusedWorktreeID,
       project?.worktrees.contains(where: { $0.id == id }) == true
@@ -97,63 +94,78 @@ struct ProjectScriptsSettingsView: View {
       visible.contains(.scripts)
       && (!visible.contains(.lifecycle) || selectedTab == .commands)
 
-    Form {
+    VStack(spacing: 0) {
       if visible.contains(.lifecycle) && visible.contains(.scripts) {
-        Section {
-          Picker("", selection: $selectedTab) {
-            Text("Worktree").tag(Tab.worktree)
-            Text("Commands").tag(Tab.commands)
+        // Centred chromeless segmented picker — no Form Section wrapper,
+        // no row-style background, fixed compact width. Reads as a
+        // System-Settings tab strip rather than a heading row.
+        Picker("", selection: $selectedTab) {
+          Text("Worktree").tag(Tab.worktree)
+          Text("Commands").tag(Tab.commands)
+        }
+        .labelsHidden()
+        .pickerStyle(.segmented)
+        .frame(maxWidth: 240)
+        .padding(.top, 16)
+        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity, alignment: .center)
+      }
+
+      Form {
+        if showLifecycle {
+          lifecycleSection(
+            title: "Setup Script",
+            subtitle: "Runs after a new worktree is created.",
+            icon: "truck.box.badge.clock",
+            iconColor: .blue,
+            example: "pnpm install",
+            text: git.createScript?.command ?? "",
+            phase: .setup
+          )
+          lifecycleSection(
+            title: "Archive Script",
+            subtitle: "Runs before a worktree is archived.",
+            icon: "archivebox",
+            iconColor: .orange,
+            example: "docker compose down",
+            text: git.archiveScript?.command ?? "",
+            phase: .archive
+          )
+          lifecycleSection(
+            title: "Delete Script",
+            subtitle: "Runs before a worktree is removed (files still on disk).",
+            icon: "trash",
+            iconColor: .red,
+            example: "docker compose down",
+            text: git.deleteScript?.command ?? "",
+            phase: .delete
+          )
+        }
+
+        if showScripts {
+          scriptsListSection
+        }
+
+        if let error = store.state.lastWriteFailure, !error.isEmpty {
+          Section {
+            Label(error, systemImage: "exclamationmark.circle.fill")
+              .foregroundStyle(.red)
           }
-          .labelsHidden()
-          .pickerStyle(.segmented)
         }
       }
-
-      if showLifecycle {
-        lifecycleSection(
-          title: "Setup Script",
-          subtitle: "Runs after a new worktree is created.",
-          icon: "truck.box.badge.clock",
-          iconColor: .blue,
-          example: "pnpm install",
-          text: git.createScript?.command ?? "",
-          phase: .setup
-        )
-        lifecycleSection(
-          title: "Archive Script",
-          subtitle: "Runs before a worktree is archived.",
-          icon: "archivebox",
-          iconColor: .orange,
-          example: "docker compose down",
-          text: git.archiveScript?.command ?? "",
-          phase: .archive
-        )
-        lifecycleSection(
-          title: "Delete Script",
-          subtitle: "Runs before a worktree is removed (files still on disk).",
-          icon: "trash",
-          iconColor: .red,
-          example: "docker compose down",
-          text: git.deleteScript?.command ?? "",
-          phase: .delete
-        )
-      }
-
-      if showScripts {
-        scriptsHeaderSection
-        ForEach(scripts) { script in
-          scriptSection(for: script)
-        }
-      }
-
-      if let error = store.state.lastWriteFailure, !error.isEmpty {
-        Section {
-          Label(error, systemImage: "exclamationmark.circle.fill")
-            .foregroundStyle(.red)
-        }
-      }
+      .formStyle(.grouped)
     }
-    .formStyle(.grouped)
+    .sheet(item: $editingScript) { editing in
+      ScriptEditorSheet(
+        script: editing,
+        isNew: !scripts.contains(where: { $0.id == editing.id }),
+        onSave: { updated in
+          saveEdit(updated)
+          editingScript = nil
+        },
+        onCancel: { editingScript = nil }
+      )
+    }
   }
 
   // MARK: - Lifecycle Section
@@ -198,90 +210,50 @@ struct ProjectScriptsSettingsView: View {
     }
   }
 
-  // MARK: - Scripts Sections
+  // MARK: - Scripts List Section
 
-  /// Top "Scripts" section: title + add menu, plus the empty-state hint
-  /// when the project has no scripts yet. Each individual script lives
-  /// in its own grouped Section below this one (mirrors the lifecycle
-  /// scripts layout) so the visual rhythm is consistent across the
-  /// pane. Reordering via drag is not supported in the System-Settings-
-  /// style Form layout — scripts appear in array order.
   @ViewBuilder
-  private var scriptsHeaderSection: some View {
+  private var scriptsListSection: some View {
+    // Single Section, no icon-led title. Empty-state replaces the rows
+    // when the project has no scripts. The footer hosts the Add button
+    // (text label, not a bare `+` glyph) plus a one-line hint.
     Section {
       if scripts.isEmpty {
-        Text("No scripts yet — use the + menu to add one.")
+        Text("No scripts yet — click Add to create one.")
           .font(.callout)
           .foregroundStyle(.secondary)
-      }
-    } header: {
-      HStack(spacing: 8) {
-        Label {
-          Text("Scripts")
-            .font(.body)
-            .bold()
-        } icon: {
-          Image(systemName: "terminal.fill")
-            .foregroundStyle(.gray)
-            .accessibilityHidden(true)
+      } else {
+        ForEach(scripts) { script in
+          ScriptListRow(
+            script: script,
+            canRun: resolvedWorktreeID != nil,
+            onRun: {
+              if let wtID = resolvedWorktreeID {
+                store.send(.runScriptTapped(scriptID: script.id, worktreeID: wtID))
+              }
+            },
+            onEdit: { editingScript = script },
+            onDelete: { deleteScript(id: script.id) }
+          )
         }
-        .labelStyle(.scriptSectionHeader)
-
-        Spacer()
-
-        addScriptMenu
       }
     } footer: {
-      if !scripts.isEmpty {
-        Text("Run from the toolbar, command palette, or keyboard shortcut.")
-      }
-    }
-  }
-
-  /// Renders one script as its own Section: the header carries the
-  /// script's icon + display name + kind subtitle (matching the
-  /// lifecycle-script header layout), and the body hosts the
-  /// auto-saving `UserScriptEditor`.
-  @ViewBuilder
-  private func scriptSection(for script: ScriptDefinition) -> some View {
-    Section {
-      UserScriptEditor(
-        script: script,
-        onSave: { updated in saveEdit(updated) },
-        onRun: {
-          if let wtID = resolvedWorktreeID {
-            store.send(.runScriptTapped(scriptID: script.id, worktreeID: wtID))
-          }
-        },
-        onDelete: { deleteScript(id: script.id) },
-        canRun: resolvedWorktreeID != nil
-      )
-    } header: {
-      Label {
-        VStack(alignment: .leading, spacing: 0) {
-          Text(script.displayName)
-            .font(.body)
-            .bold()
-            .lineLimit(1)
-          // Suppress the subtitle when it would just restate the title
-          // — a fresh `Run` script has displayName = kind.defaultName
-          // = "Run", so showing both is double-rendered noise.
-          if script.displayName != script.kind.defaultName {
-            Text(script.kind.defaultName)
-              .font(.footnote)
-              .foregroundStyle(.secondary)
-              .lineLimit(1)
-          }
+      HStack(spacing: 12) {
+        addScriptMenu
+        Spacer()
+        if !scripts.isEmpty {
+          Text("Run from the toolbar, command palette, or keyboard shortcut.")
+            .foregroundStyle(.secondary)
         }
-      } icon: {
-        Image(systemName: script.resolvedSystemImage)
-          .foregroundStyle(ScriptTintColorPalette.color(for: script.resolvedTintColor))
-          .accessibilityHidden(true)
       }
-      .labelStyle(.scriptSectionHeader)
     }
   }
 
+  /// Text-labeled "Add" button. Opens a kind picker that excludes
+  /// predefined kinds already in use (so the user can't have two `Run`
+  /// scripts), but always exposes `.custom`. Click → set
+  /// `editingScript` to a freshly-built draft and the sheet handles
+  /// persistence on Save.
   @ViewBuilder
   private var addScriptMenu: some View {
     let usedKinds = Set(scripts.map(\.kind))
@@ -289,7 +261,7 @@ struct ProjectScriptsSettingsView: View {
       ForEach(ScriptKind.allCases, id: \.self) { kind in
         if kind == .custom || !usedKinds.contains(kind) {
           Button {
-            addScript(kind: kind)
+            editingScript = ScriptDefinition(kind: kind)
           } label: {
             Label {
               Text(kind.defaultName)
@@ -301,23 +273,13 @@ struct ProjectScriptsSettingsView: View {
         }
       }
     } label: {
-      Image(systemName: "plus")
-        .accessibilityLabel("Add Script")
+      Label("Add", systemImage: "plus")
     }
     .menuStyle(.borderlessButton)
-    .menuIndicator(.hidden)
     .fixedSize()
-    .help("Add a new script")
   }
 
   // MARK: - Mutations
-
-  private func addScript(kind: ScriptKind = .custom) {
-    let newScript = ScriptDefinition(kind: kind)
-    var updated = scripts
-    updated.insert(newScript, at: 0)
-    store.send(.setProjectScripts(updated))
-  }
 
   private func saveEdit(_ script: ScriptDefinition) {
     var updated = scripts
@@ -335,11 +297,8 @@ struct ProjectScriptsSettingsView: View {
   }
 }
 
-// MARK: - Section header label style
+// MARK: - Section header label style (used by the lifecycle scripts only)
 
-/// Horizontal icon + title pairing used by every Section header in this
-/// pane. Mirrors supacode's `VerticallyCenteredLabelStyle` so the visual
-/// rhythm matches across the two apps.
 private struct ScriptSectionHeaderLabelStyle: LabelStyle {
   func makeBody(configuration: Configuration) -> some View {
     HStack(spacing: 6) {
@@ -353,18 +312,13 @@ extension LabelStyle where Self == ScriptSectionHeaderLabelStyle {
   fileprivate static var scriptSectionHeader: ScriptSectionHeaderLabelStyle { .init() }
 }
 
-// MARK: - Lifecycle TextEditor
+// MARK: - Lifecycle inline editor
 
 /// Tiny TextEditor wrapper that commits the user's edit to the writer
 /// on each change. Per-keystroke calls are safe: the writer routes
 /// through `SettingsStore.scheduleSave`, which cancels and re-arms a
 /// debounced disk write so a burst of keystrokes only triggers a
 /// single `AtomicFileStore.write` once typing settles.
-///
-/// The previous commit-on-blur design lost the user's edit if the
-/// settings window closed (or the pane swapped to another Project)
-/// while focus was still on the field — `@FocusState` is not
-/// guaranteed to fire `false` before the view tears down.
 private struct LifecycleEditor: View {
   let initial: String
   let onCommit: (String) -> Void
@@ -381,5 +335,82 @@ private struct LifecycleEditor: View {
       )
     )
     .frame(height: 90)
+  }
+}
+
+// MARK: - Compact list row
+
+/// One user-defined script as a single Form row: icon, name + first
+/// command line, run / edit / delete buttons. Replaces the previous
+/// per-script Section with embedded editor — the editor moved to a
+/// modal sheet (see ScriptEditorSheet).
+private struct ScriptListRow: View {
+  let script: ScriptDefinition
+  let canRun: Bool
+  let onRun: () -> Void
+  let onEdit: () -> Void
+  let onDelete: () -> Void
+
+  @State private var showDeleteConfirm = false
+
+  var body: some View {
+    HStack(spacing: 10) {
+      Image(systemName: script.resolvedSystemImage)
+        .frame(width: 18, alignment: .center)
+        .foregroundStyle(ScriptTintColorPalette.color(for: script.resolvedTintColor))
+      VStack(alignment: .leading, spacing: 2) {
+        Text(script.displayName)
+          .font(.body)
+          .lineLimit(1)
+        Text(firstCommandLine)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
+      }
+      Spacer()
+      Button(action: onRun) {
+        Image(systemName: "play.fill")
+      }
+      .buttonStyle(.borderless)
+      .disabled(!canRun)
+      .help(canRun ? "Run \(script.displayName)" : "No worktree available")
+
+      Button(action: onEdit) {
+        Image(systemName: "pencil")
+      }
+      .buttonStyle(.borderless)
+      .help("Edit \(script.displayName)")
+
+      Button(role: .destructive) {
+        showDeleteConfirm = true
+      } label: {
+        Image(systemName: "trash")
+      }
+      .buttonStyle(.borderless)
+      .foregroundStyle(.red)
+      .help("Delete \(script.displayName)")
+      .confirmationDialog(
+        "Delete script \"\(script.displayName)\"?",
+        isPresented: $showDeleteConfirm,
+        titleVisibility: .visible
+      ) {
+        Button("Delete", role: .destructive) { onDelete() }
+        Button("Cancel", role: .cancel) {}
+      }
+    }
+    .padding(.vertical, 4)
+  }
+
+  /// First non-empty line of the script's command, or a placeholder when
+  /// the command is empty (typical for a freshly-created script).
+  private var firstCommandLine: String {
+    let firstLine = script.command
+      .split(whereSeparator: \.isNewline)
+      .first
+      .map { String($0).trimmingCharacters(in: .whitespaces) }
+    if let firstLine, !firstLine.isEmpty {
+      return firstLine
+    }
+    return "(empty)"
   }
 }
