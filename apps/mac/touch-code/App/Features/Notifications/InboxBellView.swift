@@ -34,10 +34,11 @@ struct InboxBellView: View {
             .foregroundStyle(.primary)
         }
       }
-      // Trailing inset gives the count digits breathing room before
-      // the toolbar's edge / next item — without it `99+` reads as
-      // crammed against the boundary on macOS 26's glass capsule.
-      .padding(.trailing, 6)
+      // Symmetric horizontal inset so the bell + digits sit centred
+      // inside the toolbar capsule on macOS 26 (and so the digits
+      // never crowd the right edge). Previously this was trailing-only,
+      // which made the button visibly off-centre.
+      .padding(.horizontal, 6)
       .frame(minHeight: 24)
     }
     .buttonStyle(.plain)
