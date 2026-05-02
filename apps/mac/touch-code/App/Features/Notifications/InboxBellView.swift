@@ -34,11 +34,13 @@ struct InboxBellView: View {
             .foregroundStyle(.primary)
         }
       }
-      // Symmetric horizontal inset so the bell + digits sit centred
-      // inside the toolbar capsule on macOS 26 (and so the digits
-      // never crowd the right edge). Previously this was trailing-only,
-      // which made the button visibly off-centre.
-      .padding(.horizontal, 6)
+      // Optical balance — *not* numeric symmetry. SF Symbols' bell glyph
+      // ships with built-in visual whitespace around the bell shape,
+      // while a tight digit like "3" inks right up to its bounding box.
+      // The same numeric padding therefore reads as "lots of space on
+      // the left, none on the right." Trailing gets extra to compensate.
+      .padding(.leading, 6)
+      .padding(.trailing, 10)
       .frame(minHeight: 24)
     }
     .buttonStyle(.plain)
