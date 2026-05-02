@@ -30,10 +30,19 @@ struct HeaderRunScriptSplitButton: View {
           .accessibilityHidden(true)
         Text(primaryLabel)
           .lineLimit(1)
+        // Explicit chevron — `.buttonStyle(.plain)` (applied at the
+        // toolbar item) hides the default menuIndicator, making the
+        // dropdown undiscoverable. Embedding the chevron in the label
+        // keeps it visible regardless of buttonStyle.
+        Image(systemName: "chevron.down")
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+          .accessibilityHidden(true)
       }
     } primaryAction: {
       primaryAction()
     }
+    .menuIndicator(.hidden)
     .accessibilityLabel(primaryLabel)
     .help(primaryHelp)
   }

@@ -42,6 +42,17 @@ struct ProjectScriptsSettingsView: View {
     }
   }
 
+  /// Top-level tab when both lifecycle and scripts apply. `git_repo`
+  /// projects show a segmented picker that toggles between the
+  /// Worktree (lifecycle) and Commands (user-defined) views;
+  /// `plain_dir` projects only have Commands so the picker hides.
+  private enum Tab: String, CaseIterable, Hashable {
+    case worktree
+    case commands
+  }
+
+  @State private var selectedTab: Tab = .worktree
+
   // MARK: - Derived state
 
   private var entry: ProjectSettings? {
@@ -79,8 +90,26 @@ struct ProjectScriptsSettingsView: View {
   // MARK: - Body
 
   var body: some View {
+    let showLifecycle =
+      visible.contains(.lifecycle)
+      && (!visible.contains(.scripts) || selectedTab == .worktree)
+    let showScripts =
+      visible.contains(.scripts)
+      && (!visible.contains(.lifecycle) || selectedTab == .commands)
+
     Form {
-      if visible.contains(.lifecycle) {
+      if visible.contains(.lifecycle) && visible.contains(.scripts) {
+        Section {
+          Picker("", selection: $selectedTab) {
+            Text("Worktree").tag(Tab.worktree)
+            Text("Commands").tag(Tab.commands)
+          }
+          .labelsHidden()
+          .pickerStyle(.segmented)
+        }
+      }
+
+      if showLifecycle {
         lifecycleSection(
           title: "Setup Script",
           subtitle: "Runs after a new worktree is created.",
@@ -110,7 +139,7 @@ struct ProjectScriptsSettingsView: View {
         )
       }
 
-      if visible.contains(.scripts) {
+      if showScripts {
         scriptsHeaderSection
         ForEach(scripts) { script in
           scriptSection(for: script)
@@ -234,10 +263,15 @@ struct ProjectScriptsSettingsView: View {
             .font(.body)
             .bold()
             .lineLimit(1)
-          Text(script.kind.defaultName)
-            .font(.footnote)
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
+          // Suppress the subtitle when it would just restate the title
+          // — a fresh `Run` script has displayName = kind.defaultName
+          // = "Run", so showing both is double-rendered noise.
+          if script.displayName != script.kind.defaultName {
+            Text(script.kind.defaultName)
+              .font(.footnote)
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
+          }
         }
       } icon: {
         Image(systemName: script.resolvedSystemImage)
@@ -257,7 +291,12 @@ struct ProjectScriptsSettingsView: View {
           Button {
             addScript(kind: kind)
           } label: {
-            Label(kind.defaultName, systemImage: kind.defaultSystemImage)
+            Label {
+              Text(kind.defaultName)
+            } icon: {
+              Image(systemName: kind.defaultSystemImage)
+                .foregroundStyle(ScriptTintColorPalette.color(for: kind.defaultTintColor))
+            }
           }
         }
       }
