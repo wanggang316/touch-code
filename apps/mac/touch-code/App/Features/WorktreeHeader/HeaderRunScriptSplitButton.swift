@@ -23,26 +23,22 @@ struct HeaderRunScriptSplitButton: View {
     Menu {
       caretMenu
     } label: {
-      HStack(spacing: 4) {
+      // macOS 26 toolbars reduce a Menu label to just its primary text +
+      // system menu indicator; extra Image children we pack into the
+      // label HStack get dropped. Use `Label(_:systemImage:)` so the
+      // tinted icon survives the toolbar's auto-styling, and let the
+      // system draw the indicator chevron via `.menuIndicator(.visible)`
+      // rather than trying to hand-roll one.
+      Label {
+        Text(primaryLabel).lineLimit(1)
+      } icon: {
         Image(systemName: primaryIconName)
-          .frame(width: 16, height: 16)
           .foregroundStyle(primaryTint)
-          .accessibilityHidden(true)
-        Text(primaryLabel)
-          .lineLimit(1)
-        // Explicit chevron — `.buttonStyle(.plain)` (applied at the
-        // toolbar item) hides the default menuIndicator, making the
-        // dropdown undiscoverable. Embedding the chevron in the label
-        // keeps it visible regardless of buttonStyle.
-        Image(systemName: "chevron.down")
-          .font(.caption2)
-          .foregroundStyle(.secondary)
-          .accessibilityHidden(true)
       }
     } primaryAction: {
       primaryAction()
     }
-    .menuIndicator(.hidden)
+    .menuIndicator(.visible)
     .accessibilityLabel(primaryLabel)
     .help(primaryHelp)
   }
