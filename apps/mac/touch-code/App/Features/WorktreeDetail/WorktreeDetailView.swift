@@ -204,17 +204,17 @@ struct WorktreeDetailView: View {
         // group with the action buttons.
         inboxBellToolbarItem()
         ToolbarItemGroup(placement: .primaryAction) {
+          HeaderRunScriptSplitButton(
+            store: headerStore,
+            projectID: address.project,
+            worktreeID: info.worktree.id
+          )
+          .buttonStyle(.plain)
           HeaderOpenSplitButton(
             store: headerStore,
             editorStore: editorStore,
             projectID: address.project,
             worktreePath: info.worktree.path
-          )
-          .buttonStyle(.plain)
-          HeaderRunScriptSplitButton(
-            store: headerStore,
-            projectID: address.project,
-            worktreeID: info.worktree.id
           )
           .buttonStyle(.plain)
           if info.project.supportsWorktrees {
@@ -286,19 +286,19 @@ struct WorktreeDetailView: View {
     // the toolbar's native glass capsule + hover state. Same pattern as
     // supacode's openMenu / ScriptMenu.
     ToolbarItem {
+      HeaderRunScriptSplitButton(
+        store: headerStore,
+        projectID: address.project,
+        worktreeID: info.worktree.id
+      )
+    }
+    ToolbarSpacer(.fixed)
+    ToolbarItem {
       HeaderOpenSplitButton(
         store: headerStore,
         editorStore: editorStore,
         projectID: address.project,
         worktreePath: info.worktree.path
-      )
-    }
-    ToolbarSpacer(.fixed)
-    ToolbarItem {
-      HeaderRunScriptSplitButton(
-        store: headerStore,
-        projectID: address.project,
-        worktreeID: info.worktree.id
       )
     }
     if info.project.supportsWorktrees {

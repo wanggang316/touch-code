@@ -23,17 +23,19 @@ struct HeaderRunScriptSplitButton: View {
     Menu {
       caretMenu
     } label: {
-      // macOS 26 toolbars reduce a Menu label to just its primary text +
-      // system menu indicator; extra Image children we pack into the
-      // label HStack get dropped. Use `Label(_:systemImage:)` so the
-      // tinted icon survives the toolbar's auto-styling, and let the
-      // system draw the indicator chevron via `.menuIndicator(.visible)`
-      // rather than trying to hand-roll one.
-      Label {
-        Text(primaryLabel).lineLimit(1)
-      } icon: {
+      // Manual HStack — `Label(_:systemImage:)` collapses to a
+      // single-colour template via the toolbar's default LabelStyle,
+      // killing the script's tint colour. Driving the icon as a
+      // standalone Image lets `.foregroundStyle(primaryTint)` survive
+      // toolbar reduction. `.symbolRenderingMode(.palette)` defends
+      // against SwiftUI fallbacks that would otherwise re-monochrome
+      // the glyph at render time.
+      HStack(spacing: 6) {
         Image(systemName: primaryIconName)
+          .symbolRenderingMode(.palette)
           .foregroundStyle(primaryTint)
+          .accessibilityHidden(true)
+        Text(primaryLabel).lineLimit(1)
       }
     } primaryAction: {
       primaryAction()
