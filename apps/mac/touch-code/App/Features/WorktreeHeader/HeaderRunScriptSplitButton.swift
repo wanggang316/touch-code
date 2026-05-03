@@ -20,8 +20,26 @@ struct HeaderRunScriptSplitButton: View {
   @Environment(SettingsStore.self) private var settingsStore
 
   var body: some View {
+    // Read scripts once, here, inside body. Two load-bearing reasons:
+    // 1. Swift Observation only tracks reads that happen during a
+    //    body re-evaluation. Reading via a computed-property getter
+    //    that is called from a `label:` closure CAN escape the
+    //    observation context inside a toolbar Menu — body would not
+    //    re-render when SettingsStore mutates.
+    // 2. .id(_:) below uses these values as the Menu's identity. The
+    //    scripts ARRAY and ORDER both contribute, so any add / edit /
+    //    delete / reorder forces SwiftUI to rebuild the Menu (and the
+    //    underlying NSMenu, which otherwise caches its items across
+    //    open / close cycles).
+    let scripts = settingsStore.settings.projects[projectID]?.scripts ?? []
+    let primary = scripts.first { $0.kind == .run } ?? scripts.first
+    let primaryName = primary?.displayName ?? "Run"
+    let primaryIcon = primary?.resolvedSystemImage ?? ScriptKind.run.defaultSystemImage
+    let primaryTint = ScriptTintColorPalette.color(for: primary?.resolvedTintColor ?? .green)
+    let primaryHelp = primary == nil ? "Manage Scripts…" : "Run \(primaryName)"
+
     Menu {
-      caretMenu
+      caretMenu(scripts: scripts)
     } label: {
       // Manual HStack — `Label(_:systemImage:)` collapses to a
       // single-colour template via the toolbar's default LabelStyle,
@@ -31,63 +49,34 @@ struct HeaderRunScriptSplitButton: View {
       // against SwiftUI fallbacks that would otherwise re-monochrome
       // the glyph at render time.
       HStack(spacing: 6) {
-        Image(systemName: primaryIconName)
+        Image(systemName: primaryIcon)
           .symbolRenderingMode(.palette)
           .foregroundStyle(primaryTint)
           .accessibilityHidden(true)
-        Text(primaryLabel).lineLimit(1)
+        Text(primaryName).lineLimit(1)
       }
     } primaryAction: {
-      primaryAction()
+      if let script = primary {
+        store.send(
+          .runScriptTapped(scriptID: script.id, projectID: projectID, worktreeID: worktreeID))
+      } else {
+        store.send(.manageScriptsTapped(projectID: projectID))
+      }
     }
     .menuIndicator(.visible)
-    .accessibilityLabel(primaryLabel)
+    .accessibilityLabel(primaryName)
     .help(primaryHelp)
-  }
-
-  // MARK: - State derivation
-
-  /// Scripts attached to this Project, in array order.
-  private var scripts: [ScriptDefinition] {
-    settingsStore.settings.projects[projectID]?.scripts ?? []
-  }
-
-  /// Default script for the primary click. First `.run`-kind entry, falling
-  /// back to the array's first entry. `nil` when the Project has no scripts.
-  private var primaryScript: ScriptDefinition? {
-    scripts.first { $0.kind == .run } ?? scripts.first
-  }
-
-  // MARK: - Actions
-
-  private func primaryAction() {
-    if let script = primaryScript {
-      store.send(.runScriptTapped(scriptID: script.id, projectID: projectID, worktreeID: worktreeID))
-    } else {
-      store.send(.manageScriptsTapped(projectID: projectID))
-    }
-  }
-
-  private var primaryLabel: String {
-    primaryScript?.displayName ?? "Run"
-  }
-
-  private var primaryHelp: String {
-    primaryScript == nil ? "Manage Scripts…" : "Run \(primaryLabel)"
-  }
-
-  private var primaryIconName: String {
-    primaryScript?.resolvedSystemImage ?? ScriptKind.run.defaultSystemImage
-  }
-
-  private var primaryTint: Color {
-    ScriptTintColorPalette.color(for: primaryScript?.resolvedTintColor ?? .green)
+    // Force Menu rebuild when scripts mutate. The signature folds id +
+    // displayName + icon + tint + ORDER so add / edit / delete /
+    // reorder all invalidate. Without this, NSMenu caches its items
+    // across open cycles and Settings-side edits don't reflect here.
+    .id(Self.identitySignature(of: scripts))
   }
 
   // MARK: - Caret menu
 
   @ViewBuilder
-  private var caretMenu: some View {
+  private func caretMenu(scripts: [ScriptDefinition]) -> some View {
     ForEach(scripts) { script in
       Button {
         store.send(
@@ -106,4 +95,13 @@ struct HeaderRunScriptSplitButton: View {
     }
   }
 
+  /// Stable identity for `.id(_:)`. Folds every field that affects
+  /// the Menu's rendered output — name + icon + tint + the array's
+  /// order. id alone wouldn't change on edit; including the rendered
+  /// fields means a same-id, different-content edit still rebuilds.
+  private static func identitySignature(of scripts: [ScriptDefinition]) -> String {
+    scripts
+      .map { "\($0.id)|\($0.displayName)|\($0.resolvedSystemImage)|\($0.resolvedTintColor.rawValue)" }
+      .joined(separator: "·")
+  }
 }
