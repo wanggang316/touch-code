@@ -113,19 +113,14 @@ public nonisolated enum DetectionTranslator {
         return Step(entry: nil, outputFlag: .unchanged)
       }
 
-    case .paneExited(let paneID, let code, let signal):
-      let body: String
-      if let signal {
-        body = "Pane terminated by signal \(signal)."
-      } else if code == 0 {
-        body = "Pane exited cleanly."
-      } else {
-        body = "Pane exited with status \(code)."
-      }
-      return Step(
-        entry: Entry(paneID: paneID, kind: .taskFinished, title: "Pane exited", body: body),
-        outputFlag: .clearProduced(paneID)
-      )
+    case .paneExited(let paneID, _, _):
+      // Pane exits don't notify — explicit closes (close-pane
+      // binding) and natural command completion are both expected,
+      // user-initiated transitions. Crashes (paneCrashed below)
+      // and post-busy idle (paneIdle) still cover the genuine
+      // "needs your attention" cases. Cache cleanup still runs
+      // so a recreated PaneID can never inherit stale gate state.
+      return Step(entry: nil, outputFlag: .clearProduced(paneID))
 
     case .paneCrashed(let paneID, let reason):
       return Step(

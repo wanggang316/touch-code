@@ -115,36 +115,41 @@ struct DetectionTranslatorTests {
     #expect(step.entry?.body == "Command exited with status 137.")
   }
 
-  // MARK: - paneExited
+  // MARK: - paneExited (deliberately not notified)
 
   @Test
-  func paneExitedCleanCarriesCleanBody() {
+  func paneExitedCleanProducesNoEntry() {
     let pane = PaneID()
     let step = DetectionTranslator.translate(
       .paneExited(pane, code: 0, signal: nil),
       hasProducedOutput: [pane]
     )
-    #expect(step.entry?.kind == .taskFinished)
-    #expect(step.entry?.body == "Pane exited cleanly.")
+    #expect(step.entry == nil)
+    // Cache management still runs so a recreated PaneID can't
+    // inherit the prior 'has produced output' gate state.
     #expect(step.outputFlag == .clearProduced(pane))
   }
 
   @Test
-  func paneExitedNonZeroMentionsStatus() {
+  func paneExitedNonZeroProducesNoEntry() {
+    let pane = PaneID()
     let step = DetectionTranslator.translate(
-      .paneExited(PaneID(), code: 1, signal: nil),
-      hasProducedOutput: []
+      .paneExited(pane, code: 1, signal: nil),
+      hasProducedOutput: [pane]
     )
-    #expect(step.entry?.body == "Pane exited with status 1.")
+    #expect(step.entry == nil)
+    #expect(step.outputFlag == .clearProduced(pane))
   }
 
   @Test
-  func paneExitedBySignalMentionsSignal() {
+  func paneExitedBySignalProducesNoEntry() {
+    let pane = PaneID()
     let step = DetectionTranslator.translate(
-      .paneExited(PaneID(), code: 0, signal: 9),
-      hasProducedOutput: []
+      .paneExited(pane, code: 0, signal: 9),
+      hasProducedOutput: [pane]
     )
-    #expect(step.entry?.body == "Pane terminated by signal 9.")
+    #expect(step.entry == nil)
+    #expect(step.outputFlag == .clearProduced(pane))
   }
 
   // MARK: - paneCrashed
