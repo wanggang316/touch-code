@@ -238,16 +238,18 @@ struct ProjectScriptsSettingsView: View {
             onEdit: { editingScript = script },
             onDelete: { deleteScript(id: script.id) }
           )
-          // Each row is both draggable and a drop target. The dragged
-          // payload is the source script's UUID string; on drop the
-          // source is removed and re-inserted at the target row's
-          // index (above-the-target). Clicks still go to onEdit —
-          // SwiftUI starts a drag only after a brief press-and-move,
-          // so a quick click is unambiguous.
-          .draggable(script.id.uuidString)
-          .dropDestination(for: String.self) { items, _ in
-            handleScriptDrop(items: items, targetID: script.id)
-          }
+        }
+        // macOS-native reorder. `ForEach.onMove(perform:)` is the
+        // SwiftUI hook that lets `List` (and grouped `Form` on macOS)
+        // draw the system drag handle on hover, the insertion-line
+        // indicator while dragging, and the row-lift animation. We
+        // commit the reordered array through the same setProjectScripts
+        // writer so the persistence path is identical to add / edit /
+        // delete.
+        .onMove { source, destination in
+          var updated = scripts
+          updated.move(fromOffsets: source, toOffset: destination)
+          store.send(.setProjectScripts(updated))
         }
       }
     } footer: {
@@ -309,30 +311,6 @@ struct ProjectScriptsSettingsView: View {
   private func deleteScript(id: UUID) {
     let updated = scripts.filter { $0.id != id }
     store.send(.setProjectScripts(updated))
-  }
-
-  /// Reorder handler shared by every row's drop target. Returns true
-  /// when a real reorder happened (so the system shows the success
-  /// animation) and false otherwise — same-row drop, malformed
-  /// payload, or unknown source.
-  private func handleScriptDrop(items: [String], targetID: UUID) -> Bool {
-    guard let firstID = items.first,
-      let sourceUUID = UUID(uuidString: firstID),
-      sourceUUID != targetID,
-      let sourceIndex = scripts.firstIndex(where: { $0.id == sourceUUID }),
-      let targetIndex = scripts.firstIndex(where: { $0.id == targetID })
-    else { return false }
-
-    var updated = scripts
-    let moved = updated.remove(at: sourceIndex)
-    // After remove(), every index past sourceIndex shifts left by one.
-    // Insert at the *adjusted* target index so the source lands
-    // immediately above the original target row.
-    let insertIndex = targetIndex > sourceIndex ? targetIndex : targetIndex
-    let clamped = min(max(insertIndex, 0), updated.count)
-    updated.insert(moved, at: clamped)
-    store.send(.setProjectScripts(updated))
-    return true
   }
 }
 
