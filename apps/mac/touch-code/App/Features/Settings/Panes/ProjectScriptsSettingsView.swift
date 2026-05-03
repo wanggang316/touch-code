@@ -426,20 +426,12 @@ private struct ScriptListRow: View {
 
       Spacer(minLength: 0)
 
-      // Chord hint — shown only when the script carries a valid
-      // shortcut. Lives next to the action buttons so the user can
-      // confirm what they bound without opening the editor.
-      if let chord = script.keyboardShortcut, chord.isValid {
-        Text(chord.displayString)
-          .font(.caption.monospaced())
-          .foregroundStyle(.secondary)
-          .padding(.horizontal, 6)
-          .padding(.vertical, 2)
-          .background(
-            RoundedRectangle(cornerRadius: 4)
-              .fill(Color.secondary.opacity(0.12))
-          )
-      }
+      // Shortcut column. Reserves a fixed-width slot so chord
+      // chips line up across rows (rendered or not). Empty when
+      // the script has no chord — the slot stays so the action
+      // buttons don't shift between rows.
+      ScriptShortcutColumn(binding: script.keyboardShortcut)
+        .frame(width: 96, alignment: .trailing)
 
       Button(action: onRun) {
         Image(systemName: "play.fill")
@@ -482,5 +474,29 @@ private struct ScriptListRow: View {
       return firstLine
     }
     return "(empty)"
+  }
+}
+
+/// Trailing column rendering the script's chord (when bound). Fixed
+/// alignment so chips line up across rows. Renders text-only — the
+/// chord chip lives in the row, not a re-entrant button — to keep
+/// the row click target unambiguous.
+private struct ScriptShortcutColumn: View {
+  let binding: ShortcutBinding?
+
+  var body: some View {
+    if let binding, binding.isEnabled, binding.keyCode != 0 {
+      Text(ShortcutDisplay.chord(for: binding))
+        .font(.caption.monospaced())
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(
+          RoundedRectangle(cornerRadius: 4)
+            .fill(Color.secondary.opacity(0.12))
+        )
+    } else {
+      Color.clear
+    }
   }
 }

@@ -94,7 +94,10 @@ struct HeaderRunScriptSplitButton: View {
   /// `.keyboardShortcut(_:modifiers:)` registers it globally for the
   /// owning window — pressing the chord fires the same dispatch path
   /// as a manual menu pick, and macOS renders the chord in the menu
-  /// item's trailing column automatically.
+  /// item's trailing column automatically. Conversion from the
+  /// stored `ShortcutBinding` to SwiftUI's KeyEquivalent +
+  /// EventModifiers goes through `ShortcutDisplay`, the same helper
+  /// the system Shortcuts pane uses.
   @ViewBuilder
   private func menuButton(for script: ScriptDefinition) -> some View {
     let button = Button {
@@ -103,8 +106,10 @@ struct HeaderRunScriptSplitButton: View {
     } label: {
       Label(script.displayName, systemImage: script.resolvedSystemImage)
     }
-    if let chord = script.keyboardShortcut, chord.isValid, let key = chord.keyEquivalent {
-      button.keyboardShortcut(key, modifiers: chord.eventModifiers)
+    if let chord = script.keyboardShortcut, chord.isEnabled, chord.keyCode != 0,
+      let key = ShortcutDisplay.keyEquivalent(for: chord.keyCode)
+    {
+      button.keyboardShortcut(key, modifiers: ShortcutDisplay.eventModifiers(for: chord.modifiers))
     } else {
       button
     }
@@ -119,7 +124,8 @@ struct HeaderRunScriptSplitButton: View {
   private static func identitySignature(of scripts: [ScriptDefinition]) -> String {
     scripts
       .map { script -> String in
-        let chord = script.keyboardShortcut?.displayString ?? ""
+        let chord =
+          script.keyboardShortcut.map { ShortcutDisplay.chord(for: $0) } ?? ""
         return "\(script.id)|\(script.displayName)|\(script.resolvedSystemImage)|\(script.resolvedTintColor.rawValue)|\(chord)"
       }
       .joined(separator: "·")

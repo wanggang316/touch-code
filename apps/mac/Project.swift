@@ -35,7 +35,6 @@ let project = Project(
         "TouchCodeCore",
         "TouchCodeCore/GitHub",
         "TouchCodeCore/Notifications",
-        "TouchCodeCore/Settings",
         "TouchCodeCore/Shortcuts",
         "TouchCodeCore/Shortcuts/ConflictDetectors",
         "TouchCodeCore/StatusBar",

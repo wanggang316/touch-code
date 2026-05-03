@@ -28,10 +28,11 @@ public nonisolated struct ScriptDefinition: Equatable, Codable, Sendable, Identi
   public var direction: ScriptSplitDirection
   public var onFinished: ScriptOnFinished
   /// Optional global keyboard chord (e.g. ⌘⇧R) attached to this
-  /// script. nil = no shortcut. Bound at the worktree-header
-  /// split-button menu via SwiftUI's `.keyboardShortcut(_:modifiers:)`,
-  /// which fires the same dispatch path as a manual menu pick.
-  public var keyboardShortcut: ScriptKeyboardShortcut?
+  /// script. nil = no shortcut. Reuses the same `ShortcutBinding`
+  /// type the system Settings → Shortcuts page uses, so the chord
+  /// recorder, display helpers (`ShortcutDisplay`), and SwiftUI
+  /// adapter are all shared.
+  public var keyboardShortcut: ShortcutBinding?
 
   public init(
     id: UUID = UUID(),
@@ -43,7 +44,7 @@ public nonisolated struct ScriptDefinition: Equatable, Codable, Sendable, Identi
     target: ScriptTarget = .newTab,
     direction: ScriptSplitDirection = .right,
     onFinished: ScriptOnFinished = .none,
-    keyboardShortcut: ScriptKeyboardShortcut? = nil
+    keyboardShortcut: ShortcutBinding? = nil
   ) {
     self.id = id
     self.kind = kind
@@ -112,7 +113,7 @@ public nonisolated struct ScriptDefinition: Equatable, Codable, Sendable, Identi
     self.target = try c.decodeIfPresent(ScriptTarget.self, forKey: .target) ?? .newTab
     self.direction = try c.decodeIfPresent(ScriptSplitDirection.self, forKey: .direction) ?? .right
     self.onFinished = try c.decodeIfPresent(ScriptOnFinished.self, forKey: .onFinished) ?? .none
-    self.keyboardShortcut = try c.decodeIfPresent(ScriptKeyboardShortcut.self, forKey: .keyboardShortcut)
+    self.keyboardShortcut = try c.decodeIfPresent(ShortcutBinding.self, forKey: .keyboardShortcut)
   }
 
   /// Omit-when-default encoding. Empty strings, nil overrides, and any field
@@ -141,11 +142,10 @@ public nonisolated struct ScriptDefinition: Equatable, Codable, Sendable, Identi
     if validatedOnFinished != .none {
       try c.encode(validatedOnFinished, forKey: .onFinished)
     }
-    // Only persist the chord when it's actually bindable (key + at
-    // least one modifier). A half-typed shortcut left in the editor
-    // sheet shouldn't survive unless the user explicitly saved a
-    // valid one.
-    if let chord = keyboardShortcut, chord.isValid {
+    // Only persist the chord when the user explicitly bound one. The
+    // recorder enforces presence-of-modifier + non-zero keyCode at
+    // capture time so a saved chord is always bindable here.
+    if let chord = keyboardShortcut, chord.isEnabled, chord.keyCode != 0 {
       try c.encode(chord, forKey: .keyboardShortcut)
     }
   }

@@ -155,24 +155,25 @@ struct ScriptEditorSheet: View {
     }
   }
 
-  /// Optional global keyboard chord. Bindable via four modifier
-  /// toggles + a single-character text field. macOS bare-key
-  /// shortcuts (no modifier) collide with text input almost
-  /// everywhere, so the model's `isValid` requires at least one
-  /// modifier — Save below treats partial chords as no chord.
+  /// Optional global keyboard chord. Uses the same
+  /// `HotkeyRecorderPopover` the system Shortcuts pane uses — press
+  /// the chord button to record, the popover validates and commits.
   @ViewBuilder
   private var shortcutSection: some View {
     Section {
-      ShortcutEditorRow(
-        shortcut: Binding(
-          get: { draft.keyboardShortcut },
-          set: { draft.keyboardShortcut = $0 }
+      LabeledContent("Shortcut") {
+        ScriptShortcutRecorderButton(
+          binding: Binding(
+            get: { draft.keyboardShortcut },
+            set: { draft.keyboardShortcut = $0 }
+          ),
+          scriptDisplayName: draft.name.isEmpty ? draft.kind.defaultName : draft.name
         )
-      )
+      }
     } header: {
       Text("Keyboard shortcut")
     } footer: {
-      Text("Bound globally on the worktree-header Run menu — at least one modifier required.")
+      Text("Bound globally on the worktree-header Run menu while the main window is active.")
     }
   }
 
@@ -220,108 +221,88 @@ struct ScriptEditorSheet: View {
   }
 }
 
-// MARK: - Shortcut editor
+// MARK: - Shortcut recorder button
 
-/// Inline shortcut composer. Four toggleable modifier glyphs plus a
-/// single-character TextField. Live preview on the left renders the
-/// macOS-conventional chord string, or "—" when the chord is empty.
-/// A trailing "Clear" button wipes the chord back to nil.
+/// Chord button that opens the shared `HotkeyRecorderPopover` from
+/// the system Shortcuts pane. Recording, validation, modifier-only
+/// guards, and live keycap preview all come for free from the same
+/// recorder — only the binding's persistence target differs.
 ///
-/// Deliberately *not* a key-event recorder. Recording requires
-/// installing an NSEvent local monitor, juggling first-responder
-/// state, and explicitly excluding modifier-only keystrokes — all
-/// fragile inside a sheet that shares focus with the surrounding
-/// Form. The toggle + TextField composition is unambiguous, builds
-/// in any window context, and matches the pattern Linear and a
-/// few other macOS settings panes ship.
-private struct ShortcutEditorRow: View {
-  @Binding var shortcut: ScriptKeyboardShortcut?
+/// Layout: the button shows the current chord as a row of keycaps
+/// (or 'Record…' when none is bound). A trailing 'Clear' borderless
+/// button wipes the chord back to nil. Tapping the chord button
+/// re-opens the recorder popover so the user can replace it.
+private struct ScriptShortcutRecorderButton: View {
+  @Binding var binding: ShortcutBinding?
+  let scriptDisplayName: String
+
+  @State private var popoverShown = false
 
   var body: some View {
-    HStack(spacing: 10) {
-      Text(shortcut?.isValid == true ? shortcut!.displayString : "—")
-        .font(.body.monospaced())
-        .foregroundStyle(shortcut?.isValid == true ? Color.primary : .secondary)
-        .frame(minWidth: 64, alignment: .leading)
-
-      Spacer(minLength: 0)
-
-      modifierToggle("⌃", .control)
-      modifierToggle("⌥", .option)
-      modifierToggle("⇧", .shift)
-      modifierToggle("⌘", .command)
-
-      TextField(
-        "key",
-        text: keyBinding
-      )
-      .textFieldStyle(.roundedBorder)
-      .frame(width: 56)
-
-      Button("Clear") {
-        shortcut = nil
-      }
-      .buttonStyle(.borderless)
-      .disabled(shortcut == nil)
-    }
-  }
-
-  // MARK: - Helpers
-
-  private var keyBinding: Binding<String> {
-    Binding(
-      get: { shortcut?.key ?? "" },
-      set: { newValue in
-        // Single-character only — clamp to the first scalar so a
-        // paste of "abc" stores "a". Lower-case so the displayString
-        // upper-cases consistently.
-        let trimmed = newValue.lowercased().prefix(1)
-        update { $0.key = String(trimmed) }
-      }
-    )
-  }
-
-  @ViewBuilder
-  private func modifierToggle(_ glyph: String, _ modifier: ScriptKeyboardShortcut.Modifier) -> some View {
-    let isOn = shortcut?.modifiers.contains(modifier) == true
-    Button {
-      update { current in
-        if current.modifiers.contains(modifier) {
-          current.modifiers.remove(modifier)
+    HStack(spacing: 8) {
+      Button {
+        popoverShown = true
+      } label: {
+        if let binding, binding.keyCode != 0 {
+          ShortcutKeycapsRow(binding: binding)
         } else {
-          current.modifiers.insert(modifier)
+          Text("Record…")
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(
+              RoundedRectangle(cornerRadius: 5)
+                .strokeBorder(Color.secondary.opacity(0.4), style: .init(lineWidth: 1, dash: [3, 2]))
+            )
         }
       }
-    } label: {
-      Text(glyph)
-        .font(.body.monospaced())
-        .frame(width: 24, height: 22)
-        .background(
-          RoundedRectangle(cornerRadius: 5)
-            .fill(isOn ? Color.accentColor.opacity(0.25) : Color.secondary.opacity(0.08))
+      .buttonStyle(.plain)
+      .popover(isPresented: $popoverShown, arrowEdge: .bottom) {
+        HotkeyRecorderPopover(
+          title: "Shortcut for \(scriptDisplayName)",
+          validate: { _ in .ok },
+          onCommit: { newBinding in
+            binding = newBinding
+          },
+          onCancel: { popoverShown = false }
         )
-        .overlay(
-          RoundedRectangle(cornerRadius: 5)
-            .stroke(isOn ? Color.accentColor : Color.clear, lineWidth: 1)
-        )
-        .foregroundStyle(isOn ? Color.accentColor : Color.primary)
+      }
+
+      Button("Clear") {
+        binding = nil
+      }
+      .buttonStyle(.borderless)
+      .disabled(binding == nil)
     }
-    .buttonStyle(.plain)
-    .help(glyph)
+  }
+}
+
+/// Re-renders `HotkeyRecorderPopover.KeycapsRow` for inline display
+/// outside the recorder. Same glyphs, same order — `ShortcutDisplay`
+/// owns the canonical decomposition so menu / button / chord text
+/// stay in lockstep.
+private struct ShortcutKeycapsRow: View {
+  let binding: ShortcutBinding
+
+  var body: some View {
+    HStack(spacing: 4) {
+      ForEach(Array(symbols.enumerated()), id: \.offset) { _, symbol in
+        Keycap(symbol: symbol)
+      }
+    }
   }
 
-  /// Edit the current chord in place; allocate a default empty
-  /// chord on first edit so the toggles + key field have something
-  /// to mutate.
-  private func update(_ transform: (inout ScriptKeyboardShortcut) -> Void) {
-    var current = shortcut ?? ScriptKeyboardShortcut(key: "", modifiers: [])
-    transform(&current)
-    // Drop fully-empty chords back to nil so they don't persist.
-    if current.key.isEmpty && current.modifiers.isEmpty {
-      shortcut = nil
-    } else {
-      shortcut = current
+  private var symbols: [String] {
+    var out: [String] = []
+    if binding.modifiers.contains(.control) { out.append("⌃") }
+    if binding.modifiers.contains(.option) { out.append("⌥") }
+    if binding.modifiers.contains(.shift) { out.append("⇧") }
+    if binding.modifiers.contains(.command) { out.append("⌘") }
+    if binding.keyCode != 0 {
+      out.append(ShortcutDisplay.keycap(for: binding.keyCode))
     }
+    return out
   }
 }
 
