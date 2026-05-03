@@ -39,9 +39,11 @@ struct LazyPaneHost: View {
         // translucent layer in light mode.
         PaneHostView(surface: surface)
           // 2pt progress strip pinned to the top edge of the surface,
-          // driven by libghostty's OSC 9;4 reports (winget, gh,
-          // Claude Code, etc.). `surface.info` is `@Observable`, so the
-          // overlay appears/disappears purely from the read site here.
+          // driven by libghostty's OSC 9;4 reports (winget, some `gh`
+          // and `cargo` subcommands). `surface.info` is `@Observable`,
+          // so the overlay appears/disappears purely from the read
+          // site here. Note: most everyday tools don't emit OSC 9;4 —
+          // a separate shell-integration layer covers those commands.
           .overlay(alignment: .top) {
             PaneSurfaceProgressOverlay(surface: surface)
           }

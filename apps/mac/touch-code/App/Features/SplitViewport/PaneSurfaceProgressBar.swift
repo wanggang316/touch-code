@@ -16,9 +16,12 @@ import TouchCodeCore
 ///
 /// Mirrors supacode's `GhosttySurfaceProgressBar` (1:1 visual + a11y
 /// strings) — keeps the launch-flow vocabulary consistent across the
-/// two products and gives shells emitting OSC 9;4 (e.g. winget, gh,
-/// Claude Code) a place to surface "I'm doing something" without
-/// drawing extra terminal chrome.
+/// two products and gives programs emitting OSC 9;4 (e.g. winget on
+/// Windows, some `gh` and `cargo` subcommands) a place to surface
+/// "I'm doing something" without drawing extra terminal chrome.
+/// Note: most everyday tools (make, npm, go, git, pytest, claude) do
+/// NOT emit OSC 9;4; coverage of those commands is the job of a
+/// separate shell-integration layer (Slice B).
 struct PaneSurfaceProgressBar: View {
   let progressState: UInt32
   let progressValue: Int?
