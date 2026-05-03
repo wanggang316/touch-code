@@ -40,10 +40,11 @@ struct LazyPaneHost: View {
         PaneHostView(surface: surface)
           // 2pt progress strip pinned to the top edge of the surface,
           // driven by libghostty's OSC 9;4 reports (winget, some `gh`
-          // and `cargo` subcommands). `surface.info` is `@Observable`,
-          // so the overlay appears/disappears purely from the read
-          // site here. Note: most everyday tools don't emit OSC 9;4 —
-          // a separate shell-integration layer covers those commands.
+          // / `cargo` subcommands, the Claude Code CLI during tool
+          // execution, etc.). `surface.info` is `@Observable`, so the
+          // overlay appears/disappears purely from the read site here.
+          // Plain user-typed commands don't emit OSC 9;4 themselves —
+          // covering those is the shell-integration layer's job.
           .overlay(alignment: .top) {
             PaneSurfaceProgressOverlay(surface: surface)
           }
