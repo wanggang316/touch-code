@@ -3,13 +3,13 @@ import SwiftUI
 import TouchCodeCore
 
 /// Native toolbar split button: primary action runs the Project's
-/// primary script (first `.run`-kind entry, falling back to the first
-/// script overall); the chevron half lists every script plus a
-/// "Manage Scripts…" footer. Empty-state: primary click and every menu
-/// item route to "Manage Scripts" so users land in a place where they
-/// can create one. Uses `Menu(content:label:primaryAction:)` so macOS
-/// renders the native split-button chrome — matches supacode's
-/// `ScriptMenu` pattern.
+/// first script (whichever the user has dragged to index 0 in
+/// Settings → Project Scripts); the chevron half lists every script
+/// plus a "Manage Scripts…" footer. Empty-state: primary click and
+/// every menu item route to "Manage Scripts" so users land in a
+/// place where they can create one. Uses
+/// `Menu(content:label:primaryAction:)` so macOS renders the native
+/// split-button chrome — matches supacode's `ScriptMenu` pattern.
 ///
 /// Both halves dispatch through `WorktreeHeaderFeature.delegate` so
 /// `RootFeature` owns the `HierarchyClient.runScript` effect.
@@ -32,7 +32,11 @@ struct HeaderRunScriptSplitButton: View {
     //    underlying NSMenu, which otherwise caches its items across
     //    open / close cycles).
     let scripts = settingsStore.settings.projects[projectID]?.scripts ?? []
-    let primary = scripts.first { $0.kind == .run } ?? scripts.first
+    // Primary is whichever script the user has placed at index 0
+    // in the Settings → Project Scripts list. Drag-to-reorder is
+    // the only knob the user has — preferring `.run` kind over
+    // position would silently undo their manual reorder.
+    let primary = scripts.first
     let primaryName = primary?.displayName ?? "Run"
     let primaryIcon = primary?.resolvedSystemImage ?? ScriptKind.run.defaultSystemImage
     let primaryTint = ScriptTintColorPalette.color(for: primary?.resolvedTintColor ?? .green)
