@@ -80,31 +80,26 @@ struct ScriptEditorSheet: View {
       }
 
       if draft.kind == .custom {
-        LabeledContent("Icon (SF Symbol)") {
-          TextField(
-            "",
-            text: Binding(
-              get: { draft.systemImage ?? "" },
+        LabeledContent("Icon") {
+          SymbolPickerRow(
+            symbol: Binding(
+              get: { draft.systemImage ?? ScriptKind.custom.defaultSystemImage },
               set: { newValue in
-                draft.systemImage = newValue.isEmpty ? nil : newValue
+                let trimmed = newValue.trimmingCharacters(in: .whitespaces)
+                draft.systemImage = trimmed.isEmpty ? nil : trimmed
               }
             ),
-            prompt: Text(ScriptKind.custom.defaultSystemImage)
+            tint: ScriptTintColorPalette.color(for: draft.tintColor ?? ScriptKind.custom.defaultTintColor)
           )
-          .textFieldStyle(.roundedBorder)
-          .frame(minWidth: 160)
         }
 
-        Picker(
-          "Tint",
-          selection: Binding(
-            get: { draft.tintColor ?? ScriptKind.custom.defaultTintColor },
-            set: { draft.tintColor = $0 }
+        LabeledContent("Tint") {
+          TintSwatchRow(
+            selection: Binding(
+              get: { draft.tintColor ?? ScriptKind.custom.defaultTintColor },
+              set: { draft.tintColor = $0 }
+            )
           )
-        ) {
-          ForEach(ScriptTintColor.allCases, id: \.self) { tint in
-            Text(tint.rawValue.capitalized).tag(tint)
-          }
         }
       }
     } header: {
@@ -200,5 +195,149 @@ struct ScriptEditorSheet: View {
       return false
     }
     return isNew || draft != initialScript
+  }
+}
+
+// MARK: - Symbol picker
+
+/// `LabeledContent` value for the Icon row. Renders a live preview of
+/// the current SF Symbol next to a `Choose…` button that opens a
+/// popover grid of curated script-relevant symbols. A small TextField
+/// inside the popover lets advanced users type any SF Symbol name
+/// directly when the curated grid doesn't cover their case.
+private struct SymbolPickerRow: View {
+  @Binding var symbol: String
+  let tint: Color
+
+  @State private var popoverShown = false
+
+  var body: some View {
+    HStack(spacing: 10) {
+      Image(systemName: symbol)
+        .font(.title3)
+        .foregroundStyle(tint)
+        .frame(width: 24, height: 24)
+        .background(
+          RoundedRectangle(cornerRadius: 6)
+            .fill(Color.secondary.opacity(0.08))
+        )
+
+      Button("Choose…") { popoverShown.toggle() }
+        .buttonStyle(.bordered)
+        .popover(isPresented: $popoverShown, arrowEdge: .bottom) {
+          SymbolGridPopover(symbol: $symbol, tint: tint)
+            .frame(width: 320, height: 280)
+        }
+    }
+  }
+}
+
+private struct SymbolGridPopover: View {
+  @Binding var symbol: String
+  let tint: Color
+
+  /// Curated common symbols for scripts. Covers the predefined kinds'
+  /// defaults plus broadly useful action / status / tooling glyphs.
+  /// Users who need anything else can type the symbol name in the
+  /// TextField at the bottom.
+  private static let curated: [String] = [
+    "play.fill", "checkmark.seal.fill", "paperplane.fill", "ant.fill",
+    "wand.and.stars", "bolt.fill", "hammer.fill", "wrench.adjustable.fill",
+    "terminal.fill", "gearshape.fill", "command", "swift",
+    "shippingbox.fill", "archivebox.fill", "tray.full.fill", "doc.text.fill",
+    "scissors", "sparkles", "flag.fill", "tag.fill",
+    "star.fill", "heart.fill", "bookmark.fill", "bell.fill",
+    "exclamationmark.triangle.fill", "checkmark.circle.fill", "xmark.circle.fill", "questionmark.circle.fill",
+    "arrow.clockwise", "arrow.up.circle.fill", "arrow.down.circle.fill", "trash.fill",
+  ]
+
+  private let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 6)
+
+  var body: some View {
+    VStack(spacing: 8) {
+      ScrollView {
+        LazyVGrid(columns: columns, spacing: 6) {
+          ForEach(Self.curated, id: \.self) { name in
+            symbolCell(name)
+          }
+        }
+        .padding(8)
+      }
+
+      Divider()
+
+      HStack(spacing: 6) {
+        Text("Custom")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        TextField("SF Symbol name", text: $symbol)
+          .textFieldStyle(.roundedBorder)
+          .font(.callout)
+      }
+      .padding(.horizontal, 10)
+      .padding(.bottom, 8)
+    }
+  }
+
+  @ViewBuilder
+  private func symbolCell(_ name: String) -> some View {
+    let isSelected = name == symbol
+    Button {
+      symbol = name
+    } label: {
+      Image(systemName: name)
+        .font(.title3)
+        .foregroundStyle(isSelected ? tint : Color.primary)
+        .frame(width: 36, height: 36)
+        .background(
+          RoundedRectangle(cornerRadius: 6)
+            .fill(isSelected ? tint.opacity(0.18) : Color.clear)
+            .overlay(
+              RoundedRectangle(cornerRadius: 6)
+                .stroke(isSelected ? tint : Color.clear, lineWidth: 1.5)
+            )
+        )
+    }
+    .buttonStyle(.plain)
+    .help(name)
+  }
+}
+
+// MARK: - Tint swatch row
+
+/// Horizontal row of clickable colored circles, one per
+/// `ScriptTintColor`. The selected swatch is wrapped in a slightly
+/// larger ring so the choice is unambiguous without resorting to a
+/// menu / dropdown.
+private struct TintSwatchRow: View {
+  @Binding var selection: ScriptTintColor
+
+  var body: some View {
+    HStack(spacing: 8) {
+      ForEach(ScriptTintColor.allCases, id: \.self) { tint in
+        swatch(tint)
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func swatch(_ tint: ScriptTintColor) -> some View {
+    let isSelected = tint == selection
+    Button {
+      selection = tint
+    } label: {
+      Circle()
+        .fill(ScriptTintColorPalette.color(for: tint))
+        .frame(width: 18, height: 18)
+        .overlay(
+          Circle()
+            .stroke(Color.primary.opacity(isSelected ? 0.85 : 0), lineWidth: 2)
+            .padding(-3)
+        )
+    }
+    .buttonStyle(.plain)
+    .help(tint.rawValue.capitalized)
+    .accessibilityLabel(tint.rawValue.capitalized)
+    .accessibilityAddTraits(isSelected ? [.isSelected] : [])
   }
 }

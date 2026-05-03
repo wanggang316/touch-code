@@ -340,10 +340,11 @@ private struct LifecycleEditor: View {
 
 // MARK: - Compact list row
 
-/// One user-defined script as a single Form row: icon, name + first
-/// command line, run / edit / delete buttons. Replaces the previous
-/// per-script Section with embedded editor — the editor moved to a
-/// modal sheet (see ScriptEditorSheet).
+/// One user-defined script as a single Form row. The icon + name + first
+/// command line area is the edit hit target — clicking anywhere on the
+/// row's left two-thirds opens the editor sheet. Run + Delete remain
+/// as discrete trailing buttons since they are destructive / side-effect
+/// actions that shouldn't fire on a stray row click.
 private struct ScriptListRow: View {
   let script: ScriptDefinition
   let canRun: Bool
@@ -355,31 +356,37 @@ private struct ScriptListRow: View {
 
   var body: some View {
     HStack(spacing: 10) {
-      Image(systemName: script.resolvedSystemImage)
-        .frame(width: 18, alignment: .center)
-        .foregroundStyle(ScriptTintColorPalette.color(for: script.resolvedTintColor))
-      VStack(alignment: .leading, spacing: 2) {
-        Text(script.displayName)
-          .font(.body)
-          .lineLimit(1)
-        Text(firstCommandLine)
-          .font(.caption)
-          .foregroundStyle(.secondary)
-          .lineLimit(1)
+      // Edit hit target: icon + names. `.contentShape(Rectangle())`
+      // expands the click region to the full leading-and-spacer area
+      // even though the texts only occupy the labels' inked extent.
+      Button(action: onEdit) {
+        HStack(spacing: 10) {
+          Image(systemName: script.resolvedSystemImage)
+            .frame(width: 18, alignment: .center)
+            .foregroundStyle(ScriptTintColorPalette.color(for: script.resolvedTintColor))
+          VStack(alignment: .leading, spacing: 2) {
+            Text(script.displayName)
+              .font(.body)
+              .foregroundStyle(.primary)
+              .lineLimit(1)
+            Text(firstCommandLine)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
+          }
+          Spacer(minLength: 0)
+        }
+        .contentShape(Rectangle())
       }
-      Spacer()
+      .buttonStyle(.plain)
+      .help("Edit \(script.displayName)")
+
       Button(action: onRun) {
         Image(systemName: "play.fill")
       }
       .buttonStyle(.borderless)
       .disabled(!canRun)
       .help(canRun ? "Run \(script.displayName)" : "No worktree available")
-
-      Button(action: onEdit) {
-        Image(systemName: "pencil")
-      }
-      .buttonStyle(.borderless)
-      .help("Edit \(script.displayName)")
 
       Button(role: .destructive) {
         showDeleteConfirm = true
