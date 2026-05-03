@@ -19,6 +19,10 @@ struct ScriptEditorSheet: View {
   /// the Save button's enabled rule (a brand-new script with empty
   /// command shouldn't persist).
   let isNew: Bool
+  /// Conflict / reservation check for a candidate keyboard chord.
+  /// Wired by the parent so the sheet stays unaware of project-level
+  /// state (sibling scripts, the global shortcuts map).
+  let validateChord: (ShortcutBinding) -> HotkeyRecorderPopover.ValidationResult
   let onSave: (ScriptDefinition) -> Void
   let onCancel: () -> Void
 
@@ -27,11 +31,13 @@ struct ScriptEditorSheet: View {
   init(
     script: ScriptDefinition,
     isNew: Bool,
+    validateChord: @escaping (ShortcutBinding) -> HotkeyRecorderPopover.ValidationResult,
     onSave: @escaping (ScriptDefinition) -> Void,
     onCancel: @escaping () -> Void
   ) {
     self.initialScript = script
     self.isNew = isNew
+    self.validateChord = validateChord
     self.onSave = onSave
     self.onCancel = onCancel
     self._draft = State(initialValue: script)
@@ -167,7 +173,8 @@ struct ScriptEditorSheet: View {
             get: { draft.keyboardShortcut },
             set: { draft.keyboardShortcut = $0 }
           ),
-          scriptDisplayName: draft.name.isEmpty ? draft.kind.defaultName : draft.name
+          scriptDisplayName: draft.name.isEmpty ? draft.kind.defaultName : draft.name,
+          validate: validateChord
         )
       }
     } header: {
@@ -235,6 +242,7 @@ struct ScriptEditorSheet: View {
 private struct ScriptShortcutRecorderButton: View {
   @Binding var binding: ShortcutBinding?
   let scriptDisplayName: String
+  let validate: (ShortcutBinding) -> HotkeyRecorderPopover.ValidationResult
 
   @State private var popoverShown = false
 
@@ -261,7 +269,7 @@ private struct ScriptShortcutRecorderButton: View {
       .popover(isPresented: $popoverShown, arrowEdge: .bottom) {
         HotkeyRecorderPopover(
           title: "Shortcut for \(scriptDisplayName)",
-          validate: { _ in .ok },
+          validate: validate,
           onCommit: { newBinding in
             binding = newBinding
           },

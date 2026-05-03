@@ -23,6 +23,9 @@ struct ProjectScriptsSettingsView: View {
 
   @Environment(HierarchyManager.self) private var hierarchyManager
   @Environment(SettingsStore.self) private var settingsStore
+  /// Resolved system-shortcut map. Drives chord-conflict detection
+  /// against every registered CommandID at recording time.
+  @Environment(\.resolvedShortcuts) private var resolvedShortcuts: ResolvedShortcutMap
 
   /// IDs for the two top-level tabs; pure visibility logic lives on
   /// `visibleSections(for:)` so kind-conditional rendering is testable
@@ -162,6 +165,9 @@ struct ProjectScriptsSettingsView: View {
       ScriptEditorSheet(
         script: editing,
         isNew: !scripts.contains(where: { $0.id == editing.id }),
+        validateChord: { binding in
+          chordValidator(binding, excludingScriptID: editing.id)
+        },
         onSave: { updated in
           saveEdit(updated)
           editingScript = nil
@@ -169,6 +175,46 @@ struct ProjectScriptsSettingsView: View {
         onCancel: { editingScript = nil }
       )
     }
+  }
+
+  /// Reject reserved / conflicting chords at recording time. Order
+  /// mirrors the Settings → Shortcuts pane: macOS system reservations
+  /// first, then AppKit standard menus, then the app's own registered
+  /// CommandIDs, then sibling scripts in this Project.
+  private func chordValidator(
+    _ binding: ShortcutBinding,
+    excludingScriptID: UUID
+  ) -> HotkeyRecorderPopover.ValidationResult {
+    let symbolicHotkeyDefaults = UserDefaults(suiteName: "com.apple.symbolichotkeys") ?? .standard
+    if SystemReservedDetector.isReserved(
+      keyCode: binding.keyCode,
+      modifiers: binding.modifiers,
+      in: symbolicHotkeyDefaults
+    ) {
+      return .rejected(message: "Reserved by macOS system.")
+    }
+    if AppKitReservedDetector.isReserved(keyCode: binding.keyCode, modifiers: binding.modifiers) {
+      return .rejected(message: "Reserved by macOS standard menus.")
+    }
+    // InternalConflictDetector takes a CommandID to exclude (the row
+    // being edited in the Shortcuts pane). Scripts aren't in the
+    // schema and don't have a CommandID, so we walk the resolved
+    // map directly — no exclusion needed.
+    if let conflictingID = resolvedShortcuts.first(where: { _, resolved in
+      guard let bound = resolved.binding, bound.isEnabled else { return false }
+      return bound.keyCode == binding.keyCode && bound.modifiers == binding.modifiers
+    })?.key {
+      let label = ShortcutSchema.app.entry(for: conflictingID)?.title ?? "another command"
+      return .rejected(message: "In use by \(label).")
+    }
+    if let conflicting = scripts.first(where: { sibling in
+      sibling.id != excludingScriptID
+        && sibling.keyboardShortcut?.keyCode == binding.keyCode
+        && sibling.keyboardShortcut?.modifiers == binding.modifiers
+    }) {
+      return .rejected(message: "In use by script \"\(conflicting.displayName)\".")
+    }
+    return .ok
   }
 
   // MARK: - Lifecycle Section
@@ -426,12 +472,14 @@ private struct ScriptListRow: View {
 
       Spacer(minLength: 0)
 
-      // Shortcut column. Reserves a fixed-width slot so chord
-      // chips line up across rows (rendered or not). Empty when
-      // the script has no chord — the slot stays so the action
-      // buttons don't shift between rows.
+      // Shortcut column. Reserves a fixed-width slot so chord chips
+      // line up across rows (rendered or not). Empty when the script
+      // has no chord — the slot stays so the action buttons don't
+      // shift between rows. A 16 pt trailing gap follows so the
+      // chord doesn't crowd the Run button.
       ScriptShortcutColumn(binding: script.keyboardShortcut)
-        .frame(width: 96, alignment: .trailing)
+        .frame(width: 130, alignment: .trailing)
+        .padding(.trailing, 16)
 
       Button(action: onRun) {
         Image(systemName: "play.fill")
@@ -480,20 +528,22 @@ private struct ScriptListRow: View {
 /// Trailing column rendering the script's chord (when bound). Fixed
 /// alignment so chips line up across rows. Renders text-only — the
 /// chord chip lives in the row, not a re-entrant button — to keep
-/// the row click target unambiguous.
+/// the row click target unambiguous. Sized to be readable at a
+/// glance (callout monospaced) rather than the older caption that
+/// disappeared under typical viewing distance.
 private struct ScriptShortcutColumn: View {
   let binding: ShortcutBinding?
 
   var body: some View {
     if let binding, binding.isEnabled, binding.keyCode != 0 {
       Text(ShortcutDisplay.chord(for: binding))
-        .font(.caption.monospaced())
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
+        .font(.callout.monospaced())
+        .foregroundStyle(.primary)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
         .background(
-          RoundedRectangle(cornerRadius: 4)
-            .fill(Color.secondary.opacity(0.12))
+          RoundedRectangle(cornerRadius: 5)
+            .fill(Color.secondary.opacity(0.15))
         )
     } else {
       Color.clear
