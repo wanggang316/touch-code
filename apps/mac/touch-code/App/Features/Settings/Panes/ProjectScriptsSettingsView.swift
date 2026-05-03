@@ -426,6 +426,21 @@ private struct ScriptListRow: View {
 
       Spacer(minLength: 0)
 
+      // Chord hint — shown only when the script carries a valid
+      // shortcut. Lives next to the action buttons so the user can
+      // confirm what they bound without opening the editor.
+      if let chord = script.keyboardShortcut, chord.isValid {
+        Text(chord.displayString)
+          .font(.caption.monospaced())
+          .foregroundStyle(.secondary)
+          .padding(.horizontal, 6)
+          .padding(.vertical, 2)
+          .background(
+            RoundedRectangle(cornerRadius: 4)
+              .fill(Color.secondary.opacity(0.12))
+          )
+      }
+
       Button(action: onRun) {
         Image(systemName: "play.fill")
       }

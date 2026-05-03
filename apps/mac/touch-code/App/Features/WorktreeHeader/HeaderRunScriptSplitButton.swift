@@ -78,12 +78,7 @@ struct HeaderRunScriptSplitButton: View {
   @ViewBuilder
   private func caretMenu(scripts: [ScriptDefinition]) -> some View {
     ForEach(scripts) { script in
-      Button {
-        store.send(
-          .runScriptTapped(scriptID: script.id, projectID: projectID, worktreeID: worktreeID))
-      } label: {
-        Label(script.displayName, systemImage: script.resolvedSystemImage)
-      }
+      menuButton(for: script)
     }
     if !scripts.isEmpty {
       Divider()
@@ -95,13 +90,38 @@ struct HeaderRunScriptSplitButton: View {
     }
   }
 
+  /// One menu item. When the script carries a valid keyboard chord,
+  /// `.keyboardShortcut(_:modifiers:)` registers it globally for the
+  /// owning window — pressing the chord fires the same dispatch path
+  /// as a manual menu pick, and macOS renders the chord in the menu
+  /// item's trailing column automatically.
+  @ViewBuilder
+  private func menuButton(for script: ScriptDefinition) -> some View {
+    let button = Button {
+      store.send(
+        .runScriptTapped(scriptID: script.id, projectID: projectID, worktreeID: worktreeID))
+    } label: {
+      Label(script.displayName, systemImage: script.resolvedSystemImage)
+    }
+    if let chord = script.keyboardShortcut, chord.isValid, let key = chord.keyEquivalent {
+      button.keyboardShortcut(key, modifiers: chord.eventModifiers)
+    } else {
+      button
+    }
+  }
+
   /// Stable identity for `.id(_:)`. Folds every field that affects
-  /// the Menu's rendered output — name + icon + tint + the array's
-  /// order. id alone wouldn't change on edit; including the rendered
-  /// fields means a same-id, different-content edit still rebuilds.
+  /// the Menu's rendered output — name + icon + tint + chord + the
+  /// array's order. id alone wouldn't change on edit; including the
+  /// rendered fields means a same-id, different-content edit still
+  /// rebuilds (otherwise a chord change would never bind via the
+  /// system menu).
   private static func identitySignature(of scripts: [ScriptDefinition]) -> String {
     scripts
-      .map { "\($0.id)|\($0.displayName)|\($0.resolvedSystemImage)|\($0.resolvedTintColor.rawValue)" }
+      .map { script -> String in
+        let chord = script.keyboardShortcut?.displayString ?? ""
+        return "\(script.id)|\(script.displayName)|\(script.resolvedSystemImage)|\(script.resolvedTintColor.rawValue)|\(chord)"
+      }
       .joined(separator: "·")
   }
 }

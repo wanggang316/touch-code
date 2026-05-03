@@ -27,6 +27,11 @@ public nonisolated struct ScriptDefinition: Equatable, Codable, Sendable, Identi
   public var target: ScriptTarget
   public var direction: ScriptSplitDirection
   public var onFinished: ScriptOnFinished
+  /// Optional global keyboard chord (e.g. ⌘⇧R) attached to this
+  /// script. nil = no shortcut. Bound at the worktree-header
+  /// split-button menu via SwiftUI's `.keyboardShortcut(_:modifiers:)`,
+  /// which fires the same dispatch path as a manual menu pick.
+  public var keyboardShortcut: ScriptKeyboardShortcut?
 
   public init(
     id: UUID = UUID(),
@@ -37,7 +42,8 @@ public nonisolated struct ScriptDefinition: Equatable, Codable, Sendable, Identi
     tintColor: ScriptTintColor? = nil,
     target: ScriptTarget = .newTab,
     direction: ScriptSplitDirection = .right,
-    onFinished: ScriptOnFinished = .none
+    onFinished: ScriptOnFinished = .none,
+    keyboardShortcut: ScriptKeyboardShortcut? = nil
   ) {
     self.id = id
     self.kind = kind
@@ -48,6 +54,7 @@ public nonisolated struct ScriptDefinition: Equatable, Codable, Sendable, Identi
     self.target = target
     self.direction = direction
     self.onFinished = onFinished
+    self.keyboardShortcut = keyboardShortcut
   }
 
   /// User-visible label. Falls back to the kind's default when the user
@@ -91,6 +98,7 @@ public nonisolated struct ScriptDefinition: Equatable, Codable, Sendable, Identi
   private enum CodingKeys: String, CodingKey {
     case id, kind, name, command, systemImage, tintColor
     case target, direction, onFinished
+    case keyboardShortcut
   }
 
   public init(from decoder: Decoder) throws {
@@ -104,6 +112,7 @@ public nonisolated struct ScriptDefinition: Equatable, Codable, Sendable, Identi
     self.target = try c.decodeIfPresent(ScriptTarget.self, forKey: .target) ?? .newTab
     self.direction = try c.decodeIfPresent(ScriptSplitDirection.self, forKey: .direction) ?? .right
     self.onFinished = try c.decodeIfPresent(ScriptOnFinished.self, forKey: .onFinished) ?? .none
+    self.keyboardShortcut = try c.decodeIfPresent(ScriptKeyboardShortcut.self, forKey: .keyboardShortcut)
   }
 
   /// Omit-when-default encoding. Empty strings, nil overrides, and any field
@@ -131,6 +140,13 @@ public nonisolated struct ScriptDefinition: Equatable, Codable, Sendable, Identi
     let validatedOnFinished = resolvedOnFinished
     if validatedOnFinished != .none {
       try c.encode(validatedOnFinished, forKey: .onFinished)
+    }
+    // Only persist the chord when it's actually bindable (key + at
+    // least one modifier). A half-typed shortcut left in the editor
+    // sheet shouldn't survive unless the user explicitly saved a
+    // valid one.
+    if let chord = keyboardShortcut, chord.isValid {
+      try c.encode(chord, forKey: .keyboardShortcut)
     }
   }
 }
