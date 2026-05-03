@@ -403,9 +403,19 @@ final class AppState {
     // must be read from a `View`'s environment so the reducer cannot hold it directly —
     // this indirection is what lets `RootFeature` trigger an open without pulling
     // `@Environment(\.openWindow)` into TCA.
-    let presenter = SettingsWindowPresenter(open: { [weak self] in
-      self?.openSettingsWindowAction?()
-    })
+    let presenter = SettingsWindowPresenter(
+      open: { [weak self] in
+        self?.openSettingsWindowAction?()
+      },
+      openAt: { [weak self] section in
+        guard let self else { return }
+        // Open the window first so the scene is visible / brought-to-front,
+        // then push the selection into the settings store. The store
+        // already exists by this point (built earlier in `bringUp`).
+        self.openSettingsWindowAction?()
+        self.settingsWindowStore?.send(.selectionChanged(section))
+      }
+    )
     self.store = Store(initialState: RootFeature.State()) {
       RootFeature()
     } withDependencies: {

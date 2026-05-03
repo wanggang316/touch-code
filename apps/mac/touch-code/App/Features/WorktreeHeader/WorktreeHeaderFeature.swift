@@ -38,7 +38,9 @@ struct WorktreeHeaderFeature {
     /// Run script split-button — primary or menu activation. Phase 2.
     case runScriptTapped(scriptID: UUID, projectID: ProjectID, worktreeID: WorktreeID)
     /// "Manage Scripts…" menu footer or primary click on an empty script list.
-    case manageScriptsTapped
+    /// Carries the source `projectID` so the parent can deep-link into
+    /// the Settings window's Project Scripts pane for that project.
+    case manageScriptsTapped(projectID: ProjectID)
     case delegate(Delegate)
 
     /// Parent-consumed delegate. `RootFeature` routes these into the existing
@@ -63,11 +65,12 @@ struct WorktreeHeaderFeature {
       /// Run a user-defined Project script. RootFeature dispatches to
       /// `HierarchyClient.runScript`.
       case runScriptRequested(scriptID: UUID, projectID: ProjectID, worktreeID: WorktreeID)
-      /// User asked to manage scripts — open the Settings window. The Scripts
-      /// pane is one click away in the Project's sub-rows; pane-level
-      /// deep-link is intentionally out of scope for Phase 2 (see
-      /// docs/exec-plans/project-settings-phase2.md Decision Log).
-      case manageScriptsRequested
+      /// User asked to manage scripts — open the Settings window AND
+      /// deep-link into the Project Scripts pane for the given project.
+      /// (Earlier shipped a no-deep-link variant; restored after the
+      /// scripts pane redesign so the footer button lands users where
+      /// they expect.)
+      case manageScriptsRequested(projectID: ProjectID)
     }
   }
 
@@ -111,8 +114,8 @@ struct WorktreeHeaderFeature {
               worktreeID: worktreeID
             )))
 
-      case .manageScriptsTapped:
-        return .send(.delegate(.manageScriptsRequested))
+      case .manageScriptsTapped(let projectID):
+        return .send(.delegate(.manageScriptsRequested(projectID: projectID)))
 
       case .delegate:
         // Consumed by the parent; reducer has no local state change.

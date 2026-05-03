@@ -690,9 +690,13 @@ struct RootFeature {
             }
           }
 
-        case .manageScriptsRequested:
+        case .manageScriptsRequested(let projectID):
           let presenter = settingsWindowPresenter
-          return .run { _ in await MainActor.run { presenter.open() } }
+          return .run { _ in
+            await MainActor.run {
+              presenter.openAt(.projectScripts(projectID))
+            }
+          }
         }
 
       case .worktreeHeader:

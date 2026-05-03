@@ -66,7 +66,7 @@ struct HeaderRunScriptSplitButton: View {
     if let script = primaryScript {
       store.send(.runScriptTapped(scriptID: script.id, projectID: projectID, worktreeID: worktreeID))
     } else {
-      store.send(.manageScriptsTapped)
+      store.send(.manageScriptsTapped(projectID: projectID))
     }
   }
 
@@ -102,7 +102,7 @@ struct HeaderRunScriptSplitButton: View {
       Divider()
     }
     Button {
-      store.send(.manageScriptsTapped)
+      store.send(.manageScriptsTapped(projectID: projectID))
     } label: {
       Label("Manage Scripts…", systemImage: "gearshape")
     }

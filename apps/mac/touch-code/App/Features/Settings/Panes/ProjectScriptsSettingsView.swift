@@ -47,7 +47,10 @@ struct ProjectScriptsSettingsView: View {
     case commands
   }
 
-  @State private var selectedTab: Tab = .worktree
+  // Default to Commands — that's the most-visited tab (user-defined
+  // scripts), and the entry path from the worktree-header
+  // "Manage Scripts…" deep-link expects to land there.
+  @State private var selectedTab: Tab = .commands
   /// Sheet presentation for both Add and Edit. Non-nil = sheet visible
   /// against this draft. `.sheet(item:)` requires Identifiable, which
   /// `ScriptDefinition` already conforms to.
