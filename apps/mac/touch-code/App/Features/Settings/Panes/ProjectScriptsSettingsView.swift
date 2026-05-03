@@ -238,18 +238,18 @@ struct ProjectScriptsSettingsView: View {
             onEdit: { editingScript = script },
             onDelete: { deleteScript(id: script.id) }
           )
-        }
-        // macOS-native reorder. `ForEach.onMove(perform:)` is the
-        // SwiftUI hook that lets `List` (and grouped `Form` on macOS)
-        // draw the system drag handle on hover, the insertion-line
-        // indicator while dragging, and the row-lift animation. We
-        // commit the reordered array through the same setProjectScripts
-        // writer so the persistence path is identical to add / edit /
-        // delete.
-        .onMove { source, destination in
-          var updated = scripts
-          updated.move(fromOffsets: source, toOffset: destination)
-          store.send(.setProjectScripts(updated))
+          // Drag-to-reorder. `ForEach.onMove` doesn't paint drag
+          // handles inside a grouped Form on macOS, so we wire the
+          // drag/drop ourselves: each row carries its UUID as the
+          // pasteboard payload and accepts a String drop, computing
+          // the new index by source/target lookup. `ScriptListRow`
+          // exposes a leading grip glyph + uses .onTapGesture (not
+          // Button) for edit, so the mouse-down belongs to the
+          // drag gesture rather than being swallowed by a Button.
+          .draggable(script.id.uuidString)
+          .dropDestination(for: String.self) { items, _ in
+            handleScriptDrop(items: items, targetID: script.id)
+          }
         }
       }
     } footer: {
@@ -312,6 +312,24 @@ struct ProjectScriptsSettingsView: View {
     let updated = scripts.filter { $0.id != id }
     store.send(.setProjectScripts(updated))
   }
+
+  /// Reorder via drag-drop. Source script is removed and re-inserted at
+  /// the target row's index (above-the-target). Returns true on a real
+  /// reorder so the system can run the success animation.
+  private func handleScriptDrop(items: [String], targetID: UUID) -> Bool {
+    guard let firstID = items.first,
+      let sourceUUID = UUID(uuidString: firstID),
+      sourceUUID != targetID,
+      let sourceIndex = scripts.firstIndex(where: { $0.id == sourceUUID }),
+      let targetIndex = scripts.firstIndex(where: { $0.id == targetID })
+    else { return false }
+    var updated = scripts
+    let moved = updated.remove(at: sourceIndex)
+    let insertIndex = min(max(targetIndex, 0), updated.count)
+    updated.insert(moved, at: insertIndex)
+    store.send(.setProjectScripts(updated))
+    return true
+  }
 }
 
 // MARK: - Section header label style (used by the lifecycle scripts only)
@@ -357,11 +375,19 @@ private struct LifecycleEditor: View {
 
 // MARK: - Compact list row
 
-/// One user-defined script as a single Form row. The icon + name + first
-/// command line area is the edit hit target — clicking anywhere on the
-/// row's left two-thirds opens the editor sheet. Run + Delete remain
-/// as discrete trailing buttons since they are destructive / side-effect
-/// actions that shouldn't fire on a stray row click.
+/// One user-defined script as a single Form row. Layout from leading to
+/// trailing:
+///   - 6×6 grip glyph (line.3.horizontal) signalling drag-to-reorder
+///   - script icon
+///   - display name + first command line
+///   - Run / Delete action buttons
+///
+/// The icon + name area uses `.onTapGesture(perform: onEdit)` instead
+/// of wrapping in a Button — a Button's mouse-down is captured by the
+/// system click-recognizer, which steals the drag from the row's
+/// `.draggable` modifier (configured at the call site). With
+/// onTapGesture, mouse-down belongs to the drag gesture and a quick
+/// click still routes to onEdit.
 private struct ScriptListRow: View {
   let script: ScriptDefinition
   let canRun: Bool
@@ -370,33 +396,35 @@ private struct ScriptListRow: View {
   let onDelete: () -> Void
 
   @State private var showDeleteConfirm = false
+  @State private var isHovering = false
 
   var body: some View {
     HStack(spacing: 10) {
-      // Edit hit target: icon + names. `.contentShape(Rectangle())`
-      // expands the click region to the full leading-and-spacer area
-      // even though the texts only occupy the labels' inked extent.
-      Button(action: onEdit) {
-        HStack(spacing: 10) {
-          Image(systemName: script.resolvedSystemImage)
-            .frame(width: 18, alignment: .center)
-            .foregroundStyle(ScriptTintColorPalette.color(for: script.resolvedTintColor))
-          VStack(alignment: .leading, spacing: 2) {
-            Text(script.displayName)
-              .font(.body)
-              .foregroundStyle(.primary)
-              .lineLimit(1)
-            Text(firstCommandLine)
-              .font(.caption)
-              .foregroundStyle(.secondary)
-              .lineLimit(1)
-          }
-          Spacer(minLength: 0)
-        }
-        .contentShape(Rectangle())
+      // Leading grip — visible only on row hover so it doesn't add
+      // permanent chrome; standard macOS drag-handle glyph at .secondary.
+      Image(systemName: "line.3.horizontal")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .frame(width: 14, alignment: .center)
+        .opacity(isHovering ? 1 : 0)
+        .help("Drag to reorder")
+
+      Image(systemName: script.resolvedSystemImage)
+        .frame(width: 18, alignment: .center)
+        .foregroundStyle(ScriptTintColorPalette.color(for: script.resolvedTintColor))
+
+      VStack(alignment: .leading, spacing: 2) {
+        Text(script.displayName)
+          .font(.body)
+          .foregroundStyle(.primary)
+          .lineLimit(1)
+        Text(firstCommandLine)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
       }
-      .buttonStyle(.plain)
-      .help("Edit \(script.displayName)")
+
+      Spacer(minLength: 0)
 
       Button(action: onRun) {
         Image(systemName: "play.fill")
@@ -423,6 +451,9 @@ private struct ScriptListRow: View {
       }
     }
     .padding(.vertical, 4)
+    .contentShape(Rectangle())
+    .onHover { isHovering = $0 }
+    .onTapGesture(perform: onEdit)
   }
 
   /// First non-empty line of the script's command, or a placeholder when
