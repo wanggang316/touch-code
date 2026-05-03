@@ -1036,6 +1036,21 @@ final class HierarchyManager {
     return false
   }
 
+  /// True when any pane inside `worktreeID` (any tab, any leaf) is
+  /// currently marked running. Sidebar uses this to surface a busy
+  /// glyph on the worktree row even when its tab is unfocused.
+  func worktreeIsDirty(_ worktreeID: WorktreeID) -> Bool {
+    guard !runningPanes.isEmpty else { return false }
+    for project in catalog.projects {
+      guard let worktree = project.worktrees.first(where: { $0.id == worktreeID })
+      else { continue }
+      return worktree.tabs.contains { tab in
+        tab.panes.contains { runningPanes.contains($0.id) }
+      }
+    }
+    return false
+  }
+
   // MARK: - Pane mutations
 
   func openPane(

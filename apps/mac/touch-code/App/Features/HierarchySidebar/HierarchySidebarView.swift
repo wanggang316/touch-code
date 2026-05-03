@@ -595,6 +595,19 @@ struct HierarchySidebarView: View {
               .foregroundStyle(.orange)
               .accessibilityLabel("Pinned")
           }
+          // Aggregated "any pane in this worktree is executing" glyph.
+          // Reads through `HierarchyManager.worktreeIsDirty(_:)`, which is
+          // an `@Observable` getter, so the spinner appears/disappears
+          // automatically as OSC 9;4 progress reports flip
+          // `runningPanes`. Lifecycle-in-progress already swaps the row
+          // icon for a spinner, so suppress the inline glyph in that
+          // case to avoid double-spinners on the same row.
+          if !isLifecycleInProgress, hierarchyManager.worktreeIsDirty(worktree.id) {
+            ProgressView()
+              .controlSize(.mini)
+              .frame(width: 10, height: 10)
+              .accessibilityLabel("Worktree has a running command")
+          }
         }
         // Suppress the secondary branch line when it restates the worktree name —
         // the common case (main/main, test0003/test0003) otherwise doubles every

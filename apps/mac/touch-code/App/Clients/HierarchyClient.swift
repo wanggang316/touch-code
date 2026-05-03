@@ -139,6 +139,9 @@ nonisolated struct HierarchyClient: Sendable {
   /// `markPaneRunning` / `markPaneIdle`. The reader is exposed now so
   /// `TabChipLabel` can bind to it without another feature sweep.
   var tabIsDirty: @MainActor @Sendable (_ tabID: TabID) -> Bool
+  /// Worktree-scoped variant of `tabIsDirty`. Sidebar rows surface a busy
+  /// glyph when any pane in any tab of the worktree is marked running.
+  var worktreeIsDirty: @MainActor @Sendable (_ worktreeID: WorktreeID) -> Bool
   /// Returns the Pane the user most recently focused in `tabID`, or nil.
   /// Mirrors `HierarchyManager.lastFocusedPane(in:)`.
   var lastFocusedPane: @MainActor @Sendable (_ tabID: TabID) -> PaneID?
@@ -488,6 +491,7 @@ extension HierarchyClient {
           direction: direction, in: worktreeID, in: projectID)
       },
       tabIsDirty: { tabID in manager.tabIsDirty(tabID) },
+      worktreeIsDirty: { worktreeID in manager.worktreeIsDirty(worktreeID) },
       lastFocusedPane: { tabID in manager.lastFocusedPane(in: tabID) },
       markPaneRunning: { paneID in manager.markPaneRunning(paneID) },
       markPaneIdle: { paneID in manager.markPaneIdle(paneID) },
@@ -1152,6 +1156,7 @@ extension HierarchyClient: DependencyKey {
     closeAllTabs: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     selectAdjacentTab: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     tabIsDirty: { _ in false },
+    worktreeIsDirty: { _ in false },
     lastFocusedPane: { _ in nil },
     markPaneRunning: { _ in },
     markPaneIdle: { _ in },
@@ -1217,6 +1222,7 @@ extension HierarchyClient: DependencyKey {
     closeAllTabs: unimplemented("HierarchyClient.closeAllTabs"),
     selectAdjacentTab: unimplemented("HierarchyClient.selectAdjacentTab", placeholder: nil),
     tabIsDirty: unimplemented("HierarchyClient.tabIsDirty", placeholder: false),
+    worktreeIsDirty: unimplemented("HierarchyClient.worktreeIsDirty", placeholder: false),
     lastFocusedPane: unimplemented("HierarchyClient.lastFocusedPane", placeholder: nil),
     markPaneRunning: unimplemented("HierarchyClient.markPaneRunning"),
     markPaneIdle: unimplemented("HierarchyClient.markPaneIdle"),

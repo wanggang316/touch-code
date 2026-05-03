@@ -1,4 +1,5 @@
 import Foundation
+import GhosttyKit
 import TouchCodeCore
 
 /// Most recent color-change report emitted by libghostty for a surface.
@@ -90,6 +91,15 @@ final class SurfaceInfo {
   var progressState: UInt32 = 0
   /// Nil when libghostty reports an indeterminate value (sentinel -1).
   var progressValue: Int?
+
+  /// `true` when libghostty's last OSC 9;4 report leaves the surface in
+  /// any non-`REMOVE` state — i.e. a tracked operation is in flight,
+  /// paused at the finish line, or finished with an error worth flagging.
+  /// Mirrors supacode's `isRunningProgressState` predicate so downstream
+  /// "is this pane busy?" logic stays uniform across the two products.
+  var isProgressBusy: Bool {
+    progressState != GHOSTTY_PROGRESS_STATE_REMOVE.rawValue
+  }
 
   // MARK: - Bell / notification / lifecycle
 

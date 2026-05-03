@@ -1,6 +1,7 @@
 import AppKit
 import ComposableArchitecture
 import Foundation
+import GhosttyKit
 import TouchCodeCore
 
 /// Root reducer for the TCA shell. Composes sub-features for the sidebar,
@@ -135,6 +136,11 @@ struct RootFeature {
     /// binding, or crash). The root reducer resolves the pane's address
     /// and calls `hierarchyClient.closePane` to drop the catalog entry.
     case paneLifecycleExited(PaneID)
+    /// Forwarded from `paneInfoChanged + .progress(...)` in the engine
+    /// event stream. `isBusy` mirrors the supacode predicate: true for any
+    /// non-`REMOVE` OSC 9;4 state. Drives the tab-chip running spinner
+    /// (via `HierarchyManager.runningPanes`) and the sidebar busy glyph.
+    case paneProgressBusyChanged(PaneID, Bool)
     /// T3: Toggles the Git Viewer overlay for the current Worktree.
     /// Sources: Header GV button (T2) + ⌘⇧G (T3 Commands). Optimistically
     /// flips `state.diffInspectorVisible` and fires
@@ -300,6 +306,15 @@ struct RootFeature {
                 // still need to remove the Pane from the catalog so the
                 // SplitTree collapses and no stale black rect is rendered.
                 await send(.paneLifecycleExited(paneID))
+              case .paneInfoChanged(let paneID, .progress(let state, _)):
+                // OSC 9;4 progress reports drive the per-pane "executing"
+                // signal. Any non-REMOVE state (set / indeterminate /
+                // pause / error) marks the pane as running; REMOVE clears
+                // it. This is the only writer to `runningPanes` in the
+                // app today and is what lights up the tab-chip spinner +
+                // sidebar busy glyph.
+                let isBusy = state != GHOSTTY_PROGRESS_STATE_REMOVE.rawValue
+                await send(.paneProgressBusyChanged(paneID, isBusy))
               default:
                 break
               }
@@ -459,6 +474,19 @@ struct RootFeature {
 
       case .engineEventReceived(let marker):
         state.lastEvent = marker
+        return .none
+
+      case .paneProgressBusyChanged(let paneID, let isBusy):
+        // Idempotent: `markPaneRunning` / `markPaneIdle` collapse repeats
+        // through `Set.insert` / `Set.remove`, so we don't dedupe here.
+        // No state mutation — the dirty flags read straight off
+        // `HierarchyManager.runningPanes` and SwiftUI invalidates via the
+        // chip / sidebar's binding to that runtime set.
+        if isBusy {
+          hierarchyClient.markPaneRunning(paneID)
+        } else {
+          hierarchyClient.markPaneIdle(paneID)
+        }
         return .none
 
       case .paneLifecycleExited(let paneID):
