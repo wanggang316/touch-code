@@ -472,11 +472,17 @@ final class AppState {
     // Master Terminal hotkey: ⌥⌘` toggles the slide-in panel. Hard-coded
     // for v1; promotion to ShortcutsStore deferred until that store grows
     // a "global hotkey" scope. See ExecPlan Decision Log D3.
-    let controller = MasterTerminalController()
-    self.masterTerminalController = controller
-    self.masterTerminalHotkey = MasterTerminalHotkey(onTrigger: { [weak controller] in
-      controller?.toggle()
-    })
+    //
+    // Skipped if GhosttyRuntime failed to initialise — without it the panel
+    // would slide in empty, with no path to recover. The same guard already
+    // gates the rest of the terminal stack at line 306.
+    if let ghostty {
+      let controller = MasterTerminalController(runtime: ghostty)
+      self.masterTerminalController = controller
+      self.masterTerminalHotkey = MasterTerminalHotkey(onTrigger: { [weak controller] in
+        controller?.toggle()
+      })
+    }
   }
 
   /// Closure the main-window scene body installs to bridge TCA → `openWindow(id: "settings")`.

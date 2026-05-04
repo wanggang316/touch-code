@@ -1,8 +1,11 @@
 import AppKit
+import TouchCodeCore
 
 /// Owns the single Master Terminal panel — the slide-in NSPanel that hosts
-/// the Claude session. M2 ships a placeholder content view; M3 swaps it
-/// for a real Ghostty surface.
+/// a `claude remote-control` session running in
+/// `~/.config/touch-code/master-terminal/`. The Ghostty surface is built
+/// lazily on first summon and lives for the rest of the app lifetime so
+/// successive summons resume the same Claude session.
 @MainActor
 final class MasterTerminalController: NSObject, NSWindowDelegate {
   private(set) var isVisible: Bool = false
@@ -10,6 +13,23 @@ final class MasterTerminalController: NSObject, NSWindowDelegate {
   /// The app the user was in when the panel was last summoned. Restored on
   /// dismiss so the user lands back where they were instead of touch-code.
   private var previousApp: NSRunningApplication?
+
+  /// Bound at init; surface allocation requires the live libghostty
+  /// `ghostty_app_t` exposed via `runtime.app`.
+  private let runtime: GhosttyRuntime
+
+  /// Lazy — the surface is not built until the user first opens the panel.
+  /// Once built it survives the controller's lifetime so hide/show cycles
+  /// preserve the Claude session and scrollback.
+  private var paneSurface: PaneSurface?
+  /// Becomes true after we've sent `claude remote-control\n` so the input is
+  /// not re-typed on every summon.
+  private var initialCommandSent: Bool = false
+
+  init(runtime: GhosttyRuntime) {
+    self.runtime = runtime
+    super.init()
+  }
 
   /// Built lazily so a touch-code launch that never opens the Master
   /// Terminal pays no NSPanel construction cost.
@@ -39,17 +59,6 @@ final class MasterTerminalController: NSObject, NSWindowDelegate {
     visualEffect.blendingMode = .behindWindow
     visualEffect.autoresizingMask = [.width, .height]
     panel.contentView = visualEffect
-
-    let placeholder = NSTextField(labelWithString: "Master Terminal — surface pending")
-    placeholder.font = .systemFont(ofSize: 18, weight: .semibold)
-    placeholder.textColor = .labelColor
-    placeholder.translatesAutoresizingMaskIntoConstraints = false
-    visualEffect.addSubview(placeholder)
-    NSLayoutConstraint.activate([
-      placeholder.centerXAnchor.constraint(equalTo: visualEffect.centerXAnchor),
-      placeholder.centerYAnchor.constraint(equalTo: visualEffect.centerYAnchor),
-    ])
-
     return panel
   }()
 
@@ -60,6 +69,42 @@ final class MasterTerminalController: NSObject, NSWindowDelegate {
       animateOut()
     } else {
       animateIn()
+    }
+  }
+
+  // MARK: - Surface
+
+  /// Build the Ghostty surface once and embed it. Returns the surface
+  /// regardless of whether it was newly built or already existed.
+  /// Returns nil only if surface allocation failed; callers should
+  /// gracefully degrade (panel still slides in, just without content).
+  private func ensureSurface() -> PaneSurface? {
+    if let existing = paneSurface { return existing }
+    do {
+      let surface = try PaneSurface(
+        runtime: runtime,
+        // Synthetic PaneID — Master Terminal lives outside the Catalog,
+        // so this UUID is never persisted, looked up, or routed. It exists
+        // only because PaneSurface's libghostty userdata wiring is
+        // PaneID-shaped.
+        paneID: PaneID(raw: UUID()),
+        workingDirectory: MasterTerminalBootstrap.userDirectory.path
+      )
+      paneSurface = surface
+
+      guard let contentView = panel.contentView else { return surface }
+      surface.view.translatesAutoresizingMaskIntoConstraints = false
+      contentView.addSubview(surface.view)
+      NSLayoutConstraint.activate([
+        surface.view.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+        surface.view.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+        surface.view.topAnchor.constraint(equalTo: contentView.topAnchor),
+        surface.view.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+      ])
+      return surface
+    } catch {
+      print("MasterTerminal: surface allocation failed: \(error)")
+      return nil
     }
   }
 
@@ -94,10 +139,17 @@ final class MasterTerminalController: NSObject, NSWindowDelegate {
       previousApp = frontmost
     }
 
+    let surface = ensureSurface()
+
     panel.setFrame(offscreenFrame, display: false)
     panel.alphaValue = 0
     panel.orderFrontRegardless()
     panel.makeKey()
+
+    if let surface {
+      panel.makeFirstResponder(surface.view)
+      surface.setFocus(true)
+    }
 
     NSAnimationContext.runAnimationGroup { ctx in
       ctx.duration = 0.18
@@ -106,11 +158,25 @@ final class MasterTerminalController: NSObject, NSWindowDelegate {
       panel.animator().alphaValue = 1
     }
     isVisible = true
+
+    // Send the initial `claude remote-control` command after the surface is
+    // ready and the animation kicks off. Defer one main-queue turn so
+    // libghostty has finished booting the shell and is ready to consume
+    // input. Single-shot — preserved across hide/show cycles.
+    if let surface, !initialCommandSent {
+      initialCommandSent = true
+      Task { @MainActor in
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        surface.sendInput("claude remote-control\n")
+      }
+    }
   }
 
   private func animateOut() {
     guard isVisible else { return }
     isVisible = false  // Set first so windowDidResignKey re-entry is a no-op.
+
+    paneSurface?.setFocus(false)
 
     var offscreenFrame = panel.frame
     if let screen = panel.screen ?? NSScreen.main {
