@@ -1,0 +1,367 @@
+# ExecPlan: Master Terminal
+
+**Status:** Draft
+**Author:** Gump (with Claude)
+**Date:** 2026-05-05
+
+This is a living document. The Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective sections must be kept up to date as work proceeds.
+
+## Purpose
+
+After this plan lands, Gump can press ⌥⌘\` from anywhere in macOS and a borderless panel slides in from the top edge of the active screen. Inside the panel runs `claude remote-control` in `~/.config/touch-code/master-terminal/`, with a freshly bootstrapped `AGENTS.md` (and `CLAUDE.md` symlink) that teaches the Claude session how to drive the touch-code fleet via the `tc` CLI. Pressing the same hotkey hides the panel; the Claude session stays alive for the rest of the app lifetime so subsequent summons resume the same conversation. Remote clients connecting to that Claude session can then operate the user's worktrees, tabs, and panes without the user touching the touch-code window at all.
+
+## Progress
+
+- [ ] M1 — Bootstrap (`~/.config/touch-code/master-terminal/` + bundled `AGENTS.md` template + `CLAUDE.md` symlink) with idempotent unit tests
+- [ ] M2 — Hotkey-summoned NSPanel with placeholder content (slide-in animation, ⌥⌘\` global trigger, focus return on dismiss)
+- [ ] M3 — Ghostty surface inside the panel running `claude remote-control`, end-to-end smoke verified by visual inspection
+- [ ] M4 — Final lint + test sweep + commit
+
+## Surprises & Discoveries
+
+(None yet)
+
+## Decision Log
+
+- **D1**: Hotkey is registered via Carbon `RegisterEventHotKey` (wrapped in a small `MasterTerminalHotkey` Swift type), not via `NSEvent.addGlobalMonitorForEvents`. Reason: `addGlobalMonitorForEvents` cannot consume the event; the chord would still reach whichever app currently holds focus. Carbon's `RegisterEventHotKey` is the API upstream Cocoa apps including 1Password / Alfred use for this exact pattern, requires no accessibility permission, and lives entirely inside the touch-code process.
+- **D2**: M2 ships a placeholder `NSView` (a single `NSTextField` reading "Master Terminal — surface pending") inside the panel. M3 swaps it for the real Ghostty surface. Reason: separates the platform-level work (panel + animation + hotkey) from the libghostty integration so each milestone is independently verifiable.
+- **D3**: We do **not** add anything to `TouchCodeCore.CommandID` — that enum scopes app-internal SwiftUI keyboard shortcuts surfaced through `ShortcutsStore`. The Master Terminal hotkey is a global system hotkey, conceptually distinct (it works when touch-code is not frontmost, it cannot be expressed as a SwiftUI `.keyboardShortcut`). For v1 the chord is hard-coded to ⌥⌘\` inside `MasterTerminalHotkey`. Promotion to `ShortcutsStore` happens in a follow-up doc once that store grows a "global hotkey" scope.
+
+## Outcomes & Retrospective
+
+(To be filled at milestone completion)
+
+## Context and Orientation
+
+Related documents:
+
+- Design doc: `docs/design-docs/master-terminal.md` — the authoritative source for architecture, alternatives considered, and risks. Read this first.
+- Architecture doc: `docs/architecture.md` — explains the `touch-code` target's in-app module convention (`App/Features/...`) which Master Terminal follows.
+
+Key existing source files (read for orientation, mostly not modified by this plan):
+
+- `apps/mac/touch-code/App/TouchCodeApp.swift` — `TouchCodeApp` SwiftUI scene + `AppState.bringUp()` (line 304). The wiring point for Master Terminal sits at the tail of `bringUp()`, after `developerPaneDependencies` is constructed.
+- `apps/mac/touch-code/Runtime/TerminalEngine.swift` — `ensureSurface(for:in:env:)` shows how a Ghostty surface is allocated for a Catalog-managed `Pane`. M3 follows the same pattern, but **without** registering the surface in `TerminalEngine` (Master Terminal lives outside the Catalog by design).
+- `apps/mac/touch-code/Runtime/Ghostty/PaneSurface.swift` — concrete bridge between `Ghostty.SurfaceConfiguration` (cwd, command, env) and the `Ghostty.SurfaceView` displayed in SwiftUI. M3 reuses the same configuration shape but hosts the resulting `SurfaceView` inside an `NSPanel` instead of a SwiftUI view tree.
+- `apps/mac/ThirdParty/ghostty/macos/Sources/Features/QuickTerminal/QuickTerminalController.swift` — upstream's NSPanel-based quick terminal. Read for the slide-animation pattern (`animateIn` / `animateOut`, `previousApp` capture). **Do not import or reuse** this class; port only the animation timing and `previousApp` restoration logic.
+
+New module layout (created by this plan):
+
+```
+apps/mac/touch-code/App/Features/MasterTerminal/
+├── MasterTerminalController.swift   M2: NSWindowController + slide animation; M3: hosts Ghostty surface
+├── MasterTerminalWindow.swift       M2: NSPanel subclass overriding canBecomeKey/canBecomeMain
+├── MasterTerminalBootstrap.swift    M1: filesystem setup
+├── MasterTerminalHotkey.swift       M2: Carbon RegisterEventHotKey wrapper
+└── Resources/
+    └── AGENTS.md.template           M1: bundled into Contents/Resources/MasterTerminal/
+```
+
+Tests live alongside existing test directories under `apps/mac/touch-code/Tests/`:
+
+```
+apps/mac/touch-code/Tests/MasterTerminal/
+└── MasterTerminalBootstrapTests.swift   M1: idempotency + symlink behavior
+```
+
+**Terminology used in this plan:**
+
+- *Master Terminal* — the feature as a whole; one instance per running touch-code process.
+- *Master Terminal panel* — the `NSPanel` (`MasterTerminalWindow`) whose visibility is toggled by the hotkey.
+- *Master Terminal surface* — the Ghostty `SurfaceView` embedded inside the panel; runs `claude remote-control`.
+- *Master Terminal directory* — `~/.config/touch-code/master-terminal/`. Owned by `MasterTerminalBootstrap`; never read by any other subsystem.
+
+## Plan of Work
+
+### Milestone 1: Bootstrap and template
+
+After this milestone, running the app once creates `~/.config/touch-code/master-terminal/` containing `AGENTS.md` (regular file) and `CLAUDE.md` (symlink → `AGENTS.md`). Re-running the app does not modify either file even if the user has edited `AGENTS.md`. The work is testable in isolation — no UI, no Ghostty, no hotkey.
+
+Create `apps/mac/touch-code/App/Features/MasterTerminal/Resources/AGENTS.md.template`. Content has three sections, drafted concretely so M1 ships with usable text rather than a placeholder:
+
+1. **Mission** — a paragraph stating the session's role: "You are running inside touch-code's Master Terminal. You manage the user's pane fleet via the `tc` CLI."
+2. **`tc` quick reference** — flat list of the ten command groups documented at `apps/mac/tc/TouchCodeCLI.swift:15` (`system`, `project`, `tag`, `worktree`, `tab`, `pane`, `send`, `broadcast`, `open`, `rpc`) with their headline subcommands. One line per command.
+3. **Safety constraints** — three bullets, copied verbatim from `docs/design-docs/master-terminal.md` § Filesystem Layout.
+
+Create `apps/mac/touch-code/App/Features/MasterTerminal/MasterTerminalBootstrap.swift` exposing one entry point:
+
+```swift
+public enum MasterTerminalBootstrap {
+    /// Idempotent. On first call: creates ~/.config/touch-code/master-terminal/,
+    /// writes AGENTS.md from the bundled template, creates CLAUDE.md as a
+    /// symlink to AGENTS.md. Subsequent calls are no-ops if AGENTS.md already
+    /// exists (preserving any user edits). Logs and continues if CLAUDE.md
+    /// exists but is not the expected symlink.
+    public static func ensureUserDirectory(
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        bundle: Bundle = .main
+    ) throws
+}
+```
+
+The two-parameter form is for testability — tests pass a temp directory and a synthetic Bundle (or read the template path directly). Production callers use the defaults.
+
+Update Tuist target declarations in `apps/mac/Project.swift` so `App/Features/MasterTerminal/Resources/AGENTS.md.template` is bundled into the `.app` at `Contents/Resources/MasterTerminal/AGENTS.md.template`. Verify by inspecting the built `.app` after `make mac-build` (see Concrete Steps).
+
+Add `apps/mac/touch-code/Tests/MasterTerminal/MasterTerminalBootstrapTests.swift` with these cases:
+
+1. *firstRunWritesTemplate* — point bootstrap at a fresh temp dir; assert `AGENTS.md` exists with the template content, `CLAUDE.md` exists as a symlink resolving to `AGENTS.md`.
+2. *secondRunIsNoOp* — call bootstrap twice on the same temp dir, with the user-edited content "MUTATED" written between calls; assert second call leaves "MUTATED" intact.
+3. *claudeMdAlreadyARealFile* — pre-create `CLAUDE.md` as a regular file before bootstrap; assert bootstrap does not overwrite it (logs warning, leaves the file alone).
+4. *agentsMdMissingButClaudeMdPresent* — pre-create `CLAUDE.md` as a symlink to a nonexistent target; assert bootstrap writes `AGENTS.md` (now the symlink resolves correctly).
+
+Wire `MasterTerminalBootstrap.ensureUserDirectory()` into `AppState.bringUp()` at `apps/mac/touch-code/App/TouchCodeApp.swift` directly after the `developerPaneDependencies` assignment (line 452 region). Failure to bootstrap should log and continue — the rest of the app must not be blocked by a filesystem hiccup.
+
+**Acceptance for M1**: `xcodebuild test -scheme touch-code` passes the four new tests; running the app then inspecting `~/.config/touch-code/master-terminal/` shows `AGENTS.md` and `CLAUDE.md` (a symlink) both present.
+
+### Milestone 2: Hotkey-summoned panel with placeholder content
+
+After this milestone, pressing ⌥⌘\` while touch-code is running causes a borderless panel to slide in from the top edge of the screen containing the cursor. The panel shows a placeholder `NSTextField` reading "Master Terminal — surface pending" centered on a translucent background. Pressing ⌥⌘\` again animates it out. Clicking on another app while the panel is visible also dismisses it. Focus returns to whatever app the user was in before summoning. No Ghostty surface is allocated yet.
+
+Create `apps/mac/touch-code/App/Features/MasterTerminal/MasterTerminalWindow.swift`. This is a one-page `NSPanel` subclass:
+
+```swift
+final class MasterTerminalWindow: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+}
+```
+
+Style is set by the controller (see below), not in the subclass.
+
+Create `apps/mac/touch-code/App/Features/MasterTerminal/MasterTerminalController.swift`:
+
+```swift
+@MainActor
+final class MasterTerminalController: NSObject {
+    init() // builds the panel lazily
+    func toggle()  // animate in if hidden, out if visible
+    private(set) var isVisible: Bool { get }
+}
+```
+
+Internal structure:
+
+- `lazy var panel: MasterTerminalWindow` — constructed with `.nonactivatingPanel`, `.fullSizeContentView`, `.borderless` style mask; collection behavior `.canJoinAllSpaces, .stationary, .fullScreenAuxiliary`; level `.floating`; backing `.buffered`; `.isOpaque = false`; visualEffectView (`.hudWindow` material) as the contentView.
+- `private var previousApp: NSRunningApplication?` — captured in `animateIn`, restored in `animateOut`. Patterned after upstream `QuickTerminalController.swift:19`.
+- `animateIn()` — picks the screen containing `NSEvent.mouseLocation`, computes target frame as the top 40% of that screen's visible frame, sets initial frame off-screen above the target, calls `panel.makeKeyAndOrderFront(nil)`, runs an `NSAnimationContext` lasting 0.2 s that animates the panel's `frame` to the on-screen position. Triggers `NSWorkspace.shared.frontmostApplication` capture before `makeKeyAndOrderFront`.
+- `animateOut()` — reverse animation, then `panel.orderOut(nil)`, then `previousApp?.activate(options: [])`.
+- `windowDidResignKey(_:)` (NSWindowDelegate) — calls `animateOut()` so clicking away dismisses.
+
+Create `apps/mac/touch-code/App/Features/MasterTerminal/MasterTerminalHotkey.swift`. Wraps Carbon's `RegisterEventHotKey` for chord ⌥⌘\` (key code `kVK_ANSI_Grave = 0x32`, modifiers `optionKey | cmdKey`). Single-callback API:
+
+```swift
+@MainActor
+final class MasterTerminalHotkey {
+    init(onTrigger: @escaping @MainActor () -> Void)
+    deinit  // unregisters
+}
+```
+
+Implementation strategy: the wrapper holds an `EventHotKeyRef`; install a single process-level Carbon event handler in `init` that dispatches to `onTrigger` when the registered hot key id fires. Reference for the boilerplate: search "RegisterEventHotKey Swift" — the standard 30-line pattern. Carbon is available via `import Carbon.HIToolbox` (already imported at `apps/mac/TouchCodeCore/Shortcuts/ShortcutSchema.swift:1`, so the project already links it).
+
+Wire into `AppState`:
+
+- Add `private var masterTerminalController: MasterTerminalController?` and `private var masterTerminalHotkey: MasterTerminalHotkey?` near the other private fields in `AppState` (`apps/mac/touch-code/App/TouchCodeApp.swift:262` region).
+- At the tail of `bringUp()` (after `developerPaneDependencies`):
+
+```swift
+let controller = MasterTerminalController()
+self.masterTerminalController = controller
+self.masterTerminalHotkey = MasterTerminalHotkey(onTrigger: { [weak controller] in
+    controller?.toggle()
+})
+```
+
+No teardown is needed — both objects live for the app lifetime; `MasterTerminalHotkey.deinit` unregisters Carbon when `AppState` is destroyed (which only happens at process exit).
+
+**Acceptance for M2**: launch the app, press ⌥⌘\`, observe the placeholder panel slide down from the top of the screen. Press ⌥⌘\` again, observe it slide back up. Click another app, observe it dismiss. Focus on another app first, press ⌥⌘\` (without bringing touch-code forward), observe the panel summons and Cmd-Tab returns to the prior app after dismissal.
+
+### Milestone 3: Ghostty surface running `claude remote-control`
+
+After this milestone, the placeholder is replaced with a live Ghostty surface running `claude remote-control` in `~/.config/touch-code/master-terminal/`. The surface persists across hide/show cycles — pressing the hotkey to dismiss does not kill the Claude process; the next summon shows the same scrollback.
+
+Modify `MasterTerminalController.swift`:
+
+- Constructor takes `Ghostty.App` (from `AppState.ghosttyRuntime`):
+
+```swift
+init(ghostty: Ghostty.App) { ... }
+```
+
+- Lazy-build a `Ghostty.SurfaceView` once on the first `animateIn`, with a `Ghostty.SurfaceConfiguration` whose `command = "claude remote-control"` and `workingDirectory = MasterTerminalBootstrap.userDirectory.path` (add a public computed property `MasterTerminalBootstrap.userDirectory: URL` that returns `~/.config/touch-code/master-terminal/`). Reference `apps/mac/touch-code/Runtime/Ghostty/PaneSurface.swift` for the `SurfaceConfiguration` shape and how the surface is constructed from `Ghostty.App`.
+- Embed the resulting `Ghostty.SurfaceView` as a subview of the panel's `visualEffectView` (replacing the placeholder text field), constraint-pinned to the edges.
+- The surface is constructed once and retained for the controller's lifetime — `animateOut` only orders the panel out, never tears the surface down.
+- `animateIn` calls `surfaceView.becomeFirstResponder()` after the panel is key, so keystrokes go to the terminal immediately.
+
+Update `AppState.bringUp()` to construct the controller with the runtime instead of bare:
+
+```swift
+guard let ghostty = self.ghosttyRuntime else { return /* skip Master Terminal */ }
+let controller = MasterTerminalController(ghostty: ghostty)
+```
+
+The `guard` is necessary because `GhosttyRuntime()` can fail (current code at line 306 already uses `try?`); when it does, the entire app runs without Ghostty and Master Terminal cannot work. Logging that fallback is sufficient.
+
+Audit the `AGENTS.md.template` text for accuracy — read it as if you were a Claude session opening it for the first time. Fix any `tc` command names that have drifted since M1 was drafted by cross-checking against `apps/mac/tc/Commands/HierarchyCommands.swift`.
+
+**Acceptance for M3**: launch the app, press ⌥⌘\`, observe a Ghostty surface boot with `claude remote-control` running in `~/.config/touch-code/master-terminal/`. Type `pwd` at the Claude prompt (or wait for `claude remote-control` to print its connection URL) and confirm the working directory matches. Dismiss with ⌥⌘\`, re-summon, observe the same session — scrollback preserved.
+
+### Milestone 4: Sweep, lint, test, commit
+
+Run `make mac-check` (formatter + lint) and `xcodebuild test -scheme touch-code` from `apps/mac/`. Fix any issues. Commit per repo convention (no co-author trailer, atomic commits per milestone if not yet committed). M1 / M2 / M3 each commit independently following the per-milestone-commit cadence; M4 is a final hygiene pass without new code unless lint surfaces issues.
+
+## Concrete Steps
+
+All commands assume working directory `/Users/wanggang/dev/00/touch-code/apps/mac/` unless stated otherwise.
+
+**Generate the Tuist project after Project.swift edits (M1):**
+
+```
+$ tuist generate --no-open
+Loaded config from .../touch-code/apps/mac/Tuist/Config.swift
+...
+✔ Project generated
+```
+
+If the resource bundle declaration is wrong, the build will succeed but the runtime `Bundle.main.url(forResource: "AGENTS.md", withExtension: "template", subdirectory: "MasterTerminal")` returns nil and bootstrap throws. Verify with:
+
+```
+$ make mac-build
+$ ls .build/Debug/TouchCode.app/Contents/Resources/MasterTerminal/
+AGENTS.md.template
+```
+
+**Run M1 tests:**
+
+```
+$ xcodebuild test -scheme touch-code -only-testing:touch-codeTests/MasterTerminalBootstrapTests 2>&1 | xcbeautify
+...
+Test Suite 'MasterTerminalBootstrapTests' passed
+    Executed 4 tests, with 0 failures
+```
+
+**Verify M1 end-to-end:**
+
+```
+$ rm -rf ~/.config/touch-code/master-terminal/    # one-time, only on a cold dev machine
+$ make mac-run-app                                # builds and opens
+# wait for app to finish launching, then:
+$ ls -la ~/.config/touch-code/master-terminal/
+AGENTS.md
+CLAUDE.md -> AGENTS.md
+```
+
+**Verify M2:** with the app running, press ⌥⌘\`. Expected: panel slides down from top of the active screen, shows centered placeholder text. Press again: panel slides up and disappears. Switch to a different app (Cmd-Tab to Safari, say), press ⌥⌘\` — panel summons over Safari without bringing touch-code's main window forward. Click on Safari — panel dismisses, Safari stays focused.
+
+**Verify M3:** with the app running and Master Terminal panel open, observe `claude remote-control` running. The exact output depends on Claude Code's current CLI behavior; expect a connection URL or interactive prompt.
+
+**Final lint + test (M4):**
+
+```
+$ make mac-check
+swift-format: 0 files changed
+swiftlint: 0 violations
+$ xcodebuild test -scheme touch-code 2>&1 | xcbeautify | tail -5
+Test Suite 'All tests' passed at ...
+    Executed N tests, with 0 failures
+```
+
+## Validation and Acceptance
+
+The plan is complete when **all four** of these hold simultaneously on a clean checkout:
+
+1. `xcodebuild test -scheme touch-code` from `apps/mac/` passes including all four `MasterTerminalBootstrapTests` cases.
+2. `make mac-check` reports zero violations.
+3. Running the freshly built `TouchCode.app`, pressing ⌥⌘\` once causes a Ghostty surface to slide in from the top of the screen with `claude remote-control` running in `~/.config/touch-code/master-terminal/`. Pressing ⌥⌘\` again hides it. A third press shows it again with the same session intact.
+4. `~/.config/touch-code/master-terminal/AGENTS.md` exists; `~/.config/touch-code/master-terminal/CLAUDE.md` is a symlink resolving to `AGENTS.md`.
+
+## Idempotence and Recovery
+
+Every step is safe to repeat:
+
+- `MasterTerminalBootstrap.ensureUserDirectory()` is intrinsically idempotent (per M1 tests).
+- `make mac-generate`, `make mac-build`, `make mac-check`, `xcodebuild test` are all repeatable.
+- The Master Terminal panel and surface are reset on app relaunch — there is no on-disk state for them beyond the `master-terminal/` directory.
+- If a milestone partially lands and needs to be re-attempted: revert the unfinished commits with `git restore --staged --worktree -- apps/mac/touch-code/App/Features/MasterTerminal/` (and the Project.swift / TouchCodeApp.swift edits if any) and start the milestone over.
+
+If `claude remote-control` is not on the user's `$PATH` when M3 is being verified, the Ghostty surface will print a "command not found" message inline. Install Claude Code (`brew install anthropic/claude/claude` or per Claude Code docs) and relaunch — no app-side fix needed.
+
+## Artifacts and Notes
+
+The Master Terminal directory contents after M1, exactly:
+
+```
+~/.config/touch-code/master-terminal/
+├── AGENTS.md           (regular file, ~80–120 lines, matches the bundled template byte-for-byte on first run)
+└── CLAUDE.md           (symlink → AGENTS.md)
+```
+
+The bundled template lives in source at `apps/mac/touch-code/App/Features/MasterTerminal/Resources/AGENTS.md.template` and ships into `.app/Contents/Resources/MasterTerminal/AGENTS.md.template`. Future plans that need to refresh `AGENTS.md` (when the `tc` CLI surface drifts) can either bump a version marker inside the template and have bootstrap detect it, or — preferred for v2 — write the auto-generated section between `<!-- BEGIN AUTO -->` / `<!-- END AUTO -->` markers and rewrite only that range. v1 ships without the markers.
+
+## Interfaces and Dependencies
+
+**External libraries (already linked, no new dependencies):**
+
+- `AppKit` — `NSPanel`, `NSAnimationContext`, `NSVisualEffectView`, `NSEvent`, `NSWorkspace`, `NSWindowDelegate`.
+- `Carbon.HIToolbox` — `RegisterEventHotKey`, `UnregisterEventHotKey`, `EventHotKeyRef`, `EventHotKeyID`, `kVK_ANSI_Grave`, `cmdKey`, `optionKey`, `InstallEventHandler`. Already imported at `apps/mac/TouchCodeCore/Shortcuts/ShortcutSchema.swift:1`.
+- `Foundation` — `FileManager`, `Bundle`, `URL`.
+- Internal `GhosttyKit` (via `Ghostty.App`, `Ghostty.SurfaceView`, `Ghostty.SurfaceConfiguration`) — already linked into the `touch-code` target.
+
+**Public API surface created by this plan:**
+
+In `apps/mac/touch-code/App/Features/MasterTerminal/MasterTerminalBootstrap.swift`:
+
+```swift
+public enum MasterTerminalBootstrap {
+    public static var userDirectory: URL { get }            // ~/.config/touch-code/master-terminal/
+    public static func ensureUserDirectory(
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        bundle: Bundle = .main
+    ) throws
+}
+```
+
+In `apps/mac/touch-code/App/Features/MasterTerminal/MasterTerminalController.swift`:
+
+```swift
+@MainActor
+final class MasterTerminalController: NSObject, NSWindowDelegate {
+    init(ghostty: Ghostty.App)
+    func toggle()
+    private(set) var isVisible: Bool { get }
+}
+```
+
+In `apps/mac/touch-code/App/Features/MasterTerminal/MasterTerminalHotkey.swift`:
+
+```swift
+@MainActor
+final class MasterTerminalHotkey {
+    init(onTrigger: @escaping @MainActor () -> Void)
+    // chord is hard-coded to ⌥⌘` for v1; see Decision Log D3.
+}
+```
+
+In `apps/mac/touch-code/App/Features/MasterTerminal/MasterTerminalWindow.swift`:
+
+```swift
+final class MasterTerminalWindow: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+}
+```
+
+**Modified surfaces:**
+
+- `apps/mac/touch-code/App/TouchCodeApp.swift` — `AppState` gains two private fields (`masterTerminalController`, `masterTerminalHotkey`) and a wiring block at the tail of `bringUp()`.
+- `apps/mac/Project.swift` — `touch-code` target's `resources` declaration includes `apps/mac/touch-code/App/Features/MasterTerminal/Resources/**` (or whatever pattern matches the existing convention; the implementer follows the established Tuist style in the file).
+
+**No modifications to:**
+
+- `TouchCodeCore` (no new `CommandID`).
+- `TouchCodeIPC` / `tc` / `SocketServer` / handlers.
+- `HierarchyManager`, `TerminalEngine`, `Catalog`.
+- Any existing test file.
+
+This isolation is the core invariant from `docs/design-docs/master-terminal.md` § Component Boundaries: Master Terminal is a peer of these subsystems, not a consumer.

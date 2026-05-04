@@ -452,6 +452,15 @@ final class AppState {
     self.developerPaneDependencies = DeveloperPaneDependencies.live(
       settingsURL: Settings.defaultURL()
     )
+
+    // Master Terminal: idempotent filesystem seed for ~/.config/touch-code/master-terminal/.
+    // Failure to seed must not block app bring-up — the Master Terminal feature
+    // simply won't have a working directory until the next launch.
+    do {
+      try MasterTerminalBootstrap.ensureUserDirectory()
+    } catch {
+      print("MasterTerminalBootstrap failed: \(error)")
+    }
   }
 
   /// Closure the main-window scene body installs to bridge TCA → `openWindow(id: "settings")`.

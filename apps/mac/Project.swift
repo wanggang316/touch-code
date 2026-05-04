@@ -206,6 +206,8 @@ let project = Project(
         "touch-code/App/Features/GitHub",
         "touch-code/App/Features/GitHub/Theme",
         "touch-code/App/Features/GitHub/Views",
+        "touch-code/App/Features/MasterTerminal",
+        "touch-code/App/Features/MasterTerminal/Resources",
         "touch-code/Runtime",
         "touch-code/Process",
         "touch-code/Git",
@@ -284,6 +286,7 @@ let project = Project(
         "touch-code/Tests/GitHubTests",
         "touch-code/Tests/StatusBarTests",
         "touch-code/Tests/Shortcuts",
+        "touch-code/Tests/MasterTerminal",
       ],
       dependencies: [
         .target(name: "touch-code"),
