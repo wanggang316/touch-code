@@ -278,6 +278,13 @@ final class AppState {
   private var editorClient: EditorClient?
   private var hierarchyClient: HierarchyClient?
 
+  /// Master Terminal: app-level summon-by-hotkey panel that hosts a
+  /// `claude remote-control` session. Wired in `bringUp()`. The controller
+  /// + hotkey live for the app lifetime; the controller itself is lazy
+  /// internally (no NSPanel constructed until first toggle).
+  private var masterTerminalController: MasterTerminalController?
+  private var masterTerminalHotkey: MasterTerminalHotkey?
+
   init() {
     let catalogStore = CatalogStore()
     let runtime = GhosttyBackedHierarchyRuntime()
@@ -461,6 +468,15 @@ final class AppState {
     } catch {
       print("MasterTerminalBootstrap failed: \(error)")
     }
+
+    // Master Terminal hotkey: ⌥⌘` toggles the slide-in panel. Hard-coded
+    // for v1; promotion to ShortcutsStore deferred until that store grows
+    // a "global hotkey" scope. See ExecPlan Decision Log D3.
+    let controller = MasterTerminalController()
+    self.masterTerminalController = controller
+    self.masterTerminalHotkey = MasterTerminalHotkey(onTrigger: { [weak controller] in
+      controller?.toggle()
+    })
   }
 
   /// Closure the main-window scene body installs to bridge TCA → `openWindow(id: "settings")`.
