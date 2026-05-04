@@ -2,6 +2,7 @@ import AppKit
 import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
+import os
 @preconcurrency import UserNotifications
 
 @main
@@ -466,7 +467,9 @@ final class AppState {
     do {
       try MasterTerminalBootstrap.ensureUserDirectory()
     } catch {
-      print("MasterTerminalBootstrap failed: \(error)")
+      Logger.masterTerminal.error(
+        "bootstrap failed: \(String(describing: error), privacy: .public)"
+      )
     }
 
     // Master Terminal hotkey: ⌥⌘` toggles the slide-in panel. Hard-coded

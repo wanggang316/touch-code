@@ -261,6 +261,7 @@ Run `claude` headless inside a hidden process; `tc master send <prompt>` posts t
 | User accidentally `rm -rf ~/.config/touch-code/master-terminal/` while the panel is open | Bootstrap is idempotent; on next hotkey press it re-creates the directory. The running Claude session may misbehave until restart, but no app-level state is lost (Catalog and notifications live elsewhere under `~/.config/touch-code/`). |
 | `claude remote-control`'s remote endpoint is exposed and authenticated entirely by Claude Code | We document this clearly in `AGENTS.md` so Gump understands the trust boundary. We do not attempt to firewall, proxy, or audit the connection — that is Claude Code's responsibility. |
 | Master Terminal surface dies (claude crashes or exits) | The Ghostty surface shows the exit message inline (standard PTY behavior). Next hotkey press re-runs `claude remote-control`. No automatic respawn in v1 — Gump sees the failure and decides what to do. |
+| Live theme changes (light/dark toggle, OS appearance flip) do not propagate to the Master Terminal surface | `GhosttyRuntime.setColorScheme(_:)` iterates `surfacesByPaneID`, which Master Terminal stays out of by design. Accepted v1 limitation: the embedded Claude session keeps the scheme it had at boot until the app is relaunched. The proper fix is to extend `GhosttyRuntime` with an "ambient surfaces" broadcast list that Master Terminal opts into without entering the catalog; deferred to a follow-up. |
 
 ## Open Questions
 

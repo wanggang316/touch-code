@@ -139,6 +139,34 @@ struct MasterTerminalBootstrapTests {
   }
 
   @Test
+  func wrongTargetSymlinkIsReplaced() throws {
+    // Pre-existing CLAUDE.md symlink points at a *different* target.
+    // Bootstrap contract: after we run, CLAUDE.md → AGENTS.md regardless of
+    // whatever stale link the user (or a previous version of touch-code)
+    // left behind.
+    let f = try makeFixtures(templateBody: "FRESH\n")
+    defer { try? FileManager.default.removeItem(at: f.homeDir.deletingLastPathComponent()) }
+
+    try FileManager.default.createDirectory(
+      at: f.masterDir, withIntermediateDirectories: true
+    )
+    let claudeURL = f.masterDir.appendingPathComponent("CLAUDE.md")
+    try FileManager.default.createSymbolicLink(
+      atPath: claudeURL.path,
+      withDestinationPath: "STALE.md"
+    )
+
+    try MasterTerminalBootstrap.ensureUserDirectory(
+      homeDirectory: f.homeDir, bundle: f.bundle
+    )
+
+    let target = try FileManager.default.destinationOfSymbolicLink(atPath: claudeURL.path)
+    #expect(target == "AGENTS.md")
+    let body = try String(contentsOf: claudeURL, encoding: .utf8)
+    #expect(body == "FRESH\n")
+  }
+
+  @Test
   func bundleMissingTemplateThrows() throws {
     let temp = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
       .appendingPathComponent("master-terminal-tests-\(UUID().uuidString)", isDirectory: true)

@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import os
 
 /// Global hotkey wrapper that dispatches a single chord to a callback.
 ///
@@ -15,10 +16,11 @@ final class MasterTerminalHotkey {
   // only) and pointer-typed, so the unsafe carve-out is sound.
   private nonisolated(unsafe) var hotKeyRef: EventHotKeyRef?
   private nonisolated(unsafe) var eventHandlerRef: EventHandlerRef?
-  /// Retained box around `onTrigger` so the C event handler can reach it
-  /// via `Unmanaged`. `passUnretained` would dangle as soon as this method
-  /// returns; we deliberately retain through `Unmanaged.passRetained` and
-  /// release in `deinit`.
+  /// Held as a property on `self` so the C handler can reach it via
+  /// `Unmanaged.passUnretained(...).toOpaque()` (see `init` below). The
+  /// strong reference here is what keeps the box alive for the handler's
+  /// lifetime — do NOT switch to `Unmanaged.passRetained`, since `deinit`
+  /// does not perform a matching `takeRetainedValue` release.
   private let callbackBox: CallbackBox
 
   init(onTrigger: @escaping @MainActor () -> Void) {
@@ -38,8 +40,8 @@ final class MasterTerminalHotkey {
       &hotKeyRef
     )
     if registerStatus != noErr {
-      print(
-        "MasterTerminalHotkey: RegisterEventHotKey returned status \(registerStatus); chord ⌥⌘` will not work"
+      Logger.masterTerminal.error(
+        "RegisterEventHotKey returned status \(registerStatus, privacy: .public); chord ⌥⌘` will not work"
       )
       return
     }
@@ -59,8 +61,8 @@ final class MasterTerminalHotkey {
       &handlerRef
     )
     if handlerStatus != noErr {
-      print(
-        "MasterTerminalHotkey: InstallEventHandler returned status \(handlerStatus); chord ⌥⌘` will not work"
+      Logger.masterTerminal.error(
+        "InstallEventHandler returned status \(handlerStatus, privacy: .public); chord ⌥⌘` will not work"
       )
       if let registered = self.hotKeyRef {
         UnregisterEventHotKey(registered)

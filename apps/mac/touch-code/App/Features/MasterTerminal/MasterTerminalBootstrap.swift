@@ -53,30 +53,39 @@ public enum MasterTerminalBootstrap {
       try contents.write(to: agentsURL, options: .atomic)
     }
 
-    // Create CLAUDE.md → AGENTS.md symlink. If a non-symlink already exists
-    // (regular file, directory, or wrong-target symlink), leave it alone and
-    // log — overwriting could destroy user content.
-    let claudeAttrs = try? fm.attributesOfItem(atPath: claudeURL.path)
-    if claudeAttrs == nil {
-      // Path does not exist (or is a broken symlink). Create the symlink.
-      // FileManager.createSymbolicLink fails if any item exists at the path,
-      // including a dangling symlink, so explicitly remove that case first.
-      // Use the path-based API: passing a URL would expand "AGENTS.md" against
-      // the process cwd and bake an absolute target into the symlink.
-      if (try? fm.destinationOfSymbolicLink(atPath: claudeURL.path)) != nil {
-        try? fm.removeItem(at: claudeURL)
+    // Reconcile CLAUDE.md → AGENTS.md symlink. We use `destinationOfSymbolicLink`
+    // as the primary discriminator because it is the only API that
+    // unambiguously distinguishes a symlink (dangling or live) from a regular
+    // file or absent path: it returns the link target on a symlink and throws
+    // on anything else. `attributesOfItem` is documented as not-following, but
+    // its behavior on dangling links is ambiguous in practice; routing through
+    // it would leave a window where a dangling-symlink-to-other-target is
+    // silently kept rather than repaired.
+    if let existingTarget = try? fm.destinationOfSymbolicLink(atPath: claudeURL.path) {
+      // Exists as a symlink. Trust it only if it already points at "AGENTS.md";
+      // otherwise replace, since the bootstrap contract is that
+      // CLAUDE.md → AGENTS.md is always satisfied after we run.
+      if existingTarget != "AGENTS.md" {
+        try fm.removeItem(at: claudeURL)
+        try fm.createSymbolicLink(
+          atPath: claudeURL.path,
+          withDestinationPath: "AGENTS.md"
+        )
       }
+    } else if !fm.fileExists(atPath: claudeURL.path) {
+      // Doesn't exist at all. Create the symlink. Path-based API preserves
+      // the literal "AGENTS.md" string; URL-based would resolve against the
+      // process cwd and bake an absolute target.
       try fm.createSymbolicLink(
         atPath: claudeURL.path,
         withDestinationPath: "AGENTS.md"
       )
-    } else if (claudeAttrs?[.type] as? FileAttributeType) != .typeSymbolicLink {
+    } else {
+      // Exists but is not a symlink (regular file, directory). Leave alone —
+      // overwriting could destroy user content.
       Logger.masterTerminal.warning(
         "CLAUDE.md exists but is not a symlink; leaving as-is at \(claudeURL.path, privacy: .public)"
       )
-    } else {
-      // Existing symlink: trust it. Even if it points elsewhere, that is the
-      // user's choice. Do not touch.
     }
   }
 }
@@ -86,7 +95,10 @@ public enum MasterTerminalBootstrapError: Error, Equatable {
 }
 
 extension Logger {
-  fileprivate static let masterTerminal = Logger(
+  /// Module-shared logger for the Master Terminal feature. All feature files
+  /// route through this category so the unified-logging filter
+  /// `category:master-terminal` surfaces a single coherent stream.
+  static let masterTerminal = Logger(
     subsystem: "com.gumpw.touch-agent-mac",
     category: "master-terminal"
   )

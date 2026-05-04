@@ -1,5 +1,6 @@
 import AppKit
 import TouchCodeCore
+import os
 
 /// Owns the single Master Terminal panel — the slide-in NSPanel that hosts
 /// a `claude remote-control` session running in
@@ -21,9 +22,19 @@ final class MasterTerminalController: NSObject, NSWindowDelegate {
   /// Lazy — the surface is not built until the user first opens the panel.
   /// Once built it survives the controller's lifetime so hide/show cycles
   /// preserve the Claude session and scrollback.
+  ///
+  /// Known v1 limitation: this surface is intentionally NOT registered with
+  /// `GhosttyRuntime.surfacesByPaneID` (Master Terminal stays outside the
+  /// Catalog). One side effect is that `GhosttyRuntime.setColorScheme(_:)`,
+  /// which iterates the registry, does not push palette changes here — the
+  /// embedded Claude session keeps the scheme it had at boot until the app
+  /// is relaunched. Tracked as a deferred polish item; expanding the
+  /// runtime to broadcast to "ambient" surfaces is out of scope for v1.
   private var paneSurface: PaneSurface?
   /// Becomes true after we've sent `claude remote-control\n` so the input is
-  /// not re-typed on every summon.
+  /// not re-typed on every summon. If the surface fails to allocate on the
+  /// first summon, this stays false and the next summon retries (both
+  /// allocation and the initial command).
   private var initialCommandSent: Bool = false
 
   init(runtime: GhosttyRuntime) {
@@ -103,7 +114,9 @@ final class MasterTerminalController: NSObject, NSWindowDelegate {
       ])
       return surface
     } catch {
-      print("MasterTerminal: surface allocation failed: \(error)")
+      Logger.masterTerminal.error(
+        "surface allocation failed: \(String(describing: error), privacy: .public)"
+      )
       return nil
     }
   }
@@ -147,6 +160,10 @@ final class MasterTerminalController: NSObject, NSWindowDelegate {
     panel.makeKey()
 
     if let surface {
+      // Two distinct focus calls: AppKit responder chain (so keystrokes
+      // route to the surface view) and libghostty's internal focus bool
+      // (so the cursor draws filled and animations advance). Both are
+      // needed; neither subsumes the other.
       panel.makeFirstResponder(surface.view)
       surface.setFocus(true)
     }
@@ -159,14 +176,20 @@ final class MasterTerminalController: NSObject, NSWindowDelegate {
     }
     isVisible = true
 
-    // Send the initial `claude remote-control` command after the surface is
-    // ready and the animation kicks off. Defer one main-queue turn so
-    // libghostty has finished booting the shell and is ready to consume
-    // input. Single-shot — preserved across hide/show cycles.
+    // Send the initial `claude remote-control` command once the surface is
+    // ready. Single-shot — preserved across hide/show cycles. The 500 ms
+    // delay is a heuristic giving the user's shell time to load rc files
+    // and emit a prompt before we type — without it, a slow zsh / heavy
+    // oh-my-zsh config can race the keystrokes and either echo them mid-
+    // load or have them swallowed by pre-prompt input handling. The right
+    // long-term fix is to launch via libghostty's surface `command` config
+    // (bypassing the shell entirely), but `PaneSurface` does not expose
+    // that field today, and the same race exists for Catalog panes via
+    // `TerminalEngine.swift` — both should land together in a follow-up.
     if let surface, !initialCommandSent {
       initialCommandSent = true
       Task { @MainActor in
-        try? await Task.sleep(nanoseconds: 200_000_000)
+        try? await Task.sleep(nanoseconds: 500_000_000)
         surface.sendInput("claude remote-control\n")
       }
     }
