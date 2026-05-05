@@ -67,9 +67,9 @@ jobs:
           install: true
           cache: true
           experimental: true
-
-      - name: Trust mise config
-        run: mise trust . apps/mac
+          # mise-action exports MISE_TRUSTED_CONFIG_PATHS pointing at
+          # the workspace, so a separate `mise trust` call is redundant
+          # (and would fail because `mise trust` accepts only one path).
 
       # Most of an archive's wall time is rebuilding GhosttyKit (Zig
       # cross-compilation, ~5-10 min cold). Cache by submodule SHA +
