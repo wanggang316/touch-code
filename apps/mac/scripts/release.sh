@@ -27,7 +27,6 @@ release_dir="${srcroot}/.build/release"
 archive_path="${release_dir}/TouchCode.xcarchive"
 export_dir="${release_dir}/export"
 app_path="${export_dir}/TouchCode.app"
-export_options_template="${srcroot}/Configurations/ExportOptions.plist"
 release_xcconfig="${srcroot}/Configurations/Release.xcconfig"
 
 workspace="${srcroot}/touch-code.xcworkspace"
@@ -132,13 +131,7 @@ cmd_archive() {
   preflight_signing
   log "archiving ${scheme} (Release)"
   rm -rf "${archive_path}" "${export_dir}"
-  mkdir -p "${release_dir}"
-
-  # Set the cleanup trap up front so a SIGINT delivered between the
-  # mktemp and the trap call cannot leak the substituted ExportOptions
-  # plist (which carries the team ID).
-  local export_options=""
-  trap '[ -n "${export_options}" ] && rm -f "${export_options}"; true' EXIT
+  mkdir -p "${release_dir}" "${export_dir}"
 
   xcodebuild archive \
     -workspace "${workspace}" \
@@ -149,26 +142,32 @@ cmd_archive() {
     SKIP_INSTALL=NO \
     | beautify
 
-  log "exporting archive (developer-id method)"
-  export_options="$(mktemp -t touch-code-export-options).plist"
-  local team
-  team="$(resolve_team_id)"
-  sed "s/__DEVELOPMENT_TEAM__/${team}/" "${export_options_template}" > "${export_options}"
+  # Bypass `xcodebuild -exportArchive` deliberately. exportArchive is
+  # designed for distribution methods that re-sign with a profile (App
+  # Store Connect, TestFlight, ad-hoc) — Developer ID does not use
+  # provisioning profiles, so the only useful thing exportArchive would
+  # do is `cp -R`. In return it drags in IDEDistributionMethodManager,
+  # which fails with "Unknown Distribution Error" / "expected one {} but
+  # found developer-id" whenever the Xcode app has no logged-in Apple
+  # ID — a hard requirement for headless and CI flows. Copying the
+  # already-signed bundle out of the .xcarchive ourselves avoids the
+  # entire IDE-distribution code path while preserving the signature
+  # produced by xcodebuild archive.
+  log "extracting signed app from ${archive_path}"
+  /bin/cp -R "${archive_path}/Products/Applications/TouchCode.app" "${export_dir}/"
 
-  xcodebuild -exportArchive \
-    -archivePath "${archive_path}" \
-    -exportPath "${export_dir}" \
-    -exportOptionsPlist "${export_options}" \
-    | beautify
-
-  rm -f "${export_options}"
-  export_options=""
-  trap - EXIT
-
-  [ -d "${app_path}" ] || die "exportArchive did not produce ${app_path}"
+  [ -d "${app_path}" ] || die "TouchCode.app not found inside the xcarchive"
 
   log "verifying signature on ${app_path}"
   codesign --verify --strict --deep --verbose=2 "${app_path}"
+
+  # Sanity-check that the archive used a real Developer ID identity
+  # rather than silently falling back to ad-hoc (which happens when
+  # CODE_SIGN_STYLE=Automatic + no Apple ID in Xcode).
+  if codesign -dv "${app_path}" 2>&1 | grep -q "Signature=adhoc"; then
+    die "archive produced an ad-hoc signature instead of Developer ID. Check CODE_SIGN_STYLE=Manual and CODE_SIGN_IDENTITY in Configurations/Release.xcconfig."
+  fi
+
   # spctl will say "rejected: source=Notarization" until M3; that's expected.
   spctl -a -v -t exec "${app_path}" || true
 

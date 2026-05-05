@@ -11,7 +11,13 @@ let project = Project(
   name: "touch-code",
   settings: .settings(
     base: [
-      "CODE_SIGN_STYLE": "Automatic",
+      // Debug builds use Automatic signing so contributors without a
+      // Developer ID still get a runnable ad-hoc-signed app. Release
+      // signing is driven entirely by Configurations/Release.xcconfig
+      // (CODE_SIGN_STYLE=Manual + a fully-qualified Developer ID
+      // identity); putting any default here would baked-in override
+      // the xcconfig at target level.
+      "CODE_SIGN_STYLE[config=Debug]": "Automatic",
       "SWIFT_APPROACHABLE_CONCURRENCY": "YES",
       "SWIFT_DEFAULT_ACTOR_ISOLATION": "MainActor",
       "SWIFT_VERSION": "6.0",
@@ -178,14 +184,19 @@ let project = Project(
         base: [
           // Debug builds intentionally skip signing so contributors without
           // a Developer ID can build the CLI. Release builds sign tc with
-          // the same identity as the app — the CLI ships embedded inside
-          // the .app bundle (see embed-tc.sh) and a notarized app cannot
-          // contain an unsigned executable.
+          // the same Developer ID identity + Hardened Runtime as the app —
+          // the CLI ships embedded inside the .app bundle (see
+          // embed-tc.sh) and notarization rejects any nested executable
+          // that is unsigned or lacks Hardened Runtime.
           "CODE_SIGNING_ALLOWED[config=Debug]": "NO",
+          "ENABLE_HARDENED_RUNTIME[config=Release]": "YES",
           "PRODUCT_NAME": "tc",
           "SWIFT_DEFAULT_ACTOR_ISOLATION": "nonisolated",
         ],
-        defaultSettings: .essential
+        // See the touch-code target for the rationale; the same Tuist
+        // .essential injection of CODE_SIGN_IDENTITY = "-" would also
+        // pin tc to ad-hoc here.
+        defaultSettings: .essential(excluding: ["CODE_SIGN_IDENTITY"])
       )
     ),
 
@@ -266,7 +277,13 @@ let project = Project(
           "OTHER_LDFLAGS": "$(inherited) -lc++ -framework Carbon -framework Metal -framework MetalKit -framework CoreText -framework QuartzCore",
           "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
         ],
-        defaultSettings: .essential
+        // Exclude CODE_SIGN_IDENTITY from Tuist's injected defaults so
+        // Configurations/Release.xcconfig can drive it. Without this,
+        // Tuist writes CODE_SIGN_IDENTITY = "-" directly into the
+        // target's Release buildSettings dict, which wins over the
+        // project-level xcconfig (target dict > project xcconfig in
+        // Xcode's precedence), forcing every Release archive to ad-hoc.
+        defaultSettings: .essential(excluding: ["CODE_SIGN_IDENTITY"])
       )
     ),
 

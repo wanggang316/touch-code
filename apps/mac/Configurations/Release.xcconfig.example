@@ -3,14 +3,23 @@
 // archive without it.
 //
 // DEVELOPMENT_TEAM is the 10-character team ID from
-// developer.apple.com → Membership. CODE_SIGN_IDENTITY is the
-// human-readable certificate name shown by:
+// developer.apple.com → Membership.
+//
+// CODE_SIGN_STYLE = Manual is required: Developer ID distribution does
+// NOT use provisioning profiles, so xcodebuild's "Automatic" mode
+// silently degrades to ad-hoc when no Apple ID is signed into Xcode.
+// Manual + a fully-qualified identity is the only reliable Developer
+// ID configuration in headless / CI flows.
+//
+// CODE_SIGN_IDENTITY must include the team ID in parentheses, exactly
+// as it appears in:
 //
 //     security find-identity -v -p codesigning
 //
-// Stick with "Developer ID Application" unless distributing through
-// channels other than direct download (Mac App Store uses a different
-// identity and a different exec-plan).
+// (i.e. "Developer ID Application: <Name> (<TEAM>)" — not just the
+// "Developer ID Application" prefix, which is too ambiguous when
+// multiple Developer ID certs are in the keychain.)
 
 DEVELOPMENT_TEAM = XXXXXXXXXX
-CODE_SIGN_IDENTITY = Developer ID Application
+CODE_SIGN_STYLE = Manual
+CODE_SIGN_IDENTITY = Developer ID Application: <Your Name> (XXXXXXXXXX)
