@@ -32,6 +32,17 @@ jobs:
     timeout-minutes: 60
 
     steps:
+      # macos-26 ships several Xcode versions; the default symlink at
+      # /Applications/Xcode.app currently points at 26.2, whose SDK
+      # treats SwiftUICore.tbd as a private framework with a bundle-id
+      # allowed-clients list that does not include our app, breaking
+      # the link step. Xcode 26.0 (our local pinned floor) does not
+      # have this restriction. Pin DEVELOPER_DIR explicitly so the
+      # workflow stays reproducible against our supported Xcode.
+      - name: Pin Xcode 26.0
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.0.app/Contents/Developer
+          xcodebuild -version
       - name: Resolve tag and version
         id: meta
         run: |
