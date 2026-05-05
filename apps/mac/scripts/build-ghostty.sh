@@ -84,6 +84,15 @@ fi
 ZIG_GLOBAL_CACHE_DIR="${ghostty_global_cache_dir}" "${script_dir}/prime-zig-cache.sh"
 
 cd "${ghostty_dir}"
+# Force the xcodebuild invocations Zig spawns internally (for the
+# macOS DockTilePlugin / Ghostty.app sub-targets) to skip x86_64.
+# libghostty's bundled imgui.a has missing symbols on x86_64, which
+# only manifests when xcodebuild runs a Release-configuration universal
+# build — locally that build was warm-cached, but a cold CI runner
+# has to compile from scratch and fails the link. We ship arm64-only
+# (matches Release.xcconfig) so an x86_64 slice would be wasted anyway.
+export ARCHS="arm64"
+export ONLY_ACTIVE_ARCH="YES"
 mise exec -- zig build -Doptimize=ReleaseFast -Demit-xcframework=true -Dsentry=false --prefix "${ghostty_build_root}" --cache-dir "${ghostty_local_cache_dir}" --global-cache-dir "${ghostty_global_cache_dir}"
 rsync -a --delete "${ghostty_dir}/macos/GhosttyKit.xcframework/" "${xcframework_path}/"
 prepare_xcframework
