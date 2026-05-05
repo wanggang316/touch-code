@@ -143,6 +143,13 @@ extension ShortcutSchema {
         defaultBinding: .init(keyCode: UInt16(kVK_ANSI_C), modifiers: [.command, .shift])
       ),
       .init(
+        id: .toggleSidebar,
+        title: "Toggle Sidebar",
+        category: .projectAndWorktree,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_LeftBracket), modifiers: .command)
+      ),
+      .init(
         id: .selectWorktreeAt1,
         title: "Select Worktree 1",
         category: .projectAndWorktree,

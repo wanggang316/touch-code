@@ -100,6 +100,14 @@ struct MainWindowCommands: Commands {
       }
       .appKeyboardShortcut(.showArchivedWorktrees, in: shortcuts)
       .disabled(!hasCurrentProject)
+
+      Divider()
+
+      Button("Toggle Sidebar") {
+        store()?.send(.toggleSidebarRequested)
+      }
+      .appKeyboardShortcut(.toggleSidebar, in: shortcuts)
+      .disabled(store() == nil)
     }
 
     // Check for Updates… lives next to the app menu's About / Settings group.

@@ -26,11 +26,24 @@ struct ContentView: View {
   /// (each spawn re-runs `setNotificationCategories` on the shared
   /// UN center).
   let osNotifier: UserNotificationsOSNotifier?
-  @State private var columnVisibility: NavigationSplitViewVisibility = .all
-
   /// Transient toast for editor-open outcomes (success + failure). Non-nil = visible;
   /// auto-clears after a short window via `.task(id:)`.
   @State private var lastEditorToast: EditorToast?
+
+  /// Bridges `RootFeature.State.sidebarVisible` (a Bool) to
+  /// `NavigationSplitViewVisibility` so the chord, the system disclosure
+  /// chevron, and the bound state stay in lockstep.
+  private var columnVisibilityBinding: Binding<NavigationSplitViewVisibility> {
+    Binding(
+      get: { store.sidebarVisible ? .all : .detailOnly },
+      set: { newValue in
+        let visible = (newValue != .detailOnly)
+        if visible != store.sidebarVisible {
+          store.send(.toggleSidebarRequested)
+        }
+      }
+    )
+  }
 
   enum EditorToast: Equatable {
     case opened(String)
@@ -55,7 +68,7 @@ struct ContentView: View {
   }
 
   private var mainSplit: some View {
-    NavigationSplitView(columnVisibility: $columnVisibility) {
+    NavigationSplitView(columnVisibility: columnVisibilityBinding) {
       HierarchySidebarView(
         store: store.scope(state: \.sidebar, action: \.sidebar),
         currentSelection: store.selection,

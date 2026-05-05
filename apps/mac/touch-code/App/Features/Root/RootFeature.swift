@@ -66,6 +66,11 @@ struct RootFeature {
     /// `.sidebar(.delegate(.openTagManager))`.
     @Presents var tagManagerSheet: TagManagerFeature.State?
 
+    /// Whether the Hierarchy sidebar column is visible. Bound into
+    /// `NavigationSplitView`'s `columnVisibility` from `ContentView` so the
+    /// menu chord (⌘[) and the system disclosure button stay in sync.
+    var sidebarVisible: Bool = true
+
     /// T3: live read of the current Worktree's `diffInspectorVisible` against
     /// a catalog snapshot. Not a cached field — views pass in
     /// `hierarchyManager.catalog` so SwiftUI's `@Observable` tracking
@@ -208,6 +213,10 @@ struct RootFeature {
     /// Resolves the current Worktree's absolute path and writes it to the
     /// system pasteboard. Silent no-op when no worktree is selected.
     case copyCurrentWorktreePathRequested
+    /// Flips `state.sidebarVisible`. ContentView's NavigationSplitView reads
+    /// this through a binding, so the chord, the disclosure button, and any
+    /// future UI affordance share the same source of truth.
+    case toggleSidebarRequested
     /// $EDITOR routing. Dispatched from `EditorFeature.delegate.openShellEditorRequested`
     /// when any editor-open path resolves the preferred id to `EditorRegistry.shellEditorID`.
     /// Locates the target Worktree by path, creates a fresh Tab, and spawns a Pane with
@@ -1155,6 +1164,10 @@ struct RootFeature {
             NSPasteboard.general.setString(path, forType: .string)
           }
         }
+
+      case .toggleSidebarRequested:
+        state.sidebarVisible.toggle()
+        return .none
       }
     }
     .ifLet(\.$commandPalette, action: \.commandPalette) {
