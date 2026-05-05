@@ -42,6 +42,7 @@ public enum CommandID: String, CaseIterable, Hashable, Sendable, Codable, Coding
   case archiveCurrentWorktree
   case deleteCurrentWorktree
   case showArchivedWorktrees
+  case copyCurrentWorktreePath
 
   // Window — tabs.
   case newTab

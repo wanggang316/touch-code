@@ -136,6 +136,13 @@ extension ShortcutSchema {
         defaultBinding: .init(keyCode: UInt16(kVK_ANSI_A), modifiers: [.command, .control])
       ),
       .init(
+        id: .copyCurrentWorktreePath,
+        title: "Copy Worktree Path",
+        category: .projectAndWorktree,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_C), modifiers: [.command, .shift])
+      ),
+      .init(
         id: .selectWorktreeAt1,
         title: "Select Worktree 1",
         category: .projectAndWorktree,

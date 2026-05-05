@@ -205,6 +205,9 @@ struct RootFeature {
     /// menu chord, the palette item, and any other entry point share the
     /// same effect.
     case checkForUpdatesRequested
+    /// Resolves the current Worktree's absolute path and writes it to the
+    /// system pasteboard. Silent no-op when no worktree is selected.
+    case copyCurrentWorktreePathRequested
     /// $EDITOR routing. Dispatched from `EditorFeature.delegate.openShellEditorRequested`
     /// when any editor-open path resolves the preferred id to `EditorRegistry.shellEditorID`.
     /// Locates the target Worktree by path, creates a fresh Tab, and spawns a Pane with
@@ -1134,6 +1137,24 @@ struct RootFeature {
 
       case .checkForUpdatesRequested:
         return .send(.windowActionRouter(.requested(.checkForUpdates)))
+
+      case .copyCurrentWorktreePathRequested:
+        guard
+          let projectID = state.selection.projectID,
+          let worktreeID = state.selection.worktreeID
+        else { return .none }
+        let catalog = hierarchyClient.snapshot()
+        guard
+          let path = catalog
+            .projects.first(where: { $0.id == projectID })?
+            .worktrees.first(where: { $0.id == worktreeID })?.path
+        else { return .none }
+        return .run { _ in
+          await MainActor.run {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(path, forType: .string)
+          }
+        }
       }
     }
     .ifLet(\.$commandPalette, action: \.commandPalette) {

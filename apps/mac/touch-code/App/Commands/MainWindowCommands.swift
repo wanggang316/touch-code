@@ -77,6 +77,12 @@ struct MainWindowCommands: Commands {
       .appKeyboardShortcut(.revealCurrentWorktreeInFinder, in: shortcuts)
       .disabled(!hasActiveWorktree)
 
+      Button("Copy Worktree Path") {
+        store()?.send(.copyCurrentWorktreePathRequested)
+      }
+      .appKeyboardShortcut(.copyCurrentWorktreePath, in: shortcuts)
+      .disabled(!hasActiveWorktree)
+
       Button("Archive Worktree") {
         store()?.send(.archiveCurrentWorktreeRequested)
       }
