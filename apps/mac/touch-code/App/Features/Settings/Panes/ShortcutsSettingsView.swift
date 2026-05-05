@@ -289,21 +289,8 @@ private struct NameCell: View {
       Text(category.title)
         .font(.body.weight(.semibold))
     case .entry(let entry):
-      VStack(alignment: .leading, spacing: 2) {
-        Text(entry.title)
-          .font(.body)
-        Text(scopeDescription(entry.scope))
-          .font(.caption)
-          .foregroundStyle(.secondary)
-      }
-    }
-  }
-
-  private func scopeDescription(_ scope: ShortcutScope) -> String {
-    switch scope {
-    case .configurable: return "Customizable"
-    case .systemFixed: return "System default"
-    case .localOnly: return "Context-specific"
+      Text(entry.title)
+        .font(.body)
     }
   }
 }
@@ -331,7 +318,6 @@ private struct HotkeyCell: View {
       HStack(spacing: 8) {
         chordButton(entry: entry, resolved: resolved)
           .frame(maxWidth: .infinity, alignment: .leading)
-        sourcePill(resolved)
         if entry.scope == .configurable, resolved?.source == .userOverride {
           Button {
             onReset(entry.id)
@@ -402,7 +388,7 @@ private struct HotkeyCell: View {
     if let resolved, let binding = resolved.binding {
       Text(ShortcutDisplay.chord(for: binding))
         .font(.system(size: 12, design: .monospaced))
-        .foregroundStyle(resolved.isEnabled ? .primary : .secondary)
+        .foregroundStyle(chordColor(for: resolved))
         .strikethrough(!resolved.isEnabled)
     } else {
       Text("Unassigned")
@@ -411,25 +397,13 @@ private struct HotkeyCell: View {
     }
   }
 
-  @ViewBuilder
-  private func sourcePill(_ resolved: ResolvedShortcut?) -> some View {
-    let label = sourceLabel(resolved)
-    Text(label.text)
-      .font(.caption2.weight(.medium))
-      .padding(.horizontal, 6)
-      .padding(.vertical, 2)
-      .background(
-        RoundedRectangle(cornerRadius: 4).fill(label.color.opacity(0.18))
-      )
-      .foregroundStyle(label.color)
-  }
-
-  private func sourceLabel(_ resolved: ResolvedShortcut?) -> (text: String, color: Color) {
-    guard let resolved else { return ("—", .secondary) }
-    if !resolved.isEnabled { return ("Disabled", .gray) }
+  /// Accent color marks a user override; default chords stay neutral so the override stands
+  /// out at a glance. Disabled rows fall through to `.secondary` regardless of source.
+  private func chordColor(for resolved: ResolvedShortcut) -> Color {
+    guard resolved.isEnabled else { return .secondary }
     switch resolved.source {
-    case .schemaDefault: return ("Default", .secondary)
-    case .userOverride: return ("Custom", .accentColor)
+    case .schemaDefault: return .primary
+    case .userOverride: return .accentColor
     }
   }
 }
