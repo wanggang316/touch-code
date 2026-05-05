@@ -1,0 +1,179 @@
+name: release
+
+# Tag-triggered Developer ID release pipeline. Pushing a `v*` tag (e.g.
+# `v0.1.0`) produces a notarized + stapled `TouchCode-<version>.dmg`
+# attached to a draft GitHub Release.
+#
+# Required GitHub repository secrets (set via `gh secret set` or web UI):
+#   DEVELOPER_ID_CERT_P12_BASE64  - base64 -i path/to/devid.p12
+#   DEVELOPER_ID_CERT_PASSWORD    - .p12 export password
+#   KEYCHAIN_PASSWORD             - openssl rand -base64 32 (per-run)
+#   DEVELOPMENT_TEAM              - 10-char team ID, e.g. HC438T2B8P
+#   DEVELOPER_ID_NAME             - human name on the cert, e.g. "WANG GANG"
+#   AC_API_KEY_ID                 - App Store Connect API Key ID
+#   AC_API_ISSUER_ID              - App Store Connect Issuer UUID
+#   AC_API_KEY_P8                 - base64 -i AuthKey_*.p8
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (must already exist, format vX.Y.Z)'
+        required: true
+
+permissions:
+  contents: write   # needed for gh release create
+
+jobs:
+  release:
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.0.app/Contents/Developer
+
+    steps:
+      - name: Resolve tag and version
+        id: meta
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::tag '$TAG' does not match vX.Y.Z" >&2
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          echo "tag=$TAG"          >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION"  >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.meta.outputs.tag }}
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Verify tag matches MARKETING_VERSION
+        run: |
+          MV=$(awk -F'=' '/^MARKETING_VERSION/ {gsub(/[ \t]/,"",$2); print $2}' apps/mac/Configurations/Project.xcconfig)
+          if [[ "$MV" != "${{ steps.meta.outputs.version }}" ]]; then
+            echo "::error::tag ${{ steps.meta.outputs.tag }} != Project.xcconfig MARKETING_VERSION ($MV); bump-version before tagging" >&2
+            exit 1
+          fi
+
+      - uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+          experimental: true
+
+      - name: Trust mise config
+        run: mise trust . apps/mac
+
+      # Most of an archive's wall time is rebuilding GhosttyKit (Zig
+      # cross-compilation, ~5-10 min cold). Cache by submodule SHA +
+      # script + mise.toml — the same fingerprint scripts/build-ghostty.sh
+      # uses internally.
+      - name: Cache GhosttyKit XCFramework
+        uses: actions/cache@v4
+        with:
+          path: apps/mac/.build/ghostty
+          key: ghostty-${{ runner.os }}-${{ hashFiles('apps/mac/ThirdParty/ghostty/build.zig.zon', 'apps/mac/scripts/build-ghostty.sh', 'mise.toml') }}
+
+      # Tuist resolves SPM dependencies into Tuist/.build; this is large
+      # but deterministic across runs with unchanged Package.resolved.
+      - name: Cache Tuist SPM checkouts
+        uses: actions/cache@v4
+        with:
+          path: apps/mac/Tuist/.build
+          key: tuist-spm-${{ runner.os }}-${{ hashFiles('apps/mac/Tuist/Package.swift', 'apps/mac/Tuist/Package.resolved') }}
+
+      - name: Import Developer ID certificate into temporary keychain
+        env:
+          P12_BASE64: ${{ secrets.DEVELOPER_ID_CERT_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          P12_PATH="$RUNNER_TEMP/devid.p12"
+
+          # Decode (strip whitespace/CRs that can land in pasted secrets)
+          printf '%s' "$P12_BASE64" | tr -d ' \n\r\t' | base64 -D > "$P12_PATH"
+
+          security create-keychain  -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$P12_PATH" \
+            -P "$P12_PASSWORD" \
+            -A -t cert -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH" >/dev/null
+          # Prepend our keychain so codesign and security find-identity see it.
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | xargs)
+          security default-keychain -s "$KEYCHAIN_PATH"
+
+          # Sanity check — release.sh's preflight uses this exact query.
+          security find-identity -v -p codesigning | grep "Developer ID Application"
+
+          rm -f "$P12_PATH"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+      - name: Write Release.xcconfig from secrets
+        env:
+          DEVELOPMENT_TEAM:   ${{ secrets.DEVELOPMENT_TEAM }}
+          DEVELOPER_ID_NAME:  ${{ secrets.DEVELOPER_ID_NAME }}
+        run: |
+          cat > apps/mac/Configurations/Release.xcconfig <<EOF
+          // Generated by .github/workflows/release.yml — do not commit.
+          DEVELOPMENT_TEAM = $DEVELOPMENT_TEAM
+          CODE_SIGN_STYLE = Manual
+          CODE_SIGN_IDENTITY[sdk=macosx*] = Developer ID Application: $DEVELOPER_ID_NAME ($DEVELOPMENT_TEAM)
+          ARCHS = arm64
+          ONLY_ACTIVE_ARCH = NO
+          EOF
+
+      - name: Archive (xcodebuild -archive + extract signed app)
+        run: make mac-archive
+
+      - name: Notarize app
+        env:
+          AC_API_KEY_ID:    ${{ secrets.AC_API_KEY_ID }}
+          AC_API_ISSUER_ID: ${{ secrets.AC_API_ISSUER_ID }}
+          AC_API_KEY_P8:    ${{ secrets.AC_API_KEY_P8 }}
+        run: |
+          ./apps/mac/scripts/release.sh notarize \
+            apps/mac/.build/release/export/TouchCode.app
+
+      - name: Build DMG
+        run: ./apps/mac/scripts/release.sh dmg
+
+      - name: Notarize DMG
+        env:
+          AC_API_KEY_ID:    ${{ secrets.AC_API_KEY_ID }}
+          AC_API_ISSUER_ID: ${{ secrets.AC_API_ISSUER_ID }}
+          AC_API_KEY_P8:    ${{ secrets.AC_API_KEY_P8 }}
+        run: |
+          ./apps/mac/scripts/release.sh notarize \
+            "apps/mac/.build/release/TouchCode-${{ steps.meta.outputs.version }}.dmg"
+
+      - name: Create draft GitHub Release with DMG attached
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          DMG="apps/mac/.build/release/TouchCode-${{ steps.meta.outputs.version }}.dmg"
+          gh release create "${{ steps.meta.outputs.tag }}" \
+            --draft \
+            --title "${{ steps.meta.outputs.tag }}" \
+            --generate-notes \
+            "$DMG" "$DMG.sha256"
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          rm -f apps/mac/Configurations/Release.xcconfig
