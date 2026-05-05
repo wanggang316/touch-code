@@ -126,6 +126,20 @@ struct MainWindowCommands: Commands {
       }
       .appKeyboardShortcut(.selectNextWorktree, in: shortcuts)
       .disabled(store() == nil)
+
+      Divider()
+
+      Button("Back") {
+        store()?.send(.worktreeHistoryBackRequested)
+      }
+      .appKeyboardShortcut(.worktreeHistoryBack, in: shortcuts)
+      .disabled(!hasHistoryBack)
+
+      Button("Forward") {
+        store()?.send(.worktreeHistoryForwardRequested)
+      }
+      .appKeyboardShortcut(.worktreeHistoryForward, in: shortcuts)
+      .disabled(!hasHistoryForward)
     }
 
     // Check for Updates… lives next to the app menu's About / Settings group.
@@ -219,6 +233,16 @@ struct MainWindowCommands: Commands {
       store()?.state.gitHub.snapshots[worktreeID] != nil
     else { return false }
     return true
+  }
+
+  /// Drive `.disabled` on Back/Forward menu items so the chord is a hard
+  /// no-op when there's no entry to navigate to (also dims the menu item).
+  private var hasHistoryBack: Bool {
+    !(store()?.state.navigationHistoryBack.isEmpty ?? true)
+  }
+
+  private var hasHistoryForward: Bool {
+    !(store()?.state.navigationHistoryForward.isEmpty ?? true)
   }
 
   /// `true` when there is a selected Project. Drives `.disabled` for "New Worktree…".

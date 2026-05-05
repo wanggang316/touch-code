@@ -69,6 +69,8 @@ struct ShortcutSchemaAuditTests {
     (.revealCurrentWorktreeInSidebar, (0x0E, [.command, .shift])),  // ⌘⇧E
     (.selectPreviousWorktree, (0x7E, [.command, .control])),        // ⌘⌃↑
     (.selectNextWorktree, (0x7D, [.command, .control])),            // ⌘⌃↓
+    (.worktreeHistoryBack, (0x7B, [.command, .control])),           // ⌘⌃←
+    (.worktreeHistoryForward, (0x7C, [.command, .control])),        // ⌘⌃→
     (.newTab, (0x11, [.command])),                          // t
     (.closeTab, (0x0D, [.command])),                        // w
     (.previousTab, (0x21, [.command, .shift])),             // [

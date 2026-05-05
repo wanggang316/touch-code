@@ -79,6 +79,17 @@ struct RootFeature {
     /// sessions, even though neither matters in practice.
     var revealSelectionTrigger: UUID = UUID()
 
+    /// Back/forward history of selections, browser-style. `Back` pops from
+    /// `navigationHistoryBack` and pushes onto `navigationHistoryForward`;
+    /// `Forward` reverses. A new selection that did not come from a
+    /// back/forward navigation pushes onto Back and clears Forward.
+    var navigationHistoryBack: [HierarchySelection] = []
+    var navigationHistoryForward: [HierarchySelection] = []
+    /// True for one tick after a Back/Forward dispatch so the next
+    /// `selectionChanged` does not re-record the navigation as a fresh
+    /// step. Cleared in `selectionChanged` itself.
+    var suppressHistoryPush: Bool = false
+
     /// T3: live read of the current Worktree's `diffInspectorVisible` against
     /// a catalog snapshot. Not a cached field — views pass in
     /// `hierarchyManager.catalog` so SwiftUI's `@Observable` tracking
@@ -234,6 +245,11 @@ struct RootFeature {
     /// renders: projects in catalog order, within each project the main
     /// row first, then pinned, then unpinned, archived rows excluded.
     case selectAdjacentWorktreeRequested(TabAdjacency)
+    /// Pops the last entry from `navigationHistoryBack` and selects it,
+    /// pushing the current selection onto `navigationHistoryForward`.
+    case worktreeHistoryBackRequested
+    /// Mirror of `worktreeHistoryBackRequested` in the opposite direction.
+    case worktreeHistoryForwardRequested
     /// $EDITOR routing. Dispatched from `EditorFeature.delegate.openShellEditorRequested`
     /// when any editor-open path resolves the preferred id to `EditorRegistry.shellEditorID`.
     /// Locates the target Worktree by path, creates a fresh Tab, and spawns a Pane with
@@ -439,7 +455,20 @@ struct RootFeature {
 
       case .selectionChanged(let selection):
         let priorProjectID = state.selection.projectID
+        let priorSelection = state.selection
         state.selection = selection
+        // Browser-style history. Skip the push when we just dispatched a
+        // Back/Forward (otherwise that navigation would itself become a new
+        // step); otherwise record the *previous* selection so a future Back
+        // can return to it.
+        if state.suppressHistoryPush {
+          state.suppressHistoryPush = false
+        } else if priorSelection.worktreeID != nil,
+          priorSelection.worktreeID != selection.worktreeID
+        {
+          state.navigationHistoryBack.append(priorSelection)
+          state.navigationHistoryForward.removeAll()
+        }
         // Selection landed on a real Worktree → drop the pending-loading
         // overlay so the detail pane reverts to the regular terminal
         // surface. The success path of `pendingWorktreeFinished` calls
@@ -1209,6 +1238,26 @@ struct RootFeature {
         return .send(
           .sidebar(.worktreeRowTapped(target.worktreeID, inProject: target.projectID))
         )
+
+      case .worktreeHistoryBackRequested:
+        guard let target = state.navigationHistoryBack.popLast() else { return .none }
+        state.navigationHistoryForward.append(state.selection)
+        state.suppressHistoryPush = true
+        guard
+          let projectID = target.projectID,
+          let worktreeID = target.worktreeID
+        else { return .none }
+        return .send(.sidebar(.worktreeRowTapped(worktreeID, inProject: projectID)))
+
+      case .worktreeHistoryForwardRequested:
+        guard let target = state.navigationHistoryForward.popLast() else { return .none }
+        state.navigationHistoryBack.append(state.selection)
+        state.suppressHistoryPush = true
+        guard
+          let projectID = target.projectID,
+          let worktreeID = target.worktreeID
+        else { return .none }
+        return .send(.sidebar(.worktreeRowTapped(worktreeID, inProject: projectID)))
       }
     }
     .ifLet(\.$commandPalette, action: \.commandPalette) {
