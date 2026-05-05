@@ -43,16 +43,33 @@ struct InternalConflictDetectorTests {
 
   @Test
   func systemFixedCommandsDoNotReportAsInternalConflicts() {
-    // `.openSettings` is `.systemFixed` with default `⌘,`. Internal detector must not surface
-    // it; AppKitReservedDetector handles that tier.
-    let openSettingsDefault = ShortcutSchema.app.entry(for: .openSettings)?.defaultBinding
-    let candidate = try! #require(openSettingsDefault)
+    // The production schema currently has no `.systemFixed` rows; plant one synthetically
+    // so we can still pin the contract: candidates that match a `.systemFixed` row's chord
+    // are not surfaced by this tier (AppKitReservedDetector handles that).
+    let systemFixedChord = ShortcutBinding(keyCode: 0x2B, modifiers: .command) // ⌘,
+    let schema = ShortcutSchema(entries: [
+      .init(
+        id: .openSettings,
+        title: "Open Settings",
+        category: .general,
+        scope: .systemFixed,
+        defaultBinding: systemFixedChord
+      ),
+      .init(
+        id: .commandPaletteToggle,
+        title: "Quick Action",
+        category: .general,
+        scope: .configurable,
+        defaultBinding: ShortcutBinding(keyCode: 0x23, modifiers: .command)
+      ),
+    ])
 
-    let map = ShortcutResolver.resolve(overrides: .empty)
+    let map = ShortcutResolver.resolve(schema: schema, overrides: .empty)
     let result = InternalConflictDetector.conflicts(
       in: map,
-      candidate: candidate,
-      excluding: .commandPaletteToggle
+      candidate: systemFixedChord,
+      excluding: .commandPaletteToggle,
+      schema: schema
     )
     #expect(result == nil)
   }

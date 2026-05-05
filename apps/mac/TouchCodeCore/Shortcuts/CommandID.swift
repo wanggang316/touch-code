@@ -14,7 +14,6 @@ import Foundation
 public enum CommandID: String, CaseIterable, Hashable, Sendable, Codable, CodingKeyRepresentable {
   // App scope.
   case openSettings
-  case quit
 
   // Quick action.
   case commandPaletteToggle

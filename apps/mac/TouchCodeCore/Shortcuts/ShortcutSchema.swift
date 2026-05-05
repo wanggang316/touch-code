@@ -67,15 +67,8 @@ extension ShortcutSchema {
         id: .openSettings,
         title: "Open Settings",
         category: .general,
-        scope: .systemFixed,
+        scope: .configurable,
         defaultBinding: .init(keyCode: UInt16(kVK_ANSI_Comma), modifiers: .command)
-      ),
-      .init(
-        id: .quit,
-        title: "Quit touch-code",
-        category: .general,
-        scope: .systemFixed,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_Q), modifiers: .command)
       ),
       .init(
         id: .commandPaletteToggle,

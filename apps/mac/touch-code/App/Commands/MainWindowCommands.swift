@@ -20,7 +20,8 @@ import TouchCodeCore
 ///   common case. In-GitViewer keybindings (`j / k / g / G / …`) gate on
 ///   `press.modifiers.isEmpty` and are never shadowed by these ⌘-modified chords.
 /// - The app delegate guards `⌘Q` quit with a confirmation when running terminal sessions
-///   exist; the registry tracks `.quit` as `.systemFixed` for display only.
+///   exist. The chord itself is the standard AppKit one and is not registered with the
+///   shortcut registry — quitting is a system-level action, not a rebindable in-app command.
 struct MainWindowCommands: Commands {
   let store: () -> StoreOf<RootFeature>?
   /// Snapshot of the live `ShortcutsStore.resolved` map. Re-injected from `TouchCodeApp.body`

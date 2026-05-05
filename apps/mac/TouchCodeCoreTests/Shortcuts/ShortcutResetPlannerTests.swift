@@ -3,10 +3,10 @@ import Testing
 
 @testable import TouchCodeCore
 
-/// Tests for the cascading-reset planner. Most scenarios use a small, hand-built schema so
+/// Tests for the cascading-reset planner. All scenarios use small, hand-built schemas so
 /// the colliding-default scenarios are explicit and don't depend on the production registry's
-/// chord choices. The system-fixed scenario uses `ShortcutSchema.app` because that schema is
-/// the one carrying `.systemFixed` rows in production.
+/// chord choices. The production schema currently carries no `.systemFixed` rows, so the
+/// system-fixed contract test plants a synthetic `.systemFixed` entry into a custom schema.
 struct ShortcutResetPlannerTests {
   // MARK: - Helpers
 
@@ -105,27 +105,46 @@ struct ShortcutResetPlannerTests {
 
   @Test
   func systemFixedCommandsNeverAppearInCascadeList() {
-    // Use the production schema so we have a real `.systemFixed` row (`.openSettings` on
-    // ⌘,). Bind `.commandPaletteToggle` (configurable) to the same chord as `.openSettings`.
-    // Resetting any unrelated configurable target must not cascade-clear
-    // `.commandPaletteToggle` because of the `.systemFixed` collision, and `.openSettings`
-    // itself must never appear as a cascade victim.
-    guard let openSettingsDefault = ShortcutSchema.app.entry(for: .openSettings)?.defaultBinding else {
-      Issue.record("Missing schema entry for .openSettings.")
-      return
-    }
+    // Custom schema with one synthetic `.systemFixed` row (`.openSettings` on ⌘,) plus two
+    // `.configurable` rows. Bind `.commandPaletteToggle` (configurable) to the same chord
+    // as the system-fixed row. Resetting an unrelated configurable target must not
+    // cascade-clear the configurable holder because of the `.systemFixed` collision, and
+    // the `.systemFixed` row itself must never appear as a cascade victim.
+    let systemFixedChord = Self.binding(0x2B, .command)
+    let schema = ShortcutSchema(entries: [
+      .init(
+        id: .openSettings,
+        title: "Open Settings",
+        category: .general,
+        scope: .systemFixed,
+        defaultBinding: systemFixedChord
+      ),
+      .init(
+        id: .commandPaletteToggle,
+        title: "Quick Action",
+        category: .general,
+        scope: .configurable,
+        defaultBinding: Self.binding(0x23, .command)
+      ),
+      .init(
+        id: .newTab,
+        title: "New Tab",
+        category: .terminal,
+        scope: .configurable,
+        defaultBinding: Self.binding(0x11, .command)
+      ),
+    ])
 
-    // Override `.commandPaletteToggle` to the same chord as `.openSettings`'s system-fixed
-    // default. Also override `.newTab` arbitrarily so we have a well-defined reset target
-    // whose default does not collide with anything.
+    // Override `.commandPaletteToggle` to the same chord as the system-fixed row, plus
+    // an unrelated override on `.newTab` so we have a well-defined reset target.
     let overrides = ShortcutOverrideStore(overrides: [
-      .commandPaletteToggle: openSettingsDefault,
+      .commandPaletteToggle: systemFixedChord,
       .newTab: Self.binding(0xFE, [.command, .control, .option, .shift]),
     ])
 
     let plan = ShortcutResetPlanner.plan(
       resetting: .newTab,
-      schema: .app,
+      schema: schema,
       overrides: overrides
     )
 
@@ -136,7 +155,7 @@ struct ShortcutResetPlannerTests {
     // The intentional configurable-vs-systemFixed collision survives the reset: the user's
     // deliberate `.commandPaletteToggle` override is still in place.
     let palette = plan.resultingMap[.commandPaletteToggle]
-    #expect(palette?.binding == openSettingsDefault)
+    #expect(palette?.binding == systemFixedChord)
     #expect(palette?.source == .userOverride)
   }
 

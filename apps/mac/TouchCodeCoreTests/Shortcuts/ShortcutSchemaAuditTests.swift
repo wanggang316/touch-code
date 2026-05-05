@@ -51,7 +51,6 @@ struct ShortcutSchemaAuditTests {
   /// edit fails the audit unless this table is updated in the same commit.
   private static let golden: [(CommandID, (keyCode: UInt16, modifiers: ModifierMask))] = [
     (.openSettings, (0x2B, [.command])),                    // ,
-    (.quit, (0x0C, [.command])),                            // q
     (.commandPaletteToggle, (0x23, [.command])),            // p
     (.openInEditor, (0x1F, [.command])),                    // o
     (.toggleDiffInspector, (0x05, [.command, .option])),    // g

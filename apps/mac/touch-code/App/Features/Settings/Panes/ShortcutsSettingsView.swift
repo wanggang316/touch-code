@@ -348,8 +348,9 @@ private struct HotkeyCell: View {
   }
 
   /// Configurable rows are buttons that toggle a `HotkeyRecorderPopover`; non-configurable
-  /// rows ("System default" — `.openSettings`, `.quit`) render the chord as a static
-  /// bordered cell since the user cannot rebind them.
+  /// rows render the chord as a static bordered cell since the user cannot rebind them.
+  /// The production schema currently has no non-configurable entries; the branch stays as
+  /// defensive support for future `.systemFixed` / `.localOnly` rows.
   @ViewBuilder
   private func chordButton(entry: ShortcutSchema.Entry, resolved: ResolvedShortcut?) -> some View {
     if entry.scope == .configurable {

@@ -86,12 +86,12 @@ struct TouchCodeApp: App {
         shortcuts: appState.shortcutsStore.resolved
       )
       CommandGroup(replacing: .appSettings) {
-        // `.openSettings` is registered as `.systemFixed` in the schema (display-only); the
-        // chord stays as the AppKit-conventional ⌘, regardless of any user override attempt.
+        // Chord routes through the registry so a user override in Settings → Shortcuts
+        // rebinds the menu item without restart. Default remains the AppKit-conventional ⌘,.
         Button("Settings…") {
           openWindow(id: TouchCodeApp.settingsWindowID)
         }
-        .keyboardShortcut(",", modifiers: .command)
+        .appKeyboardShortcut(.openSettings, in: appState.shortcutsStore.resolved)
       }
     }
 
