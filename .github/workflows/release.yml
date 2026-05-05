@@ -37,11 +37,15 @@ jobs:
       # treats SwiftUICore.tbd as a private framework with a bundle-id
       # allowed-clients list that does not include our app, breaking
       # the link step. Xcode 26.0 (our local pinned floor) does not
-      # have this restriction. Pin DEVELOPER_DIR explicitly so the
-      # workflow stays reproducible against our supported Xcode.
+      # have this restriction. Export DEVELOPER_DIR for every later
+      # step — apps/mac/Makefile has `export DEVELOPER_DIR ?= …Xcode.app…`
+      # which would otherwise fall back to the 26.2-symlink.
       - name: Pin Xcode 26.0
         run: |
-          sudo xcode-select -s /Applications/Xcode_26.0.app/Contents/Developer
+          XCODE_DEV=/Applications/Xcode_26.0.app/Contents/Developer
+          [ -d "$XCODE_DEV" ] || { echo "::error::$XCODE_DEV missing on this runner image"; exit 1; }
+          sudo xcode-select -s "$XCODE_DEV"
+          echo "DEVELOPER_DIR=$XCODE_DEV" >> "$GITHUB_ENV"
           xcodebuild -version
       - name: Resolve tag and version
         id: meta
