@@ -87,11 +87,15 @@ public final class SocketServer {
     self.listenFD = fd
     logger.info("socket listening at \(self.path, privacy: .public)")
 
+    // Handlers are invoked by libdispatch on `acceptQueue`. Without `@Sendable`,
+    // `-default-isolation=MainActor` infers them as MainActor-isolated and the
+    // Swift 6 runtime check (`_swift_task_checkIsolatedSwift`) traps the queue
+    // callout with `_dispatch_assert_queue_fail`.
     let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: acceptQueue)
-    source.setEventHandler { [weak self] in
+    source.setEventHandler { @Sendable [weak self] in
       self?.drainAccepts(fd: fd)
     }
-    source.setCancelHandler {
+    source.setCancelHandler { @Sendable in
       Darwin.close(fd)
     }
     source.activate()
