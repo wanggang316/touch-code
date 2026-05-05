@@ -185,6 +185,26 @@ struct RootFeature {
     /// with wrap-around. Calls `HierarchyClient.selectAdjacentTab`
     /// directly since the traversal logic lives in `HierarchyManager`.
     case selectAdjacentTabForCurrentWorktree(TabAdjacency)
+    /// Resolves the current Worktree's path and asks the Finder client
+    /// to reveal it. Mirrors the palette's `revealCurrentWorktreeInFinder`
+    /// kind so the menu binding and the palette item land on the same
+    /// effect. Silent no-op when no worktree is selected.
+    case revealCurrentWorktreeInFinderRequested
+    /// Resolves current selection and forwards to the existing
+    /// `worktreeArchiveTapped` flow so the archive confirmation dialog
+    /// runs identically to the row context-menu path.
+    case archiveCurrentWorktreeRequested
+    /// Resolves current selection and forwards to `worktreeRemoveTapped`
+    /// so the delete confirmation dialog runs identically to the row
+    /// context-menu path.
+    case deleteCurrentWorktreeRequested
+    /// Opens the Archived Worktrees sheet for the current Project. No-op
+    /// when no project is selected.
+    case showArchivedWorktreesForCurrentProjectRequested
+    /// Forwards `WindowAction.checkForUpdates` through the router so the
+    /// menu chord, the palette item, and any other entry point share the
+    /// same effect.
+    case checkForUpdatesRequested
     /// $EDITOR routing. Dispatched from `EditorFeature.delegate.openShellEditorRequested`
     /// when any editor-open path resolves the preferred id to `EditorRegistry.shellEditorID`.
     /// Locates the target Worktree by path, creates a fresh Tab, and spawns a Pane with
@@ -1057,6 +1077,63 @@ struct RootFeature {
         // action to forward since there's no TabID to look up yet.
         _ = try? hierarchyClient.selectAdjacentTab(direction, worktreeID, projectID)
         return .none
+
+      case .revealCurrentWorktreeInFinderRequested:
+        guard
+          let projectID = state.selection.projectID,
+          let worktreeID = state.selection.worktreeID
+        else { return .none }
+        let catalog = hierarchyClient.snapshot()
+        guard
+          let path = catalog
+            .projects.first(where: { $0.id == projectID })?
+            .worktrees.first(where: { $0.id == worktreeID })?.path
+        else { return .none }
+        let client = finderClient
+        return .run { _ in await MainActor.run { client.reveal(path) } }
+
+      case .archiveCurrentWorktreeRequested:
+        guard
+          let projectID = state.selection.projectID,
+          let worktreeID = state.selection.worktreeID
+        else { return .none }
+        let catalog = hierarchyClient.snapshot()
+        let name =
+          catalog
+          .projects.first(where: { $0.id == projectID })?
+          .worktrees.first(where: { $0.id == worktreeID })?.name ?? ""
+        return .send(
+          .sidebar(
+            .worktreeArchiveTapped(
+              worktreeID: worktreeID, inProject: projectID, name: name
+            )
+          )
+        )
+
+      case .deleteCurrentWorktreeRequested:
+        guard
+          let projectID = state.selection.projectID,
+          let worktreeID = state.selection.worktreeID
+        else { return .none }
+        let catalog = hierarchyClient.snapshot()
+        let name =
+          catalog
+          .projects.first(where: { $0.id == projectID })?
+          .worktrees.first(where: { $0.id == worktreeID })?.name ?? ""
+        return .send(
+          .sidebar(
+            .worktreeRemoveTapped(
+              worktreeID: worktreeID, inProject: projectID, name: name
+            )
+          )
+        )
+
+      case .showArchivedWorktreesForCurrentProjectRequested:
+        guard let projectID = state.selection.projectID else { return .none }
+        return .send(.sidebar(.projectShowArchivedTapped(projectID: projectID)))
+
+      case .checkForUpdatesRequested:
+        return .send(.windowActionRouter(.requested(.checkForUpdates)))
       }
     }
     .ifLet(\.$commandPalette, action: \.commandPalette) {
@@ -1083,7 +1160,7 @@ struct RootFeature {
       let presenter = settingsWindowPresenter
       return .run { _ in await MainActor.run { presenter.open() } }
     case .checkForUpdates:
-      return .send(.windowActionRouter(.requested(.checkForUpdates)))
+      return .send(.checkForUpdatesRequested)
     case .quit:
       return .send(.windowActionRouter(.requested(.quit)))
 
@@ -1093,21 +1170,7 @@ struct RootFeature {
         .sidebar(.worktreeRowTapped(worktreeID, inProject: projectID))
       )
     case .closeCurrentWorktree:
-      guard let projectID = state.selection.projectID,
-        let worktreeID = state.selection.worktreeID
-      else { return .none }
-      let catalog = hierarchyClient.snapshot()
-      let name =
-        catalog
-        .projects.first(where: { $0.id == projectID })?
-        .worktrees.first(where: { $0.id == worktreeID })?.name ?? ""
-      return .send(
-        .sidebar(
-          .worktreeRemoveTapped(
-            worktreeID: worktreeID, inProject: projectID, name: name
-          )
-        )
-      )
+      return .send(.deleteCurrentWorktreeRequested)
     case .refreshCurrentWorktree:
       guard let projectID = state.selection.projectID else { return .none }
       return .run { [projectReconciler] _ in
@@ -1137,17 +1200,7 @@ struct RootFeature {
         )
       )
     case .revealCurrentWorktreeInFinder:
-      guard let projectID = state.selection.projectID,
-        let worktreeID = state.selection.worktreeID
-      else { return .none }
-      let catalog = hierarchyClient.snapshot()
-      guard
-        let path = catalog
-          .projects.first(where: { $0.id == projectID })?
-          .worktrees.first(where: { $0.id == worktreeID })?.path
-      else { return .none }
-      let client = finderClient
-      return .run { _ in await MainActor.run { client.reveal(path) } }
+      return .send(.revealCurrentWorktreeInFinderRequested)
 
     // Project scripts (Phase 2 / M10) — palette item carries the
     // (projectID, worktreeID, scriptID) triple, fan out into the same

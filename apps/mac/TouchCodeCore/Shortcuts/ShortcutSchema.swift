@@ -77,6 +77,13 @@ extension ShortcutSchema {
         scope: .configurable,
         defaultBinding: .init(keyCode: UInt16(kVK_ANSI_P), modifiers: .command)
       ),
+      .init(
+        id: .checkForUpdates,
+        title: "Check for Updates",
+        category: .general,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_U), modifiers: .command)
+      ),
 
       // Project & Worktree — list, lifecycle, identity.
       .init(
@@ -99,6 +106,34 @@ extension ShortcutSchema {
         category: .projectAndWorktree,
         scope: .configurable,
         defaultBinding: .init(keyCode: UInt16(kVK_ANSI_G), modifiers: [.command, .option])
+      ),
+      .init(
+        id: .revealCurrentWorktreeInFinder,
+        title: "Reveal in Finder",
+        category: .projectAndWorktree,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_R), modifiers: [.command, .option])
+      ),
+      .init(
+        id: .archiveCurrentWorktree,
+        title: "Archive Worktree",
+        category: .projectAndWorktree,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_Delete), modifiers: .command)
+      ),
+      .init(
+        id: .deleteCurrentWorktree,
+        title: "Delete Worktree",
+        category: .projectAndWorktree,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_Delete), modifiers: [.command, .shift])
+      ),
+      .init(
+        id: .showArchivedWorktrees,
+        title: "Show Archived Worktrees",
+        category: .projectAndWorktree,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_A), modifiers: [.command, .control])
       ),
       .init(
         id: .selectWorktreeAt1,

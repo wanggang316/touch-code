@@ -52,6 +52,7 @@ struct ShortcutSchemaAuditTests {
   private static let golden: [(CommandID, (keyCode: UInt16, modifiers: ModifierMask))] = [
     (.openSettings, (0x2B, [.command])),                    // ,
     (.commandPaletteToggle, (0x23, [.command])),            // p
+    (.checkForUpdates, (0x20, [.command])),                 // u
     (.openInEditor, (0x1F, [.command])),                    // o
     (.toggleDiffInspector, (0x05, [.command, .option])),    // g
     (.addProject, (0x1F, [.command, .shift])),              // ⇧O
@@ -59,6 +60,10 @@ struct ShortcutSchemaAuditTests {
     (.newWorktree, (0x2D, [.command])),                     // n
     (.splitRight, (0x02, [.command])),                      // d
     (.splitDown, (0x02, [.command, .shift])),               // ⇧d
+    (.revealCurrentWorktreeInFinder, (0x0F, [.command, .option])),  // ⌥R
+    (.archiveCurrentWorktree, (0x33, [.command])),                  // ⌘⌫
+    (.deleteCurrentWorktree, (0x33, [.command, .shift])),           // ⌘⇧⌫
+    (.showArchivedWorktrees, (0x00, [.command, .control])),         // ⌃A
     (.newTab, (0x11, [.command])),                          // t
     (.closeTab, (0x0D, [.command])),                        // w
     (.previousTab, (0x21, [.command, .shift])),             // [

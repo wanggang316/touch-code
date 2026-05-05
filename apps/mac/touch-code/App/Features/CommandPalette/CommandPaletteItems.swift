@@ -90,6 +90,7 @@ enum CommandPaletteItems {
         id: "app.check-for-updates",
         title: "Check for Updates…",
         icon: "arrow.down.circle",
+        commandID: .checkForUpdates,
         kind: .checkForUpdates
       ),
       CommandPaletteItem(
@@ -131,6 +132,7 @@ enum CommandPaletteItems {
         title: "Reveal in Finder",
         subtitle: worktreeName,
         icon: "folder",
+        commandID: .revealCurrentWorktreeInFinder,
         kind: .revealCurrentWorktreeInFinder
       ),
       CommandPaletteItem(
@@ -142,9 +144,10 @@ enum CommandPaletteItems {
       ),
       CommandPaletteItem(
         id: "worktree.close",
-        title: "Close Worktree",
+        title: "Delete Worktree",
         subtitle: worktreeName,
         icon: "xmark.square",
+        commandID: .deleteCurrentWorktree,
         hiddenWhenQueryEmpty: true,
         kind: .closeCurrentWorktree
       ),

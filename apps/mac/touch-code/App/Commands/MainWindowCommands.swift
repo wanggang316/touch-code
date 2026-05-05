@@ -68,6 +68,41 @@ struct MainWindowCommands: Commands {
       }
       .appKeyboardShortcut(.openCurrentPR, in: shortcuts)
       .disabled(!hasPRForCurrentWorktree)
+
+      Divider()
+
+      Button("Reveal in Finder") {
+        store()?.send(.revealCurrentWorktreeInFinderRequested)
+      }
+      .appKeyboardShortcut(.revealCurrentWorktreeInFinder, in: shortcuts)
+      .disabled(!hasActiveWorktree)
+
+      Button("Archive Worktree") {
+        store()?.send(.archiveCurrentWorktreeRequested)
+      }
+      .appKeyboardShortcut(.archiveCurrentWorktree, in: shortcuts)
+      .disabled(!hasActiveWorktree)
+
+      Button("Delete Worktree") {
+        store()?.send(.deleteCurrentWorktreeRequested)
+      }
+      .appKeyboardShortcut(.deleteCurrentWorktree, in: shortcuts)
+      .disabled(!hasActiveWorktree)
+
+      Button("Show Archived Worktrees") {
+        store()?.send(.showArchivedWorktreesForCurrentProjectRequested)
+      }
+      .appKeyboardShortcut(.showArchivedWorktrees, in: shortcuts)
+      .disabled(!hasCurrentProject)
+    }
+
+    // Check for Updates… lives next to the app menu's About / Settings group.
+    CommandGroup(after: .appInfo) {
+      Button("Check for Updates…") {
+        store()?.send(.checkForUpdatesRequested)
+      }
+      .appKeyboardShortcut(.checkForUpdates, in: shortcuts)
+      .disabled(store() == nil)
     }
 
     // Tab-bar uplift (M2-T2.9). Lands in its own CommandGroup — placed

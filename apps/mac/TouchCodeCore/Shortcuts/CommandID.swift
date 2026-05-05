@@ -14,6 +14,7 @@ import Foundation
 public enum CommandID: String, CaseIterable, Hashable, Sendable, Codable, CodingKeyRepresentable {
   // App scope.
   case openSettings
+  case checkForUpdates
 
   // Quick action.
   case commandPaletteToggle
@@ -35,6 +36,12 @@ public enum CommandID: String, CaseIterable, Hashable, Sendable, Codable, Coding
   case newWorktree
   case splitRight
   case splitDown
+
+  // Worktree row operations.
+  case revealCurrentWorktreeInFinder
+  case archiveCurrentWorktree
+  case deleteCurrentWorktree
+  case showArchivedWorktrees
 
   // Window — tabs.
   case newTab
