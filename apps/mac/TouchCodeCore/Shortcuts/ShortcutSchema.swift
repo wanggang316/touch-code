@@ -87,13 +87,6 @@ extension ShortcutSchema {
         defaultBinding: .init(keyCode: UInt16(kVK_ANSI_O), modifiers: [.command, .shift])
       ),
       .init(
-        id: .filterTags,
-        title: "Filter Tags",
-        category: .projectAndWorktree,
-        scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_F), modifiers: .command)
-      ),
-      .init(
         id: .newWorktree,
         title: "New Worktree…",
         category: .projectAndWorktree,

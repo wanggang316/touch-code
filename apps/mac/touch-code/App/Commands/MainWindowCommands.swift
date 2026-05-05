@@ -51,12 +51,6 @@ struct MainWindowCommands: Commands {
       .appKeyboardShortcut(.toggleDiffInspector, in: shortcuts)
       .disabled(!hasActiveWorktree)
 
-      Button("Filter Tags") {
-        store()?.send(.sidebar(.tagFilterFocusRequested))
-      }
-      .appKeyboardShortcut(.filterTags, in: shortcuts)
-      .disabled(store() == nil)
-
       Button("Add Project…") {
         store()?.send(.sidebar(.toolbarAddProjectTapped))
       }

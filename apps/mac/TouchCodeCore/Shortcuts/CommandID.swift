@@ -30,7 +30,6 @@ public enum CommandID: String, CaseIterable, Hashable, Sendable, Codable, Coding
   // not change once shipped (see this enum's docstring). Renaming it would
   // orphan every existing user override of the ⌘⇧G binding.
   case toggleDiffInspector = "toggleGitViewer"
-  case filterTags
   case addProject
   case openCurrentPR
   case newWorktree
