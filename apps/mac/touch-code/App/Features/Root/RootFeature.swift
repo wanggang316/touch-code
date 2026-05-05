@@ -71,6 +71,14 @@ struct RootFeature {
     /// menu chord (⌘[) and the system disclosure button stay in sync.
     var sidebarVisible: Bool = true
 
+    /// Reveal-in-sidebar trigger. The chord (⌘⇧E) bumps this to a fresh
+    /// UUID; `HierarchySidebarView` observes the change and asks its
+    /// `ScrollViewProxy` to scroll the currently-selected row into view.
+    /// Stored as a UUID rather than a counter so the value is robust to
+    /// state-codable round trips and to avoid integer overflow on long
+    /// sessions, even though neither matters in practice.
+    var revealSelectionTrigger: UUID = UUID()
+
     /// T3: live read of the current Worktree's `diffInspectorVisible` against
     /// a catalog snapshot. Not a cached field — views pass in
     /// `hierarchyManager.catalog` so SwiftUI's `@Observable` tracking
@@ -217,6 +225,10 @@ struct RootFeature {
     /// this through a binding, so the chord, the disclosure button, and any
     /// future UI affordance share the same source of truth.
     case toggleSidebarRequested
+    /// Ensures the sidebar is open and asks the sidebar view to scroll the
+    /// selected row into view. Bumps `revealSelectionTrigger` so the view's
+    /// `.onChange` fires even when the chord is pressed twice in a row.
+    case revealCurrentWorktreeInSidebarRequested
     /// $EDITOR routing. Dispatched from `EditorFeature.delegate.openShellEditorRequested`
     /// when any editor-open path resolves the preferred id to `EditorRegistry.shellEditorID`.
     /// Locates the target Worktree by path, creates a fresh Tab, and spawns a Pane with
@@ -1167,6 +1179,11 @@ struct RootFeature {
 
       case .toggleSidebarRequested:
         state.sidebarVisible.toggle()
+        return .none
+
+      case .revealCurrentWorktreeInSidebarRequested:
+        state.sidebarVisible = true
+        state.revealSelectionTrigger = UUID()
         return .none
       }
     }

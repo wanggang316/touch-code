@@ -108,6 +108,12 @@ struct MainWindowCommands: Commands {
       }
       .appKeyboardShortcut(.toggleSidebar, in: shortcuts)
       .disabled(store() == nil)
+
+      Button("Reveal in Sidebar") {
+        store()?.send(.revealCurrentWorktreeInSidebarRequested)
+      }
+      .appKeyboardShortcut(.revealCurrentWorktreeInSidebar, in: shortcuts)
+      .disabled(!hasActiveWorktree)
     }
 
     // Check for Updates… lives next to the app menu's About / Settings group.

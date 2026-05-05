@@ -19,6 +19,12 @@ import TouchCodeCore
 struct HierarchySidebarView: View {
   @Bindable var store: StoreOf<HierarchySidebarFeature>
   let currentSelection: HierarchySelection
+  /// Bumped by `RootFeature.revealCurrentWorktreeInSidebarRequested` (⌘⇧E).
+  /// `.onChange(of:)` on this UUID triggers a `proxy.scrollTo` so the
+  /// selected row comes back into view even when the user has scrolled
+  /// elsewhere. Defaults to a fixed UUID for previews so the no-op render
+  /// path is deterministic.
+  var revealTrigger: UUID = UUID()
   /// Optional GitHub integration store. When non-nil, each Worktree row renders a PR
   /// badge (silent when no PR is matched) and the row hosts the PR popover. Nil in
   /// previews / tests that don't exercise the integration.
@@ -327,16 +333,22 @@ struct HierarchySidebarView: View {
       // On macOS 26 / NavigationSplitView sidebar columns, both `.hidden` and
       // `.never` silently collapse the List's top titlebar safe area — the
       // first row then draws at y=0, overlapping with the traffic lights.
-      // Accepting the scroller-when-needed trade-off; supacode + Prowl both
-      // tolerate the default indicator posture here.
-      List(selection: nativeSelectionBinding) {
-        ForEach(projects) { project in
-          projectSection(project, hotkeyIndex: hotkeyIndex)
+      // Accepting the scroller-when-needed trade-off; the default indicator
+      // posture is fine for source-list-style sidebars.
+      ScrollViewReader { proxy in
+        List(selection: nativeSelectionBinding) {
+          ForEach(projects) { project in
+            projectSection(project, hotkeyIndex: hotkeyIndex)
+          }
+        }
+        .listStyle(.sidebar)
+        .opacity(sidebarIndentReady ? 1 : 0)
+        .background(SidebarIndentZeroer(onReady: { sidebarIndentReady = true }))
+        .onChange(of: revealTrigger) { _, _ in
+          guard let worktreeID = currentSelection.worktreeID else { return }
+          withAnimation { proxy.scrollTo(worktreeID, anchor: .center) }
         }
       }
-      .listStyle(.sidebar)
-      .opacity(sidebarIndentReady ? 1 : 0)
-      .background(SidebarIndentZeroer(onReady: { sidebarIndentReady = true }))
     }
   }
 

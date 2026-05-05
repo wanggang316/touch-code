@@ -150,6 +150,13 @@ extension ShortcutSchema {
         defaultBinding: .init(keyCode: UInt16(kVK_ANSI_LeftBracket), modifiers: .command)
       ),
       .init(
+        id: .revealCurrentWorktreeInSidebar,
+        title: "Reveal in Sidebar",
+        category: .projectAndWorktree,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_E), modifiers: [.command, .shift])
+      ),
+      .init(
         id: .selectWorktreeAt1,
         title: "Select Worktree 1",
         category: .projectAndWorktree,

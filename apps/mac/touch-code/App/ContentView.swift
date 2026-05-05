@@ -72,6 +72,7 @@ struct ContentView: View {
       HierarchySidebarView(
         store: store.scope(state: \.sidebar, action: \.sidebar),
         currentSelection: store.selection,
+        revealTrigger: store.revealSelectionTrigger,
         gitHubStore: store.scope(state: \.gitHub, action: \.gitHub),
         editorStore: store.scope(state: \.editor, action: \.editor)
       )
