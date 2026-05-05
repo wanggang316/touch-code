@@ -136,6 +136,8 @@ cmd_archive() {
     -destination "generic/platform=macOS" \
     -archivePath "${archive_path}" \
     SKIP_INSTALL=NO \
+    ARCHS=arm64 \
+    ONLY_ACTIVE_ARCH=NO \
     CODE_SIGN_STYLE=Manual \
     DEVELOPMENT_TEAM="${team_id}" \
     CODE_SIGN_IDENTITY="${identity_sha}" \
