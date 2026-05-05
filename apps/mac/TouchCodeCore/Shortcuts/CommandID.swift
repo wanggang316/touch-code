@@ -47,6 +47,8 @@ public enum CommandID: String, CaseIterable, Hashable, Sendable, Codable, Coding
   // Sidebar.
   case toggleSidebar
   case revealCurrentWorktreeInSidebar
+  case selectNextWorktree
+  case selectPreviousWorktree
 
   // Window — tabs.
   case newTab

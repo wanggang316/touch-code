@@ -114,6 +114,18 @@ struct MainWindowCommands: Commands {
       }
       .appKeyboardShortcut(.revealCurrentWorktreeInSidebar, in: shortcuts)
       .disabled(!hasActiveWorktree)
+
+      Button("Select Previous Worktree") {
+        store()?.send(.selectAdjacentWorktreeRequested(.previous))
+      }
+      .appKeyboardShortcut(.selectPreviousWorktree, in: shortcuts)
+      .disabled(store() == nil)
+
+      Button("Select Next Worktree") {
+        store()?.send(.selectAdjacentWorktreeRequested(.next))
+      }
+      .appKeyboardShortcut(.selectNextWorktree, in: shortcuts)
+      .disabled(store() == nil)
     }
 
     // Check for Updates… lives next to the app menu's About / Settings group.

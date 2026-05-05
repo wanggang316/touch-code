@@ -229,6 +229,11 @@ struct RootFeature {
     /// selected row into view. Bumps `revealSelectionTrigger` so the view's
     /// `.onChange` fires even when the chord is pressed twice in a row.
     case revealCurrentWorktreeInSidebarRequested
+    /// Moves selection to the next/previous Worktree in sidebar display
+    /// order, wrapping at the ends. Display order matches what the sidebar
+    /// renders: projects in catalog order, within each project the main
+    /// row first, then pinned, then unpinned, archived rows excluded.
+    case selectAdjacentWorktreeRequested(TabAdjacency)
     /// $EDITOR routing. Dispatched from `EditorFeature.delegate.openShellEditorRequested`
     /// when any editor-open path resolves the preferred id to `EditorRegistry.shellEditorID`.
     /// Locates the target Worktree by path, creates a fresh Tab, and spawns a Pane with
@@ -1185,6 +1190,25 @@ struct RootFeature {
         state.sidebarVisible = true
         state.revealSelectionTrigger = UUID()
         return .none
+
+      case .selectAdjacentWorktreeRequested(let direction):
+        let catalog = hierarchyClient.snapshot()
+        let order = Self.flattenedWorktreeOrder(in: catalog)
+        guard !order.isEmpty else { return .none }
+        let currentIndex =
+          order.firstIndex(where: { $0.worktreeID == state.selection.worktreeID }) ?? -1
+        let count = order.count
+        let nextIndex: Int
+        switch direction {
+        case .next:
+          nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % count
+        case .previous:
+          nextIndex = currentIndex < 0 ? count - 1 : (currentIndex - 1 + count) % count
+        }
+        let target = order[nextIndex]
+        return .send(
+          .sidebar(.worktreeRowTapped(target.worktreeID, inProject: target.projectID))
+        )
       }
     }
     .ifLet(\.$commandPalette, action: \.commandPalette) {
@@ -1445,6 +1469,26 @@ struct RootFeature {
   private func lookupProject(projectID: ProjectID) -> Project? {
     let catalog = hierarchyClient.snapshot()
     return catalog.projects.first(where: { $0.id == projectID })
+  }
+
+  /// Flat list of (projectID, worktreeID) tuples in the order the sidebar
+  /// renders: projects in catalog order; within each project, main row
+  /// first, then pinned, then unpinned. Archived rows are excluded — they
+  /// only appear in the Archived sheet, not the navigable list.
+  static func flattenedWorktreeOrder(
+    in catalog: Catalog
+  ) -> [(projectID: ProjectID, worktreeID: WorktreeID)] {
+    var result: [(projectID: ProjectID, worktreeID: WorktreeID)] = []
+    for project in catalog.projects {
+      let visible = project.worktrees.filter { !$0.archived }
+      let main = visible.filter { $0.path == project.rootPath }
+      let pinned = visible.filter { $0.isPinned && $0.path != project.rootPath }
+      let unpinned = visible.filter { !$0.isPinned && $0.path != project.rootPath }
+      for worktree in main + pinned + unpinned {
+        result.append((projectID: project.id, worktreeID: worktree.id))
+      }
+    }
+    return result
   }
 
 }

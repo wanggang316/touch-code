@@ -157,6 +157,20 @@ extension ShortcutSchema {
         defaultBinding: .init(keyCode: UInt16(kVK_ANSI_E), modifiers: [.command, .shift])
       ),
       .init(
+        id: .selectPreviousWorktree,
+        title: "Select Previous Worktree",
+        category: .projectAndWorktree,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_UpArrow), modifiers: [.command, .control])
+      ),
+      .init(
+        id: .selectNextWorktree,
+        title: "Select Next Worktree",
+        category: .projectAndWorktree,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_DownArrow), modifiers: [.command, .control])
+      ),
+      .init(
         id: .selectWorktreeAt1,
         title: "Select Worktree 1",
         category: .projectAndWorktree,
