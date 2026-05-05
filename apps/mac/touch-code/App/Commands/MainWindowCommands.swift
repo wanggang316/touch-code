@@ -38,10 +38,10 @@ struct MainWindowCommands: Commands {
 
       Divider()
 
-      Button("Open in Default Editor") {
+      Button("Open in Editor") {
         store()?.send(.openDefaultForCurrentWorktreeRequested)
       }
-      .appKeyboardShortcut(.openInDefaultEditor, in: shortcuts)
+      .appKeyboardShortcut(.openInEditor, in: shortcuts)
       .disabled(!hasActiveWorktree)
 
       Button("Toggle Git Viewer") {

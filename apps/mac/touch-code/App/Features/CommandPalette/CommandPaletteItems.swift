@@ -159,11 +159,11 @@ enum CommandPaletteItems {
     var items: [CommandPaletteItem] = [
       CommandPaletteItem(
         id: "editor.open-default",
-        title: "Open in Default Editor",
+        title: "Open in Editor",
         subtitle: worktreeName,
         icon: "arrow.up.forward.app",
         shortcut: .command("E"),
-        commandID: .openInDefaultEditor,
+        commandID: .openInEditor,
         kind: .openCurrentWorktreeInDefaultEditor
       )
     ]

@@ -29,7 +29,7 @@ struct HeaderOpenSplitButton: View {
       // the primary "Open in <Editor>" action.
       HStack(spacing: 4) {
         primaryIcon
-          .commandKeyHint(.openInDefaultEditor)
+          .commandKeyHint(.openInEditor)
         Text(primaryLabel)
           .lineLimit(1)
       }

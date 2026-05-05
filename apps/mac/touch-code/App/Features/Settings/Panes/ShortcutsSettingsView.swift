@@ -491,9 +491,9 @@ extension ShortcutSchema.Category {
   fileprivate var title: String {
     switch self {
     case .general: return "General"
-    case .tabs: return "Tabs"
-    case .sidebar: return "Sidebar"
-    case .system: return "System"
+    case .projectAndWorktree: return "Project & Worktree"
+    case .terminal: return "Terminal"
+    case .actions: return "Actions"
     }
   }
 }

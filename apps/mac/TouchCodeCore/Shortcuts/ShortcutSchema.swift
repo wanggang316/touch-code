@@ -42,9 +42,9 @@ public struct ShortcutSchema: Sendable {
 
   public enum Category: String, CaseIterable, Sendable, Codable {
     case general
-    case tabs
-    case sidebar
-    case system
+    case projectAndWorktree
+    case terminal
+    case actions
   }
 }
 
@@ -62,23 +62,21 @@ extension ShortcutSchema {
   /// pins these against a golden table; updates require deliberate intent.
   public static let app: ShortcutSchema = .init(
     entries: [
-      // System scope — display only.
+      // General — app shell.
       .init(
         id: .openSettings,
         title: "Open Settings",
-        category: .system,
+        category: .general,
         scope: .systemFixed,
         defaultBinding: .init(keyCode: UInt16(kVK_ANSI_Comma), modifiers: .command)
       ),
       .init(
         id: .quit,
         title: "Quit touch-code",
-        category: .system,
+        category: .general,
         scope: .systemFixed,
         defaultBinding: .init(keyCode: UInt16(kVK_ANSI_Q), modifiers: .command)
       ),
-
-      // General scope.
       .init(
         id: .commandPaletteToggle,
         title: "Quick Action",
@@ -86,233 +84,235 @@ extension ShortcutSchema {
         scope: .configurable,
         defaultBinding: .init(keyCode: UInt16(kVK_ANSI_P), modifiers: .command)
       ),
-      .init(
-        id: .openInDefaultEditor,
-        title: "Open in Default Editor",
-        category: .general,
-        scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_O), modifiers: .command)
-      ),
-      .init(
-        id: .toggleDiffInspector,
-        title: "Toggle Git Viewer",
-        category: .general,
-        scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_G), modifiers: [.command, .option])
-      ),
-      .init(
-        id: .filterTags,
-        title: "Filter Tags",
-        category: .general,
-        scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_F), modifiers: .command)
-      ),
+
+      // Project & Worktree — list, lifecycle, identity.
       .init(
         id: .addProject,
         title: "Add Project…",
-        category: .general,
+        category: .projectAndWorktree,
         scope: .configurable,
         defaultBinding: .init(keyCode: UInt16(kVK_ANSI_O), modifiers: [.command, .shift])
       ),
       .init(
-        id: .openCurrentPR,
-        title: "Open PR on GitHub",
-        category: .general,
+        id: .filterTags,
+        title: "Filter Tags",
+        category: .projectAndWorktree,
         scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_G), modifiers: [.command, .shift])
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_F), modifiers: .command)
       ),
       .init(
         id: .newWorktree,
         title: "New Worktree…",
-        category: .general,
+        category: .projectAndWorktree,
         scope: .configurable,
         defaultBinding: .init(keyCode: UInt16(kVK_ANSI_N), modifiers: .command)
       ),
       .init(
-        id: .splitRight,
-        title: "Split Right",
-        category: .tabs,
+        id: .toggleDiffInspector,
+        title: "Toggle Git Viewer",
+        category: .projectAndWorktree,
         scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_D), modifiers: .command)
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_G), modifiers: [.command, .option])
       ),
-      .init(
-        id: .splitDown,
-        title: "Split Down",
-        category: .tabs,
-        scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_D), modifiers: [.command, .shift])
-      ),
-
-      // Tabs scope.
-      .init(
-        id: .newTab,
-        title: "New Tab",
-        category: .tabs,
-        scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_T), modifiers: .command)
-      ),
-      .init(
-        id: .closeTab,
-        title: "Close Tab",
-        category: .tabs,
-        scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_W), modifiers: .command)
-      ),
-      .init(
-        id: .previousTab,
-        title: "Previous Tab",
-        category: .tabs,
-        scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_LeftBracket), modifiers: [.command, .shift])
-      ),
-      .init(
-        id: .nextTab,
-        title: "Next Tab",
-        category: .tabs,
-        scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_RightBracket), modifiers: [.command, .shift])
-      ),
-      .init(
-        id: .switchToTab1,
-        title: "Switch to Tab 1",
-        category: .tabs,
-        scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_1), modifiers: .command)
-      ),
-      .init(
-        id: .switchToTab2,
-        title: "Switch to Tab 2",
-        category: .tabs,
-        scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_2), modifiers: .command)
-      ),
-      .init(
-        id: .switchToTab3,
-        title: "Switch to Tab 3",
-        category: .tabs,
-        scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_3), modifiers: .command)
-      ),
-      .init(
-        id: .switchToTab4,
-        title: "Switch to Tab 4",
-        category: .tabs,
-        scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_4), modifiers: .command)
-      ),
-      .init(
-        id: .switchToTab5,
-        title: "Switch to Tab 5",
-        category: .tabs,
-        scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_5), modifiers: .command)
-      ),
-      .init(
-        id: .switchToTab6,
-        title: "Switch to Tab 6",
-        category: .tabs,
-        scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_6), modifiers: .command)
-      ),
-      .init(
-        id: .switchToTab7,
-        title: "Switch to Tab 7",
-        category: .tabs,
-        scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_7), modifiers: .command)
-      ),
-      .init(
-        id: .switchToTab8,
-        title: "Switch to Tab 8",
-        category: .tabs,
-        scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_8), modifiers: .command)
-      ),
-      .init(
-        id: .switchToTab9,
-        title: "Switch to Tab 9",
-        category: .tabs,
-        scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_9), modifiers: .command)
-      ),
-      .init(
-        id: .switchToTab10,
-        title: "Switch to Tab 10",
-        category: .tabs,
-        scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_0), modifiers: .command)
-      ),
-
-      // Sidebar scope.
       .init(
         id: .selectWorktreeAt1,
         title: "Select Worktree 1",
-        category: .sidebar,
+        category: .projectAndWorktree,
         scope: .configurable,
         defaultBinding: .init(keyCode: UInt16(kVK_ANSI_1), modifiers: [.control])
       ),
       .init(
         id: .selectWorktreeAt2,
         title: "Select Worktree 2",
-        category: .sidebar,
+        category: .projectAndWorktree,
         scope: .configurable,
         defaultBinding: .init(keyCode: UInt16(kVK_ANSI_2), modifiers: [.control])
       ),
       .init(
         id: .selectWorktreeAt3,
         title: "Select Worktree 3",
-        category: .sidebar,
+        category: .projectAndWorktree,
         scope: .configurable,
         defaultBinding: .init(keyCode: UInt16(kVK_ANSI_3), modifiers: [.control])
       ),
       .init(
         id: .selectWorktreeAt4,
         title: "Select Worktree 4",
-        category: .sidebar,
+        category: .projectAndWorktree,
         scope: .configurable,
         defaultBinding: .init(keyCode: UInt16(kVK_ANSI_4), modifiers: [.control])
       ),
       .init(
         id: .selectWorktreeAt5,
         title: "Select Worktree 5",
-        category: .sidebar,
+        category: .projectAndWorktree,
         scope: .configurable,
         defaultBinding: .init(keyCode: UInt16(kVK_ANSI_5), modifiers: [.control])
       ),
       .init(
         id: .selectWorktreeAt6,
         title: "Select Worktree 6",
-        category: .sidebar,
+        category: .projectAndWorktree,
         scope: .configurable,
         defaultBinding: .init(keyCode: UInt16(kVK_ANSI_6), modifiers: [.control])
       ),
       .init(
         id: .selectWorktreeAt7,
         title: "Select Worktree 7",
-        category: .sidebar,
+        category: .projectAndWorktree,
         scope: .configurable,
         defaultBinding: .init(keyCode: UInt16(kVK_ANSI_7), modifiers: [.control])
       ),
       .init(
         id: .selectWorktreeAt8,
         title: "Select Worktree 8",
-        category: .sidebar,
+        category: .projectAndWorktree,
         scope: .configurable,
         defaultBinding: .init(keyCode: UInt16(kVK_ANSI_8), modifiers: [.control])
       ),
       .init(
         id: .selectWorktreeAt9,
         title: "Select Worktree 9",
-        category: .sidebar,
+        category: .projectAndWorktree,
         scope: .configurable,
         defaultBinding: .init(keyCode: UInt16(kVK_ANSI_9), modifiers: [.control])
       ),
       .init(
         id: .selectWorktreeAt10,
         title: "Select Worktree 10",
-        category: .sidebar,
+        category: .projectAndWorktree,
         scope: .configurable,
         defaultBinding: .init(keyCode: UInt16(kVK_ANSI_0), modifiers: [.control])
+      ),
+
+      // Terminal — tabs and split layout.
+      .init(
+        id: .newTab,
+        title: "New Tab",
+        category: .terminal,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_T), modifiers: .command)
+      ),
+      .init(
+        id: .closeTab,
+        title: "Close Tab",
+        category: .terminal,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_W), modifiers: .command)
+      ),
+      .init(
+        id: .previousTab,
+        title: "Previous Tab",
+        category: .terminal,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_LeftBracket), modifiers: [.command, .shift])
+      ),
+      .init(
+        id: .nextTab,
+        title: "Next Tab",
+        category: .terminal,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_RightBracket), modifiers: [.command, .shift])
+      ),
+      .init(
+        id: .splitRight,
+        title: "Split Right",
+        category: .terminal,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_D), modifiers: .command)
+      ),
+      .init(
+        id: .splitDown,
+        title: "Split Down",
+        category: .terminal,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_D), modifiers: [.command, .shift])
+      ),
+      .init(
+        id: .switchToTab1,
+        title: "Switch to Tab 1",
+        category: .terminal,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_1), modifiers: .command)
+      ),
+      .init(
+        id: .switchToTab2,
+        title: "Switch to Tab 2",
+        category: .terminal,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_2), modifiers: .command)
+      ),
+      .init(
+        id: .switchToTab3,
+        title: "Switch to Tab 3",
+        category: .terminal,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_3), modifiers: .command)
+      ),
+      .init(
+        id: .switchToTab4,
+        title: "Switch to Tab 4",
+        category: .terminal,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_4), modifiers: .command)
+      ),
+      .init(
+        id: .switchToTab5,
+        title: "Switch to Tab 5",
+        category: .terminal,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_5), modifiers: .command)
+      ),
+      .init(
+        id: .switchToTab6,
+        title: "Switch to Tab 6",
+        category: .terminal,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_6), modifiers: .command)
+      ),
+      .init(
+        id: .switchToTab7,
+        title: "Switch to Tab 7",
+        category: .terminal,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_7), modifiers: .command)
+      ),
+      .init(
+        id: .switchToTab8,
+        title: "Switch to Tab 8",
+        category: .terminal,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_8), modifiers: .command)
+      ),
+      .init(
+        id: .switchToTab9,
+        title: "Switch to Tab 9",
+        category: .terminal,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_9), modifiers: .command)
+      ),
+      .init(
+        id: .switchToTab10,
+        title: "Switch to Tab 10",
+        category: .terminal,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_0), modifiers: .command)
+      ),
+
+      // Actions — verbs on the current worktree.
+      .init(
+        id: .openInEditor,
+        title: "Open in Editor",
+        category: .actions,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_O), modifiers: .command)
+      ),
+      .init(
+        id: .openCurrentPR,
+        title: "Open PR on GitHub",
+        category: .actions,
+        scope: .configurable,
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_G), modifiers: [.command, .shift])
       ),
     ]
   )

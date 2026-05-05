@@ -23,12 +23,12 @@ struct ShortcutResetPlannerTests {
     c: ShortcutBinding? = nil
   ) -> ShortcutSchema {
     var entries: [ShortcutSchema.Entry] = [
-      .init(id: .newTab, title: "A", category: .tabs, scope: .configurable, defaultBinding: a),
-      .init(id: .closeTab, title: "B", category: .tabs, scope: .configurable, defaultBinding: b),
+      .init(id: .newTab, title: "A", category: .terminal, scope: .configurable, defaultBinding: a),
+      .init(id: .closeTab, title: "B", category: .terminal, scope: .configurable, defaultBinding: b),
     ]
     if let c {
       entries.append(
-        .init(id: .previousTab, title: "C", category: .tabs, scope: .configurable, defaultBinding: c)
+        .init(id: .previousTab, title: "C", category: .terminal, scope: .configurable, defaultBinding: c)
       )
     }
     return ShortcutSchema(entries: entries)

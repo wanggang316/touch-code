@@ -26,7 +26,7 @@ struct HierarchySidebarView: View {
   /// Optional editor store. Drives the worktree context menu's "Open in
   /// <Editor>" entry (resolved default) and "Open in" submenu (every
   /// installed editor). Nil in previews — the submenu falls back to the
-  /// shared "Open in Default Editor" entry alone.
+  /// shared "Open in Editor" entry alone.
   var editorStore: StoreOf<EditorFeature>?
   @Environment(HierarchyManager.self) private var hierarchyManager
   @Environment(SettingsStore.self) private var settingsStore
@@ -719,7 +719,7 @@ struct HierarchySidebarView: View {
   /// available and a default editor resolves (project override → global
   /// default → first installed in the priority cascade), the entry's
   /// title carries that editor's display name. Otherwise we fall back
-  /// to "Open in Default Editor". Uses `arrow.up.forward.app` — the
+  /// to "Open in Editor". Uses `arrow.up.forward.app` — the
   /// "open in external app" glyph — instead of the prior pencil-edit
   /// icon, which read as "edit / rename" rather than "launch".
   @ViewBuilder
@@ -730,7 +730,7 @@ struct HierarchySidebarView: View {
       if let descriptor = resolvedDefaultEditor(for: project.id) {
         return "Open in \(descriptor.displayName)"
       }
-      return "Open in Default Editor"
+      return "Open in Editor"
     }()
     Button {
       store.send(
