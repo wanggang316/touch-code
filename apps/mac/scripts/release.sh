@@ -19,11 +19,12 @@
 #   1. APPLE_TEAM_ID env  (or DEVELOPMENT_TEAM env, both work)
 #   2. Parsed from the cert's CN: "...(<TEAMID>)"
 #
-# Borrowed from supacode: pass signing settings as xcodebuild
-# command-line build settings rather than fighting xcconfig / Tuist
-# defaults. Command-line settings have the highest precedence in
-# Xcode's resolution order, so they win regardless of what the project
-# file contains.
+# Signing is driven by xcodebuild command-line build settings rather
+# than xcconfig or target buildSettings entries. Command-line settings
+# sit at the top of Xcode's resolution chain, so they win regardless of
+# what the project file or any included xcconfig contains — which keeps
+# the script's behaviour independent of how Tuist regenerates the
+# project on each run.
 #
 set -euo pipefail
 
