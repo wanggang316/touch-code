@@ -1,6 +1,19 @@
 // swift-tools-version: 6.0
 import PackageDescription
 
+#if TUIST
+import ProjectDescription
+
+let packageSettings = PackageSettings(
+  productTypes: [
+    // Sparkle ships nested XPC services + a Settings.bundle Helper —
+    // it must be embedded as a dynamic framework, not statically linked,
+    // or its updater won't load at runtime.
+    "Sparkle": .framework,
+  ]
+)
+#endif
+
 let package = Package(
   name: "TouchCodeDependencies",
   dependencies: [
@@ -10,5 +23,6 @@ let package = Package(
     // Resolved eagerly so any future test target can depend on it without re-triggering
     // dependency resolution. See 0005 DEC-2.
     .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.17.0"),
+    .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.1"),
   ]
 )

@@ -266,6 +266,7 @@ let project = Project(
         .target(name: "tcKit"),
         .target(name: "GhosttyKit"),
         .external(name: "ComposableArchitecture"),
+        .external(name: "Sparkle"),
       ],
       settings: .settings(
         base: [

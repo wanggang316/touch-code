@@ -28,5 +28,11 @@
 	<string></string>
 	<key>NSPrincipalClass</key>
 	<string>$(PRINCIPAL_CLASS)</string>
+	<key>SUFeedURL</key>
+	<string>https://github.com/wanggang316/touch-code/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>bRg+MnS8YhPSuwCkPXyrJ7RvwtYGy2vH0HR+1h/IUXo=</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
 </dict>
 </plist>

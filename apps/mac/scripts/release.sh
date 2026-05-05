@@ -161,8 +161,15 @@ cmd_archive() {
 
   [ -d "${app_path}" ] || die "TouchCode.app not found inside the xcarchive"
 
-  log "verifying signature on ${app_path}"
-  codesign --verify --strict --deep --verbose=2 "${app_path}"
+  # Re-sign nested helpers. xcodebuild's deep signing leaves any
+  # framework-bundled XPC services (e.g. Sparkle's Installer.xpc and
+  # Downloader.xpc) with their pre-existing ad-hoc signatures —
+  # codesign --strict --deep accepts that, but Apple's notary service
+  # rejects an outer Developer-ID-signed bundle that contains ad-hoc
+  # inner code. The nested re-sign runs deepest-first to keep parent
+  # CodeResources hashes consistent.
+  log "re-signing nested helpers under ${app_path}"
+  DEVELOPER_ID_IDENTITY_SHA="${identity_sha}" "${script_dir}/resign-nested.sh" "${app_path}"
 
   if codesign -dv "${app_path}" 2>&1 | grep -q "Signature=adhoc"; then
     die "archive produced an ad-hoc signature instead of Developer ID. Verify the cert is in your keychain (security find-identity -v -p codesigning)."
