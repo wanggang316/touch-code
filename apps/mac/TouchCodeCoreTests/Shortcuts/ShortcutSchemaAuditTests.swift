@@ -56,7 +56,7 @@ struct ShortcutSchemaAuditTests {
     (.openInEditor, (0x1F, [.command])),                    // o
     (.toggleDiffInspector, (0x05, [.command, .option])),    // g
     (.addProject, (0x1F, [.command, .shift])),              // ⇧O
-    (.openCurrentPR, (0x05, [.command, .shift])),           // g
+    (.openCurrentPR, (0x05, [.command, .control])),         // ⌃g
     (.newWorktree, (0x2D, [.command])),                     // n
     (.splitRight, (0x02, [.command])),                      // d
     (.splitDown, (0x02, [.command, .shift])),               // ⇧d

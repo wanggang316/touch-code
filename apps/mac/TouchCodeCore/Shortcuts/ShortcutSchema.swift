@@ -382,7 +382,7 @@ extension ShortcutSchema {
         title: "Open PR on GitHub",
         category: .actions,
         scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_G), modifiers: [.command, .shift])
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_G), modifiers: [.command, .control])
       ),
     ]
   )

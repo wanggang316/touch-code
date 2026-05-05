@@ -15,10 +15,10 @@ import TouchCodeCore
 ///
 /// Collision notes for the registry-default chords below:
 ///
-/// - `⌘⇧G` shadows AppKit's default "Find Previous" in editable-text contexts. The app has
-///   no editable text fields at the window scope today, so the menu binding wins in the
-///   common case. In-GitViewer keybindings (`j / k / g / G / …`) gate on
-///   `press.modifiers.isEmpty` and are never shadowed by these ⌘-modified chords.
+/// - `Open PR on GitHub` lives on `⌘⌃G` rather than `⌘⇧G` so it doesn't shadow AppKit's
+///   default "Find Previous" chord in editable-text contexts (Settings panes, palette
+///   query, hotkey recorder, etc.). In-GitViewer keybindings (`j / k / g / G / …`) gate
+///   on `press.modifiers.isEmpty` and are never shadowed by these ⌘-modified chords.
 /// - The app delegate guards `⌘Q` quit with a confirmation when running terminal sessions
 ///   exist. The chord itself is the standard AppKit one and is not registered with the
 ///   shortcut registry — quitting is a system-level action, not a rebindable in-app command.
