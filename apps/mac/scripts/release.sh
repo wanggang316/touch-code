@@ -3,7 +3,7 @@
 # release.sh — orchestrate Touch Code's Developer ID release pipeline.
 #
 # Subcommands:
-#   archive     Archive + exportArchive to .build/release/export/TouchCode.app
+#   archive     xcodebuild archive + extract signed .app from xcarchive
 #   notarize    Submit a path to Apple notary, wait, and staple
 #   dmg         Package the exported .app into a signed DMG
 #   release     archive → notarize app → dmg → notarize dmg → staple both
@@ -12,9 +12,18 @@
 #   ./scripts/release.sh archive
 #   ./scripts/release.sh --help
 #
-# Environment (precedence: env > Release.xcconfig > defaults):
-#   DEVELOPMENT_TEAM     required (10-char team ID)
-#   CODE_SIGN_IDENTITY   default "Developer ID Application"
+# Signing identity is resolved (in order):
+#   1. DEVELOPER_ID_IDENTITY_SHA  env (40-char SHA-1 fingerprint, exact match)
+#   2. First "Developer ID Application" entry from `security find-identity`
+# Team ID is resolved (in order):
+#   1. APPLE_TEAM_ID env  (or DEVELOPMENT_TEAM env, both work)
+#   2. Parsed from the cert's CN: "...(<TEAMID>)"
+#
+# Borrowed from supacode: pass signing settings as xcodebuild
+# command-line build settings rather than fighting xcconfig / Tuist
+# defaults. Command-line settings have the highest precedence in
+# Xcode's resolution order, so they win regardless of what the project
+# file contains.
 #
 set -euo pipefail
 
@@ -27,7 +36,6 @@ release_dir="${srcroot}/.build/release"
 archive_path="${release_dir}/TouchCode.xcarchive"
 export_dir="${release_dir}/export"
 app_path="${export_dir}/TouchCode.app"
-release_xcconfig="${srcroot}/Configurations/Release.xcconfig"
 
 workspace="${srcroot}/touch-code.xcworkspace"
 scheme="touch-code"
@@ -42,7 +50,7 @@ print_usage() {
 release.sh — orchestrate Touch Code's Developer ID release pipeline.
 
 Subcommands:
-  archive     Archive + exportArchive to .build/release/export/TouchCode.app
+  archive     xcodebuild archive + extract signed .app from xcarchive
   notarize    Submit a path to Apple notary, wait, and staple
   dmg         Package the exported .app into a signed DMG
   release     archive → notarize app → dmg → notarize dmg → staple both
@@ -51,9 +59,10 @@ Usage:
   ./scripts/release.sh archive
   ./scripts/release.sh --help
 
-Environment (precedence: env > Release.xcconfig > defaults):
-  DEVELOPMENT_TEAM     required (10-char team ID)
-  CODE_SIGN_IDENTITY   default "Developer ID Application"
+Signing identity is resolved from DEVELOPER_ID_IDENTITY_SHA env if set,
+else autodetected by 'security find-identity' picking the first
+"Developer ID Application" entry. Team ID is resolved from APPLE_TEAM_ID
+(or DEVELOPMENT_TEAM) env, else parsed from the cert's CN.
 EOF
 }
 
@@ -68,71 +77,58 @@ beautify() {
   fi
 }
 
-read_xcconfig_value() {
-  # $1 = key. Looks up the key in Release.xcconfig (ignores comments,
-  # tolerates surrounding whitespace and quotes). Empty when absent.
-  [ -f "${release_xcconfig}" ] || return 0
-  awk -v k="$1" '
-    /^[[:space:]]*\/\// { next }
-    {
-      line = $0
-      sub(/\/\/.*/, "", line)
-      n = split(line, parts, "=")
-      if (n < 2) next
-      key = parts[1]
-      gsub(/[[:space:]]/, "", key)
-      if (key != k) next
-      val = parts[2]
-      for (i = 3; i <= n; i++) val = val "=" parts[i]
-      sub(/^[[:space:]]+/, "", val)
-      sub(/[[:space:]]+$/, "", val)
-      gsub(/^"|"$/, "", val)
-      print val
-      exit
-    }
-  ' "${release_xcconfig}"
+resolve_identity_sha() {
+  if [ -n "${DEVELOPER_ID_IDENTITY_SHA:-}" ]; then
+    printf '%s' "${DEVELOPER_ID_IDENTITY_SHA}"
+    return
+  fi
+  local sha
+  sha="$(security find-identity -v -p codesigning 2>/dev/null \
+    | grep 'Developer ID Application' \
+    | head -1 \
+    | awk '{print $2}')"
+  [ -n "${sha}" ] || die "Developer ID Application identity not found in keychain. Import the .p12 first."
+  printf '%s' "${sha}"
 }
 
 resolve_team_id() {
+  if [ -n "${APPLE_TEAM_ID:-}" ]; then
+    printf '%s' "${APPLE_TEAM_ID}"
+    return
+  fi
   if [ -n "${DEVELOPMENT_TEAM:-}" ]; then
     printf '%s' "${DEVELOPMENT_TEAM}"
     return
   fi
-  read_xcconfig_value DEVELOPMENT_TEAM
-}
-
-resolve_signing_identity() {
-  if [ -n "${CODE_SIGN_IDENTITY:-}" ]; then
-    printf '%s' "${CODE_SIGN_IDENTITY}"
-    return
-  fi
-  local from_xcconfig
-  from_xcconfig="$(read_xcconfig_value CODE_SIGN_IDENTITY)"
-  if [ -n "${from_xcconfig}" ]; then
-    printf '%s' "${from_xcconfig}"
-  else
-    printf 'Developer ID Application'
-  fi
-}
-
-preflight_signing() {
-  [ -f "${release_xcconfig}" ] || die "missing ${release_xcconfig}. Copy Release.xcconfig.example and fill in DEVELOPMENT_TEAM."
+  # Parse the (TEAMID) suffix from the cert's CN. Apple guarantees it
+  # for Developer ID certs.
   local team
-  team="$(resolve_team_id)"
-  [ -n "${team}" ] && [ "${team}" != "XXXXXXXXXX" ] || die "DEVELOPMENT_TEAM is not set in ${release_xcconfig}."
-  if ! security find-identity -v -p codesigning 2>/dev/null | grep -q "Developer ID Application"; then
-    die "Developer ID Application certificate not found in keychain. Import it via Keychain Access first."
-  fi
+  team="$(security find-identity -v -p codesigning 2>/dev/null \
+    | grep 'Developer ID Application' \
+    | head -1 \
+    | sed -nE 's/.*\(([A-Z0-9]{10})\).*/\1/p')"
+  [ -n "${team}" ] || die "could not determine team ID from keychain. Set APPLE_TEAM_ID."
+  printf '%s' "${team}"
 }
 
 # ----- archive subcommand -------------------------------------------------
 
 cmd_archive() {
-  preflight_signing
   log "archiving ${scheme} (Release)"
   rm -rf "${archive_path}" "${export_dir}"
   mkdir -p "${release_dir}" "${export_dir}"
 
+  local identity_sha team_id
+  identity_sha="$(resolve_identity_sha)"
+  team_id="$(resolve_team_id)"
+  log "signing identity SHA: ${identity_sha}"
+  log "team ID:              ${team_id}"
+
+  # Pass signing as xcodebuild command-line build settings (highest
+  # precedence in Xcode's resolution chain). This sidesteps any
+  # CODE_SIGN_IDENTITY = "-" defaults Tuist may have baked into target
+  # buildSettings, and any xcconfig fight that came with #include?
+  # gymnastics.
   xcodebuild archive \
     -workspace "${workspace}" \
     -scheme "${scheme}" \
@@ -140,6 +136,10 @@ cmd_archive() {
     -destination "generic/platform=macOS" \
     -archivePath "${archive_path}" \
     SKIP_INSTALL=NO \
+    CODE_SIGN_STYLE=Manual \
+    DEVELOPMENT_TEAM="${team_id}" \
+    CODE_SIGN_IDENTITY="${identity_sha}" \
+    OTHER_CODE_SIGN_FLAGS="--timestamp" \
     | beautify
 
   # Bypass `xcodebuild -exportArchive` deliberately. exportArchive is
@@ -161,14 +161,11 @@ cmd_archive() {
   log "verifying signature on ${app_path}"
   codesign --verify --strict --deep --verbose=2 "${app_path}"
 
-  # Sanity-check that the archive used a real Developer ID identity
-  # rather than silently falling back to ad-hoc (which happens when
-  # CODE_SIGN_STYLE=Automatic + no Apple ID in Xcode).
   if codesign -dv "${app_path}" 2>&1 | grep -q "Signature=adhoc"; then
-    die "archive produced an ad-hoc signature instead of Developer ID. Check CODE_SIGN_STYLE=Manual and CODE_SIGN_IDENTITY in Configurations/Release.xcconfig."
+    die "archive produced an ad-hoc signature instead of Developer ID. Verify the cert is in your keychain (security find-identity -v -p codesigning)."
   fi
 
-  # spctl will say "rejected: source=Notarization" until M3; that's expected.
+  # spctl will say "rejected: source=Notarization" until notarize runs; expected.
   spctl -a -v -t exec "${app_path}" || true
 
   log "archive ready at ${app_path}"
@@ -187,14 +184,11 @@ read_marketing_version() {
 
 cmd_dmg() {
   [ -d "${app_path}" ] || die "missing ${app_path}. Run release.sh archive first."
-  preflight_signing
   local version="${1:-$(read_marketing_version)}"
-  local identity
-  identity="$(resolve_signing_identity)"
-  local team
-  team="$(resolve_team_id)"
+  local identity_sha
+  identity_sha="$(resolve_identity_sha)"
   local dmg_path="${release_dir}/TouchCode-${version}.dmg"
-  "${script_dir}/make-dmg.sh" "${app_path}" "${dmg_path}" "${identity} (${team})"
+  "${script_dir}/make-dmg.sh" "${app_path}" "${dmg_path}" "${identity_sha}"
   printf '%s\n' "${dmg_path}"
 }
 

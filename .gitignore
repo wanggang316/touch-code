@@ -41,9 +41,6 @@ fastlane/test_output
 apps/mac/touch-code/Tests/Performance/baseline.json
 apps/mac/touch-code/Tests/Performance/baseline.run.txt
 
-# Per-maintainer Developer ID identity for Release signing.
-# Template: apps/mac/Configurations/Release.xcconfig.example
-apps/mac/Configurations/Release.xcconfig
 apps/mac/.build/release/
 
 # Agent tooling workspaces
