@@ -46,6 +46,32 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     super.init(frame: .zero)
     self.wantsLayer = true
     self.autoresizingMask = [.width, .height]
+    registerForDraggedTypes(Array(Self.dropTypes))
+  }
+
+  // MARK: - Drag & drop
+
+  /// Pasteboard types accepted by drag-and-drop into the terminal. Files
+  /// (Finder, common apps), URLs (Safari address bar) and plain strings
+  /// all collapse onto "insert escaped text at the cursor".
+  private static let dropTypes: Set<NSPasteboard.PasteboardType> = [
+    .fileURL,
+    .URL,
+    .string,
+  ]
+
+  /// Shell metacharacters that need backslash-escaping when a dragged path
+  /// is pasted into a running shell. Mirrors the set Ghostty uses for the
+  /// same purpose, so dropping `~/Library/Application Support/foo.txt`
+  /// turns into `~/Library/Application\ Support/foo.txt`.
+  private static let shellEscapeCharacters = "\\ ()[]{}<>\"'`!#$&;|*?\t"
+
+  private static func shellEscape(_ str: String) -> String {
+    var result = str
+    for char in shellEscapeCharacters {
+      result = result.replacing(String(char), with: "\\\(char)")
+    }
+    return result
   }
 
   @available(*, unavailable)
@@ -400,6 +426,41 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     let y = bounds.height - pos.y
     ghostty_surface_mouse_pos(surface, pos.x, y, mods(from: event.modifierFlags))
     return ghostty_surface_mouse_button(surface, action, button, mods(from: event.modifierFlags))
+  }
+
+  // MARK: - NSDraggingDestination
+
+  override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+    guard let types = sender.draggingPasteboard.types else { return [] }
+    if Set(types).isDisjoint(with: Self.dropTypes) { return [] }
+    return .copy
+  }
+
+  override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+    let pasteboard = sender.draggingPasteboard
+    let content: String?
+    if let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
+      !urls.isEmpty
+    {
+      // File URLs (Finder, most editors). Drop the `file://` scheme and
+      // shell-escape every path so a single drop of multiple files becomes
+      // a space-separated list ready to be edited or executed.
+      content = urls.map { url in
+        url.isFileURL ? Self.shellEscape(url.path) : url.absoluteString
+      }.joined(separator: " ")
+    } else if let url = pasteboard.string(forType: .URL) {
+      content = Self.shellEscape(url)
+    } else if let str = pasteboard.string(forType: .string) {
+      content = str
+    } else {
+      content = nil
+    }
+    guard let content, !content.isEmpty else { return false }
+    // Route through insertText so drag-insert reuses the same forwarding
+    // path as IME commits — keyTextAccumulator is nil here, so it lands
+    // directly on `ghostty_surface_text`.
+    insertText(content, replacementRange: NSRange(location: 0, length: 0))
+    return true
   }
 
   // MARK: - Context menu
