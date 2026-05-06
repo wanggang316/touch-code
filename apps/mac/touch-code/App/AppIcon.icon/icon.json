@@ -5,9 +5,8 @@
       "layers" : [
         {
           "glass" : false,
-          "hidden" : false,
-          "image-name" : "1.png",
-          "name" : "1"
+          "image-name" : "2.png",
+          "name" : "2"
         }
       ],
       "shadow" : {

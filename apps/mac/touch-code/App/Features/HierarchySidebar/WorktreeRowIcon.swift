@@ -4,8 +4,9 @@ import TouchCodeCore
 /// Leading-edge icon for a Sidebar Worktree row. Replaces the old `circle.fill`/`circle`
 /// selection dot with a GitHub-style glyph that doubles as the row's PR-state signal:
 ///
-/// - Main checkout, no PR → `circle` SF Symbol tinted with the row's text color
-///   so the main row blends with its label rather than competing for attention.
+/// - Main checkout, no PR → `circlebadge` SF Symbol that inherits the row's default
+///   foreground color so it tracks the label across emphasized / unemphasized /
+///   inactive selection states without us having to mirror NSTableView's color logic.
 /// - Other worktrees, no PR snapshot → `git-branch` tinted by `roleTint` (orange for
 ///   user-pinned rows, secondary otherwise). Desaturates to the selection text color
 ///   when the row is selected — `listRowBackground` already shows selection, so a loud
@@ -25,7 +26,7 @@ struct WorktreeRowIcon: View {
   /// pinned rows, secondary for everything else.
   var roleTint: Color = .secondary
   /// Whether this row is the project's main checkout. Drives the icon swap to
-  /// `circle` so main reads as a neutral anchor row, distinct from the
+  /// `circlebadge` so main reads as a neutral anchor row, distinct from the
   /// `git-branch` glyph used by non-main worktrees.
   var isMainCheckout: Bool = false
   /// L3 unread override. When `true`, the row icon swaps to a bell glyph
@@ -53,11 +54,15 @@ struct WorktreeRowIcon: View {
           .frame(width: 12, height: 12)
           .foregroundStyle(Color.orange)
       } else if isMainCheckout && snapshot == nil {
-        Image(systemName: "circle")
+        // No explicit foregroundStyle: the symbol inherits the row's default
+        // text color, which already tracks `backgroundProminence` and active
+        // window state — that's the only way to keep the icon and label in
+        // perfect lockstep across emphasized / unemphasized / inactive
+        // selection without re-implementing NSTableView's color rules.
+        Image(systemName: "circlebadge")
           .resizable()
           .aspectRatio(contentMode: .fit)
           .frame(width: 14, height: 14)
-          .foregroundStyle(tint)
       } else {
         Image(assetName)
           .renderingMode(.template)
