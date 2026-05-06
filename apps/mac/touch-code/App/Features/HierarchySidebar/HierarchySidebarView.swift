@@ -576,6 +576,13 @@ struct HierarchySidebarView: View {
     // click, leave the table off-responder, and the row would stay grey
     // even though state moved.
     let isLifecycleInProgress = store.lifecycleInProgressWorktrees.contains(worktree.id)
+    // Aggregated "any pane in this worktree is executing" signal. Reads through
+    // `HierarchyManager.worktreeIsDirty(_:)`, an `@Observable` getter, so the
+    // spinner appears/disappears automatically as OSC 9;4 progress reports flip
+    // `runningPanes`. Rendered at the leading icon slot (replacing
+    // WorktreeRowIcon) so the row's running indicator lives in the same place
+    // as the lifecycle spinner — one consistent "this row is busy" affordance.
+    let isExecuting = hierarchyManager.worktreeIsDirty(worktree.id)
     let content = HStack(spacing: 6) {
       Group {
         if isLifecycleInProgress {
@@ -588,6 +595,11 @@ struct HierarchySidebarView: View {
             .controlSize(.small)
             .frame(width: 14, height: 14)
             .accessibilityLabel("Working")
+        } else if isExecuting {
+          ProgressView()
+            .controlSize(.small)
+            .frame(width: 14, height: 14)
+            .accessibilityLabel("Worktree has a running command")
         } else {
           WorktreeRowIcon(
             snapshot: snapshot, rollup: rollup, isSelected: isSelected, roleTint: roleTint,
@@ -605,19 +617,6 @@ struct HierarchySidebarView: View {
               .font(.caption2)
               .foregroundStyle(.orange)
               .accessibilityLabel("Pinned")
-          }
-          // Aggregated "any pane in this worktree is executing" glyph.
-          // Reads through `HierarchyManager.worktreeIsDirty(_:)`, which is
-          // an `@Observable` getter, so the spinner appears/disappears
-          // automatically as OSC 9;4 progress reports flip
-          // `runningPanes`. Lifecycle-in-progress already swaps the row
-          // icon for a spinner, so suppress the inline glyph in that
-          // case to avoid double-spinners on the same row.
-          if !isLifecycleInProgress, hierarchyManager.worktreeIsDirty(worktree.id) {
-            ProgressView()
-              .controlSize(.mini)
-              .frame(width: 10, height: 10)
-              .accessibilityLabel("Worktree has a running command")
           }
         }
         // Suppress the secondary branch line when it restates the worktree name —
