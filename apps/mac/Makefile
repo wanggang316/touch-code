@@ -63,20 +63,14 @@ release: generate
 
 bump-version:
 	@if [ -z "$(VERSION)" ]; then \
-	  echo "error: VERSION not set. Usage: make bump-version VERSION=0.2.0" >&2; \
+	  echo "error: VERSION not set. Usage: make bump-version VERSION=0.2.0 [BUILD=N]" >&2; \
 	  exit 1; \
 	fi
 	@if ! git -C $(CURDIR)/../.. diff --quiet HEAD -- apps/mac/Configurations; then \
 	  echo "error: apps/mac/Configurations has uncommitted changes (staged or unstaged); refusing to bump" >&2; \
 	  exit 1; \
 	fi
-	@CURRENT_BUILD=$$(awk -F'=' '/^CURRENT_PROJECT_VERSION/ {gsub(/[[:space:]]/,"",$$2); print $$2}' Configurations/Project.xcconfig); \
-	NEXT_BUILD=$$((CURRENT_BUILD + 1)); \
-	/usr/bin/sed -i '' \
-	  -e "s/^MARKETING_VERSION = .*/MARKETING_VERSION = $(VERSION)/" \
-	  -e "s/^CURRENT_PROJECT_VERSION = .*/CURRENT_PROJECT_VERSION = $$NEXT_BUILD/" \
-	  Configurations/Project.xcconfig
-	@echo "==> bumped to MARKETING_VERSION=$(VERSION), CURRENT_PROJECT_VERSION=$$(awk -F'=' '/^CURRENT_PROJECT_VERSION/ {gsub(/[[:space:]]/,"",$$2); print $$2}' Configurations/Project.xcconfig)"
+	./scripts/bump-version.sh $(VERSION) $(BUILD)
 
 format:
 	swift format --in-place --recursive --configuration ./.swift-format.json touch-code tc TouchCodeCore TouchCodeIPC

@@ -6,71 +6,43 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 and the project does not yet follow semantic versioning — every release until
 1.0 is a developer build. Releases are dated.
 
-## [Unreleased] — refactor/rm-space
-
-### Removed
-
-- **Spaces.** The top-level workspace grouping is gone. Projects are now
-  the top-level row in the sidebar; the prior 5-level hierarchy
-  (Space → Project → Worktree → Tab → Pane) collapses to 4 levels
-  (Project → Worktree → Tab → Pane).
-- **Multi-window.** The main scene is now `Window(id: "main")` instead of
-  `WindowGroup`. The `WindowGroup` allowed users to spawn extra main
-  windows from the system menu, but no in-app surface ever consumed
-  multi-window state. Settings remains a separate `Window(id: "settings")`,
-  unchanged.
-- **`tc space *` subcommands** — `list`, `create`, `activate`, `rename`,
-  `remove`. Use `tc tag` for label-based classification.
-- **Keyboard shortcuts ⌘K (Switch Space) and ⌘1–⌘9 (jump to Nth Space).**
-  The slots are unbound for now; future work may rebind them to Tag
-  filters or other features.
-- **`hierarchy.{listSpaces,describeSpace,createSpace,renameSpace,removeSpace,activateSpace}`**
-  IPC methods.
-- **Hook envelope `space` anchor** (`HookEnvelope.space: SpaceRef?`) and
-  the corresponding `HookScope.space` case. Hook handlers consuming
-  `envelope.space.*` template fields (`space.id`, `space.name`) need
-  to be updated — those fields no longer exist.
+## [Unreleased]
 
 ### Added
 
-- **Tags as cross-cutting Project classification.** Each Project carries
-  zero or more Tags (name + Finder-palette color). The sidebar can be
-  filtered by an active Tag set with OR semantics; `[All]`,
-  `[Untagged]`, and per-Tag chips live in a footer at the sidebar's
-  safe-area bottom (the slot the prior Space footer occupied).
-- **Tag CRUD UI** — right-click a Project → Tags → Edit Tags…, or click
-  the chip footer's edit affordance, opens the TagManager sheet (rename
-  inline, recolor via swatch, remove with cascade-count confirmation).
-- **`tc tag` and `tc project tag` CLI** —
-  `tc tag list/create/rename/recolor/remove`,
-  `tc project tag add/remove`,
-  `tc project list [--tag <id|name>] [--untagged]`.
-- **`hierarchy.{listTags,createTag,renameTag,recolorTag,removeTag,setProjectTags,setActiveTagFilter}`**
-  IPC methods.
-- **⌘F focuses the chip footer** for keyboard-driven Tag filtering.
-- **⌘Q confirmation dialog.** Quitting prompts when at least one Pane is
-  open across any Worktree of any Project; the alert is suppressed on
-  empty-state quit (no nag for users without a session).
-- **⌘W hides the main window** (`applicationShouldTerminateAfterLastWindowClosed: false`);
-  the app stays running in the dock with IPC + Ghostty surfaces alive.
-  Re-clicking the dock icon re-shows the window.
+- **Add Project picker can create new folders inline** — the open-panel
+  now permits directory creation, so first-time setups don't need to
+  pre-make the project directory in Finder.
+- **Folder → git auto-promotion.** A folder Project added before
+  `git init` / `git clone` is now re-detected as a git repository on
+  the next window-focus pulse and its `gitRoot` is persisted. The
+  Project gains `+ Add Worktree` and the worktree reconcile path
+  without an app restart.
 
 ### Changed
 
-- **`catalog.json` schema bumped to v3.** **No backward compatibility:**
-  the v3 reader rejects v1 and v2 payloads with `unsupportedVersion`. A
-  user upgrading from a pre-rm-space build will need to delete (or
-  hand-edit) `~/.config/touch-code/catalog.json` to launch the new
-  build; a fresh v3 catalog will be written from defaults. Downgrading
-  a v3 catalog back to a pre-rm-space build also fails-loud.
-- **`HookEnvelope` wire bumped to v2.** v1 → v2 dropped the `space`
-  anchor field and the `space.*` template paths. Hook handlers should
-  drop any `envelope.space.*` references and check
-  `envelope.version >= 2` if they read newer fields.
+- **Worktree "executing" indicator** moved onto the worktree icon slot
+  in the sidebar (replaces the previous inline location next to the
+  worktree name).
+- **ProjectReconciler debounce** raised from 2s to 10s. Window-focus
+  freshness still works, but rapid cmd-tab cycles no longer re-scan
+  large catalogs every pass.
 
-### Breaking
+### Removed
 
-- Existing `catalog.json` files (v1 / v2) are not migrated; the new
-  build refuses to read them. This is intentional — see Removed §
-  catalog.json schema. Recommended path for upgraders: delete the file
-  and re-add Projects via the sidebar's "Add Project" affordance.
+- **Inline loading spinner in Project header.** The reconcile pass is
+  fast enough that the brief `ProgressView` next to the Project name
+  was visual noise; it flashed on every focus pulse without conveying
+  progress.
+
+### Fixed
+
+- **⌘⌫ / ⌘⇧⌫ can no longer archive or delete the main worktree
+  checkout.** The sidebar context menu already hid these actions, but
+  the destructive chords bypassed the guard. Lifecycle entry points
+  now reject archive/remove on the worktree whose path equals
+  `project.rootPath`.
+- **⌘⌫ / ⌘⇧⌫ are gated on sidebar focus.** When a Ghostty pane holds
+  first-responder, the menu items disable and the chord falls through
+  to the terminal — restoring the standard ⌘⌫ "delete to start of
+  line" in shells and editors.
