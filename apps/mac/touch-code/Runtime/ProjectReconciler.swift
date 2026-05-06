@@ -22,7 +22,7 @@ actor ProjectReconciler {
   private var lastAllRun: Date?
 
   /// `now` is injected as a closure rather than threading `any Clock<Duration>`
-  /// because (a) we need no sleep/timer — only a monotonic "is 2 s past?"
+  /// because (a) we need no sleep/timer — only a monotonic "is the window past?"
   /// check, (b) storing an `any Clock`'s `Instant` as actor state forces
   /// generics for no behavioral gain, and (c) a `Date`-returning closure is
   /// trivial to script in tests (`now: { fixedDate }` and advance it between
@@ -30,7 +30,7 @@ actor ProjectReconciler {
   init(
     client: HierarchyClient,
     now: @escaping @Sendable () -> Date = Date.init,
-    debounceInterval: TimeInterval = 2.0
+    debounceInterval: TimeInterval = 10.0
   ) {
     self.client = client
     self.now = now
