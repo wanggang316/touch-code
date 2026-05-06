@@ -264,10 +264,25 @@ let project = Project(
         // app's Bundle resourcePath; without them the Settings → Theme
         // picker fails ("not found") and shells under the embedded
         // terminal lose backspace / arrow-key handling because TERM=
-        // xterm-ghostty has no terminfo entry to look up.
+        // xterm-ghostty has no terminfo entry to look up. The
+        // outputPaths declarations are load-bearing in archive builds:
+        // xcodebuild's install phase only copies BuildProducts paths
+        // that are declared as build-phase outputs, so a script that
+        // writes to Resources/ but doesn't list those entries gets
+        // its outputs silently dropped during the install copy
+        // (Debug builds skip the install phase entirely, so the
+        // problem is invisible until you ship a Release archive).
         .post(
           script: "\"${SRCROOT}/scripts/embed-ghostty-resources.sh\"",
           name: "Embed Ghostty Resources",
+          inputPaths: [
+            "$(SRCROOT)/.build/ghostty/share/ghostty",
+            "$(SRCROOT)/.build/ghostty/share/terminfo",
+          ],
+          outputPaths: [
+            "$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ghostty",
+            "$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/terminfo",
+          ],
           basedOnDependencyAnalysis: false
         ),
       ],
