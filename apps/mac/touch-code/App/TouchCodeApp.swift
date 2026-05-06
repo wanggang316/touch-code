@@ -16,6 +16,11 @@ struct TouchCodeApp: App {
   /// `init` and tears down in `deinit`, so no explicit lifecycle calls
   /// are needed here.
   @State private var commandKeyObserver = CommandKeyObserver()
+  /// Tracks whether the sidebar list holds first-responder. `MainWindowCommands` reads it
+  /// to gate destructive worktree chords (`⌘⌫` / `⌘⇧⌫`) so they only fire while the user
+  /// is on the sidebar; when focus is in a Ghostty terminal pane the menu items are
+  /// disabled and the chord falls through to the terminal.
+  @State private var sidebarFocusObserver = SidebarFocusObserver()
   /// `SwiftUI.App` gives us no `applicationWillTerminate` hook on its own;
   /// the adaptor bridges AppKit's termination callback so we can flush
   /// debounced writes from `SettingsStore` before the process exits.
@@ -83,7 +88,8 @@ struct TouchCodeApp: App {
       // `CommandGroup(after: .newItem)` content from `MainWindowCommands`.
       MainWindowCommands(
         store: { appState.store },
-        shortcuts: appState.shortcutsStore.resolved
+        shortcuts: appState.shortcutsStore.resolved,
+        sidebarFocus: sidebarFocusObserver
       )
       CommandGroup(replacing: .appSettings) {
         // Chord routes through the registry so a user override in Settings → Shortcuts

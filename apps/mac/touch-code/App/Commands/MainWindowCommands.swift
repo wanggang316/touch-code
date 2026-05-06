@@ -28,6 +28,13 @@ struct MainWindowCommands: Commands {
   /// on every render; SwiftUI's `Commands` participates in observation, so an override
   /// rebinds the menu items without a manual refresh path.
   let shortcuts: ResolvedShortcutMap
+  /// First-responder tracker for sidebar focus. Drives `.disabled` on the destructive
+  /// worktree chords (`⌘⌫` Archive / `⌘⇧⌫` Delete) so they only fire while the sidebar
+  /// holds focus — when a Ghostty terminal pane is focused the menu items are disabled
+  /// and the chord falls through to the terminal (where `⌘⌫` is the standard
+  /// "delete to start of line" binding). Without this gate the chord would archive the
+  /// active worktree any time the user pressed it inside the terminal.
+  let sidebarFocus: SidebarFocusObserver
 
   var body: some Commands {
     CommandGroup(after: .newItem) {
@@ -83,17 +90,22 @@ struct MainWindowCommands: Commands {
       .appKeyboardShortcut(.copyCurrentWorktreePath, in: shortcuts)
       .disabled(!hasActiveWorktree)
 
+      // Archive / Delete are gated on `sidebarFocus.isSidebarFocused` so the chord
+      // (`⌘⌫` / `⌘⇧⌫`) only fires while the sidebar holds first-responder. When a
+      // Ghostty pane is focused the menu item is disabled, the menu's chord matcher
+      // skips it, and the keystroke reaches the terminal — preserving the standard
+      // `⌘⌫` "delete to start of line" binding inside running shells / editors.
       Button("Archive Worktree") {
         store()?.send(.archiveCurrentWorktreeRequested)
       }
       .appKeyboardShortcut(.archiveCurrentWorktree, in: shortcuts)
-      .disabled(!hasActiveWorktree)
+      .disabled(!hasActiveWorktree || !sidebarFocus.isSidebarFocused)
 
       Button("Delete Worktree") {
         store()?.send(.deleteCurrentWorktreeRequested)
       }
       .appKeyboardShortcut(.deleteCurrentWorktree, in: shortcuts)
-      .disabled(!hasActiveWorktree)
+      .disabled(!hasActiveWorktree || !sidebarFocus.isSidebarFocused)
 
       Button("Show Archived Worktrees") {
         store()?.send(.showArchivedWorktreesForCurrentProjectRequested)
