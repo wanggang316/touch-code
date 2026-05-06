@@ -498,6 +498,16 @@ struct HierarchySidebarFeature {
     // MARK: Worktree context menu
 
     case .worktreeRemoveTapped(let worktreeID, let projectID, let name):
+      // Defensive guard: the main checkout cannot be removed — its directory IS
+      // the project's `rootPath`, and `removeWorktree`'s relocate-then-prune
+      // strategy would silently move the project root into trash. The sidebar
+      // context menu hides "Remove Worktree" for this case, but the destructive
+      // chord (⌘⇧⌫) and any future caller would otherwise bypass that
+      // protection. Guard at the lifecycle entry point so every dispatch path
+      // is covered by a single check.
+      if isMainCheckout(worktreeID: worktreeID, projectID: projectID) {
+        return .none
+      }
       state.pendingWorktreeRemoval = PendingWorktreeRemoval(
         worktreeID: worktreeID,
         projectID: projectID,
@@ -518,6 +528,14 @@ struct HierarchySidebarFeature {
       return .none
 
     case .worktreeArchiveTapped(let wid, let pid, let name):
+      // Same main-checkout guard as `worktreeRemoveTapped`. Archive runs the
+      // configured archive script in a new pane against the worktree's path
+      // and then flips `Worktree.archived = true` — for the main checkout
+      // this would hide the project's root from the sidebar with no way back
+      // short of editing the catalog file by hand.
+      if isMainCheckout(worktreeID: wid, projectID: pid) {
+        return .none
+      }
       if state.hasShownArchiveExplainer {
         return runArchiveWithLifecycle(wid: wid, pid: pid)
       }
@@ -790,6 +808,18 @@ struct HierarchySidebarFeature {
       }
     }
     .cancellable(id: CancelID.pending(id), cancelInFlight: true)
+  }
+
+  /// `true` when the given Worktree is the project's main checkout (its
+  /// `path` equals the project's `rootPath`). The main checkout cannot be
+  /// archived or removed — see the call sites for the rationale.
+  private func isMainCheckout(worktreeID: WorktreeID, projectID: ProjectID) -> Bool {
+    let snapshot = hierarchyClient.snapshot()
+    guard
+      let project = snapshot.projects.first(where: { $0.id == projectID }),
+      let worktree = project.worktrees.first(where: { $0.id == worktreeID })
+    else { return false }
+    return worktree.path == project.rootPath
   }
 
   /// Archive button → archive-script flow. The lifecycle wrapper opens a
