@@ -26,7 +26,7 @@ extension FolderPickerClient: DependencyKey {
           panel.canChooseFiles = false
           panel.canChooseDirectories = true
           panel.allowsMultipleSelection = false
-          panel.canCreateDirectories = false
+          panel.canCreateDirectories = true
 
           // Prefer attaching the panel as a sheet on the active window so the
           // picker visually belongs to the requesting context (touch-code's
