@@ -415,7 +415,6 @@ struct HierarchySidebarView: View {
         } label: {
           ProjectHeaderRow(
             project: project,
-            isLoading: project.loadState == .loading,
             isExpanded: isExpanded,
             store: store
           )
@@ -1018,10 +1017,6 @@ struct HierarchySidebarView: View {
 /// view-local concern — not worth promoting to reducer state.
 private struct ProjectHeaderRow: View {
   let project: Project
-  /// When `true`, a small inline `ProgressView` indicates a reconcile pass
-  /// is in flight without blocking the window (P-Q3: inline spinner,
-  /// never modal).
-  var isLoading: Bool = false
   /// Drives the leading disclosure chevron (`chevron.right` collapsed, `chevron.down`
   /// expanded). The parent Button still owns the tap, so this is display-only.
   var isExpanded: Bool = false
@@ -1058,12 +1053,6 @@ private struct ProjectHeaderRow: View {
         .font(.callout)
         .foregroundStyle(isHovering ? .primary : .secondary)
       Spacer()
-      if isLoading {
-        ProgressView()
-          .scaleEffect(0.5)
-          .frame(width: 12, height: 12)
-          .accessibilityLabel("Loading Project")
-      }
       // Keep the hover chrome from collapsing row width when hidden —
       // use opacity, not conditional rendering.
       HStack(spacing: 2) {
