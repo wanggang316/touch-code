@@ -75,7 +75,9 @@ public nonisolated enum InboxStorage {
     var indicesToDrop: Set<Int> = []
 
     // Oldest entries are at the tail of the newest-first array.
-    let tailFirst: [(offset: Int, element: InboxEntry)] = entries.enumerated().reversed().map { ($0.offset, $0.element) }
+    let tailFirst: [(offset: Int, element: InboxEntry)] = entries.enumerated().reversed().map {
+      ($0.offset, $0.element)
+    }
 
     // Pass 1: read entries, oldest first.
     for (offset, entry) in tailFirst {

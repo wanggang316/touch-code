@@ -155,9 +155,11 @@ enum DiffWebViewBridge {
     // string equality to suppress duplicate `renderDocument` envelopes
     // on SwiftUI re-evaluations. Falling back to a UUID per-call would
     // defeat that dedupe and re-tokenise on every parent re-render.
-    let identifier = doc.title
+    let identifier =
+      doc.title
       ?? "doc-\(doc.files.map { $0.id }.joined(separator: ","))"
-    let files: [WireFile]? = doc.files.isEmpty
+    let files: [WireFile]? =
+      doc.files.isEmpty
       ? nil
       : doc.files.map {
         .init(oldPath: $0.oldPath, newPath: $0.newPath, oldContents: $0.oldContents, newContents: $0.newContents)
@@ -262,13 +264,34 @@ indirect enum AnyJSON: Decodable, Sendable {
 
   init(from decoder: Decoder) throws {
     let c = try decoder.singleValueContainer()
-    if c.decodeNil() { self = .null; return }
-    if let b = try? c.decode(Bool.self) { self = .bool(b); return }
-    if let i = try? c.decode(Int.self) { self = .int(i); return }
-    if let d = try? c.decode(Double.self) { self = .double(d); return }
-    if let s = try? c.decode(String.self) { self = .string(s); return }
-    if let a = try? c.decode([AnyJSON].self) { self = .array(a); return }
-    if let o = try? c.decode([String: AnyJSON].self) { self = .object(o); return }
+    if c.decodeNil() {
+      self = .null
+      return
+    }
+    if let b = try? c.decode(Bool.self) {
+      self = .bool(b)
+      return
+    }
+    if let i = try? c.decode(Int.self) {
+      self = .int(i)
+      return
+    }
+    if let d = try? c.decode(Double.self) {
+      self = .double(d)
+      return
+    }
+    if let s = try? c.decode(String.self) {
+      self = .string(s)
+      return
+    }
+    if let a = try? c.decode([AnyJSON].self) {
+      self = .array(a)
+      return
+    }
+    if let o = try? c.decode([String: AnyJSON].self) {
+      self = .object(o)
+      return
+    }
     throw DecodingError.dataCorruptedError(
       in: c, debugDescription: "Unrecognized JSON value")
   }

@@ -154,8 +154,9 @@ struct CommandPaletteView: View {
   /// entry.
   private func chordDisplay(for item: CommandPaletteItem) -> String? {
     if let id = item.commandID,
-       let resolved = resolvedShortcuts[id], resolved.isEnabled,
-       let binding = resolved.binding {
+      let resolved = resolvedShortcuts[id], resolved.isEnabled,
+      let binding = resolved.binding
+    {
       return ShortcutDisplay.chord(for: binding)
     }
     return item.shortcut.map { $0.keys.joined() }

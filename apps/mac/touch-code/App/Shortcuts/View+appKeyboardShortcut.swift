@@ -33,8 +33,8 @@ public enum AppKeyboardShortcutResolver {
 
   public static func resolve(_ id: CommandID, in map: ResolvedShortcutMap) -> Binding? {
     guard let resolved = map[id], resolved.isEnabled,
-          let binding = resolved.binding,
-          let key = ShortcutDisplay.keyEquivalent(for: binding.keyCode)
+      let binding = resolved.binding,
+      let key = ShortcutDisplay.keyEquivalent(for: binding.keyCode)
     else { return nil }
     return Binding(key: key, modifiers: ShortcutDisplay.eventModifiers(for: binding.modifiers))
   }

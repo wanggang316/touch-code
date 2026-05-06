@@ -138,16 +138,16 @@ final class HotkeyRecorderNSView: NSView {
   /// numeric literals so the validator stays Carbon-import-free at the call site;
   /// values match `Carbon.HIToolbox.kVK_Shift / Control / Option / Command` etc.
   private static let modifierKeyCodes: Set<UInt16> = [
-    0x37, // command
-    0x36, // right command
-    0x38, // shift
-    0x3C, // right shift
-    0x3A, // option
-    0x3D, // right option
-    0x3B, // control
-    0x3E, // right control
-    0x39, // capslock
-    0x3F, // function
+    0x37,  // command
+    0x36,  // right command
+    0x38,  // shift
+    0x3C,  // right shift
+    0x3A,  // option
+    0x3D,  // right option
+    0x3B,  // control
+    0x3E,  // right control
+    0x39,  // capslock
+    0x3F,  // function
   ]
 
   static func isModifierKeyCode(_ keyCode: UInt16) -> Bool {
@@ -155,7 +155,7 @@ final class HotkeyRecorderNSView: NSView {
   }
 }
 
-private let kVK_Escape_compat: UInt16 = 0x35 // matches Carbon.HIToolbox.kVK_Escape
+private let kVK_Escape_compat: UInt16 = 0x35  // matches Carbon.HIToolbox.kVK_Escape
 
 extension ModifierMask {
   /// Convenience for translating an `NSEvent.ModifierFlags` value into the storage-layer

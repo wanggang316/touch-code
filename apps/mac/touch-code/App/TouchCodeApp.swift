@@ -2,8 +2,8 @@ import AppKit
 import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
-import os
 @preconcurrency import UserNotifications
+import os
 
 @main
 struct TouchCodeApp: App {
@@ -167,7 +167,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
   ) {
     let userInfo = response.notification.request.content.userInfo
     let deeplink = userInfo["deeplink"] as? String
-    let source = deeplink
+    let source =
+      deeplink
       .flatMap(URL.init(string:))
       .flatMap(Self.parseDeeplink(_:))
     completionHandler()
@@ -361,7 +362,8 @@ final class AppState {
     // every change. Idempotent at the store level — a re-fire with the
     // same pane is a no-op.
     self.focusReadMarkerTask = Task { @MainActor in
-      await Self.observeFocusedPaneForRead(catalog: { manager.catalog }, lastFocusedPane: { tabID in manager.lastFocusedPane(in: tabID) }, store: inbox)
+      await Self.observeFocusedPaneForRead(
+        catalog: { manager.catalog }, lastFocusedPane: { tabID in manager.lastFocusedPane(in: tabID) }, store: inbox)
     }
 
     // Roll-up provider — reads inbox + a hierarchy focus snapshot, recomputes

@@ -46,7 +46,8 @@ public struct AppleScriptPrivilegedShell: PrivilegedShell {
   /// Internal so unit tests can verify the generated source.
   static func composeSource(command: String, prompt: String) -> String {
     let escapedPrompt = escapeForAppleScriptLiteral(prompt)
-    let commandExpression = command
+    let commandExpression =
+      command
       .components(separatedBy: "\n")
       .map { "\"\(escapeForAppleScriptLiteral($0))\"" }
       .joined(separator: " & linefeed & ")

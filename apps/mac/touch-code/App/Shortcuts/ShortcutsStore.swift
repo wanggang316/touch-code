@@ -103,7 +103,8 @@ final class ShortcutsStore {
   /// Mark `id` as user-disabled. Preserves the keyCode/modifiers of whatever binding was in
   /// effect (override if present, else schema default) and flips `isEnabled` to false.
   func disable(_ id: CommandID) {
-    let baseBinding = overrides.overrides[id]
+    let baseBinding =
+      overrides.overrides[id]
       ?? ShortcutSchema.app.entry(for: id)?.defaultBinding
     guard let baseBinding else { return }
     let disabled = ShortcutBinding(

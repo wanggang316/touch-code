@@ -51,7 +51,8 @@ struct StatusMotivationalView: View {
   /// before `ShortcutsStore` finishes loading).
   private func chordDisplay() -> String {
     if let resolved = resolvedShortcuts[.commandPaletteToggle], resolved.isEnabled,
-       let binding = resolved.binding {
+      let binding = resolved.binding
+    {
       return ShortcutDisplay.chord(for: binding)
     }
     if let fallback = ShortcutSchema.app.entry(for: .commandPaletteToggle)?.defaultBinding {

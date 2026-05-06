@@ -74,9 +74,10 @@ struct DiffWebView: NSViewRepresentable {
 /// coordinator only sees opaque script strings. The JS side decodes the
 /// argument with `JSON.parse`, so we serialise the envelope JSON as a
 /// JS string literal here.
-private extension DiffWebViewCoordinator {
-  func sendEnvelope(_ envelopeJSON: String, kind: SendKind) {
-    let escaped = envelopeJSON
+extension DiffWebViewCoordinator {
+  fileprivate func sendEnvelope(_ envelopeJSON: String, kind: SendKind) {
+    let escaped =
+      envelopeJSON
       .replacingOccurrences(of: "\\", with: "\\\\")
       .replacingOccurrences(of: "\"", with: "\\\"")
       .replacingOccurrences(of: "\n", with: "\\n")

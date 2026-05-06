@@ -70,7 +70,7 @@ struct ShortcutsStoreTests {
     defer { try? FileManager.default.removeItem(at: url) }
 
     let store = ShortcutsStore(fileURL: url, debounceWindow: .milliseconds(10))
-    let conflicting = ShortcutBinding(keyCode: 17, modifiers: [.command]) // ⌘T equivalent
+    let conflicting = ShortcutBinding(keyCode: 17, modifiers: [.command])  // ⌘T equivalent
     store.resolveConflict(disabling: .newTab, assigning: .toggleDiffInspector, to: conflicting)
 
     #expect(store.resolved[.newTab]?.isEnabled == false)
@@ -202,7 +202,8 @@ struct ShortcutsStoreTests {
     let directory = url.deletingLastPathComponent()
     let prefix = "\(url.lastPathComponent).broken-"
     let entries = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-    return entries
+    return
+      entries
       .filter { $0.hasPrefix(prefix) }
       .map { directory.appendingPathComponent($0) }
   }

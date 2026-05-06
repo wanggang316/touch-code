@@ -29,10 +29,10 @@ struct NotificationsSettingsView: View {
       Section("About v1") {
         Text(
           "touch-code emits a banner when a pane finishes a long task or asks for input — "
-          + "OSC 9 desktop notifications, terminal bell, OSC 133 command-finished, pane "
-          + "exit/crash, and post-busy idle. Banners only fire when you're not already "
-          + "looking at the pane; the in-app inbox and Dock badge work regardless of "
-          + "permission."
+            + "OSC 9 desktop notifications, terminal bell, OSC 133 command-finished, pane "
+            + "exit/crash, and post-busy idle. Banners only fire when you're not already "
+            + "looking at the pane; the in-app inbox and Dock badge work regardless of "
+            + "permission."
         )
         .font(.callout)
         .foregroundStyle(.secondary)

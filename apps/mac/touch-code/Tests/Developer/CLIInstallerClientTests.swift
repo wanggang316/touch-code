@@ -301,12 +301,13 @@ struct CLIInstallerClientTests {
 
     let script = CLIInstallerClient.composeInstallScript(bundled: bundled, absentPaths: [tc, tcode])
 
-    #expect(script == """
-      set -e
-      mkdir -p /usr/local/bin
-      ln -s '/Applications/TouchCode.app/Contents/Resources/bin/tc' '/usr/local/bin/tc'
-      ln -s '/Applications/TouchCode.app/Contents/Resources/bin/tc' '/usr/local/bin/tcode'
-      """)
+    #expect(
+      script == """
+        set -e
+        mkdir -p /usr/local/bin
+        ln -s '/Applications/TouchCode.app/Contents/Resources/bin/tc' '/usr/local/bin/tc'
+        ln -s '/Applications/TouchCode.app/Contents/Resources/bin/tc' '/usr/local/bin/tcode'
+        """)
   }
 
   @Test
@@ -323,14 +324,15 @@ struct CLIInstallerClientTests {
       legacyToCleanup: [legacyTc, legacyTcode]
     )
 
-    #expect(script == """
-      set -e
-      mkdir -p /usr/local/bin
-      ln -s '/Applications/TouchCode.app/Contents/Resources/bin/tc' '/usr/local/bin/tc'
-      ln -s '/Applications/TouchCode.app/Contents/Resources/bin/tc' '/usr/local/bin/tcode'
-      [ -L '/Users/test/.local/bin/tc' ] && [ "$(readlink '/Users/test/.local/bin/tc')" = '/Applications/TouchCode.app/Contents/Resources/bin/tc' ] && rm '/Users/test/.local/bin/tc' || true
-      [ -L '/Users/test/.local/bin/tcode' ] && [ "$(readlink '/Users/test/.local/bin/tcode')" = '/Applications/TouchCode.app/Contents/Resources/bin/tc' ] && rm '/Users/test/.local/bin/tcode' || true
-      """)
+    #expect(
+      script == """
+        set -e
+        mkdir -p /usr/local/bin
+        ln -s '/Applications/TouchCode.app/Contents/Resources/bin/tc' '/usr/local/bin/tc'
+        ln -s '/Applications/TouchCode.app/Contents/Resources/bin/tc' '/usr/local/bin/tcode'
+        [ -L '/Users/test/.local/bin/tc' ] && [ "$(readlink '/Users/test/.local/bin/tc')" = '/Applications/TouchCode.app/Contents/Resources/bin/tc' ] && rm '/Users/test/.local/bin/tc' || true
+        [ -L '/Users/test/.local/bin/tcode' ] && [ "$(readlink '/Users/test/.local/bin/tcode')" = '/Applications/TouchCode.app/Contents/Resources/bin/tc' ] && rm '/Users/test/.local/bin/tcode' || true
+        """)
   }
 
   @Test
@@ -385,7 +387,10 @@ struct CLIInstallerClientTests {
       prompt: "Need admin"
     )
 
-    #expect(source == #"do shell script "set -e" & linefeed & "mkdir -p /usr/local/bin" & linefeed & "ln -s '/a' '/b'" with prompt "Need admin" with administrator privileges"#)
+    #expect(
+      source
+        == #"do shell script "set -e" & linefeed & "mkdir -p /usr/local/bin" & linefeed & "ln -s '/a' '/b'" with prompt "Need admin" with administrator privileges"#
+    )
     #expect(!source.contains("\n"), "Source must contain no raw newlines — AppleScript literals reject them")
   }
 
@@ -409,10 +414,11 @@ struct CLIInstallerClientTests {
 
     let script = CLIInstallerClient.composeUninstallScript(paths: [tc, tcode])
 
-    #expect(script == """
-      set -e
-      rm '/usr/local/bin/tc'
-      rm '/usr/local/bin/tcode'
-      """)
+    #expect(
+      script == """
+        set -e
+        rm '/usr/local/bin/tc'
+        rm '/usr/local/bin/tcode'
+        """)
   }
 }

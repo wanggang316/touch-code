@@ -54,18 +54,18 @@ struct TabChipView: View {
           isDirty: isDirty,
           hasUnreadNotification: hasUnreadNotification
         )
-          // `maxHeight: .infinity` is the load-bearing piece — without
-          // it the label collapses to its intrinsic text height (~16pt)
-          // and the Button's hit region only covers that strip,
-          // leaving most of the chip dead. Pair with the explicit
-          // `contentShape` here so the styled Button uses the expanded
-          // rectangle as its hit shape, not the text glyph bounds.
-          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-          .contentShape(Rectangle())
-          .padding(.horizontal, TabBarMetrics.chipHorizontalPadding)
-          // Reserve space for the close glyph + its gap so long titles
-          // truncate before they slide under the overlay.
-          .padding(.trailing, TabBarMetrics.closeButtonSize + 4)
+        // `maxHeight: .infinity` is the load-bearing piece — without
+        // it the label collapses to its intrinsic text height (~16pt)
+        // and the Button's hit region only covers that strip,
+        // leaving most of the chip dead. Pair with the explicit
+        // `contentShape` here so the styled Button uses the expanded
+        // rectangle as its hit shape, not the text glyph bounds.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .padding(.horizontal, TabBarMetrics.chipHorizontalPadding)
+        // Reserve space for the close glyph + its gap so long titles
+        // truncate before they slide under the overlay.
+        .padding(.trailing, TabBarMetrics.closeButtonSize + 4)
       }
       .buttonStyle(ChipPressTrackingStyle(isPressing: $isPressing))
       .frame(

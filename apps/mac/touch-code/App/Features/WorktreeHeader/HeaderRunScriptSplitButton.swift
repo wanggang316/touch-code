@@ -130,7 +130,8 @@ struct HeaderRunScriptSplitButton: View {
       .map { script -> String in
         let chord =
           script.keyboardShortcut.map { ShortcutDisplay.chord(for: $0) } ?? ""
-        return "\(script.id)|\(script.displayName)|\(script.resolvedSystemImage)|\(script.resolvedTintColor.rawValue)|\(chord)"
+        return
+          "\(script.id)|\(script.displayName)|\(script.resolvedSystemImage)|\(script.resolvedTintColor.rawValue)|\(chord)"
       }
       .joined(separator: "·")
   }

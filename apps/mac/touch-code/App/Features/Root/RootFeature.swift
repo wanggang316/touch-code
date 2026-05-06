@@ -992,8 +992,9 @@ struct RootFeature {
         }
         try? hierarchyClient.selectProject(source.projectID)
 
-        guard let project = hierarchyClient.snapshot()
-          .projects.first(where: { $0.id == source.projectID }),
+        guard
+          let project = hierarchyClient.snapshot()
+            .projects.first(where: { $0.id == source.projectID }),
           let targetWorktree = project.worktrees.first(where: { $0.id == source.worktreeID })
         else {
           return .none
@@ -1006,19 +1007,21 @@ struct RootFeature {
         guard !targetWorktree.archived else { return .none }
         try? hierarchyClient.selectWorktree(source.worktreeID, source.projectID)
 
-        guard let worktree = hierarchyClient.snapshot()
-          .projects.first(where: { $0.id == source.projectID })?
-          .worktrees.first(where: { $0.id == source.worktreeID }),
+        guard
+          let worktree = hierarchyClient.snapshot()
+            .projects.first(where: { $0.id == source.projectID })?
+            .worktrees.first(where: { $0.id == source.worktreeID }),
           worktree.tabs.contains(where: { $0.id == source.tabID })
         else {
           return .none
         }
         try? hierarchyClient.selectTab(source.tabID, source.worktreeID, source.projectID)
 
-        guard let tab = hierarchyClient.snapshot()
-          .projects.first(where: { $0.id == source.projectID })?
-          .worktrees.first(where: { $0.id == source.worktreeID })?
-          .tabs.first(where: { $0.id == source.tabID }),
+        guard
+          let tab = hierarchyClient.snapshot()
+            .projects.first(where: { $0.id == source.projectID })?
+            .worktrees.first(where: { $0.id == source.worktreeID })?
+            .tabs.first(where: { $0.id == source.tabID }),
           tab.flatPaneIDs.contains(source.paneID)
         else {
           return .none

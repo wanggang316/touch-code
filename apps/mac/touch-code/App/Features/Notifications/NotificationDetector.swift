@@ -90,9 +90,9 @@ public final class NotificationDetector {
       _ = liveResolve(paneID: paneID)
     case .clearProduced(let paneID):
       hasProducedOutput.remove(paneID)
-      // Don't drop cache here — `emit` for the same teardown event still
-      // needs to look up the source path. Cache is dropped at the end of
-      // `emit` once we've actually used it.
+    // Don't drop cache here — `emit` for the same teardown event still
+    // needs to look up the source path. Cache is dropped at the end of
+    // `emit` once we've actually used it.
     case .unchanged:
       break
     }

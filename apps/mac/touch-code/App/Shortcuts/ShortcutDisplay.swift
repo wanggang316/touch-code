@@ -46,10 +46,10 @@ public enum ShortcutDisplay {
   /// Modifier-only glyph string in canonical macOS order.
   public static func modifiersDisplay(_ mask: ModifierMask) -> String {
     var result = ""
-    if mask.contains(.control) { result += "\u{2303}" } // ⌃
+    if mask.contains(.control) { result += "\u{2303}" }  // ⌃
     if mask.contains(.option) { result += "\u{2325}" }  // ⌥
-    if mask.contains(.shift) { result += "\u{21E7}" }   // ⇧
-    if mask.contains(.command) { result += "\u{2318}" } // ⌘
+    if mask.contains(.shift) { result += "\u{21E7}" }  // ⇧
+    if mask.contains(.command) { result += "\u{2318}" }  // ⌘
     return result
   }
 
@@ -63,7 +63,8 @@ public enum ShortcutDisplay {
   public static func keyEquivalent(for keyCode: UInt16) -> KeyEquivalent? {
     if let special = specialKeyEquivalent(for: keyCode) { return special }
     if let translated = translateToCharacter(keyCode: keyCode, source: .asciiCapable),
-       let first = translated.first {
+      let first = translated.first
+    {
       return KeyEquivalent(first)
     }
     return nil
@@ -83,20 +84,20 @@ public enum ShortcutDisplay {
 
   private static func fixedGlyph(for keyCode: UInt16) -> String? {
     switch Int(keyCode) {
-    case kVK_Return: return "\u{21A9}"        // ↩
-    case kVK_Tab: return "\u{21E5}"           // ⇥
-    case kVK_Space: return "\u{2423}"         // ␣
-    case kVK_Delete: return "\u{232B}"        // ⌫
-    case kVK_ForwardDelete: return "\u{2326}" // ⌦
-    case kVK_Escape: return "\u{238B}"        // ⎋
-    case kVK_LeftArrow: return "\u{2190}"     // ←
-    case kVK_RightArrow: return "\u{2192}"    // →
-    case kVK_UpArrow: return "\u{2191}"       // ↑
-    case kVK_DownArrow: return "\u{2193}"     // ↓
-    case kVK_Home: return "\u{2196}"          // ↖
-    case kVK_End: return "\u{2198}"           // ↘
-    case kVK_PageUp: return "\u{21DE}"        // ⇞
-    case kVK_PageDown: return "\u{21DF}"      // ⇟
+    case kVK_Return: return "\u{21A9}"  // ↩
+    case kVK_Tab: return "\u{21E5}"  // ⇥
+    case kVK_Space: return "\u{2423}"  // ␣
+    case kVK_Delete: return "\u{232B}"  // ⌫
+    case kVK_ForwardDelete: return "\u{2326}"  // ⌦
+    case kVK_Escape: return "\u{238B}"  // ⎋
+    case kVK_LeftArrow: return "\u{2190}"  // ←
+    case kVK_RightArrow: return "\u{2192}"  // →
+    case kVK_UpArrow: return "\u{2191}"  // ↑
+    case kVK_DownArrow: return "\u{2193}"  // ↓
+    case kVK_Home: return "\u{2196}"  // ↖
+    case kVK_End: return "\u{2198}"  // ↘
+    case kVK_PageUp: return "\u{21DE}"  // ⇞
+    case kVK_PageDown: return "\u{21DF}"  // ⇟
     case kVK_F1: return "F1"
     case kVK_F2: return "F2"
     case kVK_F3: return "F3"

@@ -30,13 +30,15 @@ struct TagFilterPopoverFooter: View {
       Button {
         isPopoverPresented.toggle()
       } label: {
-        Image(systemName: hasActiveFilter
-          ? "line.3.horizontal.decrease.circle.fill"
-          : "line.3.horizontal.decrease.circle")
-          .font(.system(size: 15, weight: .regular))
-          .foregroundStyle(hasActiveFilter ? Color.accentColor : .secondary)
-          .frame(width: 22, height: 22)
-          .contentShape(Rectangle())
+        Image(
+          systemName: hasActiveFilter
+            ? "line.3.horizontal.decrease.circle.fill"
+            : "line.3.horizontal.decrease.circle"
+        )
+        .font(.system(size: 15, weight: .regular))
+        .foregroundStyle(hasActiveFilter ? Color.accentColor : .secondary)
+        .frame(width: 22, height: 22)
+        .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
       .help(hasActiveFilter ? "Filtered by tag — click to change" : "Filter by tag")

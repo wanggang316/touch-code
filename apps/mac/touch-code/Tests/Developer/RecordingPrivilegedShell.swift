@@ -1,4 +1,5 @@
 import Foundation
+
 @testable import touch_code
 
 /// Test-only fake for `PrivilegedShell`. Records each `run(_:prompt:)`

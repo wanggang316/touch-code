@@ -57,8 +57,8 @@ struct DiffWebViewBridgeTests {
   @Test
   func decodeRenderStateChangedRenderedReportsFileCount() throws {
     let json = #"""
-    {"protocolVersion":1,"id":"evt-2","type":"renderStateChanged","payload":{"state":"rendered","documentIdentifier":"d","summary":{"fileCount":3}}}
-    """#
+      {"protocolVersion":1,"id":"evt-2","type":"renderStateChanged","payload":{"state":"rendered","documentIdentifier":"d","summary":{"fileCount":3}}}
+      """#
     let event = try DiffWebViewBridge.decodeEvent(json)
     #expect(event == .didRender(fileCount: 3))
   }
@@ -66,8 +66,8 @@ struct DiffWebViewBridgeTests {
   @Test
   func decodeLineActivatedReportsLineNumber() throws {
     let json = #"""
-    {"protocolVersion":1,"id":"evt-3","type":"lineActivated","payload":{"fileIndex":0,"oldPath":"a.swift","newPath":"a.swift","side":"new","number":42,"kind":"addition"}}
-    """#
+      {"protocolVersion":1,"id":"evt-3","type":"lineActivated","payload":{"fileIndex":0,"oldPath":"a.swift","newPath":"a.swift","side":"new","number":42,"kind":"addition"}}
+      """#
     let event = try DiffWebViewBridge.decodeEvent(json)
     #expect(event == .didClickLine(fileIndex: 0, lineNumber: 42))
   }
@@ -75,19 +75,20 @@ struct DiffWebViewBridgeTests {
   @Test
   func decodeSelectionChangedWithRangeReportsSelection() throws {
     let json = #"""
-    {"protocolVersion":1,"id":"evt-4","type":"selectionChanged","payload":{"selection":{"fileIndex":2,"start":{"side":"new","number":10},"end":{"side":"new","number":15}}}}
-    """#
+      {"protocolVersion":1,"id":"evt-4","type":"selectionChanged","payload":{"selection":{"fileIndex":2,"start":{"side":"new","number":10},"end":{"side":"new","number":15}}}}
+      """#
     let event = try DiffWebViewBridge.decodeEvent(json)
     #expect(
-      event == .didChangeSelection(
-        SelectionRange(fileIndex: 2, start: 10, end: 15, side: .additions)))
+      event
+        == .didChangeSelection(
+          SelectionRange(fileIndex: 2, start: 10, end: 15, side: .additions)))
   }
 
   @Test
   func decodeSelectionChangedWithNullClearsSelection() throws {
     let json = #"""
-    {"protocolVersion":1,"id":"evt-5","type":"selectionChanged","payload":{"selection":null}}
-    """#
+      {"protocolVersion":1,"id":"evt-5","type":"selectionChanged","payload":{"selection":null}}
+      """#
     let event = try DiffWebViewBridge.decodeEvent(json)
     #expect(event == .didChangeSelection(nil))
   }
@@ -137,8 +138,8 @@ struct DiffWebViewBridgeTests {
   @Test
   func decodeRenderStateChangedFailedSurfacesDidFail() throws {
     let json = #"""
-    {"protocolVersion":1,"id":"evt-7","type":"renderStateChanged","payload":{"state":"failed","documentIdentifier":"d","error":{"code":"shiki_failed","message":"highlight error"}}}
-    """#
+      {"protocolVersion":1,"id":"evt-7","type":"renderStateChanged","payload":{"state":"failed","documentIdentifier":"d","error":{"code":"shiki_failed","message":"highlight error"}}}
+      """#
     let event = try DiffWebViewBridge.decodeEvent(json)
     if case .didFail(let code, let message) = event {
       #expect(code == "shiki_failed")
@@ -151,12 +152,13 @@ struct DiffWebViewBridgeTests {
   @Test
   func decodeSelectionChangedWithMixedSidesCollapsesToBoth() throws {
     let json = #"""
-    {"protocolVersion":1,"id":"evt-8","type":"selectionChanged","payload":{"selection":{"fileIndex":1,"start":{"side":"old","number":3},"end":{"side":"new","number":7}}}}
-    """#
+      {"protocolVersion":1,"id":"evt-8","type":"selectionChanged","payload":{"selection":{"fileIndex":1,"start":{"side":"old","number":3},"end":{"side":"new","number":7}}}}
+      """#
     let event = try DiffWebViewBridge.decodeEvent(json)
     #expect(
-      event == .didChangeSelection(
-        SelectionRange(fileIndex: 1, start: 3, end: 7, side: .both)))
+      event
+        == .didChangeSelection(
+          SelectionRange(fileIndex: 1, start: 3, end: 7, side: .both)))
   }
 
   @Test

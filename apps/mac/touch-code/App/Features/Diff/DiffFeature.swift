@@ -109,7 +109,7 @@ struct DiffFeature {
   var body: some Reducer<State, Action> {
     Reduce { state, action in
       switch action {
-      case let .worktreeSelected(projectID, worktreeID, path):
+      case .worktreeSelected(let projectID, let worktreeID, let path):
         // Switching Worktree drops the prior cache; presentedFilePath
         // also resets so a stale drawer doesn't linger across switches.
         state.projectID = projectID
@@ -169,15 +169,15 @@ struct DiffFeature {
         state.presentedFilePath = nil
         return .none
 
-      case let .diffSucceededFor(path, document):
+      case .diffSucceededFor(let path, let document):
         state.diffsByPath[path] = .loaded(LoadedDiffDocument(document))
         return .none
 
-      case let .diffFailedFor(path, error):
+      case .diffFailedFor(let path, let error):
         state.diffsByPath[path] = .error(error)
         return .none
 
-      case let .diffTooLargeFor(path, reason, copyCommand):
+      case .diffTooLargeFor(let path, let reason, let copyCommand):
         state.diffsByPath[path] = .tooLarge(reason: reason, copyCommand: copyCommand)
         return .none
 
