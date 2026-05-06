@@ -24,25 +24,33 @@ final class PaneSurface {
   let info: SurfaceInfo = SurfaceInfo()
   private(set) var state: State = .initialising
   let view: GhosttySurfaceView
-  private var surface: ghostty_surface_t?
+  // The C-handle / unsafe-pointer storage below is read from a nonisolated
+  // deinit; their non-Sendable types would otherwise reject that access.
+  // `nonisolated(unsafe)` is sound here because the deinit only fires once
+  // the refcount has hit zero — by that point the MainActor is the sole
+  // owner and no other context can race. See `deinit` for the rationale
+  // for nonisolated deinit itself.
+  nonisolated(unsafe) private var surface: ghostty_surface_t?
 
   private let runtime: GhosttyRuntime
-  private let workingDirectoryCString: UnsafeMutablePointer<CChar>?
+  nonisolated(unsafe) private let workingDirectoryCString: UnsafeMutablePointer<CChar>?
   /// Heap-allocated key/value C strings backing the env_vars array passed
   /// to libghostty. `strdup`'d in init, every entry `free`'d in deinit.
   /// Held on the instance because libghostty does NOT documented-copy the
   /// `env_vars` buffer; keeping the strings alive matches the
   /// `working_directory` lifecycle.
-  private let envCStrings: [(key: UnsafeMutablePointer<CChar>, value: UnsafeMutablePointer<CChar>)]
+  nonisolated(unsafe) private let envCStrings:
+    [(key: UnsafeMutablePointer<CChar>, value: UnsafeMutablePointer<CChar>)]
   /// Backing storage for the `ghostty_env_var_s` array. Allocated only
   /// when the env map is non-empty; a `nil` buffer means the surface
   /// config receives `env_vars = nil, env_var_count = 0`.
-  private let envVarsBuffer: UnsafeMutableBufferPointer<ghostty_env_var_s>?
+  nonisolated(unsafe) private let envVarsBuffer:
+    UnsafeMutableBufferPointer<ghostty_env_var_s>?
   /// Heap-allocated uuid_t bytes passed to libghostty as the surface
   /// userdata. close_surface_cb reads these bytes to recover the owning
   /// PaneID without casting to a Swift object pointer (UAF-safe across
   /// the C→main-queue hop).
-  private let paneIDUserdata: UnsafeMutablePointer<UInt8>
+  nonisolated(unsafe) private let paneIDUserdata: UnsafeMutablePointer<UInt8>
 
   /// Engine-provided close callback. Runs when the libghostty surface
   /// reports close (child exited or crashed). `processAlive` is true for
@@ -133,10 +141,16 @@ final class PaneSurface {
     self.state = .ready
   }
 
-  isolated deinit {
-    // Safety net: callers should invoke close() explicitly, but if the
-    // engine drops a PaneSurface without doing so, release the surface
-    // here to avoid leaking a ghostty_surface_t + the child PTY.
+  // Nonisolated deinit on a MainActor class: chained `isolated deinit`s
+  // along the close path (this PaneSurface released alongside its
+  // PendingOutputBuffer) crash inside `swift_task_deinitOnExecutorImpl` on
+  // Swift 6 — the cascading executor hops double-free a TaskLocal scope
+  // and libmalloc aborts. Everything touched here is C-pointer cleanup on
+  // `let` storage; the only `var` read (`surface`) is a value-type handle
+  // and the object's refcount has already reached zero, so no other actor
+  // can race us. Callers still call `close()` first via the close path —
+  // this is a leak-prevention safety net.
+  deinit {
     if let surface {
       ghostty_surface_free(surface)
     }

@@ -3,11 +3,16 @@ import TouchCodeCore
 
 /// Per-pane output coalescer. Batches `append(bytes:)` calls and emits a
 /// single `.paneOutput` event at most once per `flushInterval`, or when the
-/// buffer reaches `maxBufferSize`. Callers should invoke `flush()` (or
+/// buffer reaches `maxBufferSize`. Callers MUST invoke `flush()` (or
 /// `TerminalEngine.disposeOutputBuffer`) before releasing the buffer —
-/// the `isolated deinit` drain is a MainActor-synchronous safety net, but
-/// if the owning engine has already called `finishEventStream` the emit is
-/// a no-op and the bytes silently fall on the floor.
+/// `deinit` only cancels the pending timer; any leftover bytes are dropped.
+///
+/// The previous safety-net drain was implemented as `isolated deinit`, but
+/// in cascading-deinit chains (e.g. closing the last tab releases this
+/// buffer alongside its `PaneSurface`) the Swift 6 `swift_task_deinit-
+/// OnExecutorImpl` machinery double-frees TaskLocal scope storage and
+/// trips libmalloc. A nonisolated deinit avoids the executor hop entirely
+/// and the explicit `flush()` call already covers the well-formed path.
 @MainActor
 final class PendingOutputBuffer {
   let paneID: PaneID
@@ -30,11 +35,8 @@ final class PendingOutputBuffer {
     self.emit = emit
   }
 
-  isolated deinit {
+  deinit {
     flushTask?.cancel()
-    if !buffer.isEmpty {
-      drain()
-    }
   }
 
   func append(_ bytes: Data) {
