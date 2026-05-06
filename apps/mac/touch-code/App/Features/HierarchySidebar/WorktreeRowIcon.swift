@@ -4,10 +4,12 @@ import TouchCodeCore
 /// Leading-edge icon for a Sidebar Worktree row. Replaces the old `circle.fill`/`circle`
 /// selection dot with a GitHub-style glyph that doubles as the row's PR-state signal:
 ///
-/// - No PR snapshot → `git-branch` tinted by `roleTint` (yellow for main checkout,
-///   orange for user-pinned rows, secondary otherwise). Desaturates to secondary when
-///   the row is selected — `listRowBackground` already shows selection, so a loud icon
-///   would fight the highlight.
+/// - Main checkout, no PR → `circle.circle` SF Symbol tinted with the row's text color
+///   so the main row blends with its label rather than competing for attention.
+/// - Other worktrees, no PR snapshot → `git-branch` tinted by `roleTint` (orange for
+///   user-pinned rows, secondary otherwise). Desaturates to the selection text color
+///   when the row is selected — `listRowBackground` already shows selection, so a loud
+///   icon would fight the highlight.
 /// - PR snapshot     → `git-pull-request`, `git-merge`, `git-pull-request-closed`, or
 ///   `git-pull-request-draft`, tinted by PR state (green / purple / red / grey). PR
 ///   state is the dominant signal when a PR exists; the role tint is suppressed.
@@ -19,9 +21,13 @@ struct WorktreeRowIcon: View {
   let rollup: PullRequestBadge.CheckRollup
   let isSelected: Bool
   /// Fallback tint applied when no PR snapshot is available. Encodes the Worktree's
-  /// "role" in the Project — yellow for the main checkout, orange for pinned rows,
-  /// secondary for everything else.
+  /// "role" in the Project — primary (text color) for the main checkout, orange for
+  /// pinned rows, secondary for everything else.
   var roleTint: Color = .secondary
+  /// Whether this row is the project's main checkout. Drives the icon swap to
+  /// `circle.circle` so main reads as a neutral anchor row, distinct from the
+  /// `git-branch` glyph used by non-main worktrees.
+  var isMainCheckout: Bool = false
   /// L3 unread override. When `true`, the row icon swaps to a bell glyph
   /// regardless of PR / branch state, and the role tint is replaced by
   /// the accent colour. PR check rollup overlay still renders unchanged.
@@ -46,6 +52,12 @@ struct WorktreeRowIcon: View {
           .aspectRatio(contentMode: .fit)
           .frame(width: 12, height: 12)
           .foregroundStyle(Color.orange)
+      } else if isMainCheckout && snapshot == nil {
+        Image(systemName: "circle.circle")
+          .resizable()
+          .aspectRatio(contentMode: .fit)
+          .frame(width: 14, height: 14)
+          .foregroundStyle(tint)
       } else {
         Image(assetName)
           .renderingMode(.template)

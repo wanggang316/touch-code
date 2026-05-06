@@ -564,7 +564,7 @@ struct HierarchySidebarView: View {
   ) -> some View {
     let isMainCheckout = worktree.path == project.rootPath
     let roleTint: Color = {
-      if isMainCheckout { return .yellow }
+      if isMainCheckout { return .primary }
       if worktree.isPinned { return .orange }
       return .secondary
     }()
@@ -603,6 +603,7 @@ struct HierarchySidebarView: View {
         } else {
           WorktreeRowIcon(
             snapshot: snapshot, rollup: rollup, isSelected: isSelected, roleTint: roleTint,
+            isMainCheckout: isMainCheckout,
             hasUnreadNotification: notificationRollup?.current.unreadWorktrees.contains(worktree.id) == true
           )
         }
