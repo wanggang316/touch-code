@@ -258,6 +258,18 @@ let project = Project(
           ],
           basedOnDependencyAnalysis: true
         ),
+        // Ghostty resources: themes (~480 files), shaders, shell-
+        // integration scripts, and the xterm-ghostty terminfo
+        // database. libghostty resolves these at runtime via the host
+        // app's Bundle resourcePath; without them the Settings → Theme
+        // picker fails ("not found") and shells under the embedded
+        // terminal lose backspace / arrow-key handling because TERM=
+        // xterm-ghostty has no terminfo entry to look up.
+        .post(
+          script: "\"${SRCROOT}/scripts/embed-ghostty-resources.sh\"",
+          name: "Embed Ghostty Resources",
+          basedOnDependencyAnalysis: false
+        ),
       ],
       dependencies: [
         .target(name: "TouchCodeCore"),
