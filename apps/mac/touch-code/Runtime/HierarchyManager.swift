@@ -410,6 +410,19 @@ final class HierarchyManager {
     store.scheduleSave(catalog)
   }
 
+  /// Updates the Project's resolved git root. Called by the reconciler when a
+  /// folder Project becomes a git repo (`git init` / `git clone` from the
+  /// terminal) — flipping `gitRoot` from nil → discovered path lights up the
+  /// "+ Add Worktree" affordance and unlocks the worktree reconcile path
+  /// without an app relaunch. Silent no-op on unchanged values and unknown
+  /// ids. Persists via the standard debounced save pipeline.
+  func setProjectGitRoot(projectID: ProjectID, gitRoot: String?) {
+    guard let projectIndex = catalog.projects.firstIndex(where: { $0.id == projectID }) else { return }
+    guard catalog.projects[projectIndex].gitRoot != gitRoot else { return }
+    catalog.projects[projectIndex].gitRoot = gitRoot
+    store.scheduleSave(catalog)
+  }
+
   /// Flips the Worktree's pinned flag and repositions the row in the catalog
   /// array so segment-internal order matches the sidebar. Pin moves the row to
   /// the end of the pinned segment (last visible pinned); Unpin moves it to

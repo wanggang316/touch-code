@@ -429,6 +429,7 @@ extension HierarchyClient {
     manager: HierarchyManager,
     settings: SettingsStore? = nil,
     gitWorktreeClient: GitWorktreeClient = .makeLive(),
+    gitCLI: GitWorktreeCLI = GitWorktreeCLI(),
     terminalClient: TerminalClient? = nil
   ) -> HierarchyClient {
     HierarchyClient(
@@ -568,7 +569,8 @@ extension HierarchyClient {
         await reconcile(
           projectID: projectID,
           manager: manager,
-          gitWorktreeClient: gitWorktreeClient
+          gitWorktreeClient: gitWorktreeClient,
+          gitCLI: gitCLI
         )
       },
       createWorktreeWithGit: { projectID, branch, _, path in
@@ -997,11 +999,30 @@ extension HierarchyClient {
   private static func reconcile(
     projectID: ProjectID,
     manager: HierarchyManager,
-    gitWorktreeClient: GitWorktreeClient
+    gitWorktreeClient: GitWorktreeClient,
+    gitCLI: GitWorktreeCLI
   ) async {
-    guard let project = manager.catalog.projects.first(where: { $0.id == projectID }),
-      let gitRoot = project.gitRoot
+    guard let project = manager.catalog.projects.first(where: { $0.id == projectID })
     else { return }
+    // Re-detect the git root every time gitRoot is nil. Folder Projects added
+    // before the user ran `git init` (or `git clone`) inside the directory
+    // would otherwise stay forever marked non-git: gitRoot is set once at
+    // add-time and never refreshed. The reconciler runs on launch and on
+    // every window-focus pulse, so this auto-promotes a folder Project to a
+    // git Project the next time the app regains focus after `git init`.
+    // `discoverGitRoot` shells out to `git rev-parse --show-toplevel`
+    // (sub-10ms, swallows ENOENT) and is debounced upstream by
+    // `ProjectReconciler`'s 2s window, so the per-focus cost is bounded.
+    let gitRoot: String? = await {
+      if let existing = project.gitRoot { return existing }
+      let discovered = try? await gitCLI.discoverGitRoot(candidatePath: project.rootPath)
+      if let discovered, !discovered.isEmpty {
+        manager.setProjectGitRoot(projectID: projectID, gitRoot: discovered)
+        return discovered
+      }
+      return nil
+    }()
+    guard let gitRoot else { return }
     do {
       let entries = try await gitWorktreeClient.lsWorktrees(
         URL(fileURLWithPath: gitRoot)
