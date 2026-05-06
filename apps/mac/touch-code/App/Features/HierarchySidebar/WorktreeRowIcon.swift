@@ -4,7 +4,7 @@ import TouchCodeCore
 /// Leading-edge icon for a Sidebar Worktree row. Replaces the old `circle.fill`/`circle`
 /// selection dot with a GitHub-style glyph that doubles as the row's PR-state signal:
 ///
-/// - Main checkout, no PR → `circle.circle` SF Symbol tinted with the row's text color
+/// - Main checkout, no PR → `circle` SF Symbol tinted with the row's text color
 ///   so the main row blends with its label rather than competing for attention.
 /// - Other worktrees, no PR snapshot → `git-branch` tinted by `roleTint` (orange for
 ///   user-pinned rows, secondary otherwise). Desaturates to the selection text color
@@ -25,7 +25,7 @@ struct WorktreeRowIcon: View {
   /// pinned rows, secondary for everything else.
   var roleTint: Color = .secondary
   /// Whether this row is the project's main checkout. Drives the icon swap to
-  /// `circle.circle` so main reads as a neutral anchor row, distinct from the
+  /// `circle` so main reads as a neutral anchor row, distinct from the
   /// `git-branch` glyph used by non-main worktrees.
   var isMainCheckout: Bool = false
   /// L3 unread override. When `true`, the row icon swaps to a bell glyph
@@ -53,7 +53,7 @@ struct WorktreeRowIcon: View {
           .frame(width: 12, height: 12)
           .foregroundStyle(Color.orange)
       } else if isMainCheckout && snapshot == nil {
-        Image(systemName: "circle.circle")
+        Image(systemName: "circle")
           .resizable()
           .aspectRatio(contentMode: .fit)
           .frame(width: 14, height: 14)
