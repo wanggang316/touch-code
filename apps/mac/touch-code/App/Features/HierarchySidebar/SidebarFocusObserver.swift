@@ -47,7 +47,12 @@ final class SidebarFocusObserver {
     ) { [weak self] _ in
       MainActor.assumeIsolated { self?.recompute() }
     }
-    recompute()
+    // No initial recompute(): this initializer runs inside `TouchCodeApp.init()` —
+    // i.e. before `NSApplicationMain` has installed `NSApplication.shared`, so the
+    // implicitly-unwrapped `NSApp` global is still nil and `evaluate()`'s first
+    // line traps. The default `false` is the correct launch-time answer (no key
+    // window yet); `didBecomeKeyNotification` will fire the first real recompute
+    // once the main window comes up.
   }
 
   deinit {
