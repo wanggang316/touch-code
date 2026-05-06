@@ -564,7 +564,6 @@ struct HierarchySidebarView: View {
   ) -> some View {
     let isMainCheckout = worktree.path == project.rootPath
     let roleTint: Color = {
-      if isMainCheckout { return .primary }
       if worktree.isPinned { return .orange }
       return .secondary
     }()

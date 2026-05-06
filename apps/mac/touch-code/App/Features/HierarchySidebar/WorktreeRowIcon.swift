@@ -4,13 +4,13 @@ import TouchCodeCore
 /// Leading-edge icon for a Sidebar Worktree row. Replaces the old `circle.fill`/`circle`
 /// selection dot with a GitHub-style glyph that doubles as the row's PR-state signal:
 ///
-/// - Main checkout, no PR → `circlebadge` SF Symbol that inherits the row's default
-///   foreground color so it tracks the label across emphasized / unemphasized /
-///   inactive selection states without us having to mirror NSTableView's color logic.
-/// - Other worktrees, no PR snapshot → `git-branch` tinted by `roleTint` (orange for
-///   user-pinned rows, secondary otherwise). Desaturates to the selection text color
-///   when the row is selected — `listRowBackground` already shows selection, so a loud
-///   icon would fight the highlight.
+/// - Main checkout, no PR → `circlebadge` SF Symbol at an 11pt frame (the symbol's
+///   bounding box has tighter padding than the GitHub Octicons used elsewhere, so
+///   the smaller frame keeps its optical weight in line with sibling rows).
+/// - Worktrees with no PR snapshot (including main) → tinted by `roleTint` (orange
+///   for user-pinned rows, secondary otherwise). Desaturates to the selection text
+///   color when the row is selected — `listRowBackground` already shows selection,
+///   so a loud icon would fight the highlight.
 /// - PR snapshot     → `git-pull-request`, `git-merge`, `git-pull-request-closed`, or
 ///   `git-pull-request-draft`, tinted by PR state (green / purple / red / grey). PR
 ///   state is the dominant signal when a PR exists; the role tint is suppressed.
@@ -22,8 +22,8 @@ struct WorktreeRowIcon: View {
   let rollup: PullRequestBadge.CheckRollup
   let isSelected: Bool
   /// Fallback tint applied when no PR snapshot is available. Encodes the Worktree's
-  /// "role" in the Project — primary (text color) for the main checkout, orange for
-  /// pinned rows, secondary for everything else.
+  /// "role" in the Project — orange for pinned rows, secondary for everything else
+  /// (including the main checkout, which shares the regular-worktree palette).
   var roleTint: Color = .secondary
   /// Whether this row is the project's main checkout. Drives the icon swap to
   /// `circlebadge` so main reads as a neutral anchor row, distinct from the
@@ -54,14 +54,15 @@ struct WorktreeRowIcon: View {
           .frame(width: 12, height: 12)
           .foregroundStyle(Color.orange)
       } else if isMainCheckout && snapshot == nil {
-        // No explicit foregroundStyle: the symbol inherits the row's default
-        // text color, which already tracks `backgroundProminence` and active
-        // window state — that's the only way to keep the icon and label in
-        // perfect lockstep across emphasized / unemphasized / inactive
-        // selection without re-implementing NSTableView's color rules.
+        // 11pt symbol inside a 14pt slot: the inner frame compensates for
+        // `circlebadge`'s tight glyph padding so the icon reads at the same
+        // optical weight as the git-branch rows; the outer 14pt frame keeps
+        // the label column aligned with sibling worktree rows.
         Image(systemName: "circlebadge")
           .resizable()
           .aspectRatio(contentMode: .fit)
+          .frame(width: 11, height: 11)
+          .foregroundStyle(tint)
           .frame(width: 14, height: 14)
       } else {
         Image(assetName)
