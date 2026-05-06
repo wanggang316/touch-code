@@ -12,6 +12,10 @@ name: release
 #   AC_API_KEY_ID                 - App Store Connect API Key ID
 #   AC_API_ISSUER_ID              - App Store Connect Issuer UUID
 #   AC_API_KEY_P8                 - base64 -i AuthKey_*.p8
+#   SPARKLE_PRIVATE_KEY           - EdDSA private key (the base64 string
+#                                   produced by `generate_keys -x`,
+#                                   counterpart of SUPublicEDKey in
+#                                   apps/mac/Configurations/mac-Info.plist)
 
 on:
   push:
@@ -180,16 +184,57 @@ jobs:
           ./apps/mac/scripts/release.sh notarize \
             "apps/mac/.build/release/TouchCode-${{ steps.meta.outputs.version }}.dmg"
 
-      - name: Create draft GitHub Release with DMG attached
+      # ---- Sparkle appcast.xml (Stage 2 of the in-app updater) ----
+      # The notarized DMG is the unit Sparkle's appcast advertises. We
+      # download Sparkle's prebuilt tools from its release tarball
+      # (the SPM checkout only ships the framework, not the CLI tools)
+      # and run generate_appcast against a staging directory holding
+      # only the current DMG. The EdDSA private key counterpart of the
+      # Info.plist's SUPublicEDKey is read from $SPARKLE_PRIVATE_KEY
+      # via stdin (`--ed-key-file -`) so it never lands on disk.
+      - name: Fetch Sparkle CLI tools
+        run: |
+          set -euo pipefail
+          curl -fsSL https://github.com/sparkle-project/Sparkle/releases/download/2.9.1/Sparkle-2.9.1.tar.xz \
+            -o "$RUNNER_TEMP/sparkle.tar.xz"
+          mkdir -p "$RUNNER_TEMP/sparkle"
+          tar -xf "$RUNNER_TEMP/sparkle.tar.xz" -C "$RUNNER_TEMP/sparkle"
+          ls -l "$RUNNER_TEMP/sparkle/bin/generate_appcast"
+          echo "SPARKLE_BIN=$RUNNER_TEMP/sparkle/bin" >> "$GITHUB_ENV"
+
+      - name: Generate signed appcast.xml
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          : "${SPARKLE_PRIVATE_KEY:?secret SPARKLE_PRIVATE_KEY not configured}"
+          STAGING="$RUNNER_TEMP/appcast-staging"
+          mkdir -p "$STAGING"
+          /bin/cp "apps/mac/.build/release/TouchCode-${{ steps.meta.outputs.version }}.dmg" "$STAGING/"
+          # generate_appcast embeds the download-url-prefix in each item's
+          # <enclosure url="..."> attribute; point at the GitHub Releases
+          # download URL for this exact tag so Sparkle clients fetch the
+          # DMG that ships in the same release as the appcast itself.
+          printf '%s' "$SPARKLE_PRIVATE_KEY" | tr -d ' \n\r\t' \
+            | "$SPARKLE_BIN/generate_appcast" \
+                --download-url-prefix "https://github.com/${{ github.repository }}/releases/download/${{ steps.meta.outputs.tag }}/" \
+                --maximum-versions 5 \
+                --ed-key-file - \
+                "$STAGING"
+          /bin/cp "$STAGING/appcast.xml" "apps/mac/.build/release/appcast.xml"
+          cat "apps/mac/.build/release/appcast.xml"
+
+      - name: Create draft GitHub Release with DMG + appcast attached
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           DMG="apps/mac/.build/release/TouchCode-${{ steps.meta.outputs.version }}.dmg"
+          APPCAST="apps/mac/.build/release/appcast.xml"
           gh release create "${{ steps.meta.outputs.tag }}" \
             --draft \
             --title "${{ steps.meta.outputs.tag }}" \
             --generate-notes \
-            "$DMG" "$DMG.sha256"
+            "$DMG" "$DMG.sha256" "$APPCAST"
 
       - name: Cleanup keychain
         if: always()
