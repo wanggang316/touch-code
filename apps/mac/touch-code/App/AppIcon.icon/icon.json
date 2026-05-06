@@ -4,85 +4,10 @@
     {
       "layers" : [
         {
-          "glass-specializations" : [
-            {
-              "value" : false
-            },
-            {
-              "appearance" : "dark",
-              "value" : false
-            }
-          ],
-          "image-name" : "Image 2.png",
-          "name" : "Image 2",
-          "position" : {
-            "scale" : 1,
-            "translation-in-points" : [
-              0,
-              0
-            ]
-          }
-        },
-        {
-          "hidden" : true,
-          "image-name" : "Image 1.png",
-          "name" : "Image 1",
-          "position" : {
-            "scale" : 1.2,
-            "translation-in-points" : [
-              0,
-              0
-            ]
-          }
-        },
-        {
-          "hidden" : true,
-          "image-name" : "Touch Code Icon - 线条艺术树.png",
-          "name" : "Touch Code Icon - 线条艺术树"
-        },
-        {
-          "hidden" : true,
-          "image-name" : "Touch Code Icon 2 - 绿色系树.png",
-          "name" : "Touch Code Icon 2 - 绿色系树",
-          "position" : {
-            "scale" : 1.05,
-            "translation-in-points" : [
-              -4.252475067809564,
-              14.018008807019521
-            ]
-          }
-        },
-        {
-          "blend-mode" : "normal",
-          "fill" : "none",
-          "glass" : true,
-          "hidden" : true,
-          "image-name" : "Touch Code Icon - 彩虹树简约版深色.png",
-          "name" : "Touch Code Icon - 彩虹树简约版深色",
-          "opacity" : 1,
-          "position" : {
-            "scale" : 1,
-            "translation-in-points" : [
-              0,
-              0
-            ]
-          }
-        },
-        {
-          "hidden" : true,
-          "image-name" : "Touch Code Icon - 彩虹树浅色主题.png",
-          "name" : "Touch Code Icon - 彩虹树浅色主题"
-        },
-        {
-          "hidden" : true,
-          "image-name" : "Touch Code Icon - 彩虹树浅色主题 2.png",
-          "name" : "Touch Code Icon - 彩虹树浅色主题 2"
-        },
-        {
-          "blend-mode" : "normal",
-          "hidden" : true,
-          "image-name" : "Touch Code Icon - 彩虹树浅色主题.png",
-          "name" : "Touch Code Icon - 彩虹树浅色主题"
+          "glass" : false,
+          "hidden" : false,
+          "image-name" : "1.png",
+          "name" : "1"
         }
       ],
       "shadow" : {
