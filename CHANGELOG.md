@@ -10,6 +10,20 @@ and the project does not yet follow semantic versioning — every release until
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [0.1.4] - 2026-05-06
+
+### Added
+
 - **Add Project picker can create new folders inline** — the open-panel
   now permits directory creation, so first-time setups don't need to
   pre-make the project directory in Finder.
