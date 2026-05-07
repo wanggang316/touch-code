@@ -187,6 +187,32 @@ struct MainWindowCommands: Commands {
       .appKeyboardShortcut(.splitDown, in: shortcuts)
       .disabled(!hasActiveWorktree)
 
+      Divider()
+
+      Button("Focus Left Split") {
+        store()?.send(.focusAdjacentPaneInCurrentTabRequested(direction: .left))
+      }
+      .appKeyboardShortcut(.focusSplitLeft, in: shortcuts)
+      .disabled(!hasActiveWorktree)
+
+      Button("Focus Right Split") {
+        store()?.send(.focusAdjacentPaneInCurrentTabRequested(direction: .right))
+      }
+      .appKeyboardShortcut(.focusSplitRight, in: shortcuts)
+      .disabled(!hasActiveWorktree)
+
+      Button("Focus Split Above") {
+        store()?.send(.focusAdjacentPaneInCurrentTabRequested(direction: .up))
+      }
+      .appKeyboardShortcut(.focusSplitUp, in: shortcuts)
+      .disabled(!hasActiveWorktree)
+
+      Button("Focus Split Below") {
+        store()?.send(.focusAdjacentPaneInCurrentTabRequested(direction: .down))
+      }
+      .appKeyboardShortcut(.focusSplitDown, in: shortcuts)
+      .disabled(!hasActiveWorktree)
+
       Button("Close Tab") {
         // ⌘W is global menu chord; SwiftUI Commands aren't scene-scoped, so the
         // same accelerator fires regardless of which window is key. Route on the

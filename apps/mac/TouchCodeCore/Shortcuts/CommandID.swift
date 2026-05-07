@@ -36,6 +36,10 @@ public enum CommandID: String, CaseIterable, Hashable, Sendable, Codable, Coding
   case newWorktree
   case splitRight
   case splitDown
+  case focusSplitLeft
+  case focusSplitRight
+  case focusSplitUp
+  case focusSplitDown
 
   // Worktree row operations.
   case revealCurrentWorktreeInFinder

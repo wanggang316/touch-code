@@ -195,6 +195,12 @@ struct RootFeature {
     /// buttons; both routes land on `.detail(.tabBar(.trailingSplitRequested))`
     /// so trees / hooks fire identically.
     case splitCurrentPaneRequested(direction: SplitTree<PaneID>.NewDirection)
+    /// `⌘⌥←/→/↑/↓` menu bindings — moves focus to the adjacent split inside
+    /// the active tab. Resolves the focused pane via `lastFocusedPane` (with
+    /// a leftmost-leaf fallback so the chord still works on a freshly
+    /// selected tab) and forwards `.gotoSplit(direction:)` through the same
+    /// router that handles libghostty's built-in `goto_split` keybind.
+    case focusAdjacentPaneInCurrentTabRequested(direction: FocusDirection)
     /// Tab-bar uplift: `⌘T` menu binding. Resolves the current Worktree
     /// and forwards `.detail(.tabBar(.newTabButtonTapped))`.
     case newTabForCurrentWorktree
@@ -979,6 +985,32 @@ struct RootFeature {
                 direction: direction,
                 inWorktree: worktreeID, inProject: projectID
               ))))
+
+      case .focusAdjacentPaneInCurrentTabRequested(let direction):
+        // Resolve the active tab from the selection, then prefer its
+        // remembered focused pane so the neighbor walk starts from where
+        // the user actually is — falling back to the leftmost leaf when no
+        // pane has been focused yet (freshly selected tab). Dispatching
+        // through the router lets libghostty's built-in `goto_split` chord
+        // and our menu chord share the exact same effect.
+        guard
+          let projectID = state.selection.projectID,
+          let worktreeID = state.selection.worktreeID
+        else { return .none }
+        let catalog = hierarchyClient.snapshot()
+        guard
+          let worktree = catalog
+            .projects.first(where: { $0.id == projectID })?
+            .worktrees.first(where: { $0.id == worktreeID }),
+          let tabID = worktree.selectedTabID,
+          let tab = worktree.tabs.first(where: { $0.id == tabID })
+        else { return .none }
+        let paneID =
+          hierarchyClient.lastFocusedPane(tabID)
+          ?? tab.splitTree.leaves().first
+        guard let paneID else { return .none }
+        return .send(
+          .paneActionRouter(.requested(paneID, .gotoSplit(direction: direction))))
 
       case .focusHierarchyPath(let source):
         // Walk the source path against the *live* catalog, re-reading the

@@ -60,6 +60,10 @@ struct ShortcutSchemaAuditTests {
     (.newWorktree, (0x2D, [.command])),                     // n
     (.splitRight, (0x02, [.command])),                      // d
     (.splitDown, (0x02, [.command, .shift])),               // ⇧d
+    (.focusSplitLeft, (0x7B, [.command, .option])),         // ⌘⌥←
+    (.focusSplitRight, (0x7C, [.command, .option])),        // ⌘⌥→
+    (.focusSplitUp, (0x7E, [.command, .option])),           // ⌘⌥↑
+    (.focusSplitDown, (0x7D, [.command, .option])),         // ⌘⌥↓
     (.revealCurrentWorktreeInFinder, (0x0F, [.command, .option])),  // ⌥R
     (.archiveCurrentWorktree, (0x33, [.command])),                  // ⌘⌫
     (.deleteCurrentWorktree, (0x33, [.command, .shift])),           // ⌘⇧⌫
