@@ -57,6 +57,17 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     registerForDraggedTypes(Array(Self.dropTypes))
   }
 
+  // Explicit empty deinit so the compiler emits the standard nonisolated
+  // tail rather than the implicitly-isolated path used by Swift 6 for
+  // `@MainActor` classes. PaneSurface releases this view from a plain
+  // (non-isolated) deinit; an isolated deinit here would hop via
+  // `swift_task_deinitOnExecutorMainActorBackDeploy` and double-free a
+  // TaskLocal scope along the cascade — the same crash fixed for
+  // PaneSurface (2bbee60) and SurfaceInfo. AppKit handles the actual
+  // teardown via NSView's dealloc; observers we add are removed when
+  // the view leaves its window.
+  deinit {}
+
   // MARK: - Drag & drop
 
   /// Pasteboard types accepted by drag-and-drop into the terminal. Files
@@ -304,6 +315,15 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
   override func keyDown(with event: NSEvent) {
     guard let surface else { return }
 
+    // Capture marked-text state BEFORE interpretKeyEvents — IME may consume
+    // the event purely to mutate composition (e.g. Backspace shrinking or
+    // cancelling preedit), in which case markedText is empty afterwards even
+    // though the key was never destined for the terminal. Forwarding that
+    // raw keycode would delete a previously-committed character in addition
+    // to the cancelled composition. Mirrors upstream Ghostty's
+    // `composing: markedText.length > 0 || markedTextBefore` rule.
+    let markedTextBefore = markedText.length > 0
+
     // Accumulate composed text from the NSTextInputContext pipeline. If the
     // user is mid-IME-composition, insertText delivers the final commit
     // here; raw characters from the NSEvent are not forwarded — doing so
@@ -314,11 +334,16 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     keyTextAccumulator = nil
 
     let text = composed.joined()
+    // Composed text is itself a commit, never composing. Otherwise, mark
+    // the event as composing if either the new or prior preedit was active
+    // — this is what suppresses the stray backspace/escape after IME ends.
+    let composing = composed.isEmpty ? (markedText.length > 0 || markedTextBefore) : false
     sendKeyEvent(
       event: event,
       action: GHOSTTY_ACTION_PRESS,
       surface: surface,
-      text: text
+      text: text,
+      composing: composing
     )
   }
 
@@ -351,7 +376,8 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     event: NSEvent,
     action: ghostty_input_action_e,
     surface: ghostty_surface_t,
-    text: String
+    text: String,
+    composing: Bool? = nil
   ) {
     var keyEvent = ghostty_input_key_s()
     keyEvent.action = action
@@ -368,7 +394,10 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
       rawValue: translationMods.rawValue
         & ~(GHOSTTY_MODS_CTRL.rawValue | GHOSTTY_MODS_SUPER.rawValue)
     )
-    keyEvent.composing = !markedText.string.isEmpty
+    // Prefer the caller-supplied composing flag when present — keyDown
+    // captures preedit state across the interpretKeyEvents boundary so a
+    // Backspace that ended IME composition isn't re-encoded as a delete.
+    keyEvent.composing = composing ?? !markedText.string.isEmpty
     // Unshifted Unicode scalar of the physical key (i.e. ignoring shift and
     // any other modifier translations). Ghostty matches keybindings like
     // `super+d` against this codepoint — leaving it 0 makes every letter-
@@ -631,12 +660,26 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
   func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? { nil }
   func validAttributesForMarkedText() -> [NSAttributedString.Key] { [] }
   func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
-    // Deferred for M5.4: should resolve to the cell rect under the caret
-    // so the IME candidate window appears correctly. Returning view bounds
-    // keeps IME functional but visually misaligned.
-    guard let window else { return .zero }
-    let rect = convert(bounds, to: nil)
-    return window.convertToScreen(rect)
+    // libghostty reports the caret's rect in view-points with a top-left
+    // origin and y at the bottom edge of the cursor cell. AppKit views
+    // are bottom-left origin, so flip y against the view height; once
+    // flipped, that y is the rect's own bottom edge. Falling back to
+    // .zero keeps IME functional (candidate panel anchors to the screen
+    // origin) before a surface attaches.
+    guard let surface, let window else { return .zero }
+    var x: Double = 0
+    var y: Double = 0
+    var width: Double = 0
+    var height: Double = 0
+    ghostty_surface_ime_point(surface, &x, &y, &width, &height)
+    let viewRect = NSRect(
+      x: x,
+      y: bounds.height - y,
+      width: max(width, 0),
+      height: max(height, 1)
+    )
+    let winRect = convert(viewRect, to: nil)
+    return window.convertToScreen(winRect)
   }
   func characterIndex(for point: NSPoint) -> Int { 0 }
   override func doCommand(by selector: Selector) {
