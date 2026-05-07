@@ -20,6 +20,55 @@ and the project does not yet follow semantic versioning — every release until
 
 ### Security
 
+## [0.1.5] - 2026-05-07
+
+### Added
+
+- **Drag files into terminal panes to insert shell-escaped paths.**
+  Drop one or more files onto a Ghostty surface and their absolute
+  paths are inserted at the cursor, properly quoted for the shell.
+- **⌘⇧R renames the active tab.** Matches the existing context-menu
+  rename action and works through the chord overlay.
+- **Pane focus navigation commands.** New `CommandID` entries plus
+  menu items for moving focus between panes within a tab, composable
+  with the existing chord layer.
+- **Keyboard shortcuts shown inline in worktree & project context
+  menus** for discoverability without opening the chord overlay.
+- **Tab-bar accessory buttons gain hover background and chord
+  tooltips.** Each button now exposes its bound chord — resolved
+  through the user's keybindings — on hover.
+- **DMG installer customized** with a branded volume icon and
+  side-by-side Applications layout, so first-launch matches the rest
+  of the app.
+
+### Changed
+
+- **Unfocused panes in multi-pane tabs are now dimmed**, mirroring
+  the focus treatment used elsewhere in the app.
+- **Reveal in Finder rebound to ⌘⌥O**, freeing ⌘O for the project
+  picker and matching macOS-wide convention.
+- **Window occlusion forwarded to libghostty.** Background windows
+  no longer waste GPU on terminal redraws.
+- **App icon refreshed**; main-worktree sidebar icon swapped to a
+  neutral `circle.circle` glyph that matches regular worktree rows
+  in size and tint.
+
+### Fixed
+
+- **Swift 6 isolated-deinit cascade crash on close-tab.** Tab
+  teardown no longer trips strict-concurrency deinit checks when
+  `SurfaceInfo` is released from `PaneSurface`'s nonisolated deinit
+  (an implicit main-actor hop double-freed the TaskLocal scope and
+  tripped libmalloc).
+- **`Pane.initialCommand` no longer persists across app restarts.**
+  Previously a tab restored from disk could re-run its bootstrap
+  command, replaying side effects.
+- **IME candidate window now follows the cursor**, and backspace
+  during composition is suppressed so it edits the candidate buffer
+  rather than the terminal.
+- **`git diff -M -C` duplicate destination paths** (copy + rename
+  collisions) are handled cleanly instead of trapping the parser.
+
 ## [0.1.4] - 2026-05-06
 
 ### Added
