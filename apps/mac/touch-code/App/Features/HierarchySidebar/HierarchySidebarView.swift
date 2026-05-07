@@ -682,6 +682,7 @@ struct HierarchySidebarView: View {
     } label: {
       Label("Reveal in Finder", systemImage: "folder")
     }
+    .appKeyboardShortcut(.revealCurrentWorktreeInFinder, in: resolvedShortcuts)
 
     // Group 2 — Worktree lifecycle. Hidden for the main checkout (W-Q3
     // guard: cannot pin / archive / remove the project's root worktree).
@@ -713,6 +714,7 @@ struct HierarchySidebarView: View {
         } label: {
           Label("Archive Worktree", systemImage: "archivebox")
         }
+        .appKeyboardShortcut(.archiveCurrentWorktree, in: resolvedShortcuts)
       }
       Button(role: .destructive) {
         store.send(
@@ -722,6 +724,7 @@ struct HierarchySidebarView: View {
       } label: {
         Label("Remove Worktree", systemImage: "trash")
       }
+      .appKeyboardShortcut(.deleteCurrentWorktree, in: resolvedShortcuts)
     }
   }
 
@@ -750,6 +753,7 @@ struct HierarchySidebarView: View {
     } label: {
       Label(title, systemImage: "arrow.up.forward.app")
     }
+    .appKeyboardShortcut(.openInEditor, in: resolvedShortcuts)
   }
 
   /// "Open in" submenu listing every installed editor returned by the
@@ -1021,6 +1025,7 @@ private struct ProjectHeaderRow: View {
   var isExpanded: Bool = false
   @Bindable var store: StoreOf<HierarchySidebarFeature>
   @Environment(RollupIndexProvider.self) private var rollup: RollupIndexProvider?
+  @Environment(\.resolvedShortcuts) private var resolvedShortcuts
   @State private var isHovering = false
   @State private var isPlusHovering = false
   @State private var isMenuHovering = false
@@ -1085,6 +1090,7 @@ private struct ProjectHeaderRow: View {
               systemImage: "archivebox"
             )
           }
+          .appKeyboardShortcut(.showArchivedWorktrees, in: resolvedShortcuts)
           Button {
             store.send(.projectPruneTapped(projectID: project.id))
           } label: {
