@@ -41,7 +41,7 @@ struct HeaderOpenSplitButton: View {
         ))
     }
     .accessibilityLabel(primaryDescription)
-    .help(primaryDescription)
+    .helpWithShortcut(primaryDescription, .openInEditor)
     .task { editorStore.send(.onAppear) }
   }
 

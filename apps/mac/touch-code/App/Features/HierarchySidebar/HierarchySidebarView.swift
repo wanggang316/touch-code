@@ -282,7 +282,7 @@ struct HierarchySidebarView: View {
         Label("Add Project", systemImage: "plus")
           .commandKeyHint(.addProject)
       }
-      .help("Add Project")
+      .helpWithShortcut("Add Project", .addProject)
     }
   }
 

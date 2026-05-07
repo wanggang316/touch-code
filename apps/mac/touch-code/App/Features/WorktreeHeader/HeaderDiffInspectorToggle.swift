@@ -22,6 +22,6 @@ struct HeaderDiffInspectorToggle: View {
         .commandKeyHint(.toggleDiffInspector)
     }
     .accessibilityLabel(visible ? "Hide Git Viewer" : "Show Git Viewer")
-    .help(visible ? "Hide Git Viewer" : "Show Git Viewer")
+    .helpWithShortcut(visible ? "Hide Git Viewer" : "Show Git Viewer", .toggleDiffInspector)
   }
 }
