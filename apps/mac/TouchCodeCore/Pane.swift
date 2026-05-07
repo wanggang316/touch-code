@@ -20,13 +20,17 @@ public nonisolated struct Pane: Equatable, Sendable, Identifiable {
 }
 
 extension Pane: Codable {
-  private enum CodingKeys: String, CodingKey { case id, workingDirectory, initialCommand, labels }
+  private enum CodingKeys: String, CodingKey { case id, workingDirectory, labels }
 
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     self.id = try container.decode(PaneID.self, forKey: .id)
     self.workingDirectory = try container.decode(String.self, forKey: .workingDirectory)
-    self.initialCommand = try container.decodeIfPresent(String.self, forKey: .initialCommand)
+    // initialCommand is a one-shot creation-time input replayed by
+    // TerminalEngine.ensureSurface. Persisting it would cause the command to
+    // re-run on every app launch when the tab is restored. Decode as nil and
+    // ignore any legacy value that older builds may have written.
+    self.initialCommand = nil
     self.labels = try container.decodeIfPresent(Set<String>.self, forKey: .labels) ?? []
   }
 
@@ -34,7 +38,6 @@ extension Pane: Codable {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(id, forKey: .id)
     try container.encode(workingDirectory, forKey: .workingDirectory)
-    try container.encodeIfPresent(initialCommand, forKey: .initialCommand)
     if !labels.isEmpty { try container.encode(labels.sorted(), forKey: .labels) }
   }
 }
