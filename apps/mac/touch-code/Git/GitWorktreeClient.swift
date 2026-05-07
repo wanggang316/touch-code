@@ -25,7 +25,6 @@ nonisolated struct CreateWorktreeSpec: Equatable, Sendable {
   var repoRoot: URL
   var baseDirectory: URL
   var name: String
-  var branch: String
   var baseRef: String
   var fetchOrigin: Bool
   var copyIgnored: Bool

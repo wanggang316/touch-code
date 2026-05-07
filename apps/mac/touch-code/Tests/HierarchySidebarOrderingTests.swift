@@ -34,7 +34,6 @@ struct HierarchySidebarOrderingTests {
       repoRoot: URL(fileURLWithPath: "/tmp/repo"),
       baseDirectory: URL(fileURLWithPath: "/tmp/repo/.worktrees"),
       name: "feature-x",
-      branch: "feature/x",
       baseRef: "origin/main",
       fetchOrigin: false,
       copyIgnored: false,

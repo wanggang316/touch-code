@@ -191,7 +191,6 @@ struct CreateWorktreeFeature {
           repoRoot: state.repoRoot,
           baseDirectory: state.worktreesDirectory,
           name: directoryName,
-          branch: trimmed,
           baseRef: baseRef,
           fetchOrigin: state.fetchOrigin,
           copyIgnored: state.copyIgnored,

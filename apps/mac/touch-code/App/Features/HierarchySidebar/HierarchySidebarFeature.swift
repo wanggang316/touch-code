@@ -694,7 +694,6 @@ struct HierarchySidebarFeature {
     case .pendingWorktreeFinished(let id, let path):
       guard let pending = state.pendingWorktrees[id: id] else { return .none }
       let pid = pending.projectID
-      let branch = pending.spec.branch
       let directoryName = pending.spec.name
       let pathString = path.standardizedFileURL.path(percentEncoded: false)
 
@@ -703,7 +702,7 @@ struct HierarchySidebarFeature {
       let worktreeID: WorktreeID
       do {
         worktreeID = try hierarchyClient.createWorktreeWithGit(
-          pid, branch, directoryName, pathString)
+          pid, directoryName, directoryName, pathString)
       } catch let err as GitWorktreeError {
         state.pendingWorktrees[id: id]?.status = .failed(err)
         return .none
