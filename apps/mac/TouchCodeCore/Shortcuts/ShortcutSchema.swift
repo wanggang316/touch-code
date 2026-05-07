@@ -112,7 +112,7 @@ extension ShortcutSchema {
         title: "Reveal in Finder",
         category: .projectAndWorktree,
         scope: .configurable,
-        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_R), modifiers: [.command, .option])
+        defaultBinding: .init(keyCode: UInt16(kVK_ANSI_O), modifiers: [.command, .option])
       ),
       .init(
         id: .archiveCurrentWorktree,
