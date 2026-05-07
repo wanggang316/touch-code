@@ -131,7 +131,12 @@ private struct SubtreeView: View {
   var body: some View {
     switch node {
     case .leaf(let paneID):
-      LeafView(paneID: paneID, store: store)
+      LeafView(
+        paneID: paneID,
+        store: store,
+        tabID: tabID,
+        isSplit: !path.components.isEmpty
+      )
     case .split(let split):
       splitBody(split)
     }
@@ -196,7 +201,13 @@ private struct SubtreeView: View {
 private struct LeafView: View {
   let paneID: PaneID
   let store: StoreOf<SplitViewportFeature>
+  let tabID: TabID
+  /// True when this leaf sits below at least one split node — i.e. the
+  /// active Tab has more than one pane. Single-pane Tabs skip the dim
+  /// overlay since there is nothing to contrast against.
+  let isSplit: Bool
   @Environment(RollupIndexProvider.self) private var notificationRollup: RollupIndexProvider?
+  @Environment(HierarchyManager.self) private var hierarchyManager
 
   var body: some View {
     if let childStore = store.scope(
@@ -211,6 +222,8 @@ private struct LeafView: View {
       // terminal visually stays on the previously-shown worktree.
       LazyPaneHost(store: childStore)
         .id(paneID)
+        .overlay { unfocusedDimOverlay }
+        .animation(.easeInOut(duration: 0.12), value: isFocused)
         .overlay(alignment: .top) { paneIndicatorLine }
     } else {
       // One-frame gap between pane entering the catalog and the sync
@@ -221,6 +234,25 @@ private struct LeafView: View {
         .controlSize(.small)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .underPageBackgroundColor))
+    }
+  }
+
+  private var isFocused: Bool {
+    hierarchyManager.lastFocusedPane(in: tabID) == paneID
+  }
+
+  /// Semi-transparent black wash on unfocused panes inside a multi-pane
+  /// Tab. Mirrors ghostty's `unfocused-split` overlay: a hit-test-disabled
+  /// `Rectangle` above the surface so clicks/scroll still reach the
+  /// underlying `NSView`. Single-pane Tabs and the focused leaf get
+  /// nothing.
+  @ViewBuilder
+  private var unfocusedDimOverlay: some View {
+    if isSplit, !isFocused {
+      Rectangle()
+        .fill(Color.black)
+        .opacity(0.15)
+        .allowsHitTesting(false)
     }
   }
 
