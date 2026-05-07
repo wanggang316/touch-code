@@ -28,6 +28,14 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
   /// against the previous modifier set to emit the correct press/release;
   /// the raw NSEvent always reads .press for the event kind.
   private var lastModifierFlags: NSEvent.ModifierFlags = []
+  /// Most recent occlusion bit pushed to libghostty. Nil before the first
+  /// push — the dedupe check below treats nil as "always different" so the
+  /// initial value is always sent once a surface attaches.
+  private var lastOcclusion: Bool?
+  /// Observer registered on the current window for `didChangeOcclusionState`.
+  /// Replaced when the view moves between windows; cleared when the view
+  /// is detached from any window.
+  private var windowOcclusionObserver: NSObjectProtocol?
   /// Fires every time the view becomes AppKit's first responder — i.e.
   /// the user clicked into this surface or the window was reactivated
   /// with this pane focused. Wired by TerminalEngine to bridge AppKit
@@ -82,10 +90,15 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
   func attach(surface: ghostty_surface_t) {
     self.surface = surface
     pushGeometry()
+    // Surface just bound — push the current occlusion bit so libghostty's
+    // render loop starts in the correct state instead of waiting for the
+    // first window/visibility change.
+    recomputeOcclusion()
   }
 
   func detachSurface() {
     self.surface = nil
+    lastOcclusion = nil
   }
 
   func backingScaleFactor() -> Double {
@@ -123,6 +136,18 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     super.viewDidMoveToWindow()
     pushGeometry()
     installTrackingArea()
+    rebindWindowOcclusionObserver()
+    recomputeOcclusion()
+  }
+
+  override func viewDidHide() {
+    super.viewDidHide()
+    recomputeOcclusion()
+  }
+
+  override func viewDidUnhide() {
+    super.viewDidUnhide()
+    recomputeOcclusion()
   }
 
   override func viewDidChangeBackingProperties() {
@@ -166,6 +191,47 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     )
     addTrackingArea(area)
     self.trackingArea = area
+  }
+
+  // MARK: - Occlusion
+
+  /// Re-subscribe `windowOcclusionObserver` to the current `window`. Called
+  /// every time the view moves between windows (including detach to nil).
+  /// AppKit fires `didChangeOcclusionStateNotification` when the window
+  /// becomes fully covered, miniaturised, or moved to a hidden Space — and
+  /// again when it returns. We forward that bit into ghostty so its render
+  /// loop can pause on hidden surfaces instead of redrawing every frame.
+  private func rebindWindowOcclusionObserver() {
+    let center = NotificationCenter.default
+    if let observer = windowOcclusionObserver {
+      center.removeObserver(observer)
+      windowOcclusionObserver = nil
+    }
+    guard let window else { return }
+    windowOcclusionObserver = center.addObserver(
+      forName: NSWindow.didChangeOcclusionStateNotification,
+      object: window,
+      queue: .main
+    ) { [weak self] _ in
+      MainActor.assumeIsolated {
+        self?.recomputeOcclusion()
+      }
+    }
+  }
+
+  /// Compute "is this surface actually visible right now?" from window
+  /// attachment, AppKit's per-view hidden chain, and the window's reported
+  /// occlusion state, then push the bit to libghostty if it changed. Cheap
+  /// to call repeatedly — the dedupe on `lastOcclusion` collapses no-ops.
+  private func recomputeOcclusion() {
+    guard let surface else { return }
+    let visible =
+      window != nil
+      && !isHiddenOrHasHiddenAncestor
+      && (window?.occlusionState.contains(.visible) ?? false)
+    if lastOcclusion == visible { return }
+    lastOcclusion = visible
+    ghostty_surface_set_occlusion(surface, visible)
   }
 
   // MARK: - Keyboard
