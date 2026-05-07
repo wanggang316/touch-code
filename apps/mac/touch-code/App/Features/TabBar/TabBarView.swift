@@ -18,15 +18,22 @@ struct TabBarView: View {
   let worktreeID: WorktreeID
   let activeTabID: TabID?
   @Environment(HierarchyManager.self) private var hierarchyManager
-  /// Drives the rename sheet. Non-nil while the user is editing a tab's
-  /// name; `RenameTarget` carries the seed `currentName` so the sheet can
-  /// pre-populate without re-reading the catalog after the user has typed.
-  @State private var renameTarget: RenameTarget?
 
   var body: some View {
     HStack(spacing: 4, content: barContent)
       .frame(height: TabBarMetrics.barHeight, alignment: .bottom)
-      .sheet(item: $renameTarget) { target in
+      .sheet(
+        item: Binding(
+          get: { store.renameTarget },
+          set: { newValue in
+            // `.sheet(item:)` only ever sets `nil` (sheet dismissed by the
+            // system / drag-down). Commit path drives clear from inside the
+            // reducer via `.renameSubmitted`, so we forward nil → reducer
+            // and ignore non-nil writes.
+            if newValue == nil { store.send(.renameDismissed) }
+          }
+        )
+      ) { target in
         TabRenameSheetView(
           initialName: target.currentName,
           onCommit: { newName in
@@ -35,16 +42,10 @@ struct TabBarView: View {
                 target.id, name: newName,
                 inWorktree: worktreeID, inProject: projectID
               ))
-            renameTarget = nil
           },
-          onCancel: { renameTarget = nil }
+          onCancel: { store.send(.renameDismissed) }
         )
       }
-  }
-
-  private struct RenameTarget: Identifiable, Equatable {
-    let id: TabID
-    let currentName: String
   }
 
   @ViewBuilder
@@ -139,7 +140,7 @@ struct TabBarView: View {
       },
       onRenameRequested: { tabID in
         guard let tab = worktree.tabs.first(where: { $0.id == tabID }) else { return }
-        renameTarget = RenameTarget(id: tabID, currentName: tab.name ?? "")
+        store.send(.renameRequested(tabID, currentName: tab.name ?? ""))
       },
       onReorder: { orderedIDs in
         store.send(

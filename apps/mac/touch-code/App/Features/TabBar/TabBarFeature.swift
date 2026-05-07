@@ -9,8 +9,20 @@ import TouchCodeCore
 /// channels) — tab-bar failures are rare and not worth modal UX today.
 @Reducer
 struct TabBarFeature {
+  /// Sheet payload while the user is editing a tab's name. Lifted into the reducer
+  /// (rather than left as `@State` in the view) so the global ⌘⇧R menu chord can
+  /// surface the same sheet without a parallel presentation channel — the chord
+  /// path resolves the active TabID in `RootFeature`, then dispatches
+  /// `.renameRequested(...)` here, identical to the chip's right-click → Rename.
+  struct RenameTarget: Identifiable, Equatable {
+    let id: TabID
+    let currentName: String
+  }
+
   @ObservableState
-  struct State: Equatable {}
+  struct State: Equatable {
+    var renameTarget: RenameTarget?
+  }
 
   enum Action: Equatable {
     case newTabButtonTapped(inWorktree: WorktreeID, inProject: ProjectID)
@@ -18,6 +30,14 @@ struct TabBarFeature {
     case closeButtonTapped(TabID, inWorktree: WorktreeID, inProject: ProjectID)
 
     // Tab-bar uplift (M2-T2.2)
+    /// Open the rename sheet for `tabID`. Sources: chip context-menu Rename
+    /// (any tab) and `RootFeature.renameActiveTabForCurrentWorktreeRequested`
+    /// (active tab via ⌘⇧R menu chord).
+    case renameRequested(TabID, currentName: String)
+    /// Sheet dismissal — driven by the user closing the sheet without
+    /// committing. Commit path clears `renameTarget` inside `renameSubmitted`
+    /// so the sheet animates away on Enter.
+    case renameDismissed
     case renameSubmitted(
       TabID, name: String?, inWorktree: WorktreeID, inProject: ProjectID)
     case contextMenuCloseOthers(TabID, inWorktree: WorktreeID, inProject: ProjectID)
@@ -38,8 +58,16 @@ struct TabBarFeature {
   @Dependency(HierarchyClient.self) private var hierarchyClient
 
   var body: some Reducer<State, Action> {
-    Reduce { _, action in
+    Reduce { state, action in
       switch action {
+      case .renameRequested(let tabID, let currentName):
+        state.renameTarget = RenameTarget(id: tabID, currentName: currentName)
+        return .none
+
+      case .renameDismissed:
+        state.renameTarget = nil
+        return .none
+
       case .newTabButtonTapped(let worktreeID, let projectID):
         guard let tabID = try? hierarchyClient.createTab(worktreeID, projectID, nil)
         else { return .none }
@@ -66,6 +94,7 @@ struct TabBarFeature {
 
       case .renameSubmitted(let tabID, let name, let worktreeID, let projectID):
         try? hierarchyClient.renameTab(tabID, worktreeID, projectID, name)
+        state.renameTarget = nil
         return .none
 
       case .contextMenuCloseOthers(let tabID, let worktreeID, let projectID):

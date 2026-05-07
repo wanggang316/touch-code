@@ -1,4 +1,5 @@
 import SwiftUI
+import TouchCodeCore
 
 /// Right-click context menu for a tab chip. Built as a `@ViewBuilder` so
 /// `TabChipView` can attach it with `.contextMenu { TabChipContextMenu(…) }`
@@ -20,7 +21,12 @@ struct TabChipContextMenu: View {
   let onCloseAll: () -> Void
 
   var body: some View {
+    // Chord hint surfaces ⌘⇧R (or whatever the user has rebound it to)
+    // beside the menu item. The chord targets the *active* tab, so a
+    // right-click on an inactive tab still renames that specific tab via
+    // the closure path; the hint stays advisory in that case.
     Button("Rename…", action: onRename)
+      .appKeyboardShortcut(.renameActiveTab)
     Divider()
     Button("Close Tab", action: onClose)
     Button("Close Other Tabs", action: onCloseOthers)

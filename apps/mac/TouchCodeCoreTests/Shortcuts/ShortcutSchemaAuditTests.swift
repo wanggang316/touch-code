@@ -50,45 +50,46 @@ struct ShortcutSchemaAuditTests {
   /// deliberate signal that a default chord moved; the corresponding `ShortcutSchema.app`
   /// edit fails the audit unless this table is updated in the same commit.
   private static let golden: [(CommandID, (keyCode: UInt16, modifiers: ModifierMask))] = [
-    (.openSettings, (0x2B, [.command])),                    // ,
-    (.commandPaletteToggle, (0x23, [.command])),            // p
-    (.checkForUpdates, (0x20, [.command])),                 // u
-    (.openInEditor, (0x1F, [.command])),                    // o
-    (.toggleDiffInspector, (0x05, [.command, .option])),    // g
-    (.addProject, (0x1F, [.command, .shift])),              // ⇧O
-    (.openCurrentPR, (0x05, [.command, .control])),         // ⌃g
-    (.newWorktree, (0x2D, [.command])),                     // n
-    (.splitRight, (0x02, [.command])),                      // d
-    (.splitDown, (0x02, [.command, .shift])),               // ⇧d
-    (.focusSplitLeft, (0x7B, [.command, .option])),         // ⌘⌥←
-    (.focusSplitRight, (0x7C, [.command, .option])),        // ⌘⌥→
-    (.focusSplitUp, (0x7E, [.command, .option])),           // ⌘⌥↑
-    (.focusSplitDown, (0x7D, [.command, .option])),         // ⌘⌥↓
-    (.revealCurrentWorktreeInFinder, (0x0F, [.command, .option])),  // ⌥R
-    (.archiveCurrentWorktree, (0x33, [.command])),                  // ⌘⌫
-    (.deleteCurrentWorktree, (0x33, [.command, .shift])),           // ⌘⇧⌫
-    (.showArchivedWorktrees, (0x00, [.command, .control])),         // ⌃A
-    (.copyCurrentWorktreePath, (0x08, [.command, .shift])),         // ⌘⇧C
-    (.toggleSidebar, (0x21, [.command])),                           // ⌘[
+    (.openSettings, (0x2B, [.command])),  // ,
+    (.commandPaletteToggle, (0x23, [.command])),  // p
+    (.checkForUpdates, (0x20, [.command])),  // u
+    (.openInEditor, (0x1F, [.command])),  // o
+    (.toggleDiffInspector, (0x05, [.command, .option])),  // g
+    (.addProject, (0x1F, [.command, .shift])),  // ⇧O
+    (.openCurrentPR, (0x05, [.command, .control])),  // ⌃g
+    (.newWorktree, (0x2D, [.command])),  // n
+    (.splitRight, (0x02, [.command])),  // d
+    (.splitDown, (0x02, [.command, .shift])),  // ⇧d
+    (.focusSplitLeft, (0x7B, [.command, .option])),  // ⌘⌥←
+    (.focusSplitRight, (0x7C, [.command, .option])),  // ⌘⌥→
+    (.focusSplitUp, (0x7E, [.command, .option])),  // ⌘⌥↑
+    (.focusSplitDown, (0x7D, [.command, .option])),  // ⌘⌥↓
+    (.revealCurrentWorktreeInFinder, (0x1F, [.command, .option])),  // ⌥O
+    (.archiveCurrentWorktree, (0x33, [.command])),  // ⌘⌫
+    (.deleteCurrentWorktree, (0x33, [.command, .shift])),  // ⌘⇧⌫
+    (.showArchivedWorktrees, (0x00, [.command, .control])),  // ⌃A
+    (.copyCurrentWorktreePath, (0x08, [.command, .shift])),  // ⌘⇧C
+    (.toggleSidebar, (0x21, [.command])),  // ⌘[
     (.revealCurrentWorktreeInSidebar, (0x0E, [.command, .shift])),  // ⌘⇧E
-    (.selectPreviousWorktree, (0x7E, [.command, .control])),        // ⌘⌃↑
-    (.selectNextWorktree, (0x7D, [.command, .control])),            // ⌘⌃↓
-    (.worktreeHistoryBack, (0x7B, [.command, .control])),           // ⌘⌃←
-    (.worktreeHistoryForward, (0x7C, [.command, .control])),        // ⌘⌃→
-    (.newTab, (0x11, [.command])),                          // t
-    (.closeTab, (0x0D, [.command])),                        // w
-    (.previousTab, (0x21, [.command, .shift])),             // [
-    (.nextTab, (0x1E, [.command, .shift])),                 // ]
+    (.selectPreviousWorktree, (0x7E, [.command, .control])),  // ⌘⌃↑
+    (.selectNextWorktree, (0x7D, [.command, .control])),  // ⌘⌃↓
+    (.worktreeHistoryBack, (0x7B, [.command, .control])),  // ⌘⌃←
+    (.worktreeHistoryForward, (0x7C, [.command, .control])),  // ⌘⌃→
+    (.newTab, (0x11, [.command])),  // t
+    (.closeTab, (0x0D, [.command])),  // w
+    (.renameActiveTab, (0x0F, [.command, .shift])),  // ⌘⇧R
+    (.previousTab, (0x21, [.command, .shift])),  // [
+    (.nextTab, (0x1E, [.command, .shift])),  // ]
     (.switchToTab1, (0x12, [.command])),
     (.switchToTab2, (0x13, [.command])),
     (.switchToTab3, (0x14, [.command])),
     (.switchToTab4, (0x15, [.command])),
-    (.switchToTab5, (0x17, [.command])),                    // kVK_ANSI_5 == 0x17 (not 0x16!)
-    (.switchToTab6, (0x16, [.command])),                    // kVK_ANSI_6 == 0x16
+    (.switchToTab5, (0x17, [.command])),  // kVK_ANSI_5 == 0x17 (not 0x16!)
+    (.switchToTab6, (0x16, [.command])),  // kVK_ANSI_6 == 0x16
     (.switchToTab7, (0x1A, [.command])),
     (.switchToTab8, (0x1C, [.command])),
     (.switchToTab9, (0x19, [.command])),
-    (.switchToTab10, (0x1D, [.command])),                   // 0
+    (.switchToTab10, (0x1D, [.command])),  // 0
     (.selectWorktreeAt1, (0x12, [.control])),
     (.selectWorktreeAt2, (0x13, [.control])),
     (.selectWorktreeAt3, (0x14, [.control])),
@@ -98,6 +99,6 @@ struct ShortcutSchemaAuditTests {
     (.selectWorktreeAt7, (0x1A, [.control])),
     (.selectWorktreeAt8, (0x1C, [.control])),
     (.selectWorktreeAt9, (0x19, [.control])),
-    (.selectWorktreeAt10, (0x1D, [.control])),                // 0
+    (.selectWorktreeAt10, (0x1D, [.control])),  // 0
   ]
 }
