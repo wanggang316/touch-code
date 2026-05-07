@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 #
 # make-dmg.sh — package a signed TouchCode.app into a Developer-ID-
-# signed DMG using only hdiutil + codesign (no brew dependency).
+# signed DMG using only hdiutil + codesign + iconutil (no brew dep).
+#
+# The DMG ships with a custom volume icon (derived from the app icon
+# source PNG) and a side-by-side Finder layout: TouchCode.app on the
+# left, /Applications symlink on the right. We stage as UDRW, mount,
+# script Finder, then convert to UDZO.
 #
 # Usage:
 #   ./scripts/make-dmg.sh <path-to-app> <output-dmg> <signing-identity>
-#
-# The DMG layout is plain: app on the left, /Applications symlink on
-# the right, no background image. Polish is M7+ work.
 #
 set -euo pipefail
 
@@ -17,6 +19,12 @@ identity="${3:?usage: make-dmg.sh <app> <out-dmg> <signing-identity>}"
 
 [ -d "${app_path}" ] || { echo "error: ${app_path} is not a directory" >&2; exit 1; }
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+icon_src="${script_dir}/../touch-code/App/AppIcon.icon/Assets/2.png"
+[ -f "${icon_src}" ] || { echo "error: source icon ${icon_src} missing" >&2; exit 1; }
+
+vol_name="Touch Code"
+
 # Refuse to wrap an unsigned (or improperly-signed) .app in a signed
 # DMG. codesign --strict --deep walks the entire bundle and catches
 # unsigned helpers (e.g., a stale tc) that would otherwise sail through
@@ -24,26 +32,113 @@ identity="${3:?usage: make-dmg.sh <app> <out-dmg> <signing-identity>}"
 echo "==> verifying ${app_path} signature before staging"
 codesign --verify --deep --strict --verbose=2 "${app_path}"
 
-stage_dir="$(mktemp -d -t touch-code-dmg)"
-cleanup() { rm -rf "${stage_dir}"; }
+work_dir="$(mktemp -d -t touch-code-dmg)"
+stage_dir="${work_dir}/stage"
+rw_dmg="${work_dir}/build.dmg"
+mkdir -p "${stage_dir}"
+
+mounted_dev=""
+cleanup() {
+  if [ -n "${mounted_dev}" ]; then
+    hdiutil detach "${mounted_dev}" -force >/dev/null 2>&1 || true
+  fi
+  rm -rf "${work_dir}"
+}
 trap cleanup EXIT
 
 echo "==> staging DMG contents"
 /bin/cp -R "${app_path}" "${stage_dir}/"
 ln -s /Applications "${stage_dir}/Applications"
 
+# Stage the volume icon outside the source tree. We add it to the
+# mounted volume *after* the Finder AppleScript runs — Finder
+# silently removes any .VolumeIcon.icns from a window it has just
+# arranged via `update without registering applications`, so adding
+# it pre-mount loses the file before convert.
+echo "==> generating volume icon from ${icon_src}"
+volume_icon="${work_dir}/VolumeIcon.icns"
+iconset="${work_dir}/touch-code.iconset"
+mkdir -p "${iconset}"
+for size in 16 32 128 256 512; do
+  sips -z "${size}" "${size}" "${icon_src}" \
+    --out "${iconset}/icon_${size}x${size}.png" >/dev/null
+  hidpi=$((size * 2))
+  sips -z "${hidpi}" "${hidpi}" "${icon_src}" \
+    --out "${iconset}/icon_${size}x${size}@2x.png" >/dev/null
+done
+iconutil --convert icns --output "${volume_icon}" "${iconset}"
+
+echo "==> hdiutil create read-write ${rw_dmg}"
+hdiutil create \
+  -volname "${vol_name}" \
+  -srcfolder "${stage_dir}" \
+  -ov \
+  -format UDRW \
+  -fs HFS+ \
+  "${rw_dmg}" \
+  >/dev/null
+
+echo "==> attaching read-write DMG"
+attach_out="$(hdiutil attach -readwrite -noverify -noautoopen "${rw_dmg}")"
+mounted_dev="$(printf '%s\n' "${attach_out}" | awk '/^\/dev\// {print $1; exit}')"
+mount_point="/Volumes/${vol_name}"
+[ -n "${mounted_dev}" ] || { echo "error: hdiutil attach produced no /dev node" >&2; exit 1; }
+
+# Wait for the volume to fully appear; Finder occasionally lags hdiutil.
+for _ in 1 2 3 4 5; do
+  [ -d "${mount_point}" ] && break
+  sleep 1
+done
+[ -d "${mount_point}" ] || { echo "error: ${mount_point} did not mount" >&2; exit 1; }
+
+echo "==> arranging Finder window via AppleScript"
+# Window bounds {left, top, right, bottom} = 660x400. Icon centers
+# placed symmetrically across the 660-px content width: 170 and 490
+# (both 160 px from center, 128 px wide icons w/ ~32 px gutter).
+osascript <<APPLESCRIPT
+tell application "Finder"
+  activate
+  tell disk "${vol_name}"
+    open
+    delay 1
+    set current view of container window to icon view
+    set toolbar visible of container window to false
+    set statusbar visible of container window to false
+    set the bounds of container window to {200, 200, 860, 600}
+    set viewOptions to the icon view options of container window
+    set arrangement of viewOptions to not arranged
+    set icon size of viewOptions to 128
+    set text size of viewOptions to 13
+    set label position of viewOptions to bottom
+    set position of item "TouchCode.app" of container window to {170, 180}
+    set position of item "Applications" of container window to {490, 180}
+    update without registering applications
+    delay 1
+    close
+  end tell
+end tell
+APPLESCRIPT
+
+echo "==> installing volume icon and custom-icon attribute"
+# Order matters: copy the .icns AFTER the Finder AppleScript closes,
+# otherwise Finder strips it during `update without registering
+# applications`. SetFile -a C sets kHasCustomIcon (0x0400) in the
+# volume root's FinderInfo so Finder renders the custom icon at
+# mount time.
+/bin/cp "${volume_icon}" "${mount_point}/.VolumeIcon.icns"
+SetFile -a C "${mount_point}"
+
+sync
+
+echo "==> detaching DMG"
+hdiutil detach "${mounted_dev}" >/dev/null
+mounted_dev=""
+
 mkdir -p "$(dirname "${dmg_path}")"
 rm -f "${dmg_path}"
 
-echo "==> hdiutil create ${dmg_path}"
-hdiutil create \
-  -volname "Touch Code" \
-  -srcfolder "${stage_dir}" \
-  -ov \
-  -format UDZO \
-  -fs HFS+ \
-  "${dmg_path}" \
-  >/dev/null
+echo "==> converting to compressed UDZO ${dmg_path}"
+hdiutil convert "${rw_dmg}" -format UDZO -imagekey zlib-level=9 -o "${dmg_path}" >/dev/null
 
 echo "==> signing DMG"
 codesign --sign "${identity}" --timestamp "${dmg_path}"
