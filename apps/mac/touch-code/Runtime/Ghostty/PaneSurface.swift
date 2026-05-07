@@ -39,13 +39,11 @@ final class PaneSurface {
   /// Held on the instance because libghostty does NOT documented-copy the
   /// `env_vars` buffer; keeping the strings alive matches the
   /// `working_directory` lifecycle.
-  nonisolated(unsafe) private let envCStrings:
-    [(key: UnsafeMutablePointer<CChar>, value: UnsafeMutablePointer<CChar>)]
+  nonisolated(unsafe) private let envCStrings: [(key: UnsafeMutablePointer<CChar>, value: UnsafeMutablePointer<CChar>)]
   /// Backing storage for the `ghostty_env_var_s` array. Allocated only
   /// when the env map is non-empty; a `nil` buffer means the surface
   /// config receives `env_vars = nil, env_var_count = 0`.
-  nonisolated(unsafe) private let envVarsBuffer:
-    UnsafeMutableBufferPointer<ghostty_env_var_s>?
+  nonisolated(unsafe) private let envVarsBuffer: UnsafeMutableBufferPointer<ghostty_env_var_s>?
   /// Heap-allocated uuid_t bytes passed to libghostty as the surface
   /// userdata. close_surface_cb reads these bytes to recover the owning
   /// PaneID without casting to a Swift object pointer (UAF-safe across

@@ -236,7 +236,11 @@ nonisolated enum GitOutputParser {
     numstat: [NumstatRow],
     nameStatus: [NameStatusRow]
   ) -> [ChangedFile] {
-    let byPath = Dictionary(uniqueKeysWithValues: nameStatus.map { ($0.newPath, $0) })
+    // `git diff -M -C --name-status -z` can emit multiple records sharing the same
+    // destination path (e.g. copy + rename collisions on the same target, or other
+    // edge cases git surfaces). `uniqueKeysWithValues:` traps on duplicates; first
+    // record wins is fine — the consumer only reads `status` and `oldPath`.
+    let byPath = Dictionary(nameStatus.map { ($0.newPath, $0) }, uniquingKeysWith: { first, _ in first })
     return numstat.map { row in
       let nameStatus = byPath[row.newPath]
       let mappedStatus: ChangeStatus = {

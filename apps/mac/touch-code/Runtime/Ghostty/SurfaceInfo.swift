@@ -113,4 +113,14 @@ final class SurfaceInfo {
   var lastChildExitCode: Int32?
 
   init() {}
+
+  // Explicit empty deinit on a MainActor @Observable class to opt out of
+  // the implicitly-synthesized isolated deinit. When PaneSurface (whose
+  // deinit was made nonisolated by 2bbee60) releases its `info`, the
+  // implicit isolated deinit on this class would hop via
+  // `swift_task_deinitOnExecutorMainActorBackDeploy` and double-free a
+  // TaskLocal scope along the cascade, tripping libmalloc. All stored
+  // properties here are value types or plain optionals; no main-actor
+  // coordination is needed for release.
+  deinit {}
 }
