@@ -1,0 +1,339 @@
+name: release-tip
+
+# Manual tip-channel release. Builds a notarized DMG against the current
+# HEAD, force-moves the floating `tip` git tag, publishes a single
+# `tip` GitHub Release marked `--prerelease`, and merges the new
+# tip-channel item into the latest stable release's `appcast.xml` so
+# `releases/latest/download/appcast.xml` (the canonical feed read by
+# every client) starts advertising the tip build to clients with
+# `allowedChannels = ["tip"]`.
+#
+# Trigger: `workflow_dispatch` only — a tip release is a deliberate
+# act, not a side effect of every main push (single-developer cadence
+# would make auto-on-push noisy).
+#
+# Required secrets: identical set to release.yml — Developer ID cert,
+# notary creds, Sparkle private key.
+
+on:
+  workflow_dispatch: {}
+
+# Serialise with the stable release pipeline. If a stable cut lands
+# during the tip workflow's merge step, the loser re-runs against the
+# winner's appcast — no lost items either way.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # tag push + release create + appcast asset clobber
+
+jobs:
+  release-tip:
+    runs-on: macos-26
+    timeout-minutes: 60
+
+    steps:
+      - name: Pin Xcode 26.0
+        run: |
+          XCODE_DEV=/Applications/Xcode_26.0.app/Contents/Developer
+          [ -d "$XCODE_DEV" ] || { echo "::error::$XCODE_DEV missing on this runner image"; exit 1; }
+          sudo xcode-select -s "$XCODE_DEV"
+          echo "DEVELOPER_DIR=$XCODE_DEV" >> "$GITHUB_ENV"
+          xcodebuild -version
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          # Persist credentials so the post-build `git tag --force tip`
+          # push uses the workflow's GITHUB_TOKEN. fetch-depth: 0 is
+          # required for `git tag -fa` to find the existing tip ref.
+
+      - name: Resolve tip metadata
+        id: meta
+        run: |
+          set -euo pipefail
+          MV=$(awk -F'=' '/^MARKETING_VERSION/ {gsub(/[ \t]/,"",$2); print $2}' apps/mac/Configurations/Project.xcconfig)
+          BASE=$(awk -F'=' '/^CURRENT_PROJECT_VERSION/ {gsub(/[ \t]/,"",$2); print $2}' apps/mac/Configurations/Project.xcconfig)
+          if [ -z "$MV" ] || [ -z "$BASE" ]; then
+            echo "::error::Could not parse MARKETING_VERSION / CURRENT_PROJECT_VERSION from Project.xcconfig"
+            exit 1
+          fi
+          # supacode-style guard — bound run_number contribution to 3 digits
+          # so successive tip cuts on the same stable base stay strictly
+          # ordered without stomping the next stable bump's build number.
+          if [ "${{ github.run_number }}" -gt 999 ]; then
+            echo "::error::run_number ${{ github.run_number }} exceeds 999. Bump CURRENT_PROJECT_VERSION (cut a stable release) before the next tip."
+            exit 1
+          fi
+          BUILD_NUMBER=$((BASE * 1000 + ${{ github.run_number }}))
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          echo "marketing=$MV"           >> "$GITHUB_OUTPUT"
+          echo "build=$BUILD_NUMBER"     >> "$GITHUB_OUTPUT"
+          echo "short_sha=$SHORT_SHA"    >> "$GITHUB_OUTPUT"
+
+      - uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+          experimental: true
+
+      - name: Capture Xcode version for cache keys
+        run: |
+          XCODE_VERSION="$(xcodebuild -version | tr '\n' '-' | sed 's/[^A-Za-z0-9._-]/_/g; s/-$//')"
+          GHOSTTY_SHA="$(git -C apps/mac/ThirdParty/ghostty rev-parse HEAD)"
+          echo "XCODE_VERSION=$XCODE_VERSION" >> "$GITHUB_ENV"
+          echo "GHOSTTY_SHA=$GHOSTTY_SHA"     >> "$GITHUB_ENV"
+
+      - name: Cache GhosttyKit XCFramework
+        uses: actions/cache@v4
+        with:
+          path: apps/mac/.build/ghostty
+          key: ghostty-${{ runner.os }}-${{ runner.arch }}-${{ env.XCODE_VERSION }}-${{ env.GHOSTTY_SHA }}-${{ hashFiles('apps/mac/scripts/build-ghostty.sh', 'mise.toml') }}
+
+      - name: Cache Tuist SPM checkouts
+        uses: actions/cache@v4
+        with:
+          path: apps/mac/Tuist/.build
+          key: tuist-spm-${{ runner.os }}-${{ hashFiles('apps/mac/Tuist/Package.swift', 'apps/mac/Tuist/Package.resolved') }}
+
+      - name: Import Developer ID certificate into temporary keychain
+        env:
+          P12_BASE64: ${{ secrets.DEVELOPER_ID_CERT_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          P12_PATH="$RUNNER_TEMP/devid.p12"
+
+          printf '%s' "$P12_BASE64" | tr -d ' \n\r\t' | base64 -D > "$P12_PATH"
+
+          security create-keychain  -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$P12_PATH" \
+            -P "$P12_PASSWORD" \
+            -A -t cert -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | xargs)
+          security default-keychain -s "$KEYCHAIN_PATH"
+
+          IDENTITY_SHA="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep 'Developer ID Application' | head -1 | awk '{print $2}')"
+          if [ -z "$IDENTITY_SHA" ]; then
+            echo "::error::Developer ID Application identity not found after import"
+            exit 1
+          fi
+          echo "DEVELOPER_ID_IDENTITY_SHA=$IDENTITY_SHA" >> "$GITHUB_ENV"
+
+          rm -f "$P12_PATH"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+      - name: Override CURRENT_PROJECT_VERSION for tip build
+        # Bump the build number in-place for the archive step so the
+        # produced binary's CFBundleVersion is strictly greater than the
+        # latest stable but bounded such that any future stable bump is
+        # still greater. This change is NEVER committed — the workflow
+        # checkout is ephemeral.
+        run: |
+          set -euo pipefail
+          BUILD=${{ steps.meta.outputs.build }}
+          sed -i.bak "s/^CURRENT_PROJECT_VERSION = .*/CURRENT_PROJECT_VERSION = $BUILD/" apps/mac/Configurations/Project.xcconfig
+          rm apps/mac/Configurations/Project.xcconfig.bak
+          grep "^CURRENT_PROJECT_VERSION" apps/mac/Configurations/Project.xcconfig
+
+      - name: Archive (xcodebuild archive + extract signed app)
+        env:
+          APPLE_TEAM_ID: ${{ secrets.DEVELOPMENT_TEAM }}
+        run: make mac-archive
+
+      - name: Notarize app
+        env:
+          AC_API_KEY_ID:    ${{ secrets.AC_API_KEY_ID }}
+          AC_API_ISSUER_ID: ${{ secrets.AC_API_ISSUER_ID }}
+          AC_API_KEY_P8:    ${{ secrets.AC_API_KEY_P8 }}
+        run: |
+          ./apps/mac/scripts/release.sh notarize \
+            apps/mac/.build/release/export/TouchCode.app
+
+      - name: Build DMG
+        run: ./apps/mac/scripts/release.sh dmg
+
+      - name: Notarize DMG
+        env:
+          AC_API_KEY_ID:    ${{ secrets.AC_API_KEY_ID }}
+          AC_API_ISSUER_ID: ${{ secrets.AC_API_ISSUER_ID }}
+          AC_API_KEY_P8:    ${{ secrets.AC_API_KEY_P8 }}
+        run: |
+          ./apps/mac/scripts/release.sh notarize \
+            "apps/mac/.build/release/TouchCode-${{ steps.meta.outputs.marketing }}.dmg"
+
+      # ---- Tip-channel appcast generation ----
+      # `--channel tip` stamps every generated <item> with
+      # `<sparkle:channel>tip</sparkle:channel>`. Stable clients
+      # (`allowedChannels = []`) skip these items; tip clients
+      # (`allowedChannels = ["tip"]`) treat them as the highest-priority
+      # candidates above any default-channel stable item.
+
+      - name: Fetch Sparkle CLI tools
+        run: |
+          set -euo pipefail
+          curl -fsSL https://github.com/sparkle-project/Sparkle/releases/download/2.9.1/Sparkle-2.9.1.tar.xz \
+            -o "$RUNNER_TEMP/sparkle.tar.xz"
+          mkdir -p "$RUNNER_TEMP/sparkle"
+          tar -xf "$RUNNER_TEMP/sparkle.tar.xz" -C "$RUNNER_TEMP/sparkle"
+          ls -l "$RUNNER_TEMP/sparkle/bin/generate_appcast"
+          echo "SPARKLE_BIN=$RUNNER_TEMP/sparkle/bin" >> "$GITHUB_ENV"
+
+      - name: Generate tip appcast.xml
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          : "${SPARKLE_PRIVATE_KEY:?secret SPARKLE_PRIVATE_KEY not configured}"
+          STAGING="$RUNNER_TEMP/appcast-tip-staging"
+          mkdir -p "$STAGING"
+          /bin/cp "apps/mac/.build/release/TouchCode-${{ steps.meta.outputs.marketing }}.dmg" "$STAGING/"
+          # The download URL prefix points at the `tip` GitHub Release
+          # (created/updated below). Tip clients' Sparkle download leg
+          # follows `releases/download/tip/TouchCode-X.Y.Z.dmg`.
+          printf '%s' "$SPARKLE_PRIVATE_KEY" | tr -d ' \n\r\t' \
+            | "$SPARKLE_BIN/generate_appcast" \
+                --channel tip \
+                --download-url-prefix "https://github.com/${{ github.repository }}/releases/download/tip/" \
+                --maximum-versions 1 \
+                --ed-key-file - \
+                "$STAGING"
+          /bin/cp "$STAGING/appcast.xml" "apps/mac/.build/release/appcast-tip.xml"
+          cat "apps/mac/.build/release/appcast-tip.xml"
+
+      - name: Force-move tip git tag to HEAD
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -fa tip -m "Tip build ${{ steps.meta.outputs.short_sha }} (build ${{ steps.meta.outputs.build }})" "${{ github.sha }}"
+          git push --force origin refs/tags/tip
+
+      - name: Upsert `tip` GitHub Release with DMG + appcast
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          DMG="apps/mac/.build/release/TouchCode-${{ steps.meta.outputs.marketing }}.dmg"
+          APPCAST="apps/mac/.build/release/appcast-tip.xml"
+          NOTES="Tip build of touch-code at ${{ steps.meta.outputs.short_sha }} (build ${{ steps.meta.outputs.build }}). Pre-release. Subscribe via Settings → Updates → Tip."
+          # Create-or-edit. Both branches set --prerelease so this release
+          # is invisible to releases/latest/... and the canonical client
+          # feed (latest stable's appcast.xml) is unaffected by tip cuts.
+          if gh release view tip -R "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release edit tip --prerelease --target "${{ github.sha }}" --title "tip" --notes "$NOTES"
+          else
+            gh release create tip --prerelease --target "${{ github.sha }}" --title "tip" --notes "$NOTES"
+          fi
+          # --clobber so we replace the previous tip's DMG + appcast in place.
+          gh release upload tip "$DMG" "$DMG.sha256" "$APPCAST" --clobber
+
+      - name: Merge tip item into latest stable's appcast.xml
+        # This is the channel mechanism's heart: clients always read
+        # releases/latest/download/appcast.xml; we make sure that file
+        # carries the latest tip item alongside the stable items.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          STABLE_TAG=$(gh release list \
+            --exclude-drafts \
+            --exclude-pre-releases \
+            -R "${{ github.repository }}" \
+            --json tagName \
+            --jq '.[0].tagName' 2>/dev/null || echo "")
+          if [ -z "$STABLE_TAG" ]; then
+            echo "::warning::No stable release found — skipping appcast merge. Cut a stable release first to bootstrap the canonical feed."
+            exit 0
+          fi
+          echo "Merging tip into stable release $STABLE_TAG"
+          mkdir -p "$RUNNER_TEMP/merge"
+          gh release download "$STABLE_TAG" \
+            -p "appcast.xml" \
+            -D "$RUNNER_TEMP/merge" \
+            -R "${{ github.repository }}" || {
+              echo "::warning::Stable release $STABLE_TAG has no appcast.xml asset — cannot merge. The next stable cut will recreate the canonical feed."
+              exit 0
+            }
+          /bin/cp "apps/mac/.build/release/appcast-tip.xml" "$RUNNER_TEMP/merge/appcast-tip.xml"
+          python3 - "$RUNNER_TEMP/merge/appcast.xml" "$RUNNER_TEMP/merge/appcast-tip.xml" "$RUNNER_TEMP/merge/appcast-merged.xml" <<'PYEOF'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          # Preserve namespace prefixes on round-trip — by default
+          # ElementTree rewrites `sparkle:foo` as `ns0:foo` which Sparkle
+          # clients fail to parse.
+          ET.register_namespace('sparkle', 'http://www.andymatuschak.org/xml-namespaces/sparkle')
+          ET.register_namespace('dc',      'http://purl.org/dc/elements/1.1/')
+
+          stable_path, tip_path, out_path = sys.argv[1], sys.argv[2], sys.argv[3]
+
+          stable_tree = ET.parse(stable_path)
+          stable_root = stable_tree.getroot()
+          tip_tree = ET.parse(tip_path)
+          tip_root = tip_tree.getroot()
+
+          ns = {'sparkle': 'http://www.andymatuschak.org/xml-namespaces/sparkle'}
+          stable_channel = stable_root.find('.//channel')
+          if stable_channel is None:
+              raise SystemExit("stable appcast missing <channel>")
+
+          # Drop any existing tip items — replaced wholesale by the fresh ones.
+          for item in list(stable_channel.findall('item')):
+              ch = item.find('sparkle:channel', ns)
+              if ch is not None and ch.text == 'tip':
+                  stable_channel.remove(item)
+
+          tip_channel = tip_root.find('.//channel')
+          if tip_channel is None:
+              raise SystemExit("tip appcast missing <channel>")
+          for item in tip_channel.findall('item'):
+              stable_channel.append(item)
+
+          stable_tree.write(out_path, xml_declaration=True, encoding='utf-8')
+          PYEOF
+          echo "--- merged appcast ---"
+          cat "$RUNNER_TEMP/merge/appcast-merged.xml"
+          gh release upload "$STABLE_TAG" \
+            "$RUNNER_TEMP/merge/appcast-merged.xml" \
+            --clobber \
+            -R "${{ github.repository }}"
+          # `gh release upload --clobber` keeps the original asset name only
+          # when source and dest share basenames. We uploaded `appcast-merged.xml`
+          # but need the asset to be served as `appcast.xml`. Rename via the
+          # release-asset edit endpoint:
+          ASSET_ID=$(gh api "repos/${{ github.repository }}/releases/tags/$STABLE_TAG" \
+            --jq '.assets[] | select(.name == "appcast-merged.xml") | .id')
+          if [ -n "$ASSET_ID" ]; then
+            gh api "repos/${{ github.repository }}/releases/assets/$ASSET_ID" \
+              -X PATCH \
+              -f name=appcast.xml >/dev/null
+          fi
+
+      - name: Smoke-check canonical feed
+        run: |
+          set -euo pipefail
+          # Give GitHub a moment to propagate the asset rename.
+          sleep 5
+          URL="https://github.com/${{ github.repository }}/releases/latest/download/appcast.xml"
+          BODY=$(curl -fsSL "$URL")
+          echo "$BODY" | grep -q '<sparkle:channel>tip</sparkle:channel>' \
+            || { echo "::error::Tip channel item missing from canonical feed at $URL"; echo "$BODY"; exit 1; }
+          echo "Canonical feed confirms tip channel item is live."
+
+      - name: Cleanup keychain
+        if: always()
+        run: security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
