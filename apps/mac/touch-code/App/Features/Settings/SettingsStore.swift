@@ -168,6 +168,23 @@ final class SettingsStore {
     scheduleSave()
   }
 
+  // MARK: - Updates (Sparkle preferences mirrored in settings.json)
+
+  func setUpdateChannel(_ channel: UpdateChannel) {
+    settings.general.updateChannel = channel
+    scheduleSave()
+  }
+
+  func setUpdatesAutomaticallyCheckForUpdates(_ enabled: Bool) {
+    settings.general.updatesAutomaticallyCheckForUpdates = enabled
+    scheduleSave()
+  }
+
+  func setUpdatesAutomaticallyDownloadUpdates(_ enabled: Bool) {
+    settings.general.updatesAutomaticallyDownloadUpdates = enabled
+    scheduleSave()
+  }
+
   // C8a Phase 3 retired the custom-editor surface. `addCustomEditor` / `updateCustomEditor`
   // / `removeCustomEditor` are gone; the `customEditors` field was removed from
   // `GeneralSettings`. Phase 4a's Settings pane uses the built-in registry exclusively.
