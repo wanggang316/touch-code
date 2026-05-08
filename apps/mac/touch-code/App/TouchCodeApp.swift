@@ -414,6 +414,20 @@ final class AppState {
       $0.settingsWriter = .live(settings)
       $0.terminalClient = .live(engine: engine)
     }
+
+    // Sparkle bringup: push persisted Updates preferences to the live updater so
+    // settings.json is the single source of truth (Sparkle's own NSUserDefaults
+    // are derived from this, not the other way around). `triggerBackgroundCheck`
+    // is `false` because Sparkle's `start()` already schedules its own first
+    // check based on `lastUpdateCheckDate` + `updateCheckInterval`; firing one
+    // here would be a redundant probe on every launch.
+    let general = settings.settings.general
+    UpdatesClient.liveValue.applyPreferences(
+      general.updateChannel,
+      general.updatesAutomaticallyCheckForUpdates,
+      general.updatesAutomaticallyDownloadUpdates,
+      false
+    )
     // `SettingsWindowPresenter.open` forwards to the `OpenWindowAction` captured by the
     // main-window scene body into `openSettingsWindowAction`. SwiftUI's `OpenWindowAction`
     // must be read from a `View`'s environment so the reducer cannot hold it directly —
