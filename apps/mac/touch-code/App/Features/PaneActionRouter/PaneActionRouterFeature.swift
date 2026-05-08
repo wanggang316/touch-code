@@ -160,8 +160,7 @@ struct PaneActionRouterFeature {
       return .none
 
     case .gotoSplit(let direction):
-      gotoSplit(from: paneID, direction: direction)
-      return .none
+      return gotoSplit(from: paneID, direction: direction)
 
     case .resizeSplit(let direction, let amount):
       try? hierarchyClient.resizePane(paneID, direction, amount)
@@ -275,20 +274,26 @@ struct PaneActionRouterFeature {
     }
   }
 
-  /// Resolves the target pane for `gotoSplit` and calls `focusPane`.
+  /// Resolves the target pane for `gotoSplit`, updates the catalog via
+  /// `focusPane`, and then asynchronously promotes the neighbor's surface
+  /// view to first responder so the cursor (and keyboard input) actually
+  /// follows the focus change. Without the `focusSurfaceView` step the
+  /// catalog flips `lastFocusedPane` and the dim overlay swaps, but the
+  /// underlying `NSView` still holds the system caret.
+  ///
   /// Simplification: every direction collapses onto the SplitTree's
   /// previous/next linearization. Up/left → previous, down/right → next.
   /// A real spatial walk needs per-pane frames the reducer does not see;
   /// revisit when the viewport layer exposes geometry.
-  private func gotoSplit(from paneID: PaneID, direction: FocusDirection) {
-    guard let address = hierarchyClient.addressOf(paneID) else { return }
+  private func gotoSplit(from paneID: PaneID, direction: FocusDirection) -> Effect<Action> {
+    guard let address = hierarchyClient.addressOf(paneID) else { return .none }
     let catalog = hierarchyClient.snapshot()
     guard
       let tab = findTab(
         tabID: address.tabID, worktreeID: address.worktreeID,
         projectID: address.projectID, in: catalog
       )
-    else { return }
+    else { return .none }
 
     let treeDirection: SplitTree<PaneID>.FocusDirection
     switch direction {
@@ -298,10 +303,18 @@ struct PaneActionRouterFeature {
       treeDirection = .next
     }
     guard let neighborID = tab.splitTree.focusTarget(for: treeDirection, from: paneID)
-    else { return }
+    else { return .none }
     try? hierarchyClient.focusPane(
       neighborID, address.tabID, address.worktreeID, address.projectID
     )
+    // Mirror `newSplit`'s pattern: dispatch makeFirstResponder async so
+    // the view tree has settled (zoom toggle / dim overlay diff) before
+    // we steal first-responder status.
+    return .run { [client = hierarchyClient] _ in
+      await MainActor.run {
+        client.focusSurfaceView(neighborID)
+      }
+    }
   }
 
   private func toggleSplitZoom(paneID: PaneID) {
