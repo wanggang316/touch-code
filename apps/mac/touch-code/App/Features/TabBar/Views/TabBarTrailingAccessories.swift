@@ -7,9 +7,7 @@ import TouchCodeCore
 ///
 /// Three actions: `+` creates a new tab in the active worktree; the two
 /// split buttons cut a new pane horizontally or vertically off the active
-/// tab's leftmost leaf. Hovering either split button for
-/// `TabBarMetrics.hoverPreviewDelay` shows a miniature preview popover of
-/// the active tab's split tree.
+/// tab's leftmost leaf.
 struct TabBarTrailingAccessories: View {
   let activeTabSplitTree: SplitTree<PaneID>?
   let onNewTab: () -> Void
@@ -78,22 +76,17 @@ private struct NewTabAccessoryButton: View {
   }
 }
 
-/// Trailing split button. Owns its own hover-delay bookkeeping so the
-/// preview popover opens only after a 350-ms linger and dismisses on
-/// pointer exit. The popover is never modal and never steals focus.
+/// Trailing split button. Mirrors a registry chord (`.splitRight` /
+/// `.splitDown`) so the chord glyph appears inline while ⌘ is held and
+/// the tooltip resolves the same binding.
 private struct SplitAccessoryButton: View {
   let systemImage: String
   let accessibilityLabel: String
-  /// Registry chord this button mirrors (`.splitRight` / `.splitDown`). The image
-  /// surfaces the chord inline while ⌘ is held so the user can discover the
-  /// keyboard binding without opening the menu.
   let chordCommandID: CommandID
   let splitTree: SplitTree<PaneID>?
   let action: () -> Void
 
-  @State private var isPreviewing = false
   @State private var isHovering = false
-  @State private var hoverTask: Task<Void, Never>?
 
   var body: some View {
     Button(action: action) {
@@ -104,26 +97,7 @@ private struct SplitAccessoryButton: View {
     }
     .buttonStyle(.plain)
     .disabled(splitTree?.root == nil)
-    .onHover(perform: handleHover)
+    .onHover { isHovering = $0 }
     .helpWithShortcut(accessibilityLabel, chordCommandID)
-    .popover(isPresented: $isPreviewing, arrowEdge: .bottom) {
-      if let tree = splitTree {
-        SplitPreviewPopoverView(tree: tree)
-      }
-    }
-  }
-
-  private func handleHover(_ hovering: Bool) {
-    isHovering = hovering
-    hoverTask?.cancel()
-    guard hovering, splitTree?.root != nil else {
-      isPreviewing = false
-      return
-    }
-    hoverTask = Task { @MainActor in
-      try? await Task.sleep(for: TabBarMetrics.hoverPreviewDelay)
-      guard !Task.isCancelled else { return }
-      isPreviewing = true
-    }
   }
 }
