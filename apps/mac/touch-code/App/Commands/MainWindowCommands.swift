@@ -35,6 +35,11 @@ struct MainWindowCommands: Commands {
   /// "delete to start of line" binding). Without this gate the chord would archive the
   /// active worktree any time the user pressed it inside the terminal.
   let sidebarFocus: SidebarFocusObserver
+  /// Settings store reference — used by the Update Channel submenu so flipping channel
+  /// from the menu writes through the same single-writer path as the Settings pane.
+  /// `Commands` participates in `@Observable` tracking, so the menu's checkmark follows
+  /// `settingsStore.settings.general.updateChannel` without manual refresh.
+  let settingsStore: SettingsStore
 
   var body: some Commands {
     CommandGroup(after: .newItem) {
@@ -155,12 +160,21 @@ struct MainWindowCommands: Commands {
     }
 
     // Check for Updates… lives next to the app menu's About / Settings group.
+    // The Update Channel submenu sits inside the same group so the menu reads as a
+    // single Updates cluster — flipping the channel from here writes through
+    // `SettingsStore` and replays `UpdatesClient.applyPreferences(...)` so the running
+    // Sparkle instance immediately picks up the new channel + interval.
     CommandGroup(after: .appInfo) {
       Button("Check for Updates…") {
         store()?.send(.checkForUpdatesRequested)
       }
       .appKeyboardShortcut(.checkForUpdates, in: shortcuts)
       .disabled(store() == nil)
+
+      Picker("Update Channel", selection: updateChannelBinding) {
+        Text("Stable").tag(UpdateChannel.stable)
+        Text("Tip").tag(UpdateChannel.tip)
+      }
     }
 
     // Tab-bar uplift (M2-T2.9). Lands in its own CommandGroup — placed
@@ -296,5 +310,26 @@ struct MainWindowCommands: Commands {
   /// `liveValue` and crashes (PR-#13 trap). Reducer's guard is sufficient.
   private var hasCurrentProject: Bool {
     store()?.state.selection.projectID != nil
+  }
+
+  /// Two-way binding for the Update Channel `Picker` in the menu bar. Writes go through
+  /// the same `SettingsStore` setter the Updates pane uses, then replay the full
+  /// preference triple to Sparkle so the running updater picks up the new channel +
+  /// matching `updateCheckInterval` immediately. `triggerBackgroundCheck: true` mirrors
+  /// the pane's behavior — flipping channel implies "I want to see what's there now".
+  private var updateChannelBinding: Binding<UpdateChannel> {
+    Binding(
+      get: { settingsStore.settings.general.updateChannel },
+      set: { newValue in
+        settingsStore.setUpdateChannel(newValue)
+        let g = settingsStore.settings.general
+        UpdatesClient.liveValue.applyPreferences(
+          g.updateChannel,
+          g.updatesAutomaticallyCheckForUpdates,
+          g.updatesAutomaticallyDownloadUpdates,
+          true
+        )
+      }
+    )
   }
 }

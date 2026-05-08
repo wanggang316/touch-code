@@ -89,7 +89,8 @@ struct TouchCodeApp: App {
       MainWindowCommands(
         store: { appState.store },
         shortcuts: appState.shortcutsStore.resolved,
-        sidebarFocus: sidebarFocusObserver
+        sidebarFocus: sidebarFocusObserver,
+        settingsStore: appState.settingsStore
       )
       CommandGroup(replacing: .appSettings) {
         // Chord routes through the registry so a user override in Settings → Shortcuts
