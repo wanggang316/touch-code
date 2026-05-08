@@ -1,87 +1,111 @@
 import AppKit
+import ComposableArchitecture
 import Sparkle
 import SwiftUI
+import TouchCodeCore
 
-/// Settings → Updates pane. Mirrors the live `SPUUpdater` (owned by
-/// `UpdatesEnvironment`) so toggles + the frequency picker write straight
-/// through to Sparkle and the menu's "Check for Updates…" action stays in
-/// sync. Local `@State` shadows the updater so SwiftUI gets stable
-/// bindings; each `onChange` writes back the mutated value. Sparkle has no
-/// general-purpose KVO contract for these properties, so we re-read on
-/// `applicationDidBecomeActive` to catch external changes (e.g. another
-/// app instance, defaults edits).
+/// Settings → Updates pane. `settings.json` is the source of truth — every
+/// toggle / picker writes to `SettingsStore` and immediately replays the
+/// full preference triple through `UpdatesClient.applyPreferences(...)` so
+/// the running Sparkle instance never drifts from disk. The same client
+/// runs once on launch (see `AppState.bringUp`), so a relaunch reproduces
+/// whatever state the user left the pane in.
+///
+/// Channel selection is the headline knob. `tip` opts into pre-release
+/// builds via Sparkle's appcast `<sparkle:channel>` filter and tightens
+/// the background-check cadence; `stable` only sees release-cut items.
 struct UpdatesSettingsView: View {
-  private let updater: SPUUpdater = UpdatesEnvironment.updater
+  @Environment(SettingsStore.self) private var settingsStore
+  @Dependency(UpdatesClient.self) private var updatesClient
 
-  @State private var automaticallyChecks: Bool
-  @State private var automaticallyDownloads: Bool
-  @State private var sendsSystemProfile: Bool
-  @State private var checkInterval: CheckInterval
   @State private var lastCheckedAt: Date?
+  @State private var feedURL: URL?
 
-  init() {
-    let updater = UpdatesEnvironment.updater
-    _automaticallyChecks = State(initialValue: updater.automaticallyChecksForUpdates)
-    _automaticallyDownloads = State(initialValue: updater.automaticallyDownloadsUpdates)
-    _sendsSystemProfile = State(initialValue: updater.sendsSystemProfile)
-    _checkInterval = State(initialValue: CheckInterval.closest(to: updater.updateCheckInterval))
-    _lastCheckedAt = State(initialValue: updater.lastUpdateCheckDate)
+  private var general: GeneralSettings { settingsStore.settings.general }
+
+  private var updateChannelBinding: Binding<UpdateChannel> {
+    Binding(
+      get: { general.updateChannel },
+      set: { newValue in
+        settingsStore.setUpdateChannel(newValue)
+        applyToSparkle(triggerBackgroundCheck: true)
+      }
+    )
+  }
+
+  private var automaticChecksBinding: Binding<Bool> {
+    Binding(
+      get: { general.updatesAutomaticallyCheckForUpdates },
+      set: { newValue in
+        let wasOff = !general.updatesAutomaticallyCheckForUpdates
+        settingsStore.setUpdatesAutomaticallyCheckForUpdates(newValue)
+        // Only fire a background probe when transitioning OFF→ON; ON→OFF
+        // and OFF→OFF should never trigger a network check.
+        applyToSparkle(triggerBackgroundCheck: newValue && wasOff)
+      }
+    )
+  }
+
+  private var automaticDownloadsBinding: Binding<Bool> {
+    Binding(
+      get: { general.updatesAutomaticallyDownloadUpdates },
+      set: { newValue in
+        settingsStore.setUpdatesAutomaticallyDownloadUpdates(newValue)
+        applyToSparkle(triggerBackgroundCheck: false)
+      }
+    )
   }
 
   var body: some View {
     Form {
+      channelSection
       automaticSection
-      privacySection
       manualSection
       feedSection
     }
     .formStyle(.grouped)
+    .task {
+      // Capture once on appear — Sparkle owns these strings and doesn't
+      // emit change notifications on a hot reconfigure.
+      let updater = UpdatesEnvironment.updater
+      lastCheckedAt = updater.lastUpdateCheckDate
+      feedURL = updater.feedURL
+    }
     .onReceive(
       NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
     ) { _ in
-      reloadFromUpdater()
+      lastCheckedAt = UpdatesEnvironment.updater.lastUpdateCheckDate
     }
   }
 
   // MARK: - Sections
 
   @ViewBuilder
-  private var automaticSection: some View {
-    Section("Automatic updates") {
-      Toggle("Automatically check for updates", isOn: $automaticallyChecks)
-        .onChange(of: automaticallyChecks) { _, newValue in
-          updater.automaticallyChecksForUpdates = newValue
+  private var channelSection: some View {
+    Section {
+      Picker(selection: updateChannelBinding) {
+        ForEach(UpdateChannel.allCases, id: \.self) { channel in
+          Text(channel.title).tag(channel)
         }
-      Toggle("Download and install in the background", isOn: $automaticallyDownloads)
-        .onChange(of: automaticallyDownloads) { _, newValue in
-          updater.automaticallyDownloadsUpdates = newValue
-        }
-        .disabled(!automaticallyChecks)
-      Picker("Check frequency", selection: $checkInterval) {
-        ForEach(CheckInterval.allCases) { interval in
-          Text(interval.label).tag(interval)
-        }
+      } label: {
+        Text("Release channel")
+        Text(general.updateChannel.subtitle)
       }
-      .onChange(of: checkInterval) { _, newValue in
-        updater.updateCheckInterval = newValue.seconds
-      }
-      .disabled(!automaticallyChecks)
     }
   }
 
   @ViewBuilder
-  private var privacySection: some View {
-    Section {
-      Toggle("Send anonymous system profile", isOn: $sendsSystemProfile)
-        .onChange(of: sendsSystemProfile) { _, newValue in
-          updater.sendsSystemProfile = newValue
-        }
-    } header: {
-      Text("Privacy")
-    } footer: {
-      Text("Helps prioritise testing on the OS and hardware combinations the user base actually runs.")
-        .font(.caption)
-        .foregroundStyle(.secondary)
+  private var automaticSection: some View {
+    Section("Automatic updates") {
+      Toggle(isOn: automaticChecksBinding) {
+        Text("Check for updates automatically")
+        Text("Polls the appcast in the background while touch-code is running.")
+      }
+      Toggle(isOn: automaticDownloadsBinding) {
+        Text("Download and install in the background")
+        Text("Applies the next update on relaunch — no prompt before the download starts.")
+      }
+      .disabled(!general.updatesAutomaticallyCheckForUpdates)
     }
   }
 
@@ -90,16 +114,16 @@ struct UpdatesSettingsView: View {
     Section("Manual check") {
       HStack(alignment: .firstTextBaseline) {
         Button("Check for Updates…") {
-          updater.checkForUpdates()
-          // Sparkle updates lastUpdateCheckDate after the request completes;
-          // re-read after a short delay so the label refreshes without
-          // forcing the user to leave + re-enter the pane.
+          updatesClient.checkNow()
+          // Sparkle stamps lastUpdateCheckDate after the request completes;
+          // re-read after a short delay so the relative-time label
+          // refreshes without forcing the user to leave + reopen the pane.
           Task { @MainActor in
             try? await Task.sleep(for: .seconds(2))
-            lastCheckedAt = updater.lastUpdateCheckDate
+            lastCheckedAt = UpdatesEnvironment.updater.lastUpdateCheckDate
           }
         }
-        .disabled(!updater.canCheckForUpdates)
+        .disabled(!UpdatesEnvironment.updater.canCheckForUpdates)
         .commandKeyHint(.checkForUpdates)
         .helpWithShortcut("Check for Updates", .checkForUpdates)
         Spacer()
@@ -112,7 +136,7 @@ struct UpdatesSettingsView: View {
 
   @ViewBuilder
   private var feedSection: some View {
-    if let feedURL = updater.feedURL {
+    if let feedURL {
       Section("Feed") {
         LabeledContent("Appcast URL") {
           Text(feedURL.absoluteString)
@@ -128,57 +152,40 @@ struct UpdatesSettingsView: View {
 
   // MARK: - Helpers
 
+  private func applyToSparkle(triggerBackgroundCheck: Bool) {
+    let g = settingsStore.settings.general
+    updatesClient.applyPreferences(
+      g.updateChannel,
+      g.updatesAutomaticallyCheckForUpdates,
+      g.updatesAutomaticallyDownloadUpdates,
+      triggerBackgroundCheck
+    )
+  }
+
   private var lastCheckedLabel: String {
     guard let lastCheckedAt else { return "Never checked" }
     let formatter = RelativeDateTimeFormatter()
     formatter.unitsStyle = .full
     return "Last checked \(formatter.localizedString(for: lastCheckedAt, relativeTo: Date()))"
   }
-
-  private func reloadFromUpdater() {
-    automaticallyChecks = updater.automaticallyChecksForUpdates
-    automaticallyDownloads = updater.automaticallyDownloadsUpdates
-    sendsSystemProfile = updater.sendsSystemProfile
-    checkInterval = CheckInterval.closest(to: updater.updateCheckInterval)
-    lastCheckedAt = updater.lastUpdateCheckDate
-  }
 }
 
-/// Discrete frequency choices presented to the user. Sparkle stores the
-/// interval as an arbitrary `TimeInterval`, so we map both directions —
-/// writes pick the canonical seconds value, reads snap to the nearest
-/// option so values authored elsewhere (defaults, another release) still
-/// surface a stable selection.
-private enum CheckInterval: String, CaseIterable, Identifiable {
-  case hourly
-  case daily
-  case weekly
-  case monthly
-
-  var id: String { rawValue }
-
-  var seconds: TimeInterval {
+extension UpdateChannel {
+  /// Display name shown in the channel `Picker` row.
+  fileprivate var title: String {
     switch self {
-    case .hourly: return 3600
-    case .daily: return 86_400
-    case .weekly: return 604_800
-    case .monthly: return 2_592_000
+    case .stable: return "Stable"
+    case .tip: return "Tip"
     }
   }
 
-  var label: String {
+  /// Sub-label rendered below the picker so the difference between the
+  /// channels is visible without opening release notes.
+  fileprivate var subtitle: String {
     switch self {
-    case .hourly: return "Every hour"
-    case .daily: return "Once a day"
-    case .weekly: return "Once a week"
-    case .monthly: return "Once a month"
+    case .stable: return "Recommended. Released versions only — checked once a day."
+    case .tip: return "Pre-release tip-of-tree builds. Checked hourly. Expect rough edges."
     }
-  }
-
-  static func closest(to seconds: TimeInterval) -> CheckInterval {
-    Self.allCases.min(by: {
-      abs($0.seconds - seconds) < abs($1.seconds - seconds)
-    }) ?? .daily
   }
 }
 
