@@ -269,6 +269,39 @@ final class GhosttyRuntime {
     return NSColor(ghostty: color)
   }
 
+  /// Mirror of ghostty's `Ghostty.Config.unfocusedSplitOpacity`. Reads the
+  /// `unfocused-split-opacity` config key (default 0.85 — surface visibility,
+  /// not overlay opacity) and returns the inverted overlay opacity used to
+  /// dim unfocused split panes. Falls back to 0.15 when the runtime hasn't
+  /// loaded a config yet.
+  func unfocusedSplitOpacity() -> Double {
+    guard let config else { return 0.15 }
+    var opacity: Double = 0.85
+    let key = "unfocused-split-opacity"
+    let keyLen = UInt(key.lengthOfBytes(using: .utf8))
+    _ = ghostty_config_get(config, &opacity, key, keyLen)
+    return 1 - opacity
+  }
+
+  /// Mirror of ghostty's `Ghostty.Config.unfocusedSplitFill`. Reads
+  /// `unfocused-split-fill`; if unset, falls back to the terminal `background`
+  /// color so the dim overlay tints the surface with its own theme color
+  /// (not pure black).
+  func unfocusedSplitFill() -> NSColor {
+    guard let config else { return .windowBackgroundColor }
+    var color = ghostty_config_color_s()
+    let fillKey = "unfocused-split-fill"
+    let fillKeyLen = UInt(fillKey.lengthOfBytes(using: .utf8))
+    if !ghostty_config_get(config, &color, fillKey, fillKeyLen) {
+      let bgKey = "background"
+      let bgKeyLen = UInt(bgKey.lengthOfBytes(using: .utf8))
+      guard ghostty_config_get(config, &color, bgKey, bgKeyLen) else {
+        return .windowBackgroundColor
+      }
+    }
+    return NSColor(ghostty: color)
+  }
+
   /// Push the current ghostty theme background to every NSWindow in the app.
   /// Called on color-scheme changes (from `setColorScheme`) and, through
   /// `WindowAppearanceSetter`, on appearance-preference toggles. Idempotent.

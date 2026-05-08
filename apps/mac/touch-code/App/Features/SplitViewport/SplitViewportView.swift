@@ -241,18 +241,23 @@ private struct LeafView: View {
     hierarchyManager.lastFocusedPane(in: tabID) == paneID
   }
 
-  /// Semi-transparent black wash on unfocused panes inside a multi-pane
-  /// Tab. Mirrors ghostty's `unfocused-split` overlay: a hit-test-disabled
-  /// `Rectangle` above the surface so clicks/scroll still reach the
-  /// underlying `NSView`. Single-pane Tabs and the focused leaf get
-  /// nothing.
+  /// Wash on unfocused panes inside a multi-pane Tab. Matches ghostty's
+  /// `unfocused-split` exactly: a hit-test-disabled `Rectangle` filled with
+  /// `unfocused-split-fill` (defaults to terminal `background`) at
+  /// `1 - unfocused-split-opacity` (default 0.15). Single-pane Tabs and the
+  /// focused leaf get nothing.
   @ViewBuilder
   private var unfocusedDimOverlay: some View {
     if isSplit, !isFocused {
-      Rectangle()
-        .fill(Color.black)
-        .opacity(0.15)
-        .allowsHitTesting(false)
+      let runtime = GhosttyRuntime.shared
+      let fill = runtime?.unfocusedSplitFill() ?? .windowBackgroundColor
+      let opacity = runtime?.unfocusedSplitOpacity() ?? 0.15
+      if opacity > 0 {
+        Rectangle()
+          .fill(Color(nsColor: fill))
+          .allowsHitTesting(false)
+          .opacity(opacity)
+      }
     }
   }
 
