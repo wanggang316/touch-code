@@ -694,15 +694,18 @@ struct HierarchySidebarFeature {
     case .pendingWorktreeFinished(let id, let path):
       guard let pending = state.pendingWorktrees[id: id] else { return .none }
       let pid = pending.projectID
-      let directoryName = pending.spec.name
+      let displayName = pending.displayName
+      let branch = pending.spec.name
       let pathString = path.standardizedFileURL.path(percentEncoded: false)
 
       // Critical boundary: catalog write. Failure here keeps the row
       // visible as .failed for Retry/Discard. Anything below is cosmetic.
+      // displayName preserves the user's original input ("feat/web-ui") for UI;
+      // branch is the sanitized git branch ("feat-web-ui") that matches HEAD.
       let worktreeID: WorktreeID
       do {
         worktreeID = try hierarchyClient.createWorktreeWithGit(
-          pid, directoryName, directoryName, pathString)
+          pid, displayName, branch, pathString)
       } catch let err as GitWorktreeError {
         state.pendingWorktrees[id: id]?.status = .failed(err)
         return .none

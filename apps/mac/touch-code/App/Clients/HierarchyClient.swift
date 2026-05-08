@@ -245,7 +245,7 @@ nonisolated struct HierarchyClient: Sendable {
   var createWorktreeWithGit:
     @MainActor @Sendable (
       _ projectID: ProjectID,
-      _ branch: String, _ directoryName: String, _ path: String
+      _ name: String, _ branch: String, _ path: String
     ) throws -> WorktreeID
 
   /// End-to-end Remove Worktree. Tears down all surfaces (panes /
@@ -573,10 +573,10 @@ extension HierarchyClient {
           gitCLI: gitCLI
         )
       },
-      createWorktreeWithGit: { projectID, branch, _, path in
+      createWorktreeWithGit: { projectID, name, branch, path in
         try manager.createWorktree(
           in: projectID,
-          name: branch, path: path, branch: branch
+          name: name, path: path, branch: branch
         )
       },
       removeWorktreeWithGit: { worktreeID, projectID in
