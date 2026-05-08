@@ -95,7 +95,7 @@ struct SettingsWindowView: View {
     case .shortcuts:
       ShortcutsSettingsView(store: shortcutsStore)
     case .updates:
-      ComingSoonPane(title: "Updates")
+      UpdatesSettingsView()
     case .about:
       AboutSettingsView()
     case .projectGeneral(let projectID):
