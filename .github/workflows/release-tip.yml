@@ -307,21 +307,16 @@ jobs:
           PYEOF
           echo "--- merged appcast ---"
           cat "$RUNNER_TEMP/merge/appcast-merged.xml"
+          # `gh release upload --clobber` matches by basename, so we must
+          # name the local file `appcast.xml` BEFORE uploading. Renaming
+          # post-hoc via `gh api PATCH name=...` collides with the existing
+          # `appcast.xml` asset (HTTP 422), since `--clobber` only replaces
+          # files that share the destination name.
+          /bin/cp "$RUNNER_TEMP/merge/appcast-merged.xml" "$RUNNER_TEMP/merge/appcast.xml"
           gh release upload "$STABLE_TAG" \
-            "$RUNNER_TEMP/merge/appcast-merged.xml" \
+            "$RUNNER_TEMP/merge/appcast.xml" \
             --clobber \
             -R "${{ github.repository }}"
-          # `gh release upload --clobber` keeps the original asset name only
-          # when source and dest share basenames. We uploaded `appcast-merged.xml`
-          # but need the asset to be served as `appcast.xml`. Rename via the
-          # release-asset edit endpoint:
-          ASSET_ID=$(gh api "repos/${{ github.repository }}/releases/tags/$STABLE_TAG" \
-            --jq '.assets[] | select(.name == "appcast-merged.xml") | .id')
-          if [ -n "$ASSET_ID" ]; then
-            gh api "repos/${{ github.repository }}/releases/assets/$ASSET_ID" \
-              -X PATCH \
-              -f name=appcast.xml >/dev/null
-          fi
 
       - name: Smoke-check canonical feed
         run: |
