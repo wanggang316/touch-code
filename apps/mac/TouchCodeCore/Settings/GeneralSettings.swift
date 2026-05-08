@@ -18,22 +18,41 @@ public nonisolated struct GeneralSettings: Equatable, Codable, Sendable {
   /// the ask-each-time sheet.
   public var postMergeAction: MergedWorktreeAction?
 
+  /// Sparkle release channel. Default `stable`. Drives both
+  /// `SPUUpdaterDelegate.allowedChannels(for:)` and the background-check interval — the
+  /// app pushes this to `SPUUpdater` on launch and on every change.
+  public var updateChannel: UpdateChannel
+  /// Whether Sparkle should poll for updates in the background. Default `true`.
+  public var updatesAutomaticallyCheckForUpdates: Bool
+  /// Whether Sparkle should download + install updates without prompting. Default `false`
+  /// because automatic install requires the app to relaunch and the user might be in the
+  /// middle of a long-running terminal task. Only takes effect when
+  /// `updatesAutomaticallyCheckForUpdates` is also true.
+  public var updatesAutomaticallyDownloadUpdates: Bool
+
   public init(
     appearance: AppearancePreference = .system,
     defaultEditorID: EditorID? = nil,
     defaultMergeStrategy: MergeStrategy? = nil,
-    postMergeAction: MergedWorktreeAction? = nil
+    postMergeAction: MergedWorktreeAction? = nil,
+    updateChannel: UpdateChannel = .stable,
+    updatesAutomaticallyCheckForUpdates: Bool = true,
+    updatesAutomaticallyDownloadUpdates: Bool = false
   ) {
     self.appearance = appearance
     self.defaultEditorID = defaultEditorID
     self.defaultMergeStrategy = defaultMergeStrategy
     self.postMergeAction = postMergeAction
+    self.updateChannel = updateChannel
+    self.updatesAutomaticallyCheckForUpdates = updatesAutomaticallyCheckForUpdates
+    self.updatesAutomaticallyDownloadUpdates = updatesAutomaticallyDownloadUpdates
   }
 
   public static let `default` = GeneralSettings()
 
   private enum CodingKeys: String, CodingKey {
     case appearance, defaultEditorID, defaultMergeStrategy, postMergeAction
+    case updateChannel, updatesAutomaticallyCheckForUpdates, updatesAutomaticallyDownloadUpdates
   }
 
   public init(from decoder: Decoder) throws {
@@ -42,5 +61,11 @@ public nonisolated struct GeneralSettings: Equatable, Codable, Sendable {
     self.defaultEditorID = try container.decodeIfPresent(EditorID.self, forKey: .defaultEditorID)
     self.defaultMergeStrategy = try container.decodeIfPresent(MergeStrategy.self, forKey: .defaultMergeStrategy)
     self.postMergeAction = try container.decodeIfPresent(MergedWorktreeAction.self, forKey: .postMergeAction)
+    self.updateChannel =
+      try container.decodeIfPresent(UpdateChannel.self, forKey: .updateChannel) ?? .stable
+    self.updatesAutomaticallyCheckForUpdates =
+      try container.decodeIfPresent(Bool.self, forKey: .updatesAutomaticallyCheckForUpdates) ?? true
+    self.updatesAutomaticallyDownloadUpdates =
+      try container.decodeIfPresent(Bool.self, forKey: .updatesAutomaticallyDownloadUpdates) ?? false
   }
 }
