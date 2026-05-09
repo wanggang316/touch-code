@@ -150,6 +150,20 @@ public final class SocketServer {
     var one: Int32 = 1
     _ = setsockopt(clientFD, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
 
+    // accept(2) on macOS inherits O_NONBLOCK from the listen socket
+    // (we set it on `listenFD` so the dispatch source can drain the
+    // backlog). On the per-connection fd, however, we want classic
+    // blocking semantics: pumpSocketReads / writeAll loop on a single
+    // fd from a dedicated detached Task and have no readiness-wait
+    // path — a non-blocking response large enough to overflow the
+    // socket-buffer (~8 KiB on Darwin) trips EAGAIN inside writeAll
+    // and quietly truncates the reply. Clear the flag here so send(2)
+    // and read(2) block until the kernel has space / data.
+    let flags = fcntl(clientFD, F_GETFL, 0)
+    if flags >= 0 {
+      _ = fcntl(clientFD, F_SETFL, flags & ~O_NONBLOCK)
+    }
+
     // M3.1 defense-in-depth: verify the kernel-reported peer UID
     // matches ours before any framing / handshake work runs. The
     // socket file mode (0600 + owner UID) already blocks cross-UID
@@ -208,15 +222,17 @@ public final class SocketServer {
     return (stream, continuation)
   }
 
-  /// Loop-until-complete write. POSIX `write(2)` on a stream socket may
-  /// short-write large buffers; silently dropping tail bytes desyncs the
-  /// framed wire protocol. Retries on `EINTR` and on short writes; bails
-  /// and closes the peer's fd on hard errors.
+  /// Loop-until-complete write. Mirror of the client's `send(2)` choice
+  /// in `UnixSocketTransport`: macOS 26.x's `write(2)` on a Unix-domain
+  /// socket can EPIPE-fault before bytes reach the kernel buffer, while
+  /// `send(2)` on the same fd is well-behaved. Short writes still happen,
+  /// so we keep the loop. Retries on `EINTR`; bails and closes the
+  /// peer's fd on hard errors.
   nonisolated private static func writeAll(fd: Int32, data: Data) {
     var remaining = data
     while !remaining.isEmpty {
       let written = remaining.withUnsafeBytes { ptr -> Int in
-        Darwin.write(fd, ptr.baseAddress, remaining.count)
+        Darwin.send(fd, ptr.baseAddress, remaining.count, 0)
       }
       if written < 0 {
         if errno == EINTR { continue }
