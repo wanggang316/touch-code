@@ -110,6 +110,34 @@ struct TerminalHandlersTests {
     }
   }
 
+  @Test
+  func readTextDeliversViaFakeSink() async throws {
+    let sink = FakeSink()
+    let server = Self.makeHarness(sink: sink)
+    defer { server.stop() }
+    try InMemoryIPCServerTests.sendHello(server)
+    _ = try await server.awaitResponse()
+
+    let pid = PaneID()
+    sink.registered.insert(pid.raw)
+    sink.textByPane[pid.raw] = "prompt\noutput"
+    struct Params: Codable {
+      let paneID: PaneID
+      let extent: String
+    }
+    let params = try JSONValue.encoded(Params(paneID: pid, extent: "viewport"))
+    try server.send(
+      IPC.Request(id: "r1", method: .terminalReadText, params: params)
+    )
+    let response = try await server.awaitResponse()
+    struct Result: Codable {
+      let text: String
+    }
+    let result = try response.result?.decoded(as: Result.self)
+    #expect(response.error == nil)
+    #expect(result?.text == "prompt\noutput")
+  }
+
   // MARK: - Harness
 
   static func makeHarness(sink: TerminalHandlers.InputSink?) -> InMemoryIPCServer {
@@ -152,6 +180,7 @@ final class FakeSink: TerminalHandlers.InputSink, @unchecked Sendable {
   var registered: Set<UUID> = []
   private(set) var delivered: [Delivery] = []
   private(set) var broadcasts: [(scope: IPC.BroadcastScope, text: String)] = []
+  var textByPane: [UUID: String] = [:]
   private let lock = NSLock()
 
   func sendInput(paneID: PaneID, text: String) -> Bool {
@@ -167,5 +196,12 @@ final class FakeSink: TerminalHandlers.InputSink, @unchecked Sendable {
     defer { lock.unlock() }
     broadcasts.append((scope, text))
     return registered.count
+  }
+
+  func readText(paneID: PaneID, extent: TerminalHandlers.ReadExtent) -> String? {
+    lock.lock()
+    defer { lock.unlock() }
+    guard registered.contains(paneID.raw) else { return nil }
+    return textByPane[paneID.raw] ?? ""
   }
 }

@@ -757,6 +757,18 @@ final class TerminalInputSink: TerminalHandlers.InputSink {
       }
   }
 
+  func readText(paneID: PaneID, extent: TerminalHandlers.ReadExtent) -> String? {
+    guard let surface = engine?.ghosttyRuntime?.surface(for: paneID) else { return nil }
+    switch extent {
+    case .viewport:
+      return surface.readText(.viewport)
+    case .screen:
+      return surface.readText(.screen)
+    case .selection:
+      return surface.readSelection()
+    }
+  }
+
   private func paneIDs(matching scope: IPC.BroadcastScope, in catalog: Catalog) -> [PaneID] {
     switch scope.kind {
     case .tab:

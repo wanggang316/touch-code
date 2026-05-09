@@ -196,6 +196,7 @@ public final class MethodRouter {
     switch request.method {
     case .terminalSendInput: return await t.sendInput(request.params)
     case .terminalBroadcastInput: return await t.broadcastInput(request.params)
+    case .terminalReadText: return await t.readText(request.params)
     default: return nil
     }
   }

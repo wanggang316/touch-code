@@ -16,6 +16,13 @@ public final class TerminalHandlers {
   public protocol InputSink: AnyObject, Sendable {
     func sendInput(paneID: PaneID, text: String) -> Bool
     func fanOut(scope: IPC.BroadcastScope, text: String, catalog: Catalog) -> Int
+    func readText(paneID: PaneID, extent: ReadExtent) -> String?
+  }
+
+  public enum ReadExtent: String, Codable, Sendable {
+    case viewport
+    case screen
+    case selection
   }
 
   private let sink: InputSink?
@@ -71,5 +78,34 @@ public final class TerminalHandlers {
     }
     let count = sink.fanOut(scope: req.scope, text: req.text, catalog: catalog())
     return .unary(.object(["delivered": .int(Int64(count))]))
+  }
+
+  public struct ReadTextParams: Codable, Sendable {
+    public let paneID: PaneID
+    public let extent: ReadExtent?
+  }
+  public struct ReadTextResult: Codable, Sendable {
+    public let text: String
+  }
+  public func readText(_ params: JSONValue) async -> RouterOutcome {
+    await Task.yield()
+    guard let sink else {
+      return .failed(
+        .unsupported(reason: "no GhosttyRuntime bound — terminal.readText requires the app with panes live"))
+    }
+    let req: ReadTextParams
+    do {
+      req = try params.decoded(as: ReadTextParams.self)
+    } catch {
+      return .failed(.invalidParams(message: "readText requires {paneID}", path: nil))
+    }
+    guard let text = sink.readText(paneID: req.paneID, extent: req.extent ?? .viewport) else {
+      return .failed(.notFound(kind: "pane", id: req.paneID.description))
+    }
+    do {
+      return .unary(try JSONValue.encoded(ReadTextResult(text: text)))
+    } catch {
+      return .failed(.internal("encode readText result: \(error)"))
+    }
   }
 }

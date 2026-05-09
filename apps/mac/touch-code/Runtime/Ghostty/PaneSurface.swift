@@ -245,6 +245,71 @@ final class PaneSurface {
 
   func sendInput(_ text: String) {
     guard let surface, !text.isEmpty else { return }
+    var chunk = ""
+    var index = text.startIndex
+    while index < text.endIndex {
+      let character = text[index]
+      if character == "\r" || character == "\n" {
+        sendTextChunk(chunk, to: surface)
+        chunk.removeAll(keepingCapacity: true)
+        if character == "\r" {
+          let next = text.index(after: index)
+          if next < text.endIndex, text[next] == "\n" {
+            index = next
+          }
+        }
+        sendEnterKey(to: surface)
+      } else {
+        chunk.append(character)
+      }
+      index = text.index(after: index)
+    }
+    sendTextChunk(chunk, to: surface)
+  }
+
+  enum ReadExtent {
+    case viewport
+    case screen
+  }
+
+  func readText(_ extent: ReadExtent) -> String? {
+    guard let surface else { return nil }
+    var text = ghostty_text_s()
+    let tag: ghostty_point_tag_e =
+      switch extent {
+      case .viewport: GHOSTTY_POINT_VIEWPORT
+      case .screen: GHOSTTY_POINT_SCREEN
+      }
+    let selection = ghostty_selection_s(
+      top_left: ghostty_point_s(
+        tag: tag,
+        coord: GHOSTTY_POINT_COORD_TOP_LEFT,
+        x: 0,
+        y: 0
+      ),
+      bottom_right: ghostty_point_s(
+        tag: tag,
+        coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+        x: 0,
+        y: 0
+      ),
+      rectangle: false
+    )
+    guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
+    defer { ghostty_surface_free_text(surface, &text) }
+    return Self.string(from: text)
+  }
+
+  func readSelection() -> String? {
+    guard let surface else { return nil }
+    var text = ghostty_text_s()
+    guard ghostty_surface_read_selection(surface, &text) else { return nil }
+    defer { ghostty_surface_free_text(surface, &text) }
+    return Self.string(from: text)
+  }
+
+  private func sendTextChunk(_ text: String, to surface: ghostty_surface_t) {
+    guard !text.isEmpty else { return }
     // Use utf8.count, not strlen — embedded NUL in composed glyphs would
     // truncate the forwarded bytes on strlen.
     let bytes = Array(text.utf8)
@@ -256,6 +321,24 @@ final class PaneSurface {
         ghostty_surface_text(surface, ptr, UInt(bytes.count))
       }
     }
+  }
+
+  private func sendEnterKey(to surface: ghostty_surface_t) {
+    var key = ghostty_input_key_s()
+    key.action = GHOSTTY_ACTION_PRESS
+    key.keycode = 0x24
+    key.mods = ghostty_input_mods_e(0)
+    key.consumed_mods = ghostty_input_mods_e(0)
+    _ = ghostty_surface_key(surface, key)
+
+    key.action = GHOSTTY_ACTION_RELEASE
+    _ = ghostty_surface_key(surface, key)
+  }
+
+  private static func string(from text: ghostty_text_s) -> String {
+    guard let pointer = text.text else { return "" }
+    let data = Data(bytes: pointer, count: Int(text.text_len))
+    return String(data: data, encoding: .utf8) ?? String(cString: pointer)
   }
 
   func markExited(code: Int32) {
@@ -289,7 +372,7 @@ final class PaneSurface {
   /// `TerminalEvent.paneInfoChanged`. The decoder is responsible for
   /// fan-out so listeners that don't need per-field tracking can stay on
   /// the event stream.
-  func apply(_ delta: PaneInfoDelta) {
+  func apply(_ delta: PaneInfoDelta) {  // swiftlint:disable:this cyclomatic_complexity
     switch delta {
     case .title(let t):
       info.title = t

@@ -70,6 +70,7 @@ extension IPC {
     // terminal
     case terminalSendInput = "terminal.sendInput"
     case terminalBroadcastInput = "terminal.broadcastInput"
+    case terminalReadText = "terminal.readText"
     case terminalRetryPane = "terminal.retryPane"
   }
 }

@@ -55,6 +55,62 @@ struct SendCommand: AsyncParsableCommand {
   }
 }
 
+struct ReadCommand: AsyncParsableCommand {
+  static let configuration = CommandConfiguration(
+    commandName: "read",
+    abstract: "Read text from a pane.",
+    discussion: """
+      Reads the visible viewport by default. Use --screen for the active screen
+      buffer, or --selection for the current selection.
+      """
+  )
+
+  enum Extent: String, ExpressibleByArgument {
+    case viewport
+    case screen
+    case selection
+  }
+
+  @OptionGroup var globals: GlobalOptions
+  @Argument(help: "Pane id, @label, or 'current'.")
+  var pane: String = "current"
+  @Option(name: .long, help: "Text extent to read: viewport, screen, or selection.")
+  var extent: Extent = .viewport
+  @Flag(name: .long, help: "Shortcut for --extent screen.")
+  var screen: Bool = false
+  @Flag(name: .long, help: "Shortcut for --extent selection.")
+  var selection: Bool = false
+
+  func run() async throws {
+    await CommandRunner.run {
+      if screen && selection {
+        throw CLIError(code: .userError, message: "pass at most one of --screen or --selection")
+      }
+      let resolvedExtent: Extent = selection ? .selection : (screen ? .screen : extent)
+      let client = CLISession.connect(globals: globals)
+      defer { Task { await client.shutdown() } }
+      let uuid = try await AliasResolver.resolve(pane, kind: .pane, client: client)
+      struct Params: Codable {
+        let paneID: PaneID
+        let extent: String
+      }
+      struct Result: Codable {
+        let text: String
+      }
+      let result: Result = try await client.call(
+        .terminalReadText,
+        params: Params(paneID: PaneID(raw: uuid), extent: resolvedExtent.rawValue)
+      )
+      try Renderer.emitObject(
+        ["paneID": uuid.uuidString, "extent": resolvedExtent.rawValue, "text": result.text],
+        mode: globals.renderMode
+      ) { obj in
+        obj["text"] as? String ?? ""
+      }
+    }
+  }
+}
+
 struct BroadcastCommand: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "broadcast",
