@@ -99,11 +99,11 @@ struct UpdatesSettingsView: View {
     Section("Automatic updates") {
       Toggle(isOn: automaticChecksBinding) {
         Text("Check for updates automatically")
-        Text("Polls the appcast in the background while touch-code is running.")
+        Text("Polls in the background while running.")
       }
       Toggle(isOn: automaticDownloadsBinding) {
         Text("Download and install in the background")
-        Text("Applies the next update on relaunch — no prompt before the download starts.")
+        Text("Installs on next relaunch.")
       }
       .disabled(!general.updatesAutomaticallyCheckForUpdates)
     }
@@ -185,8 +185,8 @@ extension UpdateChannel {
   /// channels is visible without opening release notes.
   fileprivate var subtitle: String {
     switch self {
-    case .stable: return "Recommended. Released versions only — checked once a day."
-    case .tip: return "Pre-release tip-of-tree builds. Checked hourly. Expect rough edges."
+    case .stable: return "Released versions, checked daily."
+    case .tip: return "Pre-release builds, checked hourly."
     }
   }
 }
