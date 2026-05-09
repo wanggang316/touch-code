@@ -20,7 +20,7 @@ After this plan lands, a contributor who has just run `make mac-build` and insta
 
 This is the first capability the app ships that is consumed outside the app's process boundary. The design doc ([docs/design-docs/c5-agent-skill.md](../design-docs/c5-agent-skill.md)) pins the architectural invariant: **the app never loads or parses `SKILL.md`**. This plan implements the install helper, the skill content, the release pipeline, and the per-agent verification, while holding that line.
 
-C5 is deliberately orthogonal to C1 (Terminal engine) and C2 (Hierarchy): Tier-A testing does not depend on `tc ls` or Pane IPC existing, so this plan can land and release independently of [exec-plan 0002](0002-terminal-and-hierarchy.md). Tier-B smoke tests activate progressively as the app's CLI surface fills in.
+C5 is deliberately orthogonal to C1 (Terminal engine) and C2 (Hierarchy): Tier-A testing does not depend on `tc tree` or Pane IPC existing, so this plan can land and release independently of [exec-plan 0002](0002-terminal-and-hierarchy.md). Tier-B smoke tests activate progressively as the app's CLI surface fills in.
 
 ## Progress
 
@@ -46,7 +46,7 @@ The design doc locks Decisions 1-13. The plan adds a handful of implementation-l
 - **DEC-2 (plan, 2026-04-20): `--help-json` is a top-level `tc` flag, not `tc skill --help-json`.** Emitting machine-readable subcommand metadata is a CLI-wide concern — future docs generators and the Tier-A roundtrip check both benefit. Adding it at the root means every current and future `tc` subcommand is introspectable from one entry point.
 - **DEC-3 (plan, 2026-04-20): Golden manifest is a sorted file list excluding the install marker.** The install marker's content is timestamped (non-deterministic), so it is excluded from the manifest diff. The manifest is only the set of *paths*, not the file contents — content correctness is covered by `bundleSha256`, which is independently computed at install time. Regenerating the golden is a deliberate action via `make mac-skill-golden-update`.
 - **DEC-4 (plan, 2026-04-20): HOME security check is enforced in both CLI and installer layers.** Defence-in-depth: `SkillCommand.Install` validates that the resolved destination is under `NSHomeDirectory()` before constructing the installer; `SkillInstaller.install` also checks and throws `InstallError.destinationOutsideHome`. The two checks are identical in content. Either alone would be sufficient; duplication protects against refactors that accidentally remove one of the two call-sites.
-- **DEC-5 (plan, 2026-04-20): Tier-B tests degrade gracefully when an agent binary or `tc` surface is missing.** If `pi` is not installed on the CI runner, the pi smoke test emits a warning and exits 0 rather than failing the release. Likewise, the claude-code test checks for `tc ls` and skips the count-comparison branch when absent. This matches design doc §Testing Strategy's "Tier-B then lights up incrementally as each agent's prerequisites arrive" — C5 release is not held hostage to C1/C2 completeness.
+- **DEC-5 (plan, 2026-04-20): Tier-B tests degrade gracefully when an agent binary or `tc` surface is missing.** If `pi` is not installed on the CI runner, the pi smoke test emits a warning and exits 0 rather than failing the release. Likewise, the claude-code test checks for `tc tree` and skips the count-comparison branch when absent. This matches design doc §Testing Strategy's "Tier-B then lights up incrementally as each agent's prerequisites arrive" — C5 release is not held hostage to C1/C2 completeness.
 - **DEC-6 (plan, 2026-04-20): `--force` reinstall is a full re-copy, not a diff-based patch.** When the user accepts the overwrite prompt (or passes `--force`), `SkillInstaller` removes the entire installed directory and re-materialises it from the bundle. Diff-based patching would be more efficient but adds a reconciliation code path that is hard to test exhaustively for edge cases (partially-written files, permission changes). The full-copy cost is a few dozen small markdown writes — well under 100ms on any machine.
 - **DEC-7 (plan, 2026-04-20): `AgentID` `EnumerableFlag` conformance pins explicit flag names.** ArgumentParser's default would turn `AgentID.claudeCode` into `--claudeCode`. The CLI contract requires `--claude-code`, `--codex`, `--pi`. The conformance provides explicit `name(for:)` that maps each case to its kebab-cased flag via `.customLong("claude-code")` etc. This is also the hook for future agents (when `--aider` or similar lands, the explicit mapping prevents a silently-changed flag).
 - **DEC-8 (M2, 2026-04-20): Test sources live in a sibling directory `tcTests/`, not `tc/Tests/`.** Tuist's `buildableFolders: ["tc"]` walks recursively and swept `tc/Tests/*.swift` into the `tc` target's compile list; with no `Testing` dependency on `tc`, the build failed. `TouchCodeCoreTests` already uses the sibling-folder pattern; adopted the same here. `tcTests/` directory is the authoritative location for every `tcKit`-hosted test file from this milestone forward.
@@ -63,7 +63,7 @@ The design doc locks Decisions 1-13. The plan adds a handful of implementation-l
 - **DEC-19 (M6 polish, 2026-04-20): `generate-skill-version.sh` version regex narrowed to the CommandConfiguration format.** Earlier sed extracted any `version: … X.Y.Z …` substring, which would pick up a comment like `// version: 0.0.1` if one ever sat above the `CommandConfiguration`. Now the pattern demands the exact literal `version: "touch-code X.Y.Z`. Narrow match = no false positives. If the banner format ever changes, this line changes with it.
 - **DEC-20 (M7, 2026-04-20): Mirror-push derives the mirror slug from `agents.json.pi.mirrorURL`, not a hard-coded workflow string.** Forks and renames flow through `agents.json` (already the single source of truth per DEC-11). The workflow uses `jq` at run time to resolve the SSH form. `concurrency: group: skill-mirror-push-${ref}, cancel-in-progress: false` — in-flight tag pushes must complete; skipping one would leave the mirror out of date for a release.
 - **DEC-21 (M8, 2026-04-20): Skill content documents shipped + planned commands side-by-side, with planned subtrees gated by a `PLANNED_TOKENS` dict in the roundtrip checker.** The alternative — only writing content for shipped commands — would force an M8-sized rewrite for every future milestone that ships more of the CLI. The alternative in the other direction — disabling the roundtrip gate for planned commands — would let stale or invented commands into the skill. Compromise: backtick-wrapped references are still load-bearing (roundtrip check catches unknown names), but a small explicit list of "planned subtree prefixes" in `skill-help-roundtrip.py` is treated as satisfied. Each entry names the exec plan that delivers it; when that plan ships, the entry deletes and the checker starts demanding the real subcommand.
-- **DEC-22 (M9, 2026-04-20): Tier-B smoke prompts target the currently-shipped surface, not the planned surface.** A first attempt asked Claude to "List all panes and report the count" — but `tc ls` hasn't shipped, so Claude correctly replied "there is no pane subcommand" and the gate failed every v0.1.0 release. The fix is structural: every Tier-B prompt must be answerable via a `tc` subcommand that is *in* `tc help-json` today, so release CI can go green as soon as one agent is provisioned on the runner. When C1-C3 land, add new prompts that exercise their surfaces. This mirrors M6's PLANNED_TOKENS split between shipped and planned — the gate is always tight around what's really there.
+- **DEC-22 (M9, 2026-04-20): Tier-B smoke prompts target the currently-shipped surface, not the planned surface.** A first attempt asked Claude to "List all panes and report the count" — but `tc tree` hasn't shipped, so Claude correctly replied "there is no pane subcommand" and the gate failed every v0.1.0 release. The fix is structural: every Tier-B prompt must be answerable via a `tc` subcommand that is *in* `tc help-json` today, so release CI can go green as soon as one agent is provisioned on the runner. When C1-C3 land, add new prompts that exercise their surfaces. This mirrors M6's PLANNED_TOKENS split between shipped and planned — the gate is always tight around what's really there.
 
 ## Outcomes & Retrospective
 
@@ -119,7 +119,7 @@ CI is wired for release tags, and a mirror-push workflow will populate the publi
 **Carry-forward to future plans:**
 
 - `PLANNED_TOKENS` in `skill-help-roundtrip.py` — the exec plans named inside each
-  entry (0002 for `tc ls`/`tc worktree`/`tc tab`/`tc pane`/`tc space`, 0003 for
+  entry (0002 for `tc tree`/`tc worktree`/`tc tab`/`tc pane`/`tc space`, 0003 for
   `tc send`/`tc broadcast`/`tc open`/`tc agent`) must remove their entries on
   landing. CI will then *demand* the real subcommand.
 - Tier-B prompts must grow a new prompt per newly-shipped subcommand group
@@ -170,7 +170,7 @@ Related documents (all in this repo):
 - **`agents.json`** — the read-only JSON file shipped in `apps/mac/Resources/` listing per-agent default install paths and the pi mirror URL. Source of truth for installer behaviour.
 - **`SkillBundleLocator`** — the Swift helper that tells `tc skill` where the bundled `touch-code-skill/` lives. Resolves `Bundle.main.resourceURL` when the binary runs inside a `.app`; walks upward from the executable to find the repo root when running from `swift run`.
 - **`SkillInstaller`** — the Swift helper that performs the actual file-system work (copy, symlink, marker write, uninstall). Pure file I/O; no network; no agent coupling.
-- **Tier-A / Tier-B tests** — tier-A runs in CI on every PR and does not need the app or `tc ls` to exist (unit tests + `tc --help-json` roundtrip + install-into-tempdir + golden manifest diff). Tier-B runs on release tags and exercises real agents end-to-end. Design doc §Testing Strategy is authoritative.
+- **Tier-A / Tier-B tests** — tier-A runs in CI on every PR and does not need the app or `tc tree` to exist (unit tests + `tc --help-json` roundtrip + install-into-tempdir + golden manifest diff). Tier-B runs on release tags and exercises real agents end-to-end. Design doc §Testing Strategy is authoritative.
 - **Mirror repo** — a separate GitHub repository (`github.com/wanggang316/touch-code-skill` per Decision 12) that holds a copy of `touch-code-skill/` pushed from this repo on every release tag. Consumed by `pi install git:...`. Never authored manually.
 
 **Orientation paragraph.** The nine milestones form a simple dependency chain: content shape (M1) and installer metadata (M2) are independent and can be done in parallel. M3 consumes both to implement the installer internals. M4 wraps the installer in a `tc skill …` CLI. M5 adds the app-side banner that nudges users to reinstall after a `tc` upgrade. M6 adds the automation that keeps the skill in lockstep with `tc` (version stamping, Tier-A CI, orthogonality check). M7 splits mirror-repo automation into its own milestone because it needs owner-level actions (repo creation + `MIRROR_DEPLOY_KEY` secret) that an implementer cannot do from the plan alone. M8 turns the M1 stubs into production content. M9 gates release with the per-agent smoke tests. Each milestone leaves the repo in a releasable state: a release cut after M4 would ship a working installer with stub content; one cut after M8 would ship production content without release-gate smoke coverage. M2 ships a simple in-repo fallback for locating `agents.json`; M3 replaces it with the authoritative `SkillBundleLocator` and `loadFromMainBundle()` delegates. The orthogonality guarantee — nothing in the app target reads skill content — is enforced by code review plus the grep-style invariant check added in M6 (`apps/mac/scripts/skill-orthogonality-check.sh`).
@@ -638,13 +638,13 @@ The `skill-orthogonality-check.sh` and `make mac-skill-validate` from M6 run as 
 - Frontmatter (already correct from M1).
 - One-sentence "Use this skill when …" line ported verbatim from the supaterm model (adapted to `tc`).
 - **Terminology** section: one line per Space / Project / Worktree / Tab / Pane / Hook / Skill, matching the definitions in product-spec §Key Concepts verbatim (a direct quotation keeps the two in sync — when product-spec changes, M6-style refresh updates SKILL.md).
-- **Fast Start** section: 8 commands covering `tc ls --json`, `tc worktree new <branch>`, `tc tab new --focus -- <cmd>`, `tc pane split right`, `tc pane send <id> 'echo hi'`, `tc open --in <editor>`, `tc agent install-hook claude`, `tc skill status`. Every command has an expected JSON or human output line.
+- **Fast Start** section: 8 commands covering `tc tree --json`, `tc worktree new <branch>`, `tc tab new --focus -- <cmd>`, `tc pane split right`, `tc pane send <id> 'echo hi'`, `tc open --in <editor>`, `tc agent install-hook claude`, `tc skill status`. Every command has an expected JSON or human output line.
 - **Deep-Dive References** section: bulleted links to the six `references/*.md`.
 
 `references/hierarchy-model.md`:
 
 - Define the five-level tree in diagram form (ASCII), citing product-spec §Core Capabilities C2 verbatim.
-- Selector syntax: `1` (Space), `1/2` (Project … wait; re-read product-spec to get ordering exactly) — the correct selector form follows whatever `tc ls` emits. Document the exact form the CLI accepts. Lock this at implementation time against `tc ls --json` output.
+- Selector syntax: `1` (Space), `1/2` (Project … wait; re-read product-spec to get ordering exactly) — the correct selector form follows whatever `tc tree` emits. Document the exact form the CLI accepts. Lock this at implementation time against `tc tree --json` output.
 - Ambient env vars: `TOUCH_CODE_PANE_ID`, `TOUCH_CODE_SOCKET_PATH`, `TOUCH_CODE_TAB_ID` (if exposed), `TOUCH_CODE_WORKTREE_ID`. Cross-reference [architecture §IPC](../architecture.md).
 
 `references/targeting-and-selectors.md`:
@@ -654,7 +654,7 @@ The `skill-orthogonality-check.sh` and `make mac-skill-validate` from M6 run as 
 
 `references/tc-cli.md`:
 
-- One subsection per `tc` subcommand group: `tc ls`, `tc space *`, `tc worktree *`, `tc tab *`, `tc pane *`, `tc send`, `tc broadcast`, `tc open`, `tc agent *`, `tc skill *`. Each subsection shows the subcommand's usage line from `tc <subcmd> --help`, the parameters, and at least one example with expected output.
+- One subsection per `tc` subcommand group: `tc tree`, `tc space *`, `tc worktree *`, `tc tab *`, `tc pane *`, `tc send`, `tc broadcast`, `tc open`, `tc agent *`, `tc skill *`. Each subsection shows the subcommand's usage line from `tc <subcmd> --help`, the parameters, and at least one example with expected output.
 - This file is the target of the Tier-A `tc --help` roundtrip check. Every `tc <subcommand>` it mentions in a code block must exist in `tc --help-json`.
 
 `references/agent-hooks.md`:
@@ -709,7 +709,7 @@ After content lands, run `make mac-skill-golden-update` and verify `git diff app
 
 ### Milestone 9: Tier-B per-agent smoke tests + release gate
 
-**Goal after this milestone.** A release tag cannot be cut until Tier-B tests show each agent can drive `tc` via the installed skill. Tier-B tests are written, documented, and gated on the release-tag CI. Where the underlying `tc` surface is not yet live (e.g. `tc ls`, `tc pane …` require exec plan 0002 to land further milestones), the Tier-B test uses the closest realisable command and is marked `skip-unless-feature`.
+**Goal after this milestone.** A release tag cannot be cut until Tier-B tests show each agent can drive `tc` via the installed skill. Tier-B tests are written, documented, and gated on the release-tag CI. Where the underlying `tc` surface is not yet live (e.g. `tc tree`, `tc pane …` require exec plan 0002 to land further milestones), the Tier-B test uses the closest realisable command and is marked `skip-unless-feature`.
 
 **Work.**
 
@@ -725,14 +725,14 @@ After content lands, run `make mac-skill-golden-update` and verify `git diff app
       PROMPT='List all panes as JSON and report the count.'
       # SKELETON — verify the real non-interactive invocation against `claude --help` at release time.
       OUTPUT=$(claude -p "$PROMPT" 2>"$tmpdir/stderr")
-      grep -q 'tc ls --json' <<< "$OUTPUT" || { echo "claude did not reference tc ls --json"; exit 1; }
-      # If tc ls is wired (post-0002 M5+), compare Claude's counted number to the authoritative count.
-      if tc ls --json >"$tmpdir/ls.json" 2>/dev/null; then
+      grep -q 'tc tree --json' <<< "$OUTPUT" || { echo "claude did not reference tc tree --json"; exit 1; }
+      # If tc tree is wired (post-0002 M5+), compare Claude's counted number to the authoritative count.
+      if tc tree --json >"$tmpdir/ls.json" 2>/dev/null; then
         expected=$(jq '.panes | length' < "$tmpdir/ls.json")
         claude_count=$(grep -Eo '[0-9]+' <<< "$OUTPUT" | tail -1)
         [ "$expected" = "$claude_count" ] || { echo "count mismatch"; exit 1; }
       else
-        echo "tc ls not yet wired; skill reference check alone passes"
+        echo "tc tree not yet wired; skill reference check alone passes"
       fi
       echo "claude-code smoke passed"
 
@@ -766,7 +766,7 @@ Because Tier-B needs real agent binaries and a real desktop session, v1 runs it 
 **Observable acceptance.**
 
 - On a self-hosted runner with all dependencies present, pushing a tag `v0.1.0` runs the Tier-B workflow and produces a workflow summary showing "claude-code smoke passed", "codex smoke passed", "pi smoke passed".
-- Absence of the app's `tc ls` implementation degrades gracefully: the claude-code test still passes on the "skill reference check alone" branch, with a visible warning in the summary.
+- Absence of the app's `tc tree` implementation degrades gracefully: the claude-code test still passes on the "skill reference check alone" branch, with a visible warning in the summary.
 - Locally: `make mac-skill-tier-b` runs end-to-end on the author's machine.
 
 **Expected commits.** Three commits: `test(skill): tier-B claude-code smoke`, `test(skill): tier-B codex smoke`, `test(skill): tier-B pi smoke + release-tag workflow`.

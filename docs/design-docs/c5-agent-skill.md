@@ -272,7 +272,7 @@ already running inside a touch-code Pane.
 <Space / Project / Worktree / Tab / Pane, one line each>
 
 ## Fast Start
-<5-8 commands covering `tc ls`, `tc worktree new`, `tc pane split`, `tc send`>
+<5-8 commands covering `tc tree`, `tc worktree new`, `tc pane split`, `tc send`>
 
 ## Deep-Dive References
 - [Targeting and selectors](references/targeting-and-selectors.md)
@@ -350,7 +350,7 @@ apps/mac/scripts/
 
 ### Testing Strategy
 
-Three layers. The lower two do not depend on the app or on `tc ls` being wired up, so C5 releases are not blocked by the rest of the product's completeness.
+Three layers. The lower two do not depend on the app or on `tc tree` being wired up, so C5 releases are not blocked by the rest of the product's completeness.
 
 1. **Unit tests (CI, always run).**
    - `SkillBundleLocator` against a fake filesystem.
@@ -361,11 +361,11 @@ Three layers. The lower two do not depend on the app or on `tc ls` being wired u
    - **`tc-help-roundtrip`.** Parse every `tc <subcommand>` reference in `references/tc-cli.md` and assert each subcommand appears in `tc --help` (or a `tc help-json` dump). Catches doc drift without needing the app to be running. This is the primary release gate for the C5 content contract.
    - **Install-then-read.** `tc skill install --claude-code --dest <tmp>` then verify the directory tree against a golden manifest (file list + SHA-256s). No agent involvement.
 3. **Tier-B per-agent live tests (manual + CI gate on release tag, once app/CLI are far enough along).**
-   - **Claude Code (`tests/claude-code.smoke.md`).** A scripted session file that, when fed to a fresh Claude Code run inside a touch-code Pane, asks Claude to "List all panes and report the count." Passes if the returned count matches `tc ls --json | jq '.panes | length'`.
+   - **Claude Code (`tests/claude-code.smoke.md`).** A scripted session file that, when fed to a fresh Claude Code run inside a touch-code Pane, asks Claude to "List all panes and report the count." Passes if the returned count matches `tc tree --json | jq '.panes | length'`.
    - **Codex (`tests/codex.smoke.md`).** Same shape as Claude Code, adapted to Codex's invocation.
    - **pi (`tests/pi.smoke.sh`).** A shell script that runs `pi install git:...` against the mirror repo, then invokes pi non-interactively with a canned prompt and asserts the expected JSON output.
 
-CI runs Tier-1 and Tier-A on every PR. Tier-B gates release tags; until `tc ls` (and the Pane IPC surface it needs) lands, a release can ship with Tier-A green alone — Tier-B then lights up incrementally as each agent's prerequisites arrive. This removes the ordering constraint between C5 and the rest of the capability graph.
+CI runs Tier-1 and Tier-A on every PR. Tier-B gates release tags; until `tc tree` (and the Pane IPC surface it needs) lands, a release can ship with Tier-A green alone — Tier-B then lights up incrementally as each agent's prerequisites arrive. This removes the ordering constraint between C5 and the rest of the capability graph.
 
 ## Alternatives Considered
 

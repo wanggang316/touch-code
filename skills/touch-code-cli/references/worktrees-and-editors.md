@@ -78,4 +78,4 @@ outside the built-in list.
 
 If a Project points at a non-git directory, `tc worktree *` commands return an error
 and the UI's "Add Worktree" control is disabled. The Project still has exactly one
-synthetic Worktree at its root path, so `tc open`, `tc ls`, etc. continue to work.
+synthetic Worktree at its root path, so `tc open`, `tc tree`, etc. continue to work.

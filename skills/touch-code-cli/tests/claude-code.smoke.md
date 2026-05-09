@@ -25,7 +25,7 @@ the touch-code skill installed? Respond with only the command on the last line.
    otherwise).
 
 The prompt deliberately targets the **currently-shipped** `tc skill` surface so this
-test can gate the v0.1.0 release. Once `tc ls` / `tc pane` / `tc worktree` ship via
+test can gate the v0.1.0 release. Once `tc tree` / `tc pane` / `tc worktree` ship via
 exec plans 0002-0003, extend this file with additional prompts that exercise those
 surfaces.
 

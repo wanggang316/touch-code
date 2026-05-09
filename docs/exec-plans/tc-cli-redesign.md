@@ -31,7 +31,7 @@ After this change, `tc` exposes a smaller, more predictable command surface alig
 ## Decision Log
 
 - **DEC-1:** Keep `TouchCodeIPC` method names and app-side handlers unchanged. This limits the blast radius to the CLI and avoids coupling a UX redesign to socket server behavior.
-- **DEC-2:** Prefer singular resource command groups for every entity operation, including list (`tc project list`, `tc worktree list`, `tc tab list`, `tc pane list`). Keep `tc ls` as the cross-entity discovery shortcut.
+- **DEC-2:** Prefer singular resource command groups for every entity operation, including list (`tc project list`, `tc worktree list`, `tc tab list`, `tc pane list`). Keep `tc tree` as the cross-entity discovery shortcut.
 - **DEC-3:** Remove shell-completion generation from the public command surface, and expose common app status commands at the top level (`tc status`, `tc launch`, `tc doctor`).
 - **DEC-4:** Remove the `tc rpc` escape hatch from the public CLI surface. The typed command tree is the supported interface; raw RPC access is kept internal.
 
@@ -41,7 +41,7 @@ The CLI now presents a resource-oriented, clig.dev-aligned command tree:
 
 - App commands: `tc status`, `tc launch`, `tc doctor`.
 - Resource list commands: `tc project list`, `tc worktree list`, `tc tab list`, `tc pane list`.
-- One-shot discovery: `tc ls` lists Projects, Worktrees, Tabs, and Panes in one hierarchy.
+- One-shot discovery: `tc tree` lists Projects, Worktrees, Tabs, and Panes in one hierarchy.
 - Mutation command groups: `tc project`, `tc worktree`, `tc tab`, `tc pane`.
 - Terminal IO commands: `tc send` and `tc broadcast`, both with `--stdin` support.
 Raw RPC access is intentionally not exposed as a CLI command.
@@ -77,7 +77,7 @@ Key source files:
 
 Milestone 1 creates small pure helpers for command text handling so parser behavior that does not require a socket can be tested in `tcKitTests`. This includes joining variadic command text and validating exactly-one scope rules.
 
-Milestone 2 replaces the command surface. The new root commands are `status`, `launch`, `doctor`, `open`, `ls`, `project`, `worktree`, `tab`, `pane`, `send`, and `broadcast`. List operations live under their singular entity groups, e.g. `tc project list` and `tc pane list`.
+Milestone 2 replaces the command surface. The new root commands are `status`, `launch`, `doctor`, `open`, `tree`, `project`, `worktree`, `tab`, `pane`, `send`, and `broadcast`. List operations live under their singular entity groups, e.g. `tc project list` and `tc pane list`.
 
 Milestone 3 splits implementation files by resource: system/app commands, projects, worktrees, tabs, panes, terminal IO, and open. Shared CLI session and error handling move out of `SystemCommand.swift` into a common file.
 
@@ -124,7 +124,7 @@ The work is source-only and can be repeated safely. Completion files are generat
   - Changed Swift files linted with SwiftLint script input mode.
   - Built `tc --help` shows the redesigned top-level commands.
   - Built `tc send -h` documents current-pane targeting, target-plus-text usage, and `--no-enter`.
-  - Built `tc ls -h` documents one-shot hierarchy discovery.
+  - Built `tc tree -h` documents one-shot hierarchy discovery.
   - `make regen-completions` refreshes bundled completion scripts for the redesigned command tree.
 - `TouchCodeTests` targeted app tests could not be run through the current `touch-code` scheme because the test target is not included in the selected scheme/test plan.
 - Repository-wide `make mac-lint` still fails on unrelated existing violations under `touch-code/App/...` and `TouchCodeCoreTests/...`.

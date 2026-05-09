@@ -26,7 +26,7 @@ commands act on the ambient Pane unless you pass an explicit target.
 Discover the current hierarchy:
 
 ```bash
-tc ls --json
+tc tree --json
 ```
 
 Create a new worktree, drop into a tab running a command, and send text to a pane

@@ -54,7 +54,7 @@ _tc() {
             'launch:Start touch-code and wait for its command socket.'
             'doctor:Check local CLI configuration and app reachability.'
             'open:Open a directory in an external editor (or terminal / git client / Finder).'
-            'ls:List projects, worktrees, tabs, and panes.'
+            'tree:List projects, worktrees, tabs, and panes.'
             'project:List, create, and remove projects.'
             'worktree:List, create, switch, and remove worktrees.'
             'tab:List, create, switch, and close tabs.'
@@ -67,7 +67,7 @@ _tc() {
         ;;
     arg)
         case "${words[1]}" in
-        status|launch|doctor|open|ls|project|worktree|tab|pane|send|broadcast|help)
+        status|launch|doctor|open|tree|project|worktree|tab|pane|send|broadcast|help)
             "_tc_${words[1]}" && ret=0
             ;;
         esac
@@ -137,7 +137,7 @@ _tc_open() {
     return "${ret}"
 }
 
-_tc_ls() {
+_tc_tree() {
     local -i ret=1
     local -ar arg_specs=(
         '--json[Emit JSON on stdout instead of human-readable text.]'

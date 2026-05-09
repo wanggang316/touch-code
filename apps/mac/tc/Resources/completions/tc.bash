@@ -173,13 +173,13 @@ _tc() {
     unset 'unparsed_words[0]'
     unparsed_words=("${unparsed_words[@]}")
     case "${subcommand}" in
-    status|launch|doctor|open|ls|project|worktree|tab|pane|send|broadcast|help)
+    status|launch|doctor|open|tree|project|worktree|tab|pane|send|broadcast|help)
         # Offer subcommand argument completions
         "_tc_${subcommand}"
         ;;
     *)
         # Offer subcommand completions
-        COMPREPLY+=($(compgen -W 'status launch doctor open ls project worktree tab pane send broadcast help' -- "${cur}"))
+        COMPREPLY+=($(compgen -W 'status launch doctor open tree project worktree tab pane send broadcast help' -- "${cur}"))
         ;;
     esac
 }
@@ -265,7 +265,7 @@ _tc_open() {
     esac
 }
 
-_tc_ls() {
+_tc_tree() {
     repeating_flags=()
     non_repeating_flags=(--json --version -h --help)
     repeating_options=()

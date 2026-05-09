@@ -7,7 +7,7 @@ environment — pass an explicit selector or UUID only when you need to act on a
 Every `tc` command that operates on a node accepts a target in one of three forms:
 
 1. **Selector** — 1-based numeric path (`1/2/3`). Short; matches `index` from
-   `tc ls --json`. Reorder-sensitive.
+   `tc tree --json`. Reorder-sensitive.
 2. **UUID** — stable identifier from the `id` field. Preferred in scripts.
 3. **Ambient** — omit the target entirely; `tc` resolves it from `$TOUCH_CODE_PANE_ID`
    / `$TOUCH_CODE_TAB_ID` / `$TOUCH_CODE_WORKTREE_ID` in the invocation's environment.
@@ -83,7 +83,7 @@ tc tab new --json -- npm run dev
 Use `tabID` or `paneID` from creation output when chaining follow-up commands like
 `tc pane split --in <tabID>` or `tc pane send <paneID> …`.
 
-`tc ls --json` returns the full tree; its per-node `id` is the UUID and `index` is the
+`tc tree --json` returns the full tree; its per-node `id` is the UUID and `index` is the
 selector component.
 
 ## Target rules by family

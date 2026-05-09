@@ -13,9 +13,9 @@ Every mutating command supports:
 ## Listing
 
 ```bash
-tc ls               # human-readable tree
-tc ls --json        # full structured tree (see references/hierarchy-model.md)
-tc ls --plain       # flat path list, one node per line
+tc tree               # human-readable tree
+tc tree --json        # full structured tree (see references/hierarchy-model.md)
+tc tree --plain       # flat path list, one node per line
 ```
 
 ## `tc space` — Space commands _(planned; exec plan 0002)_

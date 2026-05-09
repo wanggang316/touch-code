@@ -10,7 +10,7 @@ shipped (`tc skill …`) or planned per [references/tc-cli.md](../../references/
 Expected:
 
 ```bash
-tc ls --json | jq '[.spaces[].projects[].worktrees[].tabs[].panes[]] | length'
+tc tree --json | jq '[.spaces[].projects[].worktrees[].tabs[].panes[]] | length'
 ```
 
 ## 2. Start a new tab with the test watcher

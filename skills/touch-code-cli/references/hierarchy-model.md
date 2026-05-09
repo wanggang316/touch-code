@@ -17,7 +17,7 @@ Pane is a single shell; multiple Panes per Tab form split layouts.
 
 ## Discovery
 
-`tc ls --json` prints the current tree, including UUIDs and numeric selectors. Output
+`tc tree --json` prints the current tree, including UUIDs and numeric selectors. Output
 shape (abridged):
 
 ```json
@@ -57,7 +57,7 @@ these manually — touch-code sets them before handing the Pane to the user's sh
 ## Selector forms
 
 Short numeric selectors address nodes from the top down. They are 1-based and match the
-`index` fields in `tc ls --json`:
+`index` fields in `tc tree --json`:
 
 | Target | Form |
 |---|---|

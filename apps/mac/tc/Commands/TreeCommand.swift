@@ -4,12 +4,12 @@ import TouchCodeCore
 import TouchCodeIPC
 import tcKit
 
-struct ListCommand: AsyncParsableCommand {
+struct TreeCommand: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
-    commandName: "ls",
+    commandName: "tree",
     abstract: "List projects, worktrees, tabs, and panes.",
     discussion: """
-      Use 'tc ls' as the first discovery command. It prints the full hierarchy so
+      Use 'tc tree' as the first discovery command. It prints the full hierarchy so
       you do not have to walk projects, worktrees, tabs, and panes one command at
       a time.
       """

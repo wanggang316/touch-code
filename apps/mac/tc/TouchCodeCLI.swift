@@ -15,7 +15,7 @@ struct TouchCodeCLI: AsyncParsableCommand {
     discussion: """
       Common examples:
         tc status
-        tc ls
+        tc tree
         tc send 'pwd'
         tc send <pane> 'git status --short'
         tc project list
@@ -28,7 +28,7 @@ struct TouchCodeCLI: AsyncParsableCommand {
       LaunchCommand.self,
       DoctorCommand.self,
       OpenCommand.self,
-      ListCommand.self,
+      TreeCommand.self,
       ProjectCommand.self,
       WorktreeCommand.self,
       TabCommand.self,
