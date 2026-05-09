@@ -53,7 +53,6 @@ _tc() {
             'status:Show the running touch-code app status.'
             'launch:Start touch-code and wait for its command socket.'
             'doctor:Check local CLI configuration and app reachability.'
-            'completion:Print shell completion script for bash, zsh, or fish.'
             'open:Open a directory in an external editor (or terminal / git client / Finder).'
             'ls:List projects, worktrees, tabs, and panes.'
             'project:List, create, and remove projects.'
@@ -68,7 +67,7 @@ _tc() {
         ;;
     arg)
         case "${words[1]}" in
-        status|launch|doctor|completion|open|ls|project|worktree|tab|pane|send|broadcast|help)
+        status|launch|doctor|open|ls|project|worktree|tab|pane|send|broadcast|help)
             "_tc_${words[1]}" && ret=0
             ;;
         esac
@@ -114,18 +113,6 @@ _tc_doctor() {
         '--json[Emit JSON on stdout instead of human-readable text.]'
         '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
         '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
-        '--version[Show the version.]'
-        '(-h --help)'{-h,--help}'[Show help information.]'
-    )
-    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
-
-    return "${ret}"
-}
-
-_tc_completion() {
-    local -i ret=1
-    local -ar arg_specs=(
-        ':shell:'
         '--version[Show the version.]'
         '(-h --help)'{-h,--help}'[Show help information.]'
     )

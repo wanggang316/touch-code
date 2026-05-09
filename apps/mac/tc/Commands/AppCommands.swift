@@ -129,25 +129,3 @@ struct DoctorCommand: ParsableCommand {
     }
   }
 }
-
-struct CompletionCommand: ParsableCommand {
-  static let configuration = CommandConfiguration(
-    commandName: "completion",
-    abstract: "Print shell completion script for bash, zsh, or fish."
-  )
-
-  @Argument(help: "Shell name: bash, zsh, or fish.")
-  var shell: String
-
-  func run() throws {
-    let kind: CompletionShell
-    switch shell.lowercased() {
-    case "bash": kind = .bash
-    case "zsh": kind = .zsh
-    case "fish": kind = .fish
-    default:
-      CLIError(code: .userError, message: "unknown shell '\(shell)'").exitProcess()
-    }
-    print(TouchCodeCLI.completionScript(for: kind))
-  }
-}

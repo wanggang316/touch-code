@@ -47,9 +47,9 @@ build-cli: generate
 regen-completions: build-cli
 	@TC=$$(xcodebuild -workspace touch-code.xcworkspace -scheme tc -configuration Debug -showBuildSettings 2>/dev/null | awk '$$1=="BUILT_PRODUCTS_DIR"{d=$$3} END{print d "/tc"}') && \
 	  cd tc/Resources/completions && \
-	  "$$TC" completion zsh  > tc.zsh  && \
-	  "$$TC" completion bash > tc.bash && \
-	  "$$TC" completion fish > tc.fish && \
+	  "$$TC" --generate-completion-script zsh  > tc.zsh  && \
+	  "$$TC" --generate-completion-script bash > tc.bash && \
+	  "$$TC" --generate-completion-script fish > tc.fish && \
 	  echo "==> regenerated tc.zsh / tc.bash / tc.fish"
 
 run-app: build
