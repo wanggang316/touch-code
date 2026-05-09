@@ -408,10 +408,8 @@ final class HierarchyHandlers {
     } else {
       filtered = all
     }
-    do {
-      return .unary(try JSONValue.encoded(ListProjectsPayload(projects: filtered)))
-    } catch {
-      return .failed(.internal("encode listProjects: \(error)"))
+    return await Self.encodeOffMain("listProjects") {
+      try JSONValue.encoded(ListProjectsPayload(projects: filtered))
     }
   }
 
@@ -565,10 +563,9 @@ final class HierarchyHandlers {
     else {
       return .failed(.notFound(kind: "project", id: req.projectID.description))
     }
-    do {
-      return .unary(try JSONValue.encoded(ListWorktreesPayload(worktrees: project.worktrees)))
-    } catch {
-      return .failed(.internal("encode listWorktrees: \(error)"))
+    let worktrees = project.worktrees
+    return await Self.encodeOffMain("listWorktrees") {
+      try JSONValue.encoded(ListWorktreesPayload(worktrees: worktrees))
     }
   }
 
@@ -591,10 +588,9 @@ final class HierarchyHandlers {
     else {
       return .failed(.notFound(kind: "worktree", id: req.worktreeID.description))
     }
-    do {
-      return .unary(try JSONValue.encoded(ListTabsPayload(tabs: worktree.tabs)))
-    } catch {
-      return .failed(.internal("encode listTabs: \(error)"))
+    let tabs = worktree.tabs
+    return await Self.encodeOffMain("listTabs") {
+      try JSONValue.encoded(ListTabsPayload(tabs: tabs))
     }
   }
 
@@ -619,20 +615,44 @@ final class HierarchyHandlers {
     else {
       return .failed(.notFound(kind: "tab", id: req.tabID.description))
     }
+    let panes = tab.panes
+    return await Self.encodeOffMain("listPanes") {
+      try JSONValue.encoded(ListPanesPayload(panes: panes))
+    }
+  }
+
+  // MARK: - Encoding helpers
+
+  /// Run a JSON-encoding closure off the main actor. Catalog snapshots are
+  /// `Sendable` value types, so we hand them to a detached Task and await
+  /// the result — keeping a large `listProjects` from starving every other
+  /// `@MainActor` RPC and SwiftUI tick behind it. The closure is the only
+  /// part that runs off main; the snapshot capture itself happens here on
+  /// main, which is correct for reading `manager.catalog`.
+  nonisolated private static func encodeOffMain(
+    _ label: String,
+    _ encode: sending @escaping () throws -> JSONValue
+  ) async -> RouterOutcome {
     do {
-      return .unary(try JSONValue.encoded(ListPanesPayload(panes: tab.panes)))
+      let value = try await Task.detached(priority: .userInitiated) {
+        try encode()
+      }.value
+      return .unary(value)
     } catch {
-      return .failed(.internal("encode listPanes: \(error)"))
+      return .failed(.internal("encode \(label): \(error)"))
     }
   }
 }
 
 // MARK: - Response payload types (shared with CLI tcKit)
 
-struct ListProjectsPayload: Codable, Sendable { let projects: [Project] }
-struct ListWorktreesPayload: Codable, Sendable { let worktrees: [Worktree] }
-struct ListTabsPayload: Codable, Sendable { let tabs: [Tab] }
-struct ListPanesPayload: Codable, Sendable { let panes: [Pane] }
+// `nonisolated` on the conformance so `encodeOffMain` can call `encode(to:)`
+// from a detached Task without tripping `InferIsolatedConformances` —
+// the file otherwise infers `@MainActor` for every type defined in it.
+nonisolated struct ListProjectsPayload: Codable, Sendable { let projects: [Project] }
+nonisolated struct ListWorktreesPayload: Codable, Sendable { let worktrees: [Worktree] }
+nonisolated struct ListTabsPayload: Codable, Sendable { let tabs: [Tab] }
+nonisolated struct ListPanesPayload: Codable, Sendable { let panes: [Pane] }
 struct ListTagsPayload: Codable, Sendable { let tags: [Tag] }
 struct ProjectIDPayload: Codable, Sendable { let id: ProjectID }
 struct WorktreeIDPayload: Codable, Sendable { let id: WorktreeID }
