@@ -12,17 +12,30 @@ struct TouchCodeCLI: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "tc",
     abstract: "Control touch-code from the terminal.",
+    discussion: """
+      Common examples:
+        tc status
+        tc ls
+        tc send 'pwd'
+        tc send <pane> 'git status --short'
+        tc project list
+        tc pane new --label agent codex
+        tc open .
+      """,
     version: "touch-code \(TouchCodeCLI.version)",
     subcommands: [
-      SystemCommand.self,
+      StatusCommand.self,
+      LaunchCommand.self,
+      DoctorCommand.self,
+      CompletionCommand.self,
+      OpenCommand.self,
+      ListCommand.self,
       ProjectCommand.self,
-      TagCommand.self,
       WorktreeCommand.self,
       TabCommand.self,
       PaneCommand.self,
       SendCommand.self,
       BroadcastCommand.self,
-      OpenCommand.self,
       RPCCommand.self,
     ]
   )

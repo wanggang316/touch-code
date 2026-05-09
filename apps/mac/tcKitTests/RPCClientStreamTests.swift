@@ -1,9 +1,9 @@
 import Foundation
 import Testing
-
-@testable import tcKit
 import TouchCodeCore
 import TouchCodeIPC
+
+@testable import tcKit
 
 /// Covers the streaming + timeout + shutdown surface added in M5. Each
 /// test drives `RPCClient` against `InMemoryTransport` — no real Unix
@@ -18,7 +18,7 @@ struct RPCClientStreamTests {
     transport.script = { frames in
       let hello = try JSONDecoder().decode(IPC.Request.self, from: frames[0])
       let real = try JSONDecoder().decode(IPC.Request.self, from: frames[1])
-      #expect(real.method == .hookEvents)
+      #expect(real.method == .systemStatus)
       #expect(real.stream == true)
       return [
         .success(id: hello.id, result: .object([:])),
@@ -38,7 +38,7 @@ struct RPCClientStreamTests {
     struct Frame: Codable, Equatable, Sendable { let seq: Int }
     var received: [Frame] = []
     let stream = client.stream(
-      .hookEvents,
+      .systemStatus,
       params: EmptyPayload(),
       elementType: Frame.self,
       idleTimeout: .seconds(2)
@@ -73,7 +73,7 @@ struct RPCClientStreamTests {
 
     struct Frame: Codable, Equatable, Sendable { let seq: Int }
     let stream = client.stream(
-      .hookEvents,
+      .systemStatus,
       params: EmptyPayload(),
       elementType: Frame.self,
       idleTimeout: .seconds(1)
@@ -81,7 +81,7 @@ struct RPCClientStreamTests {
     var received: [Frame] = []
     for try await frame in stream {
       received.append(frame)
-      break // cancel immediately after the first frame
+      break  // cancel immediately after the first frame
     }
     #expect(received.count == 1)
     await client.shutdown()
@@ -157,7 +157,7 @@ struct RPCClientStreamTests {
 
     struct Frame: Codable, Sendable { let seq: Int }
     let stream = client.stream(
-      .hookEvents,
+      .systemStatus,
       params: EmptyPayload(),
       elementType: Frame.self,
       idleTimeout: .seconds(1)
@@ -219,7 +219,7 @@ struct RPCClientStreamTests {
     let transport = ShutdownCountingTransport()
     do {
       let client = RPCClient(transport: transport, versions: .init(clientVersion: "0.3.0"))
-      _ = client // keep the local strong reference scoped
+      _ = client  // keep the local strong reference scoped
     }
     // Give the actor a tick to deinit.
     try await Task.sleep(for: .milliseconds(50))
@@ -248,7 +248,7 @@ struct RPCClientStreamTests {
 
     struct Frame: Codable, Sendable { let seq: Int }
     let stream = client.stream(
-      .hookEvents,
+      .systemStatus,
       params: EmptyPayload(),
       elementType: Frame.self,
       idleTimeout: .seconds(1)
@@ -276,6 +276,7 @@ final class ShutdownCountingTransport: Transport, @unchecked Sendable {
     self.inbound = AsyncStream<Data> { _ in }
   }
 
+  // swiftlint:disable:next async_without_await
   func send(_ frame: Data) async throws {}
 
   func close() {

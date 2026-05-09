@@ -18,8 +18,7 @@ public enum SocketDiscovery {
   }
 
   /// Confirm a server is currently accepting on `path`. Returns true iff
-  /// a fresh `connect(2)` succeeds. `tc system sockets` uses this to
-  /// report reachable-vs-stale paths.
+  /// a fresh `connect(2)` succeeds.
   public static func isReachable(path: String) -> Bool {
     let fd = socket(AF_UNIX, SOCK_STREAM, 0)
     if fd < 0 { return false }

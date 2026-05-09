@@ -68,11 +68,11 @@ public enum AliasResolver {
 
   public static func envKey(for kind: IPC.AliasResolveRequest.Kind) -> String {
     switch kind {
-    case .project:  return "TOUCH_CODE_PROJECT_ID"
+    case .project: return "TOUCH_CODE_PROJECT_ID"
     case .worktree: return "TOUCH_CODE_WORKTREE_ID"
-    case .tab:      return "TOUCH_CODE_TAB_ID"
-    case .pane:     return "TOUCH_CODE_PANE_ID"
-    case .tag:      return "TOUCH_CODE_TAG_ID"
+    case .tab: return "TOUCH_CODE_TAB_ID"
+    case .pane: return "TOUCH_CODE_PANE_ID"
+    case .tag: return "TOUCH_CODE_TAG_ID"
     }
   }
 }

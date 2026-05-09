@@ -173,41 +173,18 @@ _tc() {
     unset 'unparsed_words[0]'
     unparsed_words=("${unparsed_words[@]}")
     case "${subcommand}" in
-    system|project|tag|worktree|tab|pane|send|broadcast|open|rpc|help)
+    status|launch|doctor|completion|open|ls|project|worktree|tab|pane|send|broadcast|rpc|help)
         # Offer subcommand argument completions
         "_tc_${subcommand}"
         ;;
     *)
         # Offer subcommand completions
-        COMPREPLY+=($(compgen -W 'system project tag worktree tab pane send broadcast open rpc help' -- "${cur}"))
+        COMPREPLY+=($(compgen -W 'status launch doctor completion open ls project worktree tab pane send broadcast rpc help' -- "${cur}"))
         ;;
     esac
 }
 
-_tc_system() {
-    repeating_flags=()
-    non_repeating_flags=(--version -h --help)
-    repeating_options=()
-    non_repeating_options=()
-    __tc_offer_flags_options 0
-
-    # Offer subcommand / subcommand argument completions
-    local -r subcommand="${unparsed_words[0]}"
-    unset 'unparsed_words[0]'
-    unparsed_words=("${unparsed_words[@]}")
-    case "${subcommand}" in
-    ping|version|status|quit|sockets|launch|completions)
-        # Offer subcommand argument completions
-        "_tc_system_${subcommand}"
-        ;;
-    *)
-        # Offer subcommand completions
-        COMPREPLY+=($(compgen -W 'ping version status quit sockets launch completions' -- "${cur}"))
-        ;;
-    esac
-}
-
-_tc_system_ping() {
+_tc_status() {
     repeating_flags=()
     non_repeating_flags=(--json --version -h --help)
     repeating_options=()
@@ -225,7 +202,31 @@ _tc_system_ping() {
     esac
 }
 
-_tc_system_version() {
+_tc_launch() {
+    repeating_flags=()
+    non_repeating_flags=(--json --version -h --help)
+    repeating_options=()
+    non_repeating_options=(--socket --timeout --wait --app)
+    __tc_offer_flags_options 0
+
+    # Offer option value completions
+    case "${prev}" in
+    '--socket')
+        return
+        ;;
+    '--timeout')
+        return
+        ;;
+    '--wait')
+        return
+        ;;
+    '--app')
+        return
+        ;;
+    esac
+}
+
+_tc_doctor() {
     repeating_flags=()
     non_repeating_flags=(--json --version -h --help)
     repeating_options=()
@@ -243,90 +244,54 @@ _tc_system_version() {
     esac
 }
 
-_tc_system_status() {
-    repeating_flags=()
-    non_repeating_flags=(--json --version -h --help)
-    repeating_options=()
-    non_repeating_options=(--socket --timeout)
-    __tc_offer_flags_options 0
-
-    # Offer option value completions
-    case "${prev}" in
-    '--socket')
-        return
-        ;;
-    '--timeout')
-        return
-        ;;
-    esac
-}
-
-_tc_system_quit() {
-    repeating_flags=()
-    non_repeating_flags=(--json --version -h --help)
-    repeating_options=()
-    non_repeating_options=(--socket --timeout)
-    __tc_offer_flags_options 0
-
-    # Offer option value completions
-    case "${prev}" in
-    '--socket')
-        return
-        ;;
-    '--timeout')
-        return
-        ;;
-    esac
-}
-
-_tc_system_sockets() {
-    repeating_flags=()
-    non_repeating_flags=(--json --version -h --help)
-    repeating_options=()
-    non_repeating_options=(--socket --timeout)
-    __tc_offer_flags_options 0
-
-    # Offer option value completions
-    case "${prev}" in
-    '--socket')
-        return
-        ;;
-    '--timeout')
-        return
-        ;;
-    esac
-}
-
-_tc_system_launch() {
-    repeating_flags=()
-    non_repeating_flags=(--json --version -h --help)
-    repeating_options=()
-    non_repeating_options=(--socket --timeout --wait-seconds --bundle)
-    __tc_offer_flags_options 0
-
-    # Offer option value completions
-    case "${prev}" in
-    '--socket')
-        return
-        ;;
-    '--timeout')
-        return
-        ;;
-    '--wait-seconds')
-        return
-        ;;
-    '--bundle')
-        return
-        ;;
-    esac
-}
-
-_tc_system_completions() {
+_tc_completion() {
     repeating_flags=()
     non_repeating_flags=(--version -h --help)
     repeating_options=()
     non_repeating_options=()
     __tc_offer_flags_options 1
+}
+
+_tc_open() {
+    repeating_flags=()
+    non_repeating_flags=(--json --version -h --help)
+    repeating_options=()
+    non_repeating_options=(--socket --timeout --in)
+    __tc_offer_flags_options 1
+
+    # Offer option value completions
+    case "${prev}" in
+    '--socket')
+        return
+        ;;
+    '--timeout')
+        return
+        ;;
+    '--in')
+        return
+        ;;
+    esac
+}
+
+_tc_ls() {
+    repeating_flags=()
+    non_repeating_flags=(--json --version -h --help)
+    repeating_options=()
+    non_repeating_options=(--socket --timeout --project)
+    __tc_offer_flags_options 0
+
+    # Offer option value completions
+    case "${prev}" in
+    '--socket')
+        return
+        ;;
+    '--timeout')
+        return
+        ;;
+    '--project')
+        return
+        ;;
+    esac
 }
 
 _tc_project() {
@@ -341,13 +306,31 @@ _tc_project() {
     unset 'unparsed_words[0]'
     unparsed_words=("${unparsed_words[@]}")
     case "${subcommand}" in
-    add|list|remove|tag)
+    list|add|rm)
         # Offer subcommand argument completions
         "_tc_project_${subcommand}"
         ;;
     *)
         # Offer subcommand completions
-        COMPREPLY+=($(compgen -W 'add list remove tag' -- "${cur}"))
+        COMPREPLY+=($(compgen -W 'list add rm' -- "${cur}"))
+        ;;
+    esac
+}
+
+_tc_project_list() {
+    repeating_flags=()
+    non_repeating_flags=(--json --version -h --help)
+    repeating_options=()
+    non_repeating_options=(--socket --timeout)
+    __tc_offer_flags_options 0
+
+    # Offer option value completions
+    case "${prev}" in
+    '--socket')
+        return
+        ;;
+    '--timeout')
+        return
         ;;
     esac
 }
@@ -356,8 +339,8 @@ _tc_project_add() {
     repeating_flags=()
     non_repeating_flags=(--json --version -h --help)
     repeating_options=()
-    non_repeating_options=(--socket --timeout --name --path)
-    __tc_offer_flags_options 0
+    non_repeating_options=(--socket --timeout --name)
+    __tc_offer_flags_options 1
 
     # Offer option value completions
     case "${prev}" in
@@ -370,209 +353,10 @@ _tc_project_add() {
     '--name')
         return
         ;;
-    '--path')
-        return
-        ;;
     esac
 }
 
-_tc_project_list() {
-    repeating_flags=()
-    non_repeating_flags=(--json --untagged --version -h --help)
-    repeating_options=()
-    non_repeating_options=(--socket --timeout --tag)
-    __tc_offer_flags_options 0
-
-    # Offer option value completions
-    case "${prev}" in
-    '--socket')
-        return
-        ;;
-    '--timeout')
-        return
-        ;;
-    '--tag')
-        return
-        ;;
-    esac
-}
-
-_tc_project_remove() {
-    repeating_flags=()
-    non_repeating_flags=(--json --version -h --help)
-    repeating_options=()
-    non_repeating_options=(--socket --timeout)
-    __tc_offer_flags_options 1
-
-    # Offer option value completions
-    case "${prev}" in
-    '--socket')
-        return
-        ;;
-    '--timeout')
-        return
-        ;;
-    esac
-}
-
-_tc_project_tag() {
-    repeating_flags=()
-    non_repeating_flags=(--version -h --help)
-    repeating_options=()
-    non_repeating_options=()
-    __tc_offer_flags_options 0
-
-    # Offer subcommand / subcommand argument completions
-    local -r subcommand="${unparsed_words[0]}"
-    unset 'unparsed_words[0]'
-    unparsed_words=("${unparsed_words[@]}")
-    case "${subcommand}" in
-    add|remove)
-        # Offer subcommand argument completions
-        "_tc_project_tag_${subcommand}"
-        ;;
-    *)
-        # Offer subcommand completions
-        COMPREPLY+=($(compgen -W 'add remove' -- "${cur}"))
-        ;;
-    esac
-}
-
-_tc_project_tag_add() {
-    repeating_flags=()
-    non_repeating_flags=(--json --version -h --help)
-    repeating_options=()
-    non_repeating_options=(--socket --timeout)
-    __tc_offer_flags_options -1
-
-    # Offer option value completions
-    case "${prev}" in
-    '--socket')
-        return
-        ;;
-    '--timeout')
-        return
-        ;;
-    esac
-}
-
-_tc_project_tag_remove() {
-    repeating_flags=()
-    non_repeating_flags=(--json --version -h --help)
-    repeating_options=()
-    non_repeating_options=(--socket --timeout)
-    __tc_offer_flags_options -1
-
-    # Offer option value completions
-    case "${prev}" in
-    '--socket')
-        return
-        ;;
-    '--timeout')
-        return
-        ;;
-    esac
-}
-
-_tc_tag() {
-    repeating_flags=()
-    non_repeating_flags=(--version -h --help)
-    repeating_options=()
-    non_repeating_options=()
-    __tc_offer_flags_options 0
-
-    # Offer subcommand / subcommand argument completions
-    local -r subcommand="${unparsed_words[0]}"
-    unset 'unparsed_words[0]'
-    unparsed_words=("${unparsed_words[@]}")
-    case "${subcommand}" in
-    list|create|rename|recolor|remove)
-        # Offer subcommand argument completions
-        "_tc_tag_${subcommand}"
-        ;;
-    *)
-        # Offer subcommand completions
-        COMPREPLY+=($(compgen -W 'list create rename recolor remove' -- "${cur}"))
-        ;;
-    esac
-}
-
-_tc_tag_list() {
-    repeating_flags=()
-    non_repeating_flags=(--json --version -h --help)
-    repeating_options=()
-    non_repeating_options=(--socket --timeout)
-    __tc_offer_flags_options 0
-
-    # Offer option value completions
-    case "${prev}" in
-    '--socket')
-        return
-        ;;
-    '--timeout')
-        return
-        ;;
-    esac
-}
-
-_tc_tag_create() {
-    repeating_flags=()
-    non_repeating_flags=(--json --version -h --help)
-    repeating_options=()
-    non_repeating_options=(--socket --timeout --color)
-    __tc_offer_flags_options 1
-
-    # Offer option value completions
-    case "${prev}" in
-    '--socket')
-        return
-        ;;
-    '--timeout')
-        return
-        ;;
-    '--color')
-        return
-        ;;
-    esac
-}
-
-_tc_tag_rename() {
-    repeating_flags=()
-    non_repeating_flags=(--json --version -h --help)
-    repeating_options=()
-    non_repeating_options=(--socket --timeout)
-    __tc_offer_flags_options 2
-
-    # Offer option value completions
-    case "${prev}" in
-    '--socket')
-        return
-        ;;
-    '--timeout')
-        return
-        ;;
-    esac
-}
-
-_tc_tag_recolor() {
-    repeating_flags=()
-    non_repeating_flags=(--json --version -h --help)
-    repeating_options=()
-    non_repeating_options=(--socket --timeout)
-    __tc_offer_flags_options 2
-
-    # Offer option value completions
-    case "${prev}" in
-    '--socket')
-        return
-        ;;
-    '--timeout')
-        return
-        ;;
-    esac
-}
-
-_tc_tag_remove() {
+_tc_project_rm() {
     repeating_flags=()
     non_repeating_flags=(--json --version -h --help)
     repeating_options=()
@@ -602,31 +386,13 @@ _tc_worktree() {
     unset 'unparsed_words[0]'
     unparsed_words=("${unparsed_words[@]}")
     case "${subcommand}" in
-    activate|list|remove)
+    list|new|switch|rm)
         # Offer subcommand argument completions
         "_tc_worktree_${subcommand}"
         ;;
     *)
         # Offer subcommand completions
-        COMPREPLY+=($(compgen -W 'activate list remove' -- "${cur}"))
-        ;;
-    esac
-}
-
-_tc_worktree_activate() {
-    repeating_flags=()
-    non_repeating_flags=(--json --version -h --help)
-    repeating_options=()
-    non_repeating_options=(--socket --timeout)
-    __tc_offer_flags_options 1
-
-    # Offer option value completions
-    case "${prev}" in
-    '--socket')
-        return
-        ;;
-    '--timeout')
-        return
+        COMPREPLY+=($(compgen -W 'list new switch rm' -- "${cur}"))
         ;;
     esac
 }
@@ -652,7 +418,52 @@ _tc_worktree_list() {
     esac
 }
 
-_tc_worktree_remove() {
+_tc_worktree_new() {
+    repeating_flags=()
+    non_repeating_flags=(--json --version -h --help)
+    repeating_options=()
+    non_repeating_options=(--socket --timeout --project --path --name)
+    __tc_offer_flags_options 1
+
+    # Offer option value completions
+    case "${prev}" in
+    '--socket')
+        return
+        ;;
+    '--timeout')
+        return
+        ;;
+    '--project')
+        return
+        ;;
+    '--path')
+        return
+        ;;
+    '--name')
+        return
+        ;;
+    esac
+}
+
+_tc_worktree_switch() {
+    repeating_flags=()
+    non_repeating_flags=(--json --version -h --help)
+    repeating_options=()
+    non_repeating_options=(--socket --timeout)
+    __tc_offer_flags_options 1
+
+    # Offer option value completions
+    case "${prev}" in
+    '--socket')
+        return
+        ;;
+    '--timeout')
+        return
+        ;;
+    esac
+}
+
+_tc_worktree_rm() {
     repeating_flags=()
     non_repeating_flags=(--json --version -h --help)
     repeating_options=()
@@ -685,31 +496,13 @@ _tc_tab() {
     unset 'unparsed_words[0]'
     unparsed_words=("${unparsed_words[@]}")
     case "${subcommand}" in
-    activate|list|close)
+    list|new|switch|close)
         # Offer subcommand argument completions
         "_tc_tab_${subcommand}"
         ;;
     *)
         # Offer subcommand completions
-        COMPREPLY+=($(compgen -W 'activate list close' -- "${cur}"))
-        ;;
-    esac
-}
-
-_tc_tab_activate() {
-    repeating_flags=()
-    non_repeating_flags=(--json --version -h --help)
-    repeating_options=()
-    non_repeating_options=(--socket --timeout)
-    __tc_offer_flags_options 1
-
-    # Offer option value completions
-    case "${prev}" in
-    '--socket')
-        return
-        ;;
-    '--timeout')
-        return
+        COMPREPLY+=($(compgen -W 'list new switch close' -- "${cur}"))
         ;;
     esac
 }
@@ -733,6 +526,48 @@ _tc_tab_list() {
         return
         ;;
     '--worktree')
+        return
+        ;;
+    esac
+}
+
+_tc_tab_new() {
+    repeating_flags=()
+    non_repeating_flags=(--json --version -h --help)
+    repeating_options=()
+    non_repeating_options=(--socket --timeout --project --worktree)
+    __tc_offer_flags_options 1
+
+    # Offer option value completions
+    case "${prev}" in
+    '--socket')
+        return
+        ;;
+    '--timeout')
+        return
+        ;;
+    '--project')
+        return
+        ;;
+    '--worktree')
+        return
+        ;;
+    esac
+}
+
+_tc_tab_switch() {
+    repeating_flags=()
+    non_repeating_flags=(--json --version -h --help)
+    repeating_options=()
+    non_repeating_options=(--socket --timeout)
+    __tc_offer_flags_options 1
+
+    # Offer option value completions
+    case "${prev}" in
+    '--socket')
+        return
+        ;;
+    '--timeout')
         return
         ;;
     esac
@@ -774,31 +609,13 @@ _tc_pane() {
     unset 'unparsed_words[0]'
     unparsed_words=("${unparsed_words[@]}")
     case "${subcommand}" in
-    label|list|close|focus)
+    list|new|focus|close|label)
         # Offer subcommand argument completions
         "_tc_pane_${subcommand}"
         ;;
     *)
         # Offer subcommand completions
-        COMPREPLY+=($(compgen -W 'label list close focus' -- "${cur}"))
-        ;;
-    esac
-}
-
-_tc_pane_label() {
-    repeating_flags=()
-    non_repeating_flags=(--json --replace --version -h --help)
-    repeating_options=()
-    non_repeating_options=(--socket --timeout)
-    __tc_offer_flags_options -1
-
-    # Offer option value completions
-    case "${prev}" in
-    '--socket')
-        return
-        ;;
-    '--timeout')
-        return
+        COMPREPLY+=($(compgen -W 'list new focus close label' -- "${cur}"))
         ;;
     esac
 }
@@ -809,6 +626,66 @@ _tc_pane_list() {
     repeating_options=()
     non_repeating_options=(--socket --timeout --project --worktree --tab)
     __tc_offer_flags_options 0
+
+    # Offer option value completions
+    case "${prev}" in
+    '--socket')
+        return
+        ;;
+    '--timeout')
+        return
+        ;;
+    '--project')
+        return
+        ;;
+    '--worktree')
+        return
+        ;;
+    '--tab')
+        return
+        ;;
+    esac
+}
+
+_tc_pane_new() {
+    repeating_flags=()
+    non_repeating_flags=(--json --version -h --help)
+    repeating_options=(--label)
+    non_repeating_options=(--socket --timeout --project --worktree --tab --cwd)
+    __tc_offer_flags_options -1
+
+    # Offer option value completions
+    case "${prev}" in
+    '--socket')
+        return
+        ;;
+    '--timeout')
+        return
+        ;;
+    '--project')
+        return
+        ;;
+    '--worktree')
+        return
+        ;;
+    '--tab')
+        return
+        ;;
+    '--cwd')
+        return
+        ;;
+    '--label')
+        return
+        ;;
+    esac
+}
+
+_tc_pane_focus() {
+    repeating_flags=()
+    non_repeating_flags=(--json --version -h --help)
+    repeating_options=()
+    non_repeating_options=(--socket --timeout --project --worktree --tab)
+    __tc_offer_flags_options 1
 
     # Offer option value completions
     case "${prev}" in
@@ -857,36 +734,9 @@ _tc_pane_close() {
     esac
 }
 
-_tc_pane_focus() {
+_tc_pane_label() {
     repeating_flags=()
-    non_repeating_flags=(--json --version -h --help)
-    repeating_options=()
-    non_repeating_options=(--socket --timeout --project --worktree --tab)
-    __tc_offer_flags_options 1
-
-    # Offer option value completions
-    case "${prev}" in
-    '--socket')
-        return
-        ;;
-    '--timeout')
-        return
-        ;;
-    '--project')
-        return
-        ;;
-    '--worktree')
-        return
-        ;;
-    '--tab')
-        return
-        ;;
-    esac
-}
-
-_tc_send() {
-    repeating_flags=()
-    non_repeating_flags=(--json --version -h --help)
+    non_repeating_flags=(--json --replace --version -h --help)
     repeating_options=()
     non_repeating_options=(--socket --timeout)
     __tc_offer_flags_options -1
@@ -902,9 +752,30 @@ _tc_send() {
     esac
 }
 
+_tc_send() {
+    repeating_flags=()
+    non_repeating_flags=(--json --stdin --no-enter --version -h --help)
+    repeating_options=()
+    non_repeating_options=(--socket --timeout -p --pane)
+    __tc_offer_flags_options -1
+
+    # Offer option value completions
+    case "${prev}" in
+    '--socket')
+        return
+        ;;
+    '--timeout')
+        return
+        ;;
+    '-p'|'--pane')
+        return
+        ;;
+    esac
+}
+
 _tc_broadcast() {
     repeating_flags=()
-    non_repeating_flags=(--json --version -h --help)
+    non_repeating_flags=(--json --stdin --no-enter --version -h --help)
     repeating_options=()
     non_repeating_options=(--socket --timeout --tab --worktree --label)
     __tc_offer_flags_options -1
@@ -924,27 +795,6 @@ _tc_broadcast() {
         return
         ;;
     '--label')
-        return
-        ;;
-    esac
-}
-
-_tc_open() {
-    repeating_flags=()
-    non_repeating_flags=(--json --version -h --help)
-    repeating_options=()
-    non_repeating_options=(--socket --timeout --in)
-    __tc_offer_flags_options 1
-
-    # Offer option value completions
-    case "${prev}" in
-    '--socket')
-        return
-        ;;
-    '--timeout')
-        return
-        ;;
-    '--in')
         return
         ;;
     esac

@@ -1,9 +1,9 @@
 import Foundation
 import Testing
-
-@testable import tcKit
 import TouchCodeCore
 import TouchCodeIPC
+
+@testable import tcKit
 
 @MainActor
 struct AliasResolverTests {
@@ -43,8 +43,8 @@ struct AliasResolverTests {
     let uuid = UUID()
     let resolved = try await AliasResolver.resolve(
       ".",
-      kind: .space,
-      env: ["TOUCH_CODE_SPACE_ID": uuid.uuidString],
+      kind: .project,
+      env: ["TOUCH_CODE_PROJECT_ID": uuid.uuidString],
       client: Self.failingClient()
     )
     #expect(resolved == uuid)

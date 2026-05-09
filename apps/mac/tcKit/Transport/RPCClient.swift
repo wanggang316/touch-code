@@ -1,7 +1,7 @@
 import Foundation
-import os
 import TouchCodeCore
 import TouchCodeIPC
+import os
 
 /// Typed JSON-RPC client. One instance per `tc` invocation (C4 D10).
 ///
@@ -227,10 +227,11 @@ public actor RPCClient {
     let hello = IPC.Request(
       id: helloID,
       method: .systemHello,
-      params: try JSONValue.encoded(HelloRequest(
-        clientVersion: versions.clientVersion,
-        clientBinary: versions.clientBinary
-      ))
+      params: try JSONValue.encoded(
+        HelloRequest(
+          clientVersion: versions.clientVersion,
+          clientBinary: versions.clientBinary
+        ))
     )
     let helloFrame = try Framing.encode(JSONEncoder().encode(hello))
     let realFrame = try Framing.encode(JSONEncoder().encode(request))

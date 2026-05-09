@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
-import os
 import TouchCodeIPC
+import os
 
 /// Production `Transport` over a Unix domain socket. Opens a fresh
 /// connection per `tc` invocation (C4 D10); writes are length-prefix

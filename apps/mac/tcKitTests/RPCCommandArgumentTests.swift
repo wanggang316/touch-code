@@ -1,8 +1,8 @@
 import Foundation
 import Testing
+import TouchCodeIPC
 
 @testable import tcKit
-import TouchCodeIPC
 
 /// Parser-level tests for `tc broadcast` scope validation and `tc rpc`
 /// method / params parsing — the bits that don't require a live server.
@@ -18,8 +18,8 @@ struct RPCCommandArgumentTests {
     // actually contains the verb the user typed. Pin a small set the
     // CLI exposes as subcommands today.
     #expect(IPC.Method(rawValue: "system.ping") == .systemPing)
-    #expect(IPC.Method(rawValue: "hook.list") == .hookList)
-    #expect(IPC.Method(rawValue: "hierarchy.createSpace") == .hierarchyCreateSpace)
+    #expect(IPC.Method(rawValue: "hierarchy.listProjects") == .hierarchyListProjects)
+    #expect(IPC.Method(rawValue: "hierarchy.createWorktree") == .hierarchyCreateWorktree)
     #expect(IPC.Method(rawValue: "terminal.sendInput") == .terminalSendInput)
     #expect(IPC.Method(rawValue: "definitely.not.a.real.method") == nil)
   }
@@ -42,7 +42,6 @@ struct RPCCommandArgumentTests {
     let cases: [IPC.BroadcastScope] = [
       IPC.BroadcastScope(kind: .tab, target: UUID().uuidString),
       IPC.BroadcastScope(kind: .worktree, target: UUID().uuidString),
-      IPC.BroadcastScope(kind: .space, target: UUID().uuidString),
       IPC.BroadcastScope(kind: .label, target: "agent"),
     ]
     for scope in cases {

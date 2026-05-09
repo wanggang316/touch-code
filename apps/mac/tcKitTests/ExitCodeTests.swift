@@ -1,8 +1,8 @@
 import Foundation
 import Testing
+import TouchCodeIPC
 
 @testable import tcKit
-import TouchCodeIPC
 
 struct CLIExitCodeTests {
   @Test

@@ -1,9 +1,9 @@
 import Foundation
 import Testing
-
-@testable import tcKit
 import TouchCodeCore
 import TouchCodeIPC
+
+@testable import tcKit
 
 /// Drives `RPCClient` against an `InMemoryTransport` backed by a minimal
 /// scripted server. Exercises the full pipelined-hello round-trip, the
@@ -54,7 +54,7 @@ struct RPCClientTests {
     let client = RPCClient(transport: transport, versions: .init(clientVersion: "0.3.0"))
     do {
       let _: JSONValue = try await client.call(
-        .hookRemove,
+        .hierarchyRemoveTag,
         params: EmptyPayload()
       )
       Issue.record("expected RPCError.ipc, got success")
@@ -73,7 +73,7 @@ struct RPCClientTests {
     transport.script = { requestFrames in
       let hello = try JSONDecoder().decode(IPC.Request.self, from: requestFrames[0])
       return [
-        .error(id: hello.id, error: .versionMismatch(client: "0.3.0", server: "0.4.0")),
+        .error(id: hello.id, error: .versionMismatch(client: "0.3.0", server: "0.4.0"))
       ]
     }
 
@@ -93,7 +93,7 @@ struct RPCClientTests {
   @Test
   func timeoutWhenNoResponseArrives() async throws {
     let transport = InMemoryTransport()
-    transport.script = { _ in [] } // scripted empty response
+    transport.script = { _ in [] }  // scripted empty response
 
     let client = RPCClient(transport: transport, versions: .init(clientVersion: "0.3.0"))
     do {

@@ -2,6 +2,7 @@ import AppKit
 import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
+import TouchCodeIPC
 @preconcurrency import UserNotifications
 import os
 
@@ -335,64 +336,7 @@ final class AppState {
     let manager = hierarchyManager
     let settings = settingsStore
 
-    // v1 notifications wiring — placed after `manager` is captured so the
-    // detector closures can hold it. The detector consumes a fresh
-    // `engine.events()` stream (broadcast-multi-consumer), so it runs in
-    // parallel with RootFeature's own subscription.
-    let osNotifier = UserNotificationsOSNotifier()
-    self.osNotifier = osNotifier
-    let detector = NotificationDetector(
-      store: notificationStore,
-      banner: osNotifier,
-      catalogSnapshot: { manager.catalog },
-      lastFocusedPane: { tabID in manager.lastFocusedPane(in: tabID) }
-    )
-    let detectorEvents = engine.events()
-    self.notificationDetectorTask = Task { @MainActor in
-      for await event in detectorEvents {
-        await detector.handle(event)
-      }
-    }
-    let inbox = notificationStore
-    DockBadger.setBadge(inbox.unreadCount)
-    self.dockBadgerTask = Task { @MainActor in
-      await Self.observeDockBadge(store: inbox)
-    }
-
-    // R1: clear unread on a pane when the user focuses it. Watches the
-    // catalog's globally-focused pane id and calls markReadForPane on
-    // every change. Idempotent at the store level — a re-fire with the
-    // same pane is a no-op.
-    self.focusReadMarkerTask = Task { @MainActor in
-      await Self.observeFocusedPaneForRead(
-        catalog: { manager.catalog }, lastFocusedPane: { tabID in manager.lastFocusedPane(in: tabID) }, store: inbox)
-    }
-
-    // Roll-up provider — reads inbox + a hierarchy focus snapshot, recomputes
-    // on either input changing. View sites observe its `.current` property.
-    let rollup = RollupIndexProvider(
-      store: inbox,
-      focus: { [weak manager] in
-        guard let manager else { return RollupFocusState() }
-        return Self.focusState(from: manager.catalog, lastFocusedPane: { tabID in manager.lastFocusedPane(in: tabID) })
-      },
-      observe: { [weak manager] in
-        // Touch every Catalog field that participates in the focus
-        // computation so withObservationTracking captures them. Reads
-        // both top-level selection state and per-Project worktree
-        // selection / expansion.
-        guard let manager else { return }
-        _ = manager.catalog.selectedProjectID
-        for project in manager.catalog.projects {
-          _ = project.selectedWorktreeID
-          _ = project.isExpanded
-          for worktree in project.worktrees {
-            _ = worktree.selectedTabID
-          }
-        }
-      }
-    )
-    self.notificationRollup = rollup
+    startNotificationObservers(manager: manager, engine: engine)
 
     // Build the editor + hierarchy clients once so the reducer stack AND the IPC
     // handlers share the exact same live instances — avoids two parallel
@@ -478,7 +422,7 @@ final class AppState {
 
     startIPC(
       hierarchy: manager, editor: editor, hierarchyClient: hierarchy,
-      settingsStore: settings
+      settingsStore: settings, terminalEngine: engine
     )
 
     self.developerPaneDependencies = DeveloperPaneDependencies.live(
@@ -512,6 +456,51 @@ final class AppState {
     }
   }
 
+  private func startNotificationObservers(manager: HierarchyManager, engine: TerminalEngine) {
+    let osNotifier = UserNotificationsOSNotifier()
+    self.osNotifier = osNotifier
+    let detector = NotificationDetector(
+      store: notificationStore,
+      banner: osNotifier,
+      catalogSnapshot: { manager.catalog },
+      lastFocusedPane: { tabID in manager.lastFocusedPane(in: tabID) }
+    )
+    let detectorEvents = engine.events()
+    self.notificationDetectorTask = Task { @MainActor in
+      for await event in detectorEvents {
+        await detector.handle(event)
+      }
+    }
+
+    let inbox = notificationStore
+    DockBadger.setBadge(inbox.unreadCount)
+    self.dockBadgerTask = Task { @MainActor in
+      await Self.observeDockBadge(store: inbox)
+    }
+    self.focusReadMarkerTask = Task { @MainActor in
+      await Self.observeFocusedPaneForRead(
+        catalog: { manager.catalog }, lastFocusedPane: { tabID in manager.lastFocusedPane(in: tabID) }, store: inbox)
+    }
+    self.notificationRollup = RollupIndexProvider(
+      store: inbox,
+      focus: { [weak manager] in
+        guard let manager else { return RollupFocusState() }
+        return Self.focusState(from: manager.catalog, lastFocusedPane: { tabID in manager.lastFocusedPane(in: tabID) })
+      },
+      observe: { [weak manager] in
+        guard let manager else { return }
+        _ = manager.catalog.selectedProjectID
+        for project in manager.catalog.projects {
+          _ = project.selectedWorktreeID
+          _ = project.isExpanded
+          for worktree in project.worktrees {
+            _ = worktree.selectedTabID
+          }
+        }
+      }
+    )
+  }
+
   /// Closure the main-window scene body installs to bridge TCA → `openWindow(id: "settings")`.
   /// Set from `.task { appState.openSettingsWindowAction = { openWindow(id: settingsWindowID) } }`
   /// inside `TouchCodeApp.body`. The presenter dependency captures `self` weakly and
@@ -526,7 +515,8 @@ final class AppState {
     hierarchy: HierarchyManager,
     editor: EditorClient,
     hierarchyClient: HierarchyClient,
-    settingsStore: SettingsStore
+    settingsStore: SettingsStore,
+    terminalEngine: TerminalEngine
   ) {
     if ProcessInfo.processInfo.environment["XCTestBundlePath"] != nil
       || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
@@ -541,11 +531,8 @@ final class AppState {
       )
     )
     let hierarchyHandlers = HierarchyHandlers(manager: hierarchy)
-    // TerminalHandlers has no input sink until a real GhosttyRuntime is
-    // bound — terminal.sendInput / broadcastInput return .unsupported
-    // until then, which is the right behavior for the M6 scripted flow.
     let terminalHandlers = TerminalHandlers(
-      sink: nil,
+      sink: terminalEngine.ghosttyRuntime == nil ? nil : TerminalInputSink(engine: terminalEngine),
       catalog: { hierarchy.catalog }
     )
     let editorHandlers = EditorHandlers(
@@ -740,5 +727,52 @@ final class GhosttyBackedHierarchyRuntime: HierarchyRuntime {
 
   func focusSurfaceView(for paneID: PaneID) {
     engine?.focusSurfaceView(for: paneID)
+  }
+}
+
+@MainActor
+final class TerminalInputSink: TerminalHandlers.InputSink {
+  private weak var engine: TerminalEngine?
+
+  init(engine: TerminalEngine) {
+    self.engine = engine
+  }
+
+  func sendInput(paneID: PaneID, text: String) -> Bool {
+    guard let surface = engine?.ghosttyRuntime?.surface(for: paneID) else { return false }
+    surface.sendInput(text)
+    return true
+  }
+
+  func fanOut(scope: IPC.BroadcastScope, text: String, catalog: Catalog) -> Int {
+    paneIDs(matching: scope, in: catalog)
+      .reduce(into: 0) { count, paneID in
+        if sendInput(paneID: paneID, text: text) {
+          count += 1
+        }
+      }
+  }
+
+  private func paneIDs(matching scope: IPC.BroadcastScope, in catalog: Catalog) -> [PaneID] {
+    switch scope.kind {
+    case .tab:
+      guard let id = UUID(uuidString: scope.target).map(TabID.init(raw:)) else { return [] }
+      return catalog.projects
+        .flatMap(\.worktrees)
+        .flatMap(\.tabs)
+        .first(where: { $0.id == id })?
+        .panes
+        .map(\.id) ?? []
+    case .worktree:
+      guard let id = UUID(uuidString: scope.target).map(WorktreeID.init(raw:)) else { return [] }
+      return Array(catalog.paneIDs(inWorktree: id))
+    case .label:
+      return catalog.projects
+        .flatMap(\.worktrees)
+        .flatMap(\.tabs)
+        .flatMap(\.panes)
+        .filter { $0.labels.contains(scope.target) }
+        .map(\.id)
+    }
   }
 }
