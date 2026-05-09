@@ -114,6 +114,7 @@ struct TouchCodeApp: App {
           .environment(appState.settingsStore)
           .environment(appState.developerPaneDependencies)
           .environment(appState.osNotifier)
+          .environment(commandKeyObserver)
           .environment(\.resolvedShortcuts, appState.shortcutsStore.resolved)
         } else {
           // Settings window can be opened before AppState.bringUp completes (rare but
