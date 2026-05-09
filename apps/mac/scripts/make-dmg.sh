@@ -113,13 +113,44 @@ echo "==> generating volume icon from ${icon_src}"
 volume_icon="${work_dir}/VolumeIcon.icns"
 iconset="${work_dir}/touch-code.iconset"
 mkdir -p "${iconset}"
-for size in 16 32 128 256 512; do
-  sips -z "${size}" "${size}" "${icon_src}" \
-    --out "${iconset}/icon_${size}x${size}.png" >/dev/null
-  hidpi=$((size * 2))
-  sips -z "${hidpi}" "${hidpi}" "${icon_src}" \
-    --out "${iconset}/icon_${size}x${size}@2x.png" >/dev/null
-done
+# The source PNG is opaque RGB, so a plain sips downscale produces a
+# square-cornered volume icon on the desktop. Mask each iconset entry
+# with a macOS-style squircle (corner radius ≈ 22.37% of icon size) and
+# write transparent PNGs so Finder renders the rounded shape.
+swift - "${icon_src}" "${iconset}" <<'SWIFT'
+import AppKit
+import Foundation
+
+let sourcePath = CommandLine.arguments[1]
+let outputDir = CommandLine.arguments[2]
+
+guard let source = NSImage(contentsOfFile: sourcePath) else {
+  FileHandle.standardError.write(Data("failed to load \(sourcePath)\n".utf8))
+  exit(1)
+}
+
+let variants: [(Int, Int)] = [16, 32, 128, 256, 512].flatMap { [($0, 1), ($0, 2)] }
+
+for (size, scale) in variants {
+  let pixel = size * scale
+  let rect = NSRect(x: 0, y: 0, width: pixel, height: pixel)
+  let canvas = NSImage(size: NSSize(width: pixel, height: pixel))
+  canvas.lockFocus()
+  let radius = CGFloat(pixel) * 0.2237
+  NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).addClip()
+  source.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1.0)
+  canvas.unlockFocus()
+  guard let cg = canvas.cgImage(forProposedRect: nil, context: nil, hints: nil),
+        let data = NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:])
+  else {
+    FileHandle.standardError.write(Data("failed to encode icon \(pixel)\n".utf8))
+    exit(1)
+  }
+  let suffix = scale == 2 ? "@2x" : ""
+  let outURL = URL(fileURLWithPath: "\(outputDir)/icon_\(size)x\(size)\(suffix).png")
+  try data.write(to: outURL)
+}
+SWIFT
 iconutil --convert icns --output "${volume_icon}" "${iconset}"
 
 echo "==> hdiutil create read-write ${rw_dmg}"
