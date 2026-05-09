@@ -50,11 +50,12 @@ echo "==> staging DMG contents"
 /bin/cp -R "${app_path}" "${stage_dir}/"
 ln -s /Applications "${stage_dir}/Applications"
 
-# Background image with the "drag to install" arrow between the two
-# icons. Rendered fresh each build via Swift/AppKit so we don't need to
-# track a binary asset. Geometry mirrors the Finder layout below: icons
-# at (170,180) and (490,180) inside a 660×400 window, so the arrow
-# spans ~250–410 horizontally at the vertical center.
+# Background image with a chevron "›" between the two icons, mirroring
+# the macOS install-DMG convention (see Apple/ChatGPT/etc.). Rendered
+# fresh each build via Swift/AppKit so we don't track a binary asset.
+# Geometry mirrors the Finder layout below: icons at (170,180) and
+# (490,180) inside a 660×400 window, so the chevron sits centered at
+# x≈330 at the vertical midpoint.
 echo "==> generating DMG background image"
 mkdir -p "${stage_dir}/.background"
 bg_image="${stage_dir}/.background/background.png"
@@ -69,29 +70,24 @@ let height: CGFloat = 400
 let image = NSImage(size: NSSize(width: width, height: height))
 image.lockFocus()
 
-NSColor.white.setFill()
+NSColor(white: 0.96, alpha: 1.0).setFill()
 NSRect(x: 0, y: 0, width: width, height: height).fill()
 
+let centerX: CGFloat = width / 2
 let centerY: CGFloat = height / 2
-let startX: CGFloat = 250
-let tipX: CGFloat = 410
-let shaftThickness: CGFloat = 12
-let headWidth: CGFloat = 28
-let headHeight: CGFloat = 34
-let shaftEndX = tipX - headWidth
+let halfWidth: CGFloat = 22
+let halfHeight: CGFloat = 36
 
-let arrow = NSBezierPath()
-arrow.move(to: NSPoint(x: startX, y: centerY - shaftThickness / 2))
-arrow.line(to: NSPoint(x: shaftEndX, y: centerY - shaftThickness / 2))
-arrow.line(to: NSPoint(x: shaftEndX, y: centerY - headHeight / 2))
-arrow.line(to: NSPoint(x: tipX, y: centerY))
-arrow.line(to: NSPoint(x: shaftEndX, y: centerY + headHeight / 2))
-arrow.line(to: NSPoint(x: shaftEndX, y: centerY + shaftThickness / 2))
-arrow.line(to: NSPoint(x: startX, y: centerY + shaftThickness / 2))
-arrow.close()
+let chevron = NSBezierPath()
+chevron.move(to: NSPoint(x: centerX - halfWidth, y: centerY + halfHeight))
+chevron.line(to: NSPoint(x: centerX + halfWidth, y: centerY))
+chevron.line(to: NSPoint(x: centerX - halfWidth, y: centerY - halfHeight))
+chevron.lineWidth = 14
+chevron.lineCapStyle = .round
+chevron.lineJoinStyle = .round
 
-NSColor(white: 0.6, alpha: 1.0).setFill()
-arrow.fill()
+NSColor(white: 0.2, alpha: 1.0).setStroke()
+chevron.stroke()
 
 image.unlockFocus()
 
