@@ -84,35 +84,30 @@ struct HierarchyTreeRenderable: Encodable, CustomStringConvertible {
     var lines: [String] = []
     for (projectIndex, project) in projects.enumerated() {
       let isLastProject = projectIndex == projects.count - 1
-      lines.append("project \(project.name)  \(project.id)")
+      lines.append("\(project.name)  \(project.id)")
       lines.append("  path: \(project.rootPath)")
 
       let worktrees = project.worktrees.filter { !$0.archived }
       for (worktreeIndex, worktree) in worktrees.enumerated() {
-        let isLastWorktree = worktreeIndex == worktrees.count - 1
-        let worktreePrefix = branchPrefix(parentPrefix: "", isLast: isLastWorktree)
-        let tabPrefix = childPrefix(parentPrefix: "", isLast: isLastWorktree)
-        let marker = worktree.id == project.selectedWorktreeID ? "*" : " "
+        let selectedWorktree = worktree.id == project.selectedWorktreeID ? "*" : " "
         let branch = worktree.branch ?? "no branch"
+        let pinned = worktree.isPinned ? " pinned" : ""
 
-        lines.append("\(worktreePrefix) \(marker) worktree \(worktree.name)  [\(branch)]  \(worktree.id)")
-        lines.append("\(tabPrefix)  path: \(worktree.path)")
+        lines.append(
+          "  [\(selectedWorktree)] Worktree \(worktreeIndex + 1): \(worktree.name)  [\(branch)]\(pinned)  \(worktree.id)"
+        )
+        lines.append("      path: \(worktree.path)")
 
         for (tabIndex, tab) in worktree.tabs.enumerated() {
-          let isLastTab = tabIndex == worktree.tabs.count - 1
-          let currentTabPrefix = branchPrefix(parentPrefix: tabPrefix, isLast: isLastTab)
-          let panePrefix = childPrefix(parentPrefix: tabPrefix, isLast: isLastTab)
-          let marker = tab.id == worktree.selectedTabID ? "*" : " "
+          let selectedTab = tab.id == worktree.selectedTabID ? "*" : " "
           let title = tab.name ?? tab.cachedDisplayTitle ?? "untitled"
 
-          lines.append("\(currentTabPrefix) \(marker) tab \(title)  \(tab.id)")
+          lines.append("      [\(selectedTab)] Tab \(tabIndex + 1): \(title)  \(tab.id)")
 
           for (paneIndex, pane) in tab.panes.enumerated() {
-            let isLastPane = paneIndex == tab.panes.count - 1
-            let currentPanePrefix = branchPrefix(parentPrefix: panePrefix, isLast: isLastPane)
             let labels = pane.labels.sorted()
             let labelSuffix = labels.isEmpty ? "" : "  @\(labels.joined(separator: ",@"))"
-            lines.append("\(currentPanePrefix) pane \(pane.id)  cwd: \(pane.workingDirectory)\(labelSuffix)")
+            lines.append("            Pane \(paneIndex + 1): \(pane.workingDirectory)  \(pane.id)\(labelSuffix)")
           }
         }
       }
@@ -122,14 +117,6 @@ struct HierarchyTreeRenderable: Encodable, CustomStringConvertible {
       }
     }
     return lines.joined(separator: "\n")
-  }
-
-  private func branchPrefix(parentPrefix: String, isLast: Bool) -> String {
-    "\(parentPrefix)\(isLast ? "└─" : "├─")"
-  }
-
-  private func childPrefix(parentPrefix: String, isLast: Bool) -> String {
-    "\(parentPrefix)\(isLast ? "  " : "│ ")"
   }
 }
 
