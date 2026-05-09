@@ -50,6 +50,60 @@ echo "==> staging DMG contents"
 /bin/cp -R "${app_path}" "${stage_dir}/"
 ln -s /Applications "${stage_dir}/Applications"
 
+# Background image with the "drag to install" arrow between the two
+# icons. Rendered fresh each build via Swift/AppKit so we don't need to
+# track a binary asset. Geometry mirrors the Finder layout below: icons
+# at (170,180) and (490,180) inside a 660×400 window, so the arrow
+# spans ~250–410 horizontally at the vertical center.
+echo "==> generating DMG background image"
+mkdir -p "${stage_dir}/.background"
+bg_image="${stage_dir}/.background/background.png"
+swift - "${bg_image}" <<'SWIFT'
+import AppKit
+import Foundation
+
+let outputPath = CommandLine.arguments[1]
+let width: CGFloat = 660
+let height: CGFloat = 400
+
+let image = NSImage(size: NSSize(width: width, height: height))
+image.lockFocus()
+
+NSColor.white.setFill()
+NSRect(x: 0, y: 0, width: width, height: height).fill()
+
+let centerY: CGFloat = height / 2
+let startX: CGFloat = 250
+let tipX: CGFloat = 410
+let shaftThickness: CGFloat = 12
+let headWidth: CGFloat = 28
+let headHeight: CGFloat = 34
+let shaftEndX = tipX - headWidth
+
+let arrow = NSBezierPath()
+arrow.move(to: NSPoint(x: startX, y: centerY - shaftThickness / 2))
+arrow.line(to: NSPoint(x: shaftEndX, y: centerY - shaftThickness / 2))
+arrow.line(to: NSPoint(x: shaftEndX, y: centerY - headHeight / 2))
+arrow.line(to: NSPoint(x: tipX, y: centerY))
+arrow.line(to: NSPoint(x: shaftEndX, y: centerY + headHeight / 2))
+arrow.line(to: NSPoint(x: shaftEndX, y: centerY + shaftThickness / 2))
+arrow.line(to: NSPoint(x: startX, y: centerY + shaftThickness / 2))
+arrow.close()
+
+NSColor(white: 0.6, alpha: 1.0).setFill()
+arrow.fill()
+
+image.unlockFocus()
+
+guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
+      let data = NSBitmapImageRep(cgImage: cgImage).representation(using: .png, properties: [:])
+else {
+  FileHandle.standardError.write(Data("failed to render DMG background\n".utf8))
+  exit(1)
+}
+try data.write(to: URL(fileURLWithPath: outputPath))
+SWIFT
+
 # Stage the volume icon outside the source tree. We add it to the
 # mounted volume *after* the Finder AppleScript runs — Finder
 # silently removes any .VolumeIcon.icns from a window it has just
@@ -110,6 +164,7 @@ tell application "Finder"
     set icon size of viewOptions to 128
     set text size of viewOptions to 13
     set label position of viewOptions to bottom
+    set background picture of viewOptions to file ".background:background.png"
     set position of item "TouchCode.app" of container window to {170, 180}
     set position of item "Applications" of container window to {490, 180}
     update without registering applications
