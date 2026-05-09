@@ -136,18 +136,20 @@ struct UpdatesSettingsView: View {
 
   @ViewBuilder
   private var feedSection: some View {
-    if let feedURL {
-      Section("Feed") {
-        LabeledContent("Appcast URL") {
-          Text(feedURL.absoluteString)
-            .font(.callout.monospaced())
-            .foregroundStyle(.secondary)
-            .textSelection(.enabled)
-            .lineLimit(2)
-            .truncationMode(.middle)
+    #if DEBUG
+      if let feedURL {
+        Section("Feed") {
+          LabeledContent("Appcast URL") {
+            Text(feedURL.absoluteString)
+              .font(.callout.monospaced())
+              .foregroundStyle(.secondary)
+              .textSelection(.enabled)
+              .lineLimit(2)
+              .truncationMode(.middle)
+          }
         }
       }
-    }
+    #endif
   }
 
   // MARK: - Helpers
