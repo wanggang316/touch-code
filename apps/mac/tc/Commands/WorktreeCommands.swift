@@ -24,7 +24,10 @@ struct WorktreeList: AsyncParsableCommand {
         .hierarchyListWorktrees,
         params: Params(projectID: ProjectID(raw: projectUUID))
       )
-      try Renderer.emit(WorktreeListRenderable(worktrees: result.worktrees), mode: globals.renderMode)
+      try Renderer.emit(
+        WorktreeListRenderable(worktrees: result.worktrees.filter { !$0.archived }),
+        mode: globals.renderMode
+      )
     }
   }
 }

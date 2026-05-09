@@ -86,7 +86,7 @@ struct HierarchyTreeRenderable: Encodable, CustomStringConvertible {
       let projectMark = project.selectedWorktreeID == nil ? " " : "*"
       lines.append("\(projectMark) project \(project.name)  \(project.id)")
       lines.append("  path \(project.rootPath)")
-      for worktree in project.worktrees {
+      for worktree in project.worktrees where !worktree.archived {
         let worktreeMark = worktree.id == project.selectedWorktreeID ? "*" : " "
         let branch = worktree.branch ?? "(no branch)"
         lines.append("  \(worktreeMark) worktree \(worktree.name)  \(branch)  \(worktree.id)")
@@ -121,7 +121,7 @@ struct HierarchyProjectDTO: Encodable {
     self.rootPath = project.rootPath
     self.gitRoot = project.gitRoot
     self.selectedWorktreeID = project.selectedWorktreeID?.description
-    self.worktrees = project.worktrees.map(HierarchyWorktreeDTO.init(worktree:))
+    self.worktrees = project.worktrees.filter { !$0.archived }.map(HierarchyWorktreeDTO.init(worktree:))
   }
 }
 
