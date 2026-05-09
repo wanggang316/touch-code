@@ -25,6 +25,11 @@ public final class UnixSocketTransport: Transport, @unchecked Sendable {
       throw ConnectError.socketCreateFailed(errno: errno)
     }
 
+    // SO_NOSIGPIPE: turn writes to a half-closed peer into EPIPE instead
+    // of SIGPIPE-killing the CLI process before any error path can run.
+    var one: Int32 = 1
+    _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
+
     var addr = sockaddr_un()
     addr.sun_family = sa_family_t(AF_UNIX)
     let pathBytes = Array(path.utf8CString)

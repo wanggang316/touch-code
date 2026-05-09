@@ -1,4 +1,5 @@
 import ArgumentParser
+import Darwin
 import Foundation
 import TouchCodeCore
 import TouchCodeIPC
@@ -25,6 +26,15 @@ struct TouchCodeCLI: AsyncParsableCommand {
       RPCCommand.self,
     ]
   )
+
+  static func main() async {
+    // Belt to SO_NOSIGPIPE's suspenders: ignore SIGPIPE process-wide so
+    // any write path (stdout being piped to `head`, a half-closed socket
+    // we forgot to flag) returns EPIPE instead of killing the CLI with
+    // exit 141 before our error paths can render a message.
+    signal(SIGPIPE, SIG_IGN)
+    await Self.main(nil)
+  }
 }
 
 // Global options shared across subcommands via composition — ArgumentParser's

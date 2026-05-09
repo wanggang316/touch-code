@@ -145,6 +145,11 @@ public final class SocketServer {
 
   @MainActor
   private func startConnection(clientFD: Int32) {
+    // SO_NOSIGPIPE: a peer that vanishes mid-response must produce an
+    // EPIPE return on writeAll, not kill the host app with SIGPIPE.
+    var one: Int32 = 1
+    _ = setsockopt(clientFD, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
+
     // M3.1 defense-in-depth: verify the kernel-reported peer UID
     // matches ours before any framing / handshake work runs. The
     // socket file mode (0600 + owner UID) already blocks cross-UID
