@@ -82,28 +82,54 @@ struct HierarchyTreeRenderable: Encodable, CustomStringConvertible {
   var description: String {
     guard !projects.isEmpty else { return "(no projects)" }
     var lines: [String] = []
-    for project in projects {
-      let projectMark = project.selectedWorktreeID == nil ? " " : "*"
-      lines.append("\(projectMark) project \(project.name)  \(project.id)")
-      lines.append("  path \(project.rootPath)")
-      for worktree in project.worktrees where !worktree.archived {
-        let worktreeMark = worktree.id == project.selectedWorktreeID ? "*" : " "
-        let branch = worktree.branch ?? "(no branch)"
-        lines.append("  \(worktreeMark) worktree \(worktree.name)  \(branch)  \(worktree.id)")
-        lines.append("    path \(worktree.path)")
-        for tab in worktree.tabs {
-          let tabMark = tab.id == worktree.selectedTabID ? "*" : " "
-          let title = tab.name ?? tab.cachedDisplayTitle ?? "(untitled)"
-          lines.append("    \(tabMark) tab \(title)  \(tab.id)")
-          for pane in tab.panes {
+    for (projectIndex, project) in projects.enumerated() {
+      let isLastProject = projectIndex == projects.count - 1
+      lines.append("project \(project.name)  \(project.id)")
+      lines.append("  path: \(project.rootPath)")
+
+      let worktrees = project.worktrees.filter { !$0.archived }
+      for (worktreeIndex, worktree) in worktrees.enumerated() {
+        let isLastWorktree = worktreeIndex == worktrees.count - 1
+        let worktreePrefix = branchPrefix(parentPrefix: "", isLast: isLastWorktree)
+        let tabPrefix = childPrefix(parentPrefix: "", isLast: isLastWorktree)
+        let marker = worktree.id == project.selectedWorktreeID ? "*" : " "
+        let branch = worktree.branch ?? "no branch"
+
+        lines.append("\(worktreePrefix) \(marker) worktree \(worktree.name)  [\(branch)]  \(worktree.id)")
+        lines.append("\(tabPrefix)  path: \(worktree.path)")
+
+        for (tabIndex, tab) in worktree.tabs.enumerated() {
+          let isLastTab = tabIndex == worktree.tabs.count - 1
+          let currentTabPrefix = branchPrefix(parentPrefix: tabPrefix, isLast: isLastTab)
+          let panePrefix = childPrefix(parentPrefix: tabPrefix, isLast: isLastTab)
+          let marker = tab.id == worktree.selectedTabID ? "*" : " "
+          let title = tab.name ?? tab.cachedDisplayTitle ?? "untitled"
+
+          lines.append("\(currentTabPrefix) \(marker) tab \(title)  \(tab.id)")
+
+          for (paneIndex, pane) in tab.panes.enumerated() {
+            let isLastPane = paneIndex == tab.panes.count - 1
+            let currentPanePrefix = branchPrefix(parentPrefix: panePrefix, isLast: isLastPane)
             let labels = pane.labels.sorted()
             let labelSuffix = labels.isEmpty ? "" : "  @\(labels.joined(separator: ",@"))"
-            lines.append("        pane \(pane.id)  \(pane.workingDirectory)\(labelSuffix)")
+            lines.append("\(currentPanePrefix) pane \(pane.id)  cwd: \(pane.workingDirectory)\(labelSuffix)")
           }
         }
       }
+
+      if !isLastProject {
+        lines.append("")
+      }
     }
     return lines.joined(separator: "\n")
+  }
+
+  private func branchPrefix(parentPrefix: String, isLast: Bool) -> String {
+    "\(parentPrefix)\(isLast ? "└─" : "├─")"
+  }
+
+  private func childPrefix(parentPrefix: String, isLast: Bool) -> String {
+    "\(parentPrefix)\(isLast ? "  " : "│ ")"
   }
 }
 
