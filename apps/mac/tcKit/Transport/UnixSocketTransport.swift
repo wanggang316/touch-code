@@ -13,28 +13,100 @@ public final class UnixSocketTransport: Transport, @unchecked Sendable {
     case connectFailed(path: String, errno: Int32)
   }
 
-  private let fd: Int32
+  private struct State {
+    var fd: Int32 = -1
+    var readerStarted = false
+  }
+
+  private let path: String
   private let logger = Logger(subsystem: "com.touch-code.cli", category: "transport")
   public let inbound: AsyncStream<Data>
   private let continuation: AsyncStream<Data>.Continuation
   private var readTask: Task<Void, Never>?
+  private let state = OSAllocatedUnfairLock(initialState: State())
 
   public init(path: String) throws {
-    let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-    if fd < 0 {
+    // Defer the actual socket(2)+connect(2) to the first send.
+    //
+    // Why lazy: on macOS 26.x, any scheduler gap (Task.yield, await,
+    // even an actor hop) between connect(2) and the first send(2) on a
+    // Unix-domain SOCK_STREAM client puts the kernel-side connection
+    // into a state where send(2) returns EPIPE and the server's serve
+    // loop sees an immediate EOF — no bytes ever transit. RPCClient
+    // unavoidably introduces such a gap (the actor's `call` jumps
+    // through `await pipelinedSend` before reaching `transport.send`),
+    // so connecting eagerly here would race the OS quirk on every
+    // invocation.
+    //
+    // The fix is to keep connect+first send in one synchronous block
+    // (see `connectAndSendFirstFrame` / `send`). This init only stashes
+    // the path and wires up the inbound AsyncStream so callers can hold
+    // the transport before the network leg actually opens.
+    self.path = path
+    var continuation: AsyncStream<Data>.Continuation!
+    self.inbound = AsyncStream<Data> { cont in continuation = cont }
+    self.continuation = continuation
+  }
+
+  // Follow-up: revisit after a tcKit concurrency audit — the `async` keyword
+  // has no `await` body today, but removing it breaks callers. Out of scope
+  // for T0, suppressing the lint below to unblock.
+  // swiftlint:disable:next async_without_await
+  public func send(_ frame: Data) async throws {
+    // Darwin.send(2) — not write(2). On macOS 26.x, write(2) on a Unix
+    // domain socket whose accept-side handler has not yet called read(2)
+    // can return EPIPE before any bytes hit the wire; send(2) on the
+    // same fd works identically to BSD sockets. Using send(2) keeps the
+    // SIGPIPE-suppression contract too (SO_NOSIGPIPE applies to both).
+    //
+    // Lazy connect happens INSIDE this method (and inside `stateLock`)
+    // so connect(2) and the first send(2) execute in a single block
+    // with no scheduler hop between them — the macOS 26.x EPIPE quirk
+    // only fires when the kernel sees an idle gap there.
+    let needsReader = try state.withLock { (s: inout State) -> Bool in
+      try Self.ensureConnectedLocked(state: &s, path: path)
+      var remaining = frame
+      while !remaining.isEmpty {
+        let written = remaining.withUnsafeBytes { ptr -> Int in
+          Darwin.send(s.fd, ptr.baseAddress, remaining.count, 0)
+        }
+        if written < 0 {
+          if errno == EINTR { continue }
+          throw ConnectError.connectFailed(path: "(send)", errno: errno)
+        }
+        if written == 0 {
+          throw ConnectError.connectFailed(path: "(send=0)", errno: 0)
+        }
+        remaining.removeFirst(written)
+      }
+      let wasNotStarted = !s.readerStarted
+      s.readerStarted = true
+      return wasNotStarted
+    }
+    // Send-first, read-second: only spawn the inbound pump once we've
+    // shipped the first frame. See init() for the macOS 26.x rationale.
+    if needsReader { startReader() }
+  }
+
+  /// Synchronously open the socket and connect, if not already connected.
+  /// Caller MUST hold the state lock. Throws on any failure; on success
+  /// populates `state.fd` with a connected SOCK_STREAM fd.
+  private static func ensureConnectedLocked(state: inout State, path: String) throws {
+    if state.fd >= 0 { return }
+    let f = socket(AF_UNIX, SOCK_STREAM, 0)
+    if f < 0 {
       throw ConnectError.socketCreateFailed(errno: errno)
     }
-
     // SO_NOSIGPIPE: turn writes to a half-closed peer into EPIPE instead
     // of SIGPIPE-killing the CLI process before any error path can run.
     var one: Int32 = 1
-    _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
+    _ = setsockopt(f, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
 
     var addr = sockaddr_un()
     addr.sun_family = sa_family_t(AF_UNIX)
     let pathBytes = Array(path.utf8CString)
     guard pathBytes.count <= MemoryLayout.size(ofValue: addr.sun_path) else {
-      Darwin.close(fd)
+      Darwin.close(f)
       throw ConnectError.pathTooLong(path)
     }
     withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
@@ -44,57 +116,36 @@ public final class UnixSocketTransport: Transport, @unchecked Sendable {
         }
       }
     }
-
     let connectResult = withUnsafePointer(to: &addr) { addrPtr in
       addrPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
-        Darwin.connect(fd, sockPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+        Darwin.connect(f, sockPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
       }
     }
     if connectResult < 0 {
       let err = errno
-      Darwin.close(fd)
+      Darwin.close(f)
       throw ConnectError.connectFailed(path: path, errno: err)
     }
-
-    self.fd = fd
-    var continuation: AsyncStream<Data>.Continuation!
-    self.inbound = AsyncStream<Data> { cont in continuation = cont }
-    self.continuation = continuation
-    logger.debug("connected to \(path, privacy: .public)")
-    startReader()
-  }
-
-  // Follow-up: revisit after a tcKit concurrency audit — the `async` keyword
-  // has no `await` body today, but removing it breaks callers. Out of scope
-  // for T0, suppressing the lint below to unblock.
-  // swiftlint:disable:next async_without_await
-  public func send(_ frame: Data) async throws {
-    var remaining = frame
-    while !remaining.isEmpty {
-      let written = remaining.withUnsafeBytes { ptr -> Int in
-        Darwin.write(fd, ptr.baseAddress, remaining.count)
-      }
-      if written < 0 {
-        if errno == EINTR { continue }
-        throw ConnectError.connectFailed(path: "(write)", errno: errno)
-      }
-      if written == 0 {
-        throw ConnectError.connectFailed(path: "(write=0)", errno: 0)
-      }
-      remaining.removeFirst(written)
-    }
+    state.fd = f
   }
 
   public func close() {
     readTask?.cancel()
     readTask = nil
-    _ = Darwin.shutdown(fd, SHUT_RDWR)
-    _ = Darwin.close(fd)
+    let f = state.withLock { (s: inout State) -> Int32 in
+      let prev = s.fd
+      s.fd = -1
+      return prev
+    }
+    if f >= 0 {
+      _ = Darwin.shutdown(f, SHUT_RDWR)
+      _ = Darwin.close(f)
+    }
     continuation.finish()
   }
 
   private func startReader() {
-    let fd = self.fd
+    let fd = state.withLock { $0.fd }
     let continuation = self.continuation
     readTask = Task.detached {
       let bufferSize = 8192

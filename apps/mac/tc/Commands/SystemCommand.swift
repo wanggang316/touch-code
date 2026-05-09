@@ -342,6 +342,19 @@ struct CLIError: Error, CustomStringConvertible {
         )
       }
     }
+    if let connect = error as? UnixSocketTransport.ConnectError {
+      // Lazy connect (see UnixSocketTransport.init) means socket(2) /
+      // connect(2) failures land here on the first send instead of in
+      // CLISession.connect — keep the same user-facing wording.
+      switch connect {
+      case .connectFailed(let path, _):
+        return CLIError(code: .noSocket, message: "touch-code is not running at \(path)")
+      case .socketCreateFailed(let errno):
+        return CLIError(code: .noSocket, message: "socket create failed (errno=\(errno))")
+      case .pathTooLong(let path):
+        return CLIError(code: .userError, message: "socket path too long: \(path)")
+      }
+    }
     return CLIError(code: .internal, message: "\(error)")
   }
 
