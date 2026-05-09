@@ -67,8 +67,8 @@ private struct NewTabAccessoryButton: View {
     Button(action: action) {
       Image(systemName: "plus")
         .accessibilityLabel("New Tab")
-        .commandKeyHint(.newTab)
         .modifier(AccessoryIconChrome(isHovering: isHovering))
+        .commandKeyHint(.newTab)
     }
     .buttonStyle(.plain)
     .onHover { isHovering = $0 }
@@ -92,8 +92,8 @@ private struct SplitAccessoryButton: View {
     Button(action: action) {
       Image(systemName: systemImage)
         .accessibilityLabel(accessibilityLabel)
-        .commandKeyHint(chordCommandID)
         .modifier(AccessoryIconChrome(isHovering: isHovering))
+        .commandKeyHint(chordCommandID)
     }
     .buttonStyle(.plain)
     .disabled(splitTree?.root == nil)
