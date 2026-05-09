@@ -485,7 +485,7 @@ Instead of typed subcommands, ship a single `tc call METHOD [PARAMS_JSON]` verb 
 
 **Trade-offs:** tiny binary; no ArgumentParser. But: no completion, no validation, no discoverability — every user becomes responsible for learning the raw method names. Agents writing CLI calls would produce brittle shell strings. Matches nothing the reference projects did.
 
-**Verdict:** reject for the primary surface. But *do* expose `tc rpc METHOD PARAMS_JSON` as an escape hatch for power users and debugging; it's a small wrapper around `RPCClient.send`. See [Decisions](#decisions) §D9.
+**Verdict:** reject. The CLI exposes typed commands only; raw RPC access stays internal to keep the supported surface discoverable and bounded. See [Decisions](#decisions) §D9.
 
 ### A3 — gRPC / Cap'n Proto instead of JSON-RPC
 
@@ -579,7 +579,7 @@ Each namespace ships as its own binary; `tc` is a dispatcher.
 - **D6 — `tc send` / `tc broadcast` share one IPC method (`terminal.sendInput`) with a `scope` discriminator.** *New.* Reduces server surface and lets a single hook handler observe both the unicast and fan-out paths identically.
 - **D7 — `--json` is universal and per-verb; every result type has a JSON schema 1:1 with the RPC.** *New; supacode has partial JSON output.* This is how agents stay reliable; the text renderer is the human convenience, not the primary contract.
 - **D8 — Exit codes are stable and enumerable (`1` user error, `2` not found, `3` conflict, `4` unsupported, `5` overloaded, `6` versionMismatch, `10` no-socket, `11` request timeout, `12` launch timeout, `20` internal).** *New.* Agents and shell scripts must be able to branch on codes; picking a fixed set up front avoids the "exit 1 for everything" trap. Request vs. launch timeout split avoids the earlier collision where `tc system launch` and a slow mutation both returned 11 — a script checking `[[ $? -eq 12 ]]` now unambiguously means "app did not come up".
-- **D9 — `tc rpc METHOD [JSON]` ships as the low-level escape hatch.** *Supaterm-parallel (SPCLI has `sp rpc`).* Enables debugging and forward compatibility for methods we haven't surfaced; documented as "use at your own risk".
+- **D9 — Raw RPC access is not exposed as a CLI command.** *Divergent from supaterm (`sp rpc`).* Earlier drafts included `tc rpc METHOD [JSON]` as a debugging escape hatch, but the command made the public surface larger and encouraged unsupported workflows. Debugging should use typed commands, app logs, or internal test harnesses.
 - **D10 — Streaming RPCs use `stream: true` on request + bidirectional-EOF termination (either side closes write half → other flushes then closes); no multiplexing.** *New.* One streaming call per socket connection after its `system.hello`; keeps wire framing simple. If a client needs two streams, it opens two connections. The handshake lives in a dedicated `system.hello` first-frame RPC (not a per-request header), which is why the "fresh connection per invocation" property survives cleanly — every new connection pays exactly one `system.hello` round trip, pipelined with the real request.
 - **D11 — Per-connection bounded in-flight queue of 64; new requests wait up to 2s then return `IPCError.overloaded`. (Resolves architecture Open Q #5.)** *New.* Prevents an agent stuck in a loop from OOM'ing the app.
 - **D12 — The CLI does UUID-fast-path locally; everything else is one server round-trip before the mutation.** *New.* Latency tradeoff in favour of consistency; the round-trip cost (sub-millisecond on a local socket) is negligible.
@@ -615,7 +615,7 @@ Each namespace ships as its own binary; `tc` is a dispatcher.
   - *Mitigation:* all server methods emit `notFound` with exit 2 and a suggestion ("`tc pane list` shows IDs"); no attempt to fuzzy-match (silent corrections would be worse).
 - **R11 — Two `tc` invocations race on the same mutation (`tc worktree create` from two panes).** The app serialises `HierarchyManager` mutations on `@MainActor`, but a user could still observe out-of-order effects.
   - *Mitigation:* `@MainActor` serialisation is the guarantee; `HierarchyManager` methods are atomic from the client's perspective. Documentation flags "mutations are serialised per app instance; CLI calls land in arrival order".
-- **R12 — `tc rpc METHOD JSON` becomes a support burden.** Users invent their own workflows on top of undocumented methods.
-  - *Mitigation:* documented as unsupported for user consumption; each hit of an undocumented method bumps a counter surfaced via `system.status`. Breakage is acceptable on minor upgrades.
+- **R12 — Raw RPC access becomes a support burden.** Users invent workflows on top of undocumented methods.
+  - *Mitigation:* no public `tc rpc` command. Raw method calls remain an internal implementation detail and can change without CLI compatibility commitments.
 - **R13 — `tc hook edit` launches `$EDITOR` and the user's editor is misconfigured.** The command appears to hang.
   - *Mitigation:* pre-flight `$EDITOR`-exists check; fall back to `open -t` (macOS text handler); print the file path if both fail so the user can edit manually.

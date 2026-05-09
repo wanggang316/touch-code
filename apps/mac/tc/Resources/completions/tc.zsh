@@ -62,14 +62,13 @@ _tc() {
             'pane:List, create, focus, close, and label panes.'
             'send:Send text to a pane.'
             'broadcast:Send text to a tab, worktree, or label scope.'
-            'rpc:Low-level: call one raw RPC method.'
             'help:Show subcommand help information.'
         )
         _describe -V subcommand subcommands && ret=0
         ;;
     arg)
         case "${words[1]}" in
-        status|launch|doctor|completion|open|ls|project|worktree|tab|pane|send|broadcast|rpc|help)
+        status|launch|doctor|completion|open|ls|project|worktree|tab|pane|send|broadcast|help)
             "_tc_${words[1]}" && ret=0
             ;;
         esac
@@ -584,22 +583,6 @@ _tc_broadcast() {
         '*:text:'
         '--stdin[Read text from stdin.]'
         '--no-enter[Do not send trailing Enter after text.]'
-        '--version[Show the version.]'
-        '(-h --help)'{-h,--help}'[Show help information.]'
-    )
-    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
-
-    return "${ret}"
-}
-
-_tc_rpc() {
-    local -i ret=1
-    local -ar arg_specs=(
-        '--json[Emit JSON on stdout instead of human-readable text.]'
-        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
-        '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
-        ':method:'
-        ':params:'
         '--version[Show the version.]'
         '(-h --help)'{-h,--help}'[Show help information.]'
     )

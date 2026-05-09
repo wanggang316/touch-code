@@ -108,7 +108,7 @@ After this milestone, running the app once creates `~/.config/touch-code/master-
 Create `apps/mac/touch-code/App/Features/MasterTerminal/Resources/AGENTS.md.template`. Content has three sections, drafted concretely so M1 ships with usable text rather than a placeholder:
 
 1. **Mission** — a paragraph stating the session's role: "You are running inside touch-code's Master Terminal. You manage the user's pane fleet via the `tc` CLI."
-2. **`tc` quick reference** — flat list of the ten command groups documented at `apps/mac/tc/TouchCodeCLI.swift:15` (`system`, `project`, `tag`, `worktree`, `tab`, `pane`, `send`, `broadcast`, `open`, `rpc`) with their headline subcommands. One line per command.
+2. **`tc` quick reference** — flat list of the command groups documented at `apps/mac/tc/TouchCodeCLI.swift:15` (`status`, `launch`, `doctor`, `completion`, `open`, `ls`, `project`, `worktree`, `tab`, `pane`, `send`, `broadcast`) with their headline subcommands. One line per command.
 3. **Safety constraints** — three bullets, copied verbatim from `docs/design-docs/master-terminal.md` § Filesystem Layout.
 
 Create `apps/mac/touch-code/App/Features/MasterTerminal/MasterTerminalBootstrap.swift` exposing one entry point:
