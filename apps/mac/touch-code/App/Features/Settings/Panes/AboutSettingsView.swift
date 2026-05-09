@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// About detail pane. Reads every display string from `Bundle.main`'s Info.plist so there
@@ -8,9 +9,8 @@ import SwiftUI
 struct AboutSettingsView: View {
   var body: some View {
     VStack(alignment: .center, spacing: 12) {
-      Image(systemName: "terminal")
-        .font(.system(size: 48))
-        .foregroundStyle(.tint)
+      appIconView
+        .frame(width: 96, height: 96)
         .accessibilityHidden(true)
       Text(displayName).font(.title2.bold())
       if let versionLine = versionLine {
@@ -52,6 +52,22 @@ struct AboutSettingsView: View {
 
   private var copyright: String? {
     Bundle.main.object(forInfoDictionaryKey: "NSHumanReadableCopyright") as? String
+  }
+
+  /// Resolve the running app's icon. Falls back to a system glyph when the
+  /// bundle has no icon set (e.g., SwiftUI previews outside the app target).
+  @ViewBuilder
+  private var appIconView: some View {
+    if let icon = NSImage(named: NSImage.applicationIconName) {
+      Image(nsImage: icon)
+        .resizable()
+        .interpolation(.high)
+        .aspectRatio(contentMode: .fit)
+    } else {
+      Image(systemName: "terminal")
+        .font(.system(size: 48))
+        .foregroundStyle(.tint)
+    }
   }
 }
 
