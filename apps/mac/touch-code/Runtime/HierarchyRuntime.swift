@@ -9,6 +9,10 @@ protocol HierarchyRuntime: AnyObject {
   /// "terminate N running processes" confirmation (spec W-Q3).
   /// Default `false` keeps legacy consumers working without changes.
   func hasSurface(for paneID: PaneID) -> Bool
+  /// Returns the live shell-reported working directory for a pane, when
+  /// the terminal surface has reported one. Callers fall back to the
+  /// catalog's creation-time directory when this is unavailable.
+  func currentWorkingDirectory(for paneID: PaneID) -> String?
   /// Makes the pane's surface NSView the window's first responder.
   /// Distinct from `focusPane`/`settingZoomed` (catalog zoom flag) —
   /// this only flips AppKit responder-chain focus so keyboard input
@@ -19,5 +23,6 @@ protocol HierarchyRuntime: AnyObject {
 
 extension HierarchyRuntime {
   func hasSurface(for paneID: PaneID) -> Bool { false }
+  func currentWorkingDirectory(for paneID: PaneID) -> String? { nil }
   func focusSurfaceView(for paneID: PaneID) {}
 }

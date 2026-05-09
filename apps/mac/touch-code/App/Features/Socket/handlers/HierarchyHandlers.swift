@@ -399,7 +399,7 @@ final class HierarchyHandlers {
       return .failed(
         .invalidParams(message: "listProjects: pass at most one of {tag, untagged}", path: nil))
     }
-    let all = manager.catalog.projects
+    let all = overlayLivePaneDirectories(in: manager.catalog.projects)
     let filtered: [Project]
     if req.untagged == true {
       filtered = all.filter { $0.tagIDs.isEmpty }
@@ -563,7 +563,7 @@ final class HierarchyHandlers {
     else {
       return .failed(.notFound(kind: "project", id: req.projectID.description))
     }
-    let worktrees = project.worktrees
+    let worktrees = overlayLivePaneDirectories(in: project.worktrees)
     return await Self.encodeOffMain("listWorktrees") {
       try JSONValue.encoded(ListWorktreesPayload(worktrees: worktrees))
     }
@@ -588,7 +588,7 @@ final class HierarchyHandlers {
     else {
       return .failed(.notFound(kind: "worktree", id: req.worktreeID.description))
     }
-    let tabs = worktree.tabs
+    let tabs = overlayLivePaneDirectories(in: worktree.tabs)
     return await Self.encodeOffMain("listTabs") {
       try JSONValue.encoded(ListTabsPayload(tabs: tabs))
     }
@@ -615,9 +615,44 @@ final class HierarchyHandlers {
     else {
       return .failed(.notFound(kind: "tab", id: req.tabID.description))
     }
-    let panes = tab.panes
+    let panes = overlayLivePaneDirectories(in: tab.panes)
     return await Self.encodeOffMain("listPanes") {
       try JSONValue.encoded(ListPanesPayload(panes: panes))
+    }
+  }
+
+  private func overlayLivePaneDirectories(in projects: [Project]) -> [Project] {
+    projects.map { project in
+      var copy = project
+      copy.worktrees = overlayLivePaneDirectories(in: project.worktrees)
+      return copy
+    }
+  }
+
+  private func overlayLivePaneDirectories(in worktrees: [Worktree]) -> [Worktree] {
+    worktrees.map { worktree in
+      var copy = worktree
+      copy.tabs = overlayLivePaneDirectories(in: worktree.tabs)
+      return copy
+    }
+  }
+
+  private func overlayLivePaneDirectories(in tabs: [Tab]) -> [Tab] {
+    tabs.map { tab in
+      var copy = tab
+      copy.panes = overlayLivePaneDirectories(in: tab.panes)
+      return copy
+    }
+  }
+
+  private func overlayLivePaneDirectories(in panes: [Pane]) -> [Pane] {
+    panes.map { pane in
+      guard let cwd = manager.currentWorkingDirectory(for: pane.id) else {
+        return pane
+      }
+      var copy = pane
+      copy.workingDirectory = cwd
+      return copy
     }
   }
 

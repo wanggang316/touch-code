@@ -162,6 +162,13 @@ final class TerminalEngine {
     return runtime.surface(for: paneID) != nil
   }
 
+  func currentWorkingDirectory(for paneID: PaneID) -> String? {
+    guard let pwd = ghosttyRuntime?.surface(for: paneID)?.info.pwd,
+      !pwd.isEmpty
+    else { return nil }
+    return pwd
+  }
+
   /// Make the pane's `GhosttySurfaceView` the first responder of its
   /// window. Used for `Cmd+D` new-split focus and post-close focus
   /// transfer.

@@ -18,6 +18,7 @@ final class FakeHierarchyRuntime: HierarchyRuntime {
   /// calling the System Under Test; `hasSurface(for:)` returns `true`
   /// iff the pane is present.
   var livePaneIDs: Set<PaneID> = []
+  var currentWorkingDirectories: [PaneID: String] = [:]
 
   func ensureSurface(for pane: Pane, in worktree: Worktree, env: [String: String]) throws {
     ensureSurfaceCalls.append(
@@ -35,6 +36,10 @@ final class FakeHierarchyRuntime: HierarchyRuntime {
     livePaneIDs.contains(paneID)
   }
 
+  func currentWorkingDirectory(for paneID: PaneID) -> String? {
+    currentWorkingDirectories[paneID]
+  }
+
   func focusSurfaceView(for paneID: PaneID) {
     focusSurfaceViewCalls.append(paneID)
   }
@@ -44,5 +49,6 @@ final class FakeHierarchyRuntime: HierarchyRuntime {
     closeSurfaceCalls.removeAll()
     focusSurfaceViewCalls.removeAll()
     livePaneIDs.removeAll()
+    currentWorkingDirectories.removeAll()
   }
 }

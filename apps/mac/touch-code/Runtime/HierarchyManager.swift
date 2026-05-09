@@ -1019,6 +1019,10 @@ final class HierarchyManager {
     lastFocusedPaneByTab[tabID]
   }
 
+  func currentWorkingDirectory(for paneID: PaneID) -> String? {
+    runtime.currentWorkingDirectory(for: paneID)
+  }
+
   /// Marks `paneID` as running a tracked command. No caller wired today
   /// — lands with C3 hooks. Idempotent.
   func markPaneRunning(_ paneID: PaneID) {

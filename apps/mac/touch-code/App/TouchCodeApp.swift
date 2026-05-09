@@ -725,6 +725,10 @@ final class GhosttyBackedHierarchyRuntime: HierarchyRuntime {
     engine?.hasSurface(for: paneID) ?? false
   }
 
+  func currentWorkingDirectory(for paneID: PaneID) -> String? {
+    engine?.currentWorkingDirectory(for: paneID)
+  }
+
   func focusSurfaceView(for paneID: PaneID) {
     engine?.focusSurfaceView(for: paneID)
   }
