@@ -20,6 +20,46 @@ and the project does not yet follow semantic versioning — every release until
 
 ### Security
 
+## [0.1.6] - 2026-05-10
+
+### Added
+
+- **Updates pane with channel selection.** New Settings → Updates view
+  backed by Sparkle, with a stable/tip channel picker and
+  auto-check/download toggles persisted across launches. Menu bar gains
+  an Update Channel submenu for quick switching.
+- **`tc read` command** prints the visible terminal buffer of a pane to
+  stdout.
+- **App icon in About window** replaces the generic terminal glyph.
+- **Unfocused pane dim now mirrors Ghostty's `unfocused-split`
+  appearance** for visual consistency.
+
+### Changed
+
+- **`tc` CLI surface redesigned.** `rpc` subcommand removed, `ls`
+  renamed to `tree`, completions hidden, and output hierarchy aligned
+  with the Prowl convention.
+- **DMG install arrow redrawn as a chevron** to match macOS convention.
+
+### Fixed
+
+- **IPC socket responses no longer truncate on macOS 26.** Clear
+  `O_NONBLOCK` on accepted client fds, defer connect to first send to
+  dodge the EPIPE quirk, and set `SO_NOSIGPIPE` so write errors surface
+  correctly.
+- **Tab-bar trailing accessory buttons now show chord hints on hover.**
+- **Settings scene receives `CommandKeyObserver`** — opening Updates no
+  longer crashes.
+- **Pane cursor follows focus on `gotoSplit` navigation** instead of
+  lagging behind.
+- **`tc tree` / `tc focus` show live working-directory paths** from the
+  running Ghostty surface instead of stale state.
+- **Archived worktrees hidden from `tc tree` output.**
+- **Worktree display-name editing preserves user input** instead of
+  reverting to the directory name.
+- **DMG volume icon corners rounded with squircle mask.**
+- **Appcast feed URL hidden in release builds of the Updates pane.**
+
 ## [0.1.5] - 2026-05-07
 
 ### Added
