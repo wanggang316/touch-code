@@ -47,25 +47,28 @@ struct LaunchCommand: AsyncParsableCommand {
     abstract: "Start touch-code and wait for its command socket."
   )
 
-  @OptionGroup var globals: GlobalOptions
+  @Flag(name: .long, help: "Emit JSON on stdout instead of human-readable text.")
+  var json: Bool = false
   @Option(name: .long, help: "Seconds to wait for the socket after launching.")
   var wait: Double = 10
-  @Option(name: .long, help: "Bundle name to pass to `open -ga`.")
-  var app: String = "TouchCode"
+
+  private var renderMode: RenderMode {
+    json ? .json : .text(useColor: true)
+  }
 
   func run() async throws {
     await CommandRunner.run {
-      let path = globals.resolvedSocketPath
+      let path = SocketDiscovery.resolve()
       if SocketDiscovery.isReachable(path: path) {
         try Renderer.emitObject(
           ["path": path, "alreadyRunning": true],
-          mode: globals.renderMode,
+          mode: renderMode,
           textRender: { _ in "already running at \(path)" }
         )
         return
       }
 
-      let launch = Self.launchArguments(app: app)
+      let launch = Self.launchArguments()
       let process = Process()
       process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
       process.arguments = launch.arguments
@@ -78,8 +81,7 @@ struct LaunchCommand: AsyncParsableCommand {
       guard process.terminationStatus == 0 else {
         throw CLIError(
           code: .launchTimeout,
-          message:
-            "\(launch.description) exited with status \(process.terminationStatus); pass --app if your app bundle has a different name"
+          message: "\(launch.description) exited with status \(process.terminationStatus)"
         )
       }
 
@@ -88,7 +90,7 @@ struct LaunchCommand: AsyncParsableCommand {
         if SocketDiscovery.isReachable(path: path) {
           try Renderer.emitObject(
             ["path": path, "alreadyRunning": false],
-            mode: globals.renderMode,
+            mode: renderMode,
             textRender: { _ in "launched; socket up at \(path)" }
           )
           return
@@ -102,11 +104,11 @@ struct LaunchCommand: AsyncParsableCommand {
     }
   }
 
-  private static func launchArguments(app: String) -> (arguments: [String], description: String) {
-    if app == "TouchCode", let appPath = coBuiltAppPath() {
+  private static func launchArguments() -> (arguments: [String], description: String) {
+    if let appPath = coBuiltAppPath() {
       return (["-g", appPath], "open -g \(appPath)")
     }
-    return (["-ga", app], "open -ga \(app)")
+    return (["-ga", "TouchCode"], "open -ga TouchCode")
   }
 
   private static func coBuiltAppPath() -> String? {

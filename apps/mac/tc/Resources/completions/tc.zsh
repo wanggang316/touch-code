@@ -53,13 +53,11 @@ _tc() {
             'status:Show the running touch-code app status.'
             'launch:Start touch-code and wait for its command socket.'
             'doctor:Check local CLI configuration and app reachability.'
-            'open:Open a directory in an external editor (or terminal / git client / Finder).'
             'tree:List projects, worktrees, tabs, and panes.'
-            'project:List, create, and remove projects.'
-            'worktree:List, create, switch, and remove worktrees.'
-            'tab:List, create, switch, and close tabs.'
-            'pane:List, create, focus, close, and label panes.'
-            'send:Send text to a pane.'
+            'project:Create and remove projects.'
+            'worktree:Create, switch, and remove worktrees.'
+            'tab:Create, switch, and close tabs.'
+            'pane:Create, focus, close, label, read, and send panes.'
             'broadcast:Send text to a tab, worktree, or label scope.'
             'help:Show subcommand help information.'
         )
@@ -67,7 +65,7 @@ _tc() {
         ;;
     arg)
         case "${words[1]}" in
-        status|launch|doctor|open|tree|project|worktree|tab|pane|send|broadcast|help)
+        status|launch|doctor|tree|project|worktree|tab|pane|broadcast|help)
             "_tc_${words[1]}" && ret=0
             ;;
         esac
@@ -95,10 +93,7 @@ _tc_launch() {
     local -i ret=1
     local -ar arg_specs=(
         '--json[Emit JSON on stdout instead of human-readable text.]'
-        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
-        '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
         '--wait[Seconds to wait for the socket after launching.]:wait:'
-        '--app[Bundle name to pass to `open -ga`.]:app:'
         '--version[Show the version.]'
         '(-h --help)'{-h,--help}'[Show help information.]'
     )
@@ -113,22 +108,6 @@ _tc_doctor() {
         '--json[Emit JSON on stdout instead of human-readable text.]'
         '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
         '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
-        '--version[Show the version.]'
-        '(-h --help)'{-h,--help}'[Show help information.]'
-    )
-    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
-
-    return "${ret}"
-}
-
-_tc_open() {
-    local -i ret=1
-    local -ar arg_specs=(
-        '--json[Emit JSON on stdout instead of human-readable text.]'
-        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
-        '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
-        '--in[Editor id (e.g. cursor, zed, vscode, xcode, finder, ghostty). Omit to use per-Project / Settings defaults.]:in:'
-        ':path:'
         '--version[Show the version.]'
         '(-h --help)'{-h,--help}'[Show help information.]'
     )
@@ -164,7 +143,6 @@ _tc_project() {
     case "${state}" in
     command)
         local -ar subcommands=(
-            'list:List projects.'
             'add:Add an existing directory as a project.'
             'rm:Remove a project from touch-code.'
         )
@@ -172,26 +150,12 @@ _tc_project() {
         ;;
     arg)
         case "${words[1]}" in
-        list|add|rm)
+        add|rm)
             "_tc_project_${words[1]}" && ret=0
             ;;
         esac
         ;;
     esac
-
-    return "${ret}"
-}
-
-_tc_project_list() {
-    local -i ret=1
-    local -ar arg_specs=(
-        '--json[Emit JSON on stdout instead of human-readable text.]'
-        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
-        '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
-        '--version[Show the version.]'
-        '(-h --help)'{-h,--help}'[Show help information.]'
-    )
-    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
 
     return "${ret}"
 }
@@ -239,7 +203,6 @@ _tc_worktree() {
     case "${state}" in
     command)
         local -ar subcommands=(
-            'list:List worktrees for a project.'
             'new:Create a worktree entry.'
             'switch:Activate a worktree.'
             'rm:Remove a worktree entry.'
@@ -248,27 +211,12 @@ _tc_worktree() {
         ;;
     arg)
         case "${words[1]}" in
-        list|new|switch|rm)
+        new|switch|rm)
             "_tc_worktree_${words[1]}" && ret=0
             ;;
         esac
         ;;
     esac
-
-    return "${ret}"
-}
-
-_tc_worktree_list() {
-    local -i ret=1
-    local -ar arg_specs=(
-        '--json[Emit JSON on stdout instead of human-readable text.]'
-        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
-        '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
-        '--project[Project id, name, or '\''current'\''.]:project:'
-        '--version[Show the version.]'
-        '(-h --help)'{-h,--help}'[Show help information.]'
-    )
-    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
 
     return "${ret}"
 }
@@ -334,7 +282,6 @@ _tc_tab() {
     case "${state}" in
     command)
         local -ar subcommands=(
-            'list:List tabs for a worktree.'
             'new:Create a tab.'
             'switch:Activate a tab.'
             'close:Close a tab.'
@@ -343,28 +290,12 @@ _tc_tab() {
         ;;
     arg)
         case "${words[1]}" in
-        list|new|switch|close)
+        new|switch|close)
             "_tc_tab_${words[1]}" && ret=0
             ;;
         esac
         ;;
     esac
-
-    return "${ret}"
-}
-
-_tc_tab_list() {
-    local -i ret=1
-    local -ar arg_specs=(
-        '--json[Emit JSON on stdout instead of human-readable text.]'
-        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
-        '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
-        '--project[Project id, name, or '\''current'\''.]:project:'
-        '--worktree[Worktree id or '\''current'\''.]:worktree:'
-        '--version[Show the version.]'
-        '(-h --help)'{-h,--help}'[Show help information.]'
-    )
-    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
 
     return "${ret}"
 }
@@ -430,39 +361,23 @@ _tc_pane() {
     case "${state}" in
     command)
         local -ar subcommands=(
-            'list:List panes for a tab.'
             'new:Create a pane, optionally with an initial command.'
             'focus:Focus a pane.'
             'close:Close a pane.'
             'label:Add labels to a pane.'
+            'send:Send text to a pane.'
+            'read:Read text from a pane.'
         )
         _describe -V subcommand subcommands && ret=0
         ;;
     arg)
         case "${words[1]}" in
-        list|new|focus|close|label)
+        new|focus|close|label|send|read)
             "_tc_pane_${words[1]}" && ret=0
             ;;
         esac
         ;;
     esac
-
-    return "${ret}"
-}
-
-_tc_pane_list() {
-    local -i ret=1
-    local -ar arg_specs=(
-        '--json[Emit JSON on stdout instead of human-readable text.]'
-        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
-        '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
-        '--project[Project id, name, or '\''current'\''.]:project:'
-        '--worktree[Worktree id or '\''current'\''.]:worktree:'
-        '--tab[Tab id or '\''current'\''.]:tab:'
-        '--version[Show the version.]'
-        '(-h --help)'{-h,--help}'[Show help information.]'
-    )
-    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
 
     return "${ret}"
 }
@@ -540,7 +455,7 @@ _tc_pane_label() {
     return "${ret}"
 }
 
-_tc_send() {
+_tc_pane_send() {
     local -i ret=1
     local -ar arg_specs=(
         '--json[Emit JSON on stdout instead of human-readable text.]'
@@ -550,6 +465,24 @@ _tc_send() {
         '*:arguments:'
         '--stdin[Read text from stdin.]'
         '--no-enter[Do not send trailing Enter after text.]'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_tc_pane_read() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--json[Emit JSON on stdout instead of human-readable text.]'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
+        ':pane:'
+        '--extent[Text extent to read\: viewport, screen, or selection.]:extent:'
+        '--screen[Shortcut for --extent screen.]'
+        '--selection[Shortcut for --extent selection.]'
         '--version[Show the version.]'
         '(-h --help)'{-h,--help}'[Show help information.]'
     )

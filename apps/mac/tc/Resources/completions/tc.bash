@@ -173,13 +173,13 @@ _tc() {
     unset 'unparsed_words[0]'
     unparsed_words=("${unparsed_words[@]}")
     case "${subcommand}" in
-    status|launch|doctor|open|tree|project|worktree|tab|pane|send|broadcast|help)
+    status|launch|doctor|tree|project|worktree|tab|pane|broadcast|help)
         # Offer subcommand argument completions
         "_tc_${subcommand}"
         ;;
     *)
         # Offer subcommand completions
-        COMPREPLY+=($(compgen -W 'status launch doctor open tree project worktree tab pane send broadcast help' -- "${cur}"))
+        COMPREPLY+=($(compgen -W 'status launch doctor tree project worktree tab pane broadcast help' -- "${cur}"))
         ;;
     esac
 }
@@ -206,21 +206,12 @@ _tc_launch() {
     repeating_flags=()
     non_repeating_flags=(--json --version -h --help)
     repeating_options=()
-    non_repeating_options=(--socket --timeout --wait --app)
+    non_repeating_options=(--wait)
     __tc_offer_flags_options 0
 
     # Offer option value completions
     case "${prev}" in
-    '--socket')
-        return
-        ;;
-    '--timeout')
-        return
-        ;;
     '--wait')
-        return
-        ;;
-    '--app')
         return
         ;;
     esac
@@ -239,27 +230,6 @@ _tc_doctor() {
         return
         ;;
     '--timeout')
-        return
-        ;;
-    esac
-}
-
-_tc_open() {
-    repeating_flags=()
-    non_repeating_flags=(--json --version -h --help)
-    repeating_options=()
-    non_repeating_options=(--socket --timeout --in)
-    __tc_offer_flags_options 1
-
-    # Offer option value completions
-    case "${prev}" in
-    '--socket')
-        return
-        ;;
-    '--timeout')
-        return
-        ;;
-    '--in')
         return
         ;;
     esac
@@ -298,31 +268,13 @@ _tc_project() {
     unset 'unparsed_words[0]'
     unparsed_words=("${unparsed_words[@]}")
     case "${subcommand}" in
-    list|add|rm)
+    add|rm)
         # Offer subcommand argument completions
         "_tc_project_${subcommand}"
         ;;
     *)
         # Offer subcommand completions
-        COMPREPLY+=($(compgen -W 'list add rm' -- "${cur}"))
-        ;;
-    esac
-}
-
-_tc_project_list() {
-    repeating_flags=()
-    non_repeating_flags=(--json --version -h --help)
-    repeating_options=()
-    non_repeating_options=(--socket --timeout)
-    __tc_offer_flags_options 0
-
-    # Offer option value completions
-    case "${prev}" in
-    '--socket')
-        return
-        ;;
-    '--timeout')
-        return
+        COMPREPLY+=($(compgen -W 'add rm' -- "${cur}"))
         ;;
     esac
 }
@@ -378,34 +330,13 @@ _tc_worktree() {
     unset 'unparsed_words[0]'
     unparsed_words=("${unparsed_words[@]}")
     case "${subcommand}" in
-    list|new|switch|rm)
+    new|switch|rm)
         # Offer subcommand argument completions
         "_tc_worktree_${subcommand}"
         ;;
     *)
         # Offer subcommand completions
-        COMPREPLY+=($(compgen -W 'list new switch rm' -- "${cur}"))
-        ;;
-    esac
-}
-
-_tc_worktree_list() {
-    repeating_flags=()
-    non_repeating_flags=(--json --version -h --help)
-    repeating_options=()
-    non_repeating_options=(--socket --timeout --project)
-    __tc_offer_flags_options 0
-
-    # Offer option value completions
-    case "${prev}" in
-    '--socket')
-        return
-        ;;
-    '--timeout')
-        return
-        ;;
-    '--project')
-        return
+        COMPREPLY+=($(compgen -W 'new switch rm' -- "${cur}"))
         ;;
     esac
 }
@@ -488,37 +419,13 @@ _tc_tab() {
     unset 'unparsed_words[0]'
     unparsed_words=("${unparsed_words[@]}")
     case "${subcommand}" in
-    list|new|switch|close)
+    new|switch|close)
         # Offer subcommand argument completions
         "_tc_tab_${subcommand}"
         ;;
     *)
         # Offer subcommand completions
-        COMPREPLY+=($(compgen -W 'list new switch close' -- "${cur}"))
-        ;;
-    esac
-}
-
-_tc_tab_list() {
-    repeating_flags=()
-    non_repeating_flags=(--json --version -h --help)
-    repeating_options=()
-    non_repeating_options=(--socket --timeout --project --worktree)
-    __tc_offer_flags_options 0
-
-    # Offer option value completions
-    case "${prev}" in
-    '--socket')
-        return
-        ;;
-    '--timeout')
-        return
-        ;;
-    '--project')
-        return
-        ;;
-    '--worktree')
-        return
+        COMPREPLY+=($(compgen -W 'new switch close' -- "${cur}"))
         ;;
     esac
 }
@@ -601,40 +508,13 @@ _tc_pane() {
     unset 'unparsed_words[0]'
     unparsed_words=("${unparsed_words[@]}")
     case "${subcommand}" in
-    list|new|focus|close|label)
+    new|focus|close|label|send|read)
         # Offer subcommand argument completions
         "_tc_pane_${subcommand}"
         ;;
     *)
         # Offer subcommand completions
-        COMPREPLY+=($(compgen -W 'list new focus close label' -- "${cur}"))
-        ;;
-    esac
-}
-
-_tc_pane_list() {
-    repeating_flags=()
-    non_repeating_flags=(--json --version -h --help)
-    repeating_options=()
-    non_repeating_options=(--socket --timeout --project --worktree --tab)
-    __tc_offer_flags_options 0
-
-    # Offer option value completions
-    case "${prev}" in
-    '--socket')
-        return
-        ;;
-    '--timeout')
-        return
-        ;;
-    '--project')
-        return
-        ;;
-    '--worktree')
-        return
-        ;;
-    '--tab')
-        return
+        COMPREPLY+=($(compgen -W 'new focus close label send read' -- "${cur}"))
         ;;
     esac
 }
@@ -744,7 +624,7 @@ _tc_pane_label() {
     esac
 }
 
-_tc_send() {
+_tc_pane_send() {
     repeating_flags=()
     non_repeating_flags=(--json --stdin --no-enter --version -h --help)
     repeating_options=()
@@ -760,6 +640,27 @@ _tc_send() {
         return
         ;;
     '-p'|'--pane')
+        return
+        ;;
+    esac
+}
+
+_tc_pane_read() {
+    repeating_flags=()
+    non_repeating_flags=(--json --screen --selection --version -h --help)
+    repeating_options=()
+    non_repeating_options=(--socket --timeout --extent)
+    __tc_offer_flags_options 1
+
+    # Offer option value completions
+    case "${prev}" in
+    '--socket')
+        return
+        ;;
+    '--timeout')
+        return
+        ;;
+    '--extent')
         return
         ;;
     esac
