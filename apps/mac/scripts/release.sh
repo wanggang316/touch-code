@@ -115,6 +115,8 @@ resolve_team_id() {
 # ----- archive subcommand -------------------------------------------------
 
 cmd_archive() {
+  "${script_dir}/sync-product-version.sh" --check
+
   log "archiving ${scheme} (Release)"
   rm -rf "${archive_path}" "${export_dir}"
   mkdir -p "${release_dir}" "${export_dir}"

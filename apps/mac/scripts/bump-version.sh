@@ -5,7 +5,9 @@
 #
 # This is the single source of truth the release CI checks against
 # (.github/workflows/release.yml verifies tag vX.Y.Z matches
-# MARKETING_VERSION before building).
+# MARKETING_VERSION before building). After this file is updated,
+# sync-product-version.sh projects MARKETING_VERSION into the co-versioned
+# CLI and Agent Skill metadata.
 #
 # Build-number scheme: today's date as YYYYMMDD for the first release of
 # the day; same-day re-releases append an incrementing sequence digit.
@@ -164,6 +166,7 @@ cmd_bump() {
 
   mv "$tmp" "$xcconfig"
   log "wrote $xcconfig"
+  "${script_dir}/sync-product-version.sh"
 }
 
 main() {
