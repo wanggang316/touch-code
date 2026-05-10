@@ -51,7 +51,10 @@ struct GlobalOptions: ParsableArguments {
   var json: Bool = false
 
   @Option(
-    name: .long, help: "Override the socket path (default: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).")
+    name: .long,
+    help:
+      "Override the socket path (default: $TOUCH_CODE_SOCKET_PATH → Debug /tmp/touch-code-dev-<uid>.sock, Release /tmp/touch-code-<uid>.sock)."
+  )
   var socket: String?
 
   @Option(name: .long, help: "Client-side timeout in seconds for a single unary call.")

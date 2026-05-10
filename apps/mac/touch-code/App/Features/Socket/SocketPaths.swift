@@ -6,10 +6,25 @@ import Foundation
 /// Centralises the default-path-vs-env-override precedence so both the
 /// app-side `SocketServer` and the CLI-side `SocketDiscovery` (M4) agree on
 /// exactly one place. No inline `getuid()` calls elsewhere.
-public enum SocketPaths {
-  /// `/tmp/touch-code-<uid>.sock` — the canonical default.
-  public static func defaultSocketPath(uid: uid_t = getuid()) -> String {
+public nonisolated enum SocketPaths {
+  /// `/tmp/touch-code-<uid>.sock` — the production default.
+  public static func productionSocketPath(uid: uid_t = getuid()) -> String {
     "/tmp/touch-code-\(uid).sock"
+  }
+
+  /// `/tmp/touch-code-dev-<uid>.sock` — the Debug/development default.
+  public static func developmentSocketPath(uid: uid_t = getuid()) -> String {
+    "/tmp/touch-code-dev-\(uid).sock"
+  }
+
+  /// Build-channel-aware default. Debug builds use the development socket;
+  /// Release builds use the production socket.
+  public static func defaultSocketPath(uid: uid_t = getuid()) -> String {
+    #if DEBUG
+      developmentSocketPath(uid: uid)
+    #else
+      productionSocketPath(uid: uid)
+    #endif
   }
 
   /// Resolve the socket path, preferring `$TOUCH_CODE_SOCKET_PATH` if set

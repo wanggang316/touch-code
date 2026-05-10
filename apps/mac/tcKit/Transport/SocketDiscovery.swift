@@ -2,12 +2,25 @@ import Darwin
 import Foundation
 
 /// Resolve the touch-code Unix socket path. Env override wins; default is
-/// `/tmp/touch-code-<uid>.sock`. Mirrors the app-side `SocketPaths` helper
-/// — kept in lockstep via the shared convention documented in plan 0003
-/// DEC-3 and the M3.0.1 hardening commit.
+/// build-channel aware. Debug builds use `/tmp/touch-code-dev-<uid>.sock`;
+/// Release builds use `/tmp/touch-code-<uid>.sock`. Mirrors the app-side
+/// `SocketPaths` helper — kept in lockstep via the shared convention
+/// documented in plan 0003 DEC-3 and the M3.0.1 hardening commit.
 public enum SocketDiscovery {
-  public static func defaultSocketPath(uid: uid_t = getuid()) -> String {
+  public static func productionSocketPath(uid: uid_t = getuid()) -> String {
     "/tmp/touch-code-\(uid).sock"
+  }
+
+  public static func developmentSocketPath(uid: uid_t = getuid()) -> String {
+    "/tmp/touch-code-dev-\(uid).sock"
+  }
+
+  public static func defaultSocketPath(uid: uid_t = getuid()) -> String {
+    #if DEBUG
+      developmentSocketPath(uid: uid)
+    #else
+      productionSocketPath(uid: uid)
+    #endif
   }
 
   public static func resolve(

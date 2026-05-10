@@ -132,13 +132,13 @@ Rationale: agent-heavy panes produce thousands of output events per second; rout
 
 ### IPC
 
-- **Transport:** Unix domain socket, one per running app instance, at `/tmp/touch-code-$UID.sock` by default; overridable via `TOUCH_CODE_SOCKET_PATH`
+- **Transport:** Unix domain socket, one per running app instance. Release builds default to `/tmp/touch-code-$UID.sock`; Debug builds default to `/tmp/touch-code-dev-$UID.sock`; both are overridable via `TOUCH_CODE_SOCKET_PATH`
 - **Wire protocol:** length-prefixed JSON envelopes. Framing: `\n`-terminated length header followed by the JSON body. Envelope shapes defined in `TouchCodeIPC/Protocol.swift`:
   - Request: `{"id": "uuid", "method": "terminal.open_panel", "params": {...}}`
   - Success: `{"id": "uuid", "result": {...}}`
   - Error: `{"id": "uuid", "error": {"code": Int, "message": "…"}}`
 - **Methods:** namespaced (`terminal.*`, `hierarchy.*`, `git.*`, `skill.*`, `system.*`)
-- **Discovery in `apps/cli`:** env var `TOUCH_CODE_SOCKET_PATH` → default path probe → (optional) launch app and wait up to 10s
+- **Discovery in `apps/cli`:** env var `TOUCH_CODE_SOCKET_PATH` → build-channel default path probe → (optional) launch app and wait up to 10s
 - **Context pane id:** the app sets `TOUCH_CODE_PANE_ID` in each Pane's environment so `tc` commands run inside a Pane can default to that Pane's UUID without an explicit flag (mirrors `SUPATERM_PANE_ID`)
 
 ### URL scheme

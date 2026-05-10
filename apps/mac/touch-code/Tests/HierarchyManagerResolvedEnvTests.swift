@@ -24,7 +24,9 @@ struct HierarchyManagerResolvedEnvTests {
     var settings = Settings.default
     settings.projects[pid] = ProjectSettings()
     let resolved = HierarchyManager.resolvedEnv(for: pid, in: settings)
-    #expect(resolved == Self.expectedInheritedEnv())
+    var expected = Self.expectedInheritedEnv()
+    expected["TOUCH_CODE_SOCKET_PATH"] = SocketPaths.resolve()
+    #expect(resolved == expected)
   }
 
   @Test
@@ -72,6 +74,17 @@ struct HierarchyManagerResolvedEnvTests {
   func unknownProjectIDReturnsProcessEnvMinusTerminalVars() {
     let pid = ProjectID()  // not in settings.projects
     let resolved = HierarchyManager.resolvedEnv(for: pid, in: .default)
-    #expect(resolved == Self.expectedInheritedEnv())
+    var expected = Self.expectedInheritedEnv()
+    expected["TOUCH_CODE_SOCKET_PATH"] = SocketPaths.resolve()
+    #expect(resolved == expected)
+  }
+
+  @Test
+  func socketPathIsInjectedAfterProjectOverrides() {
+    let pid = ProjectID()
+    var settings = Settings.default
+    settings.projects[pid] = ProjectSettings(envVars: ["TOUCH_CODE_SOCKET_PATH": "/tmp/wrong.sock"])
+    let resolved = HierarchyManager.resolvedEnv(for: pid, in: settings)
+    #expect(resolved["TOUCH_CODE_SOCKET_PATH"] == SocketPaths.resolve())
   }
 }

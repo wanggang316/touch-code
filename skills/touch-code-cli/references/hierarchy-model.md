@@ -51,8 +51,9 @@ was issued from, so most invocations can omit the target argument:
 - `TOUCH_CODE_TAB_ID` — UUID of the enclosing Tab.
 - `TOUCH_CODE_WORKTREE_ID` — UUID of the enclosing Worktree.
 
-`TOUCH_CODE_SOCKET_PATH` is also set so the CLI reaches the running app. Do not override
-these manually — touch-code sets them before handing the Pane to the user's shell.
+`TOUCH_CODE_SOCKET_PATH` is also set so the CLI reaches the running app. Debug builds use
+`/tmp/touch-code-dev-$UID.sock` by default; Release builds use `/tmp/touch-code-$UID.sock`.
+Do not override these manually — touch-code sets them before handing the Pane to the user's shell.
 
 ## Selector forms
 

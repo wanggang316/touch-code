@@ -1621,6 +1621,7 @@ final class HierarchyManager {
         env[key] = value
       }
     }
+    env["TOUCH_CODE_SOCKET_PATH"] = SocketPaths.resolve()
     return env
   }
 

@@ -79,7 +79,7 @@ _tc_status() {
     local -i ret=1
     local -ar arg_specs=(
         '--json[Emit JSON on stdout instead of human-readable text.]'
-        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → Debug /tmp/touch-code-dev-<uid>.sock, Release /tmp/touch-code-<uid>.sock).]:socket:'
         '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
         '--version[Show the version.]'
         '(-h --help)'{-h,--help}'[Show help information.]'
@@ -106,7 +106,7 @@ _tc_doctor() {
     local -i ret=1
     local -ar arg_specs=(
         '--json[Emit JSON on stdout instead of human-readable text.]'
-        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → Debug /tmp/touch-code-dev-<uid>.sock, Release /tmp/touch-code-<uid>.sock).]:socket:'
         '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
         '--version[Show the version.]'
         '(-h --help)'{-h,--help}'[Show help information.]'
@@ -120,7 +120,7 @@ _tc_tree() {
     local -i ret=1
     local -ar arg_specs=(
         '--json[Emit JSON on stdout instead of human-readable text.]'
-        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → Debug /tmp/touch-code-dev-<uid>.sock, Release /tmp/touch-code-<uid>.sock).]:socket:'
         '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
         '--project[Restrict output to one project id, name, or '\''current'\''.]:project:'
         '--version[Show the version.]'
@@ -164,7 +164,7 @@ _tc_project_add() {
     local -i ret=1
     local -ar arg_specs=(
         '--json[Emit JSON on stdout instead of human-readable text.]'
-        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → Debug /tmp/touch-code-dev-<uid>.sock, Release /tmp/touch-code-<uid>.sock).]:socket:'
         '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
         ':path:'
         '--name[Display name. Defaults to the directory name.]:name:'
@@ -180,7 +180,7 @@ _tc_project_rm() {
     local -i ret=1
     local -ar arg_specs=(
         '--json[Emit JSON on stdout instead of human-readable text.]'
-        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → Debug /tmp/touch-code-dev-<uid>.sock, Release /tmp/touch-code-<uid>.sock).]:socket:'
         '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
         ':project:'
         '--version[Show the version.]'
@@ -225,7 +225,7 @@ _tc_worktree_new() {
     local -i ret=1
     local -ar arg_specs=(
         '--json[Emit JSON on stdout instead of human-readable text.]'
-        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → Debug /tmp/touch-code-dev-<uid>.sock, Release /tmp/touch-code-<uid>.sock).]:socket:'
         '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
         ':branch:'
         '--project[Project id, name, or '\''current'\''.]:project:'
@@ -243,7 +243,7 @@ _tc_worktree_switch() {
     local -i ret=1
     local -ar arg_specs=(
         '--json[Emit JSON on stdout instead of human-readable text.]'
-        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → Debug /tmp/touch-code-dev-<uid>.sock, Release /tmp/touch-code-<uid>.sock).]:socket:'
         '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
         ':worktree:'
         '--version[Show the version.]'
@@ -258,7 +258,7 @@ _tc_worktree_rm() {
     local -i ret=1
     local -ar arg_specs=(
         '--json[Emit JSON on stdout instead of human-readable text.]'
-        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → Debug /tmp/touch-code-dev-<uid>.sock, Release /tmp/touch-code-<uid>.sock).]:socket:'
         '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
         ':worktree:'
         '--project[Project id, name, or '\''current'\''.]:project:'
@@ -304,7 +304,7 @@ _tc_tab_new() {
     local -i ret=1
     local -ar arg_specs=(
         '--json[Emit JSON on stdout instead of human-readable text.]'
-        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → Debug /tmp/touch-code-dev-<uid>.sock, Release /tmp/touch-code-<uid>.sock).]:socket:'
         '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
         ':name:'
         '--project[Project id, name, or '\''current'\''.]:project:'
@@ -321,7 +321,7 @@ _tc_tab_switch() {
     local -i ret=1
     local -ar arg_specs=(
         '--json[Emit JSON on stdout instead of human-readable text.]'
-        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → Debug /tmp/touch-code-dev-<uid>.sock, Release /tmp/touch-code-<uid>.sock).]:socket:'
         '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
         ':tab:'
         '--version[Show the version.]'
@@ -336,7 +336,7 @@ _tc_tab_close() {
     local -i ret=1
     local -ar arg_specs=(
         '--json[Emit JSON on stdout instead of human-readable text.]'
-        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → Debug /tmp/touch-code-dev-<uid>.sock, Release /tmp/touch-code-<uid>.sock).]:socket:'
         '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
         ':tab:'
         '--project[Project id, name, or '\''current'\''.]:project:'
@@ -386,7 +386,7 @@ _tc_pane_new() {
     local -i ret=1
     local -ar arg_specs=(
         '--json[Emit JSON on stdout instead of human-readable text.]'
-        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → Debug /tmp/touch-code-dev-<uid>.sock, Release /tmp/touch-code-<uid>.sock).]:socket:'
         '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
         '*:command:'
         '--project[Project id, name, or '\''current'\''.]:project:'
@@ -406,7 +406,7 @@ _tc_pane_focus() {
     local -i ret=1
     local -ar arg_specs=(
         '--json[Emit JSON on stdout instead of human-readable text.]'
-        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → Debug /tmp/touch-code-dev-<uid>.sock, Release /tmp/touch-code-<uid>.sock).]:socket:'
         '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
         ':pane:'
         '--project[Project id, name, or '\''current'\''. Usually inferred from the pane id.]:project:'
@@ -424,7 +424,7 @@ _tc_pane_close() {
     local -i ret=1
     local -ar arg_specs=(
         '--json[Emit JSON on stdout instead of human-readable text.]'
-        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → Debug /tmp/touch-code-dev-<uid>.sock, Release /tmp/touch-code-<uid>.sock).]:socket:'
         '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
         ':pane:'
         '--project[Project id, name, or '\''current'\''. Usually inferred from the pane id.]:project:'
@@ -442,7 +442,7 @@ _tc_pane_label() {
     local -i ret=1
     local -ar arg_specs=(
         '--json[Emit JSON on stdout instead of human-readable text.]'
-        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → Debug /tmp/touch-code-dev-<uid>.sock, Release /tmp/touch-code-<uid>.sock).]:socket:'
         '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
         ':pane:'
         '*:labels:'
@@ -459,7 +459,7 @@ _tc_pane_send() {
     local -i ret=1
     local -ar arg_specs=(
         '--json[Emit JSON on stdout instead of human-readable text.]'
-        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → Debug /tmp/touch-code-dev-<uid>.sock, Release /tmp/touch-code-<uid>.sock).]:socket:'
         '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
         '(-p --pane)'{-p,--pane}'[Target pane id, @label, or '\''current'\''.]:pane:'
         '*:arguments:'
@@ -477,7 +477,7 @@ _tc_pane_read() {
     local -i ret=1
     local -ar arg_specs=(
         '--json[Emit JSON on stdout instead of human-readable text.]'
-        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → Debug /tmp/touch-code-dev-<uid>.sock, Release /tmp/touch-code-<uid>.sock).]:socket:'
         '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
         ':pane:'
         '--extent[Text extent to read\: viewport, screen, or selection.]:extent:'
@@ -495,7 +495,7 @@ _tc_broadcast() {
     local -i ret=1
     local -ar arg_specs=(
         '--json[Emit JSON on stdout instead of human-readable text.]'
-        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-<uid>.sock).]:socket:'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → Debug /tmp/touch-code-dev-<uid>.sock, Release /tmp/touch-code-<uid>.sock).]:socket:'
         '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
         '--tab[Tab id or '\''current'\''.]:tab:'
         '--worktree[Worktree id or '\''current'\''.]:worktree:'

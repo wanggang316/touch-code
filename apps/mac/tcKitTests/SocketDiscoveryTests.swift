@@ -5,9 +5,19 @@ import Testing
 
 struct SocketDiscoveryTests {
   @Test
-  func defaultPathIncludesUID() {
+  func channelPathsIncludeUID() {
+    #expect(SocketDiscovery.productionSocketPath(uid: 1234) == "/tmp/touch-code-1234.sock")
+    #expect(SocketDiscovery.developmentSocketPath(uid: 1234) == "/tmp/touch-code-dev-1234.sock")
+  }
+
+  @Test
+  func defaultPathMatchesBuildChannel() {
     let path = SocketDiscovery.defaultSocketPath(uid: 1234)
-    #expect(path == "/tmp/touch-code-1234.sock")
+    #if DEBUG
+      #expect(path == "/tmp/touch-code-dev-1234.sock")
+    #else
+      #expect(path == "/tmp/touch-code-1234.sock")
+    #endif
   }
 
   @Test
@@ -18,7 +28,11 @@ struct SocketDiscoveryTests {
   @Test
   func emptyOverrideFallsBackToDefault() {
     let fallback = SocketDiscovery.resolve(override: "")
-    #expect(fallback.hasPrefix("/tmp/touch-code-"))
+    #if DEBUG
+      #expect(fallback.hasPrefix("/tmp/touch-code-dev-"))
+    #else
+      #expect(fallback.hasPrefix("/tmp/touch-code-"))
+    #endif
     #expect(fallback.hasSuffix(".sock"))
   }
 

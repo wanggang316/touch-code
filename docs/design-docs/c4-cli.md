@@ -12,7 +12,7 @@ The CLI exists because this product is a terminal-first orchestrator for CLI-age
 
 Sibling components already defined:
 - **[TouchCodeCore](../architecture.md#tuist-targets-under-appsmac)** — leaf package with all domain types (`Space`, `Project`, `Worktree`, `Tab`, `Pane`, IDs). The CLI depends on this for wire types.
-- **[TouchCodeIPC](../architecture.md#ipc)** — JSON-RPC wire protocol over Unix socket (`/tmp/touch-code-$UID.sock`). The CLI is the reference client; the app is the reference server. This doc adds the `hierarchy.*`, `terminal.*`, `git.*`, `skill.*`, `system.*`, and `hook.*` method contracts.
+- **[TouchCodeIPC](../architecture.md#ipc)** — JSON-RPC wire protocol over Unix socket (Release: `/tmp/touch-code-$UID.sock`; Debug: `/tmp/touch-code-dev-$UID.sock`). The CLI is the reference client; the app is the reference server. This doc adds the `hierarchy.*`, `terminal.*`, `git.*`, `skill.*`, `system.*`, and `hook.*` method contracts.
 - **[HierarchyManager / CatalogStore](0001-terminal-and-hierarchy.md)** — the app-side writers for every mutation the CLI triggers. Every CLI subcommand anchors to one method on `HierarchyManager` or one `Process`-driven call (for `git`, `open`).
 - **[C3 lifecycle hooks](c3-lifecycle-hooks.md)** — defines `HookEvent`, `HookSubscription`, `HookEnvelope`, and the `hook.*` RPC methods. This doc wires those to the `tc hook …` subcommand surface.
 - **[Architecture](../architecture.md)** — dependency direction (`tc` may import `TouchCodeCore` and `TouchCodeIPC` only; never `Runtime`, `Hooks`, `Git`, or `App`), invariants (`tc` is stateless; identifiers are UUIDs resolved from convenience aliases; all IPC through the socket).
@@ -89,7 +89,7 @@ Out of scope (owned elsewhere):
 
   Socket path resolution order:
     1. $TOUCH_CODE_SOCKET_PATH          (set by the app in every Pane's env)
-    2. /tmp/touch-code-$UID.sock        (default)
+    2. build-channel default socket     (Debug: /tmp/touch-code-dev-$UID.sock; Release: /tmp/touch-code-$UID.sock)
     3. launch + wait up to 10s          (only when --launch-app or `tc open` passed)
 
   Injected env vars inside every Pane:
@@ -384,7 +384,7 @@ apps/mac/tc/                          (the CLI binary)
 │   └── SystemCommands.swift          tc system *
 ├── Transport/
 │   ├── RPCClient.swift               envelope build/parse, streaming read
-│   ├── SocketDiscovery.swift         $TOUCH_CODE_SOCKET_PATH → /tmp/touch-code-$UID.sock → launch
+│   ├── SocketDiscovery.swift         $TOUCH_CODE_SOCKET_PATH → build-channel default socket → launch
 │   ├── AliasResolver.swift           UUID/./current/index/label/glob → UUID
 │   └── Framing.swift                 re-exports TouchCodeIPC framing
 └── Render/
