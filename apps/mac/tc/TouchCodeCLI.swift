@@ -64,4 +64,8 @@ struct GlobalOptions: ParsableArguments {
   var resolvedSocketPath: String {
     SocketDiscovery.resolve(override: socket)
   }
+
+  var rpcTimeout: Duration {
+    .milliseconds(Int64((max(timeout, 0.001) * 1000).rounded(.up)))
+  }
 }

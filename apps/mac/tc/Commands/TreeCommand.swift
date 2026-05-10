@@ -23,7 +23,7 @@ struct TreeCommand: AsyncParsableCommand {
     await CommandRunner.run {
       let client = CLISession.connect(globals: globals)
       defer { Task { await client.shutdown() } }
-      let tree = try await HierarchyTree.load(client: client)
+      let tree = try await HierarchyTree.load(client: client, timeout: globals.rpcTimeout)
       let projects: [Project]
       if let project {
         let uuid = try await AliasResolver.resolve(project, kind: .project, client: client)
@@ -42,10 +42,11 @@ struct TreeCommand: AsyncParsableCommand {
 struct HierarchyTree: Codable, Sendable {
   let projects: [Project]
 
-  static func load(client: RPCClient) async throws -> HierarchyTree {
+  static func load(client: RPCClient, timeout: Duration = .seconds(10)) async throws -> HierarchyTree {
     let payload: ProjectListPayload = try await client.call(
       .hierarchyListProjects,
-      params: EmptyParams()
+      params: EmptyParams(),
+      timeout: timeout
     )
     return HierarchyTree(projects: payload.projects)
   }

@@ -226,22 +226,45 @@ public final class SocketServer {
   /// in `UnixSocketTransport`: macOS 26.x's `write(2)` on a Unix-domain
   /// socket can EPIPE-fault before bytes reach the kernel buffer, while
   /// `send(2)` on the same fd is well-behaved. Short writes still happen,
-  /// so we keep the loop. Retries on `EINTR`; bails and closes the
-  /// peer's fd on hard errors.
+  /// so we keep the loop. Retries on `EINTR` and waits out `EAGAIN` /
+  /// `EWOULDBLOCK`; bails and closes the peer's fd on hard errors.
   nonisolated private static func writeAll(fd: Int32, data: Data) {
-    var remaining = data
-    while !remaining.isEmpty {
-      let written = remaining.withUnsafeBytes { ptr -> Int in
-        Darwin.send(fd, ptr.baseAddress, remaining.count, 0)
-      }
-      if written < 0 {
-        if errno == EINTR { continue }
+    var offset = 0
+    data.withUnsafeBytes { ptr in
+      while offset < data.count {
+        guard let baseAddress = ptr.baseAddress else { return }
+        let written = Darwin.send(
+          fd,
+          baseAddress.advanced(by: offset),
+          data.count - offset,
+          0
+        )
+        if written > 0 {
+          offset += written
+          continue
+        }
+        if written == 0 {
+          return
+        }
+        if errno == EINTR {
+          continue
+        }
+        if errno == EAGAIN || errno == EWOULDBLOCK {
+          waitUntilWritable(fd: fd)
+          continue
+        }
         return
       }
-      if written == 0 {
+    }
+  }
+
+  nonisolated private static func waitUntilWritable(fd: Int32) {
+    var pollFD = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+    while true {
+      let result = Darwin.poll(&pollFD, 1, -1)
+      if result > 0 || (result < 0 && errno != EINTR) {
         return
       }
-      remaining.removeFirst(written)
     }
   }
 
