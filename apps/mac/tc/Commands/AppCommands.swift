@@ -65,9 +65,10 @@ struct LaunchCommand: AsyncParsableCommand {
         return
       }
 
+      let launch = Self.launchArguments(app: app)
       let process = Process()
       process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-      process.arguments = ["-ga", app]
+      process.arguments = launch.arguments
       do {
         try process.run()
         process.waitUntilExit()
@@ -78,7 +79,7 @@ struct LaunchCommand: AsyncParsableCommand {
         throw CLIError(
           code: .launchTimeout,
           message:
-            "open -ga \(app) exited with status \(process.terminationStatus); pass --app if your app bundle has a different name"
+            "\(launch.description) exited with status \(process.terminationStatus); pass --app if your app bundle has a different name"
         )
       }
 
@@ -99,6 +100,33 @@ struct LaunchCommand: AsyncParsableCommand {
         message: "socket \(path) did not become reachable within \(wait)s"
       )
     }
+  }
+
+  private static func launchArguments(app: String) -> (arguments: [String], description: String) {
+    if app == "TouchCode", let appPath = coBuiltAppPath() {
+      return (["-g", appPath], "open -g \(appPath)")
+    }
+    return (["-ga", app], "open -ga \(app)")
+  }
+
+  private static func coBuiltAppPath() -> String? {
+    guard let executable = Bundle.main.executableURL else { return nil }
+    let fileManager = FileManager.default
+    let executableDirectory = executable.deletingLastPathComponent()
+    let sibling = executableDirectory.appendingPathComponent("TouchCode.app")
+    if fileManager.fileExists(atPath: sibling.path) {
+      return sibling.path
+    }
+
+    let embeddedApp =
+      executableDirectory
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+    if embeddedApp.pathExtension == "app", fileManager.fileExists(atPath: embeddedApp.path) {
+      return embeddedApp.path
+    }
+    return nil
   }
 }
 
