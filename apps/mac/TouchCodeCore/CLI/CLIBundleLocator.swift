@@ -16,11 +16,13 @@ public enum CLIBundleLocator {
 
   /// Resolution order:
   /// 0. `$TOUCH_CODE_CLI_BINARY` — dev override.
-  /// 1. `<Bundle.main.executableURL>.deletingLastPathComponent()/tc` —
+  /// 1. `<app>/Contents/Resources/bin/tc` — the canonical bundled helper
+  ///    path used by release packaging and the system CLI installer.
+  /// 2. `<Bundle.main.executableURL>.deletingLastPathComponent()/tc` —
   ///    sibling of the running app's main executable inside `Contents/MacOS/`.
   ///    This is Tuist's default placement when an `.app` depends on a
   ///    `commandLineTool` target.
-  /// 2. Repo walk upward from `<executableURL>` looking for a `tc` under
+  /// 3. Repo walk upward from `<executableURL>` looking for a `tc` under
   ///    typical Xcode / SPM Products directories (`.build/**/tc`).
   public static func locateBinary(
     executableURL: URL? = Bundle.main.executableURL,
@@ -29,6 +31,9 @@ public enum CLIBundleLocator {
     if let override = environment[EnvKey.binary], !override.isEmpty {
       let expanded = URL(fileURLWithPath: (override as NSString).expandingTildeInPath)
       if isExecutableFile(expanded) { return expanded }
+    }
+    if let executable = executableURL, let bundled = resourceBinary(from: executable) {
+      return bundled
     }
     if let executable = executableURL {
       let sibling =
@@ -41,6 +46,17 @@ public enum CLIBundleLocator {
       return walked
     }
     throw LocatorError.binaryNotFound
+  }
+
+  private static func resourceBinary(from executable: URL) -> URL? {
+    let contentsDirectory = executable.deletingLastPathComponent().deletingLastPathComponent()
+    guard contentsDirectory.lastPathComponent == "Contents" else { return nil }
+    let candidate =
+      contentsDirectory
+      .appendingPathComponent("Resources", isDirectory: true)
+      .appendingPathComponent("bin", isDirectory: true)
+      .appendingPathComponent("tc", isDirectory: false)
+    return isExecutableFile(candidate) ? candidate : nil
   }
 
   private static func isExecutableFile(_ url: URL) -> Bool {

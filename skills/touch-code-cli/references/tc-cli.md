@@ -4,6 +4,9 @@
 "planned" document the final surface; their implementations land via the exec plans
 listed in each section.
 
+Installed release apps own the `tc` / `tcode` commands. Installed debug builds use
+`tc-dev` / `tcode-dev` so local development does not take over the production CLI.
+
 Every mutating command supports:
 
 - `--json` — emit structured output (creation IDs, status rows, install marker, …).

@@ -31,7 +31,7 @@ Sibling concerns and constraints:
 - Remove the "not on PATH" advisory and its detection code. The state space `installed && !onPath` ceases to exist.
 - The symlink target survives app upgrades: a Sparkle update writes a new bundle in place; the symlink target — `Contents/Resources/bin/tc` inside the bundle — keeps resolving to the new binary.
 - Preserve atomic pair semantics: `tc` and `tcode` install together, uninstall together, and a foreign file at either path aborts the operation with zero mutations.
-- Preserve dev workflow: `TOUCH_CODE_CLI_BINARY` still wins; debug builds without code signing still install.
+- Preserve dev workflow: `TOUCH_CODE_CLI_BINARY` still wins; debug builds without code signing install as `tc-dev` / `tcode-dev` so they never take over the production `tc`.
 - Migrate users off `~/.local/bin/{tc,tcode}` cleanly when the symlinks there are ours.
 - Surface privileged failures (user cancelled, auth denied, write failed) with the same `Result<InstallStatus, CLIInstallError>` shape the Settings card already renders.
 
@@ -50,10 +50,10 @@ Sibling concerns and constraints:
 
 The installer issues **one administrator-authorized shell command per install / uninstall**, executed via in-process `NSAppleScript` so the auth dialog is rendered with the touch-code app icon and bundle name.
 
-- **Install path:** `/usr/local/bin/tc` and `/usr/local/bin/tcode`. Both are on every macOS default `PATH` (`/etc/paths` ships `/usr/local/bin` ahead of `/usr/bin`). A new user — including an agent reading the Skill — gets working `tc` after a single dialog and `Enter`.
-- **Symlink target:** the bundled binary at `Bundle.main.resourceURL/bin/tc`. App moves and Sparkle upgrades preserve this relative path, so the symlink does not need to be re-pointed.
+- **Install path:** Release builds manage `/usr/local/bin/tc` and `/usr/local/bin/tcode`; Debug builds manage `/usr/local/bin/tc-dev` and `/usr/local/bin/tcode-dev`. `/usr/local/bin` is on every macOS default `PATH` (`/etc/paths` ships `/usr/local/bin` ahead of `/usr/bin`). A new user — including an agent reading the Skill — gets working `tc` after a single dialog and `Enter`, while local development can install `tc-dev` without disturbing production.
+- **Symlink target:** the bundled binary at `Bundle.main.resourceURL/bin/tc`. App moves and Sparkle upgrades preserve this relative path, so the symlink does not need to be re-pointed. `CLIBundleLocator` checks this resource path before any Xcode build-products fallback.
 - **Privilege model:** privileged work is one shell-script invocation that does (a) `mkdir -p /usr/local/bin`, (b) `rm -f` only on entries we just verified are absent or our own symlink in a prior unprivileged probe, (c) `ln -s` for any missing entry. The probe is unprivileged and runs every time the Settings card appears.
-- **Auth dialog text:** "touch-code needs administrator access to install the `tc` command into `/usr/local/bin`." On uninstall: "touch-code needs administrator access to remove `tc` from `/usr/local/bin`."
+- **Auth dialog text:** "touch-code needs administrator access to install the `<command>` command into `/usr/local/bin`." On uninstall: "touch-code needs administrator access to remove `<command>` from `/usr/local/bin`." `<command>` is `tc` in Release and `tc-dev` in Debug.
 - **PATH advisory:** removed. `CLIInstallerClient.isLocalBinOnPath()` and the orange banner in `CLIInstallStatusCard.swift` go away.
 - **Status card copy update:** "Installed at /usr/local/bin/tc and /usr/local/bin/tcode." plus a one-line caption: "`tc` is reachable from any shell."
 - **Legacy cleanup:** during install, if `~/.local/bin/{tc,tcode}` resolve to our bundle, the same privileged script removes them so users do not accumulate stale entries. Foreign files there are left alone.
@@ -65,6 +65,7 @@ The installer issues **one administrator-authorized shell command per install / 
 │ Settings → Developer    │         │ /usr/local/bin                     │
 │  CLIInstallStatusCard   │         │   ├── tc      → bundled binary     │
 │      │                  │         │   └── tcode   → bundled binary     │
+│      │                  │         │   Debug: tc-dev / tcode-dev        │
 │      ▼                  │         │                                    │
 │  CLIInstallerClient     │         │ touch-code.app                     │
 │      │                  │         │   Contents/                        │
@@ -94,6 +95,7 @@ PATH at install time:    /usr/local/bin already on default macOS PATH.
 │ CLIInstallerClient (MainActor)                                       │
 │  • Paths { tcSymlink: /usr/local/bin/tc,                             │
 │            tcodeSymlink: /usr/local/bin/tcode,                       │
+│            // Debug defaults: /usr/local/bin/tc-dev and tcode-dev    │
 │            legacyLocalBinTc, legacyLocalBinTcode,                    │
 │            bundledTcBinary }                                         │
 │  • probe()       → InstallStatus            unprivileged, read-only  │

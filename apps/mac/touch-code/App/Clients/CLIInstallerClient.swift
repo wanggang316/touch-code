@@ -2,8 +2,10 @@ import Foundation
 import TouchCodeCore
 import os.log
 
-/// Idempotent installer for the `tc` CLI. Symlinks `tc` and `tcode` from
-/// `/usr/local/bin/` to the bundled binary inside `touch-code.app`. The
+/// Idempotent installer for the touch-code CLI. Release builds symlink `tc`
+/// and `tcode` from `/usr/local/bin/` to the bundled binary inside
+/// `touch-code.app`; Debug builds use `tc-dev` and `tcode-dev` so local
+/// development never takes over the production command. The
 /// privileged write is a single `do shell script` invocation with admin
 /// privileges that runs `mkdir -p` + `ln -s` + (M4) legacy cleanup in one
 /// transaction. `probe()` is unprivileged and safe to call on view-appear;
@@ -35,14 +37,23 @@ final class CLIInstallerClient {
       let home = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
       let usrLocalBin = URL(fileURLWithPath: "/usr/local/bin", isDirectory: true)
       let legacyLocalBin = home.appendingPathComponent(".local/bin", isDirectory: true)
+      #if DEBUG
+        let tcName = "tc-dev"
+        let tcodeName = "tcode-dev"
+      #else
+        let tcName = "tc"
+        let tcodeName = "tcode"
+      #endif
       return Paths(
-        tcSymlink: usrLocalBin.appendingPathComponent("tc", isDirectory: false),
-        tcodeSymlink: usrLocalBin.appendingPathComponent("tcode", isDirectory: false),
-        legacyLocalBinTc: legacyLocalBin.appendingPathComponent("tc", isDirectory: false),
-        legacyLocalBinTcode: legacyLocalBin.appendingPathComponent("tcode", isDirectory: false),
+        tcSymlink: usrLocalBin.appendingPathComponent(tcName, isDirectory: false),
+        tcodeSymlink: usrLocalBin.appendingPathComponent(tcodeName, isDirectory: false),
+        legacyLocalBinTc: legacyLocalBin.appendingPathComponent(tcName, isDirectory: false),
+        legacyLocalBinTcode: legacyLocalBin.appendingPathComponent(tcodeName, isDirectory: false),
         bundledTcBinary: try? CLIBundleLocator.locateBinary()
       )
     }
+
+    var primaryCommandName: String { tcSymlink.lastPathComponent }
   }
 
   /// Current state of the `tc` / `tcode` symlink pair under
@@ -141,7 +152,8 @@ final class CLIInstallerClient {
     do {
       try privilegedShell.run(
         script,
-        prompt: "touch-code needs administrator access to install the `tc` command into /usr/local/bin."
+        prompt:
+          "touch-code needs administrator access to install the `\(paths.primaryCommandName)` command into /usr/local/bin."
       )
     } catch let error as PrivilegedShellError {
       return .failure(Self.mapPrivilegedError(error))
@@ -175,7 +187,8 @@ final class CLIInstallerClient {
     do {
       try privilegedShell.run(
         script,
-        prompt: "touch-code needs administrator access to remove `tc` from /usr/local/bin."
+        prompt:
+          "touch-code needs administrator access to remove `\(paths.primaryCommandName)` from /usr/local/bin."
       )
     } catch let error as PrivilegedShellError {
       return .failure(Self.mapPrivilegedError(error))
