@@ -51,7 +51,7 @@ struct LaunchCommand: AsyncParsableCommand {
   @Option(name: .long, help: "Seconds to wait for the socket after launching.")
   var wait: Double = 10
   @Option(name: .long, help: "Bundle name to pass to `open -ga`.")
-  var app: String = "touch-code"
+  var app: String = "TouchCode"
 
   func run() async throws {
     await CommandRunner.run {
@@ -77,7 +77,8 @@ struct LaunchCommand: AsyncParsableCommand {
       guard process.terminationStatus == 0 else {
         throw CLIError(
           code: .launchTimeout,
-          message: "open -ga \(app) exited with status \(process.terminationStatus)"
+          message:
+            "open -ga \(app) exited with status \(process.terminationStatus); pass --app if your app bundle has a different name"
         )
       }
 
