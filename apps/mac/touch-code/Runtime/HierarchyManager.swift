@@ -1255,6 +1255,36 @@ final class HierarchyManager {
     store.scheduleSave(catalog)
   }
 
+  func ensurePaneSurface(
+    _ paneID: PaneID,
+    in tabID: TabID,
+    in worktreeID: WorktreeID,
+    in projectID: ProjectID,
+    env: [String: String] = [:]
+  ) throws {
+    guard !runtime.hasSurface(for: paneID) else { return }
+    guard
+      let (projectIndex, worktreeIndex) = findWorktreeIndices(
+        worktreeID: worktreeID,
+        projectID: projectID
+      )
+    else {
+      throw HierarchyError.notFound("Worktree \(worktreeID)")
+    }
+    guard
+      let tab = catalog.projects[projectIndex].worktrees[worktreeIndex].tabs.first(where: {
+        $0.id == tabID
+      })
+    else {
+      throw HierarchyError.notFound("Tab \(tabID)")
+    }
+    guard let pane = tab.panes.first(where: { $0.id == paneID }) else {
+      throw HierarchyError.notFound("Pane \(paneID)")
+    }
+    let worktree = catalog.projects[projectIndex].worktrees[worktreeIndex]
+    try runtime.ensureSurface(for: pane, in: worktree, env: env)
+  }
+
   func unfocusPane(
     in tabID: TabID,
     in worktreeID: WorktreeID,

@@ -37,6 +37,7 @@ struct SendCommand: AsyncParsableCommand {
       let client = CLISession.connect(globals: globals)
       defer { Task { await client.shutdown() } }
       let uuid = try await AliasResolver.resolve(input.target, kind: .pane, client: client)
+      try await activatePane(uuid, client: client)
       struct Params: Codable {
         let paneID: PaneID
         let text: String
@@ -90,6 +91,7 @@ struct ReadCommand: AsyncParsableCommand {
       let client = CLISession.connect(globals: globals)
       defer { Task { await client.shutdown() } }
       let uuid = try await AliasResolver.resolve(pane, kind: .pane, client: client)
+      try await activatePane(uuid, client: client)
       struct Params: Codable {
         let paneID: PaneID
         let extent: String
@@ -109,6 +111,25 @@ struct ReadCommand: AsyncParsableCommand {
       }
     }
   }
+}
+
+private func activatePane(_ uuid: UUID, client: RPCClient) async throws {
+  let path = try await PaneLocatorFlow.resolvePanePath(
+    paneUUID: uuid,
+    project: "current",
+    worktree: "current",
+    tab: "current",
+    client: client
+  )
+  _ = try await client.callRaw(
+    .hierarchyFocusPane,
+    params: PaneLocatorBody(
+      id: path.paneID,
+      tabID: path.tabID,
+      worktreeID: path.worktreeID,
+      projectID: path.projectID
+    )
+  )
 }
 
 struct BroadcastCommand: AsyncParsableCommand {

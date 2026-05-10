@@ -52,6 +52,7 @@ struct HierarchyHandlersLiveDirectoryTests {
     }
 
     #expect(fixture.runtime.focusSurfaceViewCalls.last == fixture.paneID)
+    #expect(fixture.runtime.ensureSurfaceCalls.last?.paneID == fixture.paneID)
   }
 
   private static func makeFixture(liveDirectory: String) -> Fixture {

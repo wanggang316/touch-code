@@ -14,10 +14,12 @@ import os
 @MainActor
 final class HierarchyHandlers {
   private let manager: HierarchyManager
+  private let envProvider: @MainActor (ProjectID) -> [String: String]
   private let logger = Logger(subsystem: "com.touch-code.ipc", category: "hierarchy")
 
-  init(manager: HierarchyManager) {
+  init(manager: HierarchyManager, envProvider: @escaping @MainActor (ProjectID) -> [String: String] = { _ in [:] }) {
     self.manager = manager
+    self.envProvider = envProvider
   }
 
   // MARK: - Error mapping
@@ -371,6 +373,13 @@ final class HierarchyHandlers {
         in: req.tabID,
         in: req.worktreeID,
         in: req.projectID
+      )
+      try manager.ensurePaneSurface(
+        req.id,
+        in: req.tabID,
+        in: req.worktreeID,
+        in: req.projectID,
+        env: envProvider(req.projectID)
       )
       manager.focusSurfaceView(for: req.id)
       return .unary(.object([:]))

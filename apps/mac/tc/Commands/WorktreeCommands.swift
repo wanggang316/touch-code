@@ -35,12 +35,8 @@ struct WorktreeList: AsyncParsableCommand {
 struct WorktreeCommand: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "worktree",
-    abstract: "List, create, switch, and remove worktrees.",
-    discussion: """
-      Use 'tc worktree list --project <project>' to list worktrees.
-      """,
+    abstract: "Create, switch, and remove worktrees.",
     subcommands: [
-      WorktreeList.self,
       WorktreeNew.self,
       WorktreeSwitch.self,
       WorktreeRemove.self,

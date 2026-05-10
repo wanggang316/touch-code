@@ -530,7 +530,12 @@ final class AppState {
         appBundle: Self.bundleVersion()
       )
     )
-    let hierarchyHandlers = HierarchyHandlers(manager: hierarchy)
+    let hierarchyHandlers = HierarchyHandlers(
+      manager: hierarchy,
+      envProvider: { projectID in
+        HierarchyManager.resolvedEnv(for: projectID, in: settingsStore.settings)
+      }
+    )
     let terminalHandlers = TerminalHandlers(
       sink: terminalEngine.ghosttyRuntime == nil ? nil : TerminalInputSink(engine: terminalEngine),
       catalog: { hierarchy.catalog }

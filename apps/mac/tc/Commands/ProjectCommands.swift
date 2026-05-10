@@ -29,9 +29,8 @@ struct ProjectList: AsyncParsableCommand {
 struct ProjectCommand: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "project",
-    abstract: "List, create, and remove projects.",
+    abstract: "Create and remove projects.",
     subcommands: [
-      ProjectList.self,
       ProjectAdd.self,
       ProjectRemove.self,
     ]

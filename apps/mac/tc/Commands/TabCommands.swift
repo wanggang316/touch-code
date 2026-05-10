@@ -41,12 +41,8 @@ struct TabList: AsyncParsableCommand {
 struct TabCommand: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "tab",
-    abstract: "List, create, switch, and close tabs.",
-    discussion: """
-      Use 'tc tab list --project <project> --worktree <worktree>' to list tabs.
-      """,
+    abstract: "Create, switch, and close tabs.",
     subcommands: [
-      TabList.self,
       TabNew.self,
       TabSwitch.self,
       TabClose.self,

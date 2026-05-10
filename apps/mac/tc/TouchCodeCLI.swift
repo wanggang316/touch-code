@@ -16,25 +16,20 @@ struct TouchCodeCLI: AsyncParsableCommand {
       Common examples:
         tc status
         tc tree
-        tc send 'pwd'
-        tc send <pane> 'git status --short'
-        tc project list
+        tc pane send 'pwd'
+        tc pane send <pane> 'git status --short'
         tc pane new --label agent codex
-        tc open .
       """,
     version: "touch-code \(TouchCodeCLI.version)",
     subcommands: [
       StatusCommand.self,
       LaunchCommand.self,
       DoctorCommand.self,
-      OpenCommand.self,
       TreeCommand.self,
       ProjectCommand.self,
       WorktreeCommand.self,
       TabCommand.self,
       PaneCommand.self,
-      SendCommand.self,
-      ReadCommand.self,
       BroadcastCommand.self,
     ]
   )

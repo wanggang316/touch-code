@@ -46,16 +46,14 @@ struct PaneList: AsyncParsableCommand {
 struct PaneCommand: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "pane",
-    abstract: "List, create, focus, close, and label panes.",
-    discussion: """
-      Use 'tc pane list --project <project> --worktree <worktree> --tab <tab>' to list panes.
-      """,
+    abstract: "Create, focus, close, label, read, and send panes.",
     subcommands: [
-      PaneList.self,
       PaneNew.self,
       PaneFocus.self,
       PaneClose.self,
       PaneLabel.self,
+      SendCommand.self,
+      ReadCommand.self,
     ]
   )
 }
@@ -247,15 +245,31 @@ enum PaneLocatorFlow {
     }
   }
 
-  private static func resolvePanePath(
+  static func resolvePanePath(
     paneUUID: UUID,
     args: PaneLocatorArgs,
     client: RPCClient
   ) async throws -> PanePath {
-    if args.project != "current" || args.worktree != "current" || args.tab != "current" {
-      let projectUUID = try await AliasResolver.resolve(args.project, kind: .project, client: client)
-      let worktreeUUID = try await AliasResolver.resolve(args.worktree, kind: .worktree, client: client)
-      let tabUUID = try await AliasResolver.resolve(args.tab, kind: .tab, client: client)
+    try await resolvePanePath(
+      paneUUID: paneUUID,
+      project: args.project,
+      worktree: args.worktree,
+      tab: args.tab,
+      client: client
+    )
+  }
+
+  static func resolvePanePath(
+    paneUUID: UUID,
+    project: String,
+    worktree: String,
+    tab: String,
+    client: RPCClient
+  ) async throws -> PanePath {
+    if project != "current" || worktree != "current" || tab != "current" {
+      let projectUUID = try await AliasResolver.resolve(project, kind: .project, client: client)
+      let worktreeUUID = try await AliasResolver.resolve(worktree, kind: .worktree, client: client)
+      let tabUUID = try await AliasResolver.resolve(tab, kind: .tab, client: client)
       return PanePath(
         projectID: ProjectID(raw: projectUUID),
         worktreeID: WorktreeID(raw: worktreeUUID),
