@@ -75,14 +75,14 @@ NSRect(x: 0, y: 0, width: width, height: height).fill()
 
 let centerX: CGFloat = width / 2
 let centerY: CGFloat = height / 2
-let halfWidth: CGFloat = 22
-let halfHeight: CGFloat = 36
+let halfWidth: CGFloat = 14
+let halfHeight: CGFloat = 24
 
 let chevron = NSBezierPath()
 chevron.move(to: NSPoint(x: centerX - halfWidth, y: centerY + halfHeight))
 chevron.line(to: NSPoint(x: centerX + halfWidth, y: centerY))
 chevron.line(to: NSPoint(x: centerX - halfWidth, y: centerY - halfHeight))
-chevron.lineWidth = 14
+chevron.lineWidth = 8
 chevron.lineCapStyle = .round
 chevron.lineJoinStyle = .round
 
