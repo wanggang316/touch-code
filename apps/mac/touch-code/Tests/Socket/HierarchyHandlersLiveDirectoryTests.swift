@@ -33,6 +33,27 @@ struct HierarchyHandlersLiveDirectoryTests {
     #expect(payload.projects.first?.worktrees.first?.tabs.first?.panes.first?.workingDirectory == "/repo/packages/api")
   }
 
+  @Test
+  func focusPanePromotesSurfaceView() async throws {
+    let fixture = Self.makeFixture(liveDirectory: "/repo/app")
+    let params = try JSONValue.encoded(
+      HierarchyHandlers.PaneLocatorParams(
+        id: fixture.paneID,
+        tabID: fixture.tabID,
+        worktreeID: fixture.worktreeID,
+        projectID: fixture.projectID
+      )
+    )
+
+    let outcome = await fixture.handlers.focusPane(params)
+    guard case .unary = outcome else {
+      Issue.record("expected unary response, got \(outcome)")
+      return
+    }
+
+    #expect(fixture.runtime.focusSurfaceViewCalls.last == fixture.paneID)
+  }
+
   private static func makeFixture(liveDirectory: String) -> Fixture {
     let projectID = ProjectID()
     let worktreeID = WorktreeID()
@@ -65,9 +86,11 @@ struct HierarchyHandlersLiveDirectoryTests {
     )
     return Fixture(
       handlers: HierarchyHandlers(manager: manager),
+      runtime: runtime,
       projectID: projectID,
       worktreeID: worktreeID,
-      tabID: tabID
+      tabID: tabID,
+      paneID: paneID
     )
   }
 
@@ -86,9 +109,11 @@ struct HierarchyHandlersLiveDirectoryTests {
 
   private struct Fixture {
     let handlers: HierarchyHandlers
+    let runtime: FakeHierarchyRuntime
     let projectID: ProjectID
     let worktreeID: WorktreeID
     let tabID: TabID
+    let paneID: PaneID
   }
 
   private enum TestError: Error {

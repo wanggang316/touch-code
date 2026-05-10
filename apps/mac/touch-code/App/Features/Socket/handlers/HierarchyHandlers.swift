@@ -364,12 +364,15 @@ final class HierarchyHandlers {
         ))
     }
     do {
+      try manager.selectWorktree(req.worktreeID, in: req.projectID)
+      try manager.selectTab(req.tabID, in: req.worktreeID, in: req.projectID)
       try manager.focusPane(
         req.id,
         in: req.tabID,
         in: req.worktreeID,
         in: req.projectID
       )
+      manager.focusSurfaceView(for: req.id)
       return .unary(.object([:]))
     } catch {
       return failure(for: error, fallbackKind: "pane", fallbackID: req.id.description)
