@@ -36,6 +36,7 @@ struct TabChipView: View {
   let onCloseAll: () -> Void
   let onRenameRequested: () -> Void
   let onChangeColor: () -> Void
+  let onCopyID: () -> Void
   let tabColor: TabColor?
 
   @State private var isHovering = false
@@ -124,6 +125,7 @@ struct TabChipView: View {
         isLastTab: isLastTab,
         onRename: onRenameRequested,
         onChangeColor: onChangeColor,
+        onCopyID: onCopyID,
         onClose: onClose,
         onCloseOthers: onCloseOthers,
         onCloseToRight: onCloseToRight,

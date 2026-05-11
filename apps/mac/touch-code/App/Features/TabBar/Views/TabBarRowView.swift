@@ -34,6 +34,7 @@ struct TabBarRowView: View {
   let onCloseAll: () -> Void
   let onRenameRequested: (TabID) -> Void
   let onChangeColorRequested: (TabID) -> Void
+  let onCopyID: (TabID) -> Void
   let onReorder: @MainActor @Sendable ([TabID]) -> Void
   /// Fires whenever a chip resolves a non-empty live title (OSC tabTitle
   /// / title / pwd basename). The parent persists this onto the tab so
@@ -63,6 +64,7 @@ struct TabBarRowView: View {
           onCloseAll: onCloseAll,
           onRenameRequested: { onRenameRequested(tab.id) },
           onChangeColor: { onChangeColorRequested(tab.id) },
+          onCopyID: { onCopyID(tab.id) },
           tabColor: tab.color,
           onCacheLiveTitle: { title in onCacheLiveTitle(tab.id, title) }
         )
@@ -147,6 +149,7 @@ private struct ResolvingTabChipView: View {
   let onCloseAll: () -> Void
   let onRenameRequested: () -> Void
   let onChangeColor: () -> Void
+  let onCopyID: () -> Void
   let tabColor: TabColor?
   let onCacheLiveTitle: (String) -> Void
 
@@ -172,6 +175,7 @@ private struct ResolvingTabChipView: View {
       onCloseAll: onCloseAll,
       onRenameRequested: onRenameRequested,
       onChangeColor: onChangeColor,
+      onCopyID: onCopyID,
       tabColor: tabColor
     )
     .onChange(of: live, initial: true) { _, newLive in

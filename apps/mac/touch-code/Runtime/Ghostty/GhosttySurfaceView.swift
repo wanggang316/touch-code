@@ -578,6 +578,8 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     menu.addItem(menuItem("Split Up", #selector(splitUp(_:)), symbol: "rectangle.tophalf.inset.filled"))
     menu.addItem(.separator())
     menu.addItem(menuItem("Reset Terminal", #selector(resetTerminal(_:)), symbol: "arrow.trianglehead.2.clockwise"))
+    menu.addItem(.separator())
+    menu.addItem(NSMenuItem(title: "Copy Pane ID", action: #selector(copyPaneID(_:)), keyEquivalent: ""))
     return menu
   }
 
@@ -601,6 +603,10 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
   @IBAction func copy(_ sender: Any?) { performBindingAction("copy_to_clipboard") }
   @IBAction func paste(_ sender: Any?) { performBindingAction("paste_from_clipboard") }
   @IBAction func resetTerminal(_ sender: Any?) { performBindingAction("reset") }
+  @IBAction func copyPaneID(_ sender: Any?) {
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(paneID.description, forType: .string)
+  }
   @IBAction func splitRight(_ sender: Any?) { onPaneAction?(.newSplit(direction: .right)) }
   @IBAction func splitLeft(_ sender: Any?) { onPaneAction?(.newSplit(direction: .left)) }
   @IBAction func splitDown(_ sender: Any?) { onPaneAction?(.newSplit(direction: .down)) }

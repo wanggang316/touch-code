@@ -166,6 +166,10 @@ struct TabBarView: View {
         guard let tab = worktree.tabs.first(where: { $0.id == tabID }) else { return }
         store.send(.colorRequested(tabID, currentColor: tab.color))
       },
+      onCopyID: { tabID in
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(tabID.description, forType: .string)
+      },
       onReorder: { orderedIDs in
         store.send(
           .dragReorderEnded(

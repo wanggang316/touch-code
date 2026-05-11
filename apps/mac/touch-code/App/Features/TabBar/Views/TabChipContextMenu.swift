@@ -16,6 +16,7 @@ struct TabChipContextMenu: View {
   let isLastTab: Bool
   let onRename: () -> Void
   let onChangeColor: () -> Void
+  let onCopyID: () -> Void
   let onClose: () -> Void
   let onCloseOthers: () -> Void
   let onCloseToRight: () -> Void
@@ -30,6 +31,8 @@ struct TabChipContextMenu: View {
       .appKeyboardShortcut(.renameActiveTab)
     Button("Change Color…", action: onChangeColor)
       .appKeyboardShortcut(.changeActiveTabColor)
+    Divider()
+    Button("Copy Tab ID", action: onCopyID)
     Divider()
     Button("Close Tab", action: onClose)
     Button("Close Other Tabs", action: onCloseOthers)
