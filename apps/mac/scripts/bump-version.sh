@@ -9,15 +9,14 @@
 # sync-product-version.sh projects MARKETING_VERSION into the co-versioned
 # CLI and Agent Skill metadata.
 #
-# Build-number scheme: today's date as YYYYMMDD for the first release of
-# the day; same-day re-releases append an incrementing sequence digit.
-# e.g. 20260506 (1st of day), 202605062 (2nd), 202605063 (3rd), ...
-# Numerically monotonic across all sane release cadences (the digit
-# concatenation grows the integer by ~10x per re-release on the same day,
-# so a fresh next-day "YYYYMMDD" remains greater than any plausible
-# same-day suffix). If a day exceeds 9 same-day re-releases the
-# next-day rollover guard will refuse and require an explicit BUILD=
-# override; in practice we will not get there.
+# Build-number scheme: YYYYMMDD + 3-digit sequence (e.g. 20260510001),
+# shared by both stable and tip releases.  Each release queries the
+# published appcast for the highest existing build number, then
+# increments by 1.  A new calendar day resets the sequence to 001.
+#   20260510001  (stable)
+#   20260510002  (tip)
+#   20260510003  (tip)
+#   20260511001  (stable — new day, sequence resets)
 #
 # Usage:
 #   bump-version.sh <X.Y.Z>          # marketing version; build = today (or todayN if same day)
@@ -26,9 +25,9 @@
 #   bump-version.sh --help
 #
 # Examples:
-#   bump-version.sh 0.1.4               # build becomes e.g. 20260506
-#   bump-version.sh 0.1.5               # later same day → build becomes 202605062
-#   bump-version.sh 0.2.0 20260601      # explicit override
+#   bump-version.sh 0.1.6               # build becomes e.g. 20260511001
+#   bump-version.sh 0.1.7               # later same day → build becomes 20260511002
+#   bump-version.sh 0.2.0 20260601001   # explicit override
 #
 set -euo pipefail
 
@@ -80,34 +79,56 @@ next_patch() {
   echo "$x.$y.$((z + 1))"
 }
 
-# Compute the next date-based build number given the current value.
-# - If $1 starts with today's date, append (or increment) the suffix.
-# - Otherwise return today's date as-is.
+# Query the published appcast for the highest build number across all
+# channels (stable + tip).  Returns empty if unreachable.
+max_published_build() {
+  curl -fsSL --max-time 10 \
+    "https://github.com/wanggang316/touch-code/releases/latest/download/appcast.xml" 2>/dev/null \
+    | grep -oE '<sparkle:version>[^<]+' \
+    | sed 's/<sparkle:version>//' \
+    | sort -n \
+    | tail -1 || true
+}
+
+# Compute the next YYYYMMDDNNN build number.  Takes the current xcconfig
+# value as a floor, queries the published appcast for the highest build
+# across both channels, and increments.  A new calendar day starts at NNN=001.
 next_build() {
   local cur="$1"
   local today
   today="$(date +%Y%m%d)"
+  local today_base="${today}000"
 
-  if [[ "$cur" == "$today" ]]; then
-    printf '%s2\n' "$today"
-  elif [[ "$cur" =~ ^${today}([0-9]+)$ ]]; then
-    printf '%s%d\n' "$today" $((BASH_REMATCH[1] + 1))
+  local max_pub
+  max_pub="$(max_published_build)"
+
+  local base="$cur"
+  if [[ -n "$max_pub" ]] && (( max_pub > base )); then
+    base="$max_pub"
+  fi
+
+  if (( base >= today_base )); then
+    # Same day (or TZ-skewed future): increment from base
+    printf '%d\n' $((base + 1))
   else
-    printf '%s\n' "$today"
+    # New day: start at today + 001
+    printf '%s001\n' "$today"
   fi
 }
 
 cmd_print() {
-  local mv pv next_mv next_pv
+  local mv pv next_mv next_pv max_pub
   mv="$(read_field MARKETING_VERSION)"
   pv="$(read_field CURRENT_PROJECT_VERSION)"
   next_mv="$(next_patch "$mv")"
+  max_pub="$(max_published_build)"
   next_pv="$(next_build "$pv")"
   cat <<EOF
 xcconfig: $xcconfig
 
   MARKETING_VERSION       = $mv
   CURRENT_PROJECT_VERSION = $pv
+  Published max build     = ${max_pub:-<none>}
 
 next patch: $next_mv (build $next_pv)
 EOF

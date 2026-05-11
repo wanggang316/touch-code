@@ -1,6 +1,6 @@
 name: release-tip
 
-# Manual tip-channel release. Builds a notarized DMG against the current
+# Tip-channel release. Builds a notarized DMG against the current
 # HEAD, force-moves the floating `tip` git tag, publishes a single
 # `tip` GitHub Release marked `--prerelease`, and merges the new
 # tip-channel item into the latest stable release's `appcast.xml` so
@@ -8,14 +8,16 @@ name: release-tip
 # every client) starts advertising the tip build to clients with
 # `allowedChannels = ["tip"]`.
 #
-# Trigger: `workflow_dispatch` only — a tip release is a deliberate
-# act, not a side effect of every main push (single-developer cadence
-# would make auto-on-push noisy).
+# Trigger: every push to main (continuous/nightly) + manual workflow_dispatch.
+# A check job skips the build if the tip tag already points at this commit
+# with all assets present.
 #
 # Required secrets: identical set to release.yml — Developer ID cert,
 # notary creds, Sparkle private key.
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch: {}
 
 # Serialise with the stable release pipeline. If a stable cut lands
@@ -29,7 +31,34 @@ permissions:
   contents: write   # tag push + release create + appcast asset clobber
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+    steps:
+      - name: Skip if tip already points at this commit
+        id: check
+        run: |
+          set -euo pipefail
+          # Fetch the current tip tag's target commit
+          TIP_SHA=$(git ls-remote origin refs/tags/tip 2>/dev/null | awk '{print $1}' || echo "")
+          if [ -z "$TIP_SHA" ]; then
+            echo "No tip tag found — first tip build."
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          THIS_SHA="${{ github.sha }}"
+          if [ "$TIP_SHA" = "$THIS_SHA" ]; then
+            echo "tip tag already points at $THIS_SHA — skipping build."
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "tip tag at $TIP_SHA, current commit is $THIS_SHA — building."
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          fi
+
   release-tip:
+    needs: check
+    if: needs.check.outputs.should_build == 'true'
     runs-on: macos-26
     timeout-minutes: 60
 
@@ -55,23 +84,29 @@ jobs:
         run: |
           set -euo pipefail
           MV=$(awk -F'=' '/^MARKETING_VERSION/ {gsub(/[ \t]/,"",$2); print $2}' apps/mac/Configurations/Project.xcconfig)
-          BASE=$(awk -F'=' '/^CURRENT_PROJECT_VERSION/ {gsub(/[ \t]/,"",$2); print $2}' apps/mac/Configurations/Project.xcconfig)
-          if [ -z "$MV" ] || [ -z "$BASE" ]; then
-            echo "::error::Could not parse MARKETING_VERSION / CURRENT_PROJECT_VERSION from Project.xcconfig"
+          if [ -z "$MV" ]; then
+            echo "::error::Could not parse MARKETING_VERSION from Project.xcconfig"
             exit 1
           fi
-          # supacode-style guard — bound run_number contribution to 3 digits
-          # so successive tip cuts on the same stable base stay strictly
-          # ordered without stomping the next stable bump's build number.
-          if [ "${{ github.run_number }}" -gt 999 ]; then
-            echo "::error::run_number ${{ github.run_number }} exceeds 999. Bump CURRENT_PROJECT_VERSION (cut a stable release) before the next tip."
-            exit 1
+          TODAY=$(date +%Y%m%d)
+          TODAY_BASE="${TODAY}000"
+          # Derive build number from the published appcast (same scheme as
+          # bump-version.sh's next_build): highest build + 1, or today+001.
+          MAX_BUILD=$(curl -fsSL --max-time 15 \
+            "https://github.com/${{ github.repository }}/releases/latest/download/appcast.xml" 2>/dev/null \
+            | grep -oE '<sparkle:version>[^<]+' \
+            | sed 's/<sparkle:version>//' \
+            | sort -n | tail -1 || echo "")
+          if [ -n "$MAX_BUILD" ] && [ "$MAX_BUILD" -ge "$TODAY_BASE" ]; then
+            BUILD_NUMBER=$((MAX_BUILD + 1))
+          else
+            BUILD_NUMBER="${TODAY}001"
           fi
-          BUILD_NUMBER=$((BASE * 1000 + ${{ github.run_number }}))
           SHORT_SHA=$(git rev-parse --short HEAD)
           echo "marketing=$MV"           >> "$GITHUB_OUTPUT"
           echo "build=$BUILD_NUMBER"     >> "$GITHUB_OUTPUT"
           echo "short_sha=$SHORT_SHA"    >> "$GITHUB_OUTPUT"
+          echo "Build number: $BUILD_NUMBER (max published: ${MAX_BUILD:-<none>})"
 
       - uses: jdx/mise-action@v2
         with:
@@ -135,11 +170,9 @@ jobs:
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
 
       - name: Override CURRENT_PROJECT_VERSION for tip build
-        # Bump the build number in-place for the archive step so the
-        # produced binary's CFBundleVersion is strictly greater than the
-        # latest stable but bounded such that any future stable bump is
-        # still greater. This change is NEVER committed — the workflow
-        # checkout is ephemeral.
+        # Override the build number in-place so the produced binary's
+        # CFBundleVersion matches the tip build computed above.
+        # This change is NEVER committed — the workflow checkout is ephemeral.
         run: |
           set -euo pipefail
           BUILD=${{ steps.meta.outputs.build }}
