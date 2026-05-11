@@ -20,6 +20,32 @@ and the project does not yet follow semantic versioning — every release until
 
 ### Security
 
+## [0.1.7] - 2026-05-11
+
+### Added
+
+- **Per-tab accent color.** Choose a color for any tab via right-click →
+  Change Color… or ⌘⌥C. A small color dot appears on the chip; the
+  close button overlays it on hover. Seven colors matching the macOS
+  Finder tag palette, plus a "no color" option to revert.
+
+- **Copy Tab ID / Copy Pane ID.** Right-click a tab or terminal pane to
+  copy its unique ID to the clipboard — handy for scripting and
+  debugging with `tc`.
+
+### Changed
+
+- **Tab rename shortcut moved to ⌘⌥R** (was ⌘⇧R), freeing the old
+  chord for future use.
+
+- **Unread tab indicator** now shows an orange bell icon instead of a
+  red dot, reducing visual confusion with tab color dots.
+
+### Fixed
+
+- **DMG installer arrow scaled down** to match the app icon size on the
+  install background.
+
 ## [0.1.6] - 2026-05-10
 
 ### Added
