@@ -55,7 +55,7 @@ struct TabBarView: View {
         )
       ) { target in
         TabColorSheetView(
-          currentColor: target.currentColor,
+          initialColor: target.currentColor,
           onCommit: { color in
             store.send(
               .colorSubmitted(
