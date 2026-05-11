@@ -97,6 +97,25 @@ If `[Unreleased]` is empty (or only contains category headers with no
 entries), **stop**. Tell the user to run `/hs-changelog` first to
 extract recent commits, then resume.
 
+**Writing style — user-facing language.** Every changelog entry must
+be understandable by a non-developer who uses the app. Rewrite the
+raw commit messages into this style before cutting the version
+section. Rules:
+
+- **Describe what changed, not how.** "Terminal output no longer gets
+  cut off" instead of "Clear O_NONBLOCK on accepted client fds."
+- **Name the feature, not the implementation.** "Choose between stable
+  and pre-release update channels" instead of "Sparkle channel picker."
+- **Use the UI surface the user sees.** "Settings → Updates" not
+  "UpdatesSettingsView"; "sidebar" not "ProjectListView."
+- **Drop internal identifiers.** No module names, no config keys, no
+  protocol specifics (`EPIPE`, `SO_NOSIGPIPE`, `O_NONBLOCK`). If the
+  fix matters to users, describe the symptom it resolves.
+- **One sentence per entry.** Bold the user-facing summary, then a
+  brief explanation of what it does. No more than two lines.
+- **Omit changes invisible to users.** Refactors, CI changes, build
+  script tweaks, dependency bumps — unless they fix a user-visible bug.
+
 ### 3. Cut the changelog version section
 
 Edit `CHANGELOG.md`:
@@ -176,13 +195,15 @@ EOF
 git tag -a vX.Y.Z -m "$(cat <<'EOF'
 vX.Y.Z
 
-<one short paragraph naming the headline change(s); pull from CHANGELOG>
+<one short paragraph summarizing the release in user-facing language;
+pull from CHANGELOG — describe what's new/improved/fixed, not how>
 EOF
 )"
 ```
 
-The annotated message ends up on the GitHub Release page next to
-`gh release create --generate-notes` output, so keep it scannable.
+The annotated message ends up on the GitHub Release page. Use the
+same user-facing language as the CHANGELOG — no implementation
+details, no module names.
 
 **Do not push yet.** Confirm with the user that the tag looks right
 (`git show vX.Y.Z --stat`).
@@ -213,9 +234,10 @@ gh release view vX.Y.Z                # the draft release
 
 Tell the user:
 - CI status (queued / running / passed / failed).
-- The release is **draft** — they need to publish it manually via the
-  GitHub UI or `gh release edit vX.Y.Z --draft=false` once they've
-  reviewed the auto-generated notes and the DMG download.
+- The release is **draft** — the release body is the CHANGELOG section
+  for this version (CI extracts it automatically). The user still needs
+  to publish it manually via the GitHub UI or
+  `gh release edit vX.Y.Z --draft=false`.
 
 If CI fails, **do not** delete the tag or force-push without explicit
 user approval — diagnose first (`gh run view --log-failed`).

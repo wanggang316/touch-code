@@ -224,6 +224,21 @@ jobs:
           /bin/cp "$STAGING/appcast.xml" "apps/mac/.build/release/appcast.xml"
           cat "apps/mac/.build/release/appcast.xml"
 
+      - name: Extract release notes from CHANGELOG.md
+        id: notes
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.meta.outputs.version }}"
+          # Extract the section for this version (## [X.Y.Z] ... until next ##).
+          NOTES=$(sed -n "/^## \[${VERSION}\]/,/^## \[/p" CHANGELOG.md | sed '$d')
+          if [ -z "$NOTES" ]; then
+            echo "::warning::No CHANGELOG section found for ${VERSION}, falling back to tag message"
+            NOTES=$(git tag -l "${{ steps.meta.outputs.tag }}" --format='%(contents)')
+          fi
+          echo "$NOTES" > "$RUNNER_TEMP/release-notes.md"
+          echo "Extracted release notes for ${VERSION}:"
+          head -5 "$RUNNER_TEMP/release-notes.md"
+
       - name: Create draft GitHub Release with DMG + appcast attached
         env:
           GH_TOKEN: ${{ github.token }}
@@ -233,7 +248,7 @@ jobs:
           gh release create "${{ steps.meta.outputs.tag }}" \
             --draft \
             --title "${{ steps.meta.outputs.tag }}" \
-            --generate-notes \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
             "$DMG" "$DMG.sha256" "$APPCAST"
 
       - name: Cleanup keychain
