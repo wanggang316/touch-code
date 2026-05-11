@@ -233,6 +233,12 @@ struct MainWindowCommands: Commands {
       .appKeyboardShortcut(.renameActiveTab, in: shortcuts)
       .disabled(!hasActiveWorktree)
 
+      Button("Change Tab Color…") {
+        store()?.send(.changeActiveTabColorForCurrentWorktreeRequested)
+      }
+      .appKeyboardShortcut(.changeActiveTabColor, in: shortcuts)
+      .disabled(!hasActiveWorktree)
+
       Button("Close Tab") {
         // ⌘W is global menu chord; SwiftUI Commands aren't scene-scoped, so the
         // same accelerator fires regardless of which window is key. Route on the

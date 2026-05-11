@@ -1,4 +1,5 @@
 import SwiftUI
+import TouchCodeCore
 
 /// One tab chip. Composes label + close button on top of a state-aware
 /// background and owns the chip's local hover / press state. The chip
@@ -34,6 +35,8 @@ struct TabChipView: View {
   let onCloseToRight: () -> Void
   let onCloseAll: () -> Void
   let onRenameRequested: () -> Void
+  let onChangeColor: () -> Void
+  let tabColor: TabColor?
 
   @State private var isHovering = false
   @State private var isPressing = false
@@ -75,9 +78,9 @@ struct TabChipView: View {
         maxHeight: TabBarMetrics.chipHeight
       )
 
-      // Trailing slot: chord hint takes precedence while ⌘ is held; otherwise the
-      // standard hover/active-revealed close button. Splitting the slot rather than
-      // overlaying both avoids stacking glyphs and keeps the chip's hit budget honest.
+      // Trailing slot: chord hint takes precedence while ⌘ is held;
+      // otherwise the color dot (when set) occupies the close-button slot —
+      // hover/active reveals the close button on top, hiding the dot.
       if let chordHint {
         Text(chordHint)
           .font(.caption.monospaced())
@@ -86,10 +89,19 @@ struct TabChipView: View {
           .accessibilityHidden(true)
           .allowsHitTesting(false)
       } else {
-        TabChipCloseButton(
-          isVisible: isHovering || isActive,
-          action: onClose
-        )
+        ZStack {
+          if let tabColor {
+            Circle()
+              .fill(tabColor.swiftUIColor)
+              .frame(width: 8, height: 8)
+              .opacity(isHovering ? 0 : 1)
+              .allowsHitTesting(false)
+          }
+          TabChipCloseButton(
+            isVisible: isHovering,
+            action: onClose
+          )
+        }
         .padding(.trailing, TabBarMetrics.chipHorizontalPadding)
       }
     }
@@ -111,6 +123,7 @@ struct TabChipView: View {
         isOnlyTab: isOnlyTab,
         isLastTab: isLastTab,
         onRename: onRenameRequested,
+        onChangeColor: onChangeColor,
         onClose: onClose,
         onCloseOthers: onCloseOthers,
         onCloseToRight: onCloseToRight,

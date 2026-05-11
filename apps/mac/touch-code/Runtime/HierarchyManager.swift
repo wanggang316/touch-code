@@ -808,6 +808,35 @@ final class HierarchyManager {
     store.scheduleSave(catalog)
   }
 
+  func setTabColor(
+    _ id: TabID,
+    in worktreeID: WorktreeID,
+    in projectID: ProjectID,
+    color: TabColor?
+  ) throws {
+    guard
+      let (projectIndex, worktreeIndex) = findWorktreeIndices(
+        worktreeID: worktreeID,
+        projectID: projectID
+      )
+    else {
+      throw HierarchyError.notFound("Worktree \(worktreeID)")
+    }
+    guard
+      let tabIndex = catalog.projects[projectIndex]
+        .worktrees[worktreeIndex].tabs.firstIndex(where: { $0.id == id })
+    else {
+      throw HierarchyError.notFound("Tab \(id)")
+    }
+    guard
+      catalog.projects[projectIndex]
+        .worktrees[worktreeIndex].tabs[tabIndex].color != color
+    else { return }
+    catalog.projects[projectIndex]
+      .worktrees[worktreeIndex].tabs[tabIndex].color = color
+    store.scheduleSave(catalog)
+  }
+
   /// Persists the most recently resolved live tab title so the chip can
   /// fall back to it on the next launch (before the surface respawns and
   /// the shell re-pushes OSC titles). No-op when the cache is unchanged

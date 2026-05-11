@@ -15,6 +15,7 @@ struct TabChipContextMenu: View {
   let isOnlyTab: Bool
   let isLastTab: Bool
   let onRename: () -> Void
+  let onChangeColor: () -> Void
   let onClose: () -> Void
   let onCloseOthers: () -> Void
   let onCloseToRight: () -> Void
@@ -27,6 +28,8 @@ struct TabChipContextMenu: View {
     // the closure path; the hint stays advisory in that case.
     Button("Rename…", action: onRename)
       .appKeyboardShortcut(.renameActiveTab)
+    Button("Change Color…", action: onChangeColor)
+      .appKeyboardShortcut(.changeActiveTabColor)
     Divider()
     Button("Close Tab", action: onClose)
     Button("Close Other Tabs", action: onCloseOthers)

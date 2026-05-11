@@ -46,6 +46,26 @@ struct TabBarView: View {
           onCancel: { store.send(.renameDismissed) }
         )
       }
+      .sheet(
+        item: Binding(
+          get: { store.colorTarget },
+          set: { newValue in
+            if newValue == nil { store.send(.colorDismissed) }
+          }
+        )
+      ) { target in
+        TabColorSheetView(
+          currentColor: target.currentColor,
+          onCommit: { color in
+            store.send(
+              .colorSubmitted(
+                target.id, color: color,
+                inWorktree: worktreeID, inProject: projectID
+              ))
+          },
+          onCancel: { store.send(.colorDismissed) }
+        )
+      }
   }
 
   @ViewBuilder
@@ -141,6 +161,10 @@ struct TabBarView: View {
       onRenameRequested: { tabID in
         guard let tab = worktree.tabs.first(where: { $0.id == tabID }) else { return }
         store.send(.renameRequested(tabID, currentName: tab.name ?? ""))
+      },
+      onChangeColorRequested: { tabID in
+        guard let tab = worktree.tabs.first(where: { $0.id == tabID }) else { return }
+        store.send(.colorRequested(tabID, currentColor: tab.color))
       },
       onReorder: { orderedIDs in
         store.send(

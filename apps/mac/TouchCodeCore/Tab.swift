@@ -9,6 +9,8 @@ public nonisolated struct Tab: Equatable, Codable, Sendable, Identifiable {
   /// the previous session's title instead of falling back to "Tab N".
   /// Cleared / overwritten as soon as a live title is observed again.
   public var cachedDisplayTitle: String?
+  /// Per-tab accent color for the active underline stripe. `nil` = system accent.
+  public var color: TabColor?
   public var splitTree: SplitTree<PaneID>
   public var panes: [Pane]
 
@@ -16,12 +18,14 @@ public nonisolated struct Tab: Equatable, Codable, Sendable, Identifiable {
     id: TabID = TabID(),
     name: String? = nil,
     cachedDisplayTitle: String? = nil,
+    color: TabColor? = nil,
     splitTree: SplitTree<PaneID> = SplitTree(),
     panes: [Pane] = []
   ) {
     self.id = id
     self.name = name
     self.cachedDisplayTitle = cachedDisplayTitle
+    self.color = color
     self.splitTree = splitTree
     self.panes = panes
   }

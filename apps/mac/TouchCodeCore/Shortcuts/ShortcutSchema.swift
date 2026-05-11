@@ -286,7 +286,14 @@ extension ShortcutSchema {
       title: "Rename Tab…",
       category: .terminal,
       scope: .configurable,
-      defaultBinding: .init(keyCode: UInt16(kVK_ANSI_R), modifiers: [.command, .shift])
+      defaultBinding: .init(keyCode: UInt16(kVK_ANSI_R), modifiers: [.command, .option])
+    ),
+    .init(
+      id: .changeActiveTabColor,
+      title: "Change Tab Color…",
+      category: .terminal,
+      scope: .configurable,
+      defaultBinding: .init(keyCode: UInt16(kVK_ANSI_C), modifiers: [.command, .option])
     ),
     .init(
       id: .previousTab,

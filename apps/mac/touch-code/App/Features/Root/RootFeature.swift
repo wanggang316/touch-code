@@ -221,6 +221,7 @@ struct RootFeature {
     /// context-menu and chord paths land on the same reducer transition.
     /// Silent no-op when no tab is active.
     case renameActiveTabForCurrentWorktreeRequested
+    case changeActiveTabColorForCurrentWorktreeRequested
     /// Resolves the current Worktree's path and asks the Finder client
     /// to reveal it. Mirrors the palette's `revealCurrentWorktreeInFinder`
     /// kind so the menu binding and the palette item land on the same
@@ -1194,6 +1195,25 @@ struct RootFeature {
           .detail(
             .tabBar(
               .renameRequested(activeTabID, currentName: activeTab.name ?? "")
+            )))
+
+      case .changeActiveTabColorForCurrentWorktreeRequested:
+        guard
+          let projectID = state.selection.projectID,
+          let worktreeID = state.selection.worktreeID
+        else { return .none }
+        let catalog = hierarchyClient.snapshot()
+        guard
+          let worktree = catalog
+            .projects.first(where: { $0.id == projectID })?
+            .worktrees.first(where: { $0.id == worktreeID }),
+          let activeTabID = worktree.selectedTabID,
+          let activeTab = worktree.tabs.first(where: { $0.id == activeTabID })
+        else { return .none }
+        return .send(
+          .detail(
+            .tabBar(
+              .colorRequested(activeTabID, currentColor: activeTab.color)
             )))
 
       case .revealCurrentWorktreeInFinderRequested:

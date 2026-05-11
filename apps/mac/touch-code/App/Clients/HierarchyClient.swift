@@ -107,6 +107,12 @@ nonisolated struct HierarchyClient: Sendable {
       _ inWorktree: WorktreeID, _ inProject: ProjectID,
       _ name: String?
     ) throws -> Void
+  var setTabColor:
+    @MainActor @Sendable (
+      _ id: TabID,
+      _ inWorktree: WorktreeID, _ inProject: ProjectID,
+      _ color: TabColor?
+    ) throws -> Void
   var reorderTabs:
     @MainActor @Sendable (
       _ inWorktree: WorktreeID, _ inProject: ProjectID,
@@ -471,6 +477,9 @@ extension HierarchyClient {
       },
       renameTab: { tabID, worktreeID, projectID, name in
         try manager.renameTab(tabID, in: worktreeID, in: projectID, name: name)
+      },
+      setTabColor: { tabID, worktreeID, projectID, color in
+        try manager.setTabColor(tabID, in: worktreeID, in: projectID, color: color)
       },
       reorderTabs: { worktreeID, projectID, orderedIDs in
         try manager.reorderTabs(
@@ -1171,6 +1180,7 @@ extension HierarchyClient: DependencyKey {
     closeTab: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     selectTab: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     renameTab: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    setTabColor: { _, _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     reorderTabs: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     closeOtherTabs: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
     closeTabsToRight: { _, _, _ in fatalError("HierarchyClient.liveValue not configured") },
@@ -1237,6 +1247,7 @@ extension HierarchyClient: DependencyKey {
     closeTab: unimplemented("HierarchyClient.closeTab"),
     selectTab: unimplemented("HierarchyClient.selectTab"),
     renameTab: unimplemented("HierarchyClient.renameTab"),
+    setTabColor: unimplemented("HierarchyClient.setTabColor"),
     reorderTabs: unimplemented("HierarchyClient.reorderTabs"),
     closeOtherTabs: unimplemented("HierarchyClient.closeOtherTabs"),
     closeTabsToRight: unimplemented("HierarchyClient.closeTabsToRight"),
