@@ -82,17 +82,29 @@ struct SplitViewportFeature {
         return .none
 
       case .newPaneButtonTapped(let tabID, let worktreeID, let projectID, let cwd):
-        _ = try? hierarchyClient.openPane(tabID, worktreeID, projectID, cwd, nil)
-        return .none
+        guard
+          let newPaneID = try? hierarchyClient.openPane(
+            tabID, worktreeID, projectID, cwd, nil
+          )
+        else { return .none }
+        // Mirrors PaneActionRouterFeature.newSplit: focus the freshly
+        // opened pane so the user lands on it without an extra click.
+        return .run { [client = hierarchyClient] _ in
+          await MainActor.run { client.focusSurfaceView(newPaneID) }
+        }
 
       case .splitButtonTapped(
         let paneID, let direction,
         let tabID, let worktreeID, let projectID, let cwd
       ):
-        _ = try? hierarchyClient.splitPane(
-          paneID, direction, tabID, worktreeID, projectID, cwd, nil
-        )
-        return .none
+        guard
+          let newPaneID = try? hierarchyClient.splitPane(
+            paneID, direction, tabID, worktreeID, projectID, cwd, nil
+          )
+        else { return .none }
+        return .run { [client = hierarchyClient] _ in
+          await MainActor.run { client.focusSurfaceView(newPaneID) }
+        }
 
       case .closePaneButtonTapped(let paneID, let tabID, let worktreeID, let projectID):
         try? hierarchyClient.closePane(paneID, tabID, worktreeID, projectID)
