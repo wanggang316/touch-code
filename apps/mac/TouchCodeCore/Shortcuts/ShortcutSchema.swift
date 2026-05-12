@@ -85,11 +85,18 @@ extension ShortcutSchema {
       defaultBinding: .init(keyCode: UInt16(kVK_ANSI_P), modifiers: .command)
     ),
     .init(
+      id: .showUnread,
+      title: "Show Unread Notifications",
+      category: .general,
+      scope: .configurable,
+      defaultBinding: .init(keyCode: UInt16(kVK_ANSI_U), modifiers: .command)
+    ),
+    .init(
       id: .checkForUpdates,
       title: "Check for Updates",
       category: .general,
       scope: .configurable,
-      defaultBinding: .init(keyCode: UInt16(kVK_ANSI_U), modifiers: .command)
+      defaultBinding: .init(keyCode: UInt16(kVK_ANSI_U), modifiers: [.command, .shift])
     ),
   ]
 

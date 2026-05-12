@@ -52,7 +52,8 @@ struct ShortcutSchemaAuditTests {
   private static let golden: [(CommandID, (keyCode: UInt16, modifiers: ModifierMask))] = [
     (.openSettings, (0x2B, [.command])),  // ,
     (.commandPaletteToggle, (0x23, [.command])),  // p
-    (.checkForUpdates, (0x20, [.command])),  // u
+    (.showUnread, (0x20, [.command])),  // ⌘U
+    (.checkForUpdates, (0x20, [.command, .shift])),  // ⌘⇧U
     (.openInEditor, (0x1F, [.command])),  // o
     (.toggleDiffInspector, (0x05, [.command, .option])),  // g
     (.addProject, (0x1F, [.command, .shift])),  // ⇧O

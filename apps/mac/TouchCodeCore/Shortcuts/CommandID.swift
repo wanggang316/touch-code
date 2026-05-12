@@ -15,6 +15,7 @@ public enum CommandID: String, CaseIterable, Hashable, Sendable, Codable, Coding
   // App scope.
   case openSettings
   case checkForUpdates
+  case showUnread
 
   // Quick action.
   case commandPaletteToggle

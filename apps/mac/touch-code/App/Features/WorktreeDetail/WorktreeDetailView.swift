@@ -43,6 +43,11 @@ struct WorktreeDetailView: View {
   /// the InboxBellView's row-tap. Wired by `ContentView` so this view
   /// doesn't need to hold the root TCA scope just to fire one action.
   let onFocusHierarchyPath: (InboxEntry.SourcePath) -> Void
+  /// Bumped by `RootFeature` when the user invokes ⌘U / the "Show Unread
+  /// Notifications" menu item. Threaded down to `InboxBellView` whose
+  /// `.onChange` opens the popover — same UUID-trigger pattern as
+  /// `revealSelectionTrigger` for the sidebar.
+  let inboxBellPopoverTrigger: UUID
   /// `RootFeature.activePendingWorktreeID` resolved to its row in
   /// `sidebar.pendingWorktrees`, plus the parent Project's display
   /// name. Non-nil → the detail pane shows `WorktreeLoadingView`
@@ -236,7 +241,10 @@ struct WorktreeDetailView: View {
   @ToolbarContentBuilder
   private func inboxBellToolbarItem() -> some ToolbarContent {
     ToolbarItem {
-      InboxBellView(onFocusHierarchyPath: onFocusHierarchyPath)
+      InboxBellView(
+        onFocusHierarchyPath: onFocusHierarchyPath,
+        popoverTrigger: inboxBellPopoverTrigger
+      )
     }
   }
 

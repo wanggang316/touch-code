@@ -15,6 +15,10 @@ struct InboxBellView: View {
   /// Wired by ContentView; passing a closure rather than the root store
   /// keeps WorktreeDetailView from needing the full RootFeature scope.
   let onFocusHierarchyPath: (InboxEntry.SourcePath) -> Void
+  /// `RootFeature.State.inboxBellPopoverTrigger` — bumped to a fresh UUID
+  /// by the ⌘U menu chord. `.onChange` below flips `popoverShown` so the
+  /// popover anchors itself to this button identically to a user click.
+  let popoverTrigger: UUID
   @Environment(NotificationStore.self) private var inbox: NotificationStore?
   @Environment(RollupIndexProvider.self) private var rollup: RollupIndexProvider?
 
@@ -45,6 +49,9 @@ struct InboxBellView: View {
     }
     .buttonStyle(.plain)
     .accessibilityLabel(accessibilityLabel)
+    .onChange(of: popoverTrigger) { _, _ in
+      popoverShown = true
+    }
     .popover(isPresented: $popoverShown, arrowEdge: .top) {
       InboxPopoverContent(
         unreadOnly: $unreadOnly,

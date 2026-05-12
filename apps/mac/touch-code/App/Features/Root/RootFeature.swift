@@ -79,6 +79,13 @@ struct RootFeature {
     /// sessions, even though neither matters in practice.
     var revealSelectionTrigger: UUID = UUID()
 
+    /// Show-unread trigger. The chord (⌘U) bumps this to a fresh UUID;
+    /// `InboxBellView` observes the change through the WorktreeDetailView
+    /// scope and opens its popover. Same pattern as
+    /// `revealSelectionTrigger` — UUID rather than Bool so back-to-back
+    /// invocations always register as a new value.
+    var inboxBellPopoverTrigger: UUID = UUID()
+
     /// Back/forward history of selections, browser-style. `Back` pops from
     /// `navigationHistoryBack` and pushes onto `navigationHistoryForward`;
     /// `Forward` reverses. A new selection that did not come from a
@@ -242,6 +249,10 @@ struct RootFeature {
     /// menu chord, the palette item, and any other entry point share the
     /// same effect.
     case checkForUpdatesRequested
+    /// Opens the status-bar bell popover (the in-app unread inbox). Bumps
+    /// `state.inboxBellPopoverTrigger` so `InboxBellView` toggles its
+    /// popover; the chord (⌘U) routes here from the main menu.
+    case showUnreadRequested
     /// Resolves the current Worktree's absolute path and writes it to the
     /// system pasteboard. Silent no-op when no worktree is selected.
     case copyCurrentWorktreePathRequested
@@ -1317,6 +1328,10 @@ struct RootFeature {
 
       case .checkForUpdatesRequested:
         return .send(.windowActionRouter(.requested(.checkForUpdates)))
+
+      case .showUnreadRequested:
+        state.inboxBellPopoverTrigger = UUID()
+        return .none
 
       case .copyCurrentWorktreePathRequested:
         guard

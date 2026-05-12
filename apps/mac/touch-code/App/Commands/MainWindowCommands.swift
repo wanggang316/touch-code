@@ -165,6 +165,12 @@ struct MainWindowCommands: Commands {
     // `SettingsStore` and replays `UpdatesClient.applyPreferences(...)` so the running
     // Sparkle instance immediately picks up the new channel + interval.
     CommandGroup(after: .appInfo) {
+      Button("Show Unread Notifications") {
+        store()?.send(.showUnreadRequested)
+      }
+      .appKeyboardShortcut(.showUnread, in: shortcuts)
+      .disabled(store() == nil)
+
       Button("Check for Updates…") {
         store()?.send(.checkForUpdatesRequested)
       }
