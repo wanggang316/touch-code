@@ -98,91 +98,51 @@ entries), **stop**. Tell the user to run `/hs-changelog` first to
 extract recent commits, then resume.
 
 **Writing style — user-facing language.** The CHANGELOG is read by
-people who **use** the app, not people who build it. Every entry has
-to land for a non-developer in one read. Treat raw commit messages as
-input, not output — rewrite them.
+people who **use** the app, not people who build it. Rewrite raw
+commit messages — don't paste them. Keep the standard section
+headers (`Added` / `Changed` / `Fixed` / …); the rules below govern
+the bullets under them.
 
-The principles below are ordered: when they conflict, earlier ones win.
+In priority order — when rules conflict, earlier ones win:
 
-1. **Clarity first, brevity second.** Lead the entry with the change
-   the user will feel. Be concise after that — but never cut a word
-   that the reader needs to understand the change. If a fix needs an
-   extra clause to make sense, write the clause. Don't shrink for the
-   sake of shrinking.
-
-2. **Describe the feature, not the engineering.** Say what the user
-   can now do, see, or stop being annoyed by. Skip the mechanism.
+1. **Describe what the user gets.** Lead with the feature, outcome,
+   or — for bugs — the symptom that's now gone. Skip the mechanism.
    - Good: "Tabs remember their color across restarts."
+     "Pane no longer flickers when switching tabs with the sidebar floating."
    - Bad: "Persist `Tab.colorToken` to `TouchCodeCore.TabState`."
+     "Fix race in `PaneHostView` state-restoration."
 
-3. **Bug entries describe the symptom that's now gone.** The reader
-   should recognize the pain they used to have.
-   - Good: "Pane no longer flickers when switching tabs with the
-     sidebar floating."
-   - Bad: "Fix race in `PaneHostView` state-restoration."
+2. **Clarity beats brevity.** Be concise once the entry is clear. If
+   one extra clause is what makes it land, write the clause. Don't
+   cut words just to be short. Cap each entry at one or two short
+   lines — three lines means the entry is doing too much.
 
-4. **Lead with the outcome, not the verb.** Open with what the user
-   gets, not "Add / Fix / Improve". The category header
-   (`Added` / `Fixed` / …) already carries the verb.
-   - Good: "Right-click → Copy Tab ID puts the identifier on the
-     clipboard for scripting."
-   - Bad: "Added: A right-click action to copy the tab ID was added
-     for users who script the app."
-
-5. **Merge iteration into net effect.** If several commits chased the
-   same bug or refined the same feature inside one release cycle,
-   collapse them into one entry that names the end state. The reader
-   doesn't need the debugging journey, the half-fix, or the rollback.
-   - Good: "Sidebar focus survives ⌘⌫ on the main worktree."
-   - Bad: three bullets covering "first attempt", "regression", "real
-     fix" inside the same version.
-
-6. **Omit engineering-only changes.** Refactors, module renames,
-   folder restructures, build-script tweaks, CI changes, lint rules,
-   dependency bumps, internal abstractions — none of these belong in
-   the user-facing CHANGELOG. The git history is their home.
-   Exception: when an engineering change has a side effect the user
-   can perceive — minimum-OS bump, telemetry policy shift, license /
-   pricing model change, a startup that's noticeably faster — list it
+3. **Skip engineering-only changes.** Refactors, module renames, CI
+   tweaks, lint rules, dependency bumps, build-script edits, internal
+   abstractions — out. The git log is their home. *Exception:* when
+   the change has a side effect the user can perceive (minimum-OS
+   bump, telemetry-policy shift, noticeably faster startup), list it
    under `Changed` and describe the user impact, not the refactor.
 
-7. **No commit-message scaffolding.** Strip Conventional Commit
-   prefixes (`feat:`, `fix:`, `chore:`), strip PR / issue numbers,
-   strip commit hashes. Don't say "this PR", "this commit", or "as of
-   this release" — the section header already establishes the
-   release.
+4. **Drop developer jargon.** No commit prefixes (`feat:`, `fix:`),
+   no PR / issue numbers, no commit hashes, no module or type names,
+   no protocol terms (`EPIPE`, `O_NONBLOCK`, `WKWebView`). Refer to
+   features by the UI surface the user sees ("Settings → Updates",
+   "sidebar"). Swap jargon for plain phrasing — "an intermittent
+   crash when reopening a project" beats "a non-deterministic crash
+   on project reopen".
 
-8. **No internal identifiers.** No module names, no Swift type names,
-   no config keys, no protocol jargon (`EPIPE`, `O_NONBLOCK`,
-   `WKWebView`). Refer to features by the surface the user sees —
-   "Settings → Updates", "sidebar", "tab bar" — not by source-tree
-   location.
+5. **Consolidate within a release.** If several commits chased the
+   same bug or refined the same feature inside one cycle, fold them
+   into one entry that names the end state — the reader doesn't need
+   the debugging journey. Bundle many tiny polish items into one
+   bullet ("Various tab-bar polish: smoother color sheet, snappier
+   middle-click close, tidier overflow menu") instead of five
+   near-identical micro-bullets.
 
-9. **Plain everyday phrasing.** Avoid "regression", "race condition",
-   "null pointer", "non-deterministic". If you must hint at a class
-   of bug, describe it: "an intermittent crash when reopening a
-   project" rather than "a non-deterministic crash on project
-   reopen".
-
-10. **One entry, one or two short lines.** Bold the user-facing
-    summary, then optionally one sentence of context if it's needed
-    for the reader to understand the value. Three or more lines is a
-    smell — the entry is doing too much, or the entry isn't actually
-    user-facing.
-
-11. **Write for the reader a year out.** If a polish item or
-    interim fix won't mean anything to someone reading the CHANGELOG
-    in twelve months, fold it into a neighboring entry or drop it.
-    Don't preserve micro-history just because a commit exists for it.
-
-12. **Bundle low-signal polish.** Many tiny visual or copy tweaks
-    inside one release → one bullet, e.g. "Various tab-bar polish:
-    smoother color sheet, snappier middle-click close, tidier
-    overflow menu." Don't paste five near-identical micro-bullets.
-
-When in doubt, ask: "Would a user who only uses the app — never reads
-the source — care about this line?" If no, drop it. If yes but they
-wouldn't understand it as written, rewrite it.
+Sanity check before finalizing each entry: *would a user who only
+uses the app care about this line, and could they understand it?* If
+either answer is "no", rewrite or drop.
 
 ### 3. Cut the changelog version section
 
