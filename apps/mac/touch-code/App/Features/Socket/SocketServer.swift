@@ -354,3 +354,10 @@ public enum SocketError: Error, Equatable, Sendable {
   case listenFailed(path: String, errno: Int32)
   case alreadyInUse(path: String)
 }
+
+extension Logger {
+  /// Shared logger for app-side IPC bring-up. Use this instead of `print`
+  /// so failures stay visible under `log show --subsystem com.touch-code.ipc`
+  /// when the app is launched via Finder/Spotlight (stderr discarded).
+  static let ipcServer = Logger(subsystem: "com.touch-code.ipc", category: "server")
+}

@@ -551,12 +551,19 @@ final class AppState {
       terminalHandlers: terminalHandlers,
       editorHandlers: editorHandlers
     )
-    let server = SocketServer(path: SocketPaths.resolve(), router: router)
+    let resolvedSocketPath = SocketPaths.resolve()
+    let server = SocketServer(path: resolvedSocketPath, router: router)
     do {
       try server.start()
       self.socketServer = server
     } catch {
-      print("SocketServer bind failed: \(error)")
+      // GUI launches discard stderr, so a `print` here would have been invisible.
+      // Log to the unified system log so `log show --subsystem com.touch-code.ipc`
+      // surfaces silent IPC bring-up failures (e.g., stale socket, prod sock
+      // squatting on dev path via `$TOUCH_CODE_SOCKET_PATH`).
+      Logger.ipcServer.error(
+        "SocketServer bind failed at \(resolvedSocketPath, privacy: .public): \(String(describing: error), privacy: .public)"
+      )
     }
   }
 
