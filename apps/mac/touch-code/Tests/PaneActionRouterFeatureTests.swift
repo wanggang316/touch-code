@@ -184,31 +184,104 @@ struct PaneActionRouterFeatureTests {
 
   // MARK: - gotoSplit
 
-  /// `.left` collapses onto `SplitTree.FocusDirection.previous`. On the
-  /// single-leaf tree the fixture's source tab has, `focusTarget(.previous)`
-  /// wraps around and returns the same pane — the reducer must still
-  /// invoke `focusPane`, routing the decoded intent even when the
-  /// neighbor is the source itself.
+  /// Two-pane horizontal layout (sourcePane | rightPane). Spatial `.right`
+  /// lands on `rightPane`; `.left` from sourcePane has no neighbor and
+  /// must no-op (no `focusPane` call).
   @Test
-  func gotoSplitLeftCallsFocusPaneOnResolvedNeighbor() async {
+  func gotoSplitRoutesSpatialDirectionsThroughGeometry() async throws {
     let f = Fixture()
-    let recorded = LockIsolated<(PaneID, TabID, WorktreeID, ProjectID)?>(nil)
-    let catalog = f.catalog()
+    let rightPane = PaneID()
+    let twoPaneTab = Tab(
+      id: f.tabID,
+      splitTree: try SplitTree(leaf: f.paneID).inserting(
+        rightPane, at: f.paneID, direction: .right),
+      panes: [
+        Pane(id: f.paneID, workingDirectory: "/cwd"),
+        Pane(id: rightPane, workingDirectory: "/cwd"),
+      ]
+    )
+    let worktree = Worktree(
+      id: f.worktreeID, name: "w", path: "/w", tabs: [twoPaneTab])
+    let catalog = Catalog(projects: [
+      Project(
+        id: f.projectID, name: "p", rootPath: "/p", gitRoot: "/p",
+        worktrees: [worktree])
+    ])
+
+    // .right → rightPane (focusPane called with neighbor)
+    let recorded = LockIsolated<PaneID?>(nil)
     let store = TestStore(initialState: PaneActionRouterFeature.State()) {
       PaneActionRouterFeature()
     } withDependencies: {
       $0.hierarchyClient = HierarchyClient.testValue
       $0.hierarchyClient.addressOf = { _ in f.address }
       $0.hierarchyClient.snapshot = { catalog }
-      $0.hierarchyClient.focusPane = { paneID, tid, wid, pid in
-        recorded.setValue((paneID, tid, wid, pid))
-      }
+      $0.hierarchyClient.focusPane = { pid, _, _, _ in recorded.setValue(pid) }
+    }
+    await store.send(.requested(f.paneID, .gotoSplit(direction: .right)))
+    #expect(recorded.value == rightPane)
+
+    // .left from the leftmost pane has no spatial neighbor → no focusPane call.
+    let edgeRecorded = LockIsolated<PaneID?>(nil)
+    let edgeStore = TestStore(initialState: PaneActionRouterFeature.State()) {
+      PaneActionRouterFeature()
+    } withDependencies: {
+      $0.hierarchyClient = HierarchyClient.testValue
+      $0.hierarchyClient.addressOf = { _ in f.address }
+      $0.hierarchyClient.snapshot = { catalog }
+      $0.hierarchyClient.focusPane = { pid, _, _, _ in edgeRecorded.setValue(pid) }
+    }
+    await edgeStore.send(.requested(f.paneID, .gotoSplit(direction: .left)))
+    #expect(edgeRecorded.value == nil)
+  }
+
+  /// 2×2 grid regression: ensures the spatial walk picks the
+  /// geometrically correct neighbor (overlap-then-distance), not the
+  /// pre-fix tree-order linearization which would land on `bottomLeft`
+  /// for `.right` from `topLeft`.
+  @Test
+  func gotoSplitInGridResolvesByGeometryNotTreeOrder() async throws {
+    let f = Fixture()
+    let topRight = PaneID(), bottomLeft = PaneID(), bottomRight = PaneID()
+    let splitTree = try SplitTree(leaf: f.paneID)
+      .inserting(topRight, at: f.paneID, direction: .right)
+      .inserting(bottomLeft, at: f.paneID, direction: .down)
+      .inserting(bottomRight, at: topRight, direction: .down)
+    let tab = Tab(
+      id: f.tabID, splitTree: splitTree,
+      panes: [
+        Pane(id: f.paneID, workingDirectory: "/cwd"),
+        Pane(id: topRight, workingDirectory: "/cwd"),
+        Pane(id: bottomLeft, workingDirectory: "/cwd"),
+        Pane(id: bottomRight, workingDirectory: "/cwd"),
+      ]
+    )
+    let catalog = Catalog(projects: [
+      Project(
+        id: f.projectID, name: "p", rootPath: "/p", gitRoot: "/p",
+        worktrees: [
+          Worktree(id: f.worktreeID, name: "w", path: "/w", tabs: [tab])
+        ])
+    ])
+
+    let recorded = LockIsolated<PaneID?>(nil)
+    let store = TestStore(initialState: PaneActionRouterFeature.State()) {
+      PaneActionRouterFeature()
+    } withDependencies: {
+      $0.hierarchyClient = HierarchyClient.testValue
+      $0.hierarchyClient.addressOf = { _ in f.address }
+      $0.hierarchyClient.snapshot = { catalog }
+      $0.hierarchyClient.focusPane = { pid, _, _, _ in recorded.setValue(pid) }
     }
 
-    await store.send(.requested(f.paneID, .gotoSplit(direction: .left)))
-    #expect(recorded.value?.0 == f.paneID)
-    #expect(recorded.value?.1 == f.tabID)
-    #expect(recorded.value?.2 == f.worktreeID)
+    // From topLeft: → must be topRight (was bottomLeft pre-fix).
+    await store.send(.requested(f.paneID, .gotoSplit(direction: .right)))
+    #expect(recorded.value == topRight)
+
+    // ↓ from topLeft: bottomLeft (X-overlap) over bottomRight.
+    recorded.setValue(nil)
+    await store.send(.requested(f.paneID, .gotoSplit(direction: .down)))
+    #expect(recorded.value == bottomLeft)
   }
 
   // MARK: - resizeSplit

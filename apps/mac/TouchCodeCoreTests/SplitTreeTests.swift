@@ -122,6 +122,86 @@ struct SplitTreeTests {
   }
 
   @Test
+  func spatialFocusInTwoPaneRowGoesLeftRightAndNoOpsVertical() throws {
+    // Layout: A | B (single horizontal split → A left, B right).
+    let a = PaneID(), b = PaneID()
+    let tree = try SplitTree(leaf: a).inserting(b, at: a, direction: .right)
+    #expect(tree.focusTarget(spatial: .right, from: a) == b)
+    #expect(tree.focusTarget(spatial: .left, from: b) == a)
+    #expect(tree.focusTarget(spatial: .left, from: a) == nil)
+    #expect(tree.focusTarget(spatial: .right, from: b) == nil)
+    // Vertical directions are no-ops on a single horizontal split.
+    #expect(tree.focusTarget(spatial: .up, from: a) == nil)
+    #expect(tree.focusTarget(spatial: .down, from: a) == nil)
+  }
+
+  @Test
+  func spatialFocusInTwoByTwoGridResolvesEveryDirection() throws {
+    // Layout (L→R then split each column vertically):
+    //   +----+----+
+    //   | TL | TR |
+    //   +----+----+
+    //   | BL | BR |
+    //   +----+----+
+    let topLeft = PaneID(), topRight = PaneID()
+    let bottomLeft = PaneID(), bottomRight = PaneID()
+    let tree = try SplitTree(leaf: topLeft)
+      .inserting(topRight, at: topLeft, direction: .right)
+      .inserting(bottomLeft, at: topLeft, direction: .down)
+      .inserting(bottomRight, at: topRight, direction: .down)
+
+    // From TL: right → TR, down → BL, edges are no-op.
+    #expect(tree.focusTarget(spatial: .right, from: topLeft) == topRight)
+    #expect(tree.focusTarget(spatial: .down, from: topLeft) == bottomLeft)
+    #expect(tree.focusTarget(spatial: .left, from: topLeft) == nil)
+    #expect(tree.focusTarget(spatial: .up, from: topLeft) == nil)
+
+    // From BR: left → BL, up → TR, edges are no-op.
+    #expect(tree.focusTarget(spatial: .left, from: bottomRight) == bottomLeft)
+    #expect(tree.focusTarget(spatial: .up, from: bottomRight) == topRight)
+    #expect(tree.focusTarget(spatial: .right, from: bottomRight) == nil)
+    #expect(tree.focusTarget(spatial: .down, from: bottomRight) == nil)
+
+    // From TR: left → TL (Y-overlap with TR beats BL), down → BR.
+    #expect(tree.focusTarget(spatial: .left, from: topRight) == topLeft)
+    #expect(tree.focusTarget(spatial: .down, from: topRight) == bottomRight)
+  }
+
+  @Test
+  func spatialFocusPrefersOverlappingNeighborOverDistantSibling() throws {
+    // Build a "tall right column / split left column" layout by
+    // splitting only the left leaf vertically:
+    //   +----+      +
+    //   |topA|      |
+    //   +----+ topB |
+    //   |bot |      |
+    //   +----+------+
+    // From topA: right → topB (full Y-overlap with topA's row),
+    // down → bot (X-overlap with topA, topB has no overlap on the
+    // perpendicular axis when measured from topA's row anyway).
+    let topA = PaneID(), topB = PaneID(), bot = PaneID()
+    let tree = try SplitTree(leaf: topA)
+      .inserting(topB, at: topA, direction: .right)
+      .inserting(bot, at: topA, direction: .down)
+    #expect(tree.focusTarget(spatial: .right, from: topA) == topB)
+    #expect(tree.focusTarget(spatial: .down, from: topA) == bot)
+    // From topB the column spans the full height — there is no slot
+    // strictly below it, so down is a no-op.
+    #expect(tree.focusTarget(spatial: .down, from: topB) == nil)
+    // From bot: right reaches topB (Y-ranges overlap), up reaches topA.
+    #expect(tree.focusTarget(spatial: .right, from: bot) == topB)
+    #expect(tree.focusTarget(spatial: .up, from: bot) == topA)
+  }
+
+  @Test
+  func spatialFocusOnSingletonReturnsNil() {
+    let a = PaneID()
+    let tree = SplitTree(leaf: a)
+    #expect(tree.focusTarget(spatial: .right, from: a) == nil)
+    #expect(tree.focusTarget(spatial: .down, from: a) == nil)
+  }
+
+  @Test
   func zoomedLeafTracksReplacementAndRemoval() throws {
     let a = PaneID(), b = PaneID(), c = PaneID()
     let tree = try SplitTree(leaf: a)

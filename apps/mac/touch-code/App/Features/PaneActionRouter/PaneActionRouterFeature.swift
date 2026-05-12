@@ -281,10 +281,13 @@ struct PaneActionRouterFeature {
   /// catalog flips `lastFocusedPane` and the dim overlay swaps, but the
   /// underlying `NSView` still holds the system caret.
   ///
-  /// Simplification: every direction collapses onto the SplitTree's
-  /// previous/next linearization. Up/left → previous, down/right → next.
-  /// A real spatial walk needs per-pane frames the reducer does not see;
-  /// revisit when the viewport layer exposes geometry.
+  /// `previous`/`next` walk the tree's leaf order (used by
+  /// `focusTargetAfterClosing` and any "tab through panes" flow). The
+  /// four spatial directions resolve through `SplitTree`'s virtual
+  /// layout — the split tree's own `direction`/`ratio` is enough to
+  /// derive relative geometry, no live frame data needed. Returns nil
+  /// (no-op) when the source pane is on the edge in the requested
+  /// direction so "up means up" stays predictable.
   private func gotoSplit(from paneID: PaneID, direction: FocusDirection) -> Effect<Action> {
     guard let address = hierarchyClient.addressOf(paneID) else { return .none }
     let catalog = hierarchyClient.snapshot()
@@ -295,15 +298,22 @@ struct PaneActionRouterFeature {
       )
     else { return .none }
 
-    let treeDirection: SplitTree<PaneID>.FocusDirection
+    let neighborID: PaneID?
     switch direction {
-    case .previous, .up, .left:
-      treeDirection = .previous
-    case .next, .down, .right:
-      treeDirection = .next
+    case .previous:
+      neighborID = tab.splitTree.focusTarget(for: .previous, from: paneID)
+    case .next:
+      neighborID = tab.splitTree.focusTarget(for: .next, from: paneID)
+    case .up:
+      neighborID = tab.splitTree.focusTarget(spatial: .up, from: paneID)
+    case .down:
+      neighborID = tab.splitTree.focusTarget(spatial: .down, from: paneID)
+    case .left:
+      neighborID = tab.splitTree.focusTarget(spatial: .left, from: paneID)
+    case .right:
+      neighborID = tab.splitTree.focusTarget(spatial: .right, from: paneID)
     }
-    guard let neighborID = tab.splitTree.focusTarget(for: treeDirection, from: paneID)
-    else { return .none }
+    guard let neighborID else { return .none }
     try? hierarchyClient.focusPane(
       neighborID, address.tabID, address.worktreeID, address.projectID
     )

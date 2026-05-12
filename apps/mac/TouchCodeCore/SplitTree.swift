@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 public nonisolated struct SplitTree<Leaf: Hashable & Codable & Sendable>: Equatable, Codable, Sendable {
@@ -132,6 +133,37 @@ public nonisolated struct SplitTree<Leaf: Hashable & Codable & Sendable>: Equata
     return all[next]
   }
 
+  /// Spatial neighbor lookup. Walks the virtual layout (each split's
+  /// `direction` + `ratio` carve a unit square recursively) and returns
+  /// the nearest leaf strictly on the requested side of `leaf`. Returns
+  /// `nil` when `leaf` is on the edge in that direction — callers treat
+  /// that as a no-op so the user's mental model "up means up" holds.
+  ///
+  /// The unit-square layout is sufficient for direction reasoning: only
+  /// the relative ordering of `bounds.minX/minY/maxX/maxY` matters, and
+  /// those preserve under any positive scaling. No live frame data is
+  /// required.
+  public func focusTarget(spatial direction: SpatialDirection, from leaf: Leaf) -> Leaf? {
+    guard let root, root.contains(leaf) else { return nil }
+    let slots = root.spatialLeafSlots(in: CGRect(x: 0, y: 0, width: 1, height: 1))
+    guard let ref = slots.first(where: { $0.leaf == leaf }) else { return nil }
+    let candidates: [SpatialSlot] = slots.filter { slot in
+      slot.leaf != leaf && slot.matches(direction: direction, relativeTo: ref.bounds)
+    }
+    guard !candidates.isEmpty else { return nil }
+    // Two-step ranking, mirrors typical tiling-WM "directional focus"
+    // behavior: prefer slots whose perpendicular extent overlaps the
+    // reference (a true neighbor on that side), break ties by Euclidean
+    // distance between bounds origins so the closest visible neighbor
+    // wins for grids where multiple slots all overlap.
+    return candidates.min { lhs, rhs in
+      let lOverlap = lhs.perpendicularOverlap(direction: direction, with: ref.bounds)
+      let rOverlap = rhs.perpendicularOverlap(direction: direction, with: ref.bounds)
+      if lOverlap != rOverlap { return lOverlap > rOverlap }
+      return lhs.distance(to: ref.bounds) < rhs.distance(to: ref.bounds)
+    }?.leaf
+  }
+
   public func focusTargetAfterClosing(_ leaf: Leaf) -> Leaf? {
     guard let root, root.contains(leaf) else { return nil }
     let all = root.leaves()
@@ -141,6 +173,85 @@ public nonisolated struct SplitTree<Leaf: Hashable & Codable & Sendable>: Equata
       return focusTarget(for: .next, from: leaf)
     } else {
       return focusTarget(for: .previous, from: leaf)
+    }
+  }
+}
+
+// MARK: - Spatial layout
+
+extension SplitTree {
+  public enum SpatialDirection: Sendable, Equatable { case left, right, up, down }
+
+  public struct SpatialSlot: Equatable, Sendable {
+    public let leaf: Leaf
+    public let bounds: CGRect
+
+    fileprivate func matches(direction: SpatialDirection, relativeTo ref: CGRect) -> Bool {
+      switch direction {
+      case .left: return bounds.maxX <= ref.minX
+      case .right: return bounds.minX >= ref.maxX
+      case .up: return bounds.maxY <= ref.minY
+      case .down: return bounds.minY >= ref.maxY
+      }
+    }
+
+    fileprivate func perpendicularOverlap(
+      direction: SpatialDirection, with ref: CGRect
+    ) -> Double {
+      switch direction {
+      case .left, .right:
+        let lo = max(bounds.minY, ref.minY)
+        let hi = min(bounds.maxY, ref.maxY)
+        return max(0, hi - lo)
+      case .up, .down:
+        let lo = max(bounds.minX, ref.minX)
+        let hi = min(bounds.maxX, ref.maxX)
+        return max(0, hi - lo)
+      }
+    }
+
+    fileprivate func distance(to ref: CGRect) -> Double {
+      let dx = bounds.midX - ref.midX
+      let dy = bounds.midY - ref.midY
+      return (dx * dx + dy * dy).squareRoot()
+    }
+  }
+}
+
+extension SplitTree.Node {
+  fileprivate func spatialLeafSlots(in bounds: CGRect) -> [SplitTree<Leaf>.SpatialSlot] {
+    switch self {
+    case .leaf(let leaf):
+      return [SplitTree<Leaf>.SpatialSlot(leaf: leaf, bounds: bounds)]
+    case .split(let split):
+      let ratio = max(0, min(1, split.ratio))
+      let (leftBounds, rightBounds): (CGRect, CGRect)
+      switch split.direction {
+      case .horizontal:
+        // Vertical seam: left child takes the left fraction of the
+        // width; right child takes the remainder. Matches `inserting`
+        // semantics where `.right` puts the new pane on the right edge.
+        let leftWidth = bounds.width * ratio
+        leftBounds = CGRect(
+          x: bounds.minX, y: bounds.minY,
+          width: leftWidth, height: bounds.height)
+        rightBounds = CGRect(
+          x: bounds.minX + leftWidth, y: bounds.minY,
+          width: bounds.width - leftWidth, height: bounds.height)
+      case .vertical:
+        // Horizontal seam: left child is on top, right child below.
+        // CGRect uses y-down here for ranking; consumers only ever
+        // compare relative ordering so the choice of axis is internal.
+        let topHeight = bounds.height * ratio
+        leftBounds = CGRect(
+          x: bounds.minX, y: bounds.minY,
+          width: bounds.width, height: topHeight)
+        rightBounds = CGRect(
+          x: bounds.minX, y: bounds.minY + topHeight,
+          width: bounds.width, height: bounds.height - topHeight)
+      }
+      return split.left.spatialLeafSlots(in: leftBounds)
+        + split.right.spatialLeafSlots(in: rightBounds)
     }
   }
 }
