@@ -72,5 +72,6 @@ extension IPC {
     case terminalBroadcastInput = "terminal.broadcastInput"
     case terminalReadText = "terminal.readText"
     case terminalRetryPane = "terminal.retryPane"
+    case terminalResetPane = "terminal.resetPane"
   }
 }

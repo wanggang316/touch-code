@@ -197,6 +197,7 @@ public final class MethodRouter {
     case .terminalSendInput: return await t.sendInput(request.params)
     case .terminalBroadcastInput: return await t.broadcastInput(request.params)
     case .terminalReadText: return await t.readText(request.params)
+    case .terminalResetPane: return await t.resetPane(request.params)
     default: return nil
     }
   }

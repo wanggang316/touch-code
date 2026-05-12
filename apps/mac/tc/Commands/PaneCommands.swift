@@ -46,12 +46,13 @@ struct PaneList: AsyncParsableCommand {
 struct PaneCommand: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "pane",
-    abstract: "Create, focus, close, label, read, and send panes.",
+    abstract: "Create, focus, close, label, read, reset, and send panes.",
     subcommands: [
       PaneNew.self,
       PaneFocus.self,
       PaneClose.self,
       PaneLabel.self,
+      PaneReset.self,
       SendCommand.self,
       ReadCommand.self,
     ]
@@ -162,6 +163,41 @@ struct PaneClose: AsyncParsableCommand {
       method: .hierarchyClosePane,
       verbLabel: "closed"
     )
+  }
+}
+
+struct PaneReset: AsyncParsableCommand {
+  static let configuration = CommandConfiguration(
+    commandName: "reset",
+    abstract: "Reset a pane's terminal state.",
+    discussion: """
+      Routes through libghostty's reset binding action — the same path the
+      context-menu "Reset Terminal" item uses. Clears scrollback and
+      reinitialises the terminal without disturbing the child process.
+      """
+  )
+
+  @OptionGroup var globals: GlobalOptions
+  @Argument(help: "Pane id, @label, or 'current'.")
+  var pane: String = "current"
+
+  func run() async throws {
+    await CommandRunner.run {
+      let client = CLISession.connect(globals: globals)
+      defer { Task { await client.shutdown() } }
+      let uuid = try await AliasResolver.resolve(pane, kind: .pane, client: client)
+      struct Params: Codable {
+        let paneID: PaneID
+      }
+      _ = try await client.callRaw(
+        .terminalResetPane,
+        params: Params(paneID: PaneID(raw: uuid))
+      )
+      try Renderer.emit(
+        IDMessage(id: uuid.uuidString, message: "reset pane \(uuid.uuidString)"),
+        mode: globals.renderMode
+      )
+    }
   }
 }
 

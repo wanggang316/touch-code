@@ -508,13 +508,13 @@ _tc_pane() {
     unset 'unparsed_words[0]'
     unparsed_words=("${unparsed_words[@]}")
     case "${subcommand}" in
-    new|focus|close|label|send|read)
+    new|focus|close|label|reset|send|read)
         # Offer subcommand argument completions
         "_tc_pane_${subcommand}"
         ;;
     *)
         # Offer subcommand completions
-        COMPREPLY+=($(compgen -W 'new focus close label send read' -- "${cur}"))
+        COMPREPLY+=($(compgen -W 'new focus close label reset send read' -- "${cur}"))
         ;;
     esac
 }
@@ -612,6 +612,24 @@ _tc_pane_label() {
     repeating_options=()
     non_repeating_options=(--socket --timeout)
     __tc_offer_flags_options -1
+
+    # Offer option value completions
+    case "${prev}" in
+    '--socket')
+        return
+        ;;
+    '--timeout')
+        return
+        ;;
+    esac
+}
+
+_tc_pane_reset() {
+    repeating_flags=()
+    non_repeating_flags=(--json --version -h --help)
+    repeating_options=()
+    non_repeating_options=(--socket --timeout)
+    __tc_offer_flags_options 1
 
     # Offer option value completions
     case "${prev}" in

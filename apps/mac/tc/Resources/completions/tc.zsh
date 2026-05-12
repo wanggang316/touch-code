@@ -57,7 +57,7 @@ _tc() {
             'project:Create and remove projects.'
             'worktree:Create, switch, and remove worktrees.'
             'tab:Create, switch, and close tabs.'
-            'pane:Create, focus, close, label, read, and send panes.'
+            'pane:Create, focus, close, label, read, reset, and send panes.'
             'broadcast:Send text to a tab, worktree, or label scope.'
             'help:Show subcommand help information.'
         )
@@ -365,6 +365,7 @@ _tc_pane() {
             'focus:Focus a pane.'
             'close:Close a pane.'
             'label:Add labels to a pane.'
+            'reset:Reset a pane'\''s terminal state.'
             'send:Send text to a pane.'
             'read:Read text from a pane.'
         )
@@ -372,7 +373,7 @@ _tc_pane() {
         ;;
     arg)
         case "${words[1]}" in
-        new|focus|close|label|send|read)
+        new|focus|close|label|reset|send|read)
             "_tc_pane_${words[1]}" && ret=0
             ;;
         esac
@@ -447,6 +448,21 @@ _tc_pane_label() {
         ':pane:'
         '*:labels:'
         '--replace[Replace the existing labels.]'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_tc_pane_reset() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--json[Emit JSON on stdout instead of human-readable text.]'
+        '--socket[Override the socket path (default\: $TOUCH_CODE_SOCKET_PATH → Debug /tmp/touch-code-dev-<uid>.sock, Release /tmp/touch-code-<uid>.sock).]:socket:'
+        '--timeout[Client-side timeout in seconds for a single unary call.]:timeout:'
+        ':pane:'
         '--version[Show the version.]'
         '(-h --help)'{-h,--help}'[Show help information.]'
     )

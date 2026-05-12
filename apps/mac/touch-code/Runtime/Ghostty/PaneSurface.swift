@@ -308,6 +308,17 @@ final class PaneSurface {
     return Self.string(from: text)
   }
 
+  /// Route through libghostty's `reset` binding action — the same path the
+  /// context-menu "Reset Terminal" item uses. Clears scrollback and
+  /// reinitialises the terminal state without disturbing the child PTY.
+  func resetTerminal() {
+    guard let surface else { return }
+    let action = "reset"
+    action.withCString { ptr in
+      _ = ghostty_surface_binding_action(surface, ptr, UInt(action.utf8.count))
+    }
+  }
+
   private func sendTextChunk(_ text: String, to surface: ghostty_surface_t) {
     guard !text.isEmpty else { return }
     // Use utf8.count, not strlen — embedded NUL in composed glyphs would

@@ -111,6 +111,73 @@ struct TerminalHandlersTests {
   }
 
   @Test
+  func resetPaneReturnsUnsupportedWhenNoSink() async throws {
+    let server = Self.makeHarness(sink: nil)
+    defer { server.stop() }
+    try InMemoryIPCServerTests.sendHello(server)
+    _ = try await server.awaitResponse()
+
+    struct Params: Codable {
+      let paneID: PaneID
+    }
+    let params = try JSONValue.encoded(Params(paneID: PaneID()))
+    try server.send(
+      IPC.Request(id: "rp1", method: .terminalResetPane, params: params)
+    )
+    let response = try await server.awaitResponse()
+    if case .unsupported = response.error {
+      // expected
+    } else {
+      Issue.record("expected .unsupported, got \(String(describing: response.error))")
+    }
+  }
+
+  @Test
+  func resetPaneDeliversViaFakeSink() async throws {
+    let sink = FakeSink()
+    let server = Self.makeHarness(sink: sink)
+    defer { server.stop() }
+    try InMemoryIPCServerTests.sendHello(server)
+    _ = try await server.awaitResponse()
+
+    let pid = PaneID()
+    sink.registered.insert(pid.raw)
+    struct Params: Codable {
+      let paneID: PaneID
+    }
+    let params = try JSONValue.encoded(Params(paneID: pid))
+    try server.send(
+      IPC.Request(id: "rp2", method: .terminalResetPane, params: params)
+    )
+    let response = try await server.awaitResponse()
+    #expect(response.error == nil)
+    #expect(sink.resets == [pid.raw])
+  }
+
+  @Test
+  func resetPaneOnUnknownPaneReturnsNotFound() async throws {
+    let sink = FakeSink()
+    let server = Self.makeHarness(sink: sink)
+    defer { server.stop() }
+    try InMemoryIPCServerTests.sendHello(server)
+    _ = try await server.awaitResponse()
+
+    struct Params: Codable {
+      let paneID: PaneID
+    }
+    let params = try JSONValue.encoded(Params(paneID: PaneID()))
+    try server.send(
+      IPC.Request(id: "rp3", method: .terminalResetPane, params: params)
+    )
+    let response = try await server.awaitResponse()
+    if case .notFound = response.error {
+      // expected
+    } else {
+      Issue.record("expected .notFound, got \(String(describing: response.error))")
+    }
+  }
+
+  @Test
   func readTextDeliversViaFakeSink() async throws {
     let sink = FakeSink()
     let server = Self.makeHarness(sink: sink)
@@ -180,6 +247,7 @@ final class FakeSink: TerminalHandlers.InputSink, @unchecked Sendable {
   var registered: Set<UUID> = []
   private(set) var delivered: [Delivery] = []
   private(set) var broadcasts: [(scope: IPC.BroadcastScope, text: String)] = []
+  private(set) var resets: [UUID] = []
   var textByPane: [UUID: String] = [:]
   private let lock = NSLock()
 
@@ -203,5 +271,13 @@ final class FakeSink: TerminalHandlers.InputSink, @unchecked Sendable {
     defer { lock.unlock() }
     guard registered.contains(paneID.raw) else { return nil }
     return textByPane[paneID.raw] ?? ""
+  }
+
+  func resetPane(paneID: PaneID) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    guard registered.contains(paneID.raw) else { return false }
+    resets.append(paneID.raw)
+    return true
   }
 }

@@ -17,6 +17,7 @@ public final class TerminalHandlers {
     func sendInput(paneID: PaneID, text: String) -> Bool
     func fanOut(scope: IPC.BroadcastScope, text: String, catalog: Catalog) -> Int
     func readText(paneID: PaneID, extent: ReadExtent) -> String?
+    func resetPane(paneID: PaneID) -> Bool
   }
 
   public enum ReadExtent: String, Codable, Sendable {
@@ -107,5 +108,27 @@ public final class TerminalHandlers {
     } catch {
       return .failed(.internal("encode readText result: \(error)"))
     }
+  }
+
+  public struct ResetPaneParams: Codable, Sendable {
+    public let paneID: PaneID
+  }
+  public func resetPane(_ params: JSONValue) async -> RouterOutcome {
+    await Task.yield()
+    guard let sink else {
+      return .failed(
+        .unsupported(reason: "no GhosttyRuntime bound — terminal.resetPane requires the app with panes live"))
+    }
+    let req: ResetPaneParams
+    do {
+      req = try params.decoded(as: ResetPaneParams.self)
+    } catch {
+      return .failed(.invalidParams(message: "resetPane requires {paneID}", path: nil))
+    }
+    let ok = sink.resetPane(paneID: req.paneID)
+    if !ok {
+      return .failed(.notFound(kind: "pane", id: req.paneID.description))
+    }
+    return .unary(.object(["reset": .bool(true)]))
   }
 }
