@@ -208,6 +208,10 @@ private struct LeafView: View {
   let isSplit: Bool
   @Environment(RollupIndexProvider.self) private var notificationRollup: RollupIndexProvider?
   @Environment(HierarchyManager.self) private var hierarchyManager
+  /// Used for the one-frame fallback on tab switch — see `body`. Reducer
+  /// state is the long-term source of truth; this lookup only fills the
+  /// gap between catalog update and `.panesInActiveTabChanged` landing.
+  @Dependency(TerminalClient.self) private var terminalClient
 
   var body: some View {
     if let childStore = store.scope(
@@ -225,11 +229,23 @@ private struct LeafView: View {
         .overlay { unfocusedDimOverlay }
         .animation(.easeInOut(duration: 0.12), value: isFocused)
         .overlay(alignment: .top) { paneIndicatorLine }
+    } else if let warmSurface = terminalClient.surface(paneID) {
+      // Tab-switch fast path: the catalog already points at this pane but
+      // `SplitViewportView.task(id:)` hasn't run yet, so the reducer-scoped
+      // store doesn't exist. Falling through to the loading placeholder
+      // here is what produces the visible grey flash on every tab switch.
+      // The surface itself is already warm in the engine registry, so we
+      // render it directly until the scoped store materialises on the next
+      // tick — same NSView the reducer would have given us.
+      PaneHostView(surface: warmSurface)
+        .id(paneID)
+        .overlay { unfocusedDimOverlay }
+        .animation(.easeInOut(duration: 0.12), value: isFocused)
+        .overlay(alignment: .top) { paneIndicatorLine }
     } else {
-      // One-frame gap between pane entering the catalog and the sync
-      // action landing `paneHosts[id: paneID]` in state. Match
-      // `LazyPaneHost.loadingPlaceholder`'s background so the swap is
-      // visually seamless when the scoped store materialises.
+      // Truly cold pane: surface hasn't been spawned yet (first render
+      // after creation). Match `LazyPaneHost.loadingPlaceholder` so the
+      // hand-off to the scoped store is visually seamless.
       ProgressView()
         .controlSize(.small)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
