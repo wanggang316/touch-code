@@ -32,6 +32,8 @@ struct SendCommand: AsyncParsableCommand {
   var noEnter: Bool = false
   @Option(name: .long, help: "Send raw bytes as a hex string (e.g. 1b5b41 for ESC [ A).")
   var raw: String?
+  @Flag(name: .long, help: "Focus the target pane after sending.")
+  var focus: Bool = false
 
   func run() async throws {
     await CommandRunner.run {
@@ -49,7 +51,9 @@ struct SendCommand: AsyncParsableCommand {
       let client = CLISession.connect(globals: globals)
       defer { Task { await client.shutdown() } }
       let uuid = try await AliasResolver.resolve(input.target, kind: .pane, client: client)
-      try await activatePane(uuid, client: client)
+      if focus {
+        try await activatePane(uuid, client: client)
+      }
       struct Params: Codable {
         let paneID: PaneID
         let text: String
@@ -78,7 +82,9 @@ struct SendCommand: AsyncParsableCommand {
     let client = CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     let uuid = try await AliasResolver.resolve(target, kind: .pane, client: client)
-    try await activatePane(uuid, client: client)
+    if focus {
+      try await activatePane(uuid, client: client)
+    }
     struct Params: Codable {
       let paneID: PaneID
       let hex: String
@@ -123,6 +129,8 @@ struct SendKeyCommand: AsyncParsableCommand {
   var pane: String?
   @Argument(parsing: .remaining, help: "Key, or target followed by key.")
   var arguments: [String] = []
+  @Flag(name: .long, help: "Focus the target pane after sending.")
+  var focus: Bool = false
 
   func run() async throws {
     await CommandRunner.run {
@@ -138,7 +146,9 @@ struct SendKeyCommand: AsyncParsableCommand {
       let client = CLISession.connect(globals: globals)
       defer { Task { await client.shutdown() } }
       let uuid = try await AliasResolver.resolve(target, kind: .pane, client: client)
-      try await activatePane(uuid, client: client)
+      if focus {
+        try await activatePane(uuid, client: client)
+      }
       struct Params: Codable {
         let paneID: PaneID
         let key: IPC.TerminalNamedKey
