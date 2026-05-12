@@ -91,7 +91,6 @@ struct ReadCommand: AsyncParsableCommand {
       let client = CLISession.connect(globals: globals)
       defer { Task { await client.shutdown() } }
       let uuid = try await AliasResolver.resolve(pane, kind: .pane, client: client)
-      try await activatePane(uuid, client: client)
       struct Params: Codable {
         let paneID: PaneID
         let extent: String
