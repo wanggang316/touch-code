@@ -90,10 +90,20 @@ struct TabBarFeature {
           let worktree = catalog.projects.first(where: { $0.id == projectID })?
             .worktrees.first(where: { $0.id == worktreeID })
         else { return .none }
-        _ = try? hierarchyClient.openPane(
-          tabID, worktreeID, projectID, worktree.path, nil
-        )
-        return .none
+        guard
+          let newPaneID = try? hierarchyClient.openPane(
+            tabID, worktreeID, projectID, worktree.path, nil
+          )
+        else { return .none }
+        // Promote the new pane's surface to first responder so the new tab
+        // opens with keyboard focus on its lone pane. Dispatched async so
+        // SwiftUI has time to attach the surface view to the window before
+        // `makeFirstResponder` runs — `focusSurfaceView` retries with
+        // backoff if the window isn't ready yet. Mirrors the focus flow
+        // in `PaneActionRouterFeature.newSplit`.
+        return .run { [client = hierarchyClient] _ in
+          await MainActor.run { client.focusSurfaceView(newPaneID) }
+        }
 
       case .tabButtonTapped(let tabID, let worktreeID, let projectID):
         try? hierarchyClient.selectTab(tabID, worktreeID, projectID)
@@ -158,12 +168,16 @@ struct TabBarFeature {
             ?? activeTab.splitTree.leaves().first,
           let anchorPane = activeTab.panes.first(where: { $0.id == anchor })
         else { return .none }
-        _ = try? hierarchyClient.splitPane(
-          anchor, direction,
-          activeTabID, worktreeID, projectID,
-          anchorPane.workingDirectory, nil
-        )
-        return .none
+        guard
+          let newPaneID = try? hierarchyClient.splitPane(
+            anchor, direction,
+            activeTabID, worktreeID, projectID,
+            anchorPane.workingDirectory, nil
+          )
+        else { return .none }
+        return .run { [client = hierarchyClient] _ in
+          await MainActor.run { client.focusSurfaceView(newPaneID) }
+        }
       }
     }
   }
