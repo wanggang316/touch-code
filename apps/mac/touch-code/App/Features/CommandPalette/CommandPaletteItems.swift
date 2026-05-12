@@ -206,16 +206,17 @@ enum CommandPaletteItems {
     }
   }
 
-  /// Walks the catalog from the selection down to a representative
-  /// pane for the active tab. The catalog doesn't track "focused pane"
-  /// explicitly — the ghostty runtime owns that state — but Window- and
-  /// Pane-scoped palette actions need *a* PaneID to target the right
-  /// window. We use the first leaf of the selected tab's split tree,
-  /// which is guaranteed to map to the same NSWindow as the focused
-  /// pane.
+  /// Resolves a PaneID for palette actions opened without a precise
+  /// libghostty source (menu, toolbar). Prefers the tab's last-focused
+  /// pane via `lastFocusedPane` so split / focus / zoom actions anchor
+  /// where the user actually is; falls back to the first leaf when no
+  /// pane has been focused since the tab was selected. The first-leaf
+  /// fallback is still safe for Window-scoped actions because every
+  /// leaf in a tab maps to the same NSWindow.
   static func resolveFocusedPaneID(
     selection: HierarchySelection,
-    catalog: Catalog
+    catalog: Catalog,
+    lastFocusedPane: (TabID) -> PaneID? = { _ in nil }
   ) -> PaneID? {
     guard
       let projectID = selection.projectID,
@@ -225,7 +226,7 @@ enum CommandPaletteItems {
       let selectedTabID = worktree.selectedTabID,
       let tab = worktree.tabs.first(where: { $0.id == selectedTabID })
     else { return nil }
-    return tab.splitTree.leaves().first
+    return lastFocusedPane(selectedTabID) ?? tab.splitTree.leaves().first
   }
 
   // MARK: - Private builders

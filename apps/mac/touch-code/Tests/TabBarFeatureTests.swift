@@ -218,6 +218,7 @@ struct TabBarFeatureTests {
       TabBarFeature()
     } withDependencies: {
       $0.hierarchyClient.snapshot = { catalog }
+      $0.hierarchyClient.lastFocusedPane = { _ in nil }
       $0.hierarchyClient.splitPane = { pid, dir, _, _, _, cwd, _ in
         received.withValue { $0 = (pid, dir, cwd) }
         return PaneID()
@@ -235,6 +236,56 @@ struct TabBarFeatureTests {
   }
 
   @Test
+  func trailingSplitRequestedAnchorsOnLastFocusedPane() async {
+    let projectID = ProjectID()
+    let worktreeID = WorktreeID()
+    let tabID = TabID()
+    let firstPaneID = PaneID()
+    let focusedPaneID = PaneID()
+
+    // Two-pane tab: leaves().first is `firstPaneID`, but focus rests on
+    // `focusedPaneID`. The split must anchor on the focused pane.
+    let firstPane = Pane(id: firstPaneID, workingDirectory: "/tmp/a", initialCommand: nil)
+    let focusedPane = Pane(id: focusedPaneID, workingDirectory: "/tmp/b", initialCommand: nil)
+    let splitTree = try! SplitTree(leaf: firstPaneID)
+      .inserting(focusedPaneID, at: firstPaneID, direction: .right)
+    let tab = Tab(
+      id: tabID, name: "two",
+      splitTree: splitTree,
+      panes: [firstPane, focusedPane]
+    )
+    let worktree = Worktree(
+      id: worktreeID, name: "main", path: "/tmp/repo", branch: "main",
+      tabs: [tab], selectedTabID: tabID
+    )
+    let project = Project(
+      id: projectID, name: "p", rootPath: "/tmp/repo",
+      worktrees: [worktree], selectedWorktreeID: worktreeID
+    )
+    let catalog = Catalog(projects: [project])
+
+    let received = LockIsolated<(PaneID, String)?>(nil)
+    let store = TestStore(initialState: TabBarFeature.State()) {
+      TabBarFeature()
+    } withDependencies: {
+      $0.hierarchyClient.snapshot = { catalog }
+      $0.hierarchyClient.lastFocusedPane = { tid in tid == tabID ? focusedPaneID : nil }
+      $0.hierarchyClient.splitPane = { pid, _, _, _, _, cwd, _ in
+        received.withValue { $0 = (pid, cwd) }
+        return PaneID()
+      }
+    }
+
+    await store.send(
+      .trailingSplitRequested(
+        direction: .down,
+        inWorktree: worktreeID, inProject: projectID
+      ))
+    #expect(received.value?.0 == focusedPaneID)
+    #expect(received.value?.1 == "/tmp/b")
+  }
+
+  @Test
   func trailingSplitRequestedNoOpWhenNoActiveTab() async {
     // Empty catalog — no worktree / tab / pane to anchor off.
     let catalog = Catalog()
@@ -243,6 +294,7 @@ struct TabBarFeatureTests {
       TabBarFeature()
     } withDependencies: {
       $0.hierarchyClient.snapshot = { catalog }
+      $0.hierarchyClient.lastFocusedPane = { _ in nil }
       $0.hierarchyClient.splitPane = { _, _, _, _, _, _, _ in
         splitCalled.withValue { $0 = true }
         return PaneID()

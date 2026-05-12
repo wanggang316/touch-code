@@ -56,10 +56,11 @@ struct TabBarFeature {
     case dragReorderEnded(
       orderedIDs: [TabID], inWorktree: WorktreeID, inProject: ProjectID)
     case middleClicked(TabID, inWorktree: WorktreeID, inProject: ProjectID)
-    /// Trailing split button click. Resolves the active tab's leftmost
-    /// leaf as the anchor pane and splits it in `direction`. Silent no-op
-    /// if the worktree has no active tab or the tab has no panes. Upgrades
-    /// to the last-focused pane when M3 lands.
+    /// Trailing split button click. Anchors on the active tab's
+    /// last-focused pane (falling back to the leftmost leaf for tabs
+    /// that haven't been focused since launch) and splits it in
+    /// `direction`. Silent no-op if the worktree has no active tab or
+    /// the tab has no panes.
     case trailingSplitRequested(
       direction: SplitTree<PaneID>.NewDirection,
       inWorktree: WorktreeID, inProject: ProjectID)
@@ -146,8 +147,15 @@ struct TabBarFeature {
           let worktree = catalog.projects.first(where: { $0.id == projectID })?
             .worktrees.first(where: { $0.id == worktreeID }),
           let activeTabID = worktree.selectedTabID,
-          let activeTab = worktree.tabs.first(where: { $0.id == activeTabID }),
-          let anchor = activeTab.splitTree.leaves().first,
+          let activeTab = worktree.tabs.first(where: { $0.id == activeTabID })
+        else { return .none }
+        // Anchor on the tab's last-focused pane so the menu chord ("Split
+        // Right/Down") and the toolbar split button both fork from where
+        // the user actually is. `leaves().first` is the safety net for
+        // tabs that haven't been focused since launch.
+        guard
+          let anchor = hierarchyClient.lastFocusedPane(activeTabID)
+            ?? activeTab.splitTree.leaves().first,
           let anchorPane = activeTab.panes.first(where: { $0.id == anchor })
         else { return .none }
         _ = try? hierarchyClient.splitPane(

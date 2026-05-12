@@ -894,12 +894,23 @@ struct RootFeature {
           // scoped actions still resolve to the correct NSWindow.
           // Pane-scoped palette items that depend on real focus are
           // omitted by the builder when the source is a leaf fallback.
-          let resolvedPaneID =
-            sourcePaneID
-            ?? CommandPaletteItems.resolveFocusedPaneID(
-              selection: selection, catalog: catalog
-            )
-          let paneSourceIsPrecise = sourcePaneID != nil
+          // Prefer the tab's last-focused pane as the fallback so menu-
+          // triggered palette opens still anchor split / focus / zoom on
+          // the pane the user actually worked in. `lastFocusedPane`
+          // mirrors the same per-tab focus libghostty owns, so a fallback
+          // that hits it is as precise as the keybind pipeline.
+          let activeTabID = catalog
+            .projects.first(where: { $0.id == selection.projectID })?
+            .worktrees.first(where: { $0.id == selection.worktreeID })?
+            .selectedTabID
+          let lastFocused = activeTabID.flatMap { hierarchyClient.lastFocusedPane($0) }
+          let fallbackPaneID = CommandPaletteItems.resolveFocusedPaneID(
+            selection: selection, catalog: catalog,
+            lastFocusedPane: { _ in lastFocused }
+          )
+          let resolvedPaneID = sourcePaneID ?? fallbackPaneID
+          let paneSourceIsPrecise =
+            sourcePaneID != nil || (lastFocused != nil && fallbackPaneID == lastFocused)
           return .send(
             .commandPalette(
               .presented(
@@ -1427,7 +1438,8 @@ struct RootFeature {
       guard
         let paneID = sourcePaneID
           ?? CommandPaletteItems.resolveFocusedPaneID(
-            selection: state.selection, catalog: hierarchyClient.snapshot()
+            selection: state.selection, catalog: hierarchyClient.snapshot(),
+            lastFocusedPane: { hierarchyClient.lastFocusedPane($0) }
           )
       else { return .none }
       return .send(.paneActionRouter(.requested(paneID, req)))
