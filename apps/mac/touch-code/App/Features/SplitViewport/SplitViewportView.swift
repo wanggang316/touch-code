@@ -244,12 +244,16 @@ private struct LeafView: View {
         .overlay(alignment: .top) { paneIndicatorLine }
     } else {
       // Truly cold pane: surface hasn't been spawned yet (first render
-      // after creation). Match `LazyPaneHost.loadingPlaceholder` so the
-      // hand-off to the scoped store is visually seamless.
+      // after creation). Background tracks Ghostty's terminal color so
+      // the hand-off to `LazyPaneHost.loadingPlaceholder` and then the
+      // live surface stays on a single tone — earlier we used
+      // `underPageBackgroundColor` here, which produced a visible grey
+      // flash before the terminal theme settled in.
+      let terminalBackground = GhosttyRuntime.shared?.backgroundColor() ?? .underPageBackgroundColor
       ProgressView()
         .controlSize(.small)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .underPageBackgroundColor))
+        .background(Color(nsColor: terminalBackground))
     }
   }
 
