@@ -20,6 +20,58 @@ and the project does not yet follow semantic versioning — every release until
 
 ### Security
 
+## [0.1.8] - 2026-05-12
+
+### Added
+
+- **`tc pane send-key`, `send --raw`, `capture`, and `reset`.** New CLI
+  commands for sending arbitrary keystrokes, sending raw bytes verbatim,
+  dumping the visible buffer, and resetting a pane. `send-key` accepts a
+  positional pane id just like `send`.
+- **Script run focus toggle.** Scripts can opt their spawned pane in or
+  out of taking focus when it appears.
+- **Worktree settings.** New global Settings → Worktrees pane plus
+  refreshed per-project Settings panes give worktree behavior a proper
+  home.
+- **Per-project Git Viewer override and Default Git Viewer setting.**
+  Pick a Git client per project, or set a global default; ⌘⌥G honors
+  the choice.
+- **⌘U jumps to the next unread tab.** Check for Updates moves to ⌘⇧U.
+- **Spatial pane-focus navigation.** ⌘⌥ arrow keys now route between
+  panes by on-screen geometry instead of tree order, so movement matches
+  what you see.
+- **Empty terminal pane mentions ⌘T** so the keyboard shortcut for a
+  new tab is discoverable.
+
+### Changed
+
+- **`tc pane send` and `send-key` no longer steal focus by default.**
+  Pass `--focus` to bring the pane forward.
+- **Worktrees sidebar icon.** Lighter, stroked git-branch glyph that
+  sits better next to the other sidebar rows.
+
+### Fixed
+
+- **Esc reliably dismisses the inbox and other popovers** instead of
+  falling through to other handlers.
+- **Newly opened, split, and script-spawned panes focus immediately**
+  instead of after the next interaction.
+- **Split commands anchor on the tab's last-focused pane** rather than
+  an arbitrary one.
+- **Tab-switch flicker eliminated** under the floating sidebar and
+  during the one-frame gap before the terminal warms up.
+- **Pane placeholder background matches the terminal theme** instead
+  of flashing the system default.
+- **Reading a pane no longer changes focus.**
+- **Scripts that close their tab or pane on finish honor the policy
+  reliably.**
+- **Pane redraws after `tc pane reset`** instead of showing the stale
+  buffer.
+- **Worktree directory path right-aligned** in the project general
+  settings.
+- **Socket-bind failures surface in the system log** so a stuck `tc`
+  is diagnosable.
+
 ## [0.1.7] - 2026-05-11
 
 ### Added
