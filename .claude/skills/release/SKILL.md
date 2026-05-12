@@ -97,11 +97,23 @@ If `[Unreleased]` is empty (or only contains category headers with no
 entries), **stop**. Tell the user to run `/hs-changelog` first to
 extract recent commits, then resume.
 
-**Writing style — user-facing language.** The CHANGELOG is read by
-people who **use** the app, not people who build it. Rewrite raw
-commit messages — don't paste them. Keep the standard section
-headers (`Added` / `Changed` / `Fixed` / …); the rules below govern
-the bullets under them.
+**Writing style — user-facing language.** The CHANGELOG follows
+[Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/) —
+"changelogs are *for humans*, not machines." Rewrite raw commit
+messages; don't paste them.
+
+Use the six standard categories with their intended meanings:
+
+| Section | What goes here |
+|---|---|
+| `Added` | New features |
+| `Changed` | Modifications to existing functionality (behavior, shortcuts, defaults) |
+| `Deprecated` | Features announced for future removal — still works today |
+| `Removed` | Features gone in this version |
+| `Fixed` | Bug fixes |
+| `Security` | Vulnerability fixes |
+
+The rules below govern the bullets under those headers.
 
 In priority order — when rules conflict, earlier ones win:
 
@@ -119,10 +131,15 @@ In priority order — when rules conflict, earlier ones win:
 
 3. **Skip engineering-only changes.** Refactors, module renames, CI
    tweaks, lint rules, dependency bumps, build-script edits, internal
-   abstractions — out. The git log is their home. *Exception:* when
-   the change has a side effect the user can perceive (minimum-OS
-   bump, telemetry-policy shift, noticeably faster startup), list it
-   under `Changed` and describe the user impact, not the refactor.
+   abstractions — out. The git log is their home. Two exceptions
+   override this rule:
+   - **User-perceivable side effects** — minimum-OS bump,
+     telemetry-policy shift, noticeably faster startup. List under
+     `Changed` and describe the user impact, not the refactor.
+   - **Deprecations, removals, and breaking changes — always
+     listed**, even when the change feels purely engineering. Users
+     who hit a removed feature, a renamed setting, or an incompatible
+     file format must find it here, not in a stack trace.
 
 4. **Drop developer jargon.** No commit prefixes (`feat:`, `fix:`),
    no PR / issue numbers, no commit hashes, no module or type names,
@@ -278,6 +295,7 @@ user approval — diagnose first (`gh run view --log-failed`).
 | Tag pushed without CHANGELOG section | Skipped step 3 | Add the section in a follow-up `docs(changelog): record vX.Y.Z` commit on `main`; do not retag |
 | Notarization fails | Apple-side; secrets correct but build flagged | Check `gh run view --log-failed`, often transient — re-run via `workflow_dispatch` against the existing tag |
 | Wrong version pushed | Bumped to e.g. 0.2.0 when user wanted 0.1.4 | Roll forward only — pull next version, supersede with a new tag. Do not rewrite history on `main`. |
+| Published release turns out broken / unsafe | Bug or signing/notarization issue surfaces after the draft was published | Mark the version YANKED instead of deleting it (Keep a Changelog 1.1.0). Edit `CHANGELOG.md` so the header becomes `## [X.Y.Z] - YYYY-MM-DD [YANKED]` and add a brief reason; commit on `main`. The `[YANKED]` tag is intentionally loud so users on that build notice. Cut a follow-up version with the actual fix. |
 
 ## Verification checklist
 
