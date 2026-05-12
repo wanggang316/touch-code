@@ -150,6 +150,9 @@ struct MainWindowCommandsTests {
       $0.hierarchyClient.setWorktreeDiffInspectorVisible = { wt, v in
         recorded.withValue { $0.append((wt, v)) }
       }
+      // No external git viewer configured — chord falls through to the
+      // built-in overlay toggle that this test covers.
+      $0[SettingsWriter.self].readSnapshotSync = { Settings() }
     }
 
     await store.send(.diffInspectorToggledForCurrentWorktree)

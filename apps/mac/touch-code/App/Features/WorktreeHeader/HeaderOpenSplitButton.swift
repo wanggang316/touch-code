@@ -95,22 +95,28 @@ struct HeaderOpenSplitButton: View {
   @ViewBuilder
   private var openInMenu: some View {
     // `EditorService.describe()` already filters to installed entries, so every
-    // descriptor is launch-ready. `EditorPickerRow.sorted` gives the same priority
-    // order used by every other Open-in dropdown; `row(for:)` renders the shared
-    // `icon + displayName` row (including the terminal glyph for the shell editor).
-    ForEach(EditorPickerRow.sorted(editorStore.state.descriptors), id: \.id) { descriptor in
-      Button {
-        // Single action: parent resolves the live worktree path from
-        // `state.selection`, persists the pick as the per-Project default,
-        // then opens. Avoids the SwiftUI Menu / NSMenuItem stale-closure
-        // trap where `worktreePath` captured at view-render time would
-        // route the open to the originally-selected worktree (often the
-        // project root) after the user switched worktrees.
-        store.send(.pickEditorFromMenuTapped(descriptor.id))
-      } label: {
-        EditorPickerRow.row(for: descriptor)
+    // descriptor is launch-ready. `EditorPickerRow.sortedGroups` groups the
+    // priority-ordered list by category — AppKit renders one `Divider()` between
+    // adjacent groups, mirroring the section separators in Settings → General /
+    // Repository. `row(for:)` keeps the icon + displayName row visuals in sync
+    // with every other Open-in dropdown.
+    let groups = EditorPickerRow.sortedGroups(editorStore.state.descriptors)
+    ForEach(Array(groups.enumerated()), id: \.offset) { index, group in
+      if index > 0 { Divider() }
+      ForEach(group, id: \.id) { descriptor in
+        Button {
+          // Single action: parent resolves the live worktree path from
+          // `state.selection`, persists the pick as the per-Project default,
+          // then opens. Avoids the SwiftUI Menu / NSMenuItem stale-closure
+          // trap where `worktreePath` captured at view-render time would
+          // route the open to the originally-selected worktree (often the
+          // project root) after the user switched worktrees.
+          store.send(.pickEditorFromMenuTapped(descriptor.id))
+        } label: {
+          EditorPickerRow.row(for: descriptor)
+        }
+        .help(descriptor.displayName)
       }
-      .help(descriptor.displayName)
     }
   }
 }

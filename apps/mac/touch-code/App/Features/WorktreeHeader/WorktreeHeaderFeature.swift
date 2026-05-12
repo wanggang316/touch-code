@@ -3,13 +3,16 @@ import Foundation
 import TouchCodeCore
 
 /// Reducer backing the Worktree Header row: branch label + Open-in split
-/// button + Git Viewer toggle.
+/// button.
 ///
 /// User-facing side effects stay in the reducer so TestStore can prove
 /// them. Editor opens are emitted as `.delegate(.openEditor(...))` rather
 /// than dispatched through `EditorClient` directly; `RootFeature` forwards
 /// them into `EditorFeature.openRequested` (resolving `editorID: nil` via
-/// `EditorFeature.resolveDefault` first).
+/// `EditorFeature.resolveDefault` first). The Git Viewer no longer has a
+/// dedicated header button — invocations land on the ⌘⌥G chord / menu /
+/// palette entry, which RootFeature dispatches against
+/// `settings.general.defaultGitViewerID`.
 @Reducer
 struct WorktreeHeaderFeature {
   @ObservableState
@@ -28,12 +31,6 @@ struct WorktreeHeaderFeature {
     /// inline). Also persists the pick as the per-Project default.
     case pickEditorFromMenuTapped(EditorID)
     case customEditorsTapped
-    /// Header GV button tapped. Emits `.delegate(.diffInspectorToggleRequested)`
-    /// so `RootFeature` performs the flip through the same
-    /// `.diffInspectorToggledForCurrentWorktree` reducer branch that ⌘⇧G uses.
-    /// Keeping the write on one path avoids the view-supplied visibility
-    /// drifting from the catalog snapshot the reducer reads.
-    case diffInspectorToggleTapped
     case setProjectDefaultEditorTapped(projectID: ProjectID, editorID: EditorID?)
     /// Run script split-button — primary or menu activation. Phase 2.
     case runScriptTapped(scriptID: UUID, projectID: ProjectID, worktreeID: WorktreeID)
@@ -59,9 +56,6 @@ struct WorktreeHeaderFeature {
       /// actions), persists `editorID` as the per-Project default, and opens
       /// the worktree with that editor.
       case pickEditorFromMenu(EditorID)
-      /// GV button tapped. Parent flips the current Worktree's visibility
-      /// via `.diffInspectorToggledForCurrentWorktree` (shared with ⌘⇧G).
-      case diffInspectorToggleRequested
       /// Run a user-defined Project script. RootFeature dispatches to
       /// `HierarchyClient.runScript`.
       case runScriptRequested(scriptID: UUID, projectID: ProjectID, worktreeID: WorktreeID)
@@ -93,9 +87,6 @@ struct WorktreeHeaderFeature {
 
       case .customEditorsTapped:
         return .send(.delegate(.showCustomEditorsSettings))
-
-      case .diffInspectorToggleTapped:
-        return .send(.delegate(.diffInspectorToggleRequested))
 
       case .setProjectDefaultEditorTapped(let projectID, let editorID):
         return .send(

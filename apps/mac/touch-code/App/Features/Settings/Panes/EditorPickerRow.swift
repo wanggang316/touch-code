@@ -79,10 +79,34 @@ enum EditorPickerRow {
   }
 
   /// Flat priority-ordered list of installed descriptors, following
-  /// `EditorRegistry.menuOrder`. Replaces the previous grouped/divided layout; callers
-  /// render the result as a single flat list with no dividers.
+  /// `EditorRegistry.menuOrder`. Kept for callers that still render a single flat
+  /// list; new pickers should prefer `sortedGroups` so the rendered menu shows
+  /// section dividers between editors, terminals, git clients, and the shell
+  /// pseudo-editor.
   static func sorted(_ installed: [EditorDescriptor]) -> [EditorDescriptor] {
     let byID = Dictionary(uniqueKeysWithValues: installed.map { ($0.id, $0) })
     return EditorRegistry.menuOrder.compactMap { byID[$0] }
+  }
+
+  /// Priority-ordered groups of installed descriptors. Each non-empty group is one
+  /// section in an Open-in picker; rendering each group inside its own SwiftUI
+  /// `Section { ... }` block paints a divider between them in `.menu`-style
+  /// pickers. Group order mirrors `EditorRegistry.menuOrder`:
+  /// 1. Editors (`editorPriority` + Xcode)
+  /// 2. Terminals (`terminalPriority`)
+  /// 3. Git clients (`gitClientPriority`)
+  /// 4. Finder + `$EDITOR` shell pseudo-entry
+  static func sortedGroups(_ installed: [EditorDescriptor]) -> [[EditorDescriptor]] {
+    let byID = Dictionary(uniqueKeysWithValues: installed.map { ($0.id, $0) })
+    let groups: [[EditorID]] = [
+      EditorRegistry.editorPriority + ["xcode"],
+      EditorRegistry.terminalPriority,
+      EditorRegistry.gitClientPriority,
+      ["finder", EditorRegistry.shellEditorID],
+    ]
+    return
+      groups
+      .map { ids in ids.compactMap { byID[$0] } }
+      .filter { !$0.isEmpty }
   }
 }

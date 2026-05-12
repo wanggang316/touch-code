@@ -38,6 +38,26 @@ struct SettingsGeneralView: View {
     )
   }
 
+  /// Settings → General → Default Git Viewer binding. `nil` means "use the in-app
+  /// Git Viewer overlay"; any other id names an installed git client from
+  /// `EditorRegistry.gitClientPriority` that should open instead when the user
+  /// invokes the Git Viewer chord (⌘⌥G) or menu item.
+  private var gitViewerBinding: Binding<EditorID?> {
+    Binding(
+      get: { settingsStore.settings.general.defaultGitViewerID },
+      set: { settingsStore.setDefaultGitViewerID($0) }
+    )
+  }
+
+  /// Installed git clients surfaced under "Default Git Viewer". Sourced from the
+  /// editor feature's `describe()` cache so only installed apps show up; the
+  /// `gitClientPriority` filter walks `EditorRegistry`'s git-tool group in its
+  /// canonical priority order.
+  private var installedGitClients: [EditorDescriptor] {
+    let byID = Dictionary(uniqueKeysWithValues: store.descriptors.map { ($0.id, $0) })
+    return EditorRegistry.gitClientPriority.compactMap { byID[$0] }
+  }
+
   var body: some View {
     Form {
       Section {
@@ -55,7 +75,7 @@ struct SettingsGeneralView: View {
 
       Section {
         Picker("Default editor", selection: selectionBinding) {
-          pickerContent
+          editorPickerContent
         }
         .pickerStyle(.menu)
       } footer: {
@@ -64,20 +84,62 @@ struct SettingsGeneralView: View {
             + "is uninstalled later."
         )
       }
+
+      Section {
+        Picker("Default Git Viewer", selection: gitViewerBinding) {
+          gitViewerPickerContent
+        }
+        .pickerStyle(.menu)
+      } footer: {
+        Text(
+          "Drives the Git Viewer chord (⌘⌥G). Built-in shows the in-app overlay; "
+            + "any other choice opens the worktree in that git client. Falls back to "
+            + "the built-in viewer if the chosen client is uninstalled later."
+        )
+      }
     }
     .formStyle(.grouped)
     .task { store.send(.refreshRequested) }
     .onAppear { store.send(.onAppear) }
   }
 
-  /// Picker body — split out so `Picker(... ) { pickerContent }` stays readable. Flat
-  /// priority-ordered list via `EditorPickerRow.sorted`, rendered through the shared
-  /// `row(for:)` builder so every Open-in dropdown in the app reads identically.
+  /// Editor picker body — grouped by `EditorPickerRow.sortedGroups` so editors,
+  /// terminals, git clients, and the shell pseudo-editor render with section
+  /// dividers between them. The shared `row(for:)` builder keeps every Open-in
+  /// dropdown's row visuals identical.
   @ViewBuilder
-  private var pickerContent: some View {
-    ForEach(EditorPickerRow.sorted(store.descriptors), id: \.id) { descriptor in
-      EditorPickerRow.row(for: descriptor)
-        .tag(EditorID?(descriptor.id))
+  private var editorPickerContent: some View {
+    ForEach(Array(EditorPickerRow.sortedGroups(store.descriptors).enumerated()), id: \.offset) { _, group in
+      Section {
+        ForEach(group, id: \.id) { descriptor in
+          EditorPickerRow.row(for: descriptor)
+            .tag(EditorID?(descriptor.id))
+        }
+      }
+    }
+  }
+
+  /// Default Git Viewer picker body. Leads with the built-in sentinel (tag nil),
+  /// followed by every installed git client in priority order.
+  @ViewBuilder
+  private var gitViewerPickerContent: some View {
+    Label {
+      Text("Built-in")
+    } icon: {
+      Image(systemName: "doc.text.magnifyingglass")
+        .foregroundStyle(.secondary)
+        .accessibilityHidden(true)
+    }
+    .labelStyle(.titleAndIcon)
+    .tag(EditorID?(nil))
+
+    if !installedGitClients.isEmpty {
+      Section {
+        ForEach(installedGitClients, id: \.id) { descriptor in
+          EditorPickerRow.row(for: descriptor)
+            .tag(EditorID?(descriptor.id))
+        }
+      }
     }
   }
 }

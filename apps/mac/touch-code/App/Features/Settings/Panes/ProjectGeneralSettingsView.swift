@@ -161,9 +161,13 @@ struct ProjectGeneralSettingsView: View {
       Picker("Default editor", selection: editorBinding) {
         Text(editorInheritRowText)
           .tag(EditorID?.none)
-        ForEach(EditorPickerRow.sorted(descriptors), id: \.id) { descriptor in
-          EditorPickerRow.row(for: descriptor)
-            .tag(EditorID?(descriptor.id))
+        ForEach(Array(EditorPickerRow.sortedGroups(descriptors).enumerated()), id: \.offset) { _, group in
+          Section {
+            ForEach(group, id: \.id) { descriptor in
+              EditorPickerRow.row(for: descriptor)
+                .tag(EditorID?(descriptor.id))
+            }
+          }
         }
       }
       .pickerStyle(.menu)

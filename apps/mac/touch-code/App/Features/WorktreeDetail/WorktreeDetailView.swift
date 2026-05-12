@@ -228,13 +228,6 @@ struct WorktreeDetailView: View {
             worktreePath: info.worktree.path
           )
           .buttonStyle(.plain)
-          if info.project.supportsWorktrees {
-            HeaderDiffInspectorToggle(
-              store: headerStore,
-              visible: info.worktree.diffInspectorVisible
-            )
-            .buttonStyle(.plain)
-          }
         }
       }
     }
@@ -311,15 +304,6 @@ struct WorktreeDetailView: View {
         projectID: address.project,
         worktreePath: info.worktree.path
       )
-    }
-    if info.project.supportsWorktrees {
-      ToolbarSpacer(.fixed)
-      ToolbarItem {
-        HeaderDiffInspectorToggle(
-          store: headerStore,
-          visible: info.worktree.diffInspectorVisible
-        )
-      }
     }
   }
 

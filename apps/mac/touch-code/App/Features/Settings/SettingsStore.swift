@@ -163,6 +163,11 @@ final class SettingsStore {
     scheduleSave()
   }
 
+  func setDefaultGitViewerID(_ id: EditorID?) {
+    settings.general.defaultGitViewerID = id
+    scheduleSave()
+  }
+
   func setAppearance(_ appearance: AppearancePreference) {
     settings.general.appearance = appearance
     scheduleSave()

@@ -3,18 +3,18 @@ import SwiftUI
 import TouchCodeCore
 
 /// Top Header row above the terminal Tab bar. Left: read-only branch label.
-/// Right cluster: Open-in split button, Git Viewer toggle.
+/// Right: Open-in split button. The Git Viewer is no longer a header chip —
+/// it lives behind the ⌘⌥G chord / menu and routes through the user's
+/// `settings.general.defaultGitViewerID` choice.
 struct WorktreeHeaderView: View {
   @Bindable var store: StoreOf<WorktreeHeaderFeature>
   let editorStore: StoreOf<EditorFeature>
   let projectID: ProjectID
   let worktreePath: String
   let branchLabel: String
-  let diffInspectorVisible: Bool
-  /// Gates the branch label and the Git Viewer toggle for non-git Projects
-  /// (P-Q4 = a). Defaults to `true` so existing call sites that haven't
-  /// threaded the predicate still render the git chrome — new call sites on
-  /// `feat/project-mgmt` pass the real value from the owning Project.
+  /// Gates the branch label for non-git Projects (P-Q4 = a). Defaults to
+  /// `true` so existing call sites that haven't threaded the predicate still
+  /// render the branch chip.
   var supportsWorktrees: Bool = true
 
   var body: some View {
@@ -35,12 +35,6 @@ struct WorktreeHeaderView: View {
           projectID: projectID,
           worktreePath: worktreePath
         )
-        if supportsWorktrees {
-          HeaderDiffInspectorToggle(
-            store: store,
-            visible: diffInspectorVisible
-          )
-        }
       }
     }
   }

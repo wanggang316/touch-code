@@ -789,12 +789,6 @@ struct RootFeature {
                 )))
           )
 
-        case .diffInspectorToggleRequested:
-          // Route through the same reducer branch ⌘⇧G uses so both entry
-          // points share one write path (reads current visibility from the
-          // catalog, writes the flipped value).
-          return .send(.diffInspectorToggledForCurrentWorktree)
-
         case .runScriptRequested(let scriptID, let projectID, let worktreeID):
           let client = hierarchyClient
           let presenter = settingsWindowPresenter
@@ -949,11 +943,37 @@ struct RootFeature {
         return .none
 
       case .diffInspectorToggledForCurrentWorktree:
-        guard let worktreeID = state.selection.worktreeID else { return .none }
-        // Read the current visibility from the live catalog — the view
-        // layer's `State.diffInspectorVisible(in:)` reads the same
-        // source, so flipping from here and from the Header button
-        // (which writes the catalog directly) can't diverge.
+        guard
+          let projectID = state.selection.projectID,
+          let worktreeID = state.selection.worktreeID
+        else { return .none }
+        // The Git Viewer chord routes through `settings.general.defaultGitViewerID`:
+        // `nil` (or a stale id whose app is no longer installed) keeps the original
+        // toggle of the in-app overlay; any other id opens the worktree in that
+        // external git client. Both reads — current overlay visibility and the
+        // resolved id — come from snapshots taken in the reducer so the view's
+        // `State.diffInspectorVisible(in:)` and the persisted setting stay aligned.
+        let snapshot = settingsWriter.readSnapshotSync()
+        let gitViewerID = snapshot.general.defaultGitViewerID
+        let externalChoice: EditorID? = {
+          guard let gitViewerID else { return nil }
+          return state.editor.descriptors.contains(where: { $0.id == gitViewerID }) ? gitViewerID : nil
+        }()
+        if let externalChoice {
+          let catalog = hierarchyClient.snapshot()
+          guard
+            let path = catalog
+              .projects.first(where: { $0.id == projectID })?
+              .worktrees.first(where: { $0.id == worktreeID })?.path
+          else { return .none }
+          return .send(
+            .editor(
+              .openRequested(
+                editorID: externalChoice,
+                worktreePath: path,
+                projectID: projectID
+              )))
+        }
         let catalog = hierarchyClient.snapshot()
         let target = !state.diffInspectorVisible(in: catalog)
         let setter = hierarchyClient.setWorktreeDiffInspectorVisible

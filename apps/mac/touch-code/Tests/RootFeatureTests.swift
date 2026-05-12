@@ -233,6 +233,9 @@ struct RootFeatureTests {
       $0.hierarchyClient.setWorktreeDiffInspectorVisible = { wt, visible in
         recorded.withValue { $0.append((wt, visible)) }
       }
+      // No external git viewer configured — reducer falls through to the
+      // built-in overlay toggle path that this test covers.
+      $0[SettingsWriter.self].readSnapshotSync = { Settings() }
     }
 
     await store.send(.diffInspectorToggledForCurrentWorktree)
@@ -254,6 +257,7 @@ struct RootFeatureTests {
       $0.hierarchyClient.setWorktreeDiffInspectorVisible = { wt, visible in
         recorded.withValue { $0.append((wt, visible)) }
       }
+      $0[SettingsWriter.self].readSnapshotSync = { Settings() }
     }
     await store.send(.diffInspectorToggledForCurrentWorktree)
     await store.finish()
@@ -393,47 +397,6 @@ struct RootFeatureTests {
     await store.send(.worktreeHeader(.delegate(.showCustomEditorsSettings)))
     await store.finish()
     #expect(openCount.value == 1)
-  }
-  @Test
-  func headerDiffInspectorToggleDelegateRoutesThroughToggleBranch() async {
-    // Nit 1 convergence: the Header GV delegate is consumed by the root
-    // reducer and re-dispatched as `.diffInspectorToggledForCurrentWorktree`
-    // — the same action ⌘⇧G sends. This proves both entry points share
-    // one write path (the hierarchyClient mutation is covered by the
-    // dedicated `diffInspectorToggleInvokesHierarchyClientWithFlippedValue`
-    // test; here we only need to prove routing).
-    let projectID = ProjectID()
-    let worktreeA = WorktreeID()
-    let worktreeB = WorktreeID()
-    let catalog = Self.gvFixtureCatalog(
-      projectID: projectID,
-      worktreeA: worktreeA, worktreeB: worktreeB,
-      aVisible: false, bVisible: false
-    )
-
-    var initial = RootFeature.State()
-    initial.selection = HierarchySelection(
-      projectID: projectID, worktreeID: worktreeA
-    )
-    let recorded = LockIsolated<[(WorktreeID, Bool)]>([])
-    let store = TestStore(initialState: initial) {
-      RootFeature()
-    } withDependencies: {
-      $0.terminalClient.events = { AsyncStream { $0.finish() } }
-      $0.hierarchyClient.selectionChanges = { AsyncStream { $0.finish() } }
-      $0.hierarchyClient.snapshot = { catalog }
-      $0.hierarchyClient.setWorktreeDiffInspectorVisible = { wt, v in
-        recorded.withValue { $0.append((wt, v)) }
-      }
-    }
-    store.exhaustivity = .off
-
-    await store.send(.worktreeHeader(.delegate(.diffInspectorToggleRequested)))
-    await store.receive(\.diffInspectorToggledForCurrentWorktree)
-    await store.finish()
-    #expect(recorded.value.count == 1)
-    #expect(recorded.value.first?.0 == worktreeA)
-    #expect(recorded.value.first?.1 == true)
   }
 
   @Test

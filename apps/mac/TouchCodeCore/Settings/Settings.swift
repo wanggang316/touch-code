@@ -78,6 +78,10 @@ public nonisolated struct Settings: Equatable, Sendable {
       general.defaultEditorID = nil
       mutated = true
     }
+    if let id = general.defaultGitViewerID, !knownIDs.contains(id) {
+      general.defaultGitViewerID = nil
+      mutated = true
+    }
     for (pid, var entry) in projects {
       if let id = entry.defaultEditor, !knownIDs.contains(id) {
         entry.defaultEditor = nil
