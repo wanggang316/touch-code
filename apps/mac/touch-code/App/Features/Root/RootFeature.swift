@@ -947,17 +947,31 @@ struct RootFeature {
           let projectID = state.selection.projectID,
           let worktreeID = state.selection.worktreeID
         else { return .none }
-        // The Git Viewer chord routes through `settings.general.defaultGitViewerID`:
-        // `nil` (or a stale id whose app is no longer installed) keeps the original
-        // toggle of the in-app overlay; any other id opens the worktree in that
-        // external git client. Both reads — current overlay visibility and the
-        // resolved id — come from snapshots taken in the reducer so the view's
-        // `State.diffInspectorVisible(in:)` and the persisted setting stay aligned.
+        // Three-tier Git Viewer resolution for the ⌘⌥G chord:
+        //   1. `projects[pid].defaultGitViewer == .builtin`  → force the
+        //      in-app overlay (overrides any external global default).
+        //   2. `projects[pid].defaultGitViewer == .external(id)` →
+        //      open the worktree in that client (if installed).
+        //   3. `projects[pid].defaultGitViewer == nil` (inherit) →
+        //      fall back to `general.defaultGitViewerID`.
+        // A `.external(id)` that no longer resolves to an installed
+        // descriptor decays to the in-app overlay so the chord never
+        // becomes a silent no-op.
         let snapshot = settingsWriter.readSnapshotSync()
-        let gitViewerID = snapshot.general.defaultGitViewerID
+        let projectOverride = snapshot.projects[projectID]?.defaultGitViewer
+        let resolvedID: EditorID? = {
+          switch projectOverride {
+          case .builtin:
+            return nil
+          case .external(let id):
+            return id
+          case .none:
+            return snapshot.general.defaultGitViewerID
+          }
+        }()
         let externalChoice: EditorID? = {
-          guard let gitViewerID else { return nil }
-          return state.editor.descriptors.contains(where: { $0.id == gitViewerID }) ? gitViewerID : nil
+          guard let resolvedID else { return nil }
+          return state.editor.descriptors.contains(where: { $0.id == resolvedID }) ? resolvedID : nil
         }()
         if let externalChoice {
           let catalog = hierarchyClient.snapshot()

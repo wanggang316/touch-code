@@ -83,8 +83,19 @@ public nonisolated struct Settings: Equatable, Sendable {
       mutated = true
     }
     for (pid, var entry) in projects {
+      var entryMutated = false
       if let id = entry.defaultEditor, !knownIDs.contains(id) {
         entry.defaultEditor = nil
+        entryMutated = true
+      }
+      if case .external(let id) = entry.defaultGitViewer, !knownIDs.contains(id) {
+        // Stale external-client id (app uninstalled or registry retired the row).
+        // Drop the override entirely so the Project re-inherits the global
+        // default rather than getting stuck on an un-resolvable id.
+        entry.defaultGitViewer = nil
+        entryMutated = true
+      }
+      if entryMutated {
         projects[pid] = entry
         mutated = true
       }

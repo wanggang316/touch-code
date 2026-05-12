@@ -11,20 +11,21 @@ import TouchCodeCore
 /// scope per the M4 brief); the visibility set is the observable contract.
 struct ProjectGeneralSettingsViewKindRenderTests {
   @Test
-  func plainDirHidesWorktreeAndGitHubSections() {
+  func plainDirHidesGitOnlySections() {
     let visible = ProjectGeneralSettingsView.visibleSections(for: .plainDir)
     #expect(visible.contains(.editor))
     #expect(visible.contains(.defaultShell))
     #expect(visible.contains(.environment))
+    #expect(!visible.contains(.gitViewer))
     #expect(!visible.contains(.worktree))
     #expect(!visible.contains(.github))
   }
 
   @Test
-  func gitRepoShowsAllFiveSections() {
+  func gitRepoShowsAllSections() {
     let visible = ProjectGeneralSettingsView.visibleSections(for: .gitRepo)
     #expect(visible == Set(ProjectGeneralSettingsView.SectionID.allCases))
-    #expect(visible.count == 5)
+    #expect(visible.count == 6)
   }
 
   @Test
@@ -33,7 +34,7 @@ struct ProjectGeneralSettingsViewKindRenderTests {
     // test pins the canonical order so a future refactor cannot silently
     // shuffle sections.
     let canonical: [ProjectGeneralSettingsView.SectionID] = [
-      .editor, .defaultShell, .worktree, .github, .environment,
+      .editor, .gitViewer, .defaultShell, .worktree, .github, .environment,
     ]
     #expect(ProjectGeneralSettingsView.SectionID.allCases == canonical)
   }
