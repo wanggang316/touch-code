@@ -9,14 +9,17 @@ import Foundation
 /// render time — only `.custom` honours them. This keeps "the kind is the
 /// contract" semantic so a list of `.test` scripts looks uniform.
 ///
-/// `target` / `direction` / `onFinished` describe **how** the script
-/// materializes at run time:
+/// `target` / `direction` / `onFinished` / `focus` describe **how** the
+/// script materializes at run time:
 /// - `target` picks between writing into the focused pane, a new tab, or a
 ///   split off the focused pane.
 /// - `direction` is consumed only when `target == .split`.
 /// - `onFinished` is consumed only for surface-spawning targets (`.newTab`,
 ///   `.split`); `.focused` has no observable completion boundary so the
 ///   runtime treats it as `.none` regardless.
+/// - `focus` controls whether the spawned tab/pane steals first-responder
+///   focus from the user. Consumed only for surface-spawning targets;
+///   `.focused` writes into the already-focused pane and ignores `focus`.
 public nonisolated struct ScriptDefinition: Equatable, Codable, Sendable, Identifiable, Hashable {
   public var id: UUID
   public var kind: ScriptKind
@@ -27,6 +30,11 @@ public nonisolated struct ScriptDefinition: Equatable, Codable, Sendable, Identi
   public var target: ScriptTarget
   public var direction: ScriptSplitDirection
   public var onFinished: ScriptOnFinished
+  /// When `true` (default), running a `.newTab` / `.split` script switches
+  /// the user to the spawned tab/pane. When `false`, the surface is
+  /// created in the background — the tab strip's executing badge is the
+  /// only signal that something is running.
+  public var focus: Bool
   /// Optional global keyboard chord (e.g. ⌘⇧R) attached to this
   /// script. nil = no shortcut. Reuses the same `ShortcutBinding`
   /// type the system Settings → Shortcuts page uses, so the chord
@@ -44,6 +52,7 @@ public nonisolated struct ScriptDefinition: Equatable, Codable, Sendable, Identi
     target: ScriptTarget = .newTab,
     direction: ScriptSplitDirection = .right,
     onFinished: ScriptOnFinished = .none,
+    focus: Bool = true,
     keyboardShortcut: ShortcutBinding? = nil
   ) {
     self.id = id
@@ -55,6 +64,7 @@ public nonisolated struct ScriptDefinition: Equatable, Codable, Sendable, Identi
     self.target = target
     self.direction = direction
     self.onFinished = onFinished
+    self.focus = focus
     self.keyboardShortcut = keyboardShortcut
   }
 
@@ -98,7 +108,7 @@ public nonisolated struct ScriptDefinition: Equatable, Codable, Sendable, Identi
 
   private enum CodingKeys: String, CodingKey {
     case id, kind, name, command, systemImage, tintColor
-    case target, direction, onFinished
+    case target, direction, onFinished, focus
     case keyboardShortcut
   }
 
@@ -113,13 +123,16 @@ public nonisolated struct ScriptDefinition: Equatable, Codable, Sendable, Identi
     self.target = try c.decodeIfPresent(ScriptTarget.self, forKey: .target) ?? .newTab
     self.direction = try c.decodeIfPresent(ScriptSplitDirection.self, forKey: .direction) ?? .right
     self.onFinished = try c.decodeIfPresent(ScriptOnFinished.self, forKey: .onFinished) ?? .none
+    self.focus = try c.decodeIfPresent(Bool.self, forKey: .focus) ?? true
     self.keyboardShortcut = try c.decodeIfPresent(ShortcutBinding.self, forKey: .keyboardShortcut)
   }
 
   /// Omit-when-default encoding. Empty strings, nil overrides, and any field
   /// at its default value do not appear on disk so the JSON stays minimal.
   /// `direction` is only emitted when `target == .split`. `onFinished` is
-  /// only emitted when the validated value is non-`.none`.
+  /// only emitted when the validated value is non-`.none`. `focus` is only
+  /// emitted when the user opted out of the default (true) for a surface-
+  /// spawning target — `.focused` ignores `focus` so it is never emitted.
   public func encode(to encoder: Encoder) throws {
     var c = encoder.container(keyedBy: CodingKeys.self)
     try c.encode(id, forKey: .id)
@@ -141,6 +154,9 @@ public nonisolated struct ScriptDefinition: Equatable, Codable, Sendable, Identi
     let validatedOnFinished = resolvedOnFinished
     if validatedOnFinished != .none {
       try c.encode(validatedOnFinished, forKey: .onFinished)
+    }
+    if target != .focused, !focus {
+      try c.encode(focus, forKey: .focus)
     }
     // Only persist the chord when the user explicitly bound one. The
     // recorder enforces presence-of-modifier + non-zero keyCode at

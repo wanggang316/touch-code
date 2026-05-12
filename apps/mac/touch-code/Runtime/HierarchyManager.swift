@@ -668,7 +668,8 @@ final class HierarchyManager {
   func createTab(
     in worktreeID: WorktreeID,
     in projectID: ProjectID,
-    name: String?
+    name: String?,
+    select: Bool = true
   ) throws -> TabID {
     guard
       let (projectIndex, worktreeIndex) = findWorktreeIndices(
@@ -682,7 +683,17 @@ final class HierarchyManager {
     let tabID = TabID()
     let tab = Tab(id: tabID, name: name, splitTree: SplitTree(), panes: [])
     catalog.projects[projectIndex].worktrees[worktreeIndex].tabs.append(tab)
-    catalog.projects[projectIndex].worktrees[worktreeIndex].selectedTabID = tabID
+    // Background-script support: when `select == false` the new tab is
+    // appended without stealing the worktree's selectedTabID, so a script
+    // with `focus: false` runs in the strip while the user stays put.
+    // The first tab of an otherwise-empty worktree always wins selection
+    // — there is nothing to "stay focused on" and an unselected sole tab
+    // would render an empty worktree with no live pane.
+    let existingTabs = catalog.projects[projectIndex].worktrees[worktreeIndex].tabs
+    let existingSelection = catalog.projects[projectIndex].worktrees[worktreeIndex].selectedTabID
+    if select || existingTabs.count == 1 || existingSelection == nil {
+      catalog.projects[projectIndex].worktrees[worktreeIndex].selectedTabID = tabID
+    }
     store.scheduleSave(catalog)
     return tabID
   }

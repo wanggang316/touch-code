@@ -758,6 +758,20 @@ extension HierarchyClient {
         eventStream: stream
       )
     }
+
+    // `.split` does not auto-focus the new pane (createTab is the only
+    // mutator that touches selectedTabID; splitPane leaves first-responder
+    // on the source pane). Honour the script's `focus` for `.split` by
+    // dispatching `focusSurfaceView` async, the same way the manual ⌘D
+    // path does in `PaneActionRouterFeature.newSplit` — the surface view
+    // needs to attach to the hosting window before `makeFirstResponder`
+    // takes. `.newTab` is handled inside `dispatchScript` via createTab's
+    // `select:` parameter, since selectedTabID is what drives focus there.
+    if script.focus, script.target == .split, let spawnedPaneID {
+      Task { @MainActor in
+        manager.focusSurfaceView(for: spawnedPaneID)
+      }
+    }
   }
 
   /// Materializes a `ScriptDefinition` into a runtime action and returns the
@@ -789,7 +803,8 @@ extension HierarchyClient {
     func openInNewTab() throws -> PaneID {
       let tabID = try manager.createTab(
         in: worktreeID, in: projectID,
-        name: script.displayName
+        name: script.displayName,
+        select: script.focus
       )
       return try manager.openPane(
         in: tabID, in: worktreeID, in: projectID,

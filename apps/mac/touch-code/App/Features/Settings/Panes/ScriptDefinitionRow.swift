@@ -150,14 +150,24 @@ struct ScriptEditorSheet: View {
 
       switch draft.target {
       case .newTab:
+        Toggle("Focus new tab", isOn: $draft.focus)
         Toggle("Close tab when finished", isOn: closeTabBinding)
       case .split:
+        Toggle("Focus new pane", isOn: $draft.focus)
         Toggle("Close pane when finished", isOn: closePaneBinding)
       case .focused:
         EmptyView()
       }
     } header: {
       Text("Where to run")
+    } footer: {
+      switch draft.target {
+      case .newTab, .split:
+        Text(
+          "When focus is off, the script runs in the background — watch the tab strip's executing badge for activity.")
+      case .focused:
+        EmptyView()
+      }
     }
   }
 
