@@ -311,12 +311,17 @@ final class PaneSurface {
   /// Route through libghostty's `reset` binding action — the same path the
   /// context-menu "Reset Terminal" item uses. Clears scrollback and
   /// reinitialises the terminal state without disturbing the child PTY.
+  ///
+  /// The binding action mutates terminal state synchronously but does not
+  /// trigger a redraw on its own; without `ghostty_surface_refresh` the
+  /// rendered viewport stays stale until the next input or mouse event.
   func resetTerminal() {
     guard let surface else { return }
     let action = "reset"
     action.withCString { ptr in
       _ = ghostty_surface_binding_action(surface, ptr, UInt(action.utf8.count))
     }
+    ghostty_surface_refresh(surface)
   }
 
   private func sendTextChunk(_ text: String, to surface: ghostty_surface_t) {
