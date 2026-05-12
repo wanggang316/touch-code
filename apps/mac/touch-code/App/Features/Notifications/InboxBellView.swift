@@ -60,20 +60,10 @@ struct InboxBellView: View {
           popoverShown = false
           onFocusHierarchyPath(entry.source)
         },
-        onMarkAllRead: { inbox?.markAllRead() }
+        onMarkAllRead: { inbox?.markAllRead() },
+        onClose: { popoverShown = false }
       )
       .frame(minWidth: 320, idealWidth: 360, maxWidth: 480, minHeight: 200, idealHeight: 360)
-      // Esc closes the popover. NSPopover doesn't dismiss on Esc by
-      // default when keyboard focus stays on the anchor button, so we
-      // pin a hidden `.cancelAction` button inside the popover's view
-      // tree — same trick the sheets in this codebase use.
-      .background(
-        Button("") { popoverShown = false }
-          .keyboardShortcut(.cancelAction)
-          .opacity(0)
-          .frame(width: 0, height: 0)
-          .accessibilityHidden(true)
-      )
     }
   }
 
@@ -93,8 +83,15 @@ private struct InboxPopoverContent: View {
   @Binding var unreadOnly: Bool
   let onRowTap: (InboxEntry) -> Void
   let onMarkAllRead: () -> Void
+  /// Invoked when Esc lands in the popover. NSPopover doesn't dismiss on
+  /// Esc by default, and a hidden `.cancelAction` button doesn't fire
+  /// while focus stays on the anchor toolbar button — so we force the
+  /// root focusable, grab first responder onAppear, and route Esc via
+  /// `.onKeyPress`. Same pattern the Command Palette uses.
+  let onClose: () -> Void
 
   @Environment(NotificationStore.self) private var inbox: NotificationStore?
+  @FocusState private var focused: Bool
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
@@ -112,6 +109,14 @@ private struct InboxPopoverContent: View {
           }
         }
       }
+    }
+    .focusable()
+    .focused($focused)
+    .focusEffectDisabled()
+    .onAppear { focused = true }
+    .onKeyPress(.escape) {
+      onClose()
+      return .handled
     }
   }
 
