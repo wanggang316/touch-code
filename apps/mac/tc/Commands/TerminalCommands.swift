@@ -104,6 +104,11 @@ struct SendKeyCommand: AsyncParsableCommand {
     commandName: "send-key",
     abstract: "Send a named special key to a pane.",
     discussion: """
+      With one positional argument, send the key to the current pane.
+      With two positional arguments, the first is the target pane and the
+      second is the key name. The --pane / -p option is an alternative way
+      to pin a target.
+
       Named keys are dispatched as ghostty key events so the terminal sees
       the same byte sequences a physical keypress would emit (CSI for
       arrows, 0x1B for escape, 0x09 for tab, and so on).
@@ -114,24 +119,25 @@ struct SendKeyCommand: AsyncParsableCommand {
   )
 
   @OptionGroup var globals: GlobalOptions
-  @Argument(help: "Key name (see --help for the list).")
-  var key: String
   @Option(name: [.customShort("p"), .long], help: "Target pane id, @label, or 'current'.")
-  var pane: String = "current"
+  var pane: String?
+  @Argument(parsing: .remaining, help: "Key, or target followed by key.")
+  var arguments: [String] = []
 
   func run() async throws {
     await CommandRunner.run {
-      let normalised = key.lowercased().replacingOccurrences(of: "-", with: "_")
+      let (target, keyName) = try Self.resolveTargetAndKey(arguments: arguments, explicitPane: pane)
+      let normalised = keyName.lowercased().replacingOccurrences(of: "-", with: "_")
       guard let named = IPC.TerminalNamedKey(rawValue: normalised) else {
         let names = IPC.TerminalNamedKey.allCases.map(\.rawValue).joined(separator: ", ")
         throw CLIError(
           code: .userError,
-          message: "unknown key \"\(key)\". Supported: \(names)"
+          message: "unknown key \"\(keyName)\". Supported: \(names)"
         )
       }
       let client = CLISession.connect(globals: globals)
       defer { Task { await client.shutdown() } }
-      let uuid = try await AliasResolver.resolve(pane, kind: .pane, client: client)
+      let uuid = try await AliasResolver.resolve(target, kind: .pane, client: client)
       try await activatePane(uuid, client: client)
       struct Params: Codable {
         let paneID: PaneID
@@ -147,6 +153,34 @@ struct SendKeyCommand: AsyncParsableCommand {
       ) { obj in
         "sent \(obj["key"] ?? "?") to \(obj["paneID"] ?? "?")"
       }
+    }
+  }
+
+  /// Mirrors `tc pane send`'s positional handling: one arg = key (target
+  /// is current pane), two args = `<pane> <key>`. The `-p/--pane` flag is
+  /// honoured when present and is mutually exclusive with a positional
+  /// pane.
+  static func resolveTargetAndKey(arguments: [String], explicitPane: String?) throws -> (String, String) {
+    if let explicitPane {
+      switch arguments.count {
+      case 1: return (explicitPane, arguments[0])
+      case 0: throw CLIError(code: .userError, message: "missing key name")
+      default:
+        throw CLIError(
+          code: .userError,
+          message: "expected one positional key when --pane is set, got \(arguments.count)"
+        )
+      }
+    }
+    switch arguments.count {
+    case 1: return ("current", arguments[0])
+    case 2: return (arguments[0], arguments[1])
+    case 0: throw CLIError(code: .userError, message: "missing key name")
+    default:
+      throw CLIError(
+        code: .userError,
+        message: "expected <key> or <pane> <key>, got \(arguments.count) positional arguments"
+      )
     }
   }
 }
