@@ -103,6 +103,13 @@ struct WorktreeDetailView: View {
       // zoning since `.toolbar(removing:)` is 15+.
       .modifier(SuppressTitleModifier())
       .toolbar { worktreeToolbarContent(address: address, info: info) }
+      // Drop the system-painted window-toolbar chrome so the macOS 26
+      // floating-sidebar overlay only blends against the detail body
+      // underneath it. Without this, the toolbar's full-window glass
+      // repaints on every toolbar-state change (tab switch rebuilds
+      // `worktreeToolbarContent`) and flickers across the area covered
+      // by the translucent sidebar. Same pattern supacode uses.
+      .toolbarBackground(.hidden, for: .windowToolbar)
     } else {
       placeholder
     }
@@ -141,7 +148,11 @@ struct WorktreeDetailView: View {
       activeTabID: address.activeTab
     )
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(Color(nsColor: .windowBackgroundColor))
+    // No solid `.windowBackgroundColor` fill: with the toolbar chrome
+    // hidden, the bar reads as a continuation of the titlebar region
+    // (the NSWindow's natural backdrop). A solid fill across the full
+    // detail width — including the area covered by the floating
+    // sidebar — turns any repaint into a visible flash.
   }
 
   @ViewBuilder
