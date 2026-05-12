@@ -12,17 +12,16 @@ import Testing
 struct OptionalOverridePickerTests {
   // MARK: - Inherit row label
 
-  /// `inheritRowText` composes the "Use global default — <inherited>" string;
-  /// when the inheritedLabel returns empty (no global default set), the row
-  /// falls back to a bare "Use global default" rather than dangling on the
-  /// em-dash.
+  /// `inheritRowText` composes the "Global — <inherited>" string; when the
+  /// inheritedLabel returns empty (no global default set), the row falls
+  /// back to a bare "Global" rather than dangling on the em-dash.
   @Test
   func inheritRowTextOmitsEmDashWhenInheritedLabelEmpty() {
     let text = OptionalOverridePicker<String>.inheritRowText(
       inheritedLabel: { _ in "" },
       inheritedValue: nil
     )
-    #expect(text == "Use global default")
+    #expect(text == "Global")
   }
 
   @Test
@@ -31,7 +30,7 @@ struct OptionalOverridePickerTests {
       inheritedLabel: { value in value ?? "Cursor" },
       inheritedValue: nil
     )
-    #expect(text == "Use global default — Cursor")
+    #expect(text == "Global — Cursor")
   }
 
   @Test
@@ -40,7 +39,7 @@ struct OptionalOverridePickerTests {
       inheritedLabel: { value in value ?? "fallback" },
       inheritedValue: "vscode"
     )
-    #expect(text == "Use global default — vscode")
+    #expect(text == "Global — vscode")
   }
 
   // MARK: - Binding pass-through
@@ -69,7 +68,7 @@ struct OptionalOverridePickerTests {
 
   @Test
   func triStateInheritLabelDescribesYesNo() {
-    #expect(TriStateOverrideToggle.inheritLabel(inheritedValue: true) == "Use global default — yes")
-    #expect(TriStateOverrideToggle.inheritLabel(inheritedValue: false) == "Use global default — no")
+    #expect(TriStateOverrideToggle.inheritLabel(inheritedValue: true) == "Global — yes")
+    #expect(TriStateOverrideToggle.inheritLabel(inheritedValue: false) == "Global — no")
   }
 }

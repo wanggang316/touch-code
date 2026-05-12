@@ -8,10 +8,10 @@ import SwiftUI
 /// case.
 ///
 /// `inheritedValue` is the resolved global default the inherit-row label
-/// surfaces ("Use global default — yes" / "no"). When the project has no
-/// global default for the field today (M4 ships before a global Bool
-/// default exists for these toggles), callers pass the on-disk fallback
-/// the rest of the app uses (typically `false`).
+/// surfaces ("Global — yes" / "no"). When the project has no global
+/// default for the field today (M4 ships before a global Bool default
+/// exists for these toggles), callers pass the on-disk fallback the rest
+/// of the app uses (typically `false`).
 struct TriStateOverrideToggle: View {
   let title: String
   @Binding var selection: Bool?
@@ -52,6 +52,6 @@ struct TriStateOverrideToggle: View {
 
   /// Pure helper exposed for tests.
   nonisolated static func inheritLabel(inheritedValue: Bool) -> String {
-    "Use global default — \(inheritedValue ? "yes" : "no")"
+    "Global — \(inheritedValue ? "yes" : "no")"
   }
 }

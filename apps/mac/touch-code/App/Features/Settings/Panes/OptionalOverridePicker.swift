@@ -2,8 +2,8 @@ import SwiftUI
 
 /// Picker for an `Optional<Value>` setting where `nil` represents "inherit
 /// the global default". Renders the inherit row first with a label of the
-/// form `"Use global default — \(inheritedLabel(inheritedValue))"`, followed
-/// by every entry from `options`.
+/// form `"Global — \(inheritedLabel(inheritedValue))"`, followed by every
+/// entry from `options`.
 ///
 /// Centralising this visual prevents drift across the four override fields
 /// in the General pane (editor / shell / merge strategy / post-merge
@@ -48,8 +48,8 @@ struct OptionalOverridePicker<Value: Hashable & Sendable>: View {
   ) -> String {
     let resolved = inheritedLabel(inheritedValue)
     if resolved.isEmpty {
-      return "Use global default"
+      return "Global"
     }
-    return "Use global default — \(resolved)"
+    return "Global — \(resolved)"
   }
 }

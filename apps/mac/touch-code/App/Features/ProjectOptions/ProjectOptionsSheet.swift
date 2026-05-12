@@ -19,8 +19,8 @@ struct ProjectOptionsSheet: View {
 
   /// Maps the raw draft into a selection that the picker can display. If the stored
   /// override points at an editor that is not in the current `descriptors` list (stale
-  /// value / uninstalled) we show "Use global default" as selected; the next save or
-  /// startup migration zeroes it out.
+  /// value / uninstalled) we show "Global" as selected; the next save or startup
+  /// migration zeroes it out.
   private func resolvedSelection() -> EditorID? {
     guard let draft = store.defaultEditorDraft else { return nil }
     return store.descriptors.contains(where: { $0.id == draft }) ? draft : nil
@@ -90,7 +90,7 @@ struct ProjectOptionsSheet: View {
     .task { store.send(.onAppear) }
   }
 
-  /// Picker items: sentinel "Use global default" row on top, then the grouped
+  /// Picker items: sentinel "Global" row on top, then the grouped
   /// priority-ordered descriptor list shared with every other Open-in dropdown in
   /// the app — editors, terminals, git clients, and the shell pseudo-entry render
   /// as separate sections so the menu carries dividers between categories. The
@@ -105,7 +105,7 @@ struct ProjectOptionsSheet: View {
         .frame(width: 16, height: 16)
         .foregroundStyle(.secondary)
         .accessibilityHidden(true)
-      Text("Use global default")
+      Text("Global")
     }
     .tag(EditorID?(nil))
 

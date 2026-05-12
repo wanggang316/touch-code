@@ -36,6 +36,13 @@ struct CreateWorktreeFeature {
     /// the parent's pending set.
     let currentPendingCountForProject: Int
 
+    /// Per-Project Worktree base ref override (`projects[pid].git.worktreeBaseRef`).
+    /// Wins over the auto-resolved `origin/HEAD` when seeding `selectedBaseRef`,
+    /// so the value the user pinned in Project Settings actually drives new
+    /// worktrees instead of being silently ignored. Implicit `nil` default keeps
+    /// the synthesized memberwise initializer's parameter optional.
+    var baseRefOverride: String?
+
     // Options loaded asynchronously on presentation.
     var baseRefOptions: [String] = []
     var localBranchNamesLower: Set<String> = []
@@ -113,9 +120,15 @@ struct CreateWorktreeFeature {
         state.localBranchNamesLower = locals
         state.automaticBaseRef = auto
         // Preserve a user-set value if they already picked one while
-        // options were loading; otherwise seed with the automatic.
+        // options were loading. Otherwise prefer the per-Project override
+        // (only if it still exists in the loaded ref list), then fall back
+        // to the remote default, then the first available ref.
         if state.selectedBaseRef == nil {
-          state.selectedBaseRef = auto ?? baseRefs.first
+          if let pinned = state.baseRefOverride, baseRefs.contains(pinned) {
+            state.selectedBaseRef = pinned
+          } else {
+            state.selectedBaseRef = auto ?? baseRefs.first
+          }
         }
         return .none
 

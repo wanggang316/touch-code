@@ -24,6 +24,14 @@ struct ProjectGeneralSettingsView: View {
   @Environment(HierarchyManager.self) private var hierarchyManager
   @Environment(SettingsStore.self) private var settingsStore
   @Dependency(SettingsWriter.self) private var settingsWriter
+  @Dependency(GitWorktreeClient.self) private var gitWorktreeClient
+
+  /// Branches loaded from the repo on view appearance. `baseRefOptions` is
+  /// `git for-each-ref refs/heads refs/remotes` output (local + remote
+  /// branches, HEAD aliases stripped); `defaultRemoteBaseRef` is the
+  /// resolved `origin/HEAD` and seeds the "Auto" inherit row label.
+  @State private var baseRefOptions: [String] = []
+  @State private var defaultRemoteBaseRef: String?
 
   /// IDs for the six Sections — useful for the kind-render tests so they
   /// can assert visibility without inspecting SwiftUI's view tree.
@@ -154,6 +162,24 @@ struct ProjectGeneralSettingsView: View {
       }
     }
     .formStyle(.grouped)
+    .task(id: projectID) { await loadBaseRefOptionsIfNeeded() }
+  }
+
+  /// Loads local + remote refs and the remote default once per pane
+  /// materialisation. Cheap (`git for-each-ref` + `symbolic-ref`); skipping
+  /// on plain dirs keeps non-git Projects from shelling out.
+  private func loadBaseRefOptionsIfNeeded() async {
+    guard visible.contains(.worktree),
+      let gitRoot = hierarchyManager.catalog.projects
+        .first(where: { $0.id == projectID })?.gitRoot
+    else { return }
+    let repoRoot = URL(fileURLWithPath: gitRoot)
+    async let refs = (try? gitWorktreeClient.branchRefs(repoRoot)) ?? []
+    async let auto = (try? gitWorktreeClient.defaultRemoteBranchRef(repoRoot)) ?? nil
+    let loadedRefs = await refs
+    let loadedAuto = await auto
+    baseRefOptions = loadedRefs
+    defaultRemoteBaseRef = loadedAuto
   }
 
   // MARK: - Editor
@@ -162,8 +188,8 @@ struct ProjectGeneralSettingsView: View {
   /// "Open in" submenu: a flat priority-ordered list rendered through
   /// `EditorPickerRow.row(for:)` so every editor dropdown across the app has the same
   /// icon + displayName row. The leading sentinel reuses
-  /// `OptionalOverridePicker.inheritRowText` so the "Use global default — <name>"
-  /// composition stays in one place.
+  /// `OptionalOverridePicker.inheritRowText` so the "Global — <name>" composition
+  /// stays in one place.
   @ViewBuilder
   private var editorSection: some View {
     Section("Editor") {
@@ -203,7 +229,7 @@ struct ProjectGeneralSettingsView: View {
   // MARK: - Git Viewer
 
   /// Per-Project Git Viewer override. Three states surfaced as one picker:
-  ///   1. **Use global default — &lt;name&gt;** (tag `nil`): inherit
+  ///   1. **Global — &lt;name&gt;** (tag `nil`): inherit
   ///      `GeneralSettings.defaultGitViewerID`.
   ///   2. **Built-in** (tag `.builtin`): force the in-app overlay even if
   ///      the global default is an external client.
@@ -242,15 +268,15 @@ struct ProjectGeneralSettingsView: View {
     }
   }
 
-  /// Composes the "Use global default — &lt;X&gt;" sentinel label. Resolves the
-  /// inherited id against the current `descriptors` list so the label shows
-  /// the actual client displayName (or "Built-in" when nothing is set).
+  /// Composes the "Global — &lt;X&gt;" sentinel label. Resolves the inherited id
+  /// against the current `descriptors` list so the label shows the actual
+  /// client displayName (or "Built-in" when nothing is set).
   private var gitViewerInheritRowText: String {
     let inheritedLabel: String = {
       guard let id = general.defaultGitViewerID else { return "Built-in" }
       return descriptors.first(where: { $0.id == id })?.displayName ?? id
     }()
-    return "Use global default — \(inheritedLabel)"
+    return "Global — \(inheritedLabel)"
   }
 
   /// Installed git clients, filtered by `EditorRegistry.gitClientPriority`
@@ -305,23 +331,34 @@ struct ProjectGeneralSettingsView: View {
   @ViewBuilder
   private var worktreeSection: some View {
     Section("Worktree") {
-      LabeledContent("Base directory") {
-        Text(entry?.worktreesDirectory ?? "—")
-          .foregroundStyle(entry?.worktreesDirectory == nil ? .secondary : .primary)
-          .textSelection(.enabled)
-          .frame(maxWidth: .infinity, alignment: .leading)
-      }
-      HStack {
-        Button("Choose…") { chooseWorktreeDirectory() }
-        if entry?.worktreesDirectory != nil {
-          Button("Clear") {
-            store.send(.setWorktreeBaseDirectory(nil))
+      LabeledContent("Worktree Directory") {
+        HStack(spacing: 6) {
+          Text(entry?.worktreesDirectory ?? defaultWorktreesDirectory)
+            .foregroundStyle(entry?.worktreesDirectory == nil ? .secondary : .primary)
+            .textSelection(.enabled)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .frame(maxWidth: .infinity, alignment: .leading)
+          Button {
+            chooseWorktreeDirectory()
+          } label: {
+            Image(systemName: "folder")
+          }
+          .buttonStyle(.borderless)
+          .help("Choose a different directory…")
+          if entry?.worktreesDirectory != nil {
+            Button {
+              store.send(.setWorktreeBaseDirectory(nil))
+            } label: {
+              Image(systemName: "arrow.uturn.backward")
+            }
+            .buttonStyle(.borderless)
+            .help("Reset to default")
           }
         }
-        Spacer()
       }
 
-      TextField("Base ref", text: worktreeBaseRefBinding, prompt: Text("origin/HEAD"))
+      worktreeBaseRefPicker
 
       TriStateOverrideToggle(
         title: "Copy .gitignore'd files",
@@ -336,10 +373,84 @@ struct ProjectGeneralSettingsView: View {
     }
   }
 
-  private var worktreeBaseRefBinding: Binding<String> {
+  /// Fallback shown when the project has no `worktreesDirectory` override —
+  /// matches the runtime fallback computed in `HierarchySidebarFeature` when
+  /// opening the Create Worktree sheet.
+  private var defaultWorktreesDirectory: String {
+    let projectName =
+      hierarchyManager.catalog.projects.first(where: { $0.id == projectID })?.name ?? "<project>"
+    return NSHomeDirectory() + "/.touch-code/repos/\(projectName)"
+  }
+
+  /// Dropdown for the per-Project Worktree base ref. `nil` = inherit (use
+  /// the remote default). Options group local branches (refs/heads) and
+  /// remote branches (refs/remotes/<remote>/…) so the menu reads like the
+  /// Create Worktree sheet's base-ref picker.
+  @ViewBuilder
+  private var worktreeBaseRefPicker: some View {
+    Picker("Base ref", selection: worktreeBaseRefBinding) {
+      Text(baseRefInheritRowText).tag(String?.none)
+      let groups = groupedBaseRefOptions
+      if !groups.local.isEmpty {
+        Section("Local") {
+          ForEach(groups.local, id: \.self) { ref in
+            Text(ref).tag(String?(ref))
+          }
+        }
+      }
+      if !groups.remote.isEmpty {
+        Section("Remote") {
+          ForEach(groups.remote, id: \.self) { ref in
+            Text(ref).tag(String?(ref))
+          }
+        }
+      }
+      // A persisted override may point at a ref that no longer exists
+      // (deleted branch). Render it so the picker can display the current
+      // selection rather than silently flipping to nil.
+      if let override = entry?.git?.worktreeBaseRef,
+        !override.isEmpty,
+        !baseRefOptions.contains(override)
+      {
+        Section("Unknown") {
+          Text("\(override) (missing)").tag(String?(override))
+        }
+      }
+    }
+    .pickerStyle(.menu)
+  }
+
+  private var baseRefInheritRowText: String {
+    OptionalOverridePicker<String>.inheritRowText(
+      inheritedLabel: { $0 ?? "origin/HEAD" },
+      inheritedValue: defaultRemoteBaseRef
+    )
+  }
+
+  /// Partitions `baseRefOptions` into local (refs/heads) and remote
+  /// (refs/remotes/<remote>/…) sets. Heuristic: refs containing a `/` whose
+  /// first segment is a known remote prefix go to remote; everything else
+  /// is treated as local. We don't have the remote list cheaply here, so
+  /// the convention "first segment matches `origin` or `upstream` or any
+  /// segment ending in `/HEAD`" is sufficient; everything else falls back
+  /// to local.
+  private var groupedBaseRefOptions: (local: [String], remote: [String]) {
+    var local: [String] = []
+    var remote: [String] = []
+    for ref in baseRefOptions {
+      if ref.contains("/") {
+        remote.append(ref)
+      } else {
+        local.append(ref)
+      }
+    }
+    return (local, remote)
+  }
+
+  private var worktreeBaseRefBinding: Binding<String?> {
     Binding(
-      get: { entry?.git?.worktreeBaseRef ?? "" },
-      set: { routes.writeWorktreeBaseRef($0) }
+      get: { entry?.git?.worktreeBaseRef },
+      set: { routes.writeWorktreeBaseRef($0 ?? "") }
     )
   }
 

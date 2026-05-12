@@ -2,13 +2,12 @@ import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
 
-/// Project Scripts sub-pane (M5). Two tab modes selected by a top
-/// segmented picker (rendered centred and chrome-less so it reads as a
-/// macOS System-Settings tab strip rather than a Form Section header):
+/// Project Scripts sub-pane. Renders every group as a sibling grouped
+/// Section in one flat Form — no top-level tab switcher:
 ///
-/// - **Worktree** — git-only setup / archive / delete lifecycle scripts,
-///   each in its own grouped Section with an inline editor (one body of
-///   text per phase, edited in place).
+/// - **Setup / Archive / Delete** — git-only lifecycle script editors,
+///   one body of text per phase, edited in place. Hidden when the
+///   Project is a plain dir.
 /// - **Commands** — user-defined `[ScriptDefinition]` rendered as a
 ///   compact list of rows (icon + name + first command line + edit /
 ///   delete buttons). Add and edit both push a modal sheet whose body
@@ -27,7 +26,7 @@ struct ProjectScriptsSettingsView: View {
   /// against every registered CommandID at recording time.
   @Environment(\.resolvedShortcuts) private var resolvedShortcuts: ResolvedShortcutMap
 
-  /// IDs for the two top-level tabs; pure visibility logic lives on
+  /// IDs for the sibling Sections; pure visibility logic lives on
   /// `visibleSections(for:)` so kind-conditional rendering is testable
   /// without the SwiftUI view tree (mirrors `ProjectGeneralSettingsView`).
   enum SectionID: String, CaseIterable, Hashable {
@@ -45,15 +44,6 @@ struct ProjectScriptsSettingsView: View {
     }
   }
 
-  private enum Tab: String, CaseIterable, Hashable {
-    case worktree
-    case commands
-  }
-
-  // Default to Commands — that's the most-visited tab (user-defined
-  // scripts), and the entry path from the worktree-header
-  // "Manage Scripts…" deep-link expects to land there.
-  @State private var selectedTab: Tab = .commands
   /// Sheet presentation for both Add and Edit. Non-nil = sheet visible
   /// against this draft. `.sheet(item:)` requires Identifiable, which
   /// `ScriptDefinition` already conforms to.
@@ -93,74 +83,49 @@ struct ProjectScriptsSettingsView: View {
   // MARK: - Body
 
   var body: some View {
-    let showLifecycle =
-      visible.contains(.lifecycle)
-      && (!visible.contains(.scripts) || selectedTab == .worktree)
-    let showScripts =
-      visible.contains(.scripts)
-      && (!visible.contains(.lifecycle) || selectedTab == .commands)
-
-    VStack(spacing: 0) {
-      if visible.contains(.lifecycle) && visible.contains(.scripts) {
-        // Centred chromeless segmented picker — no Form Section wrapper,
-        // no row-style background, fixed compact width. Reads as a
-        // System-Settings tab strip rather than a heading row.
-        Picker("", selection: $selectedTab) {
-          Text("Worktree").tag(Tab.worktree)
-          Text("Commands").tag(Tab.commands)
-        }
-        .labelsHidden()
-        .pickerStyle(.segmented)
-        .frame(maxWidth: 240)
-        .padding(.top, 16)
-        .padding(.bottom, 8)
-        .frame(maxWidth: .infinity, alignment: .center)
+    Form {
+      if visible.contains(.lifecycle) {
+        lifecycleSection(
+          title: "Setup Script",
+          subtitle: "Runs after a new worktree is created.",
+          icon: "truck.box.badge.clock",
+          iconColor: .blue,
+          example: "pnpm install",
+          text: git.createScript?.command ?? "",
+          phase: .setup
+        )
+        lifecycleSection(
+          title: "Archive Script",
+          subtitle: "Runs before a worktree is archived.",
+          icon: "archivebox",
+          iconColor: .orange,
+          example: "docker compose down",
+          text: git.archiveScript?.command ?? "",
+          phase: .archive
+        )
+        lifecycleSection(
+          title: "Delete Script",
+          subtitle: "Runs before a worktree is removed (files still on disk).",
+          icon: "trash",
+          iconColor: .red,
+          example: "docker compose down",
+          text: git.deleteScript?.command ?? "",
+          phase: .delete
+        )
       }
 
-      Form {
-        if showLifecycle {
-          lifecycleSection(
-            title: "Setup Script",
-            subtitle: "Runs after a new worktree is created.",
-            icon: "truck.box.badge.clock",
-            iconColor: .blue,
-            example: "pnpm install",
-            text: git.createScript?.command ?? "",
-            phase: .setup
-          )
-          lifecycleSection(
-            title: "Archive Script",
-            subtitle: "Runs before a worktree is archived.",
-            icon: "archivebox",
-            iconColor: .orange,
-            example: "docker compose down",
-            text: git.archiveScript?.command ?? "",
-            phase: .archive
-          )
-          lifecycleSection(
-            title: "Delete Script",
-            subtitle: "Runs before a worktree is removed (files still on disk).",
-            icon: "trash",
-            iconColor: .red,
-            example: "docker compose down",
-            text: git.deleteScript?.command ?? "",
-            phase: .delete
-          )
-        }
+      if visible.contains(.scripts) {
+        scriptsListSection
+      }
 
-        if showScripts {
-          scriptsListSection
-        }
-
-        if let error = store.state.lastWriteFailure, !error.isEmpty {
-          Section {
-            Label(error, systemImage: "exclamationmark.circle.fill")
-              .foregroundStyle(.red)
-          }
+      if let error = store.state.lastWriteFailure, !error.isEmpty {
+        Section {
+          Label(error, systemImage: "exclamationmark.circle.fill")
+            .foregroundStyle(.red)
         }
       }
-      .formStyle(.grouped)
     }
+    .formStyle(.grouped)
     .sheet(item: $editingScript) { editing in
       ScriptEditorSheet(
         script: editing,
