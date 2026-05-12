@@ -760,6 +760,18 @@ final class TerminalInputSink: TerminalHandlers.InputSink {
     return true
   }
 
+  func sendKey(paneID: PaneID, key: IPC.TerminalNamedKey) -> Bool {
+    guard let surface = engine?.ghosttyRuntime?.surface(for: paneID) else { return false }
+    surface.sendNamedKey(key)
+    return true
+  }
+
+  func sendRawBytes(paneID: PaneID, bytes: [UInt8]) -> Bool {
+    guard let surface = engine?.ghosttyRuntime?.surface(for: paneID) else { return false }
+    surface.sendRawBytes(bytes)
+    return true
+  }
+
   func fanOut(scope: IPC.BroadcastScope, text: String, catalog: Catalog) -> Int {
     paneIDs(matching: scope, in: catalog)
       .reduce(into: 0) { count, paneID in

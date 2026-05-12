@@ -69,6 +69,8 @@ extension IPC {
 
     // terminal
     case terminalSendInput = "terminal.sendInput"
+    case terminalSendKey = "terminal.sendKey"
+    case terminalSendRawBytes = "terminal.sendRawBytes"
     case terminalBroadcastInput = "terminal.broadcastInput"
     case terminalReadText = "terminal.readText"
     case terminalRetryPane = "terminal.retryPane"

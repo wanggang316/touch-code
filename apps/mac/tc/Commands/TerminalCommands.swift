@@ -12,6 +12,12 @@ struct SendCommand: AsyncParsableCommand {
       With one positional argument, send it to the current pane.
       With two positional arguments, the first is the target pane and the second is text.
       Text is submitted with Enter by default; pass --no-enter to only type it.
+
+      Use --raw <hex> to ship raw bytes (e.g. CSI sequences) that the text
+      path drops. Hex may include "0x" and whitespace. Control bytes (ESC,
+      Tab, BS, CR/LF, Ctrl-A..Z) are dispatched as key events so the PTY
+      actually receives them; printable bytes ride the text channel.
+      Cannot combine with positional text, --stdin, or --no-enter.
       """
   )
 
@@ -24,9 +30,15 @@ struct SendCommand: AsyncParsableCommand {
   var stdin: Bool = false
   @Flag(name: .long, help: "Do not send trailing Enter after text.")
   var noEnter: Bool = false
+  @Option(name: .long, help: "Send raw bytes as a hex string (e.g. 1b5b41 for ESC [ A).")
+  var raw: String?
 
   func run() async throws {
     await CommandRunner.run {
+      if let raw {
+        try await runRaw(hex: raw)
+        return
+      }
       let input = try CLISendInput.resolve(
         arguments: arguments,
         explicitPane: pane,
@@ -51,6 +63,89 @@ struct SendCommand: AsyncParsableCommand {
         mode: globals.renderMode
       ) { obj in
         "sent \(obj["bytes"] ?? 0) bytes to \(obj["paneID"] ?? "?")"
+      }
+    }
+  }
+
+  private func runRaw(hex: String) async throws {
+    if !arguments.isEmpty || stdin || noEnter {
+      throw CLIError(
+        code: .userError,
+        message: "--raw is exclusive of positional text, --stdin, and --no-enter"
+      )
+    }
+    let target = pane ?? "current"
+    let client = CLISession.connect(globals: globals)
+    defer { Task { await client.shutdown() } }
+    let uuid = try await AliasResolver.resolve(target, kind: .pane, client: client)
+    try await activatePane(uuid, client: client)
+    struct Params: Codable {
+      let paneID: PaneID
+      let hex: String
+    }
+    struct Result: Codable {
+      let bytes: Int
+    }
+    let result: Result = try await client.call(
+      .terminalSendRawBytes,
+      params: Params(paneID: PaneID(raw: uuid), hex: hex)
+    )
+    try Renderer.emitObject(
+      ["paneID": uuid.uuidString, "bytes": result.bytes],
+      mode: globals.renderMode
+    ) { obj in
+      "sent \(obj["bytes"] ?? 0) raw bytes to \(obj["paneID"] ?? "?")"
+    }
+  }
+}
+
+struct SendKeyCommand: AsyncParsableCommand {
+  static let configuration = CommandConfiguration(
+    commandName: "send-key",
+    abstract: "Send a named special key to a pane.",
+    discussion: """
+      Named keys are dispatched as ghostty key events so the terminal sees
+      the same byte sequences a physical keypress would emit (CSI for
+      arrows, 0x1B for escape, 0x09 for tab, and so on).
+
+      Supported keys: escape, up, down, left, right, tab, enter, backspace,
+      delete, home, end, pgup, pgdn, f1..f12, ctrl_c, ctrl_d, ctrl_l, ctrl_z.
+      """
+  )
+
+  @OptionGroup var globals: GlobalOptions
+  @Argument(help: "Key name (see --help for the list).")
+  var key: String
+  @Option(name: [.customShort("p"), .long], help: "Target pane id, @label, or 'current'.")
+  var pane: String = "current"
+
+  func run() async throws {
+    await CommandRunner.run {
+      let normalised = key.lowercased().replacingOccurrences(of: "-", with: "_")
+      guard let named = IPC.TerminalNamedKey(rawValue: normalised) else {
+        let names = IPC.TerminalNamedKey.allCases.map(\.rawValue).joined(separator: ", ")
+        throw CLIError(
+          code: .userError,
+          message: "unknown key \"\(key)\". Supported: \(names)"
+        )
+      }
+      let client = CLISession.connect(globals: globals)
+      defer { Task { await client.shutdown() } }
+      let uuid = try await AliasResolver.resolve(pane, kind: .pane, client: client)
+      try await activatePane(uuid, client: client)
+      struct Params: Codable {
+        let paneID: PaneID
+        let key: IPC.TerminalNamedKey
+      }
+      _ = try await client.callRaw(
+        .terminalSendKey,
+        params: Params(paneID: PaneID(raw: uuid), key: named)
+      )
+      try Renderer.emitObject(
+        ["paneID": uuid.uuidString, "key": named.rawValue],
+        mode: globals.renderMode
+      ) { obj in
+        "sent \(obj["key"] ?? "?") to \(obj["paneID"] ?? "?")"
       }
     }
   }
@@ -109,6 +204,89 @@ struct ReadCommand: AsyncParsableCommand {
         obj["text"] as? String ?? ""
       }
     }
+  }
+}
+
+struct CaptureCommand: AsyncParsableCommand {
+  static let configuration = CommandConfiguration(
+    commandName: "capture",
+    abstract: "Capture a pane's rendered text.",
+    discussion: """
+      Plain-text snapshot of what's currently rendered in the pane. Reads
+      the visible viewport by default; pass --scope screen for the whole
+      active screen buffer (scrolled-off rows included).
+
+      Use --lines=N to keep only the last N non-empty trailing lines.
+
+      Raw ANSI byte stream capture (OSC/CSI/APC) is not currently
+      supported — libghostty exposes parsed text only, not the original
+      PTY byte stream. Tracked as a follow-up.
+      """
+  )
+
+  enum Scope: String, ExpressibleByArgument {
+    case viewport
+    case screen
+  }
+
+  @OptionGroup var globals: GlobalOptions
+  @Argument(help: "Pane id, @label, or 'current'.")
+  var pane: String = "current"
+  @Option(name: .long, help: "Capture scope: viewport (default) or screen.")
+  var scope: Scope = .viewport
+  @Option(name: .long, help: "Trim output to the last N non-empty lines.")
+  var lines: Int?
+
+  func run() async throws {
+    await CommandRunner.run {
+      if let lines, lines <= 0 {
+        throw CLIError(code: .userError, message: "--lines must be a positive integer")
+      }
+      let client = CLISession.connect(globals: globals)
+      defer { Task { await client.shutdown() } }
+      let uuid = try await AliasResolver.resolve(pane, kind: .pane, client: client)
+      struct Params: Codable {
+        let paneID: PaneID
+        let extent: String
+      }
+      struct Result: Codable {
+        let text: String
+      }
+      let result: Result = try await client.call(
+        .terminalReadText,
+        params: Params(paneID: PaneID(raw: uuid), extent: scope.rawValue)
+      )
+      let trimmed = Self.trim(result.text, lastLines: lines)
+      try Renderer.emitObject(
+        [
+          "paneID": uuid.uuidString,
+          "scope": scope.rawValue,
+          "lines": trimmed.lineCount,
+          "text": trimmed.text,
+        ],
+        mode: globals.renderMode
+      ) { obj in
+        obj["text"] as? String ?? ""
+      }
+    }
+  }
+
+  struct Trimmed {
+    let text: String
+    let lineCount: Int
+  }
+
+  static func trim(_ text: String, lastLines: Int?) -> Trimmed {
+    // Split on newlines, drop empty trailing rows (typical when reading a
+    // viewport with blank rows at the bottom), then take the last N.
+    var rows = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    while let last = rows.last, last.trimmingCharacters(in: .whitespaces).isEmpty {
+      rows.removeLast()
+    }
+    if let lastLines, rows.count > lastLines {
+      rows = Array(rows.suffix(lastLines))
+    }
+    return Trimmed(text: rows.joined(separator: "\n"), lineCount: rows.count)
   }
 }
 

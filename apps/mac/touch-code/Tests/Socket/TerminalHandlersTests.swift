@@ -248,6 +248,8 @@ final class FakeSink: TerminalHandlers.InputSink, @unchecked Sendable {
   private(set) var delivered: [Delivery] = []
   private(set) var broadcasts: [(scope: IPC.BroadcastScope, text: String)] = []
   private(set) var resets: [UUID] = []
+  private(set) var keys: [(paneID: UUID, key: IPC.TerminalNamedKey)] = []
+  private(set) var rawBytes: [(paneID: UUID, bytes: [UInt8])] = []
   var textByPane: [UUID: String] = [:]
   private let lock = NSLock()
 
@@ -256,6 +258,22 @@ final class FakeSink: TerminalHandlers.InputSink, @unchecked Sendable {
     defer { lock.unlock() }
     guard registered.contains(paneID.raw) else { return false }
     delivered.append(Delivery(paneID: paneID.raw, text: text))
+    return true
+  }
+
+  func sendKey(paneID: PaneID, key: IPC.TerminalNamedKey) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    guard registered.contains(paneID.raw) else { return false }
+    keys.append((paneID.raw, key))
+    return true
+  }
+
+  func sendRawBytes(paneID: PaneID, bytes: [UInt8]) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    guard registered.contains(paneID.raw) else { return false }
+    rawBytes.append((paneID.raw, bytes))
     return true
   }
 

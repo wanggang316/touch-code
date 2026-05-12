@@ -195,6 +195,8 @@ public final class MethodRouter {
     guard let t = terminalHandlers else { return nil }
     switch request.method {
     case .terminalSendInput: return await t.sendInput(request.params)
+    case .terminalSendKey: return await t.sendKey(request.params)
+    case .terminalSendRawBytes: return await t.sendRawBytes(request.params)
     case .terminalBroadcastInput: return await t.broadcastInput(request.params)
     case .terminalReadText: return await t.readText(request.params)
     case .terminalResetPane: return await t.resetPane(request.params)

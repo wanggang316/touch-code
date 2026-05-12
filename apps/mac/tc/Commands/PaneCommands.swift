@@ -54,7 +54,9 @@ struct PaneCommand: AsyncParsableCommand {
       PaneLabel.self,
       PaneReset.self,
       SendCommand.self,
+      SendKeyCommand.self,
       ReadCommand.self,
+      CaptureCommand.self,
     ]
   )
 }

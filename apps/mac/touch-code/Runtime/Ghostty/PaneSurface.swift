@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import GhosttyKit
 import TouchCodeCore
+import TouchCodeIPC
 
 /// Owns one `ghostty_surface_t` and its hosting `GhosttySurfaceView`. One
 /// PaneSurface corresponds to one `Pane` while alive; when the surface
@@ -340,15 +341,155 @@ final class PaneSurface {
   }
 
   private func sendEnterKey(to surface: ghostty_surface_t) {
+    sendKeyEvent(keycode: 0x24, mods: 0, to: surface)
+  }
+
+  /// Send a named special key (Esc, arrows, function keys, common Ctrl
+  /// combos). Builds a press/release pair on the same `ghostty_surface_t`
+  /// path the GUI uses, so the terminal application sees the same byte
+  /// sequences a physical keypress would produce.
+  func sendNamedKey(_ key: IPC.TerminalNamedKey) {
+    guard let surface else { return }
+    let (keycode, mods) = Self.keycodeAndMods(for: key)
+    sendKeyEvent(keycode: keycode, mods: mods, to: surface)
+  }
+
+  /// Forward raw bytes to the terminal by splitting them into control-byte
+  /// key events (Esc, Tab, CR/LF, BS, Ctrl-X) and intervening printable
+  /// chunks. This is the path `terminal.sendRawBytes` uses so callers can
+  /// inject CSI sequences (`1b 5b 41` = ESC [ A = ↑) that the plain
+  /// `terminal.sendInput` text path drops on the floor.
+  func sendRawBytes(_ bytes: [UInt8]) {
+    guard let surface else { return }
+    var chunk: [UInt8] = []
+    var index = 0
+    while index < bytes.count {
+      let byte = bytes[index]
+      if Self.isControlByte(byte) {
+        flushChunk(&chunk, to: surface)
+        // Treat CR or CR LF as a single Enter; LF alone is also Enter.
+        if byte == 0x0D {
+          sendKeyEvent(keycode: 0x24, mods: 0, to: surface)
+          if index + 1 < bytes.count, bytes[index + 1] == 0x0A { index += 1 }
+        } else if byte == 0x0A {
+          sendKeyEvent(keycode: 0x24, mods: 0, to: surface)
+        } else if let (kc, mods) = Self.keyEvent(forControlByte: byte) {
+          sendKeyEvent(keycode: kc, mods: mods, to: surface)
+        }
+      } else {
+        chunk.append(byte)
+      }
+      index += 1
+    }
+    flushChunk(&chunk, to: surface)
+  }
+
+  private func flushChunk(_ chunk: inout [UInt8], to surface: ghostty_surface_t) {
+    guard !chunk.isEmpty else { return }
+    chunk.withUnsafeBufferPointer { buffer in
+      buffer.baseAddress?.withMemoryRebound(
+        to: CChar.self,
+        capacity: chunk.count
+      ) { ptr in
+        ghostty_surface_text(surface, ptr, UInt(chunk.count))
+      }
+    }
+    chunk.removeAll(keepingCapacity: true)
+  }
+
+  private func sendKeyEvent(keycode: UInt32, mods: UInt32, to surface: ghostty_surface_t) {
     var key = ghostty_input_key_s()
     key.action = GHOSTTY_ACTION_PRESS
-    key.keycode = 0x24
-    key.mods = ghostty_input_mods_e(0)
+    key.keycode = keycode
+    key.mods = ghostty_input_mods_e(mods)
     key.consumed_mods = ghostty_input_mods_e(0)
     _ = ghostty_surface_key(surface, key)
 
     key.action = GHOSTTY_ACTION_RELEASE
     _ = ghostty_surface_key(surface, key)
+  }
+
+  /// Bytes < 0x20 plus DEL (0x7F) are treated as control bytes — the text
+  /// input path filters most of these, so we route them through key events
+  /// instead.
+  private static func isControlByte(_ byte: UInt8) -> Bool {
+    byte < 0x20 || byte == 0x7F
+  }
+
+  /// Mac virtual keycode + ghostty mod bitmap for one named key. The
+  /// keycodes track `Ghostty.Input.Key.keyCode` in the ghostty submodule;
+  /// kept inline to avoid a cross-module dependency on Ghostty's Swift
+  /// helpers.
+  private static func keycodeAndMods(for key: IPC.TerminalNamedKey) -> (UInt32, UInt32) {  // swiftlint:disable:this cyclomatic_complexity
+    let ctrl = UInt32(GHOSTTY_MODS_CTRL.rawValue)
+    switch key {
+    case .escape: return (0x35, 0)
+    case .up: return (0x7E, 0)
+    case .down: return (0x7D, 0)
+    case .left: return (0x7B, 0)
+    case .right: return (0x7C, 0)
+    case .tab: return (0x30, 0)
+    case .enter: return (0x24, 0)
+    case .backspace: return (0x33, 0)
+    case .delete: return (0x75, 0)
+    case .home: return (0x73, 0)
+    case .end: return (0x77, 0)
+    case .pgup: return (0x74, 0)
+    case .pgdn: return (0x79, 0)
+    case .f1: return (0x7A, 0)
+    case .f2: return (0x78, 0)
+    case .f3: return (0x63, 0)
+    case .f4: return (0x76, 0)
+    case .f5: return (0x60, 0)
+    case .f6: return (0x61, 0)
+    case .f7: return (0x62, 0)
+    case .f8: return (0x64, 0)
+    case .f9: return (0x65, 0)
+    case .f10: return (0x6D, 0)
+    case .f11: return (0x67, 0)
+    case .f12: return (0x6F, 0)
+    case .ctrlC: return (0x08, ctrl)
+    case .ctrlD: return (0x02, ctrl)
+    case .ctrlL: return (0x25, ctrl)
+    case .ctrlZ: return (0x06, ctrl)
+    }
+  }
+
+  /// Map a control byte (< 0x20 or 0x7F) to a (keycode, mods) pair so it
+  /// reaches the PTY as a key event. Returns nil for control bytes we
+  /// don't recognise (NUL, other rare ASCII control codes); callers drop
+  /// those.
+  private static func keyEvent(forControlByte byte: UInt8) -> (UInt32, UInt32)? {  // swiftlint:disable:this cyclomatic_complexity
+    let ctrl = UInt32(GHOSTTY_MODS_CTRL.rawValue)
+    switch byte {
+    case 0x1B: return (0x35, 0)        // ESC
+    case 0x09: return (0x30, 0)        // TAB
+    case 0x08: return (0x33, 0)        // BS  -> backspace
+    case 0x7F: return (0x33, 0)        // DEL -> backspace (matches macOS default)
+    case 0x01: return (0x00, ctrl)     // Ctrl-A
+    case 0x02: return (0x0B, ctrl)     // Ctrl-B
+    case 0x03: return (0x08, ctrl)     // Ctrl-C
+    case 0x04: return (0x02, ctrl)     // Ctrl-D
+    case 0x05: return (0x0E, ctrl)     // Ctrl-E
+    case 0x06: return (0x03, ctrl)     // Ctrl-F
+    case 0x07: return (0x05, ctrl)     // Ctrl-G
+    case 0x0B: return (0x28, ctrl)     // Ctrl-K
+    case 0x0C: return (0x25, ctrl)     // Ctrl-L
+    case 0x0E: return (0x2D, ctrl)     // Ctrl-N
+    case 0x0F: return (0x1F, ctrl)     // Ctrl-O
+    case 0x10: return (0x23, ctrl)     // Ctrl-P
+    case 0x11: return (0x0C, ctrl)     // Ctrl-Q
+    case 0x12: return (0x0F, ctrl)     // Ctrl-R
+    case 0x13: return (0x01, ctrl)     // Ctrl-S
+    case 0x14: return (0x11, ctrl)     // Ctrl-T
+    case 0x15: return (0x20, ctrl)     // Ctrl-U
+    case 0x16: return (0x09, ctrl)     // Ctrl-V
+    case 0x17: return (0x0D, ctrl)     // Ctrl-W
+    case 0x18: return (0x07, ctrl)     // Ctrl-X
+    case 0x19: return (0x10, ctrl)     // Ctrl-Y
+    case 0x1A: return (0x06, ctrl)     // Ctrl-Z
+    default: return nil
+    }
   }
 
   private static func string(from text: ghostty_text_s) -> String {
