@@ -72,13 +72,28 @@ struct SendCommand: AsyncParsableCommand {
   }
 
   private func runRaw(hex: String) async throws {
-    if !arguments.isEmpty || stdin || noEnter {
+    if stdin || noEnter {
       throw CLIError(
         code: .userError,
-        message: "--raw is exclusive of positional text, --stdin, and --no-enter"
+        message: "--raw is exclusive of --stdin and --no-enter"
       )
     }
-    let target = pane ?? "current"
+    let target: String
+    switch (pane, arguments.count) {
+    case (let explicit?, 0): target = explicit
+    case (nil, 0): target = "current"
+    case (nil, 1): target = arguments[0]
+    case (_?, _):
+      throw CLIError(
+        code: .userError,
+        message: "--raw with --pane takes no positional arguments"
+      )
+    default:
+      throw CLIError(
+        code: .userError,
+        message: "--raw expects at most one positional pane id, got \(arguments.count)"
+      )
+    }
     let client = CLISession.connect(globals: globals)
     defer { Task { await client.shutdown() } }
     let uuid = try await AliasResolver.resolve(target, kind: .pane, client: client)
