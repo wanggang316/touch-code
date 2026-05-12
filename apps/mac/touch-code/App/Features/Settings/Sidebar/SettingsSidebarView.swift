@@ -111,6 +111,7 @@ struct SettingsSidebarView: View {
     switch section {
     case .general: return "gearshape"
     case .github: return "arrow.triangle.pull"
+    case .worktree: return "square.dashed"
     case .terminal: return "terminal"
     case .notifications: return "bell"
     case .developer: return "hammer"

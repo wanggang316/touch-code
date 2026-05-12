@@ -19,17 +19,20 @@ public nonisolated struct Settings: Equatable, Sendable {
   public var version: Int
   public var general: GeneralSettings
   public var developer: DeveloperSettings
+  public var worktree: WorktreeSettings
   public var projects: [ProjectID: ProjectSettings]
 
   public init(
     version: Int = Settings.currentVersion,
     general: GeneralSettings = .default,
     developer: DeveloperSettings = .default,
+    worktree: WorktreeSettings = .default,
     projects: [ProjectID: ProjectSettings] = [:]
   ) {
     self.version = version
     self.general = general
     self.developer = developer
+    self.worktree = worktree
     self.projects = projects
   }
 
@@ -110,7 +113,7 @@ extension Settings: Codable {
   }
 
   private enum CodingKeys: String, CodingKey {
-    case version, general, developer, projects
+    case version, general, developer, worktree, projects
   }
 
   public init(from decoder: Decoder) throws {
@@ -124,6 +127,7 @@ extension Settings: Codable {
     self.version = version
     self.general = try container.decodeIfPresent(GeneralSettings.self, forKey: .general) ?? .default
     self.developer = try container.decodeIfPresent(DeveloperSettings.self, forKey: .developer) ?? .default
+    self.worktree = try container.decodeIfPresent(WorktreeSettings.self, forKey: .worktree) ?? .default
 
     // `projects` is encoded as a JSON object keyed by the ProjectID UUID string so the file
     // is human-diffable and hand-editable. ProjectID itself is a Codable struct (encoded as
@@ -159,6 +163,7 @@ extension Settings: Codable {
     try container.encode(version, forKey: .version)
     try container.encode(general, forKey: .general)
     try container.encode(developer, forKey: .developer)
+    try container.encode(worktree, forKey: .worktree)
     var stringKeyed: [String: ProjectSettings] = [:]
     stringKeyed.reserveCapacity(projects.count)
     for (projectID, value) in projects {
