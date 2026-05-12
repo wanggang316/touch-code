@@ -86,17 +86,18 @@ struct SettingsSidebarView: View {
       }
   }
 
-  /// Per-section sidebar row. GitHub uses the official mark from the bundled
-  /// `github` asset (template-rendered SVG); every other row falls through to an
-  /// SF Symbol.
+  /// Per-section sidebar row. GitHub and Worktrees both render their leading
+  /// icon from a bundled SVG asset (template-rendered) so the dropdown picker
+  /// stays visually consistent with the rest of the app's Worktree affordances
+  /// (the sidebar `WorktreeRowIcon` reuses the same `git-branch` asset).
   @ViewBuilder
   private func globalRow(for section: SettingsSection) -> some View {
     let title = section.globalTitle ?? ""
-    if section == .github {
+    if let assetName = assetIcon(for: section) {
       Label {
         Text(title)
       } icon: {
-        Image("github")
+        Image(assetName)
           .renderingMode(.template)
           .resizable()
           .aspectRatio(contentMode: .fit)
@@ -104,6 +105,16 @@ struct SettingsSidebarView: View {
       }
     } else {
       Label(title, systemImage: icon(for: section))
+    }
+  }
+
+  /// Sections whose leading icon comes from a bundled SVG asset instead of an
+  /// SF Symbol.
+  private func assetIcon(for section: SettingsSection) -> String? {
+    switch section {
+    case .github: return "github"
+    case .worktree: return "git-branch"
+    default: return nil
     }
   }
 

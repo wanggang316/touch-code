@@ -30,8 +30,13 @@ struct ProjectGeneralSettingsView: View {
   /// `git for-each-ref refs/heads refs/remotes` output (local + remote
   /// branches, HEAD aliases stripped); `defaultRemoteBaseRef` is the
   /// resolved `origin/HEAD` and seeds the "Auto" inherit row label.
+  /// `baseRefOptionsLoaded` flips true after the first async load completes so
+  /// the inherit row can render "Global" until then — avoids the
+  /// "Global — origin/HEAD" → "Global — origin/main" flicker that shows up
+  /// when the picker paints before `defaultRemoteBranchRef` returns.
   @State private var baseRefOptions: [String] = []
   @State private var defaultRemoteBaseRef: String?
+  @State private var baseRefOptionsLoaded: Bool = false
 
   /// IDs for the six Sections — useful for the kind-render tests so they
   /// can assert visibility without inspecting SwiftUI's view tree.
@@ -180,6 +185,7 @@ struct ProjectGeneralSettingsView: View {
     let loadedAuto = await auto
     baseRefOptions = loadedRefs
     defaultRemoteBaseRef = loadedAuto
+    baseRefOptionsLoaded = true
   }
 
   // MARK: - Editor
@@ -366,12 +372,12 @@ struct ProjectGeneralSettingsView: View {
       TriStateOverrideToggle(
         title: "Copy .gitignore'd files",
         selection: copyIgnoredBinding,
-        inheritedValue: false
+        inheritedValue: settingsStore.settings.worktree.copyIgnoredOnCreate
       )
       TriStateOverrideToggle(
         title: "Copy untracked files",
         selection: copyUntrackedBinding,
-        inheritedValue: false
+        inheritedValue: settingsStore.settings.worktree.copyUntrackedOnCreate
       )
     }
   }
@@ -424,8 +430,11 @@ struct ProjectGeneralSettingsView: View {
   }
 
   private var baseRefInheritRowText: String {
+    // While the async load is in flight, return a bare "Global" rather than
+    // the "origin/HEAD" placeholder — otherwise the picker briefly shows
+    // "Global — origin/HEAD" and then snaps to the resolved branch.
     OptionalOverridePicker<String>.inheritRowText(
-      inheritedLabel: { $0 ?? "origin/HEAD" },
+      inheritedLabel: { baseRefOptionsLoaded ? ($0 ?? "origin/HEAD") : "" },
       inheritedValue: defaultRemoteBaseRef
     )
   }

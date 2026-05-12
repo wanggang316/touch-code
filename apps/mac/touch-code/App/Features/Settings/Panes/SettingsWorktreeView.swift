@@ -11,22 +11,37 @@ struct SettingsWorktreeView: View {
       Section("Creation") {
         LabeledContent("Default directory") {
           HStack(spacing: 6) {
-            Text(settingsStore.settings.worktree.defaultWorktreesDirectory ?? "Default")
-              .foregroundStyle(
-                settingsStore.settings.worktree.defaultWorktreesDirectory == nil
-                  ? .secondary
-                  : .primary
-              )
-              .textSelection(.enabled)
-              .lineLimit(1)
-              .truncationMode(.middle)
-              .frame(maxWidth: .infinity, alignment: .trailing)
+            Text(
+              settingsStore.settings.worktree.defaultWorktreesDirectory
+                ?? Self.fallbackWorktreesDirectory
+            )
+            .foregroundStyle(
+              settingsStore.settings.worktree.defaultWorktreesDirectory == nil
+                ? .secondary
+                : .primary
+            )
+            .textSelection(.enabled)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .frame(maxWidth: .infinity, alignment: .trailing)
             Button {
               chooseWorktreeDirectory()
             } label: {
               Image(systemName: "folder")
             }
             .buttonStyle(.borderless)
+            .help("Choose a different directory…")
+            if settingsStore.settings.worktree.defaultWorktreesDirectory != nil {
+              Button {
+                settingsStore.mutateWorktree { $0.defaultWorktreesDirectory = nil }
+              } label: {
+                Image(systemName: "arrow.uturn.backward")
+                  .accessibilityHidden(true)
+              }
+              .buttonStyle(.borderless)
+              .help("Reset to default")
+              .accessibilityLabel("Reset to default")
+            }
           }
         }
 
@@ -85,6 +100,15 @@ struct SettingsWorktreeView: View {
       }
     }
     .formStyle(.grouped)
+  }
+
+  /// Path shown when the user has never customised the global default. Matches
+  /// the runtime fallback that `HierarchySidebarFeature` injects into the
+  /// Create Worktree sheet (`~/.touch-code/repos/<project>`) but stops at the
+  /// `repos/` segment because the per-project name isn't part of the global
+  /// default.
+  private static var fallbackWorktreesDirectory: String {
+    NSHomeDirectory() + "/.touch-code/repos/"
   }
 
   private func chooseWorktreeDirectory() {
