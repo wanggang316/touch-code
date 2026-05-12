@@ -333,12 +333,15 @@ struct ProjectGeneralSettingsView: View {
     Section("Worktree") {
       LabeledContent("Worktree Directory") {
         HStack(spacing: 6) {
+          // Right-aligned to match the rest of the Form's value column —
+          // Pickers and Toggles in this Section already trail-align, so a
+          // forced .leading frame here was the odd one out.
           Text(entry?.worktreesDirectory ?? defaultWorktreesDirectory)
             .foregroundStyle(entry?.worktreesDirectory == nil ? .secondary : .primary)
             .textSelection(.enabled)
             .lineLimit(1)
             .truncationMode(.middle)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .trailing)
           Button {
             chooseWorktreeDirectory()
           } label: {
