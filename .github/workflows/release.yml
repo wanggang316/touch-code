@@ -239,6 +239,50 @@ jobs:
           echo "Extracted release notes for ${VERSION}:"
           head -5 "$RUNNER_TEMP/release-notes.md"
 
+      # ---- Inject Markdown release notes into appcast.xml ----
+      # Sparkle 2 renders `<description sparkle:format="markdown">` natively
+      # via NSAttributedString(markdownString:) on macOS 12+ (our floor is
+      # 14.0). Without this step the in-app "What's New" pane is blank
+      # because `generate_appcast` only stamps version metadata into the
+      # `<item>`, never release-note content.
+      - name: Inject Markdown release notes into appcast
+        run: |
+          set -euo pipefail
+          APPCAST="apps/mac/.build/release/appcast.xml"
+          NOTES_FILE="$RUNNER_TEMP/release-notes.md"
+          python3 - "$APPCAST" "$NOTES_FILE" <<'PYEOF'
+          import sys, re
+
+          appcast_path, notes_path = sys.argv[1], sys.argv[2]
+
+          with open(notes_path, encoding="utf-8") as f:
+              notes = f.read().strip()
+          # CDATA cannot contain a literal "]]>"; split it so the section
+          # cannot terminate early. The two halves rejoin inside Sparkle's
+          # XML parser into the original byte sequence.
+          notes = notes.replace("]]>", "]]]]><![CDATA[>")
+
+          with open(appcast_path, encoding="utf-8") as f:
+              xml = f.read()
+
+          if "<description" in xml:
+              raise SystemExit("appcast already has a <description>; refusing to overwrite")
+
+          block = (
+              '            <description sparkle:format="markdown"><![CDATA[\n'
+              f"{notes}\n"
+              "            ]]></description>\n"
+          )
+          # Single staging DMG → exactly one <item>; insert before its close tag.
+          xml, n = re.subn(r"(?m)^([ \t]*)</item>", block + r"\1</item>", xml, count=1)
+          if n != 1:
+              raise SystemExit(f"expected exactly one </item> in appcast.xml, found {n}")
+
+          with open(appcast_path, "w", encoding="utf-8") as f:
+              f.write(xml)
+          print(xml)
+          PYEOF
+
       - name: Create draft GitHub Release with DMG + appcast attached
         env:
           GH_TOKEN: ${{ github.token }}
