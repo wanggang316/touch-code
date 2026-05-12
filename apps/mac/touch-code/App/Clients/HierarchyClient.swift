@@ -774,6 +774,18 @@ extension HierarchyClient {
     manager: HierarchyManager,
     terminalClient: TerminalClient?
   ) throws -> PaneID? {
+    // initialCommand is replayed by TerminalEngine via `sendInput(command + "\n")`
+    // into an interactive shell, so the shell stays at a prompt after the user's
+    // command finishes and `paneExited` never fires. When the script has an
+    // onFinished policy (closeTab / closePane), append `; exit` so the shell
+    // exits as soon as the script's last statement completes — same trick the
+    // archive/delete lifecycle uses in `openNewTabAndAwaitExit`. Without it,
+    // "Close tab when finished" silently never triggers (HAN-36).
+    let spawnCommand = wrapForOnFinished(
+      command: script.command,
+      policy: script.resolvedOnFinished
+    )
+
     func openInNewTab() throws -> PaneID {
       let tabID = try manager.createTab(
         in: worktreeID, in: projectID,
@@ -782,7 +794,7 @@ extension HierarchyClient {
       return try manager.openPane(
         in: tabID, in: worktreeID, in: projectID,
         workingDirectory: cwd,
-        initialCommand: script.command,
+        initialCommand: spawnCommand,
         env: env
       )
     }
@@ -812,7 +824,7 @@ extension HierarchyClient {
           direction: mapSplitDirection(script.direction),
           in: anchor.tabID, in: worktreeID, in: projectID,
           workingDirectory: cwd,
-          initialCommand: script.command,
+          initialCommand: spawnCommand,
           env: env
         )
       }
@@ -821,6 +833,19 @@ extension HierarchyClient {
       )
       return try openInNewTab()
     }
+  }
+
+  /// Appends `; exit` so the spawned shell terminates after the user's
+  /// command finishes, which is what makes `paneExited` fire and the
+  /// onFinished policy actually trigger. No-op when policy is `.none`
+  /// (the user wants an interactive shell to remain).
+  nonisolated private static func wrapForOnFinished(
+    command: String,
+    policy: ScriptOnFinished
+  ) -> String {
+    guard policy != .none else { return command }
+    let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? "exit" : "\(trimmed); exit"
   }
 
   /// Picks the worktree's selected (or first) tab and returns its
