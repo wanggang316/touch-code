@@ -11,8 +11,8 @@ import TouchCodeCore
 /// scope per the M4 brief); the visibility set is the observable contract.
 struct ProjectGeneralSettingsViewKindRenderTests {
   @Test
-  func plainDirHidesGitOnlySections() {
-    let visible = ProjectGeneralSettingsView.visibleSections(for: .plainDir)
+  func dirHidesGitOnlySections() {
+    let visible = ProjectGeneralSettingsView.visibleSections(for: .dir)
     #expect(visible.contains(.editor))
     #expect(visible.contains(.defaultShell))
     #expect(visible.contains(.environment))

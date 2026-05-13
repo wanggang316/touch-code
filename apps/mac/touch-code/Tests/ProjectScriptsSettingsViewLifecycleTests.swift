@@ -13,8 +13,8 @@ import TouchCodeCore
 struct ProjectScriptsSettingsViewLifecycleTests {
 
   @Test
-  func plainDirHidesLifecycleSection() {
-    let visible = ProjectScriptsSettingsView.visibleSections(for: .plainDir)
+  func dirHidesLifecycleSection() {
+    let visible = ProjectScriptsSettingsView.visibleSections(for: .dir)
     #expect(visible == [.scripts])
     #expect(!visible.contains(.lifecycle))
   }

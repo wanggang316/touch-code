@@ -7,7 +7,7 @@ import TouchCodeCore
 ///
 /// - **Setup / Archive / Delete** — git-only lifecycle script editors,
 ///   one body of text per phase, edited in place. Hidden when the
-///   Project is a plain dir.
+///   Project is a dir (no git root).
 /// - **Commands** — user-defined `[ScriptDefinition]` rendered as a
 ///   compact list of rows (icon + name + first command line + edit /
 ///   delete buttons). Add and edit both push a modal sheet whose body
@@ -37,7 +37,7 @@ struct ProjectScriptsSettingsView: View {
   /// Lifecycle is git_repo-only; Scripts is always visible.
   nonisolated static func visibleSections(for kind: ProjectKind) -> Set<SectionID> {
     switch kind {
-    case .plainDir:
+    case .dir:
       return [.scripts]
     case .gitRepo:
       return Set(SectionID.allCases)

@@ -563,7 +563,7 @@ struct HierarchySidebarView: View {
     isSelected: Bool
   ) -> some View {
     let isMainCheckout = worktree.path == project.rootPath
-    // Plain-dir Projects auto-inject a single Worktree pointing at `rootPath`
+    // Dir-kind Projects auto-inject a single Worktree pointing at `rootPath`
     // (HierarchyManager.addProject). Detect it locally rather than via a
     // shared computed property — `gitRoot == nil` + path match is the same
     // pair already used to suppress git affordances elsewhere in this view.

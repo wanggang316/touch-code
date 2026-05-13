@@ -61,7 +61,7 @@ public enum SettingsSection: Hashable, Sendable {
 }
 
 extension SettingsSection {
-  /// Sub-rows rendered under a Project. Same set for `gitRepo` and `plainDir` —
+  /// Sub-rows rendered under a Project. Same set for `gitRepo` and `dir` —
   /// kind difference is encoded as Section-level conditional rendering inside
   /// `ProjectGeneralSettingsView`. The `kind` parameter is preserved so callers
   /// do not need a signature change if the policy ever splits again.

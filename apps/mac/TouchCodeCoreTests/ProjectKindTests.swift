@@ -11,14 +11,14 @@ struct ProjectKindTests {
   }
 
   @Test
-  func projectWithoutGitRootIsPlainDir() {
+  func projectWithoutGitRootIsDir() {
     let project = Project(name: "p", rootPath: "/tmp/p", gitRoot: nil)
-    #expect(project.kind == .plainDir)
+    #expect(project.kind == .dir)
   }
 
   @Test
-  func rawValuesAreSnakeCase() {
+  func rawValuesAreLowercaseTokens() {
     #expect(ProjectKind.gitRepo.rawValue == "git_repo")
-    #expect(ProjectKind.plainDir.rawValue == "plain_dir")
+    #expect(ProjectKind.dir.rawValue == "dir")
   }
 }

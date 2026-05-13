@@ -53,7 +53,7 @@ struct ProjectGeneralSettingsView: View {
   /// `kind == .gitRepo`; everything else is always visible.
   nonisolated static func visibleSections(for kind: ProjectKind) -> Set<SectionID> {
     switch kind {
-    case .plainDir:
+    case .dir:
       return [.editor, .defaultShell, .environment]
     case .gitRepo:
       return Set(SectionID.allCases)
@@ -172,7 +172,7 @@ struct ProjectGeneralSettingsView: View {
 
   /// Loads local + remote refs and the remote default once per pane
   /// materialisation. Cheap (`git for-each-ref` + `symbolic-ref`); skipping
-  /// on plain dirs keeps non-git Projects from shelling out.
+  /// on dir Projects keeps non-git Projects from shelling out.
   private func loadBaseRefOptionsIfNeeded() async {
     guard visible.contains(.worktree),
       let gitRoot = hierarchyManager.catalog.projects

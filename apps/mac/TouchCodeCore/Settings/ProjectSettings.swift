@@ -2,8 +2,8 @@ import Foundation
 
 /// `projects[<ProjectID>]` value in `settings.json` (v3). Replaces the v2
 /// `RepositorySettings`. Universal top-level fields apply to both `git_repo`
-/// and `plain_dir` Projects; the `git: GitProjectSettings?` nested subtree
-/// carries git-kind-only overrides and is left `nil` for `plain_dir`
+/// and `dir` Projects; the `git: GitProjectSettings?` nested subtree
+/// carries git-kind-only overrides and is left `nil` for `dir`
 /// Projects or when the user has no Git / GitHub overrides set.
 ///
 /// Every Optional field means "inherit the global default" when `nil`. The
@@ -24,7 +24,7 @@ public nonisolated struct ProjectSettings: Equatable, Codable, Sendable {
   public var defaultGitViewer: ProjectGitViewerPreference?
 
   /// Per-Project override of the global default worktree base directory.
-  /// `nil` = inherit. No-op on `plain_dir` Projects (kept for data-model
+  /// `nil` = inherit. No-op on `dir` Projects (kept for data-model
   /// uniformity; a future `git init` upgrade would pick it up for free).
   public var worktreesDirectory: String?
 
@@ -43,7 +43,7 @@ public nonisolated struct ProjectSettings: Equatable, Codable, Sendable {
   /// placeholder pending the Scripts sub-pane follow-up wave.
   public var scripts: [ScriptDefinition]
 
-  /// Git-kind-only subtree. `nil` on `plain_dir` Projects or whenever
+  /// Git-kind-only subtree. `nil` on `dir` Projects or whenever
   /// every git-subtree field is at its default. Collapsed to `nil` by
   /// `isEffectivelyEmpty`-checking garbage collection before save.
   public var git: GitProjectSettings?

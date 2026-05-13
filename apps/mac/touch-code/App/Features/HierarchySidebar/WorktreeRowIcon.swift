@@ -4,7 +4,7 @@ import TouchCodeCore
 /// Leading-edge icon for a Sidebar Worktree row. Replaces the old `circle.fill`/`circle`
 /// selection dot with a GitHub-style glyph that doubles as the row's PR-state signal:
 ///
-/// - Plain-dir synthetic worktree → `folder` SF Symbol. `isSynthetic` outranks the
+/// - Dir-kind synthetic worktree → `folder` SF Symbol. `isSynthetic` outranks the
 ///   git-anchor `circlebadge` branch so dir Projects read as a filesystem directory
 ///   rather than a phantom main checkout.
 /// - Main checkout, no PR → `circlebadge` SF Symbol at an 11pt frame (the symbol's
@@ -32,7 +32,7 @@ struct WorktreeRowIcon: View {
   /// `circlebadge` so main reads as a neutral anchor row, distinct from the
   /// `git-branch` glyph used by non-main worktrees.
   var isMainCheckout: Bool = false
-  /// `true` for the placeholder worktree auto-injected under a plain-dir
+  /// `true` for the placeholder worktree auto-injected under a dir-kind
   /// Project (`Project.gitRoot == nil` + `worktree.path == project.rootPath`).
   /// Swaps the leading glyph to `folder` so the row reads as a filesystem
   /// directory rather than a git anchor — git semantics (branch, PR state)
@@ -63,7 +63,7 @@ struct WorktreeRowIcon: View {
           .frame(width: 12, height: 12)
           .foregroundStyle(Color.orange)
       } else if isSynthetic {
-        // Plain-dir Project's synthetic worktree: render a folder rather
+        // Dir-kind Project's synthetic worktree: render a folder rather
         // than the `circlebadge` git-anchor glyph. 12pt inside a 14pt
         // slot mirrors the `circlebadge` sizing so the label column stays
         // aligned with sibling git rows.

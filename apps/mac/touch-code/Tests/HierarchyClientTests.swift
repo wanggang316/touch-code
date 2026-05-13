@@ -36,10 +36,10 @@ struct HierarchyClientTests {
   }
 
   @Test
-  func kindReturnsPlainDirWhenGitRootNil() throws {
+  func kindReturnsDirWhenGitRootNil() throws {
     let (client, _) = makeLiveClient()
     let projectID = client.addProject("p", "/tmp/p", nil)
-    #expect(client.kind(projectID) == .plainDir)
+    #expect(client.kind(projectID) == .dir)
   }
 
   @Test
