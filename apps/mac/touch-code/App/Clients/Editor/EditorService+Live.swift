@@ -38,7 +38,7 @@ final actor LiveEditorService: EditorService {
         // a Pane/Tab context — callers that want $EDITOR to actually launch must route
         // through `hierarchyClient.openPane(... initialCommand: "$EDITOR")` (see the
         // `.shellEditor` branch of `open(directory:preferred:)` below). Surfacing the row
-        // anyway lets the Settings + Project Options + Worktree-header pickers list it.
+        // anyway lets the Settings + Worktree-header pickers list it.
         resolved.append(
           EditorDescriptor(
             id: template.id,

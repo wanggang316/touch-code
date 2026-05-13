@@ -3,8 +3,8 @@ import SwiftUI
 import TouchCodeCore
 
 /// Shared building blocks for every "Open in / Default editor" dropdown across the app
-/// (Settings → General + Repository, Project Options sheet, and the Worktree header's
-/// Open-in split button). All surfaces share one visual contract — a flat priority-
+/// (Settings → General + Project pane and the Worktree header's Open-in split
+/// button). All surfaces share one visual contract — a flat priority-
 /// ordered list where each row is `icon + displayName`; no groupings, no auto-resolve
 /// sentinel. Callers decide whether to prepend a semantic sentinel row (e.g. "Use
 /// global default" for per-project overrides).

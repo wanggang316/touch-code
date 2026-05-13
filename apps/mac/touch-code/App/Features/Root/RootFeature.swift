@@ -288,8 +288,7 @@ struct RootFeature {
     /// split).
     case commandPaletteToggle(PaneID?)
     case commandPalette(PresentationAction<CommandPaletteFeature.Action>)
-    /// M5 (project-tags): Tag CRUD sheet presentation. Mirrors
-    /// `projectOptions` on the sidebar — `tagManagerSheetShown`
+    /// M5 (project-tags): Tag CRUD sheet presentation. `tagManagerSheetShown`
     /// kicks the sheet visible, the `PresentationAction` carries child
     /// actions and dismiss.
     case tagManagerSheet(PresentationAction<TagManagerFeature.Action>)

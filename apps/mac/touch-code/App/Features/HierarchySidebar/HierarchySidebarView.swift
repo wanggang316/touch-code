@@ -172,11 +172,6 @@ struct HierarchySidebarView: View {
           CreateWorktreeSheet(store: childStore)
         }
       }
-      .sheet(
-        item: $store.scope(state: \.projectOptions, action: \.projectOptions)
-      ) { childStore in
-        ProjectOptionsSheet(store: childStore)
-      }
       .confirmationDialog(
         worktreeRemovalTitle,
         isPresented: Binding(
@@ -1081,9 +1076,9 @@ private struct ProjectHeaderRow: View {
         }
         Menu {
           Button {
-            store.send(.projectOptionsTapped(projectID: project.id))
+            store.send(.projectSettingsTapped(projectID: project.id))
           } label: {
-            Label("Project Options…", systemImage: "slider.horizontal.3")
+            Label("Project Settings…", systemImage: "slider.horizontal.3")
           }
           let archivedCount = project.worktrees.filter { $0.archived }.count
           Button {

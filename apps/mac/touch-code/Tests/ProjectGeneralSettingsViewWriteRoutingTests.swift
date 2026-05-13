@@ -9,8 +9,7 @@ import TouchCodeCore
 /// `ProjectGeneralSettingsView.WriteRoutes`. These tests construct a
 /// `WriteRoutes` with a `SettingsWriter` whose closures record the
 /// (projectID, payload) pairs they receive, then exercise each route and
-/// assert the right closure fired with the right arguments — the same
-/// shape `ProjectOptionsFeatureTests` uses for its writer-fan-out coverage.
+/// assert the right closure fired with the right arguments.
 @MainActor
 struct ProjectGeneralSettingsViewWriteRoutingTests {
   // MARK: - Editor / Shell

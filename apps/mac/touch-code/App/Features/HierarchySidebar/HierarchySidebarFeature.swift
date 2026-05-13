@@ -52,9 +52,6 @@ struct HierarchySidebarFeature {
     // directly from the catalog, mirroring how `Worktree.isPinned` is
     // consumed.
 
-    /// Project Options sheet state. Subsumes what used to be the separate
-    /// Rename Project sheet; `⋯` menu launches this with a Project-snapshot.
-    @Presents var projectOptions: ProjectOptionsFeature.State?
     var addWorktreeSheet: AddWorktreeSheet?
     var createWorktreeSheet: CreateWorktreeFeature.State?
     var archivedWorktreesSheet: ArchivedWorktreesFeature.State?
@@ -132,9 +129,10 @@ struct HierarchySidebarFeature {
 
     // Project section hover chrome
     case projectAddWorktreeTapped(projectID: ProjectID)
-    /// Open the Project Options sheet for the given row. Replaces the
-    /// standalone Rename Project sheet actions (P-Q2 = a).
-    case projectOptionsTapped(projectID: ProjectID)
+    /// `⋯` menu → "Project Settings…". Opens the Settings window and lands
+    /// the selection on this Project's General pane via
+    /// `SettingsWindowPresenter.openAt(.projectGeneral(_))`.
+    case projectSettingsTapped(projectID: ProjectID)
     case projectRemoveTapped(projectID: ProjectID, name: String)
     case projectRemoveConfirmed
     case projectRemoveCancelled
@@ -227,8 +225,6 @@ struct HierarchySidebarFeature {
     /// the View binding can be a plain Toggle without holding state.
     case toggleTagOnProject(ProjectID, TagID)
 
-    // Project Options — scoped into ProjectOptionsFeature via @Presents.
-    case projectOptions(PresentationAction<ProjectOptionsFeature.Action>)
     // Sheet stubs
     case addWorktreeSheetDismissed
     /// Child-feature actions for the Create Worktree sheet. Parent
@@ -264,6 +260,7 @@ struct HierarchySidebarFeature {
   @Dependency(GitWorktreeClient.self) private var gitWorktreeClient
   @Dependency(FolderPickerClient.self) private var folderPickerClient
   @Dependency(GitWorktreeCLI.self) private var gitCLI
+  @Dependency(SettingsWindowPresenter.self) private var settingsWindowPresenter
 
   /// Cancellation token namespace for sidebar-owned effects. The single
   /// `.pending` case ties each in-flight `wt sw` stream to its
@@ -311,9 +308,6 @@ struct HierarchySidebarFeature {
     }
     .ifLet(\.archivedWorktreesSheet, action: \.archivedWorktreesSheet) {
       ArchivedWorktreesFeature()
-    }
-    .ifLet(\.$projectOptions, action: \.projectOptions) {
-      ProjectOptionsFeature()
     }
   }
 
@@ -460,25 +454,13 @@ struct HierarchySidebarFeature {
       )
       return .none
 
-    case .projectOptionsTapped(let projectID):
-      // Snapshot the Project's current persisted values at open-time so the Options
-      // reducer can skip setters for unchanged drafts. v3 reads defaultEditor /
-      // worktreesDirectory from settings.json.projects[pid].
-      let snapshot = hierarchyClient.snapshot()
-      guard
-        let project = snapshot.projects.first(where: { $0.id == projectID })
-      else { return .none }
-      let prefs = settingsWriter.readSnapshotSync().projects[projectID]
-      state.projectOptions = ProjectOptionsFeature.State(
-        targetProjectID: projectID,
-        originalName: project.name,
-        originalDefaultEditor: prefs?.defaultEditor,
-        originalWorktreesDirectory: prefs?.worktreesDirectory,
-        nameDraft: project.name,
-        defaultEditorDraft: prefs?.defaultEditor,
-        worktreesDirectoryDraft: prefs?.worktreesDirectory ?? ""
-      )
-      return .none
+    case .projectSettingsTapped(let projectID):
+      let presenter = settingsWindowPresenter
+      return .run { _ in
+        await MainActor.run {
+          presenter.openAt(.projectGeneral(projectID))
+        }
+      }
 
     case .projectRemoveTapped(let projectID, let name):
       state.pendingProjectRemoval = PendingProjectRemoval(
@@ -646,19 +628,6 @@ struct HierarchySidebarFeature {
       return .send(
         .delegate(.openInEditor(worktreePath: path, projectID: projectID, editorID: editorID))
       )
-
-    // MARK: Project Options — scoped child
-
-    case .projectOptions(.presented(.delegate(.dismiss))), .projectOptions(.dismiss):
-      state.projectOptions = nil
-      return .none
-
-    case .projectOptions(.presented(.delegate(.saved))):
-      state.projectOptions = nil
-      return .none
-
-    case .projectOptions:
-      return .none
 
     // MARK: Sheet stubs
 
