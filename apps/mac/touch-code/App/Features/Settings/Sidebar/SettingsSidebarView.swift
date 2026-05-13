@@ -20,36 +20,49 @@ struct SettingsSidebarView: View {
   @State private var expandedProjects: [ProjectID: Bool] = [:]
 
   var body: some View {
-    List(selection: $selection) {
-      Section {
-        ForEach(SettingsSection.globals, id: \.self) { section in
-          globalRow(for: section)
-            .tag(Optional(section))
+    ScrollViewReader { proxy in
+      List(selection: $selection) {
+        Section {
+          ForEach(SettingsSection.globals, id: \.self) { section in
+            globalRow(for: section)
+              .tag(Optional(section))
+              .id(section)
+          }
         }
-      }
 
-      Section("Projects") {
-        let projects = sortedProjects(in: hierarchyManager.catalog)
-        if projects.isEmpty {
-          Text("No open projects")
-            .font(.caption)
-            .foregroundStyle(.tertiary)
-        } else {
-          ForEach(projects) { project in
-            projectDisclosure(project: project)
+        Section("Projects") {
+          let projects = sortedProjects(in: hierarchyManager.catalog)
+          if projects.isEmpty {
+            Text("No open projects")
+              .font(.caption)
+              .foregroundStyle(.tertiary)
+          } else {
+            ForEach(projects) { project in
+              projectDisclosure(project: project)
+            }
           }
         }
       }
-    }
-    .listStyle(.sidebar)
-    .navigationSplitViewColumnWidth(min: 180, ideal: 200)
-    // Whenever the selection lands on a Project sub-row — including the
-    // initial render when the window is opened via "Project Settings…" —
-    // expand that Project's disclosure so the selected child is visible.
-    // Sibling Projects keep whatever expansion the user set previously.
-    .onChange(of: selection, initial: true) { _, newValue in
-      if let pid = newValue?.projectID {
-        expandedProjects[pid] = true
+      .listStyle(.sidebar)
+      .navigationSplitViewColumnWidth(min: 180, ideal: 200)
+      // Whenever the selection lands on a Project sub-row — including the
+      // initial render when the window is opened via "Project Settings…" —
+      // expand that Project's disclosure so the selected child is visible
+      // and scroll the row into view. Sibling Projects keep whatever
+      // expansion the user set previously. The scroll is deferred to the
+      // next runloop tick so the disclosure expansion has been applied to
+      // the layout tree before `scrollTo` runs — scrolling to a row that
+      // is still inside a collapsed `DisclosureGroup` is a no-op.
+      .onChange(of: selection, initial: true) { _, newValue in
+        guard let section = newValue else { return }
+        if let pid = section.projectID {
+          expandedProjects[pid] = true
+        }
+        Task { @MainActor in
+          withAnimation(.easeInOut(duration: 0.2)) {
+            proxy.scrollTo(section, anchor: .center)
+          }
+        }
       }
     }
   }
@@ -67,6 +80,7 @@ struct SettingsSidebarView: View {
       ForEach(subrows, id: \.self) { subrow in
         Label(subrow.projectSubrowTitle ?? "", systemImage: subrowIcon(for: subrow))
           .tag(Optional(subrow))
+          .id(subrow)
       }
     } label: {
       // A tap on the Project name selects its General pane when the disclosure is
