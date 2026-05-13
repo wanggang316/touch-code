@@ -121,7 +121,7 @@ extension ShortcutSchema {
       title: "Toggle Git Viewer",
       category: .projectAndWorktree,
       scope: .configurable,
-      defaultBinding: .init(keyCode: UInt16(kVK_ANSI_G), modifiers: [.command, .option])
+      defaultBinding: .init(keyCode: UInt16(kVK_ANSI_G), modifiers: .command)
     ),
     .init(
       id: .revealCurrentWorktreeInFinder,
