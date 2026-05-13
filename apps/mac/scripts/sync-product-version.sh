@@ -4,8 +4,8 @@
 # apps/mac/Configurations/Project.xcconfig MARKETING_VERSION.
 #
 # The Mac app remains the source of truth. This script projects that version
-# into the CLI's ArgumentParser version string and the published Agent Skill
-# package metadata.
+# into the CLI's ArgumentParser version string. The published Agent Skill is
+# intentionally decoupled from engineering versioning (skills/ is pure text).
 #
 set -euo pipefail
 
@@ -15,8 +15,6 @@ repo_root="$(cd "${srcroot}/../.." && pwd)"
 
 xcconfig="${srcroot}/Configurations/Project.xcconfig"
 cli_source="${srcroot}/tc/TouchCodeCLI.swift"
-skill_version="${repo_root}/skills/touch-code-cli/VERSION"
-skill_package="${repo_root}/skills/touch-code-cli/package.json"
 
 die() { echo "error: $*" >&2; exit 1; }
 log() { echo "==> $*"; }
@@ -60,9 +58,7 @@ replace_file() {
 
 sync_files() {
   local version="$1"
-  printf '%s\n' "$version" >"${skill_version}"
   replace_file "$cli_source" "s/static let version = \"[^\"]+\"/static let version = \"$version\"/"
-  replace_file "$skill_package" "s/\"version\"\\s*:\\s*\"[^\"]+\"/\"version\": \"$version\"/"
 }
 
 check_files() {
@@ -71,14 +67,6 @@ check_files() {
 
   if ! grep -q "static let version = \"${version}\"" "$cli_source"; then
     echo "out of sync: ${cli_source#${repo_root}/}" >&2
-    failed=1
-  fi
-  if [[ "$(tr -d '\r\n' <"$skill_version")" != "$version" ]]; then
-    echo "out of sync: ${skill_version#${repo_root}/}" >&2
-    failed=1
-  fi
-  if ! grep -q "\"version\": \"${version}\"" "$skill_package"; then
-    echo "out of sync: ${skill_package#${repo_root}/}" >&2
     failed=1
   fi
 
