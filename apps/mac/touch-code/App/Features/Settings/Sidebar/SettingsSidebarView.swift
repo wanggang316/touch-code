@@ -59,9 +59,7 @@ struct SettingsSidebarView: View {
           expandedProjects[pid] = true
         }
         Task { @MainActor in
-          withAnimation(.easeInOut(duration: 0.2)) {
-            proxy.scrollTo(section, anchor: .center)
-          }
+          proxy.scrollTo(section, anchor: .center)
         }
       }
     }
