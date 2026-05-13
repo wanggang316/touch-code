@@ -90,36 +90,30 @@ struct SettingsSidebarView: View {
   /// icon from a bundled SVG asset (template-rendered) so the dropdown picker
   /// stays visually consistent with the rest of the app's Worktree affordances
   /// (the sidebar `WorktreeRowIcon` reuses the same `git-branch` asset).
-  /// The bundled assets are filled paths; SF Symbol rows next to them render
-  /// as thin outlines, so we render the asset rows a couple of points smaller
-  /// to tame the visual weight delta.
   @ViewBuilder
   private func globalRow(for section: SettingsSection) -> some View {
     let title = section.globalTitle ?? ""
-    if let asset = assetIcon(for: section) {
+    if let assetName = assetIcon(for: section) {
       Label {
         Text(title)
       } icon: {
-        Image(asset.name)
+        Image(assetName)
           .renderingMode(.template)
           .resizable()
           .aspectRatio(contentMode: .fit)
-          .frame(width: asset.size, height: asset.size)
+          .frame(width: 16, height: 16)
       }
     } else {
       Label(title, systemImage: icon(for: section))
     }
   }
 
-  /// Sidebar leading icon when the section's glyph comes from a bundled SVG
-  /// asset instead of an SF Symbol. `size` lets us shrink a heavy filled
-  /// glyph (e.g. `git-branch`) so it doesn't look heavier than the
-  /// SF-Symbol neighbours; the GitHub mark sits at 16 unchanged so the
-  /// existing surface keeps its prior weight.
-  private func assetIcon(for section: SettingsSection) -> (name: String, size: CGFloat)? {
+  /// Sections whose leading icon comes from a bundled SVG asset instead of an
+  /// SF Symbol.
+  private func assetIcon(for section: SettingsSection) -> String? {
     switch section {
-    case .github: return (name: "github", size: 16)
-    case .worktree: return (name: "git-branch", size: 13)
+    case .github: return "github"
+    case .worktree: return "git-branch"
     default: return nil
     }
   }
