@@ -74,14 +74,14 @@ struct WorktreeRowIcon: View {
           .foregroundStyle(tint)
           .frame(width: 14, height: 14)
       } else if isMainCheckout && snapshot == nil {
-        // 11pt symbol inside a 14pt slot: the inner frame compensates for
-        // `circlebadge`'s tight glyph padding so the icon reads at the same
-        // optical weight as the git-branch rows; the outer 14pt frame keeps
-        // the label column aligned with sibling worktree rows.
+        // 9pt symbol inside a 14pt slot: `circlebadge` reads heavier than the
+        // git-branch rows at matched sizes, so the inner frame shrinks it ~20%
+        // below the sibling glyph; the outer 14pt frame keeps the label column
+        // aligned with sibling worktree rows.
         Image(systemName: "circlebadge")
           .resizable()
           .aspectRatio(contentMode: .fit)
-          .frame(width: 11, height: 11)
+          .frame(width: 9, height: 9)
           .foregroundStyle(tint)
           .frame(width: 14, height: 14)
       } else {
