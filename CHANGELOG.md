@@ -20,6 +20,33 @@ and the project does not yet follow semantic versioning — every release until
 
 ### Security
 
+## [0.1.9] - 2026-05-13
+
+### Added
+
+- **Manual refresh button in the sidebar bottom bar** for triggering an
+  immediate project rescan.
+- **Folder icon for non-git project worktrees**, distinguishing them
+  from git-backed worktrees at a glance.
+
+### Changed
+
+- **Toggle Git Viewer default shortcut is now ⌘G.**
+- **Project Options now opens Settings directly** instead of a separate
+  sheet. The Settings sidebar auto-expands the matching Project row and
+  scrolls to it.
+- **Sidebar icons refined.** Lighter git-branch glyph and a smaller,
+  bolder main-checkout badge for cleaner alignment.
+
+### Fixed
+
+- **Project-script keyboard shortcuts work reliably** — chord bindings
+  no longer get captured by transient menu views.
+- **Folder Projects that become git repos upgrade in place** — their
+  placeholder worktree picks up the new repo without an app restart.
+- **Settings sidebar deep-links jump cleanly** instead of animating the
+  scroll.
+
 ## [0.1.8] - 2026-05-12
 
 ### Added
