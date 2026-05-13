@@ -4,6 +4,9 @@ import TouchCodeCore
 /// Leading-edge icon for a Sidebar Worktree row. Replaces the old `circle.fill`/`circle`
 /// selection dot with a GitHub-style glyph that doubles as the row's PR-state signal:
 ///
+/// - Plain-dir synthetic worktree → `folder` SF Symbol. `isSynthetic` outranks the
+///   git-anchor `circlebadge` branch so dir Projects read as a filesystem directory
+///   rather than a phantom main checkout.
 /// - Main checkout, no PR → `circlebadge` SF Symbol at an 11pt frame (the symbol's
 ///   bounding box has tighter padding than the GitHub Octicons used elsewhere, so
 ///   the smaller frame keeps its optical weight in line with sibling rows).
@@ -29,6 +32,12 @@ struct WorktreeRowIcon: View {
   /// `circlebadge` so main reads as a neutral anchor row, distinct from the
   /// `git-branch` glyph used by non-main worktrees.
   var isMainCheckout: Bool = false
+  /// `true` for the placeholder worktree auto-injected under a plain-dir
+  /// Project (`Project.gitRoot == nil` + `worktree.path == project.rootPath`).
+  /// Swaps the leading glyph to `folder` so the row reads as a filesystem
+  /// directory rather than a git anchor — git semantics (branch, PR state)
+  /// don't apply.
+  var isSynthetic: Bool = false
   /// L3 unread override. When `true`, the row icon swaps to a bell glyph
   /// regardless of PR / branch state, and the role tint is replaced by
   /// the accent colour. PR check rollup overlay still renders unchanged.
@@ -53,6 +62,17 @@ struct WorktreeRowIcon: View {
           .aspectRatio(contentMode: .fit)
           .frame(width: 12, height: 12)
           .foregroundStyle(Color.orange)
+      } else if isSynthetic {
+        // Plain-dir Project's synthetic worktree: render a folder rather
+        // than the `circlebadge` git-anchor glyph. 12pt inside a 14pt
+        // slot mirrors the `circlebadge` sizing so the label column stays
+        // aligned with sibling git rows.
+        Image(systemName: "folder")
+          .resizable()
+          .aspectRatio(contentMode: .fit)
+          .frame(width: 12, height: 12)
+          .foregroundStyle(tint)
+          .frame(width: 14, height: 14)
       } else if isMainCheckout && snapshot == nil {
         // 11pt symbol inside a 14pt slot: the inner frame compensates for
         // `circlebadge`'s tight glyph padding so the icon reads at the same
@@ -122,6 +142,9 @@ struct WorktreeRowIcon: View {
   }
 
   private var accessibilityLabel: Text {
+    if isSynthetic {
+      return Text(isSelected ? "Active project folder" : "Project folder")
+    }
     guard let snapshot else {
       return Text(isSelected ? "Active worktree branch" : "Worktree branch")
     }
