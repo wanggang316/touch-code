@@ -224,6 +224,35 @@ struct HierarchyManagerWorktreeMgmtTests {
     #expect(manager.catalog.projects[0].worktrees.count == 2)
   }
 
+  /// Dir-Project transitions to a git repo: `addProject(gitRoot: nil)`
+  /// seeded a synthetic placeholder Worktree with `branch == nil` and
+  /// `name == lastPathComponent`. Once `git init` lands and discovery
+  /// reports the same canonical path with a real branch, reconcile must
+  /// upgrade the placeholder in place (same id, no extra row) so the
+  /// sidebar reads "main" instead of the folder name.
+  @Test
+  func reconcileUpgradesSyntheticPlaceholderOnDirToRepoTransition() {
+    let projectID = manager.addProject(
+      name: "scratch", rootPath: "/scratch", gitRoot: nil
+    )
+    let originalWorktree = manager.catalog.projects[0].worktrees[0]
+    #expect(originalWorktree.name == "scratch")
+    #expect(originalWorktree.branch == nil)
+
+    manager.setProjectGitRoot(projectID: projectID, gitRoot: "/scratch")
+    let appended = manager.reconcileDiscoveredWorktrees(
+      projectID: projectID,
+      entries: [(path: "/scratch", branch: "main")]
+    )
+
+    #expect(appended == 0)
+    #expect(manager.catalog.projects[0].worktrees.count == 1)
+    let upgraded = manager.catalog.projects[0].worktrees[0]
+    #expect(upgraded.id == originalWorktree.id)
+    #expect(upgraded.name == "main")
+    #expect(upgraded.branch == "main")
+  }
+
   /// Produces `(varForm, privateForm)` — two aliased paths to the same
   /// on-disk directory, one with the `/var/folders/...` prefix (what
   /// `wt ls --json` emits) and one with the `/private/var/folders/...`

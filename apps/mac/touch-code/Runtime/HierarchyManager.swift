@@ -523,24 +523,37 @@ final class HierarchyManager {
     guard let projectIndex = catalog.projects.firstIndex(where: { $0.id == projectID })
     else { return 0 }
     let project = catalog.projects[projectIndex]
-    let existingPaths = Set(
-      project.worktrees.map { Self.canonicalPath($0.path) }
-    )
     let discoveredPaths = Set(entries.map { Self.canonicalPath($0.path) })
     let rootCanonical = Self.canonicalPath(project.rootPath)
     var appended = 0
+    var upgraded = 0
     for entry in entries {
       let canonical = Self.canonicalPath(entry.path)
-      guard !existingPaths.contains(canonical) else { continue }
-      let name =
-        (entry.branch?.isEmpty == false)
-        ? entry.branch!
-        : (canonical as NSString).lastPathComponent
+      let entryBranch = (entry.branch?.isEmpty == false) ? entry.branch! : nil
+      if let existingIdx = catalog.projects[projectIndex].worktrees
+        .firstIndex(where: { Self.canonicalPath($0.path) == canonical })
+      {
+        // Path already in the catalog. Upgrade a synthetic placeholder
+        // (seeded by `addProject(gitRoot: nil)` with `branch == nil` and
+        // `name == lastPathComponent`) once the Project transitions to a
+        // git repo and discovery surfaces a real branch — without this,
+        // the sidebar row keeps the folder name forever after `git init`.
+        // Tabs, panes, pin/archive flags, and the row id are preserved
+        // because we mutate in place.
+        let existing = catalog.projects[projectIndex].worktrees[existingIdx]
+        if existing.branch == nil, let branch = entryBranch {
+          catalog.projects[projectIndex].worktrees[existingIdx].branch = branch
+          catalog.projects[projectIndex].worktrees[existingIdx].name = branch
+          upgraded += 1
+        }
+        continue
+      }
+      let name = entryBranch ?? (canonical as NSString).lastPathComponent
       let worktree = Worktree(
         id: WorktreeID(),
         name: name,
         path: canonical,
-        branch: entry.branch,
+        branch: entryBranch,
         tabs: [],
         selectedTabID: nil
       )
@@ -573,7 +586,7 @@ final class HierarchyManager {
         archivedCount += 1
       }
     }
-    if appended > 0 || archivedCount > 0 {
+    if appended > 0 || upgraded > 0 || archivedCount > 0 {
       store.scheduleSave(catalog)
     }
     return appended
