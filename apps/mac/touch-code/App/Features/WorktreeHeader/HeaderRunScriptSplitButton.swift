@@ -75,6 +75,22 @@ struct HeaderRunScriptSplitButton: View {
     // reorder all invalidate. Without this, NSMenu caches its items
     // across open cycles and Settings-side edits don't reflect here.
     .id(Self.identitySignature(of: scripts))
+    // Always-materialised shadow Buttons for every chord. The
+    // `.keyboardShortcut` inside `caretMenu` displays the chord on
+    // the dropdown row but does NOT reliably bind in the responder
+    // chain — `Menu(content:)` is lazy, so the in-menu Button isn't
+    // instantiated until the dropdown is opened, and the `.id(_:)`
+    // rebuild above blows away whatever was registered the previous
+    // cycle. Mirroring the chord onto a 0×0 Button rendered as a
+    // sibling makes the shortcut active whenever this toolbar item
+    // is in the view tree, matching the pattern that already works
+    // for `TabChipContextMenu` (visual chord in the menu, real
+    // binding in `MainWindowCommands`).
+    .background(alignment: .topLeading) {
+      ForEach(scripts) { script in
+        shadowShortcutButton(for: script)
+      }
+    }
   }
 
   // MARK: - Caret menu
@@ -116,6 +132,29 @@ struct HeaderRunScriptSplitButton: View {
       button.keyboardShortcut(key, modifiers: ShortcutDisplay.eventModifiers(for: chord.modifiers))
     } else {
       button
+    }
+  }
+
+  /// Invisible Button mounted as a sibling of the toolbar Menu so the
+  /// script's chord lives in the window's responder chain regardless of
+  /// whether the dropdown has been opened. Dispatches the same action
+  /// as the menu item, so a user pressing the chord lands on
+  /// `RootFeature.runScriptTapped` with no extra plumbing.
+  @ViewBuilder
+  private func shadowShortcutButton(for script: ScriptDefinition) -> some View {
+    if let chord = script.keyboardShortcut, chord.isEnabled, chord.keyCode != 0,
+      let key = ShortcutDisplay.keyEquivalent(for: chord.keyCode)
+    {
+      Button {
+        store.send(
+          .runScriptTapped(scriptID: script.id, projectID: projectID, worktreeID: worktreeID))
+      } label: {
+        EmptyView()
+      }
+      .keyboardShortcut(key, modifiers: ShortcutDisplay.eventModifiers(for: chord.modifiers))
+      .frame(width: 0, height: 0)
+      .opacity(0)
+      .accessibilityHidden(true)
     }
   }
 
