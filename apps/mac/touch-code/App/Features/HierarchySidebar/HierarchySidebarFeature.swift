@@ -127,6 +127,12 @@ struct HierarchySidebarFeature {
     /// used after Add Project.
     case retryProjectTapped(projectID: ProjectID)
 
+    /// Sidebar bottom-bar refresh button. Delegates up so `RootFeature`
+    /// can call `ProjectReconciler.reconcileAll(force: true)` — the
+    /// manual override bypasses the focus-driven debounce so the user's
+    /// "refresh now" tap doesn't sit on the queue.
+    case refreshAllProjectsTapped
+
     // Project section hover chrome
     case projectAddWorktreeTapped(projectID: ProjectID)
     /// `⋯` menu → "Project Settings…". Opens the Settings window and lands
@@ -252,6 +258,9 @@ struct HierarchySidebarFeature {
       /// Emitted from the project header's "Tags" submenu ("Edit Tags…")
       /// and from the chip footer's trailing "+" button.
       case openTagManager
+      /// Sidebar bottom-bar refresh button. RootFeature routes this to
+      /// `ProjectReconciler.reconcileAll(force: true)`.
+      case refreshAllProjectsRequested
     }
   }
 
@@ -429,6 +438,9 @@ struct HierarchySidebarFeature {
 
     case .retryProjectTapped(let projectID):
       return .send(.delegate(.reconcileProjectRequested(projectID)))
+
+    case .refreshAllProjectsTapped:
+      return .send(.delegate(.refreshAllProjectsRequested))
 
     case .projectAddWorktreeTapped(let projectID):
       // Resolve the Project from the catalog to feed repoRoot + worktreesDirectory

@@ -683,6 +683,14 @@ struct RootFeature {
           await projectReconciler.reconcile(projectID: projectID)
         }
 
+      case .sidebar(.delegate(.refreshAllProjectsRequested)):
+        // Manual refresh from the sidebar bottom-bar. `force: true` bypasses
+        // the reconciler's focus-driven debounce so the click takes effect
+        // immediately even when a focus-triggered pass just ran.
+        return .run { _ in
+          await projectReconciler.reconcileAll(force: true)
+        }
+
       case .sidebar(.delegate(.revealExistingProject(let projectID))):
         // Add Project picker hit a duplicate folder — jump the user to
         // the already-registered row.

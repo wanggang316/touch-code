@@ -2,16 +2,17 @@ import SwiftUI
 import TouchCodeCore
 
 /// Compact footer mounted at the sidebar's `.safeAreaInset(edge: .bottom)`.
-/// Shows a single trailing filter glyph; tapping the glyph opens a popover
-/// (anchored above the button via `arrowEdge: .bottom`) that lists the
-/// available tag filters: implicit `[All]`, one row per Tag, optional
-/// `[Untagged]` when any project carries no tag, and an `Edit Tags…`
-/// shortcut to the catalog manager.
+/// Two glyphs anchored at opposite edges: a leading tag-filter button whose
+/// popover lists the available tag filters (`[All]`, one row per Tag, an
+/// optional `[Untagged]`, and an `Edit Tags…` shortcut), and a trailing
+/// refresh button that re-runs the project reconciler manually so the user
+/// can pick up out-of-band changes (e.g. a folder that just got `git init`)
+/// without waiting for the focus-driven cadence.
 ///
-/// The icon flips to its `.fill` variant tinted with `Color.accentColor`
-/// whenever the active filter is anything other than `.all`, so the user
-/// can tell at a glance that the project list is being filtered without
-/// opening the popover.
+/// The filter icon flips to its `.fill` variant tinted with
+/// `Color.accentColor` whenever the active filter is anything other than
+/// `.all`, so the user can tell at a glance that the project list is being
+/// filtered without opening the popover.
 struct TagFilterPopoverFooter: View {
   let tags: [Tag]
   let activeFilter: TagFilter
@@ -22,6 +23,9 @@ struct TagFilterPopoverFooter: View {
   /// Trailing "Edit Tags…" entry — opens the TagManager sheet.
   /// Optional so previews / tests without manager wiring can omit it.
   var onEditTagsTapped: (() -> Void)?
+  /// Right-side refresh glyph. Optional so previews / tests without a
+  /// reconciler wired can drop it.
+  var onRefreshTapped: (() -> Void)?
 
   @State private var isPopoverPresented = false
 
@@ -57,6 +61,18 @@ struct TagFilterPopoverFooter: View {
         )
       }
       Spacer()
+      if let onRefreshTapped {
+        Button(action: onRefreshTapped) {
+          Image(systemName: "arrow.clockwise")
+            .font(.system(size: 13, weight: .regular))
+            .foregroundStyle(.secondary)
+            .frame(width: 22, height: 22)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Refresh all projects")
+        .accessibilityLabel("Refresh all projects")
+      }
     }
     .padding(.horizontal, 8)
     .padding(.vertical, 4)

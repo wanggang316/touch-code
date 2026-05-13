@@ -151,7 +151,8 @@ struct HierarchySidebarView: View {
           onAllTapped: { store.send(.allChipTapped) },
           onTagTapped: { store.send(.tagChipTapped($0)) },
           onUntaggedTapped: { store.send(.untaggedChipTapped) },
-          onEditTagsTapped: { store.send(.delegate(.openTagManager)) }
+          onEditTagsTapped: { store.send(.delegate(.openTagManager)) },
+          onRefreshTapped: { store.send(.refreshAllProjectsTapped) }
         )
       }
       .toolbar { sidebarToolbarContent }

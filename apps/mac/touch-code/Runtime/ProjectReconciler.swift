@@ -74,9 +74,14 @@ actor ProjectReconciler {
   /// `debounceInterval` — repeated calls within the window are dropped.
   /// Per-project single-flight inside `reconcile` absorbs the case where a
   /// debounce window closes while a prior `reconcileAll` is still running.
-  func reconcileAll() async {
+  ///
+  /// `force: true` bypasses the debounce — wired to the sidebar's manual
+  /// refresh button so the user-initiated "refresh now" never waits out
+  /// the focus-driven cadence. Per-project single-flight still protects
+  /// against double-runs.
+  func reconcileAll(force: Bool = false) async {
     let current = now()
-    if let last = lastAllRun, current.timeIntervalSince(last) < debounceInterval {
+    if !force, let last = lastAllRun, current.timeIntervalSince(last) < debounceInterval {
       return
     }
     lastAllRun = current

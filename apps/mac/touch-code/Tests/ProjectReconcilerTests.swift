@@ -203,6 +203,34 @@ struct ProjectReconcilerTests {
     }
   }
 
+  /// Manual refresh from the sidebar must run even while the debounce
+  /// window is open — otherwise a focus-driven sweep that landed seconds
+  /// before the user's click would silently swallow the click.
+  @Test
+  func reconcileAllForceBypassesDebounce() async throws {
+    try await Self.withTempDir { rootPath in
+      let (catalog, _) = Self.makeCatalog(rootPath: rootPath)
+      let recorder = Recorder()
+      let client = await Self.makeClient(catalog: { catalog }, recorder: recorder)
+      let clockState = LockedDate(date: Date(timeIntervalSince1970: 1000))
+      let reconciler = ProjectReconciler(
+        client: client,
+        now: { clockState.current() },
+        debounceInterval: 2.0
+      )
+
+      await reconciler.reconcileAll()
+      let afterFirst = recorder.reconcileDiscoveredCount()
+      #expect(afterFirst == 1)
+
+      // Stay inside the debounce window; without `force`, the second call
+      // would be dropped.
+      clockState.advance(0.5)
+      await reconciler.reconcileAll(force: true)
+      #expect(recorder.reconcileDiscoveredCount() == afterFirst + 1)
+    }
+  }
+
   @Test
   func reconcileAllFansOutAcrossProjects() async throws {
     try await Self.withTempDir { rootA in
