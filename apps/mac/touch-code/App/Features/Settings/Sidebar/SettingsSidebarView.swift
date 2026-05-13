@@ -43,6 +43,15 @@ struct SettingsSidebarView: View {
     }
     .listStyle(.sidebar)
     .navigationSplitViewColumnWidth(min: 180, ideal: 200)
+    // Whenever the selection lands on a Project sub-row — including the
+    // initial render when the window is opened via "Project Settings…" —
+    // expand that Project's disclosure so the selected child is visible.
+    // Sibling Projects keep whatever expansion the user set previously.
+    .onChange(of: selection, initial: true) { _, newValue in
+      if let pid = newValue?.projectID {
+        expandedProjects[pid] = true
+      }
+    }
   }
 
   // MARK: - Rows
