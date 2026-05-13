@@ -77,9 +77,11 @@ struct WorktreeRowIcon: View {
         // 9pt symbol inside a 14pt slot: `circlebadge` reads heavier than the
         // git-branch rows at matched sizes, so the inner frame shrinks it ~20%
         // below the sibling glyph; the outer 14pt frame keeps the label column
-        // aligned with sibling worktree rows.
+        // aligned with sibling worktree rows. `.bold` weight thickens the
+        // hollow stroke so the ring stays legible at the reduced size.
         Image(systemName: "circlebadge")
           .resizable()
+          .fontWeight(.bold)
           .aspectRatio(contentMode: .fit)
           .frame(width: 9, height: 9)
           .foregroundStyle(tint)
