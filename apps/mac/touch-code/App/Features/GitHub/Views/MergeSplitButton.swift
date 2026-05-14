@@ -1,18 +1,15 @@
 import SwiftUI
 import TouchCodeCore
 
-/// Split-button for the Merge action. The primary face merges with the
-/// current default strategy; the trailing caret opens a menu with the
-/// three strategies plus a "Set as default for this Project" sub-menu
-/// (per UI design Surface 2).
+/// Split-button for the Merge action. Primary face merges with the current default
+/// strategy; the caret half opens a Menu with the three strategies plus a "Set as default
+/// for this Project" sub-menu (per UI design Surface 2).
 ///
-/// Implemented as a primary `Button` plus a borderless `Menu` glued
-/// side-by-side. Both halves use `.borderedProminent` so they share a
-/// single accent-tinted pill chrome — height and corner radius then
-/// match the neighbouring `.bordered` Close / Mark-ready / Rerun-failed
-/// buttons that wrap the same way. The earlier `Menu(primaryAction:)` +
-/// `.menuStyle(.button)` form silently dropped the prominent fill on
-/// macOS 26, repainting the merge half as a neutral grey button.
+/// Layout is a `.borderedProminent` primary `Button` plus a `.borderlessButton` `Menu`
+/// for the chevron — the prominent half paints the accent pill, the borderless half
+/// rides alongside as a transparent dropdown. The system supplies both halves' chrome,
+/// so heights and corner radii match the neighbouring `.bordered` Close / Mark-ready /
+/// Rerun-failed buttons without any hand-rolled outline.
 struct MergeSplitButton: View {
   let defaultStrategy: MergeStrategy
   let isDisabled: Bool
@@ -21,11 +18,12 @@ struct MergeSplitButton: View {
   let onSetProjectDefault: (MergeStrategy) -> Void
 
   var body: some View {
-    HStack(spacing: 2) {
+    HStack(spacing: 0) {
       Button {
         onMerge(defaultStrategy)
       } label: {
         Text("Merge (\(defaultStrategy.shortName))")
+          .font(.callout)
       }
       .buttonStyle(.borderedProminent)
       .disabled(isDisabled)
@@ -45,12 +43,10 @@ struct MergeSplitButton: View {
         Image(systemName: "chevron.down")
           .imageScale(.small)
       }
-      .menuStyle(.button)
-      .buttonStyle(.borderedProminent)
+      .menuStyle(.borderlessButton)
       .menuIndicator(.hidden)
-      .fixedSize()
       .disabled(isDisabled)
-      .accessibilityLabel("Choose merge strategy")
+      .fixedSize()
     }
   }
 }
