@@ -184,7 +184,6 @@ struct HierarchySidebarView: View {
         Button("Remove Worktree", role: .destructive) {
           store.send(.worktreeRemoveConfirmed)
         }
-        .keyboardShortcut(.return, modifiers: [])
         Button("Cancel", role: .cancel) {
           store.send(.worktreeRemoveCancelled)
         }
@@ -204,7 +203,6 @@ struct HierarchySidebarView: View {
         Button("Remove Project", role: .destructive) {
           store.send(.projectRemoveConfirmed)
         }
-        .keyboardShortcut(.return, modifiers: [])
         Button("Cancel", role: .cancel) {
           store.send(.projectRemoveCancelled)
         }
@@ -392,14 +390,26 @@ struct HierarchySidebarView: View {
 
   // MARK: - Project section
 
+  /// Each project iteration emits a single SwiftUI `Section`. The outer
+  /// `ForEach(projects).onMove` (in `treeBody`) only recognises
+  /// drag-to-reorder when every iteration maps to one List unit; the
+  /// previous "header Button + sibling worktree rows" shape hid projects
+  /// from `.onMove` entirely. We deliberately use a *non*-collapsible
+  /// `Section` (no `isExpanded:` binding) so SwiftUI does not inject its
+  /// own trailing disclosure chevron — expansion is still our concern
+  /// and is driven by the leading chevron inside `ProjectHeaderRow` plus
+  /// the conditional rendering of the worktree rows below.
+  @ViewBuilder
   private func projectSection(
     _ project: Project,
     hotkeyIndex: [WorktreeID: Int]
   ) -> some View {
-    let isExpanded = project.isExpanded
-    return Group {
-      switch project.loadState {
-      case .failed(let reason):
+    switch project.loadState {
+    case .failed(let reason):
+      // Wrap the failed row in a single-row Section so every iteration of
+      // the outer ForEach has the same shape — a bare row mixed in with
+      // Sections breaks SwiftUI's sidebar drag.
+      Section {
         FailedProjectRow(
           name: project.name,
           rootPath: project.rootPath,
@@ -415,30 +425,12 @@ struct HierarchySidebarView: View {
               ))
           }
         )
-      case .loading, .ready:
-        // Header is its own List row. DisclosureGroup used to nest the worktree rows
-        // inside the header row — that made AppKit animate the single wrapping row's
-        // height on every expand / collapse, visibly jittering the Project name.
-        // Emitting header + each worktree as SIBLING rows lets NSTableView handle
-        // expansion as plain row insert / remove instead.
-        Button {
-          var txn = Transaction()
-          txn.disablesAnimations = true
-          withTransaction(txn) {
-            store.send(.toggleProjectExpansion(project.id))
-          }
-        } label: {
-          ProjectHeaderRow(
-            project: project,
-            isExpanded: isExpanded,
-            store: store
-          )
-        }
-        .buttonStyle(.plain)
-        .listRowInsets(EdgeInsets(top: 10, leading: 0, bottom: 4, trailing: 0))
-        .listRowBackground(Color.clear)
-        .listRowSeparator(.hidden)
-        if isExpanded {
+      } header: {
+        EmptyView()
+      }
+    case .loading, .ready:
+      Section {
+        if project.isExpanded {
           // Render the four segments individually so pinned and unpinned
           // each own their own ForEach + .onMove (per design doc §渲染合并
           // / 拖拽). Pending rows render in source order between pinned
@@ -477,6 +469,25 @@ struct HierarchySidebarView: View {
             )
           }
         }
+      } header: {
+        // Button wrapper is what gives "click header → toggle expansion"
+        // back since the Section is not collapsible on its own. AppKit's
+        // drag gesture lives at the NSOutlineView layer so the Button
+        // taking mouse-down doesn't interfere with `ForEach.onMove`.
+        Button {
+          var txn = Transaction()
+          txn.disablesAnimations = true
+          withTransaction(txn) {
+            store.send(.toggleProjectExpansion(project.id))
+          }
+        } label: {
+          ProjectHeaderRow(
+            project: project,
+            isExpanded: project.isExpanded,
+            store: store
+          )
+        }
+        .buttonStyle(.plain)
       }
     }
   }
