@@ -471,25 +471,28 @@ struct HierarchySidebarView: View {
           }
         }
       } header: {
-        // `Section(isExpanded:)` only wires its binding to the trailing
-        // disclosure chevron — the rest of the header area is inert by
-        // default. Add an explicit `onTapGesture` so a click anywhere
-        // on the header row (project name, hover chrome gutter, etc.)
-        // still flips expansion. `onTapGesture` lets the long-press
-        // drag bubble up to NSOutlineView, unlike `Button`.
+        // `simultaneousGesture` (not `onTapGesture` / `Button`) is the
+        // only form that lets us catch a click *and* leave the
+        // mouse-down stream visible to NSOutlineView so its long-press
+        // drag can still kick in. Both `onTapGesture` and `Button` take
+        // the mouse-down for themselves and starve the drag gesture —
+        // verified empirically: every variant that captures mouse-down
+        // disables `ForEach.onMove`.
         ProjectHeaderRow(
           project: project,
           isExpanded: project.isExpanded,
           store: store
         )
         .contentShape(Rectangle())
-        .onTapGesture {
-          var txn = Transaction()
-          txn.disablesAnimations = true
-          withTransaction(txn) {
-            store.send(.toggleProjectExpansion(project.id))
+        .simultaneousGesture(
+          TapGesture().onEnded {
+            var txn = Transaction()
+            txn.disablesAnimations = true
+            withTransaction(txn) {
+              store.send(.toggleProjectExpansion(project.id))
+            }
           }
-        }
+        )
       }
     }
   }
