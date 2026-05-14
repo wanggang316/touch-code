@@ -470,24 +470,25 @@ struct HierarchySidebarView: View {
           }
         }
       } header: {
-        // Button wrapper is what gives "click header → toggle expansion"
-        // back since the Section is not collapsible on its own. AppKit's
-        // drag gesture lives at the NSOutlineView layer so the Button
-        // taking mouse-down doesn't interfere with `ForEach.onMove`.
-        Button {
+        // Plain content + `.onTapGesture` (not `Button`). A SwiftUI
+        // `Button` would capture mouse-down at the row level and stop
+        // NSOutlineView's long-press-to-drag gesture from firing, so
+        // `ForEach.onMove` would never see the drag. `onTapGesture` is
+        // light enough that the underlying NSTableView still owns the
+        // drag handle while we keep "click row to toggle expansion".
+        ProjectHeaderRow(
+          project: project,
+          isExpanded: project.isExpanded,
+          store: store
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
           var txn = Transaction()
           txn.disablesAnimations = true
           withTransaction(txn) {
             store.send(.toggleProjectExpansion(project.id))
           }
-        } label: {
-          ProjectHeaderRow(
-            project: project,
-            isExpanded: project.isExpanded,
-            store: store
-          )
         }
-        .buttonStyle(.plain)
       }
     }
   }
