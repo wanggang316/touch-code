@@ -34,15 +34,6 @@ struct PullRequestPopover: View {
       .frame(width: 360)
       .frame(minHeight: 160)
       .padding(12)
-      // The toolbar-anchored host (status bar) ships a smaller default
-      // `controlSize` into the popover than the List-row host (sidebar),
-      // which made the same buttons render at different sizes across
-      // the two surfaces. Pin `.regular` here so both hosts open the
-      // popover with the same control sizing (HAN-60). Font and tint
-      // are intentionally NOT overridden — leaving them at inherited
-      // defaults keeps `.bordered` Close gray and the prominent Merge
-      // accent-blue as the design calls for.
-      .controlSize(.regular)
   }
 
   @ViewBuilder
