@@ -258,6 +258,12 @@ final class AppState {
   /// pane they belong to. Observes catalog focus state via Observation
   /// re-registration; held so shutdown can cancel cleanly.
   @ObservationIgnored private var focusReadMarkerTask: Task<Void, Never>?
+  /// Marks orphaned unread entries (whose source pane no longer exists in
+  /// the catalog) as read. Observes the catalog's pane membership via the
+  /// same re-registration pattern as the R1 marker; held so shutdown can
+  /// cancel cleanly. Runs an initial sweep on first iteration to clean up
+  /// entries inherited from prior launches.
+  @ObservationIgnored private var orphanSweepTask: Task<Void, Never>?
   /// Live banner adapter; held so M5's Settings panel can call
   /// `requestAuthorization()` from the recovery button. Single instance
   /// per process — Settings panel reads via `@Environment` rather than
@@ -481,6 +487,9 @@ final class AppState {
       await Self.observeFocusedPaneForRead(
         catalog: { manager.catalog }, lastFocusedPane: { tabID in manager.lastFocusedPane(in: tabID) }, store: inbox)
     }
+    self.orphanSweepTask = Task { @MainActor in
+      await Self.observeOrphanUnreadsSweep(catalog: { manager.catalog }, store: inbox)
+    }
     self.notificationRollup = RollupIndexProvider(
       store: inbox,
       focus: { [weak manager] in
@@ -581,6 +590,7 @@ final class AppState {
     notificationDetectorTask?.cancel()
     dockBadgerTask?.cancel()
     focusReadMarkerTask?.cancel()
+    orphanSweepTask?.cancel()
 
     settingsStore.flush()
     shortcutsStore.flush()
@@ -685,6 +695,67 @@ final class AppState {
       let tabID = worktree.selectedTabID
     else { return nil }
     return lastFocusedPane(tabID)
+  }
+
+  /// Long-running sweep: marks unread entries pointing at panes that no
+  /// longer exist in the catalog as read. Without this, closing a pane /
+  /// tab / worktree before the user ever focuses it leaves the worktree /
+  /// project roll-up bell lit until the user goes to the inbox and clears
+  /// it manually. Mirrors `observeFocusedPaneForRead`'s re-arming pump:
+  /// the first iteration runs the sweep against the boot catalog (catches
+  /// stale entries inherited from prior launches), then re-arms an
+  /// Observation tracker on every pane / tab / worktree / project field
+  /// whose mutation could remove a pane id.
+  @MainActor
+  private static func observeOrphanUnreadsSweep(
+    catalog: @escaping @MainActor () -> Catalog,
+    store: NotificationStore
+  ) async {
+    while !Task.isCancelled {
+      store.sweepOrphanUnreads(livePaneIDs: livePaneIDs(in: catalog()))
+      let stream = AsyncStream<Void> { continuation in
+        withObservationTracking {
+          let snap = catalog()
+          // Touch every level whose mutation can remove a pane id from
+          // the catalog so any close / remove path fires onChange.
+          for project in snap.projects {
+            for worktree in project.worktrees {
+              for tab in worktree.tabs {
+                for pane in tab.panes {
+                  _ = pane.id
+                }
+              }
+            }
+          }
+        } onChange: {
+          Task { @MainActor [continuation] in
+            continuation.yield(())
+          }
+        }
+        continuation.onTermination = { _ in }
+      }
+      for await _ in stream {
+        break
+      }
+    }
+  }
+
+  /// Flatten the catalog to the set of currently-live pane ids. Used by
+  /// the orphan sweep to decide which unread entries point at panes that
+  /// no longer exist.
+  @MainActor
+  private static func livePaneIDs(in catalog: Catalog) -> Set<PaneID> {
+    var ids: Set<PaneID> = []
+    for project in catalog.projects {
+      for worktree in project.worktrees {
+        for tab in worktree.tabs {
+          for pane in tab.panes {
+            ids.insert(pane.id)
+          }
+        }
+      }
+    }
+    return ids
   }
 
   /// Long-running mirror: pushes `store.unreadCount` to the Dock tile badge

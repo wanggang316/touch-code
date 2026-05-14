@@ -119,6 +119,23 @@ public final class NotificationStore {
     scheduleSave()
   }
 
+  /// Clear roll-up indicators for unread entries whose source pane is no
+  /// longer present in the live catalog. Called once at startup and on
+  /// every catalog mutation that could remove a pane (close pane / tab,
+  /// remove worktree / project). Idempotent — a no-op when every unread
+  /// entry still points at a live pane.
+  public func sweepOrphanUnreads(livePaneIDs: Set<PaneID>, at readAt: Date = Date()) {
+    let updated = InboxStorage.markingReadForOrphanPanes(
+      livePaneIDs: livePaneIDs,
+      in: entries,
+      at: readAt
+    )
+    guard updated != entries else { return }
+    entries = updated
+    unreadCount = InboxStorage.unreadCount(entries)
+    scheduleSave()
+  }
+
   // MARK: - Persistence
 
   /// Cancels any pending debounced write and flushes immediately. Callers:

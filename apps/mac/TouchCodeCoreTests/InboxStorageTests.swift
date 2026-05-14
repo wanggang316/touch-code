@@ -203,4 +203,48 @@ struct InboxStorageTests {
     ]
     #expect(InboxStorage.unreadCount(entries) == 2)
   }
+
+  // MARK: - Orphan sweep
+
+  @Test
+  func markingReadForOrphanPanesFlipsOnlyOrphanUnreads() {
+    let now = Date()
+    let liveA = PaneID()
+    let liveB = PaneID()
+    let orphan = PaneID()
+
+    let liveUnread = entry(paneID: liveA)
+    let orphanUnread = entry(paneID: orphan)
+    let orphanAlreadyRead = entry(paneID: orphan, readAt: now.addingTimeInterval(-100))
+
+    let result = InboxStorage.markingReadForOrphanPanes(
+      livePaneIDs: [liveA, liveB],
+      in: [liveUnread, orphanUnread, orphanAlreadyRead],
+      at: now
+    )
+
+    #expect(result.first(where: { $0.id == liveUnread.id })?.readAt == nil)
+    #expect(result.first(where: { $0.id == orphanUnread.id })?.readAt == now)
+    #expect(
+      result.first(where: { $0.id == orphanAlreadyRead.id })?.readAt
+        == now.addingTimeInterval(-100)
+    )
+  }
+
+  @Test
+  func markingReadForOrphanPanesWithEmptyLiveSetMarksEveryUnread() {
+    let now = Date()
+    let a = entry()
+    let b = entry()
+    let result = InboxStorage.markingReadForOrphanPanes(livePaneIDs: [], in: [a, b], at: now)
+    #expect(result.allSatisfy { $0.readAt == now })
+  }
+
+  @Test
+  func markingReadForOrphanPanesIsNoOpWhenAllPanesAreLive() {
+    let pane = PaneID()
+    let unread = entry(paneID: pane)
+    let result = InboxStorage.markingReadForOrphanPanes(livePaneIDs: [pane], in: [unread])
+    #expect(result == [unread])
+  }
 }

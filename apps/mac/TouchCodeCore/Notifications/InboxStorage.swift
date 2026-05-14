@@ -128,6 +128,24 @@ public nonisolated enum InboxStorage {
     }
   }
 
+  /// Mark every unread entry whose source pane is **not** in `livePaneIDs`
+  /// as read. Used to clear roll-up indicators left behind when a pane (or
+  /// its enclosing tab / worktree / project) is closed without the user
+  /// ever focusing it — the entry has nowhere to surface and would
+  /// otherwise keep the worktree/project bell lit indefinitely.
+  public static func markingReadForOrphanPanes(
+    livePaneIDs: Set<PaneID>,
+    in entries: [InboxEntry],
+    at readAt: Date = Date()
+  ) -> [InboxEntry] {
+    entries.map { entry in
+      guard entry.isUnread, !livePaneIDs.contains(entry.source.paneID) else { return entry }
+      var updated = entry
+      updated.readAt = readAt
+      return updated
+    }
+  }
+
   /// Number of unread entries. Cheap derivation; the live store caches it.
   public static func unreadCount(_ entries: [InboxEntry]) -> Int {
     entries.reduce(0) { $0 + ($1.isUnread ? 1 : 0) }
