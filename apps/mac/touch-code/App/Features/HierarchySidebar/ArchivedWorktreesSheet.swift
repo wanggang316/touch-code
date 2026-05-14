@@ -88,7 +88,6 @@ struct ArchivedWorktreesSheet: View {
       Button("Remove Worktree", role: .destructive) {
         store.send(.removeConfirmed)
       }
-      .keyboardShortcut(.return, modifiers: [])
       Button("Cancel", role: .cancel) {
         store.send(.removeCancelled)
       }
