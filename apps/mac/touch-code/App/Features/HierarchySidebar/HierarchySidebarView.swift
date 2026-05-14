@@ -338,6 +338,23 @@ struct HierarchySidebarView: View {
           ForEach(projects) { project in
             projectSection(project, hotkeyIndex: hotkeyIndex)
           }
+          // Drag-to-reorder Projects (HAN-53). `.onMove` on the project
+          // ForEach lights up the sidebar List's native NSOutlineView
+          // drag — long-press a row, drag, and an insertion line appears
+          // between projects. SwiftUI treats every list row emitted by
+          // one ForEach iteration (header + the project's worktree rows
+          // when expanded) as a single draggable unit, so the whole
+          // project moves as a block. The callback's indices live in the
+          // *visible* (tag-filtered) coordinate system; map them back to
+          // the catalog before forwarding to the reducer.
+          .onMove { source, destination in
+            let (mappedSource, mappedDestination) = mappedProjectReorder(
+              visible: projects, from: source, to: destination
+            )
+            store.send(
+              .reorderProjects(from: mappedSource, to: mappedDestination)
+            )
+          }
         }
         .listStyle(.sidebar)
         .opacity(sidebarIndentReady ? 1 : 0)
@@ -418,15 +435,6 @@ struct HierarchySidebarView: View {
           )
         }
         .buttonStyle(.plain)
-        // Drag-to-reorder Projects (HAN-53). The header is the drag source and
-        // drop target; payload is the source Project's UUID string. Resolution
-        // happens by ID against the live catalog (`hierarchyManager`), so
-        // active tag filters that hide rows don't desync index math the way a
-        // straight `ForEach.onMove` would.
-        .draggable(project.id.raw.uuidString)
-        .dropDestination(for: String.self) { items, _ in
-          handleProjectDrop(items: items, targetID: project.id)
-        }
         .listRowInsets(EdgeInsets(top: 10, leading: 0, bottom: 4, trailing: 0))
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
@@ -473,40 +481,37 @@ struct HierarchySidebarView: View {
     }
   }
 
-  // MARK: - Project drag-and-drop reorder
+  // MARK: - Project reorder index mapping
 
-  /// Resolves a drop on Project `targetID` for a drag whose pasteboard payload
-  /// is the source Project's UUID string. Walks the live catalog to recover
-  /// canonical indices so an active tag filter (which shrinks the visible
-  /// project list in `visibleProjects`) doesn't desync the move. Inserts the
-  /// dragged Project immediately *before* the target row, matching the
-  /// "drop on row → land at that row's slot" convention used by the script
-  /// list in `ProjectScriptsSettingsView`. Returns `true` only on a real
-  /// reorder so SwiftUI plays the drop-accepted animation.
-  private func handleProjectDrop(items: [String], targetID: ProjectID) -> Bool {
-    guard let firstID = items.first,
-      let sourceUUID = UUID(uuidString: firstID)
-    else { return false }
-    let sourceID = ProjectID(raw: sourceUUID)
-    guard sourceID != targetID else { return false }
-    let projects = hierarchyManager.catalog.projects
-    guard let sourceIndex = projects.firstIndex(where: { $0.id == sourceID }),
-      let targetIndex = projects.firstIndex(where: { $0.id == targetID })
-    else { return false }
-    // SwiftUI's `Array.move(fromOffsets:toOffset:)` removes the source rows
-    // first, then inserts at the destination offset (computed against the
-    // post-removal array). Use `targetIndex` directly: when the source sits
-    // *before* the target, `targetIndex` after removal points to what was
-    // originally `targetIndex - 1` — exactly the "above-the-target" landing
-    // slot we want. When source sits *after* target, `targetIndex` is the
-    // target's own position and the moved row lands above it. No reorder
-    // when the operation would be a no-op (source already above target with
-    // a destination matching its current spot).
-    guard sourceIndex != targetIndex else { return false }
-    store.send(
-      .reorderProjects(from: IndexSet(integer: sourceIndex), to: targetIndex)
-    )
-    return true
+  /// Translates a `ForEach.onMove` callback's `(IndexSet, Int)` from the
+  /// *visible* project list (which an active tag filter may have shrunk —
+  /// see `filteredProjects(catalog:)`) into the catalog-relative coordinates
+  /// `reorderProjects(from:to:)` expects. When no filter is active the
+  /// mapping is the identity, so this is purely defensive against the
+  /// filtered path. Mapping unknown ids falls back to the input index so the
+  /// move at least lands somewhere reasonable — should not happen in
+  /// practice since the visible list is derived from the catalog snapshot
+  /// the callback fires against.
+  private func mappedProjectReorder(
+    visible: [Project],
+    from source: IndexSet,
+    to destination: Int
+  ) -> (IndexSet, Int) {
+    let catalogProjects = hierarchyManager.catalog.projects
+    let mappedSource = IndexSet(
+      source.map { idx -> Int in
+        guard idx < visible.count else { return idx }
+        return catalogProjects.firstIndex(where: { $0.id == visible[idx].id }) ?? idx
+      })
+    let mappedDestination: Int
+    if destination >= visible.count {
+      mappedDestination = catalogProjects.count
+    } else {
+      mappedDestination =
+        catalogProjects.firstIndex(where: { $0.id == visible[destination].id })
+        ?? destination
+    }
+    return (mappedSource, mappedDestination)
   }
 
   // MARK: - Pending row
