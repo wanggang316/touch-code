@@ -336,23 +336,6 @@ struct HierarchySidebarView: View {
           ForEach(projects) { project in
             projectSection(project, hotkeyIndex: hotkeyIndex)
           }
-          // Drag-to-reorder Projects (HAN-53). `.onMove` on the project
-          // ForEach lights up the sidebar List's native NSOutlineView
-          // drag — long-press a row, drag, and an insertion line appears
-          // between projects. SwiftUI treats every list row emitted by
-          // one ForEach iteration (header + the project's worktree rows
-          // when expanded) as a single draggable unit, so the whole
-          // project moves as a block. The callback's indices live in the
-          // *visible* (tag-filtered) coordinate system; map them back to
-          // the catalog before forwarding to the reducer.
-          .onMove { source, destination in
-            let (mappedSource, mappedDestination) = mappedProjectReorder(
-              visible: projects, from: source, to: destination
-            )
-            store.send(
-              .reorderProjects(from: mappedSource, to: mappedDestination)
-            )
-          }
         }
         .listStyle(.sidebar)
         .opacity(sidebarIndentReady ? 1 : 0)
@@ -390,27 +373,14 @@ struct HierarchySidebarView: View {
 
   // MARK: - Project section
 
-  /// Each project iteration emits a single SwiftUI `Section(isExpanded:)`.
-  /// The outer `ForEach(projects).onMove` (in `treeBody`) only recognises
-  /// drag-to-reorder when every iteration maps to one collapsible outline
-  /// item — without the `isExpanded:` binding the row never enters
-  /// NSOutlineView's reorder gesture path. SwiftUI does inject its own
-  /// disclosure on the header trailing edge in that mode; the leading
-  /// chevron inside `ProjectHeaderRow` is the primary tap target while
-  /// the SwiftUI-injected trailing chevron is a side-effect we currently
-  /// cannot suppress without replacing the SwiftUI `List` with an
-  /// NSOutlineView wrapper.
-  @ViewBuilder
   private func projectSection(
     _ project: Project,
     hotkeyIndex: [WorktreeID: Int]
   ) -> some View {
-    switch project.loadState {
-    case .failed(let reason):
-      // Wrap the failed row in a single-row Section so every iteration of
-      // the outer ForEach has the same shape — a bare row mixed in with
-      // Sections breaks SwiftUI's sidebar drag.
-      Section {
+    let isExpanded = project.isExpanded
+    return Group {
+      switch project.loadState {
+      case .failed(let reason):
         FailedProjectRow(
           name: project.name,
           rootPath: project.rootPath,
@@ -426,12 +396,30 @@ struct HierarchySidebarView: View {
               ))
           }
         )
-      } header: {
-        EmptyView()
-      }
-    case .loading, .ready:
-      Section(isExpanded: expansionBinding(for: project)) {
-        if project.isExpanded {
+      case .loading, .ready:
+        // Header is its own List row. DisclosureGroup used to nest the worktree rows
+        // inside the header row — that made AppKit animate the single wrapping row's
+        // height on every expand / collapse, visibly jittering the Project name.
+        // Emitting header + each worktree as SIBLING rows lets NSTableView handle
+        // expansion as plain row insert / remove instead.
+        Button {
+          var txn = Transaction()
+          txn.disablesAnimations = true
+          withTransaction(txn) {
+            store.send(.toggleProjectExpansion(project.id))
+          }
+        } label: {
+          ProjectHeaderRow(
+            project: project,
+            isExpanded: isExpanded,
+            store: store
+          )
+        }
+        .buttonStyle(.plain)
+        .listRowInsets(EdgeInsets(top: 10, leading: 0, bottom: 4, trailing: 0))
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+        if isExpanded {
           // Render the four segments individually so pinned and unpinned
           // each own their own ForEach + .onMove (per design doc §渲染合并
           // / 拖拽). Pending rows render in source order between pinned
@@ -470,77 +458,8 @@ struct HierarchySidebarView: View {
             )
           }
         }
-      } header: {
-        // `simultaneousGesture` (not `onTapGesture` / `Button`) is the
-        // only form that lets us catch a click *and* leave the
-        // mouse-down stream visible to NSOutlineView so its long-press
-        // drag can still kick in. Both `onTapGesture` and `Button` take
-        // the mouse-down for themselves and starve the drag gesture —
-        // verified empirically: every variant that captures mouse-down
-        // disables `ForEach.onMove`.
-        ProjectHeaderRow(
-          project: project,
-          isExpanded: project.isExpanded,
-          store: store
-        )
-        .contentShape(Rectangle())
-        .simultaneousGesture(
-          TapGesture().onEnded {
-            var txn = Transaction()
-            txn.disablesAnimations = true
-            withTransaction(txn) {
-              store.send(.toggleProjectExpansion(project.id))
-            }
-          }
-        )
       }
     }
-  }
-
-  /// Two-way binding for `Project.isExpanded`. The `Section(isExpanded:)`
-  /// header tap funnels through this setter so the catalog stays the
-  /// single source of truth — the action no-ops when the value matches.
-  private func expansionBinding(for project: Project) -> Binding<Bool> {
-    Binding(
-      get: { project.isExpanded },
-      set: { newValue in
-        guard newValue != project.isExpanded else { return }
-        store.send(.toggleProjectExpansion(project.id))
-      }
-    )
-  }
-
-  // MARK: - Project reorder index mapping
-
-  /// Translates a `ForEach.onMove` callback's `(IndexSet, Int)` from the
-  /// *visible* project list (which an active tag filter may have shrunk —
-  /// see `filteredProjects(catalog:)`) into the catalog-relative coordinates
-  /// `reorderProjects(from:to:)` expects. When no filter is active the
-  /// mapping is the identity, so this is purely defensive against the
-  /// filtered path. Mapping unknown ids falls back to the input index so the
-  /// move at least lands somewhere reasonable — should not happen in
-  /// practice since the visible list is derived from the catalog snapshot
-  /// the callback fires against.
-  private func mappedProjectReorder(
-    visible: [Project],
-    from source: IndexSet,
-    to destination: Int
-  ) -> (IndexSet, Int) {
-    let catalogProjects = hierarchyManager.catalog.projects
-    let mappedSource = IndexSet(
-      source.map { idx -> Int in
-        guard idx < visible.count else { return idx }
-        return catalogProjects.firstIndex(where: { $0.id == visible[idx].id }) ?? idx
-      })
-    let mappedDestination: Int
-    if destination >= visible.count {
-      mappedDestination = catalogProjects.count
-    } else {
-      mappedDestination =
-        catalogProjects.firstIndex(where: { $0.id == visible[destination].id })
-        ?? destination
-    }
-    return (mappedSource, mappedDestination)
   }
 
   // MARK: - Pending row
@@ -956,7 +875,7 @@ struct HierarchySidebarView: View {
       HStack {
         Spacer()
         Button("Done") { store.send(dismiss) }
-          .keyboardShortcut(.return, modifiers: [])
+          .keyboardShortcut(.defaultAction)
       }
     }
     .padding(24)
@@ -991,7 +910,7 @@ struct HierarchySidebarView: View {
         branch: branch,
         worktreePath: path,
         popoverContent: {
-          WorktreePullRequestPopover(
+          gitHubPopoverContent(
             store: gitHubStore,
             worktreeID: worktree.id,
             branch: branch,
@@ -1002,6 +921,97 @@ struct HierarchySidebarView: View {
     } else {
       EmptyView()
     }
+  }
+
+  @ViewBuilder
+  private func gitHubPopoverContent(
+    store: StoreOf<GitHubFeature>,
+    worktreeID: WorktreeID,
+    branch: String,
+    worktreePath: URL
+  ) -> some View {
+    let snapshot = store.snapshots[worktreeID]
+    let error = store.lastError[worktreeID]
+    let isLoading = store.loading.contains(worktreeID)
+
+    let content: PullRequestPopover.Content = {
+      if let error { return .error(error) }
+      if let snapshot {
+        // 0013 M5: checks now travel inside the snapshot (see the comment on
+        // `snapshot.checkRollup`). `latestWorkflowRuns` remains a separately-fetched
+        // lazy load on popover-open — the batched query does not include workflow-run
+        // IDs yet (Open Question 4 in the design doc).
+        let run = store.latestWorkflowRuns[snapshot.number]
+        return .loaded(snapshot, checks: snapshot.checkRollup, workflowRun: run)
+      }
+      if isLoading { return .loading }
+      return .noPullRequest(branch: branch)
+    }()
+
+    let defaultStrategy = settingsStore.settings.general.defaultMergeStrategy ?? .squash
+
+    let isMutating = store.mutating.contains(worktreeID)
+
+    PullRequestPopover(
+      content: content,
+      defaultMergeStrategy: defaultStrategy,
+      canMerge: !isMutating
+        && snapshot?.mergeable == .mergeable
+        && snapshot?.state == .open
+        && snapshot?.isDraft == false,
+      mergeDisabledReason: isMutating
+        ? "Another GitHub operation is in flight"
+        : Self.mergeDisabledReason(for: snapshot),
+      onMerge: { strategy in
+        if let pr = snapshot {
+          store.send(
+            .mergeRequested(worktreeID, prNumber: pr.number, strategy: strategy, worktreePath: worktreePath)
+          )
+        }
+      },
+      onClose: {
+        if let pr = snapshot {
+          store.send(.closeRequested(worktreeID, prNumber: pr.number, worktreePath: worktreePath))
+        }
+      },
+      onMarkReady: {
+        if let pr = snapshot {
+          store.send(.markReadyRequested(worktreeID, prNumber: pr.number, worktreePath: worktreePath))
+        }
+      },
+      onRerunFailedJobs: {
+        if let pr = snapshot, let run = store.latestWorkflowRuns[pr.number] {
+          store.send(
+            .rerunFailedJobsRequested(worktreeID, runID: run.databaseID, worktreePath: worktreePath)
+          )
+        }
+      },
+      onOpenOnWeb: {
+        if let url = snapshot?.url {
+          store.send(.delegate(.openURL(url)))
+        }
+      },
+      onOpenCheckLog: { url in store.send(.delegate(.openURL(url))) },
+      onSetProjectDefaultStrategy: { [settingsStore] strategy in
+        // Per-Project override UI is deferred to a follow-up; writing to the *global*
+        // default is a useful intermediate behavior — "Set as default" means "use this
+        // strategy everywhere". When per-Project lands, this callback splits into two.
+        settingsStore.mutateGeneral { $0.defaultMergeStrategy = strategy }
+      },
+      onRetry: {
+        store.send(.refreshRequested(worktreeID, branch: branch, worktreePath: worktreePath))
+      }
+    )
+  }
+
+  private static func mergeDisabledReason(for snapshot: PullRequestSnapshot?) -> String? {
+    guard let snapshot else { return "No pull request for this Worktree" }
+    if snapshot.state == .merged { return "Pull request already merged" }
+    if snapshot.state == .closed { return "Pull request closed" }
+    if snapshot.isDraft { return "Pull request is a draft" }
+    if snapshot.mergeable == .conflicting { return "Pull request has merge conflicts" }
+    if snapshot.mergeable == .unknown { return "Merge status unknown — try refresh" }
+    return nil
   }
 
 }
