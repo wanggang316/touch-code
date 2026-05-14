@@ -184,7 +184,7 @@ struct HierarchySidebarView: View {
         Button("Remove Worktree", role: .destructive) {
           store.send(.worktreeRemoveConfirmed)
         }
-        .keyboardShortcut(.defaultAction)
+        .keyboardShortcut(.return, modifiers: [])
         Button("Cancel", role: .cancel) {
           store.send(.worktreeRemoveCancelled)
         }
@@ -204,7 +204,7 @@ struct HierarchySidebarView: View {
         Button("Remove Project", role: .destructive) {
           store.send(.projectRemoveConfirmed)
         }
-        .keyboardShortcut(.defaultAction)
+        .keyboardShortcut(.return, modifiers: [])
         Button("Cancel", role: .cancel) {
           store.send(.projectRemoveCancelled)
         }
@@ -927,7 +927,7 @@ struct HierarchySidebarView: View {
       HStack {
         Spacer()
         Button("Done") { store.send(dismiss) }
-          .keyboardShortcut(.defaultAction)
+          .keyboardShortcut(.return, modifiers: [])
       }
     }
     .padding(24)
