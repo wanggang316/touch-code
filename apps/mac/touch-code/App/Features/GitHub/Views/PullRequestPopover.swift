@@ -34,6 +34,12 @@ struct PullRequestPopover: View {
       .frame(width: 360)
       .frame(minHeight: 160)
       .padding(12)
+      // Toolbar-anchored hosts (status bar) ship a smaller default
+      // `controlSize` into the popover than List-row hosts (sidebar),
+      // so the same popover otherwise rendered at two different sizes
+      // depending on which surface opened it. Pinning `.regular` here
+      // normalises both surfaces (HAN-60).
+      .controlSize(.regular)
   }
 
   @ViewBuilder
@@ -150,15 +156,21 @@ struct PullRequestPopover: View {
       )
       if snapshot.state == .open {
         Button("Close") { onClose() }
-          .buttonStyle(.bordered)
+          .buttonStyle(.borderedProminent)
+          .tint(Color.secondary.opacity(0.25))
+          .foregroundStyle(.primary)
       }
       if snapshot.isDraft && snapshot.state == .open {
         Button("Mark ready") { onMarkReady() }
-          .buttonStyle(.bordered)
+          .buttonStyle(.borderedProminent)
+          .tint(Color.secondary.opacity(0.25))
+          .foregroundStyle(.primary)
       }
       if let run = workflowRun, run.conclusion == .failure {
         Button("Rerun failed") { onRerunFailedJobs() }
-          .buttonStyle(.bordered)
+          .buttonStyle(.borderedProminent)
+          .tint(Color.secondary.opacity(0.25))
+          .foregroundStyle(.primary)
       }
       Spacer()
       Button {
