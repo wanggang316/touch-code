@@ -11,9 +11,12 @@ struct GitWorktreeClientTests {
   // MARK: - sanitizeBranchName
 
   @Test
-  func sanitizeReplacesSlashes() {
-    #expect(GitWorktreeClient.sanitizeBranchName("feature/login") == "feature-login")
-    #expect(GitWorktreeClient.sanitizeBranchName("feature/a/b") == "feature-a-b")
+  func sanitizePreservesSlashAsPathSeparator() {
+    // HAN-57: `feature/abc` maps to nested folders `feature/abc`, not
+    // a flattened `feature-abc`. The full branch path is the relative
+    // directory path under the project's worktree base.
+    #expect(GitWorktreeClient.sanitizeBranchName("feature/login") == "feature/login")
+    #expect(GitWorktreeClient.sanitizeBranchName("feature/a/b") == "feature/a/b")
   }
 
   @Test
@@ -23,15 +26,21 @@ struct GitWorktreeClientTests {
   }
 
   @Test
-  func sanitizeCollapsesRepeatedDashes() {
+  func sanitizeCollapsesRepeatedDashesPerSegment() {
     #expect(GitWorktreeClient.sanitizeBranchName("feature--name") == "feature-name")
-    #expect(GitWorktreeClient.sanitizeBranchName("a///b") == "a-b")
+    #expect(GitWorktreeClient.sanitizeBranchName("a--/b--c") == "a/b-c")
   }
 
   @Test
-  func sanitizeTrimsBoundaryDashes() {
+  func sanitizeCollapsesRepeatedSlashes() {
+    #expect(GitWorktreeClient.sanitizeBranchName("a///b") == "a/b")
+  }
+
+  @Test
+  func sanitizeTrimsBoundaryDashesPerSegment() {
     #expect(GitWorktreeClient.sanitizeBranchName("---trim---") == "trim")
     #expect(GitWorktreeClient.sanitizeBranchName("/feature/") == "feature")
+    #expect(GitWorktreeClient.sanitizeBranchName("-feature/-abc-") == "feature/abc")
   }
 
   @Test

@@ -225,4 +225,48 @@ struct WorktreeLifecycleIntegrationTests {
     // Testing harness for unhandled throws.
     _ = try? await consumer.value
   }
+
+  /// HAN-57: branches with a `/` create nested directories so the
+  /// folder layout mirrors the branch hierarchy (e.g. `feature/abc`
+  /// becomes `<base>/feature/abc`, not `<base>/feature-abc`). Exercises
+  /// the full create → list → remove path against a real `wt` so the
+  /// `mkdir -p $(dirname …)` inside `wt sw` is locked in too.
+  @Test(.enabled(if: WorktreeLifecycleIntegrationTests.wtBundled))
+  func nestedBranchCreatesNestedFolders() async throws {
+    let repo = try makeTempRepo()
+    defer { try? fm.removeItem(at: repo) }
+
+    let client = GitWorktreeClient.makeLive()
+    let baseDir = repo.appending(path: ".worktrees", directoryHint: .isDirectory)
+    try fm.createDirectory(at: baseDir, withIntermediateDirectories: true)
+    let spec = CreateWorktreeSpec(
+      repoRoot: repo,
+      baseDirectory: baseDir,
+      name: "feature/abc",
+      baseRef: "HEAD",
+      fetchOrigin: false,
+      copyIgnored: false,
+      copyUntracked: false
+    )
+
+    var createdPath: URL?
+    for try await event in client.createWorktreeStream(spec) {
+      if case .finished(let path) = event { createdPath = path }
+    }
+    let worktreePath = try #require(createdPath)
+
+    let expected = baseDir
+      .appending(path: "feature/abc", directoryHint: .isDirectory)
+      .standardizedFileURL
+    #expect(worktreePath.standardizedFileURL == expected)
+    #expect(fm.fileExists(atPath: worktreePath.path(percentEncoded: false)))
+    // Parent must be a real intermediate directory, not the flattened
+    // `feature-abc` variant.
+    let parent = worktreePath.deletingLastPathComponent()
+    #expect(parent.lastPathComponent == "feature")
+    #expect(fm.fileExists(atPath: parent.path(percentEncoded: false)))
+
+    try await client.removeWorktree(repo, worktreePath)
+    #expect(!fm.fileExists(atPath: worktreePath.path(percentEncoded: false)))
+  }
 }

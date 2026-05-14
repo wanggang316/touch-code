@@ -184,8 +184,12 @@ struct CreateWorktreeFeature {
           state.validationError = "Branch name produces an empty directory name."
           return .none
         }
+        // Branch names like `feature/abc` map to nested folders
+        // (`feature/abc`); `appending(path:)` honours the embedded
+        // separator, whereas `appending(component:)` would percent-encode
+        // the slash and break the diff against `wt ls --json` (HAN-57).
         let targetURL = state.worktreesDirectory
-          .appending(component: directoryName)
+          .appending(path: directoryName)
         if FileManager.default.fileExists(atPath: targetURL.path(percentEncoded: false)) {
           state.submitError = """
             A folder named \"\(directoryName)\" already exists at the Project's \

@@ -102,29 +102,41 @@ nonisolated struct GitWorktreeClient: Sendable {
 // MARK: - Pure helpers (visible for tests)
 
 nonisolated extension GitWorktreeClient {
-  /// Derives a filesystem-safe directory name from a branch name. Replaces
-  /// `/` with `-`, strips characters that break on macOS filesystems (`\0`,
-  /// `:`), collapses consecutive `-` runs, and trims leading/trailing
-  /// dashes. Intentionally conservative; a collision with an existing
-  /// directory is a hard error at create time (W-Q5) rather than being
-  /// silently suffixed.
+  /// Derives a filesystem-safe relative directory path from a branch name.
+  /// Preserves `/` as a path separator so a branch like `feature/abc`
+  /// becomes nested directories `feature/abc` rather than `feature-abc`
+  /// (HAN-57). Strips characters that break on macOS filesystems (`\0`,
+  /// `:`, `\`); collapses repeated `/` and repeated `-` within each
+  /// segment; trims leading/trailing dashes per segment; drops empty
+  /// segments produced by leading, trailing, or repeated slashes.
+  /// Intentionally conservative; a collision with an existing directory
+  /// is a hard error at create time (W-Q5) rather than being silently
+  /// suffixed.
   static func sanitizeBranchName(_ branch: String) -> String {
-    var scalars: [Character] = []
+    var stripped = ""
     for ch in branch {
       switch ch {
-      case "/":
-        scalars.append("-")
       case "\0", ":", "\\":
         continue
       default:
-        scalars.append(ch)
+        stripped.append(ch)
       }
     }
-    let replaced = String(scalars)
-    // Collapse repeated dashes.
+    let cleanedSegments: [String] = stripped
+      .split(separator: "/", omittingEmptySubsequences: true)
+      .map(cleanSegment(_:))
+      .filter { !$0.isEmpty }
+    return cleanedSegments.joined(separator: "/")
+  }
+
+  /// Collapses consecutive `-` runs inside a single path segment and
+  /// trims leading/trailing dashes. Returns "" when the segment is all
+  /// dashes (callers drop the empty result so leading/trailing `/`
+  /// produce no path component).
+  private static func cleanSegment<S: StringProtocol>(_ segment: S) -> String {
     var collapsed = ""
     var lastWasDash = false
-    for ch in replaced {
+    for ch in segment {
       if ch == "-" {
         if !lastWasDash { collapsed.append(ch) }
         lastWasDash = true
@@ -133,7 +145,6 @@ nonisolated extension GitWorktreeClient {
         lastWasDash = false
       }
     }
-    // Trim leading/trailing dashes.
     while collapsed.first == "-" { collapsed.removeFirst() }
     while collapsed.last == "-" { collapsed.removeLast() }
     return collapsed
