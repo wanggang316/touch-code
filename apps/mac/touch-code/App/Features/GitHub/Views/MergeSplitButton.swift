@@ -54,7 +54,11 @@ struct MergeSplitButton: View {
       .fixedSize()
     }
     .background(
-      Capsule(style: .continuous)
+      // Matches the corner radius of macOS 26's `.borderedProminent`
+      // capsule at `.controlSize(.regular)` — using `Capsule()` here
+      // gives a height/2 radius that's visibly rounder than the inner
+      // Merge pill.
+      RoundedRectangle(cornerRadius: 8, style: .continuous)
         .stroke(Color.secondary.opacity(0.3), lineWidth: 0.5)
     )
   }
