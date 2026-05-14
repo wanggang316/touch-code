@@ -137,7 +137,6 @@ struct WorktreeDetailView: View {
   private struct WorktreeInfo {
     let worktree: Worktree
     let project: Project
-    let branchLabel: String
   }
 
   private func worktreeInfo(for address: Address) -> WorktreeInfo? {
@@ -146,11 +145,7 @@ struct WorktreeDetailView: View {
         .projects.first(where: { $0.id == address.project }),
       let worktree = project.worktrees.first(where: { $0.id == address.worktree })
     else { return nil }
-    return WorktreeInfo(
-      worktree: worktree,
-      project: project,
-      branchLabel: worktree.branch ?? worktree.name
-    )
+    return WorktreeInfo(worktree: worktree, project: project)
   }
 
   /// Tab bar row above the terminal region. Branch label + bell / open-in /
@@ -211,9 +206,12 @@ struct WorktreeDetailView: View {
       // Pre-26 keeps the older `.navigation` / `.principal` /
       // `.primaryAction` zoning since ToolbarSpacer is macOS 26+.
       if #available(macOS 26.0, *) {
-        if info.project.supportsWorktrees {
-          branchToolbarItemDefault(info: info)
-        }
+        // Always render the identity cluster, even for non-git Projects —
+        // the sidebar shows the synthetic folder row in that case, and
+        // `WorktreeHeaderInfoLabel` falls through to the same folder
+        // glyph + name rendering via `isSynthetic`. Keeps the header and
+        // sidebar consistent (HAN-60).
+        branchToolbarItemDefault(info: info)
         ToolbarSpacer(.flexible)
         centeredStatusBarToolbarItem(address: address)
         // Bell is intentionally placed *immediately* after the status
@@ -224,9 +222,7 @@ struct WorktreeDetailView: View {
         ToolbarSpacer(.flexible)
         trailingButtonsDefault(address: address, info: info)
       } else {
-        if info.project.supportsWorktrees {
-          branchToolbarItem(info: info)
-        }
+        branchToolbarItem(info: info)
         statusBarToolbarItem(address: address)
         // Same as the modern path: bell sits adjacent to the principal
         // status item so the user reads "[status] [bell]" as one
@@ -262,37 +258,21 @@ struct WorktreeDetailView: View {
     }
   }
 
-  /// Branch glyph that mirrors `WorktreeRowIcon`'s no-PR rendering — same
-  /// `git-branch` asset, template mode, 14×14 — so the toolbar reads as
-  /// the same icon family the sidebar uses.
-  private var branchGlyph: some View {
-    Image("git-branch")
-      .renderingMode(.template)
-      .resizable()
-      .aspectRatio(contentMode: .fit)
-      .frame(width: 14, height: 14)
-      .foregroundStyle(.secondary)
-      .accessibilityHidden(true)
-  }
-
-  /// macOS 26 leading branch item. Default placement so it sits before
+  /// macOS 26 leading identity item. Default placement so it sits before
   /// the leading `ToolbarSpacer(.flexible)` and reads as the leftmost
-  /// chip. `.sharedBackgroundVisibility(.hidden)` opts the branch label
-  /// out of the toolbar's glass capsule so it reads as plain text
-  /// alongside the trailing action chips.
+  /// chip. `.sharedBackgroundVisibility(.hidden)` opts the cluster out
+  /// of the toolbar's glass capsule so the icon + name + branch + PR
+  /// stats read as plain content alongside the trailing action chips,
+  /// matching the sidebar row (HAN-60).
   @available(macOS 26.0, *)
   @ToolbarContentBuilder
   private func branchToolbarItemDefault(info: WorktreeInfo) -> some ToolbarContent {
     ToolbarItem {
-      HStack(spacing: 6) {
-        branchGlyph
-        Text(info.branchLabel)
-          .lineLimit(1)
-      }
-      .font(.headline)
-      .accessibilityElement(children: .ignore)
-      .accessibilityLabel("Current branch: \(info.branchLabel)")
-      .accessibilityAddTraits(.isStaticText)
+      WorktreeHeaderInfoLabel(
+        worktree: info.worktree,
+        project: info.project,
+        gitHubStore: gitHubStore
+      )
     }
     .sharedBackgroundVisibility(.hidden)
   }
@@ -332,15 +312,11 @@ struct WorktreeDetailView: View {
   @ToolbarContentBuilder
   private func branchToolbarItem(info: WorktreeInfo) -> some ToolbarContent {
     let item = ToolbarItem(placement: .navigation) {
-      HStack(spacing: 6) {
-        branchGlyph
-        Text(info.branchLabel)
-          .lineLimit(1)
-      }
-      .font(.headline)
-      .accessibilityElement(children: .ignore)
-      .accessibilityLabel("Current branch: \(info.branchLabel)")
-      .accessibilityAddTraits(.isStaticText)
+      WorktreeHeaderInfoLabel(
+        worktree: info.worktree,
+        project: info.project,
+        gitHubStore: gitHubStore
+      )
     }
     if #available(macOS 26.0, *) {
       item.sharedBackgroundVisibility(.hidden)
