@@ -73,8 +73,10 @@ public nonisolated struct WorktreeSettings: Equatable, Codable, Sendable {
     self.copyIgnoredOnCreate = try container.decodeIfPresent(Bool.self, forKey: .copyIgnoredOnCreate) ?? false
     self.copyUntrackedOnCreate = try container.decodeIfPresent(Bool.self, forKey: .copyUntrackedOnCreate) ?? false
     self.autoDeleteArchived = try container.decodeIfPresent(Bool.self, forKey: .autoDeleteArchived) ?? false
-    self.autoDeletePeriod = try container.decodeIfPresent(AutoDeletePeriod.self, forKey: .autoDeletePeriod) ?? .sevenDays
-    self.deleteRemoteBranchWithWorktree = try container.decodeIfPresent(Bool.self, forKey: .deleteRemoteBranchWithWorktree) ?? false
+    self.autoDeletePeriod =
+      try container.decodeIfPresent(AutoDeletePeriod.self, forKey: .autoDeletePeriod) ?? .sevenDays
+    self.deleteRemoteBranchWithWorktree =
+      try container.decodeIfPresent(Bool.self, forKey: .deleteRemoteBranchWithWorktree) ?? false
   }
 
   public func encode(to encoder: Encoder) throws {

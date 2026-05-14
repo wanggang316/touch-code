@@ -111,10 +111,11 @@ public final class TerminalHandlers {
     if !ok {
       return .failed(.notFound(kind: "pane", id: req.paneID.description))
     }
-    return .unary(.object([
-      "delivered": .bool(true),
-      "bytes": .int(Int64(bytes.count)),
-    ]))
+    return .unary(
+      .object([
+        "delivered": .bool(true),
+        "bytes": .int(Int64(bytes.count)),
+      ]))
   }
 
   static func decodeHex(_ raw: String) -> [UInt8]? {

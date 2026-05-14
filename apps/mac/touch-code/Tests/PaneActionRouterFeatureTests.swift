@@ -242,7 +242,9 @@ struct PaneActionRouterFeatureTests {
   @Test
   func gotoSplitInGridResolvesByGeometryNotTreeOrder() async throws {
     let f = Fixture()
-    let topRight = PaneID(), bottomLeft = PaneID(), bottomRight = PaneID()
+    let topRight = PaneID()
+    let bottomLeft = PaneID()
+    let bottomRight = PaneID()
     let splitTree = try SplitTree(leaf: f.paneID)
       .inserting(topRight, at: f.paneID, direction: .right)
       .inserting(bottomLeft, at: f.paneID, direction: .down)

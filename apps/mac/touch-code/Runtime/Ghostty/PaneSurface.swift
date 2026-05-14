@@ -462,32 +462,32 @@ final class PaneSurface {
   private static func keyEvent(forControlByte byte: UInt8) -> (UInt32, UInt32)? {  // swiftlint:disable:this cyclomatic_complexity
     let ctrl = UInt32(GHOSTTY_MODS_CTRL.rawValue)
     switch byte {
-    case 0x1B: return (0x35, 0)        // ESC
-    case 0x09: return (0x30, 0)        // TAB
-    case 0x08: return (0x33, 0)        // BS  -> backspace
-    case 0x7F: return (0x33, 0)        // DEL -> backspace (matches macOS default)
-    case 0x01: return (0x00, ctrl)     // Ctrl-A
-    case 0x02: return (0x0B, ctrl)     // Ctrl-B
-    case 0x03: return (0x08, ctrl)     // Ctrl-C
-    case 0x04: return (0x02, ctrl)     // Ctrl-D
-    case 0x05: return (0x0E, ctrl)     // Ctrl-E
-    case 0x06: return (0x03, ctrl)     // Ctrl-F
-    case 0x07: return (0x05, ctrl)     // Ctrl-G
-    case 0x0B: return (0x28, ctrl)     // Ctrl-K
-    case 0x0C: return (0x25, ctrl)     // Ctrl-L
-    case 0x0E: return (0x2D, ctrl)     // Ctrl-N
-    case 0x0F: return (0x1F, ctrl)     // Ctrl-O
-    case 0x10: return (0x23, ctrl)     // Ctrl-P
-    case 0x11: return (0x0C, ctrl)     // Ctrl-Q
-    case 0x12: return (0x0F, ctrl)     // Ctrl-R
-    case 0x13: return (0x01, ctrl)     // Ctrl-S
-    case 0x14: return (0x11, ctrl)     // Ctrl-T
-    case 0x15: return (0x20, ctrl)     // Ctrl-U
-    case 0x16: return (0x09, ctrl)     // Ctrl-V
-    case 0x17: return (0x0D, ctrl)     // Ctrl-W
-    case 0x18: return (0x07, ctrl)     // Ctrl-X
-    case 0x19: return (0x10, ctrl)     // Ctrl-Y
-    case 0x1A: return (0x06, ctrl)     // Ctrl-Z
+    case 0x1B: return (0x35, 0)  // ESC
+    case 0x09: return (0x30, 0)  // TAB
+    case 0x08: return (0x33, 0)  // BS  -> backspace
+    case 0x7F: return (0x33, 0)  // DEL -> backspace (matches macOS default)
+    case 0x01: return (0x00, ctrl)  // Ctrl-A
+    case 0x02: return (0x0B, ctrl)  // Ctrl-B
+    case 0x03: return (0x08, ctrl)  // Ctrl-C
+    case 0x04: return (0x02, ctrl)  // Ctrl-D
+    case 0x05: return (0x0E, ctrl)  // Ctrl-E
+    case 0x06: return (0x03, ctrl)  // Ctrl-F
+    case 0x07: return (0x05, ctrl)  // Ctrl-G
+    case 0x0B: return (0x28, ctrl)  // Ctrl-K
+    case 0x0C: return (0x25, ctrl)  // Ctrl-L
+    case 0x0E: return (0x2D, ctrl)  // Ctrl-N
+    case 0x0F: return (0x1F, ctrl)  // Ctrl-O
+    case 0x10: return (0x23, ctrl)  // Ctrl-P
+    case 0x11: return (0x0C, ctrl)  // Ctrl-Q
+    case 0x12: return (0x0F, ctrl)  // Ctrl-R
+    case 0x13: return (0x01, ctrl)  // Ctrl-S
+    case 0x14: return (0x11, ctrl)  // Ctrl-T
+    case 0x15: return (0x20, ctrl)  // Ctrl-U
+    case 0x16: return (0x09, ctrl)  // Ctrl-V
+    case 0x17: return (0x0D, ctrl)  // Ctrl-W
+    case 0x18: return (0x07, ctrl)  // Ctrl-X
+    case 0x19: return (0x10, ctrl)  // Ctrl-Y
+    case 0x1A: return (0x06, ctrl)  // Ctrl-Z
     default: return nil
     }
   }
