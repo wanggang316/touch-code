@@ -390,15 +390,16 @@ struct HierarchySidebarView: View {
 
   // MARK: - Project section
 
-  /// Each project iteration emits a single SwiftUI `Section`. The outer
-  /// `ForEach(projects).onMove` (in `treeBody`) only recognises
-  /// drag-to-reorder when every iteration maps to one List unit; the
-  /// previous "header Button + sibling worktree rows" shape hid projects
-  /// from `.onMove` entirely. We deliberately use a *non*-collapsible
-  /// `Section` (no `isExpanded:` binding) so SwiftUI does not inject its
-  /// own trailing disclosure chevron — expansion is still our concern
-  /// and is driven by the leading chevron inside `ProjectHeaderRow` plus
-  /// the conditional rendering of the worktree rows below.
+  /// Each project iteration emits a single SwiftUI `Section(isExpanded:)`.
+  /// The outer `ForEach(projects).onMove` (in `treeBody`) only recognises
+  /// drag-to-reorder when every iteration maps to one collapsible outline
+  /// item — without the `isExpanded:` binding the row never enters
+  /// NSOutlineView's reorder gesture path. SwiftUI does inject its own
+  /// disclosure on the header trailing edge in that mode; the leading
+  /// chevron inside `ProjectHeaderRow` is the primary tap target while
+  /// the SwiftUI-injected trailing chevron is a side-effect we currently
+  /// cannot suppress without replacing the SwiftUI `List` with an
+  /// NSOutlineView wrapper.
   @ViewBuilder
   private func projectSection(
     _ project: Project,
@@ -429,7 +430,7 @@ struct HierarchySidebarView: View {
         EmptyView()
       }
     case .loading, .ready:
-      Section {
+      Section(isExpanded: expansionBinding(for: project)) {
         if project.isExpanded {
           // Render the four segments individually so pinned and unpinned
           // each own their own ForEach + .onMove (per design doc §渲染合并
@@ -470,12 +471,12 @@ struct HierarchySidebarView: View {
           }
         }
       } header: {
-        // Plain content + `.onTapGesture` (not `Button`). A SwiftUI
-        // `Button` would capture mouse-down at the row level and stop
-        // NSOutlineView's long-press-to-drag gesture from firing, so
-        // `ForEach.onMove` would never see the drag. `onTapGesture` is
-        // light enough that the underlying NSTableView still owns the
-        // drag handle while we keep "click row to toggle expansion".
+        // `Section(isExpanded:)` only wires its binding to the trailing
+        // disclosure chevron — the rest of the header area is inert by
+        // default. Add an explicit `onTapGesture` so a click anywhere
+        // on the header row (project name, hover chrome gutter, etc.)
+        // still flips expansion. `onTapGesture` lets the long-press
+        // drag bubble up to NSOutlineView, unlike `Button`.
         ProjectHeaderRow(
           project: project,
           isExpanded: project.isExpanded,
@@ -491,6 +492,19 @@ struct HierarchySidebarView: View {
         }
       }
     }
+  }
+
+  /// Two-way binding for `Project.isExpanded`. The `Section(isExpanded:)`
+  /// header tap funnels through this setter so the catalog stays the
+  /// single source of truth — the action no-ops when the value matches.
+  private func expansionBinding(for project: Project) -> Binding<Bool> {
+    Binding(
+      get: { project.isExpanded },
+      set: { newValue in
+        guard newValue != project.isExpanded else { return }
+        store.send(.toggleProjectExpansion(project.id))
+      }
+    )
   }
 
   // MARK: - Project reorder index mapping
