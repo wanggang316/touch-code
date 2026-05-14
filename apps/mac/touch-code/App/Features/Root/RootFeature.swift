@@ -190,6 +190,13 @@ struct RootFeature {
     /// PR snapshot has been fetched for it yet (typical for non-GitHub
     /// repos or freshly created branches).
     case openCurrentPRRequested
+    /// ⌘⇧G entry point (HAN-58). Resolves the current Project's gitRoot from
+    /// the catalog, asks `gitService.remoteInfo` to parse the origin remote,
+    /// and forwards `https://<host>/<owner>/<repo>` through the GitHub
+    /// delegate's `openURL` hop. Silent no-op when no Project is selected,
+    /// the Project has no gitRoot (plain directory Project), or the remote
+    /// cannot be parsed (no origin, malformed URL).
+    case openCurrentProjectOnGitHubRequested
     /// ⌘N entry point. Looks up the current Project from `state.selection`
     /// and forwards `.sidebar(.projectAddWorktreeTapped(projectID:))` so
     /// `HierarchySidebarFeature` opens its `CreateWorktreeFeature` sheet —
@@ -323,6 +330,7 @@ struct RootFeature {
   @Dependency(ProjectReconciler.self) private var projectReconciler
   @Dependency(SettingsWindowPresenter.self) private var settingsWindowPresenter
   @Dependency(GitHubSnapshotCacheClient.self) private var gitHubSnapshotCache
+  @Dependency(GitServiceClient.self) private var gitServiceClient
 
   /// Child-feature scopes. Split from `body` so Swift's type inference budget stays under
   /// the single-expression limit — each additional top-level `Scope` in `body` adds to the
@@ -1038,6 +1046,29 @@ struct RootFeature {
           let snapshot = state.gitHub.snapshots[worktreeID]
         else { return .none }
         return .send(.gitHub(.delegate(.openURL(snapshot.url))))
+
+      case .openCurrentProjectOnGitHubRequested:
+        guard let projectID = state.selection.projectID else { return .none }
+        // Prefer the cached batched-PR snapshot when present — it already holds
+        // a parsed `(host, owner, repo)` triple, so we skip the subprocess.
+        if let cached = state.gitHub.snapshotsByProject[projectID],
+          let url = URL(string: "https://\(cached.host)/\(cached.owner)/\(cached.repo)")
+        {
+          return .send(.gitHub(.delegate(.openURL(url))))
+        }
+        let catalog = hierarchyClient.snapshot()
+        guard
+          let project = catalog.projects.first(where: { $0.id == projectID }),
+          let gitRootPath = project.gitRoot
+        else { return .none }
+        let gitRoot = URL(fileURLWithPath: gitRootPath)
+        return .run { [gitService = gitServiceClient] send in
+          guard let info = try? await gitService.remoteInfo(gitRoot) else { return }
+          guard
+            let url = URL(string: "https://\(info.host)/\(info.owner)/\(info.repo)")
+          else { return }
+          await send(.gitHub(.delegate(.openURL(url))))
+        }
 
       case .newWorktreeForCurrentProjectRequested:
         guard let projectID = state.selection.projectID else { return .none }

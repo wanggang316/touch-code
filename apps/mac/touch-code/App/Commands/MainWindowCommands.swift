@@ -19,6 +19,10 @@ import TouchCodeCore
 ///   default "Find Previous" chord in editable-text contexts (Settings panes, palette
 ///   query, hotkey recorder, etc.). In-GitViewer keybindings (`j / k / g / G / …`) gate
 ///   on `press.modifiers.isEmpty` and are never shadowed by these ⌘-modified chords.
+/// - `Open Project on GitHub` (HAN-58) takes `⌘⇧G`. This intentionally shadows AppKit's
+///   "Find Previous" — touch-code's text-input surfaces (palette query, rename sheet,
+///   hotkey recorder) don't expose Find Next/Previous, so the cost is nil and the chord
+///   pairs naturally with `⌘G` ("Toggle Git Viewer") + `⌘⌃G` ("Open PR on GitHub").
 /// - The app delegate guards `⌘Q` quit with a confirmation when running terminal sessions
 ///   exist. The chord itself is the standard AppKit one and is not registered with the
 ///   shortcut registry — quitting is a system-level action, not a rebindable in-app command.
@@ -80,6 +84,12 @@ struct MainWindowCommands: Commands {
       }
       .appKeyboardShortcut(.openCurrentPR, in: shortcuts)
       .disabled(!hasPRForCurrentWorktree)
+
+      Button("Open Project on GitHub") {
+        store()?.send(.openCurrentProjectOnGitHubRequested)
+      }
+      .appKeyboardShortcut(.openProjectOnGitHub, in: shortcuts)
+      .disabled(!hasCurrentProject)
 
       Divider()
 

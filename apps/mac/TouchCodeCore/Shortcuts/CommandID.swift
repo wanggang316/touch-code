@@ -34,6 +34,7 @@ public enum CommandID: String, CaseIterable, Hashable, Sendable, Codable, Coding
   case toggleDiffInspector = "toggleGitViewer"
   case addProject
   case openCurrentPR
+  case openProjectOnGitHub
   case newWorktree
   case splitRight
   case splitDown

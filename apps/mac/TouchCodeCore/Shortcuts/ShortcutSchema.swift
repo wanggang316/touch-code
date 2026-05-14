@@ -446,5 +446,12 @@ extension ShortcutSchema {
       scope: .configurable,
       defaultBinding: .init(keyCode: UInt16(kVK_ANSI_G), modifiers: [.command, .control])
     ),
+    .init(
+      id: .openProjectOnGitHub,
+      title: "Open Project on GitHub",
+      category: .actions,
+      scope: .configurable,
+      defaultBinding: .init(keyCode: UInt16(kVK_ANSI_G), modifiers: [.command, .shift])
+    ),
   ]
 }
