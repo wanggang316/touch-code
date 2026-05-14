@@ -1,18 +1,18 @@
 import SwiftUI
 import TouchCodeCore
 
-/// Split-button for the Merge action. The primary face merges with the
-/// current default strategy; the trailing dropdown opens a Menu with
-/// the three strategies plus a "Set as default for this Project"
-/// sub-menu (per UI design Surface 2).
+/// Split-button for the Merge action. Primary face merges with the current default
+/// strategy; the caret half opens a Menu with the three strategies plus a "Set as default
+/// for this Project" sub-menu (per UI design Surface 2).
 ///
-/// Implemented with `Menu(primaryAction:)` + `.borderedProminent` so
-/// macOS paints the entire control as a single accent-tinted pill with
-/// a native split indicator — same height, same corner radius, same
-/// chrome as the neighbouring action buttons in the popover. Earlier
-/// hand-rolled forms (HStack + custom outline, or custom capsule with
-/// hover state) all hit visual mismatches against the sibling buttons
-/// on macOS 26.
+/// Layout is a `.borderedProminent` primary `Button` (accent-blue capsule) plus a
+/// borderless caret `Menu`, both wrapped in a single `Capsule(style: .continuous)`
+/// stroke so the chevron area shares one frame with the Merge half. The outer
+/// `Capsule` matches the inner pill's curvature on macOS 26; the sibling Close /
+/// Mark-ready / Rerun-failed buttons in `PullRequestPopover` are styled
+/// `.borderedProminent` with a grey tint so the whole action row reads as
+/// uniformly-shaped capsules — only the colour distinguishes primary from
+/// secondary actions.
 struct MergeSplitButton: View {
   let defaultStrategy: MergeStrategy
   let isDisabled: Bool
@@ -21,23 +21,41 @@ struct MergeSplitButton: View {
   let onSetProjectDefault: (MergeStrategy) -> Void
 
   var body: some View {
-    Menu {
-      ForEach(MergeStrategy.allCases, id: \.self) { strategy in
-        Button(strategy.displayName) { onMerge(strategy) }
+    HStack(spacing: 0) {
+      Button {
+        onMerge(defaultStrategy)
+      } label: {
+        Text("Merge (\(defaultStrategy.shortName))")
+          .font(.callout)
+          .padding(.horizontal, 10)
       }
-      Divider()
-      Menu("Set as default for this Project") {
+      .buttonStyle(.borderedProminent)
+      .disabled(isDisabled)
+      .help(isDisabled ? (disabledReason ?? "") : "Merge with \(defaultStrategy.displayName)")
+
+      Menu {
         ForEach(MergeStrategy.allCases, id: \.self) { strategy in
-          Button(strategy.displayName) { onSetProjectDefault(strategy) }
+          Button(strategy.displayName) { onMerge(strategy) }
         }
+        Divider()
+        Menu("Set as default for this Project") {
+          ForEach(MergeStrategy.allCases, id: \.self) { strategy in
+            Button(strategy.displayName) { onSetProjectDefault(strategy) }
+          }
+        }
+      } label: {
+        Image(systemName: "chevron.down")
+          .imageScale(.small)
+          .padding(.horizontal, 6)
       }
-    } label: {
-      Text("Merge (\(defaultStrategy.shortName))")
-    } primaryAction: {
-      onMerge(defaultStrategy)
+      .menuStyle(.borderlessButton)
+      .menuIndicator(.hidden)
+      .disabled(isDisabled)
+      .fixedSize()
     }
-    .buttonStyle(.borderedProminent)
-    .disabled(isDisabled)
-    .help(isDisabled ? (disabledReason ?? "") : "Merge with \(defaultStrategy.displayName)")
+    .background(
+      Capsule(style: .continuous)
+        .stroke(Color.secondary.opacity(0.3), lineWidth: 0.5)
+    )
   }
 }
