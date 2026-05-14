@@ -213,7 +213,7 @@ struct WorktreeDetailView: View {
         // sidebar consistent (HAN-60).
         branchToolbarItemDefault(info: info)
         ToolbarSpacer(.flexible)
-        centeredStatusBarToolbarItem(address: address)
+        centeredStatusBarToolbarItem(address: address, info: info)
         // Bell is intentionally placed *immediately* after the status
         // capsule with no flexible spacer between them — keeps the
         // status / bell pair visually grouped at the window's
@@ -223,7 +223,7 @@ struct WorktreeDetailView: View {
         trailingButtonsDefault(address: address, info: info)
       } else {
         branchToolbarItem(info: info)
-        statusBarToolbarItem(address: address)
+        statusBarToolbarItem(address: address, info: info)
         // Same as the modern path: bell sits adjacent to the principal
         // status item so the user reads "[status] [bell]" as one
         // cluster rather than seeing the bell in the trailing button
@@ -326,7 +326,7 @@ struct WorktreeDetailView: View {
   }
 
   @ToolbarContentBuilder
-  private func statusBarToolbarItem(address: Address) -> some ToolbarContent {
+  private func statusBarToolbarItem(address: Address, info: WorktreeInfo) -> some ToolbarContent {
     // No `.sharedBackgroundVisibility(.hidden)` — let macOS 26's toolbar
     // provide the standard glass capsule so the status slot reads as a
     // peer of the trailing button cluster instead of a hand-rolled chip.
@@ -335,7 +335,9 @@ struct WorktreeDetailView: View {
       StatusBarView(
         store: statusBarStore,
         gitHubStore: gitHubStore,
-        worktreeID: address.worktree
+        worktreeID: address.worktree,
+        worktreePath: URL(fileURLWithPath: info.worktree.path),
+        branch: info.worktree.branch
       )
     }
   }
@@ -347,12 +349,16 @@ struct WorktreeDetailView: View {
   /// (instead of pinned to the title-bar's geometric center).
   @available(macOS 26.0, *)
   @ToolbarContentBuilder
-  private func centeredStatusBarToolbarItem(address: Address) -> some ToolbarContent {
+  private func centeredStatusBarToolbarItem(
+    address: Address, info: WorktreeInfo
+  ) -> some ToolbarContent {
     ToolbarItem {
       StatusBarView(
         store: statusBarStore,
         gitHubStore: gitHubStore,
-        worktreeID: address.worktree
+        worktreeID: address.worktree,
+        worktreePath: URL(fileURLWithPath: info.worktree.path),
+        branch: info.worktree.branch
       )
     }
   }

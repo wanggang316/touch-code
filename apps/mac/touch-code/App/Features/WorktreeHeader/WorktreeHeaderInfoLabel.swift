@@ -5,12 +5,14 @@ import TouchCodeCore
 /// Leading cluster in the worktree detail toolbar. Mirrors the sidebar
 /// Worktree row's identity surface so the two read as the same record:
 /// the same `WorktreeRowIcon` (PR-state aware, role tint, rollup overlay,
-/// unread bell override), the worktree name + pin marker, the branch
-/// subtitle (only when it differs from the name — same suppression rule
-/// the sidebar uses), the `+N −M` open-PR diff stats, and the `#NN`
-/// `PullRequestBadge`. Tapping the PR badge opens the PR on github.com
-/// via the same `GitHubFeature.delegate(.openURL)` path the sidebar
-/// badge uses, so behaviour stays in sync alongside the visuals.
+/// unread bell override), the worktree name + pin marker, and the
+/// branch subtitle (only when it differs from the name — same
+/// suppression rule the sidebar uses).
+///
+/// The PR number badge and `+N −M` diff stats deliberately do not appear
+/// here: the titlebar status bar (`StatusPullRequestView`) already owns
+/// both — duplicating them in the leading toolbar item would just
+/// repeat the same #NN twice across the title row.
 struct WorktreeHeaderInfoLabel: View {
   let worktree: Worktree
   let project: Project
@@ -61,46 +63,15 @@ struct WorktreeHeaderInfoLabel: View {
             .lineLimit(1)
         }
       }
-      if let snapshot {
-        diffStatsLabel(snapshot: snapshot)
-        PullRequestBadge(
-          state: .loaded(snapshot, rollup: rollup),
-          onTap: { gitHubStore.send(.delegate(.openURL(snapshot.url))) }
-        )
-      }
     }
     .accessibilityElement(children: .combine)
-    .accessibilityLabel(accessibilityLabel(snapshot: snapshot))
+    .accessibilityLabel(accessibilityLabel)
   }
 
-  /// `+N −M` patch-size indicator, gated on `.open` PRs only — closed /
-  /// merged PRs hide their counts in the sidebar too (the diff is already
-  /// in base or discarded), so the header follows suit.
-  @ViewBuilder
-  private func diffStatsLabel(snapshot: PullRequestSnapshot) -> some View {
-    if snapshot.state == .open, snapshot.additions > 0 || snapshot.deletions > 0 {
-      HStack(spacing: 4) {
-        if snapshot.additions > 0 {
-          Text("+\(snapshot.additions)").foregroundStyle(.green)
-        }
-        if snapshot.deletions > 0 {
-          Text("−\(snapshot.deletions)").foregroundStyle(.red)
-        }
-      }
-      .font(.caption2.monospacedDigit())
-      .accessibilityLabel(
-        "\(snapshot.additions) additions, \(snapshot.deletions) deletions"
-      )
-    }
-  }
-
-  private func accessibilityLabel(snapshot: PullRequestSnapshot?) -> Text {
+  private var accessibilityLabel: Text {
     var parts: [String] = [worktree.name]
     if let branch = worktree.branch, branch != worktree.name {
       parts.append("branch \(branch)")
-    }
-    if let snapshot {
-      parts.append("pull request #\(snapshot.number)")
     }
     return Text(parts.joined(separator: ", "))
   }

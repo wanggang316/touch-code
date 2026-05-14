@@ -11,6 +11,15 @@ struct StatusBarView: View {
   /// Active Worktree identifier, nil when selection doesn't resolve one
   /// (sidebar placeholder state). Drives the PR form's snapshot lookup.
   let worktreeID: WorktreeID?
+  /// Active Worktree's filesystem path — needed by the hover popover so
+  /// it can dispatch merge / close / refresh actions that take a CWD.
+  /// Nil when `worktreeID` is nil; the PR form is gated on `worktreeID`
+  /// so the popover anchor never mounts without this.
+  var worktreePath: URL? = nil
+  /// Branch name for the popover's `.noPullRequest` fallback and the
+  /// retry-refresh dispatch. The PR form is only selected when a
+  /// snapshot exists, so this is mostly carried for the retry path.
+  var branch: String? = nil
 
   var body: some View {
     HStack(spacing: 10) {
@@ -37,8 +46,15 @@ struct StatusBarView: View {
       StatusToastView(toast: toast, compact: compact)
         .transition(.opacity)
     case .pullRequest(let snapshot):
-      StatusPullRequestView(snapshot: snapshot, store: gitHubStore, compact: compact)
-        .transition(.opacity)
+      StatusPullRequestView(
+        snapshot: snapshot,
+        store: gitHubStore,
+        worktreeID: worktreeID,
+        worktreePath: worktreePath,
+        branch: branch,
+        compact: compact
+      )
+      .transition(.opacity)
     case .motivational:
       StatusMotivationalView(compact: compact)
         .transition(.opacity)

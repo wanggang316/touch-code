@@ -2,7 +2,8 @@ import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
 
-/// Titlebar-center PR form: `#N` badge + ChecksRollupRing + one-line summary.
+/// Titlebar-center PR form: `#N` badge + `+N −M` diff stats +
+/// ChecksRollupRing + one-line summary.
 ///
 /// Interactions:
 ///   * plain click → opens the PR on github.com (same dispatch the sidebar
@@ -10,18 +11,31 @@ import TouchCodeCore
 ///   * ⌘-hold → summary text swaps to `Open on GitHub <chord>`, hinting the
 ///     keyboard binding registered for `.openCurrentPR` (registry default
 ///     ⌘⇧G; respects user override).
-///
-/// The click intentionally does not host `PullRequestPopover` today — see
-/// ExecPlan 0014 Decision Log, 2026-04-24 (M4.C) for the tradeoff and
-/// OQ-7 for the follow-up.
+///   * hover dwell (150 ms) → shows the rich `WorktreePullRequestPopover`
+///     (HAN-60), same view the sidebar badge uses. Independent of the
+///     sidebar's `GitHubFeature.popoverTarget` so the two surfaces don't
+///     mount a popover at each other's anchor.
 struct StatusPullRequestView: View {
   let snapshot: PullRequestSnapshot
   let store: StoreOf<GitHubFeature>
+  /// Active Worktree, needed by the hover popover for dispatch CWDs.
+  /// When nil (e.g. a hypothetical preview path with no real selection)
+  /// the popover is suppressed but click-to-open still works.
+  var worktreeID: WorktreeID? = nil
+  var worktreePath: URL? = nil
+  var branch: String? = nil
   /// Collapses the trailing detail text when true. Ring + badge stay so
   /// the slot still carries the CI health signal at a glance.
   var compact: Bool = false
   @Environment(CommandKeyObserver.self) private var commandKeyObserver
   @Environment(\.resolvedShortcuts) private var resolvedShortcuts
+
+  @State private var isBadgeHovered = false
+  @State private var isPopoverHovered = false
+  @State private var isPopoverPresented = false
+  @State private var hoverTask: Task<Void, Never>?
+
+  private static var hoverDelay: Duration { .milliseconds(150) }
 
   var body: some View {
     Button {
@@ -29,6 +43,7 @@ struct StatusPullRequestView: View {
     } label: {
       HStack(spacing: 6) {
         badge
+        diffStats
         ChecksRollupRing(checks: snapshot.checkRollup)
         if !compact {
           detailText
@@ -43,6 +58,24 @@ struct StatusPullRequestView: View {
     .accessibilityValue(Self.summaryText(snapshot: snapshot))
     .accessibilityAddTraits(.isButton)
     .accessibilityHint("Opens on GitHub")
+    .onHover { hovering in
+      isBadgeHovered = hovering
+      reconcileHover()
+    }
+    .popover(isPresented: $isPopoverPresented, arrowEdge: .bottom) {
+      if let worktreeID, let worktreePath {
+        WorktreePullRequestPopover(
+          store: store,
+          worktreeID: worktreeID,
+          branch: branch ?? "",
+          worktreePath: worktreePath
+        )
+        .onHover { hovering in
+          isPopoverHovered = hovering
+          reconcileHover()
+        }
+      }
+    }
   }
 
   private var badge: some View {
@@ -55,6 +88,28 @@ struct StatusPullRequestView: View {
         snapshot.state.badgeFill,
         in: RoundedRectangle(cornerRadius: 4, style: .continuous)
       )
+  }
+
+  /// `+N −M` patch-size indicator next to the `#NN` badge. Gated on
+  /// `.open` PRs only — closed / merged PRs hide the counts since the
+  /// diff is already in base or discarded. Same suppression rule
+  /// `WorktreeGitHubBadge` uses for the sidebar.
+  @ViewBuilder
+  private var diffStats: some View {
+    if snapshot.state == .open, snapshot.additions > 0 || snapshot.deletions > 0 {
+      HStack(spacing: 4) {
+        if snapshot.additions > 0 {
+          Text("+\(snapshot.additions)").foregroundStyle(.green)
+        }
+        if snapshot.deletions > 0 {
+          Text("−\(snapshot.deletions)").foregroundStyle(.red)
+        }
+      }
+      .font(.caption2.monospacedDigit())
+      .accessibilityLabel(
+        "\(snapshot.additions) additions, \(snapshot.deletions) deletions"
+      )
+    }
   }
 
   @ViewBuilder
@@ -107,5 +162,27 @@ struct StatusPullRequestView: View {
     }
     if snapshot.isDraft { return "(Draft)" }
     return snapshot.title
+  }
+
+  /// Re-evaluates the "should popover be visible" state and schedules a 150 ms debounce
+  /// either direction. The cached `hoverTask` is cancelled on every call so rapid hover
+  /// transitions collapse into the latest intent instead of queueing a flap. Mirrors the
+  /// pattern in `WorktreeGitHubBadge` so the two surfaces dwell-trigger identically.
+  private func reconcileHover() {
+    hoverTask?.cancel()
+    let shouldShow = (isBadgeHovered || isPopoverHovered) && worktreeID != nil && worktreePath != nil
+    if shouldShow, !isPopoverPresented {
+      hoverTask = Task { @MainActor in
+        try? await Task.sleep(for: Self.hoverDelay)
+        if Task.isCancelled { return }
+        isPopoverPresented = true
+      }
+    } else if !shouldShow, isPopoverPresented {
+      hoverTask = Task { @MainActor in
+        try? await Task.sleep(for: Self.hoverDelay)
+        if Task.isCancelled { return }
+        isPopoverPresented = false
+      }
+    }
   }
 }
