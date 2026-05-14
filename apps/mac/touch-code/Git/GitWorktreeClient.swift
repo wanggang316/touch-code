@@ -122,7 +122,8 @@ nonisolated extension GitWorktreeClient {
         stripped.append(ch)
       }
     }
-    let cleanedSegments: [String] = stripped
+    let cleanedSegments: [String] =
+      stripped
       .split(separator: "/", omittingEmptySubsequences: true)
       .map(cleanSegment(_:))
       .filter { !$0.isEmpty }

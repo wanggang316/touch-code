@@ -255,7 +255,8 @@ struct WorktreeLifecycleIntegrationTests {
     }
     let worktreePath = try #require(createdPath)
 
-    let expected = baseDir
+    let expected =
+      baseDir
       .appending(path: "feature/abc", directoryHint: .isDirectory)
       .standardizedFileURL
     #expect(worktreePath.standardizedFileURL == expected)
