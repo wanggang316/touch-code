@@ -34,16 +34,15 @@ struct PullRequestPopover: View {
       .frame(width: 360)
       .frame(minHeight: 160)
       .padding(12)
-      // Popovers inherit the host view's environment, so a toolbar-
-      // anchored host (status bar) ships a different `controlSize` /
-      // `font` / `tint` into the popover than a List-row-anchored
-      // host (sidebar) — which made the same Merge / Close buttons
-      // render at different sizes and shades across the two surfaces.
-      // Pin the chrome-affecting env values here so every host opens
-      // the popover with identical control rendering (HAN-60).
+      // The toolbar-anchored host (status bar) ships a smaller default
+      // `controlSize` into the popover than the List-row host (sidebar),
+      // which made the same buttons render at different sizes across
+      // the two surfaces. Pin `.regular` here so both hosts open the
+      // popover with the same control sizing (HAN-60). Font and tint
+      // are intentionally NOT overridden — leaving them at inherited
+      // defaults keeps `.bordered` Close gray and the prominent Merge
+      // accent-blue as the design calls for.
       .controlSize(.regular)
-      .font(.body)
-      .tint(.accentColor)
   }
 
   @ViewBuilder

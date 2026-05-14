@@ -2,14 +2,14 @@ import SwiftUI
 import TouchCodeCore
 
 /// Split-button for the Merge action. Primary face merges with the current default
-/// strategy; the caret half opens a Menu with the three strategies plus a "Set as default
-/// for this Project" sub-menu (per UI design Surface 2).
+/// strategy; the trailing caret opens a Menu with the three strategies plus a "Set as
+/// default for this Project" sub-menu (per UI design Surface 2).
 ///
-/// Layout is a `.borderedProminent` primary `Button` plus a `.borderlessButton` `Menu`
-/// for the chevron — the prominent half paints the accent pill, the borderless half
-/// rides alongside as a transparent dropdown. The system supplies both halves' chrome,
-/// so heights and corner radii match the neighbouring `.bordered` Close / Mark-ready /
-/// Rerun-failed buttons without any hand-rolled outline.
+/// Layout: a `.borderedProminent` primary `Button` (accent-blue pill) glued to a
+/// `.bordered` chevron `Menu` (neutral grey pill) via `spacing: 0`, so the two halves
+/// read as a single split-button while each carries the system's native chrome —
+/// height and corner radius match the neighbouring `.bordered` Close / Mark-ready /
+/// Rerun-failed buttons. No hand-rolled outline.
 struct MergeSplitButton: View {
   let defaultStrategy: MergeStrategy
   let isDisabled: Bool
@@ -43,10 +43,12 @@ struct MergeSplitButton: View {
         Image(systemName: "chevron.down")
           .imageScale(.small)
       }
-      .menuStyle(.borderlessButton)
+      .menuStyle(.button)
+      .buttonStyle(.bordered)
       .menuIndicator(.hidden)
-      .disabled(isDisabled)
       .fixedSize()
+      .disabled(isDisabled)
+      .accessibilityLabel("Choose merge strategy")
     }
   }
 }
