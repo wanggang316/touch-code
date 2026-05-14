@@ -100,11 +100,11 @@ struct SettingsSidebarView: View {
 
   // MARK: - Helpers
 
+  /// Project list in catalog order — same sequence the main sidebar renders
+  /// after the user drags rows around (HAN-53). Keeping the two views in sync
+  /// is the whole point of the sort; do not re-sort alphabetically here.
   private func sortedProjects(in catalog: Catalog) -> [Project] {
     catalog.projects
-      .sorted { lhs, rhs in
-        lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-      }
   }
 
   /// Per-section sidebar row. GitHub and Worktrees both render their leading

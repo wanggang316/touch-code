@@ -416,6 +416,15 @@ struct HierarchySidebarView: View {
           )
         }
         .buttonStyle(.plain)
+        // Drag-to-reorder Projects (HAN-53). The header is the drag source and
+        // drop target; payload is the source Project's UUID string. Resolution
+        // happens by ID against the live catalog (`hierarchyManager`), so
+        // active tag filters that hide rows don't desync index math the way a
+        // straight `ForEach.onMove` would.
+        .draggable(project.id.raw.uuidString)
+        .dropDestination(for: String.self) { items, _ in
+          handleProjectDrop(items: items, targetID: project.id)
+        }
         .listRowInsets(EdgeInsets(top: 10, leading: 0, bottom: 4, trailing: 0))
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
@@ -460,6 +469,42 @@ struct HierarchySidebarView: View {
         }
       }
     }
+  }
+
+  // MARK: - Project drag-and-drop reorder
+
+  /// Resolves a drop on Project `targetID` for a drag whose pasteboard payload
+  /// is the source Project's UUID string. Walks the live catalog to recover
+  /// canonical indices so an active tag filter (which shrinks the visible
+  /// project list in `visibleProjects`) doesn't desync the move. Inserts the
+  /// dragged Project immediately *before* the target row, matching the
+  /// "drop on row → land at that row's slot" convention used by the script
+  /// list in `ProjectScriptsSettingsView`. Returns `true` only on a real
+  /// reorder so SwiftUI plays the drop-accepted animation.
+  private func handleProjectDrop(items: [String], targetID: ProjectID) -> Bool {
+    guard let firstID = items.first,
+      let sourceUUID = UUID(uuidString: firstID)
+    else { return false }
+    let sourceID = ProjectID(raw: sourceUUID)
+    guard sourceID != targetID else { return false }
+    let projects = hierarchyManager.catalog.projects
+    guard let sourceIndex = projects.firstIndex(where: { $0.id == sourceID }),
+      let targetIndex = projects.firstIndex(where: { $0.id == targetID })
+    else { return false }
+    // SwiftUI's `Array.move(fromOffsets:toOffset:)` removes the source rows
+    // first, then inserts at the destination offset (computed against the
+    // post-removal array). Use `targetIndex` directly: when the source sits
+    // *before* the target, `targetIndex` after removal points to what was
+    // originally `targetIndex - 1` — exactly the "above-the-target" landing
+    // slot we want. When source sits *after* target, `targetIndex` is the
+    // target's own position and the moved row lands above it. No reorder
+    // when the operation would be a no-op (source already above target with
+    // a destination matching its current spot).
+    guard sourceIndex != targetIndex else { return false }
+    store.send(
+      .reorderProjects(from: IndexSet(integer: sourceIndex), to: targetIndex)
+    )
+    return true
   }
 
   // MARK: - Pending row
