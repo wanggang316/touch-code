@@ -253,6 +253,83 @@ struct HierarchyManagerWorktreeMgmtTests {
     #expect(upgraded.branch == "main")
   }
 
+  /// In-place branch update (HAN-62). When the user runs `git checkout`
+  /// inside a worktree pane, the next reconcile pass surfaces the new
+  /// branch. The catalog row must follow HEAD so the sidebar subtitle,
+  /// WorktreeHeader, and GitHub PR fetch all observe the new value.
+  /// Row id, tabs, and other flags are preserved (in-place mutation).
+  @Test
+  func reconcileUpdatesBranchOnExistingWorktreeAfterCheckout() throws {
+    let projectID = manager.addProject(
+      name: "p", rootPath: "/repo", gitRoot: "/repo"
+    )
+    let worktreeID = try manager.createWorktree(
+      in: projectID, name: "feature", path: "/repo/feat", branch: "feature"
+    )
+    // Simulate `git checkout other-branch` inside `/repo/feat`.
+    _ = manager.reconcileDiscoveredWorktrees(
+      projectID: projectID,
+      entries: [
+        (path: "/repo", branch: "main"),
+        (path: "/repo/feat", branch: "other-branch"),
+      ]
+    )
+    let updated = manager.catalog.projects[0].worktrees.first { $0.id == worktreeID }
+    #expect(updated?.branch == "other-branch")
+    // `name` was tracking the old branch, so it follows along.
+    #expect(updated?.name == "other-branch")
+    // Row identity preserved — no extra row, no archive.
+    #expect(manager.catalog.projects[0].worktrees.count == 2)
+    #expect(updated?.archived == false)
+  }
+
+  /// Custom display name (e.g. created via `createWorktreeWithGit` with
+  /// `displayName: "feat/web-ui"`, `branch: "feat-web-ui"`) must survive
+  /// a branch change. Reconcile updates `branch` but leaves `name` alone
+  /// because it was never tracking `branch` to begin with.
+  @Test
+  func reconcilePreservesCustomDisplayNameAcrossBranchChange() throws {
+    let projectID = manager.addProject(
+      name: "p", rootPath: "/repo", gitRoot: "/repo"
+    )
+    let worktreeID = try manager.createWorktree(
+      in: projectID, name: "feat/web-ui", path: "/repo/feat", branch: "feat-web-ui"
+    )
+    _ = manager.reconcileDiscoveredWorktrees(
+      projectID: projectID,
+      entries: [
+        (path: "/repo", branch: "main"),
+        (path: "/repo/feat", branch: "other-branch"),
+      ]
+    )
+    let updated = manager.catalog.projects[0].worktrees.first { $0.id == worktreeID }
+    #expect(updated?.branch == "other-branch")
+    #expect(updated?.name == "feat/web-ui")
+  }
+
+  /// Detached HEAD: reconcile reports `branch == nil`. The catalog row
+  /// drops its branch but keeps its display name so the sidebar still
+  /// renders something readable instead of a blank row.
+  @Test
+  func reconcileClearsBranchOnDetachedHead() throws {
+    let projectID = manager.addProject(
+      name: "p", rootPath: "/repo", gitRoot: "/repo"
+    )
+    let worktreeID = try manager.createWorktree(
+      in: projectID, name: "feature", path: "/repo/feat", branch: "feature"
+    )
+    _ = manager.reconcileDiscoveredWorktrees(
+      projectID: projectID,
+      entries: [
+        (path: "/repo", branch: "main"),
+        (path: "/repo/feat", branch: nil),
+      ]
+    )
+    let updated = manager.catalog.projects[0].worktrees.first { $0.id == worktreeID }
+    #expect(updated?.branch == nil)
+    #expect(updated?.name == "feature")
+  }
+
   /// Produces `(varForm, privateForm)` — two aliased paths to the same
   /// on-disk directory, one with the `/var/folders/...` prefix (what
   /// `wt ls --json` emits) and one with the `/private/var/folders/...`

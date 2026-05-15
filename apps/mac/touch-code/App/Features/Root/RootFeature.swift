@@ -172,6 +172,16 @@ struct RootFeature {
     /// non-`REMOVE` OSC 9;4 state. Drives the tab-chip running spinner
     /// (via `HierarchyManager.runningPanes`) and the sidebar busy glyph.
     case paneProgressBusyChanged(PaneID, Bool)
+    /// Emitted by `WorktreeHeadWatcher` when a worktree's `.git/HEAD`
+    /// file changes — typically a `git checkout` / `git switch` inside
+    /// a touch-code pane. The reducer reconciles that worktree's
+    /// Project so the catalog's `Worktree.branch` follows HEAD, then
+    /// pokes GitHubFeature so the PR badge re-fetches against the new
+    /// branch set. Without this, branch flips that happen while the
+    /// app stays focused never reach the sidebar / header / PR cache
+    /// (the focus-driven reconcile path requires a `didBecomeActive`
+    /// transition the user never triggers). See HAN-62.
+    case worktreeHeadChanged(WorktreeID)
     /// T3: Toggles the Git Viewer overlay for the current Worktree.
     /// Sources: Header GV button (T2) + ⌘⇧G (T3 Commands). Optimistically
     /// flips `state.diffInspectorVisible` and fires
@@ -320,7 +330,7 @@ struct RootFeature {
   }
 
   nonisolated enum CancelID: Sendable {
-    case events, selectionChanges, projectReconcileFocus
+    case events, selectionChanges, projectReconcileFocus, worktreeHeadWatcher
   }
 
   @Dependency(TerminalClient.self) private var terminalClient
@@ -328,6 +338,7 @@ struct RootFeature {
   @Dependency(FinderClient.self) private var finderClient
   @Dependency(SettingsWriter.self) private var settingsWriter
   @Dependency(ProjectReconciler.self) private var projectReconciler
+  @Dependency(WorktreeHeadWatcher.self) private var worktreeHeadWatcher
   @Dependency(SettingsWindowPresenter.self) private var settingsWindowPresenter
   @Dependency(GitHubSnapshotCacheClient.self) private var gitHubSnapshotCache
   @Dependency(GitServiceClient.self) private var gitServiceClient
@@ -428,17 +439,48 @@ struct RootFeature {
 
           // Initial sweep: every persisted Project transitions out of .loading
           // once the reconciler fans out against the current snapshot.
-          .run { [projectReconciler] _ in
+          // After the sweep settles any branch changes that happened while
+          // the app was closed (HAN-62), poke GitHubFeature so the PR badges
+          // reflect the post-reconcile branch set.
+          .run { [projectReconciler, client = hierarchyClient] send in
             await projectReconciler.reconcileAll()
+            if let action = await MainActor.run(body: {
+              Self.makeActiveProjectGitHubRefresh(client: client)
+            }) {
+              await send(.gitHub(action))
+            }
           },
 
-          // Re-sync on window focus. Debounced inside the actor.
-          .run { [projectReconciler] _ in
+          // Re-sync on window focus. Debounced inside the actor. The
+          // post-reconcile GitHub refresh covers the canonical HAN-62 flow:
+          // user runs `git checkout` in a pane, switches back to the app —
+          // focus fires, reconcile picks up the new branch, GitHubFeature
+          // re-evaluates the PR cache against the updated branch set.
+          .run { [projectReconciler, client = hierarchyClient] send in
             for await _ in focusStream {
               await projectReconciler.reconcileAll()
+              if let action = await MainActor.run(body: {
+                Self.makeActiveProjectGitHubRefresh(client: client)
+              }) {
+                await send(.gitHub(action))
+              }
             }
           }
           .cancellable(id: CancelID.projectReconcileFocus, cancelInFlight: true),
+
+          // HAN-62: terminal-initiated `git checkout` / `git switch` inside
+          // a touch-code pane never fires `didBecomeActive`, so the focus-
+          // driven reconcile path alone wouldn't pick up the new branch.
+          // `WorktreeHeadWatcher` taps `.git/HEAD` via DispatchSource and
+          // yields the changed `WorktreeID`; we forward into the reducer
+          // for a targeted reconcile + GitHub refresh.
+          .run { [worktreeHeadWatcher] send in
+            let stream = await MainActor.run { worktreeHeadWatcher.events() }
+            for await worktreeID in stream {
+              await send(.worktreeHeadChanged(worktreeID))
+            }
+          }
+          .cancellable(id: CancelID.worktreeHeadWatcher, cancelInFlight: true),
 
           // 0013 M4 follow-up: hydrate the GitHub integration's in-memory state from
           // its on-disk snapshot cache so the sidebar paints PR badges on the first
@@ -481,7 +523,8 @@ struct RootFeature {
         return .merge(
           .cancel(id: CancelID.events),
           .cancel(id: CancelID.selectionChanges),
-          .cancel(id: CancelID.projectReconcileFocus)
+          .cancel(id: CancelID.projectReconcileFocus),
+          .cancel(id: CancelID.worktreeHeadWatcher)
         )
 
       case .selectionChanged(let selection):
@@ -580,6 +623,28 @@ struct RootFeature {
           )
         }
         return .merge(effects)
+
+      case .worktreeHeadChanged(let worktreeID):
+        // HEAD-file change fired by `WorktreeHeadWatcher`. Resolve the owning
+        // Project so the reconciler can rerun `git worktree list --porcelain`
+        // for that repo only — cheap, and `reconcileDiscoveredWorktrees`
+        // now updates `Worktree.branch` in place (HAN-62). The trailing
+        // GitHub refresh re-evaluates the active Project's PR cache against
+        // whatever branch set the reconcile settled on.
+        let catalog = hierarchyClient.snapshot()
+        guard
+          let projectID = catalog.projects.first(where: { project in
+            project.worktrees.contains(where: { $0.id == worktreeID })
+          })?.id
+        else { return .none }
+        return .run { [projectReconciler, client = hierarchyClient] send in
+          await projectReconciler.reconcile(projectID: projectID)
+          if let action = await MainActor.run(body: {
+            Self.makeActiveProjectGitHubRefresh(client: client)
+          }) {
+            await send(.gitHub(action))
+          }
+        }
 
       case .engineEventReceived(let marker):
         state.lastEvent = marker
@@ -687,16 +752,28 @@ struct RootFeature {
         // Project transitions through .loading → .ready (or .failed) and the
         // worktree list populates via T-WORKTREE's reconcileDiscoveredWorktrees
         // closure (once that PR lands; currently a no-op stub).
-        return .run { _ in
+        return .run { [client = hierarchyClient] send in
           await projectReconciler.reconcile(projectID: projectID)
+          if let action = await MainActor.run(body: {
+            Self.makeActiveProjectGitHubRefresh(client: client)
+          }) {
+            await send(.gitHub(action))
+          }
         }
 
       case .sidebar(.delegate(.refreshAllProjectsRequested)):
         // Manual refresh from the sidebar bottom-bar. `force: true` bypasses
         // the reconciler's focus-driven debounce so the click takes effect
-        // immediately even when a focus-triggered pass just ran.
-        return .run { _ in
+        // immediately even when a focus-triggered pass just ran. Follow up
+        // with a GitHub refresh so HAN-62-style branch changes propagate
+        // to the PR badges without waiting for the next selection event.
+        return .run { [client = hierarchyClient] send in
           await projectReconciler.reconcileAll(force: true)
+          if let action = await MainActor.run(body: {
+            Self.makeActiveProjectGitHubRefresh(client: client)
+          }) {
+            await send(.gitHub(action))
+          }
         }
 
       case .sidebar(.delegate(.revealExistingProject(let projectID))):
@@ -1475,8 +1552,13 @@ struct RootFeature {
       return .send(.deleteCurrentWorktreeRequested)
     case .refreshCurrentWorktree:
       guard let projectID = state.selection.projectID else { return .none }
-      return .run { [projectReconciler] _ in
+      return .run { [projectReconciler, client = hierarchyClient] send in
         await projectReconciler.reconcile(projectID: projectID)
+        if let action = await MainActor.run(body: {
+          Self.makeActiveProjectGitHubRefresh(client: client)
+        }) {
+          await send(.gitHub(action))
+        }
       }
     case .toggleDiffInspector:
       return .send(.diffInspectorToggledForCurrentWorktree)
@@ -1697,6 +1779,36 @@ struct RootFeature {
   private func lookupProject(projectID: ProjectID) -> Project? {
     let catalog = hierarchyClient.snapshot()
     return catalog.projects.first(where: { $0.id == projectID })
+  }
+
+  /// Builds the `.gitHub(.projectActivated)` follow-up that runs after a
+  /// reconcile sweep so PR data tracks worktree-branch changes (HAN-62).
+  /// Reconcile updates `Worktree.branch` when `git checkout` lands inside
+  /// a pane; GitHubFeature's internal freshness check (30s) plus branch-
+  /// set diff (`isCacheFreshAndComplete`) decides whether the dispatch
+  /// triggers a fetch or no-ops. Returns nil when there is no active
+  /// project or the active project has no git root yet.
+  ///
+  /// `@MainActor` because `hierarchyClient.snapshot()` is main-isolated;
+  /// callers in `.run` closures bridge via `MainActor.run`.
+  @MainActor
+  static func makeActiveProjectGitHubRefresh(
+    client: HierarchyClient
+  ) -> GitHubFeature.Action? {
+    let catalog = client.snapshot()
+    guard let projectID = catalog.selectedProjectID,
+      let project = catalog.projects.first(where: { $0.id == projectID }),
+      let gitRootString = project.gitRoot
+    else { return nil }
+    let gitRoot = URL(fileURLWithPath: gitRootString)
+    let pairs = project.worktrees.compactMap { worktree -> GitHubFeature.Action.WorktreeBranchPair? in
+      guard !worktree.archived, let branch = worktree.branch, !branch.isEmpty
+      else { return nil }
+      return GitHubFeature.Action.WorktreeBranchPair(
+        worktreeID: worktree.id, branch: branch
+      )
+    }
+    return .projectActivated(projectID, gitRoot: gitRoot, worktreeBranches: pairs)
   }
 
   /// Flat list of (projectID, worktreeID) tuples in the order the sidebar
