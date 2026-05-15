@@ -33,6 +33,18 @@ struct UpdatesSettingsView: View {
     )
   }
 
+  private var updateCheckIntervalBinding: Binding<UpdateCheckInterval> {
+    Binding(
+      get: { general.updateCheckInterval },
+      set: { newValue in
+        settingsStore.setUpdateCheckInterval(newValue)
+        // Picking a new cadence implies "I'd like a fresh probe now" — same
+        // semantics the channel picker carries.
+        applyToSparkle(triggerBackgroundCheck: true)
+      }
+    )
+  }
+
   private var automaticChecksBinding: Binding<Bool> {
     Binding(
       get: { general.updatesAutomaticallyCheckForUpdates },
@@ -59,6 +71,7 @@ struct UpdatesSettingsView: View {
   var body: some View {
     Form {
       channelSection
+      cadenceSection
       automaticSection
       manualSection
       feedSection
@@ -90,6 +103,20 @@ struct UpdatesSettingsView: View {
       } label: {
         Text("Release channel")
         Text(general.updateChannel.subtitle)
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var cadenceSection: some View {
+    Section {
+      Picker(selection: updateCheckIntervalBinding) {
+        ForEach(UpdateCheckInterval.allCases, id: \.self) { interval in
+          Text(interval.title).tag(interval)
+        }
+      } label: {
+        Text("Check interval")
+        Text("How often the app polls for new builds in the background.")
       }
     }
   }
@@ -158,6 +185,7 @@ struct UpdatesSettingsView: View {
     let g = settingsStore.settings.general
     updatesClient.applyPreferences(
       g.updateChannel,
+      g.updateCheckInterval,
       g.updatesAutomaticallyCheckForUpdates,
       g.updatesAutomaticallyDownloadUpdates,
       triggerBackgroundCheck
@@ -185,8 +213,24 @@ extension UpdateChannel {
   /// channels is visible without opening release notes.
   fileprivate var subtitle: String {
     switch self {
-    case .stable: return "Released versions, checked daily."
-    case .tip: return "Pre-release builds, checked hourly."
+    case .stable: return "Released versions."
+    case .tip: return "Pre-release builds."
+    }
+  }
+}
+
+extension UpdateCheckInterval {
+  /// Display label rendered inside the cadence picker. Singular "hour" only at 1 (not used
+  /// here — smallest case is 3) keeps the formatter dumb; days are spelled out separately so
+  /// `oneDay` reads naturally rather than as "24 hours".
+  fileprivate var title: String {
+    switch self {
+    case .threeHours: return "3 hours"
+    case .sixHours: return "6 hours"
+    case .twelveHours: return "12 hours"
+    case .oneDay: return "Daily (24 hours)"
+    case .twoDays: return "Every 2 days (48 hours)"
+    case .threeDays: return "Every 3 days (72 hours)"
     }
   }
 }

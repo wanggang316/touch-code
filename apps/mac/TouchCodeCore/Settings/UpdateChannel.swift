@@ -5,20 +5,12 @@ import Foundation
 /// by an `SPUUpdaterDelegate.allowedChannels(for:)` adapter on the app side). Persisted in
 /// `GeneralSettings.updateChannel` so the choice survives across launches and is the single
 /// source of truth — Sparkle's own preferences are derived from this on bringup.
+///
+/// Channel only decides *which* appcast items match; the poll cadence is a separate
+/// user-facing knob (`UpdateCheckInterval` on `GeneralSettings.updateCheckInterval`).
 public nonisolated enum UpdateChannel: String, Equatable, Codable, Sendable, CaseIterable {
   case stable
   case tip
-
-  /// Background-check cadence per channel. `tip` checks more aggressively because the
-  /// builds are intentionally short-lived; `stable` only needs the conventional daily
-  /// poll. Mirrors supaterm's mapping. The frequency is *not* user-configurable —
-  /// channel choice is the single knob.
-  public var updateCheckInterval: TimeInterval {
-    switch self {
-    case .stable: return 86_400  // 24h
-    case .tip: return 3600  // 1h
-    }
-  }
 
   /// Sparkle channel-string set returned by `allowedChannels(for:)`. An empty set means
   /// "only items with no `<sparkle:channel>` element" — the convention for stable.

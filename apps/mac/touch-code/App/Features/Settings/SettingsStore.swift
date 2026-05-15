@@ -185,6 +185,11 @@ final class SettingsStore {
     scheduleSave()
   }
 
+  func setUpdateCheckInterval(_ interval: UpdateCheckInterval) {
+    settings.general.updateCheckInterval = interval
+    scheduleSave()
+  }
+
   func setUpdatesAutomaticallyCheckForUpdates(_ enabled: Bool) {
     settings.general.updatesAutomaticallyCheckForUpdates = enabled
     scheduleSave()

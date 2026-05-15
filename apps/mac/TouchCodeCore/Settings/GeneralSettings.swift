@@ -24,10 +24,13 @@ public nonisolated struct GeneralSettings: Equatable, Codable, Sendable {
   /// the ask-each-time sheet.
   public var postMergeAction: MergedWorktreeAction?
 
-  /// Sparkle release channel. Default `stable`. Drives both
-  /// `SPUUpdaterDelegate.allowedChannels(for:)` and the background-check interval — the
-  /// app pushes this to `SPUUpdater` on launch and on every change.
+  /// Sparkle release channel. Default `stable`. Drives `SPUUpdaterDelegate.allowedChannels(for:)`.
+  /// The background-check cadence is a separate knob (`updateCheckInterval`) so flipping the
+  /// channel no longer changes how often the app polls.
   public var updateChannel: UpdateChannel
+  /// Background-check cadence, user-selectable. Default 24 h. Pushed to `SPUUpdater.updateCheckInterval`
+  /// on launch and on every preference change.
+  public var updateCheckInterval: UpdateCheckInterval
   /// Whether Sparkle should poll for updates in the background. Default `true`.
   public var updatesAutomaticallyCheckForUpdates: Bool
   /// Whether Sparkle should download + install updates without prompting. Default `false`
@@ -43,6 +46,7 @@ public nonisolated struct GeneralSettings: Equatable, Codable, Sendable {
     defaultMergeStrategy: MergeStrategy? = nil,
     postMergeAction: MergedWorktreeAction? = nil,
     updateChannel: UpdateChannel = .stable,
+    updateCheckInterval: UpdateCheckInterval = .oneDay,
     updatesAutomaticallyCheckForUpdates: Bool = true,
     updatesAutomaticallyDownloadUpdates: Bool = false
   ) {
@@ -52,6 +56,7 @@ public nonisolated struct GeneralSettings: Equatable, Codable, Sendable {
     self.defaultMergeStrategy = defaultMergeStrategy
     self.postMergeAction = postMergeAction
     self.updateChannel = updateChannel
+    self.updateCheckInterval = updateCheckInterval
     self.updatesAutomaticallyCheckForUpdates = updatesAutomaticallyCheckForUpdates
     self.updatesAutomaticallyDownloadUpdates = updatesAutomaticallyDownloadUpdates
   }
@@ -60,7 +65,8 @@ public nonisolated struct GeneralSettings: Equatable, Codable, Sendable {
 
   private enum CodingKeys: String, CodingKey {
     case appearance, defaultEditorID, defaultGitViewerID, defaultMergeStrategy, postMergeAction
-    case updateChannel, updatesAutomaticallyCheckForUpdates, updatesAutomaticallyDownloadUpdates
+    case updateChannel, updateCheckInterval
+    case updatesAutomaticallyCheckForUpdates, updatesAutomaticallyDownloadUpdates
   }
 
   public init(from decoder: Decoder) throws {
@@ -72,6 +78,11 @@ public nonisolated struct GeneralSettings: Equatable, Codable, Sendable {
     self.postMergeAction = try container.decodeIfPresent(MergedWorktreeAction.self, forKey: .postMergeAction)
     self.updateChannel =
       try container.decodeIfPresent(UpdateChannel.self, forKey: .updateChannel) ?? .stable
+    // Tolerate legacy files (key absent) and hand-edited invalid values: in either case we
+    // fall back to the 24 h default rather than failing the whole settings decode.
+    self.updateCheckInterval =
+      (try? container.decodeIfPresent(UpdateCheckInterval.self, forKey: .updateCheckInterval))
+      .flatMap { $0 } ?? .oneDay
     self.updatesAutomaticallyCheckForUpdates =
       try container.decodeIfPresent(Bool.self, forKey: .updatesAutomaticallyCheckForUpdates) ?? true
     self.updatesAutomaticallyDownloadUpdates =

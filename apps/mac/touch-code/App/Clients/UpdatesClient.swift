@@ -23,6 +23,7 @@ nonisolated struct UpdatesClient: Sendable {
   var applyPreferences:
     @MainActor @Sendable (
       _ channel: UpdateChannel,
+      _ interval: UpdateCheckInterval,
       _ automaticallyChecks: Bool,
       _ automaticallyDownloads: Bool,
       _ triggerBackgroundCheck: Bool
@@ -36,14 +37,14 @@ extension UpdatesClient: DependencyKey {
   private static let logger = Logger(subsystem: "com.touch-code.ui", category: "updates")
 
   static let liveValue = UpdatesClient(
-    applyPreferences: { channel, automaticallyChecks, automaticallyDownloads, triggerBackgroundCheck in
+    applyPreferences: { channel, interval, automaticallyChecks, automaticallyDownloads, triggerBackgroundCheck in
       let updater = UpdatesEnvironment.updater
       UpdatesEnvironment.delegate.setChannel(channel)
       updater.automaticallyChecksForUpdates = automaticallyChecks
       updater.automaticallyDownloadsUpdates = automaticallyDownloads
-      updater.updateCheckInterval = channel.updateCheckInterval
+      updater.updateCheckInterval = interval.seconds
       logger.info(
-        "applyPreferences: channel=\(channel.rawValue, privacy: .public) checks=\(automaticallyChecks) downloads=\(automaticallyDownloads) bgCheck=\(triggerBackgroundCheck)"
+        "applyPreferences: channel=\(channel.rawValue, privacy: .public) interval=\(interval.hours)h checks=\(automaticallyChecks) downloads=\(automaticallyDownloads) bgCheck=\(triggerBackgroundCheck)"
       )
       if triggerBackgroundCheck, automaticallyChecks {
         updater.checkForUpdatesInBackground()
