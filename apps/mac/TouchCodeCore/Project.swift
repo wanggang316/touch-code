@@ -41,6 +41,13 @@ public nonisolated struct Project: Equatable, Sendable, Identifiable {
   /// app dispatches into a pane of this Project. `nil` = never active;
   /// `ProjectSortMode.activeFirst` puts these at the bottom.
   public var lastActiveAt: Date?
+  /// User-curated ordering key consumed by `ProjectSortMode.manual`.
+  /// Auto-incremented at `addProject` time so new projects land at the
+  /// end of the manual list; rewritten en bloc when the user confirms
+  /// the manual-sort sheet. Legacy projects decode to `0` and tie-break
+  /// on their `catalog.projects` array position, which equals their
+  /// historical sidebar order — i.e. a no-op upgrade.
+  public var manualOrder: Int
   /// Transient. See `ProjectLoadState` doc-comment.
   public var loadState: ProjectLoadState
 
@@ -55,6 +62,7 @@ public nonisolated struct Project: Equatable, Sendable, Identifiable {
     tagIDs: Set<TagID> = [],
     addedAt: Date = Date(),
     lastActiveAt: Date? = nil,
+    manualOrder: Int = 0,
     loadState: ProjectLoadState = .loading
   ) {
     self.id = id
@@ -67,6 +75,7 @@ public nonisolated struct Project: Equatable, Sendable, Identifiable {
     self.tagIDs = tagIDs
     self.addedAt = addedAt
     self.lastActiveAt = lastActiveAt
+    self.manualOrder = manualOrder
     self.loadState = loadState
   }
 
@@ -79,7 +88,7 @@ public nonisolated struct Project: Equatable, Sendable, Identifiable {
 extension Project: Codable {
   private enum CodingKeys: String, CodingKey {
     case id, name, rootPath, gitRoot, worktrees, selectedWorktreeID, isExpanded, tagIDs,
-      addedAt, lastActiveAt
+      addedAt, lastActiveAt, manualOrder
   }
 
   public init(from decoder: Decoder) throws {
@@ -98,6 +107,7 @@ extension Project: Codable {
     // position, which equals the original insertion order).
     self.addedAt = try container.decodeIfPresent(Date.self, forKey: .addedAt) ?? .distantPast
     self.lastActiveAt = try container.decodeIfPresent(Date.self, forKey: .lastActiveAt)
+    self.manualOrder = try container.decodeIfPresent(Int.self, forKey: .manualOrder) ?? 0
     self.loadState = .loading
   }
 
@@ -127,6 +137,12 @@ extension Project: Codable {
       try container.encode(addedAt, forKey: .addedAt)
     }
     try container.encodeIfPresent(lastActiveAt, forKey: .lastActiveAt)
+    // Sentinel manualOrder (legacy decode or never-stamped) is omitted
+    // so unmigrated catalogs stay byte-identical until something writes
+    // a real value.
+    if manualOrder != 0 {
+      try container.encode(manualOrder, forKey: .manualOrder)
+    }
     // `loadState` intentionally not encoded (transient).
   }
 }

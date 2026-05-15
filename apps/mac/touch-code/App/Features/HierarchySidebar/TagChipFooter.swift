@@ -41,15 +41,11 @@ struct TagFilterPopoverFooter: View {
       Button {
         isFilterPopoverPresented.toggle()
       } label: {
-        Image(
-          systemName: hasActiveFilter
-            ? "line.3.horizontal.decrease.circle.fill"
-            : "line.3.horizontal.decrease.circle"
-        )
-        .font(.system(size: 15, weight: .regular))
-        .foregroundStyle(hasActiveFilter ? Color.accentColor : .secondary)
-        .frame(width: 22, height: 22)
-        .contentShape(Rectangle())
+        Image(systemName: "line.3.horizontal.decrease")
+          .font(.system(size: 14, weight: .regular))
+          .foregroundStyle(hasActiveFilter ? Color.accentColor : .secondary)
+          .frame(width: 22, height: 22)
+          .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
       .help(hasActiveFilter ? "Filtered by tag — click to change" : "Filter by tag")
@@ -71,15 +67,16 @@ struct TagFilterPopoverFooter: View {
         Button {
           isSortPopoverPresented.toggle()
         } label: {
-          Image(
-            systemName: sortMode == .default
-              ? "arrow.up.arrow.down.circle"
-              : "arrow.up.arrow.down.circle.fill"
-          )
-          .font(.system(size: 15, weight: .regular))
-          .foregroundStyle(sortMode == .default ? .secondary : Color.accentColor)
-          .frame(width: 22, height: 22)
-          .contentShape(Rectangle())
+          // The sort glyph stays visually neutral regardless of the
+          // active mode — unlike the tag filter, "sort order" is a
+          // navigation aid rather than a constraint hiding rows, so
+          // there is nothing to draw the eye to once the user has
+          // made their choice.
+          Image(systemName: "arrow.up.arrow.down")
+            .font(.system(size: 13, weight: .regular))
+            .foregroundStyle(.secondary)
+            .frame(width: 22, height: 22)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help(sortHelpText(for: sortMode))
@@ -88,8 +85,11 @@ struct TagFilterPopoverFooter: View {
           ProjectSortList(
             mode: sortMode,
             onSelect: { picked in
+              // Dismiss the popover first so the user sees the
+              // re-sorted list as soon as the callback runs — leaving
+              // it open swallows the visual feedback they expect.
+              isSortPopoverPresented = false
               if picked == .manual {
-                isSortPopoverPresented = false
                 onManualSortRequested()
               } else {
                 onSortModeChanged(picked)
@@ -143,11 +143,11 @@ private struct ProjectSortList: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      row(.joinOrder, label: "按加入顺序（默认）")
+      row(.joinOrder, label: "By Date Added")
       Divider().padding(.vertical, 2)
-      row(.activeFirst, label: "活跃项目在前")
+      row(.activeFirst, label: "Recently Active")
       Divider().padding(.vertical, 2)
-      row(.manual, label: "手动排序…")
+      row(.manual, label: "Manual Order…")
     }
     .padding(6)
     .frame(minWidth: 200)

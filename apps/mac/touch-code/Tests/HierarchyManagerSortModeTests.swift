@@ -24,14 +24,24 @@ struct HierarchyManagerSortModeTests {
   }
 
   @Test
-  func addProjectStampsAddedAt() {
+  func addProjectStampsAddedAtAndManualOrder() {
     let before = Date()
-    let pid = manager.addProject(name: "p", rootPath: "/p", gitRoot: nil)
+    let pidA = manager.addProject(name: "a", rootPath: "/a", gitRoot: nil)
+    let pidB = manager.addProject(name: "b", rootPath: "/b", gitRoot: nil)
+    let pidC = manager.addProject(name: "c", rootPath: "/c", gitRoot: nil)
     let after = Date()
-    let project = manager.catalog.projects.first { $0.id == pid }!
-    #expect(project.addedAt >= before)
-    #expect(project.addedAt <= after)
-    #expect(project.lastActiveAt == nil)
+
+    let projectA = manager.catalog.projects.first { $0.id == pidA }!
+    let projectB = manager.catalog.projects.first { $0.id == pidB }!
+    let projectC = manager.catalog.projects.first { $0.id == pidC }!
+
+    #expect(projectA.addedAt >= before)
+    #expect(projectC.addedAt <= after)
+    #expect(projectA.lastActiveAt == nil)
+    // Auto-increment lands new projects past the existing max.
+    #expect(projectA.manualOrder == 0)
+    #expect(projectB.manualOrder == 1)
+    #expect(projectC.manualOrder == 2)
   }
 
   @Test
@@ -69,13 +79,20 @@ struct HierarchyManagerSortModeTests {
   }
 
   @Test
-  func applyManualProjectOrderRewritesArrayAndFlipsMode() {
+  func applyManualProjectOrderStampsFieldAndFlipsMode() {
     let a = manager.addProject(name: "a", rootPath: "/a", gitRoot: nil)
     let b = manager.addProject(name: "b", rootPath: "/b", gitRoot: nil)
     let c = manager.addProject(name: "c", rootPath: "/c", gitRoot: nil)
-    #expect(manager.catalog.projects.map(\.id) == [a, b, c])
 
     manager.applyManualProjectOrder([c, a, b])
+    let byID = Dictionary(
+      uniqueKeysWithValues: manager.catalog.projects.map { ($0.id, $0) }
+    )
+    #expect(byID[c]?.manualOrder == 0)
+    #expect(byID[a]?.manualOrder == 1)
+    #expect(byID[b]?.manualOrder == 2)
+    // Array is also rewritten so direct iteration stays consistent
+    // with the field.
     #expect(manager.catalog.projects.map(\.id) == [c, a, b])
     #expect(manager.catalog.projectSortMode == .manual)
   }
@@ -87,9 +104,16 @@ struct HierarchyManagerSortModeTests {
     let c = manager.addProject(name: "c", rootPath: "/c", gitRoot: nil)
     let bogus = ProjectID()
 
-    // Partial + bogus input → known ids land in the given order, the
-    // missing project (c) is appended; bogus is dropped.
+    // Partial + bogus input → known ids land in the given order with
+    // stamped manualOrder; the missing project (c) is appended with a
+    // continuation index; bogus is dropped.
     manager.applyManualProjectOrder([b, bogus, a])
+    let byID = Dictionary(
+      uniqueKeysWithValues: manager.catalog.projects.map { ($0.id, $0) }
+    )
+    #expect(byID[b]?.manualOrder == 0)
+    #expect(byID[a]?.manualOrder == 1)
+    #expect(byID[c]?.manualOrder == 2)
     #expect(manager.catalog.projects.map(\.id) == [b, a, c])
   }
 

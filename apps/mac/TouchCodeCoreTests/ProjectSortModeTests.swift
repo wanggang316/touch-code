@@ -11,14 +11,27 @@ struct ProjectSortModeTests {
   // MARK: - Sort policies
 
   @Test
-  func manualOrderIsIdentity() {
-    let a = Project(name: "a", rootPath: "/a", addedAt: date(2))
-    let b = Project(name: "b", rootPath: "/b", addedAt: date(1))
-    let c = Project(name: "c", rootPath: "/c", addedAt: date(3), lastActiveAt: date(10))
+  func manualSortsByManualOrderField() {
+    // Order in storage is arbitrary; sort follows the `manualOrder`
+    // field exclusively.
+    let a = Project(name: "a", rootPath: "/a", manualOrder: 2)
+    let b = Project(name: "b", rootPath: "/b", manualOrder: 0)
+    let c = Project(name: "c", rootPath: "/c", manualOrder: 1)
     let catalog = Catalog(
       projects: [a, b, c],
       projectSortMode: .manual
     )
+    #expect(catalog.sorted(catalog.projects).map(\.name) == ["b", "c", "a"])
+  }
+
+  @Test
+  func manualTiesOnZeroFallBackToArrayPosition() {
+    // Legacy projects all decode to manualOrder = 0; the array order
+    // must remain the user-visible order.
+    let a = Project(name: "a", rootPath: "/a")
+    let b = Project(name: "b", rootPath: "/b")
+    let c = Project(name: "c", rootPath: "/c")
+    let catalog = Catalog(projects: [a, b, c], projectSortMode: .manual)
     #expect(catalog.sorted(catalog.projects).map(\.name) == ["a", "b", "c"])
   }
 
@@ -101,12 +114,22 @@ struct ProjectSortModeTests {
       name: "p",
       rootPath: "/p",
       addedAt: date(100),
-      lastActiveAt: date(200)
+      lastActiveAt: date(200),
+      manualOrder: 7
     )
     let data = try JSONEncoder().encode(project)
     let decoded = try JSONDecoder().decode(Project.self, from: data)
     #expect(decoded.addedAt == date(100))
     #expect(decoded.lastActiveAt == date(200))
+    #expect(decoded.manualOrder == 7)
+  }
+
+  @Test
+  func defaultManualOrderIsOmittedFromEncoding() throws {
+    let project = Project(name: "p", rootPath: "/p", manualOrder: 0)
+    let data = try JSONEncoder().encode(project)
+    let json = String(bytes: data, encoding: .utf8) ?? ""
+    #expect(!json.contains("manualOrder"))
   }
 
   @Test
@@ -124,6 +147,7 @@ struct ProjectSortModeTests {
     let decoded = try JSONDecoder().decode(Project.self, from: payload)
     #expect(decoded.addedAt == .distantPast)
     #expect(decoded.lastActiveAt == nil)
+    #expect(decoded.manualOrder == 0)
   }
 
   // MARK: - Helpers

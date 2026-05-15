@@ -92,14 +92,24 @@ extension Catalog: Codable {
 
 extension Catalog {
   /// Apply `projectSortMode` to a (possibly pre-filtered) Project list.
-  /// The input order is taken as the manual / canonical order — so
-  /// `.manual` is a pure identity, and the other modes derive their
-  /// ordering from `Project.addedAt` / `Project.lastActiveAt` with the
-  /// input order as a stable tiebreaker.
+  /// Each mode sorts by its dedicated field — `addedAt` for
+  /// `.joinOrder`, `lastActiveAt` for `.activeFirst`, `manualOrder`
+  /// for `.manual` — with the incoming array order as the stable
+  /// tiebreaker so the result is fully deterministic.
   public func sorted(_ projects: [Project]) -> [Project] {
     switch projectSortMode {
     case .manual:
-      return projects
+      // Sort by the user-curated `manualOrder` field ASC. Legacy /
+      // never-stamped projects all carry `0` and tie-break on incoming
+      // array position, which equals the historical sidebar order.
+      return projects.enumerated()
+        .sorted { lhs, rhs in
+          if lhs.element.manualOrder != rhs.element.manualOrder {
+            return lhs.element.manualOrder < rhs.element.manualOrder
+          }
+          return lhs.offset < rhs.offset
+        }
+        .map { $0.element }
     case .joinOrder:
       // Stable sort by addedAt ASC; ties (including the `.distantPast`
       // legacy bucket) preserve incoming array order.

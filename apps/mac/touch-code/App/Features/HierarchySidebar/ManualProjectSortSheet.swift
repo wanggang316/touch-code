@@ -38,13 +38,13 @@ struct ManualProjectSortSheetView: View {
         }
       }
       .listStyle(.inset)
-      .navigationTitle("手动排序")
+      .navigationTitle("Reorder Projects")
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
-          Button("取消") { store.send(.manualSortCancelled) }
+          Button("Cancel") { store.send(.manualSortCancelled) }
         }
         ToolbarItem(placement: .confirmationAction) {
-          Button("完成") { store.send(.manualSortConfirmed) }
+          Button("Done") { store.send(.manualSortConfirmed) }
             .disabled(orderedIDs.isEmpty)
         }
       }

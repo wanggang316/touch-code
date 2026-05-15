@@ -163,6 +163,10 @@ final class HierarchyManager {
       selectedWorktreeID = synthetic.id
     }
 
+    // Manual-order auto-increment: new projects land at the end of the
+    // manual list. `max + 1` works on a sparse field too — legacy zeros
+    // simply get bumped past as users add new entries.
+    let nextManualOrder = (catalog.projects.map(\.manualOrder).max() ?? -1) + 1
     let project = Project(
       id: projectID,
       name: name,
@@ -170,7 +174,8 @@ final class HierarchyManager {
       gitRoot: gitRoot,
       worktrees: worktrees,
       selectedWorktreeID: selectedWorktreeID,
-      addedAt: Date()
+      addedAt: Date(),
+      manualOrder: nextManualOrder
     )
     catalog.projects.append(project)
     store.scheduleSave(catalog)
@@ -189,11 +194,15 @@ final class HierarchyManager {
     store.scheduleSave(catalog)
   }
 
-  /// Commit the result of the manual-sort sheet. Rewrites
-  /// `catalog.projects` so it matches `orderedIDs`, drops the
-  /// `projectSortMode` to `.manual`, and persists. Unknown ids in the
-  /// input are dropped; existing projects missing from the input are
-  /// appended at the end so a partial / stale list can't lose data.
+  /// Commit the result of the manual-sort sheet. Stamps each
+  /// project's `manualOrder` to match its position in `orderedIDs`,
+  /// rewrites `catalog.projects` in the same order so the on-disk
+  /// array stays aligned with the field (cheap consistency for code
+  /// that iterates `catalog.projects` directly), and flips
+  /// `projectSortMode` to `.manual`. Unknown ids in the input are
+  /// dropped; projects missing from the input keep their existing
+  /// `manualOrder` and are appended at the end of the array so a
+  /// partial / stale list can't lose data.
   func applyManualProjectOrder(_ orderedIDs: [ProjectID]) {
     guard !catalog.projects.isEmpty else {
       if catalog.projectSortMode != .manual {
@@ -207,16 +216,16 @@ final class HierarchyManager {
     var rebuilt: [Project] = []
     rebuilt.reserveCapacity(catalog.projects.count)
     for id in orderedIDs {
-      guard let project = byID[id], !seen.contains(id) else { continue }
+      guard var project = byID[id], !seen.contains(id) else { continue }
+      project.manualOrder = rebuilt.count
       rebuilt.append(project)
       seen.insert(id)
     }
     for project in catalog.projects where !seen.contains(project.id) {
-      rebuilt.append(project)
+      var copy = project
+      copy.manualOrder = rebuilt.count
+      rebuilt.append(copy)
     }
-    let modeChanged = catalog.projectSortMode != .manual
-    let orderChanged = rebuilt.map(\.id) != catalog.projects.map(\.id)
-    guard modeChanged || orderChanged else { return }
     catalog.projects = rebuilt
     catalog.projectSortMode = .manual
     store.scheduleSave(catalog)
@@ -297,6 +306,12 @@ final class HierarchyManager {
   ) {
     guard !source.isEmpty else { return }
     catalog.projects.move(fromOffsets: source, toOffset: destination)
+    // Inline drag is also a manual-ordering gesture; stamp
+    // `manualOrder` to match the new array layout so the user-curated
+    // sequence survives a switch to a non-manual mode and back.
+    for index in catalog.projects.indices {
+      catalog.projects[index].manualOrder = index
+    }
     store.scheduleSave(catalog)
   }
 
