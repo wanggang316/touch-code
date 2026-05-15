@@ -242,19 +242,22 @@ private struct InboxRowView: View {
               .foregroundStyle(entry.isUnread ? Color.secondary : Color.secondary.opacity(0.7))
               .lineLimit(2)
               .frame(maxWidth: .infinity, alignment: .leading)
-            // HAN-56: every inbox row is jumpable — surface a → cue at
-            // the bottom-right of each row. Subtle by default (tertiary)
-            // and shifts 3 pt right on hover so the affordance reads as
-            // "click to jump" without competing with the row's primary
-            // text. SF Symbol used over a literal Unicode arrow so the
-            // glyph honors Dynamic Type and the SF weight axis.
-            Image(systemName: "chevron.right")
-              .font(.caption.weight(.semibold))
-              .foregroundStyle(.secondary)
-              .opacity(isHovering ? 0.95 : 0.55)
-              .offset(x: isHovering ? 3 : 0)
-              .animation(.easeInOut(duration: 0.15), value: isHovering)
-              .accessibilityHidden(true)
+            // HAN-56: unread rows are jumpable — show a small horizontal
+            // arrow cue at the bottom-right; subtle by default and
+            // shifts 3 pt right on hover. Read rows are no longer
+            // navigable (the inbox has no markUnread path), so the cue
+            // is dropped and the whole row gives up hit-testing below.
+            // SF Symbol `arrow.right` over a literal Unicode glyph so
+            // the icon respects Dynamic Type and the SF weight axis.
+            if entry.isUnread {
+              Image(systemName: "arrow.right")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .opacity(isHovering ? 0.95 : 0.55)
+                .offset(x: isHovering ? 3 : 0)
+                .animation(.easeInOut(duration: 0.15), value: isHovering)
+                .accessibilityHidden(true)
+            }
           }
         }
       }
@@ -266,6 +269,10 @@ private struct InboxRowView: View {
     }
     .buttonStyle(.plain)
     .onHover { isHovering = $0 }
+    // Read rows are non-navigable (HAN-56). Block hit-testing entirely
+    // so the row neither fires onTap nor lights up the hover background
+    // — the inbox keeps them around as visual history, not as buttons.
+    .allowsHitTesting(entry.isUnread)
   }
 
   /// Read state has no leading glyph (a check-shape next to a row reads
