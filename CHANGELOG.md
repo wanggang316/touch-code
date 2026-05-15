@@ -20,6 +20,27 @@ and the project does not yet follow semantic versioning — every release until
 
 ### Security
 
+## [0.2.0] - 2026-05-15
+
+### Added
+
+- **⌘⇧G opens the current project on GitHub** in your default browser.
+- **Worktree folders nest to mirror branch hierarchy.** Branches like
+  `feature/foo/bar` now appear under nested folders matching the
+  slash structure instead of as a flat list.
+- **PR status in the worktree-detail header** mirrors the sidebar
+  identity, with diff stats available in a hover popover.
+
+### Changed
+
+- **GitHub PR popover refined.** Merge and Close now share a
+  consistent capsule shape, size, and accent treatment.
+
+### Fixed
+
+- **Notification bell clears the unread rollup** when the originating
+  pane has been closed.
+
 ## [0.1.9] - 2026-05-13
 
 ### Added
