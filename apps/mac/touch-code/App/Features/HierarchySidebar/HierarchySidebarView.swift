@@ -136,8 +136,14 @@ struct HierarchySidebarView: View {
     // Filter the project list by the catalog's active tag filter (M4).
     // OR semantics on `.tags(set)`; `.untagged` shows projects with no
     // tags; `.all` is the no-op default.
-    let visibleProjects = filteredProjects(catalog: catalog)
+    let visibleProjects = catalog.sorted(filteredProjects(catalog: catalog))
     let untaggedExists = catalog.projects.contains { $0.tagIDs.isEmpty }
+    // Display-name index used by the manual-sort sheet; built from the
+    // authoritative array (not `visibleProjects`) so a hidden / filtered
+    // project still resolves to its real name in the dialog.
+    let projectNames: [ProjectID: String] = Dictionary(
+      uniqueKeysWithValues: catalog.projects.map { ($0.id, $0.name) }
+    )
 
     // Sidebar body is the List, with a compact filter footer mounted at
     // the bottom `.safeAreaInset` — a single trailing glyph that opens an
@@ -152,8 +158,23 @@ struct HierarchySidebarView: View {
           onTagTapped: { store.send(.tagChipTapped($0)) },
           onUntaggedTapped: { store.send(.untaggedChipTapped) },
           onEditTagsTapped: { store.send(.delegate(.openTagManager)) },
-          onRefreshTapped: { store.send(.refreshAllProjectsTapped) }
+          onRefreshTapped: { store.send(.refreshAllProjectsTapped) },
+          sortMode: catalog.projectSortMode,
+          onSortModeChanged: { store.send(.projectSortModeChanged($0)) },
+          onManualSortRequested: { store.send(.manualSortSheetRequested) }
         )
+      }
+      .sheet(
+        isPresented: Binding(
+          get: { store.manualSortSheet != nil },
+          set: { isPresented in
+            if !isPresented {
+              store.send(.manualSortCancelled)
+            }
+          }
+        )
+      ) {
+        ManualProjectSortSheetView(projectNames: projectNames, store: store)
       }
       .toolbar { sidebarToolbarContent }
       .sheet(

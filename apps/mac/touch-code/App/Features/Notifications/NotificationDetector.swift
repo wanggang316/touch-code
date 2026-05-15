@@ -22,6 +22,11 @@ public final class NotificationDetector {
   private let catalogSnapshot: @MainActor () -> Catalog
   private let lastFocusedPane: @MainActor (TabID) -> PaneID?
   private let isAppFrontmost: @MainActor () -> Bool
+  /// Fired with the source Project of every emitted notification, before
+  /// the inbox is appended. The sidebar's "active first" sort uses this
+  /// to bump `Project.lastActiveAt`. Optional so call sites without a
+  /// hierarchy manager wired (tests, previews) can drop it.
+  private let onProjectActivity: (@MainActor (ProjectID) -> Void)?
 
   /// Panes that have produced any `paneOutput` since launch (or since the
   /// last time their child exited). Gates `paneIdle` so a freshly spawned
@@ -41,13 +46,15 @@ public final class NotificationDetector {
     banner: OSNotifier,
     catalogSnapshot: @escaping @MainActor () -> Catalog,
     lastFocusedPane: @escaping @MainActor (TabID) -> PaneID?,
-    isAppFrontmost: @escaping @MainActor () -> Bool = { NSApp.isActive }
+    isAppFrontmost: @escaping @MainActor () -> Bool = { NSApp.isActive },
+    onProjectActivity: (@MainActor (ProjectID) -> Void)? = nil
   ) {
     self.store = store
     self.banner = banner
     self.catalogSnapshot = catalogSnapshot
     self.lastFocusedPane = lastFocusedPane
     self.isAppFrontmost = isAppFrontmost
+    self.onProjectActivity = onProjectActivity
   }
 
   /// The single globally focused pane — the pane the user is *actually*
@@ -129,6 +136,10 @@ public final class NotificationDetector {
       body: translated.body,
       source: resolved.source
     )
+    // Activity bump for the sidebar's "active first" sort fires
+    // before append: `lastActiveAt` reflects "a notification fired",
+    // independent of whether the user later reads it.
+    onProjectActivity?(resolved.source.projectID)
     store.append(inbox)
 
     // Banner gating reduces to "always banner if we got past the

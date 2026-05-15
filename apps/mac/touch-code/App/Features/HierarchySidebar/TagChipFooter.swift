@@ -26,13 +26,20 @@ struct TagFilterPopoverFooter: View {
   /// Right-side refresh glyph. Optional so previews / tests without a
   /// reconciler wired can drop it.
   var onRefreshTapped: (() -> Void)?
+  /// Project-sort popover wiring. When nil, the sort button is hidden —
+  /// preserves the existing footer shape in previews / tests that don't
+  /// thread sort state through.
+  var sortMode: ProjectSortMode?
+  var onSortModeChanged: ((ProjectSortMode) -> Void)?
+  var onManualSortRequested: (() -> Void)?
 
-  @State private var isPopoverPresented = false
+  @State private var isFilterPopoverPresented = false
+  @State private var isSortPopoverPresented = false
 
   var body: some View {
     HStack(spacing: 0) {
       Button {
-        isPopoverPresented.toggle()
+        isFilterPopoverPresented.toggle()
       } label: {
         Image(
           systemName: hasActiveFilter
@@ -47,7 +54,7 @@ struct TagFilterPopoverFooter: View {
       .buttonStyle(.plain)
       .help(hasActiveFilter ? "Filtered by tag — click to change" : "Filter by tag")
       .accessibilityLabel("Filter by tag")
-      .popover(isPresented: $isPopoverPresented, arrowEdge: .bottom) {
+      .popover(isPresented: $isFilterPopoverPresented, arrowEdge: .bottom) {
         TagFilterList(
           tags: tags,
           activeFilter: activeFilter,
@@ -59,6 +66,37 @@ struct TagFilterPopoverFooter: View {
             { handler() }
           }
         )
+      }
+      if let sortMode, let onSortModeChanged, let onManualSortRequested {
+        Button {
+          isSortPopoverPresented.toggle()
+        } label: {
+          Image(
+            systemName: sortMode == .default
+              ? "arrow.up.arrow.down.circle"
+              : "arrow.up.arrow.down.circle.fill"
+          )
+          .font(.system(size: 15, weight: .regular))
+          .foregroundStyle(sortMode == .default ? .secondary : Color.accentColor)
+          .frame(width: 22, height: 22)
+          .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(sortHelpText(for: sortMode))
+        .accessibilityLabel("Sort projects")
+        .popover(isPresented: $isSortPopoverPresented, arrowEdge: .bottom) {
+          ProjectSortList(
+            mode: sortMode,
+            onSelect: { picked in
+              if picked == .manual {
+                isSortPopoverPresented = false
+                onManualSortRequested()
+              } else {
+                onSortModeChanged(picked)
+              }
+            }
+          )
+        }
       }
       Spacer()
       if let onRefreshTapped {
@@ -85,6 +123,65 @@ struct TagFilterPopoverFooter: View {
     case .tags(let set): return !set.isEmpty
     case .untagged: return true
     }
+  }
+
+  private func sortHelpText(for mode: ProjectSortMode) -> String {
+    switch mode {
+    case .joinOrder: return "Sort projects"
+    case .activeFirst: return "Sorted by recent activity — click to change"
+    case .manual: return "Sorted manually — click to change"
+    }
+  }
+}
+
+/// Three-row vertical list shown inside the sort popover. Visually
+/// mirrors `TagFilterList` so the two bottom-bar popovers share the
+/// same row chrome.
+private struct ProjectSortList: View {
+  let mode: ProjectSortMode
+  let onSelect: (ProjectSortMode) -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      row(.joinOrder, label: "按加入顺序（默认）")
+      Divider().padding(.vertical, 2)
+      row(.activeFirst, label: "活跃项目在前")
+      Divider().padding(.vertical, 2)
+      row(.manual, label: "手动排序…")
+    }
+    .padding(6)
+    .frame(minWidth: 200)
+  }
+
+  @ViewBuilder
+  private func row(_ value: ProjectSortMode, label: String) -> some View {
+    let isSelected = value == mode
+    Button {
+      onSelect(value)
+    } label: {
+      HStack(spacing: 8) {
+        Color.clear.frame(width: 10, height: 10)
+        Text(label)
+          .font(.callout)
+          .foregroundStyle(.primary)
+          .lineLimit(1)
+        Spacer(minLength: 8)
+        if isSelected {
+          Image(systemName: "checkmark")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(Color.accentColor)
+            .accessibilityHidden(true)
+        }
+      }
+      .padding(.horizontal, 8)
+      .padding(.vertical, 5)
+      .background(
+        RoundedRectangle(cornerRadius: 5)
+          .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
+      )
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
   }
 }
 

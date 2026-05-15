@@ -28,6 +28,19 @@ public nonisolated struct Project: Equatable, Sendable, Identifiable {
   /// sorted `[TagID]` so `git diff catalog.json` is order-stable. Default
   /// empty — projects start untagged.
   public var tagIDs: Set<TagID>
+  /// Wall-clock timestamp at which this Project was added to the catalog.
+  /// Used by `ProjectSortMode.joinOrder` to render an ordering stable
+  /// across manual reordering — i.e. so the user can switch back from
+  /// `.manual` to `.joinOrder` and get the original insertion order.
+  /// Legacy catalogs that predate this field decode to `.distantPast`;
+  /// they tie and fall back to array-position order, which equals
+  /// insertion order at the time the file was first written.
+  public var addedAt: Date
+  /// Most-recent activity timestamp. Bumped on (a) inbox-notification
+  /// arrival for any worktree of this Project, and (b) any input the
+  /// app dispatches into a pane of this Project. `nil` = never active;
+  /// `ProjectSortMode.activeFirst` puts these at the bottom.
+  public var lastActiveAt: Date?
   /// Transient. See `ProjectLoadState` doc-comment.
   public var loadState: ProjectLoadState
 
@@ -40,6 +53,8 @@ public nonisolated struct Project: Equatable, Sendable, Identifiable {
     selectedWorktreeID: WorktreeID? = nil,
     isExpanded: Bool = true,
     tagIDs: Set<TagID> = [],
+    addedAt: Date = Date(),
+    lastActiveAt: Date? = nil,
     loadState: ProjectLoadState = .loading
   ) {
     self.id = id
@@ -50,6 +65,8 @@ public nonisolated struct Project: Equatable, Sendable, Identifiable {
     self.selectedWorktreeID = selectedWorktreeID
     self.isExpanded = isExpanded
     self.tagIDs = tagIDs
+    self.addedAt = addedAt
+    self.lastActiveAt = lastActiveAt
     self.loadState = loadState
   }
 
@@ -61,7 +78,8 @@ public nonisolated struct Project: Equatable, Sendable, Identifiable {
 
 extension Project: Codable {
   private enum CodingKeys: String, CodingKey {
-    case id, name, rootPath, gitRoot, worktrees, selectedWorktreeID, isExpanded, tagIDs
+    case id, name, rootPath, gitRoot, worktrees, selectedWorktreeID, isExpanded, tagIDs,
+      addedAt, lastActiveAt
   }
 
   public init(from decoder: Decoder) throws {
@@ -75,6 +93,11 @@ extension Project: Codable {
     self.isExpanded = try container.decodeIfPresent(Bool.self, forKey: .isExpanded) ?? true
     let tagIDArray = try container.decodeIfPresent([TagID].self, forKey: .tagIDs) ?? []
     self.tagIDs = Set(tagIDArray)
+    // Legacy catalogs ship without `addedAt`; fall back to `.distantPast`
+    // so joinOrder sorts produce a stable result (ties broken by array
+    // position, which equals the original insertion order).
+    self.addedAt = try container.decodeIfPresent(Date.self, forKey: .addedAt) ?? .distantPast
+    self.lastActiveAt = try container.decodeIfPresent(Date.self, forKey: .lastActiveAt)
     self.loadState = .loading
   }
 
@@ -97,6 +120,13 @@ extension Project: Codable {
       let sorted = tagIDs.sorted { $0.raw.uuidString < $1.raw.uuidString }
       try container.encode(sorted, forKey: .tagIDs)
     }
+    // Sentinel addedAt (from legacy decode) is omitted so legacy
+    // catalogs stay byte-identical until something actually populates
+    // the timestamp.
+    if addedAt != .distantPast {
+      try container.encode(addedAt, forKey: .addedAt)
+    }
+    try container.encodeIfPresent(lastActiveAt, forKey: .lastActiveAt)
     // `loadState` intentionally not encoded (transient).
   }
 }

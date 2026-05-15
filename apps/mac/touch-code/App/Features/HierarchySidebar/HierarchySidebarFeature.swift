@@ -84,6 +84,18 @@ struct HierarchySidebarFeature {
     /// disk before the crash. See `docs/design-docs/worktree-sidebar-ordering.md`
     /// §pending 段.
     var pendingWorktrees: IdentifiedArrayOf<PendingWorktree> = []
+    /// Manual-project-order sheet state. Non-nil = visible. Carries the
+    /// in-progress ordered ProjectID list so the user can cancel without
+    /// affecting the catalog — only "完成" writes back through
+    /// `applyManualProjectOrder`.
+    var manualSortSheet: ManualProjectSortSheet?
+  }
+
+  /// Modal state for the "手动排序" sheet. The list is initialised from
+  /// `catalog.projects.map(\.id)` — i.e. the last-known manual order, or
+  /// the current insertion order if the user has never reordered.
+  struct ManualProjectSortSheet: Equatable {
+    var orderedIDs: [ProjectID]
   }
 
   /// Payload for the first-archive explainer dialog. Carries the
@@ -213,6 +225,23 @@ struct HierarchySidebarFeature {
     case pendingWorktreeRetryTapped(PendingWorktreeID)
     case pendingWorktreeDiscardTapped(PendingWorktreeID)
     case pendingWorktreeCancelTapped(PendingWorktreeID)
+
+    // Sidebar bottom-bar sort mode.
+    /// User picked a non-manual sort from the sort popover. Persists and
+    /// keeps `catalog.projects` (the manual order) untouched.
+    case projectSortModeChanged(ProjectSortMode)
+    /// User picked "手动排序" — open the reorder sheet seeded with the
+    /// current manual order.
+    case manualSortSheetRequested
+    /// Dismissed via Cancel / outside-tap. Drops the in-progress order.
+    case manualSortCancelled
+    /// User dragged a row inside the sheet (`onMove` forwarder). Updates
+    /// the sheet's draft list only; commit happens on Done.
+    case manualSortRowsMoved(from: IndexSet, to: Int)
+    /// "完成". Writes the draft order back via
+    /// `applyManualProjectOrder` and switches `projectSortMode` to
+    /// `.manual` (the manager does this in one step).
+    case manualSortConfirmed
 
     // M4: Tag chip footer at the sidebar's safe-area bottom.
     /// Toggle membership of `id` in `Catalog.activeTagFilter`. If filter is
@@ -441,6 +470,36 @@ struct HierarchySidebarFeature {
 
     case .refreshAllProjectsTapped:
       return .send(.delegate(.refreshAllProjectsRequested))
+
+    // MARK: Project sort mode
+
+    case .projectSortModeChanged(let mode):
+      hierarchyClient.setProjectSortMode(mode)
+      return .none
+
+    case .manualSortSheetRequested:
+      // Seed from `catalog.projects` (the manual order). When the user has
+      // never reordered, this equals insertion order.
+      let snapshot = hierarchyClient.snapshot()
+      state.manualSortSheet = ManualProjectSortSheet(
+        orderedIDs: snapshot.projects.map(\.id)
+      )
+      return .none
+
+    case .manualSortCancelled:
+      state.manualSortSheet = nil
+      return .none
+
+    case .manualSortRowsMoved(let source, let destination):
+      guard state.manualSortSheet != nil else { return .none }
+      state.manualSortSheet?.orderedIDs.move(fromOffsets: source, toOffset: destination)
+      return .none
+
+    case .manualSortConfirmed:
+      guard let sheet = state.manualSortSheet else { return .none }
+      hierarchyClient.applyManualProjectOrder(sheet.orderedIDs)
+      state.manualSortSheet = nil
+      return .none
 
     case .projectAddWorktreeTapped(let projectID):
       // Resolve the Project from the catalog to feed repoRoot + worktreesDirectory

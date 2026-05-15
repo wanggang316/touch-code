@@ -7,6 +7,10 @@ public nonisolated struct Catalog: Equatable, Sendable {
   public var projects: [Project]
   public var tags: [Tag]
   public var activeTagFilter: TagFilter
+  /// Sidebar-wide project ordering policy. The `projects` array always
+  /// stores the manual order; `.joinOrder` and `.activeFirst` are
+  /// derived sorts applied at render time.
+  public var projectSortMode: ProjectSortMode
   /// Authoritative top-level "the user's current Project". Single-window
   /// simplification means there is exactly one such selection per app.
   /// The selection-stream resolver in `HierarchyClient` reads this first;
@@ -19,12 +23,14 @@ public nonisolated struct Catalog: Equatable, Sendable {
     projects: [Project] = [],
     tags: [Tag] = [],
     activeTagFilter: TagFilter = .all,
+    projectSortMode: ProjectSortMode = .default,
     selectedProjectID: ProjectID? = nil
   ) {
     self.version = version
     self.projects = projects
     self.tags = tags
     self.activeTagFilter = activeTagFilter
+    self.projectSortMode = projectSortMode
     self.selectedProjectID = selectedProjectID
   }
 
@@ -45,7 +51,7 @@ extension Catalog: Codable {
   }
 
   private enum CodingKeys: String, CodingKey {
-    case version, projects, tags, activeTagFilter, selectedProjectID
+    case version, projects, tags, activeTagFilter, projectSortMode, selectedProjectID
   }
 
   public init(from decoder: Decoder) throws {
@@ -59,6 +65,8 @@ extension Catalog: Codable {
     self.tags = try container.decodeIfPresent([Tag].self, forKey: .tags) ?? []
     self.activeTagFilter =
       try container.decodeIfPresent(TagFilter.self, forKey: .activeTagFilter) ?? .all
+    self.projectSortMode =
+      try container.decodeIfPresent(ProjectSortMode.self, forKey: .projectSortMode) ?? .default
     self.selectedProjectID =
       try container.decodeIfPresent(ProjectID.self, forKey: .selectedProjectID)
   }
@@ -73,11 +81,75 @@ extension Catalog: Codable {
     if activeTagFilter != .all {
       try container.encode(activeTagFilter, forKey: .activeTagFilter)
     }
+    // Same rationale: omit when default so existing catalogs stay
+    // byte-identical on round-trip.
+    if projectSortMode != .default {
+      try container.encode(projectSortMode, forKey: .projectSortMode)
+    }
     try container.encodeIfPresent(selectedProjectID, forKey: .selectedProjectID)
   }
 }
 
 extension Catalog {
+  /// Apply `projectSortMode` to a (possibly pre-filtered) Project list.
+  /// The input order is taken as the manual / canonical order — so
+  /// `.manual` is a pure identity, and the other modes derive their
+  /// ordering from `Project.addedAt` / `Project.lastActiveAt` with the
+  /// input order as a stable tiebreaker.
+  public func sorted(_ projects: [Project]) -> [Project] {
+    switch projectSortMode {
+    case .manual:
+      return projects
+    case .joinOrder:
+      // Stable sort by addedAt ASC; ties (including the `.distantPast`
+      // legacy bucket) preserve incoming array order.
+      return projects.enumerated()
+        .sorted { lhs, rhs in
+          if lhs.element.addedAt != rhs.element.addedAt {
+            return lhs.element.addedAt < rhs.element.addedAt
+          }
+          return lhs.offset < rhs.offset
+        }
+        .map { $0.element }
+    case .activeFirst:
+      // Most-recently-active first. Projects with `nil` lastActiveAt
+      // sink to the bottom and break ties by addedAt ASC (so the user
+      // sees a sensible "everything else, oldest first" tail).
+      return projects.enumerated()
+        .sorted { lhs, rhs in
+          switch (lhs.element.lastActiveAt, rhs.element.lastActiveAt) {
+          case (let l?, let r?):
+            if l != r { return l > r }
+          case (.some, .none):
+            return true
+          case (.none, .some):
+            return false
+          case (.none, .none):
+            break
+          }
+          if lhs.element.addedAt != rhs.element.addedAt {
+            return lhs.element.addedAt < rhs.element.addedAt
+          }
+          return lhs.offset < rhs.offset
+        }
+        .map { $0.element }
+    }
+  }
+
+  /// Resolve a `PaneID` to the Project that currently hosts it, if any.
+  /// Walks `projects → worktrees → tabs → panes` and returns the first
+  /// match. Linear in the total pane count.
+  public func projectID(forPane paneID: PaneID) -> ProjectID? {
+    for project in projects {
+      for worktree in project.worktrees {
+        for tab in worktree.tabs where tab.panes.contains(where: { $0.id == paneID }) {
+          return project.id
+        }
+      }
+    }
+    return nil
+  }
+
   /// Resolve a `PaneID` to the Worktree that currently hosts it, if any.
   /// Walks `projects → worktrees → tabs → panes` and returns the first
   /// match. Linear in the total pane count.

@@ -283,6 +283,19 @@ nonisolated struct HierarchyClient: Sendable {
       _ from: IndexSet, _ to: Int
     ) -> Void
 
+  /// Sidebar bottom-bar sort-mode write. Persisted on the catalog;
+  /// the manual array is left intact.
+  var setProjectSortMode: @MainActor @Sendable (_ mode: ProjectSortMode) -> Void
+
+  /// Commit the manual-sort sheet result: rewrites `catalog.projects`
+  /// to match `orderedIDs` and switches `projectSortMode` to `.manual`.
+  var applyManualProjectOrder: @MainActor @Sendable (_ orderedIDs: [ProjectID]) -> Void
+
+  /// Record an activity tick on a Project. Invoked by the notification
+  /// pipeline (new inbox entry → host project) and the input pipeline
+  /// (`TerminalInputSink.sendInput` → pane's host project).
+  var bumpProjectActivity: @MainActor @Sendable (_ projectID: ProjectID) -> Void
+
   /// Duplicate-add guard. Caller canonicalizes before querying.
   var isPathRegistered: @MainActor @Sendable (_ canonicalPath: String) -> ProjectID?
 
@@ -604,6 +617,15 @@ extension HierarchyClient {
       },
       reorderProjects: { from, to in
         manager.reorderProjects(from: from, to: to)
+      },
+      setProjectSortMode: { mode in
+        manager.setProjectSortMode(mode)
+      },
+      applyManualProjectOrder: { orderedIDs in
+        manager.applyManualProjectOrder(orderedIDs)
+      },
+      bumpProjectActivity: { projectID in
+        manager.bumpProjectActivity(projectID)
       },
       isPathRegistered: { canonicalPath in
         manager.isPathRegistered(canonical: canonicalPath)
@@ -1252,6 +1274,9 @@ extension HierarchyClient: DependencyKey {
     runningPaneCount: { _ in fatalError("HierarchyClient.liveValue not configured") },
     setProjectLoadState: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
     reorderProjects: { _, _ in fatalError("HierarchyClient.liveValue not configured") },
+    setProjectSortMode: { _ in fatalError("HierarchyClient.liveValue not configured") },
+    applyManualProjectOrder: { _ in fatalError("HierarchyClient.liveValue not configured") },
+    bumpProjectActivity: { _ in fatalError("HierarchyClient.liveValue not configured") },
     isPathRegistered: { _ in fatalError("HierarchyClient.liveValue not configured") },
     projectContaining: { _ in fatalError("HierarchyClient.liveValue not configured") },
     kind: { _ in fatalError("HierarchyClient.liveValue not configured") },
@@ -1327,6 +1352,9 @@ extension HierarchyClient: DependencyKey {
     runningPaneCount: unimplemented("HierarchyClient.runningPaneCount", placeholder: 0),
     setProjectLoadState: unimplemented("HierarchyClient.setProjectLoadState"),
     reorderProjects: unimplemented("HierarchyClient.reorderProjects"),
+    setProjectSortMode: unimplemented("HierarchyClient.setProjectSortMode"),
+    applyManualProjectOrder: unimplemented("HierarchyClient.applyManualProjectOrder"),
+    bumpProjectActivity: unimplemented("HierarchyClient.bumpProjectActivity"),
     isPathRegistered: unimplemented("HierarchyClient.isPathRegistered", placeholder: nil),
     projectContaining: unimplemented("HierarchyClient.projectContaining", placeholder: nil),
     kind: unimplemented("HierarchyClient.kind", placeholder: nil),

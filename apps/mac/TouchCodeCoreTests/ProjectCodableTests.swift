@@ -60,7 +60,9 @@ struct ProjectCodableTests {
       rootPath: project.rootPath,
       gitRoot: project.gitRoot,
       worktrees: project.worktrees,
-      selectedWorktreeID: project.selectedWorktreeID
+      selectedWorktreeID: project.selectedWorktreeID,
+      addedAt: project.addedAt,
+      lastActiveAt: project.lastActiveAt
     ))
     let preMgmtObject = try JSONSerialization.jsonObject(with: preMgmtData, options: []) as? [String: Any]
 

@@ -90,8 +90,7 @@ struct TouchCodeApp: App {
       MainWindowCommands(
         store: { appState.store },
         shortcuts: appState.shortcutsStore.resolved,
-        sidebarFocus: sidebarFocusObserver,
-        settingsStore: appState.settingsStore
+        sidebarFocus: sidebarFocusObserver
       )
       CommandGroup(replacing: .appSettings) {
         // Chord routes through the registry so a user override in Settings → Shortcuts
@@ -288,6 +287,14 @@ final class AppState {
   /// refreshes this lazily; a small dot is drawn next to the row name when dirty.
   let worktreeStatusMonitor: WorktreeStatusMonitor
 
+  /// HAN-62: watches `.git/HEAD` for every catalog Worktree so terminal-
+  /// driven `git checkout` inside a pane propagates to the catalog row's
+  /// `branch` (and downstream PR badges) without waiting for the next
+  /// app-focus event. Created here so its lifetime tracks the app and
+  /// the catalog-sync task lives inside `bringUp`.
+  let worktreeHeadWatcher: WorktreeHeadWatcher
+  private var worktreeHeadWatcherSyncTask: Task<Void, Never>?
+
   private var socketServer: SocketServer?
   // EditorClient is built inside bringUp() alongside the TCA dependency
   // wiring and then threaded into startIPC() so EditorHandlers and the
@@ -320,6 +327,7 @@ final class AppState {
     self.shortcutsStore = ShortcutsStore()
     self.notificationStore = NotificationStore()
     self.worktreeStatusMonitor = .live()
+    self.worktreeHeadWatcher = WorktreeHeadWatcher()
   }
 
   /// Idempotent: subsequent calls while `store` is already set are no-ops.
@@ -368,17 +376,20 @@ final class AppState {
     }
 
     // Sparkle bringup: push persisted Updates preferences to the live updater so
-    // settings.json is the single source of truth (Sparkle's own NSUserDefaults
-    // are derived from this, not the other way around). `triggerBackgroundCheck`
-    // is `false` because Sparkle's `start()` already schedules its own first
-    // check based on `lastUpdateCheckDate` + `updateCheckInterval`; firing one
-    // here would be a redundant probe on every launch.
+    // settings.json is the single source of truth (Sparkle's own NSUserDefaults are
+    // derived from this, not the other way around). When auto-checks are enabled we
+    // also force one background probe — Sparkle's built-in scheduler is gated by
+    // `lastUpdateCheckDate + updateCheckInterval` and would otherwise skip checking
+    // for the rest of the interval, so a release published mid-interval is invisible
+    // to users until the next tick. `checkForUpdatesInBackground()` is silent and
+    // edSignature-verified, so the extra request per launch is cheap and safe.
     let general = settings.settings.general
     UpdatesClient.liveValue.applyPreferences(
       general.updateChannel,
+      general.updateCheckInterval,
       general.updatesAutomaticallyCheckForUpdates,
       general.updatesAutomaticallyDownloadUpdates,
-      false
+      general.updatesAutomaticallyCheckForUpdates
     )
     // `SettingsWindowPresenter.open` forwards to the `OpenWindowAction` captured by the
     // main-window scene body into `openSettingsWindowAction`. SwiftUI's `OpenWindowAction`
@@ -415,7 +426,10 @@ final class AppState {
       // through the real manager binding. Default `now` is `Date.init`; tests
       // override with a scripted closure.
       $0.projectReconciler = ProjectReconciler(client: hierarchy)
+      $0.worktreeHeadWatcher = self.worktreeHeadWatcher
     }
+
+    startHeadWatcherSync()
 
     self.settingsWindowStore = Store(initialState: SettingsWindowFeature.State()) {
       SettingsWindowFeature()
@@ -469,7 +483,10 @@ final class AppState {
       store: notificationStore,
       banner: osNotifier,
       catalogSnapshot: { manager.catalog },
-      lastFocusedPane: { tabID in manager.lastFocusedPane(in: tabID) }
+      lastFocusedPane: { tabID in manager.lastFocusedPane(in: tabID) },
+      onProjectActivity: { [weak manager] projectID in
+        manager?.bumpProjectActivity(projectID)
+      }
     )
     let detectorEvents = engine.events()
     self.notificationDetectorTask = Task { @MainActor in
@@ -546,7 +563,17 @@ final class AppState {
       }
     )
     let terminalHandlers = TerminalHandlers(
-      sink: terminalEngine.ghosttyRuntime == nil ? nil : TerminalInputSink(engine: terminalEngine),
+      sink: terminalEngine.ghosttyRuntime == nil
+        ? nil
+        : TerminalInputSink(
+          engine: terminalEngine,
+          onPaneInput: { [weak hierarchy] paneID in
+            guard let manager = hierarchy,
+              let projectID = manager.catalog.projectID(forPane: paneID)
+            else { return }
+            manager.bumpProjectActivity(projectID)
+          }
+        ),
       catalog: { hierarchy.catalog }
     )
     let editorHandlers = EditorHandlers(
@@ -591,6 +618,8 @@ final class AppState {
     dockBadgerTask?.cancel()
     focusReadMarkerTask?.cancel()
     orphanSweepTask?.cancel()
+    worktreeHeadWatcherSyncTask?.cancel()
+    worktreeHeadWatcher.stopAll()
 
     settingsStore.flush()
     shortcutsStore.flush()
@@ -758,6 +787,50 @@ final class AppState {
     return ids
   }
 
+  /// `(worktreeID → path)` for every non-archived Worktree across all
+  /// Projects. Drives `WorktreeHeadWatcher.setWorktrees(_:)`; archived
+  /// rows are filtered out because they are hidden in the sidebar and
+  /// any HEAD change in their on-disk path is irrelevant until the user
+  /// un-archives. Path is the canonical form already stored on the row.
+  fileprivate static func headWatcherPairs(from catalog: Catalog) -> [WorktreeID: String] {
+    var pairs: [WorktreeID: String] = [:]
+    for project in catalog.projects {
+      for worktree in project.worktrees where !worktree.archived {
+        pairs[worktree.id] = worktree.path
+      }
+    }
+    return pairs
+  }
+
+  /// Starts the long-running mirror task that keeps the `WorktreeHeadWatcher`'s
+  /// worktree set in sync with the catalog (HAN-62). Sample BEFORE arming
+  /// the next `withObservationTracking` so any mutation between sync and
+  /// re-arm is caught on the pre-arm pass — same race-closing pattern the
+  /// selection stream in `HierarchyClient.makeSelectionStream` uses.
+  /// Factored out of `bringUp` to keep that method under the lint limit.
+  private func startHeadWatcherSync() {
+    worktreeHeadWatcherSyncTask?.cancel()
+    let manager = hierarchyManager
+    let watcher = worktreeHeadWatcher
+    worktreeHeadWatcherSyncTask = Task { @MainActor in
+      var last: [WorktreeID: String] = [:]
+      while !Task.isCancelled {
+        let current = Self.headWatcherPairs(from: manager.catalog)
+        if current != last {
+          watcher.setWorktrees(current.map { (id: $0.key, path: $0.value) })
+          last = current
+        }
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+          withObservationTracking {
+            _ = Self.headWatcherPairs(from: manager.catalog)
+          } onChange: {
+            cont.resume()
+          }
+        }
+      }
+    }
+  }
+
   /// Long-running mirror: pushes `store.unreadCount` to the Dock tile badge
   /// every time the count changes. Each loop iteration writes the *current*
   /// value before re-arming `withObservationTracking` so a burst of
@@ -820,26 +893,41 @@ final class GhosttyBackedHierarchyRuntime: HierarchyRuntime {
 @MainActor
 final class TerminalInputSink: TerminalHandlers.InputSink {
   private weak var engine: TerminalEngine?
+  /// Called once per dispatched input event so the sidebar's "active
+  /// first" sort can bump `Project.lastActiveAt` on the pane's host
+  /// project. Optional so previews / tests without a hierarchy manager
+  /// wired can drop it.
+  private let onPaneInput: (@MainActor (PaneID) -> Void)?
 
-  init(engine: TerminalEngine) {
+  init(engine: TerminalEngine, onPaneInput: (@MainActor (PaneID) -> Void)? = nil) {
     self.engine = engine
+    self.onPaneInput = onPaneInput
   }
 
   func sendInput(paneID: PaneID, text: String) -> Bool {
     guard let surface = engine?.ghosttyRuntime?.surface(for: paneID) else { return false }
     surface.sendInput(text)
+    // Empty-string writes (focus probes, etc.) shouldn't count as
+    // user activity for the sidebar's "active first" sort.
+    if !text.isEmpty {
+      onPaneInput?(paneID)
+    }
     return true
   }
 
   func sendKey(paneID: PaneID, key: IPC.TerminalNamedKey) -> Bool {
     guard let surface = engine?.ghosttyRuntime?.surface(for: paneID) else { return false }
     surface.sendNamedKey(key)
+    onPaneInput?(paneID)
     return true
   }
 
   func sendRawBytes(paneID: PaneID, bytes: [UInt8]) -> Bool {
     guard let surface = engine?.ghosttyRuntime?.surface(for: paneID) else { return false }
     surface.sendRawBytes(bytes)
+    if !bytes.isEmpty {
+      onPaneInput?(paneID)
+    }
     return true
   }
 

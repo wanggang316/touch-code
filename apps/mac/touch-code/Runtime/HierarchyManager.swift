@@ -169,11 +169,70 @@ final class HierarchyManager {
       rootPath: rootPath,
       gitRoot: gitRoot,
       worktrees: worktrees,
-      selectedWorktreeID: selectedWorktreeID
+      selectedWorktreeID: selectedWorktreeID,
+      addedAt: Date()
     )
     catalog.projects.append(project)
     store.scheduleSave(catalog)
     return projectID
+  }
+
+  // MARK: - Project sort mode (sidebar bottom bar)
+
+  /// Replaces the catalog-wide `projectSortMode`. Unchanged values are
+  /// silent no-ops. Switching modes never reorders `catalog.projects` —
+  /// the array stays the manual order; non-manual modes derive their
+  /// display order at render time.
+  func setProjectSortMode(_ mode: ProjectSortMode) {
+    guard catalog.projectSortMode != mode else { return }
+    catalog.projectSortMode = mode
+    store.scheduleSave(catalog)
+  }
+
+  /// Commit the result of the manual-sort sheet. Rewrites
+  /// `catalog.projects` so it matches `orderedIDs`, drops the
+  /// `projectSortMode` to `.manual`, and persists. Unknown ids in the
+  /// input are dropped; existing projects missing from the input are
+  /// appended at the end so a partial / stale list can't lose data.
+  func applyManualProjectOrder(_ orderedIDs: [ProjectID]) {
+    guard !catalog.projects.isEmpty else {
+      if catalog.projectSortMode != .manual {
+        catalog.projectSortMode = .manual
+        store.scheduleSave(catalog)
+      }
+      return
+    }
+    let byID = Dictionary(uniqueKeysWithValues: catalog.projects.map { ($0.id, $0) })
+    var seen: Set<ProjectID> = []
+    var rebuilt: [Project] = []
+    rebuilt.reserveCapacity(catalog.projects.count)
+    for id in orderedIDs {
+      guard let project = byID[id], !seen.contains(id) else { continue }
+      rebuilt.append(project)
+      seen.insert(id)
+    }
+    for project in catalog.projects where !seen.contains(project.id) {
+      rebuilt.append(project)
+    }
+    let modeChanged = catalog.projectSortMode != .manual
+    let orderChanged = rebuilt.map(\.id) != catalog.projects.map(\.id)
+    guard modeChanged || orderChanged else { return }
+    catalog.projects = rebuilt
+    catalog.projectSortMode = .manual
+    store.scheduleSave(catalog)
+  }
+
+  /// Record an activity tick on a Project. Called by the notification
+  /// pipeline (new inbox entry whose source resolves to this Project)
+  /// and by the input pipeline (`TerminalInputSink.sendInput` resolves
+  /// the pane → project). Monotonic — a stale `now` smaller than the
+  /// stored timestamp is dropped so out-of-order callers can't rewind
+  /// the sort order. Silent no-op for unknown ids.
+  func bumpProjectActivity(_ projectID: ProjectID, now: Date = Date()) {
+    guard let index = catalog.projects.firstIndex(where: { $0.id == projectID }) else { return }
+    if let existing = catalog.projects[index].lastActiveAt, existing >= now { return }
+    catalog.projects[index].lastActiveAt = now
+    store.scheduleSave(catalog)
   }
 
   /// Renames the Project in place. Missing project is `.notFound`; an unchanged
@@ -533,17 +592,30 @@ final class HierarchyManager {
       if let existingIdx = catalog.projects[projectIndex].worktrees
         .firstIndex(where: { Self.canonicalPath($0.path) == canonical })
       {
-        // Path already in the catalog. Upgrade a synthetic placeholder
-        // (seeded by `addProject(gitRoot: nil)` with `branch == nil` and
-        // `name == lastPathComponent`) once the Project transitions to a
-        // git repo and discovery surfaces a real branch — without this,
-        // the sidebar row keeps the folder name forever after `git init`.
+        // Path already in the catalog. Three cases land here:
+        //
+        // 1. Synthetic placeholder upgrade — `addProject(gitRoot: nil)`
+        //    seeded a row with `branch == nil` and `name == lastPathComponent`;
+        //    once the directory becomes a git repo, adopt the real branch
+        //    so the sidebar reads "main" instead of the folder name.
+        // 2. In-place branch change (HAN-62) — user ran `git checkout` /
+        //    `git switch` inside the worktree pane. The row's `branch`
+        //    must follow HEAD so the sidebar subtitle, WorktreeHeader
+        //    label, and GitHubFeature's PR fetch all see the new value.
+        // 3. Unchanged — no-op.
+        //
         // Tabs, panes, pin/archive flags, and the row id are preserved
-        // because we mutate in place.
+        // in every case because we mutate in place. `name` is only
+        // re-synced when it was tracking the previous branch — user-
+        // customized display names (e.g. "feat/web-ui" alongside the
+        // sanitized git branch "feat-web-ui", set via `createWorktreeWithGit`)
+        // are kept intact.
         let existing = catalog.projects[projectIndex].worktrees[existingIdx]
-        if existing.branch == nil, let branch = entryBranch {
-          catalog.projects[projectIndex].worktrees[existingIdx].branch = branch
-          catalog.projects[projectIndex].worktrees[existingIdx].name = branch
+        if existing.branch != entryBranch {
+          catalog.projects[projectIndex].worktrees[existingIdx].branch = entryBranch
+          if let newBranch = entryBranch, existing.name == existing.branch || existing.branch == nil {
+            catalog.projects[projectIndex].worktrees[existingIdx].name = newBranch
+          }
           upgraded += 1
         }
         continue
