@@ -20,6 +20,27 @@ and the project does not yet follow semantic versioning — every release until
 
 ### Security
 
+## [0.2.1] - 2026-05-16
+
+### Added
+
+- **Sort projects in the sidebar.** A new sort glyph next to the
+  tag-filter chip offers three modes — join order (default),
+  most-active first, and a drag-to-reorder sheet for manual ordering.
+- **Worktree branch updates as soon as you `git checkout` in a pane.**
+  The sidebar reflects the new branch without needing to refocus the
+  app or hit refresh.
+- **Configurable update-check interval.** Settings → Updates now
+  exposes a 1h / 6h / 12h / 24h dropdown (default 24h), independent
+  of the stable / tip channel choice.
+
+### Changed
+
+- **Inbox popover polish.** Each row gains a Project · Worktree
+  breadcrumb with a jump arrow; the All / Unread picker stays
+  centered; the status-bar bell carries a shortcut tooltip; read rows
+  remain as history but are no longer clickable.
+
 ## [0.2.0] - 2026-05-15
 
 ### Added
