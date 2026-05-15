@@ -146,10 +146,12 @@ private struct InboxPopoverContent: View {
 
   /// Header dropped its "Notifications" title (HAN-56) — the bell anchor
   /// already names the popover and the redundant headline ate vertical
-  /// space without earning it. Filter picker is leading now; Mark all
-  /// read stays trailing.
+  /// space without earning it. The All/Unread picker is centred via a
+  /// ZStack so its horizontal anchor stays fixed regardless of the Mark
+  /// all read button's width / disabled state; the button rides on a
+  /// trailing-aligned overlay HStack so it doesn't displace the picker.
   private var header: some View {
-    HStack(spacing: 12) {
+    ZStack {
       Picker("", selection: $unreadOnly) {
         Text("All").tag(false)
         Text("Unread").tag(true)
@@ -158,12 +160,13 @@ private struct InboxPopoverContent: View {
       .labelsHidden()
       .frame(width: 140)
 
-      Spacer()
-
-      Button("Mark all read", action: onMarkAllRead)
-        .buttonStyle(.plain)
-        .font(.caption)
-        .disabled((inbox?.unreadCount ?? 0) == 0)
+      HStack {
+        Spacer()
+        Button("Mark all read", action: onMarkAllRead)
+          .buttonStyle(.plain)
+          .font(.caption)
+          .disabled((inbox?.unreadCount ?? 0) == 0)
+      }
     }
     .padding(.horizontal, 12)
     .padding(.vertical, 8)
