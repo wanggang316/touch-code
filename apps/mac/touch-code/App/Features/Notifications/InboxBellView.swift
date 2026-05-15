@@ -21,6 +21,7 @@ struct InboxBellView: View {
   let popoverTrigger: UUID
   @Environment(NotificationStore.self) private var inbox: NotificationStore?
   @Environment(RollupIndexProvider.self) private var rollup: RollupIndexProvider?
+  @Environment(\.resolvedShortcuts) private var resolvedShortcuts: ResolvedShortcutMap
 
   @State private var popoverShown = false
   @State private var unreadOnly = false
@@ -48,6 +49,7 @@ struct InboxBellView: View {
       .frame(minHeight: 24)
     }
     .buttonStyle(.plain)
+    .help(tooltipLabel)
     .accessibilityLabel(accessibilityLabel)
     .onChange(of: popoverTrigger) { _, _ in
       popoverShown = true
@@ -75,6 +77,23 @@ struct InboxBellView: View {
     let count = rollup?.current.globalUnreadCount ?? 0
     if count == 0 { return "Notifications: no unread" }
     return "Notifications: \(count) unread"
+  }
+
+  /// Tooltip on the bell. Always reads "Show Unread Notifications" plus
+  /// the resolved chord for `.showUnread` in parens. We trail the chord
+  /// off when the user has disabled the binding so the tooltip degrades
+  /// to plain text rather than rendering an empty `()`.
+  private var tooltipLabel: String {
+    let base = "Show Unread Notifications"
+    if let resolved = resolvedShortcuts[.showUnread], resolved.isEnabled,
+      let binding = resolved.binding
+    {
+      return "\(base) (\(ShortcutDisplay.chord(for: binding)))"
+    }
+    if let fallback = ShortcutSchema.app.entry(for: .showUnread)?.defaultBinding {
+      return "\(base) (\(ShortcutDisplay.chord(for: fallback)))"
+    }
+    return base
   }
 }
 
@@ -125,11 +144,12 @@ private struct InboxPopoverContent: View {
     return unreadOnly ? entries.filter(\.isUnread) : entries
   }
 
+  /// Header dropped its "Notifications" title (HAN-56) — the bell anchor
+  /// already names the popover and the redundant headline ate vertical
+  /// space without earning it. Filter picker is leading now; Mark all
+  /// read stays trailing.
   private var header: some View {
     HStack(spacing: 12) {
-      Text("Notifications")
-        .font(.headline)
-      Spacer()
       Picker("", selection: $unreadOnly) {
         Text("All").tag(false)
         Text("Unread").tag(true)
@@ -137,6 +157,8 @@ private struct InboxPopoverContent: View {
       .pickerStyle(.segmented)
       .labelsHidden()
       .frame(width: 140)
+
+      Spacer()
 
       Button("Mark all read", action: onMarkAllRead)
         .buttonStyle(.plain)
@@ -197,11 +219,12 @@ private struct InboxRowView: View {
               .foregroundStyle(entry.isUnread ? Color.primary : Color.secondary)
               .lineLimit(1)
             Spacer()
-            if let projectName, !projectName.isEmpty {
-              Text(projectName)
+            if let breadcrumb, !breadcrumb.isEmpty {
+              Text(breadcrumb)
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
+                .truncationMode(.middle)
               Text("·")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
@@ -210,10 +233,26 @@ private struct InboxRowView: View {
               .font(.caption2)
               .foregroundStyle(.secondary)
           }
-          Text(entry.body)
-            .font(.caption)
-            .foregroundStyle(entry.isUnread ? Color.secondary : Color.secondary.opacity(0.7))
-            .lineLimit(2)
+          HStack(alignment: .bottom, spacing: 6) {
+            Text(entry.body)
+              .font(.caption)
+              .foregroundStyle(entry.isUnread ? Color.secondary : Color.secondary.opacity(0.7))
+              .lineLimit(2)
+              .frame(maxWidth: .infinity, alignment: .leading)
+            // HAN-56: every inbox row is jumpable — surface a → cue at
+            // the bottom-right of each row. Subtle by default (tertiary)
+            // and shifts 3 pt right on hover so the affordance reads as
+            // "click to jump" without competing with the row's primary
+            // text. SF Symbol used over a literal Unicode arrow so the
+            // glyph honors Dynamic Type and the SF weight axis.
+            Image(systemName: "chevron.right")
+              .font(.caption.weight(.semibold))
+              .foregroundStyle(.secondary)
+              .opacity(isHovering ? 0.95 : 0.55)
+              .offset(x: isHovering ? 3 : 0)
+              .animation(.easeInOut(duration: 0.15), value: isHovering)
+              .accessibilityHidden(true)
+          }
         }
       }
       .padding(.horizontal, 12)
@@ -242,14 +281,31 @@ private struct InboxRowView: View {
     }
   }
 
-  /// Project display name for the entry's source path. Resolved live
-  /// from `HierarchyManager.catalog` so a project rename reflects in
-  /// the popover without a save / reload cycle. Returns nil when the
-  /// project has been deleted (G3 dead-target case) — the row simply
-  /// omits the breadcrumb in that case.
-  private var projectName: String? {
-    guard let mgr = hierarchyManager else { return nil }
-    return mgr.catalog.projects.first(where: { $0.id == entry.source.projectID })?.name
+  /// Breadcrumb for the entry's source path: `Project · Worktree` with
+  /// `· TabName` appended only when the user has explicitly renamed the
+  /// tab (`tab.name` non-empty). HAN-56: a renamed tab carries enough
+  /// signal to be worth surfacing in the row; the auto-derived live /
+  /// cached title (pwd basename, OSC title) is noise here and would
+  /// fight the body text for horizontal space.
+  ///
+  /// Resolved live from `HierarchyManager.catalog` so a project /
+  /// worktree / tab rename reflects in the popover without a save or
+  /// reload cycle. Returns nil when the project has been deleted (G3
+  /// dead-target case) so the row simply omits the breadcrumb.
+  private var breadcrumb: String? {
+    guard let mgr = hierarchyManager,
+      let project = mgr.catalog.projects.first(where: { $0.id == entry.source.projectID })
+    else { return nil }
+    var parts: [String] = [project.name]
+    if let worktree = project.worktrees.first(where: { $0.id == entry.source.worktreeID }) {
+      parts.append(worktree.name)
+      if let tab = worktree.tabs.first(where: { $0.id == entry.source.tabID }),
+        let tabName = tab.name, !tabName.isEmpty
+      {
+        parts.append(tabName)
+      }
+    }
+    return parts.joined(separator: " · ")
   }
 
   private var relativeAge: String {
