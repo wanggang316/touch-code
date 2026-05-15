@@ -43,6 +43,14 @@ final class HierarchyManager {
     self.store = store
     self.runtime = runtime
     Self.normalizeArchivedSelection(in: &self.catalog)
+    let didStampLegacyTimestamps = Self.backfillLegacyAddedAt(in: &self.catalog)
+    if didStampLegacyTimestamps {
+      // Persist the migration so successive launches start from the
+      // backfilled timestamps rather than re-deriving them on every
+      // open (and so the user-visible order is deterministic the
+      // moment another writer touches the catalog).
+      store.scheduleSave(self.catalog)
+    }
   }
 
   /// Defensive sweep run at load: if any project's `selectedWorktreeID`
@@ -51,6 +59,29 @@ final class HierarchyManager {
   /// first non-archived sibling. Keeps the active selection chain
   /// reachable from the sidebar so the detail pane never restores to
   /// a hidden, closed-surface row.
+  /// One-time migration that pulls legacy projects (decoded with the
+  /// sentinel `addedAt == .distantPast` because the field didn't exist
+  /// when the catalog was written) onto a real timeline so each sort
+  /// mode produces a distinct order. Without this every "active" /
+  /// "join order" lookup would tie-break on the array position and
+  /// visually match `.manual`, defeating the whole sort-mode UI.
+  ///
+  /// The stamped timestamps are derived from a fixed base far enough in
+  /// the past that any future `Date.now` from `addProject` sorts after
+  /// them, but spaced by 1 s per index so the relative order of legacy
+  /// projects equals their `catalog.projects` array position — which is
+  /// the historical sidebar order. Returns `true` if at least one
+  /// project was mutated.
+  private static func backfillLegacyAddedAt(in catalog: inout Catalog) -> Bool {
+    let base = Date(timeIntervalSince1970: 0)
+    var mutated = false
+    for index in catalog.projects.indices where catalog.projects[index].addedAt == .distantPast {
+      catalog.projects[index].addedAt = base.addingTimeInterval(TimeInterval(index))
+      mutated = true
+    }
+    return mutated
+  }
+
   private static func normalizeArchivedSelection(in catalog: inout Catalog) {
     for projectIndex in catalog.projects.indices {
       let project = catalog.projects[projectIndex]

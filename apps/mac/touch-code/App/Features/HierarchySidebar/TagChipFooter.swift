@@ -38,64 +38,70 @@ struct TagFilterPopoverFooter: View {
 
   var body: some View {
     HStack(spacing: 0) {
-      Button {
-        isFilterPopoverPresented.toggle()
-      } label: {
-        Image(systemName: "line.3.horizontal.decrease")
-          .font(.system(size: 14, weight: .regular))
-          .foregroundStyle(hasActiveFilter ? Color.accentColor : .secondary)
-          .frame(width: 22, height: 22)
-          .contentShape(Rectangle())
-      }
-      .buttonStyle(.plain)
-      .help(hasActiveFilter ? "Filtered by tag — click to change" : "Filter by tag")
-      .accessibilityLabel("Filter by tag")
-      .popover(isPresented: $isFilterPopoverPresented, arrowEdge: .bottom) {
-        TagFilterList(
-          tags: tags,
-          activeFilter: activeFilter,
-          showUntaggedChip: showUntaggedChip,
-          onAllTapped: { onAllTapped() },
-          onTagTapped: { onTagTapped($0) },
-          onUntaggedTapped: { onUntaggedTapped() },
-          onEditTagsTapped: onEditTagsTapped.map { handler in
-            { handler() }
-          }
-        )
-      }
-      if let sortMode, let onSortModeChanged, let onManualSortRequested {
+      // Filter + sort glyphs sit in their own tight group with a small
+      // gap between them so they read as a related toolbar pair rather
+      // than a single fused chip.
+      HStack(spacing: 6) {
         Button {
-          isSortPopoverPresented.toggle()
+          isFilterPopoverPresented.toggle()
         } label: {
-          // The sort glyph stays visually neutral regardless of the
-          // active mode — unlike the tag filter, "sort order" is a
-          // navigation aid rather than a constraint hiding rows, so
-          // there is nothing to draw the eye to once the user has
-          // made their choice.
-          Image(systemName: "arrow.up.arrow.down")
-            .font(.system(size: 13, weight: .regular))
-            .foregroundStyle(.secondary)
-            .frame(width: 22, height: 22)
+          Image(systemName: "line.3.horizontal.decrease")
+            .font(.system(size: 12, weight: .regular))
+            .foregroundStyle(hasActiveFilter ? Color.accentColor : .secondary)
+            .frame(width: 18, height: 18)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(sortHelpText(for: sortMode))
-        .accessibilityLabel("Sort projects")
-        .popover(isPresented: $isSortPopoverPresented, arrowEdge: .bottom) {
-          ProjectSortList(
-            mode: sortMode,
-            onSelect: { picked in
-              // Dismiss the popover first so the user sees the
-              // re-sorted list as soon as the callback runs — leaving
-              // it open swallows the visual feedback they expect.
-              isSortPopoverPresented = false
-              if picked == .manual {
-                onManualSortRequested()
-              } else {
-                onSortModeChanged(picked)
-              }
+        .help(hasActiveFilter ? "Filtered by tag — click to change" : "Filter by tag")
+        .accessibilityLabel("Filter by tag")
+        .popover(isPresented: $isFilterPopoverPresented, arrowEdge: .bottom) {
+          TagFilterList(
+            tags: tags,
+            activeFilter: activeFilter,
+            showUntaggedChip: showUntaggedChip,
+            onAllTapped: { onAllTapped() },
+            onTagTapped: { onTagTapped($0) },
+            onUntaggedTapped: { onUntaggedTapped() },
+            onEditTagsTapped: onEditTagsTapped.map { handler in
+              { handler() }
             }
           )
+        }
+        if let sortMode, let onSortModeChanged, let onManualSortRequested {
+          Button {
+            isSortPopoverPresented.toggle()
+          } label: {
+            // The sort glyph stays visually neutral regardless of the
+            // active mode — unlike the tag filter, "sort order" is a
+            // navigation aid rather than a constraint hiding rows, so
+            // there is nothing to draw the eye to once the user has
+            // made their choice.
+            Image(systemName: "arrow.up.arrow.down")
+              .font(.system(size: 11, weight: .regular))
+              .foregroundStyle(.secondary)
+              .frame(width: 18, height: 18)
+              .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+          .help(sortHelpText(for: sortMode))
+          .accessibilityLabel("Sort projects")
+          .popover(isPresented: $isSortPopoverPresented, arrowEdge: .bottom) {
+            ProjectSortList(
+              mode: sortMode,
+              onSelect: { picked in
+                // Dismiss the popover first so the user sees the
+                // re-sorted list as soon as the callback runs —
+                // leaving it open swallows the visual feedback they
+                // expect.
+                isSortPopoverPresented = false
+                if picked == .manual {
+                  onManualSortRequested()
+                } else {
+                  onSortModeChanged(picked)
+                }
+              }
+            )
+          }
         }
       }
       Spacer()
