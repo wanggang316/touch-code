@@ -373,6 +373,11 @@ struct HierarchySidebarView: View {
     }
   }
 
+  /// HAN-65: empty-state copy is English and reflects the actual
+  /// affordances the user has — the `.addProject` chord (resolved live
+  /// against `resolvedShortcuts` so a rebind keeps the hint accurate)
+  /// and the toolbar `+` button. Button label uses "Open Project" to
+  /// match the user-facing verb the picker presents.
   private var emptyState: some View {
     VStack(spacing: 10) {
       Spacer()
@@ -380,13 +385,14 @@ struct HierarchySidebarView: View {
         .font(.title)
         .foregroundStyle(.secondary)
         .accessibilityHidden(true)
-      Text("No projects yet.")
+      emptyStateHint
         .font(.callout)
         .foregroundStyle(.secondary)
+        .multilineTextAlignment(.center)
       Button {
         store.send(.toolbarAddProjectTapped)
       } label: {
-        Label("Add Project", systemImage: "plus")
+        Label("Open Project", systemImage: "plus")
           .commandKeyHint(.addProject)
       }
       .buttonStyle(.borderedProminent)
@@ -394,6 +400,32 @@ struct HierarchySidebarView: View {
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .padding()
+  }
+
+  /// Hint text above the Open Project button. Resolves `.addProject` from
+  /// the live shortcut registry so the displayed chord follows any user
+  /// rebinding; falls back to the schema default before the registry has
+  /// loaded; drops the chord clause entirely if the user disabled the
+  /// binding.
+  @ViewBuilder
+  private var emptyStateHint: some View {
+    if let chord = addProjectChord {
+      Text(
+        "Press \(Text(chord).monospaced()) or click \(Text("+").bold()) to open a project (repository or folder)."
+      )
+    } else {
+      Text("Click \(Text("+").bold()) to open a project (repository or folder).")
+    }
+  }
+
+  private var addProjectChord: String? {
+    if let resolved = resolvedShortcuts[.addProject], resolved.isEnabled, let binding = resolved.binding {
+      return ShortcutDisplay.chord(for: binding)
+    }
+    if let fallback = ShortcutSchema.app.entry(for: .addProject)?.defaultBinding {
+      return ShortcutDisplay.chord(for: fallback)
+    }
+    return nil
   }
 
   // MARK: - Project section
