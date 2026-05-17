@@ -20,6 +20,39 @@ and the project does not yet follow semantic versioning — every release until
 
 ### Security
 
+## [0.2.2] - 2026-05-17
+
+### Added
+
+- **Icon-based Appearance picker in Settings → General.** A
+  System-Settings-style tile row (Light / Dark / Auto) replaces the
+  segmented picker, with previews and an accent-coloured selection
+  ring.
+
+### Changed
+
+- **Sidebar is ~20% denser.** Project headers shrink one type step
+  and worktree rows tighten their vertical insets so more of your
+  work fits on screen.
+- **PR-status badge on worktree rows is bolder and easier to read.**
+  The CI state fills a coloured disc with a white glyph on top, and
+  an unread notification bell now takes priority over the badge so
+  it isn't visually buried.
+- **Sidebar and detail empty-states cleaned up.** The detail pane
+  is a calm blank canvas without the bundle-name title bar; the
+  sidebar empty-state is in English with a live shortcut hint and
+  an "Open Project" button.
+- **Settings → Shortcuts is more legible.** The chord column is now
+  plain monospaced text at a larger size with letter tracking and a
+  roomier hit area.
+- **Shortcut bindings refined.** Toggle Sidebar moves to ⌘⌥S with a
+  custom hover tooltip. Back/Forward in Worktree History bind to
+  ⌘⌃[ / ⌘⌃] and now also reveal the new selection in the sidebar.
+  Reveal in Sidebar moves from ⌘⇧E to ⌘⇧J so it no longer clashes
+  with the system Emoji shortcut. The four pane-focus commands are
+  renamed to "Focus Pane Left/Right/Up/Down" across menus and the
+  command palette.
+
 ## [0.2.1] - 2026-05-16
 
 ### Added
