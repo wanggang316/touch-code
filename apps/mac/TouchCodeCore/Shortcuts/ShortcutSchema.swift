@@ -163,7 +163,7 @@ extension ShortcutSchema {
       title: "Toggle Sidebar",
       category: .projectAndWorktree,
       scope: .configurable,
-      defaultBinding: .init(keyCode: UInt16(kVK_ANSI_LeftBracket), modifiers: .command)
+      defaultBinding: nil
     ),
     .init(
       id: .revealCurrentWorktreeInSidebar,
@@ -177,14 +177,14 @@ extension ShortcutSchema {
       title: "Select Previous Worktree",
       category: .projectAndWorktree,
       scope: .configurable,
-      defaultBinding: .init(keyCode: UInt16(kVK_UpArrow), modifiers: [.command, .control])
+      defaultBinding: .init(keyCode: UInt16(kVK_ANSI_LeftBracket), modifiers: [.command, .control])
     ),
     .init(
       id: .selectNextWorktree,
       title: "Select Next Worktree",
       category: .projectAndWorktree,
       scope: .configurable,
-      defaultBinding: .init(keyCode: UInt16(kVK_DownArrow), modifiers: [.command, .control])
+      defaultBinding: .init(keyCode: UInt16(kVK_ANSI_RightBracket), modifiers: [.command, .control])
     ),
     .init(
       id: .worktreeHistoryBack,
@@ -332,28 +332,28 @@ extension ShortcutSchema {
     ),
     .init(
       id: .focusSplitLeft,
-      title: "Focus Left Split",
+      title: "Focus Pane Left",
       category: .terminal,
       scope: .configurable,
       defaultBinding: .init(keyCode: UInt16(kVK_LeftArrow), modifiers: [.command, .option])
     ),
     .init(
       id: .focusSplitRight,
-      title: "Focus Right Split",
+      title: "Focus Pane Right",
       category: .terminal,
       scope: .configurable,
       defaultBinding: .init(keyCode: UInt16(kVK_RightArrow), modifiers: [.command, .option])
     ),
     .init(
       id: .focusSplitUp,
-      title: "Focus Split Above",
+      title: "Focus Pane Up",
       category: .terminal,
       scope: .configurable,
       defaultBinding: .init(keyCode: UInt16(kVK_UpArrow), modifiers: [.command, .option])
     ),
     .init(
       id: .focusSplitDown,
-      title: "Focus Split Below",
+      title: "Focus Pane Down",
       category: .terminal,
       scope: .configurable,
       defaultBinding: .init(keyCode: UInt16(kVK_DownArrow), modifiers: [.command, .option])

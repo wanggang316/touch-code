@@ -351,6 +351,11 @@ private struct HotkeyCell: View {
   /// rows render the chord as a static bordered cell since the user cannot rebind them.
   /// The production schema currently has no non-configurable entries; the branch stays as
   /// defensive support for future `.systemFixed` / `.localOnly` rows.
+  ///
+  /// Configurable rows use `.buttonStyle(.plain)` — the chord renders as plain monospaced
+  /// text with no chrome so it reads cleanly against the alternating row background. The
+  /// `contentShape` keeps the row clickable across its full width despite the lack of a
+  /// visible button border.
   @ViewBuilder
   private func chordButton(entry: ShortcutSchema.Entry, resolved: ResolvedShortcut?) -> some View {
     if entry.scope == .configurable {
@@ -358,10 +363,11 @@ private struct HotkeyCell: View {
         isRecording = true
       } label: {
         chordLabel(resolved: resolved)
-          .frame(maxWidth: .infinity, alignment: .center)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(.vertical, 4)
+          .contentShape(Rectangle())
       }
-      .buttonStyle(.bordered)
-      .controlSize(.small)
+      .buttonStyle(.plain)
       .popover(isPresented: $isRecording, arrowEdge: .bottom) {
         HotkeyRecorderPopover(
           title: entry.title,
@@ -375,12 +381,7 @@ private struct HotkeyCell: View {
         chordLabel(resolved: resolved)
         Spacer()
       }
-      .padding(.horizontal, 8)
-      .padding(.vertical, 3)
-      .overlay(
-        RoundedRectangle(cornerRadius: 5)
-          .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-      )
+      .padding(.vertical, 4)
     }
   }
 
@@ -388,12 +389,13 @@ private struct HotkeyCell: View {
   private func chordLabel(resolved: ResolvedShortcut?) -> some View {
     if let resolved, let binding = resolved.binding {
       Text(ShortcutDisplay.chord(for: binding))
-        .font(.system(size: 12, design: .monospaced))
+        .font(.system(size: 14, design: .monospaced))
+        .tracking(1.5)
         .foregroundStyle(chordColor(for: resolved))
         .strikethrough(!resolved.isEnabled)
     } else {
       Text("Unassigned")
-        .font(.system(size: 11))
+        .font(.system(size: 13))
         .foregroundStyle(.secondary)
     }
   }

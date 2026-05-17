@@ -262,7 +262,7 @@ enum CommandPaletteItems {
   /// splits, focus navigation, zoom toggle. Only emitted when the pane
   /// was carried in via the ghostty keybind pipeline (precise focus).
   /// A menu-triggered palette open omits these so the user never sees a
-  /// "Focus Left Split" that would silently navigate from the wrong
+  /// "Focus Pane Left" that would silently navigate from the wrong
   /// pane.
   private static func paneFocusDependentItems() -> [CommandPaletteItem] {
     [
@@ -280,25 +280,25 @@ enum CommandPaletteItems {
       ),
       CommandPaletteItem(
         id: "pane.focus.left",
-        title: "Focus Left Split",
+        title: "Focus Pane Left",
         icon: "arrow.left",
         kind: .paneAction(.gotoSplit(direction: .left))
       ),
       CommandPaletteItem(
         id: "pane.focus.right",
-        title: "Focus Right Split",
+        title: "Focus Pane Right",
         icon: "arrow.right",
         kind: .paneAction(.gotoSplit(direction: .right))
       ),
       CommandPaletteItem(
         id: "pane.focus.up",
-        title: "Focus Split Above",
+        title: "Focus Pane Up",
         icon: "arrow.up",
         kind: .paneAction(.gotoSplit(direction: .up))
       ),
       CommandPaletteItem(
         id: "pane.focus.down",
-        title: "Focus Split Below",
+        title: "Focus Pane Down",
         icon: "arrow.down",
         kind: .paneAction(.gotoSplit(direction: .down))
       ),

@@ -29,9 +29,13 @@ struct ShortcutSchemaAuditTests {
         continue
       }
       let binding = entry.defaultBinding
-      #expect(binding?.keyCode == expected.keyCode, "keyCode mismatch for \(id).")
-      #expect(binding?.modifiers == expected.modifiers, "modifiers mismatch for \(id).")
-      #expect(binding?.isEnabled == true, "default binding for \(id) must be enabled.")
+      if let expected {
+        #expect(binding?.keyCode == expected.keyCode, "keyCode mismatch for \(id).")
+        #expect(binding?.modifiers == expected.modifiers, "modifiers mismatch for \(id).")
+        #expect(binding?.isEnabled == true, "default binding for \(id) must be enabled.")
+      } else {
+        #expect(binding == nil, "expected no default binding for \(id).")
+      }
     }
   }
 
@@ -49,7 +53,7 @@ struct ShortcutSchemaAuditTests {
   /// migration (see commits before `feature/shotcuts`). Updating an entry here is the
   /// deliberate signal that a default chord moved; the corresponding `ShortcutSchema.app`
   /// edit fails the audit unless this table is updated in the same commit.
-  private static let golden: [(CommandID, (keyCode: UInt16, modifiers: ModifierMask))] = [
+  private static let golden: [(CommandID, (keyCode: UInt16, modifiers: ModifierMask)?)] = [
     (.openSettings, (0x2B, [.command])),  // ,
     (.commandPaletteToggle, (0x23, [.command])),  // p
     (.showUnread, (0x20, [.command])),  // ⌘U
@@ -71,10 +75,10 @@ struct ShortcutSchemaAuditTests {
     (.deleteCurrentWorktree, (0x33, [.command, .shift])),  // ⌘⇧⌫
     (.showArchivedWorktrees, (0x00, [.command, .control])),  // ⌃A
     (.copyCurrentWorktreePath, (0x08, [.command, .shift])),  // ⌘⇧C
-    (.toggleSidebar, (0x21, [.command])),  // ⌘[
+    (.toggleSidebar, nil),  // unbound by default (HAN-68)
     (.revealCurrentWorktreeInSidebar, (0x0E, [.command, .shift])),  // ⌘⇧E
-    (.selectPreviousWorktree, (0x7E, [.command, .control])),  // ⌘⌃↑
-    (.selectNextWorktree, (0x7D, [.command, .control])),  // ⌘⌃↓
+    (.selectPreviousWorktree, (0x21, [.command, .control])),  // ⌘⌃[
+    (.selectNextWorktree, (0x1E, [.command, .control])),  // ⌘⌃]
     (.worktreeHistoryBack, (0x7B, [.command, .control])),  // ⌘⌃←
     (.worktreeHistoryForward, (0x7C, [.command, .control])),  // ⌘⌃→
     (.newTab, (0x11, [.command])),  // t
