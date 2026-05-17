@@ -62,14 +62,7 @@ struct SettingsGeneralView: View {
     Form {
       Section {
         LabeledContent("Appearance") {
-          Picker("Appearance", selection: appearanceBinding) {
-            Text("System").tag(AppearancePreference.system)
-            Text("Light").tag(AppearancePreference.light)
-            Text("Dark").tag(AppearancePreference.dark)
-          }
-          .pickerStyle(.segmented)
-          .labelsHidden()
-          .fixedSize()
+          AppearancePicker(selection: appearanceBinding)
         }
       }
 
