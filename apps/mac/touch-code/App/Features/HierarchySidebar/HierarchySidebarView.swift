@@ -437,7 +437,7 @@ struct HierarchySidebarView: View {
           )
         }
         .buttonStyle(.plain)
-        .listRowInsets(EdgeInsets(top: 5, leading: 0, bottom: 2, trailing: 0))
+        .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 2, trailing: 0))
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
         if isExpanded {
@@ -556,7 +556,7 @@ struct HierarchySidebarView: View {
     // `_UnclampedClipView` and adds a +8pt visual indent so worktree content
     // reads as a child level under the (left-aligned) project header.
     .tag(worktree.id)
-    .listRowInsets(EdgeInsets(top: 3, leading: 14, bottom: 3, trailing: 0))
+    .listRowInsets(EdgeInsets(top: 2, leading: 14, bottom: 2, trailing: 0))
     .listRowSeparator(.hidden)
     .contextMenu { worktreeContextMenu(worktree: worktree, project: project) }
     .task(id: worktree.path) {

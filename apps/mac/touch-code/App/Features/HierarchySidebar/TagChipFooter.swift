@@ -119,7 +119,7 @@ struct TagFilterPopoverFooter: View {
       }
     }
     .padding(.horizontal, 8)
-    .padding(.vertical, 4)
+    .padding(.vertical, 3)
     .background(.bar)
   }
 
