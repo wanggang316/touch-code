@@ -437,7 +437,7 @@ struct HierarchySidebarView: View {
           )
         }
         .buttonStyle(.plain)
-        .listRowInsets(EdgeInsets(top: 10, leading: 0, bottom: 4, trailing: 0))
+        .listRowInsets(EdgeInsets(top: 5, leading: 0, bottom: 2, trailing: 0))
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
         if isExpanded {
@@ -1077,7 +1077,7 @@ private struct ProjectHeaderRow: View {
           .accessibilityHidden(true)
       }
       Text(project.name)
-        .font(.callout)
+        .font(.subheadline)
         .foregroundStyle(isHovering ? .primary : .secondary)
       Spacer()
       // Keep the hover chrome from collapsing row width when hidden —
