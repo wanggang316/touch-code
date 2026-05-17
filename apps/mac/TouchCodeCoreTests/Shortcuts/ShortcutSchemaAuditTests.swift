@@ -75,12 +75,12 @@ struct ShortcutSchemaAuditTests {
     (.deleteCurrentWorktree, (0x33, [.command, .shift])),  // ⌘⇧⌫
     (.showArchivedWorktrees, (0x00, [.command, .control])),  // ⌃A
     (.copyCurrentWorktreePath, (0x08, [.command, .shift])),  // ⌘⇧C
-    (.toggleSidebar, nil),  // unbound by default (HAN-68)
-    (.revealCurrentWorktreeInSidebar, (0x0E, [.command, .shift])),  // ⌘⇧E
-    (.selectPreviousWorktree, (0x21, [.command, .control])),  // ⌘⌃[
-    (.selectNextWorktree, (0x1E, [.command, .control])),  // ⌘⌃]
-    (.worktreeHistoryBack, (0x7B, [.command, .control])),  // ⌘⌃←
-    (.worktreeHistoryForward, (0x7C, [.command, .control])),  // ⌘⌃→
+    (.toggleSidebar, (0x01, [.command, .option])),  // ⌘⌥S
+    (.revealCurrentWorktreeInSidebar, (0x26, [.command, .shift])),  // ⌘⇧J
+    (.selectPreviousWorktree, (0x7E, [.command, .control])),  // ⌘⌃↑
+    (.selectNextWorktree, (0x7D, [.command, .control])),  // ⌘⌃↓
+    (.worktreeHistoryBack, (0x21, [.command, .control])),  // ⌘⌃[
+    (.worktreeHistoryForward, (0x1E, [.command, .control])),  // ⌘⌃]
     (.newTab, (0x11, [.command])),  // t
     (.closeTab, (0x0D, [.command])),  // w
     (.renameActiveTab, (0x0F, [.command, .shift])),  // ⌘⇧R

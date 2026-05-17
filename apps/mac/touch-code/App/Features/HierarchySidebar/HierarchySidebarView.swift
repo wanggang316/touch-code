@@ -19,7 +19,7 @@ import TouchCodeCore
 struct HierarchySidebarView: View {
   @Bindable var store: StoreOf<HierarchySidebarFeature>
   let currentSelection: HierarchySelection
-  /// Bumped by `RootFeature.revealCurrentWorktreeInSidebarRequested` (⌘⇧E).
+  /// Bumped by `RootFeature.revealCurrentWorktreeInSidebarRequested` (⌘⇧J).
   /// `.onChange(of:)` on this UUID triggers a `proxy.scrollTo` so the
   /// selected row comes back into view even when the user has scrolled
   /// elsewhere. Defaults to a fixed UUID for previews so the no-op render
@@ -177,6 +177,10 @@ struct HierarchySidebarView: View {
         ManualProjectSortSheetView(projectNames: projectNames, store: store)
       }
       .toolbar { sidebarToolbarContent }
+      // System sidebar toggle's tooltip can't be customized; ContentView
+      // provides a replacement with `helpWithShortcut("Show/Hide Sidebar",
+      // .toggleSidebar)` so the chord shows in the hover hint (HAN-68).
+      .toolbar(removing: .sidebarToggle)
       .sheet(
         isPresented: Binding(
           get: { store.createWorktreeSheet != nil },

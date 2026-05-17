@@ -163,42 +163,42 @@ extension ShortcutSchema {
       title: "Toggle Sidebar",
       category: .projectAndWorktree,
       scope: .configurable,
-      defaultBinding: nil
+      defaultBinding: .init(keyCode: UInt16(kVK_ANSI_S), modifiers: [.command, .option])
     ),
     .init(
       id: .revealCurrentWorktreeInSidebar,
       title: "Reveal in Sidebar",
       category: .projectAndWorktree,
       scope: .configurable,
-      defaultBinding: .init(keyCode: UInt16(kVK_ANSI_E), modifiers: [.command, .shift])
+      defaultBinding: .init(keyCode: UInt16(kVK_ANSI_J), modifiers: [.command, .shift])
     ),
     .init(
       id: .selectPreviousWorktree,
       title: "Select Previous Worktree",
       category: .projectAndWorktree,
       scope: .configurable,
-      defaultBinding: .init(keyCode: UInt16(kVK_ANSI_LeftBracket), modifiers: [.command, .control])
+      defaultBinding: .init(keyCode: UInt16(kVK_UpArrow), modifiers: [.command, .control])
     ),
     .init(
       id: .selectNextWorktree,
       title: "Select Next Worktree",
       category: .projectAndWorktree,
       scope: .configurable,
-      defaultBinding: .init(keyCode: UInt16(kVK_ANSI_RightBracket), modifiers: [.command, .control])
+      defaultBinding: .init(keyCode: UInt16(kVK_DownArrow), modifiers: [.command, .control])
     ),
     .init(
       id: .worktreeHistoryBack,
       title: "Back in Worktree History",
       category: .projectAndWorktree,
       scope: .configurable,
-      defaultBinding: .init(keyCode: UInt16(kVK_LeftArrow), modifiers: [.command, .control])
+      defaultBinding: .init(keyCode: UInt16(kVK_ANSI_LeftBracket), modifiers: [.command, .control])
     ),
     .init(
       id: .worktreeHistoryForward,
       title: "Forward in Worktree History",
       category: .projectAndWorktree,
       scope: .configurable,
-      defaultBinding: .init(keyCode: UInt16(kVK_RightArrow), modifiers: [.command, .control])
+      defaultBinding: .init(keyCode: UInt16(kVK_ANSI_RightBracket), modifiers: [.command, .control])
     ),
     .init(
       id: .selectWorktreeAt1,

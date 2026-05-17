@@ -1502,6 +1502,10 @@ struct RootFeature {
           let projectID = target.projectID,
           let worktreeID = target.worktreeID
         else { return .none }
+        // After navigating, reveal the new selection in the sidebar so users
+        // see where ⌘⌃[ landed instead of having to scroll for it (HAN-68).
+        state.sidebarVisible = true
+        state.revealSelectionTrigger = UUID()
         return .send(.sidebar(.worktreeRowTapped(worktreeID, inProject: projectID)))
 
       case .worktreeHistoryForwardRequested:
@@ -1512,6 +1516,10 @@ struct RootFeature {
           let projectID = target.projectID,
           let worktreeID = target.worktreeID
         else { return .none }
+        // After navigating, reveal the new selection in the sidebar so users
+        // see where ⌘⌃] landed instead of having to scroll for it (HAN-68).
+        state.sidebarVisible = true
+        state.revealSelectionTrigger = UUID()
         return .send(.sidebar(.worktreeRowTapped(worktreeID, inProject: projectID)))
       }
     }
