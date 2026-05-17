@@ -202,25 +202,25 @@ struct MainWindowCommands: Commands {
 
       Divider()
 
-      Button("Focus Left Split") {
+      Button("Focus Pane Left") {
         store()?.send(.focusAdjacentPaneInCurrentTabRequested(direction: .left))
       }
       .appKeyboardShortcut(.focusSplitLeft, in: shortcuts)
       .disabled(!hasActiveWorktree)
 
-      Button("Focus Right Split") {
+      Button("Focus Pane Right") {
         store()?.send(.focusAdjacentPaneInCurrentTabRequested(direction: .right))
       }
       .appKeyboardShortcut(.focusSplitRight, in: shortcuts)
       .disabled(!hasActiveWorktree)
 
-      Button("Focus Split Above") {
+      Button("Focus Pane Up") {
         store()?.send(.focusAdjacentPaneInCurrentTabRequested(direction: .up))
       }
       .appKeyboardShortcut(.focusSplitUp, in: shortcuts)
       .disabled(!hasActiveWorktree)
 
-      Button("Focus Split Below") {
+      Button("Focus Pane Down") {
         store()?.send(.focusAdjacentPaneInCurrentTabRequested(direction: .down))
       }
       .appKeyboardShortcut(.focusSplitDown, in: shortcuts)

@@ -389,8 +389,14 @@ struct WorktreeDetailView: View {
     EmptyTerminalPaneView(message: "No terminals open")
   }
 
+  /// HAN-65: keep the empty-project state visually blank. Suppress the
+  /// window title (otherwise the app's bundle name — "touch-code" —
+  /// surfaces in the title bar) and hide the window-toolbar background so
+  /// no chrome divider paints over the detail pane.
   private var placeholder: some View {
     EmptyProjectStateView(onAddProject: onAddProject)
+      .modifier(SuppressTitleModifier())
+      .toolbarBackground(.hidden, for: .windowToolbar)
   }
 
   /// Maps a `PendingWorktree` row to the view-layer struct the loading

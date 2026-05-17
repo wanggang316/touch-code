@@ -19,7 +19,7 @@ import TouchCodeCore
 struct HierarchySidebarView: View {
   @Bindable var store: StoreOf<HierarchySidebarFeature>
   let currentSelection: HierarchySelection
-  /// Bumped by `RootFeature.revealCurrentWorktreeInSidebarRequested` (⌘⇧E).
+  /// Bumped by `RootFeature.revealCurrentWorktreeInSidebarRequested` (⌘⇧J).
   /// `.onChange(of:)` on this UUID triggers a `proxy.scrollTo` so the
   /// selected row comes back into view even when the user has scrolled
   /// elsewhere. Defaults to a fixed UUID for previews so the no-op render
@@ -177,6 +177,10 @@ struct HierarchySidebarView: View {
         ManualProjectSortSheetView(projectNames: projectNames, store: store)
       }
       .toolbar { sidebarToolbarContent }
+      // System sidebar toggle's tooltip can't be customized; ContentView
+      // provides a replacement with `helpWithShortcut("Show/Hide Sidebar",
+      // .toggleSidebar)` so the chord shows in the hover hint (HAN-68).
+      .toolbar(removing: .sidebarToggle)
       .sheet(
         isPresented: Binding(
           get: { store.createWorktreeSheet != nil },
@@ -369,6 +373,11 @@ struct HierarchySidebarView: View {
     }
   }
 
+  /// HAN-65: empty-state copy is English and reflects the actual
+  /// affordances the user has — the `.addProject` chord (resolved live
+  /// against `resolvedShortcuts` so a rebind keeps the hint accurate)
+  /// and the toolbar `+` button. Button label uses "Open Project" to
+  /// match the user-facing verb the picker presents.
   private var emptyState: some View {
     VStack(spacing: 10) {
       Spacer()
@@ -376,13 +385,14 @@ struct HierarchySidebarView: View {
         .font(.title)
         .foregroundStyle(.secondary)
         .accessibilityHidden(true)
-      Text("No projects yet.")
+      emptyStateHint
         .font(.callout)
         .foregroundStyle(.secondary)
+        .multilineTextAlignment(.center)
       Button {
         store.send(.toolbarAddProjectTapped)
       } label: {
-        Label("Add Project", systemImage: "plus")
+        Label("Open Project", systemImage: "plus")
           .commandKeyHint(.addProject)
       }
       .buttonStyle(.borderedProminent)
@@ -390,6 +400,32 @@ struct HierarchySidebarView: View {
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .padding()
+  }
+
+  /// Hint text above the Open Project button. Resolves `.addProject` from
+  /// the live shortcut registry so the displayed chord follows any user
+  /// rebinding; falls back to the schema default before the registry has
+  /// loaded; drops the chord clause entirely if the user disabled the
+  /// binding.
+  @ViewBuilder
+  private var emptyStateHint: some View {
+    if let chord = addProjectChord {
+      Text(
+        "Press \(Text(chord).monospaced()) or click \(Text("+").bold()) to open a project (repository or folder)."
+      )
+    } else {
+      Text("Click \(Text("+").bold()) to open a project (repository or folder).")
+    }
+  }
+
+  private var addProjectChord: String? {
+    if let resolved = resolvedShortcuts[.addProject], resolved.isEnabled, let binding = resolved.binding {
+      return ShortcutDisplay.chord(for: binding)
+    }
+    if let fallback = ShortcutSchema.app.entry(for: .addProject)?.defaultBinding {
+      return ShortcutDisplay.chord(for: fallback)
+    }
+    return nil
   }
 
   // MARK: - Project section
@@ -437,7 +473,7 @@ struct HierarchySidebarView: View {
           )
         }
         .buttonStyle(.plain)
-        .listRowInsets(EdgeInsets(top: 10, leading: 0, bottom: 4, trailing: 0))
+        .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 2, trailing: 0))
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
         if isExpanded {
@@ -556,7 +592,7 @@ struct HierarchySidebarView: View {
     // `_UnclampedClipView` and adds a +8pt visual indent so worktree content
     // reads as a child level under the (left-aligned) project header.
     .tag(worktree.id)
-    .listRowInsets(EdgeInsets(top: 3, leading: 14, bottom: 3, trailing: 0))
+    .listRowInsets(EdgeInsets(top: 2, leading: 14, bottom: 2, trailing: 0))
     .listRowSeparator(.hidden)
     .contextMenu { worktreeContextMenu(worktree: worktree, project: project) }
     .task(id: worktree.path) {
@@ -1077,7 +1113,7 @@ private struct ProjectHeaderRow: View {
           .accessibilityHidden(true)
       }
       Text(project.name)
-        .font(.callout)
+        .font(.subheadline)
         .foregroundStyle(isHovering ? .primary : .secondary)
       Spacer()
       // Keep the hover chrome from collapsing row width when hidden —
