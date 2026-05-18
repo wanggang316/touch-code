@@ -662,13 +662,25 @@ struct HierarchySidebarView: View {
             snapshot: snapshot, rollup: rollup, isSelected: isSelected, roleTint: roleTint,
             isMainCheckout: isMainCheckout,
             isSynthetic: isSyntheticWorktree,
-            hasUnreadNotification: notificationRollup?.current.unreadWorktrees.contains(worktree.id) == true
+            hasUnreadNotification: notificationRollup?.current.unreadWorktrees.contains(worktree.id) == true,
+            showRollupOverlay: false
           )
         }
       }
       VStack(alignment: .leading, spacing: 0) {
-        HStack(spacing: 2) {
+        HStack(spacing: 4) {
           Text(worktree.name)
+          // CI rollup glyph trails the worktree name as a borderless, single-colour
+          // SF Symbol. The earlier bottom-trailing overlay on the row icon read as a
+          // visual smudge at sidebar density (HAN-25 inverted its palette to a solid
+          // filled disc with white glyph plus a window-bg ring); moving the signal
+          // next to the name and dropping both the inner fill and the surrounding
+          // ring lets it read as plain text-adjacent metadata rather than a stuck-on
+          // badge. Hidden while a higher-priority bell is showing for parity with
+          // WorktreeRowIcon's overlay precedence.
+          if notificationRollup?.current.unreadWorktrees.contains(worktree.id) != true {
+            rollupNameGlyph(rollup)
+          }
           // Explicit pinned marker — keeps the "this row is pinned" signal visible
           // even when the row-icon's role tint is overridden by a PR-state color.
           if worktree.isPinned && !isMainCheckout {
@@ -718,6 +730,35 @@ struct HierarchySidebarView: View {
     } else {
       content
     }
+  }
+
+  /// Borderless rollup glyph rendered inline next to the worktree name. Uses the
+  /// `.circle.fill` SF Symbol family in `.hierarchical` mode so the disc fills with
+  /// the state colour and the inner glyph is rendered as a translucent cutout —
+  /// no separate background fill, no surrounding ring, so it sits visually as
+  /// text-adjacent metadata rather than a stuck-on pill.
+  @ViewBuilder
+  private func rollupNameGlyph(_ rollup: PullRequestBadge.CheckRollup) -> some View {
+    switch rollup {
+    case .allPassing:
+      rollupNameSymbol("checkmark.circle.fill", color: CheckRollupColor.passing,
+                       label: "Checks passing")
+    case .anyFailing:
+      rollupNameSymbol("xmark.circle.fill", color: CheckRollupColor.failing,
+                       label: "Checks failing")
+    case .anyPending:
+      rollupNameSymbol("clock.circle.fill", color: CheckRollupColor.pending,
+                       label: "Checks pending")
+    case .noChecks:
+      EmptyView()
+    }
+  }
+
+  private func rollupNameSymbol(_ symbol: String, color: Color, label: String) -> some View {
+    Image(systemName: symbol)
+      .font(.caption)
+      .foregroundStyle(color)
+      .accessibilityLabel(label)
   }
 
   // Main-checkout guard: the row whose path is the Project's rootPath is the main checkout
