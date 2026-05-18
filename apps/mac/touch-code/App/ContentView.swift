@@ -74,7 +74,8 @@ struct ContentView: View {
         currentSelection: store.selection,
         revealTrigger: store.revealSelectionTrigger,
         gitHubStore: store.scope(state: \.gitHub, action: \.gitHub),
-        editorStore: store.scope(state: \.editor, action: \.editor)
+        editorStore: store.scope(state: \.editor, action: \.editor),
+        onToggleSidebar: { store.send(.toggleSidebarRequested) }
       )
       .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
     } detail: {
@@ -103,22 +104,6 @@ struct ContentView: View {
         item: $store.scope(state: \.tagManagerSheet, action: \.tagManagerSheet)
       ) { tagStore in
         TagManagerSheet(store: tagStore)
-      }
-    }
-    // Custom Sidebar toggle. The system `.sidebarToggle` (suppressed
-    // inside `HierarchySidebarView`) renders a native button whose
-    // tooltip can't be customized; this replacement keeps the same
-    // leading-edge placement but the `helpWithShortcut` modifier
-    // appends the resolved chord (default ⌘⌥S) so the hover hint
-    // reads "Show/Hide Sidebar (⌘⌥S)" (HAN-68).
-    .toolbar {
-      ToolbarItem(placement: .navigation) {
-        Button {
-          store.send(.toggleSidebarRequested)
-        } label: {
-          Label("Show/Hide Sidebar", systemImage: "sidebar.left")
-        }
-        .helpWithShortcut("Show/Hide Sidebar", .toggleSidebar)
       }
     }
     .environment(hierarchyManager)

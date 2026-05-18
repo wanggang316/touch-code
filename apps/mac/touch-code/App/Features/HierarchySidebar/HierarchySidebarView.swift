@@ -34,6 +34,12 @@ struct HierarchySidebarView: View {
   /// installed editor). Nil in previews — the submenu falls back to the
   /// shared "Open in Editor" entry alone.
   var editorStore: StoreOf<EditorFeature>?
+  /// Dispatched by the leading toolbar sidebar-toggle button. Owned by the
+  /// root store (`toggleSidebarRequested`); injected as a closure so the
+  /// replacement button can live inside the sidebar column's own toolbar
+  /// (and therefore render at the leading edge, where macOS puts the native
+  /// `.sidebarToggle`). Defaults to no-op for previews.
+  var onToggleSidebar: () -> Void = {}
   @Environment(HierarchyManager.self) private var hierarchyManager
   @Environment(SettingsStore.self) private var settingsStore
   @Environment(WorktreeStatusMonitor.self) private var worktreeStatusMonitor
@@ -296,6 +302,17 @@ struct HierarchySidebarView: View {
 
   @ToolbarContentBuilder
   private var sidebarToolbarContent: some ToolbarContent {
+    // Custom sidebar-toggle replacement. Attaching this here (inside the
+    // sidebar column's own toolbar) is what lands it at the leading edge,
+    // where macOS reserves the slot for the native `.sidebarToggle`.
+    // Putting it on the outer `NavigationSplitView` toolbar would instead
+    // route it into the detail-pane toolbar (HAN-68 regression).
+    ToolbarItem(placement: .navigation) {
+      Button(action: onToggleSidebar) {
+        Label("Show/Hide Sidebar", systemImage: "sidebar.left")
+      }
+      .helpWithShortcut("Show/Hide Sidebar", .toggleSidebar)
+    }
     ToolbarItem(placement: .primaryAction) {
       Button {
         store.send(.toolbarAddProjectTapped)
