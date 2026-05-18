@@ -732,23 +732,19 @@ struct HierarchySidebarView: View {
     }
   }
 
-  /// Borderless rollup glyph rendered inline next to the worktree name. Uses the
-  /// `.circle.fill` SF Symbol family in `.hierarchical` mode so the disc fills with
-  /// the state colour and the inner glyph is rendered as a translucent cutout —
-  /// no separate background fill, no surrounding ring, so it sits visually as
-  /// text-adjacent metadata rather than a stuck-on pill.
+  /// Borderless rollup glyph rendered inline next to the worktree name. The
+  /// state color (previously the disc background fill) is promoted to the symbol
+  /// foreground; no disc, no ring — just a plain check / x / clock in green /
+  /// red / yellow so it reads as text-adjacent metadata.
   @ViewBuilder
   private func rollupNameGlyph(_ rollup: PullRequestBadge.CheckRollup) -> some View {
     switch rollup {
     case .allPassing:
-      rollupNameSymbol("checkmark.circle.fill", color: CheckRollupColor.passing,
-                       label: "Checks passing")
+      rollupNameSymbol("checkmark", color: CheckRollupColor.passing, label: "Checks passing")
     case .anyFailing:
-      rollupNameSymbol("xmark.circle.fill", color: CheckRollupColor.failing,
-                       label: "Checks failing")
+      rollupNameSymbol("xmark", color: CheckRollupColor.failing, label: "Checks failing")
     case .anyPending:
-      rollupNameSymbol("clock.circle.fill", color: CheckRollupColor.pending,
-                       label: "Checks pending")
+      rollupNameSymbol("clock", color: CheckRollupColor.pending, label: "Checks pending")
     case .noChecks:
       EmptyView()
     }
@@ -756,7 +752,7 @@ struct HierarchySidebarView: View {
 
   private func rollupNameSymbol(_ symbol: String, color: Color, label: String) -> some View {
     Image(systemName: symbol)
-      .font(.caption)
+      .font(.caption.weight(.semibold))
       .foregroundStyle(color)
       .accessibilityLabel(label)
   }
