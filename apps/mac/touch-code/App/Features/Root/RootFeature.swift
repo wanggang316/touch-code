@@ -187,6 +187,13 @@ struct RootFeature {
     /// flips `state.diffInspectorVisible` and fires
     /// `HierarchyClient.setWorktreeDiffInspectorVisible` to persist.
     case diffInspectorToggledForCurrentWorktree
+    /// Sidebar entry point for the Git Viewer (HAN-25 follow-up). Same
+    /// resolution as `.diffInspectorToggledForCurrentWorktree` but operates on
+    /// an explicit (projectID, worktreeID) pair rather than the current
+    /// selection — clicking the per-row `+N −M` chip targets that row even when
+    /// it isn't the active selection. Always opens (no toggle-to-close) so the
+    /// affordance reads as a "show me the diff" action.
+    case openGitViewerForWorktreeRequested(projectID: ProjectID, worktreeID: WorktreeID)
     /// T3: ⌘O entry point. Resolves the current Worktree's path from the
     /// catalog snapshot (via `hierarchyClient` — reducer-scoped dependency,
     /// unlike SwiftUI `Commands` structs where `@Dependency` falls through
@@ -786,6 +793,9 @@ struct RootFeature {
         state.tagManagerSheet = TagManagerFeature.State()
         return .none
 
+      case .sidebar(.delegate(.openGitViewerRequested(let projectID, let worktreeID))):
+        return .send(.openGitViewerForWorktreeRequested(projectID: projectID, worktreeID: worktreeID))
+
       // Pending-worktree focus: when the user kicks off creation, snap
       // the detail pane to the WorktreeLoadingView. The child reducer
       // appends the row to `sidebar.pendingWorktrees` first; we mark it
@@ -1097,6 +1107,54 @@ struct RootFeature {
         return .run { _ in
           await MainActor.run { setter(worktreeID, target) }
         }
+
+      case .openGitViewerForWorktreeRequested(let projectID, let worktreeID):
+        // Mirrors `.diffInspectorToggledForCurrentWorktree`'s three-tier
+        // resolution but reads an explicit (projectID, worktreeID) so a click
+        // on a non-selected sidebar row still hits the right worktree. Built-in
+        // path forces visibility on (not a toggle) so a "click to open" affordance
+        // never appears to no-op when the inspector was already visible elsewhere.
+        let snapshot = settingsWriter.readSnapshotSync()
+        let projectOverride = snapshot.projects[projectID]?.defaultGitViewer
+        let resolvedID: EditorID? = {
+          switch projectOverride {
+          case .builtin:
+            return nil
+          case .external(let id):
+            return id
+          case .none:
+            return snapshot.general.defaultGitViewerID
+          }
+        }()
+        let externalChoice: EditorID? = {
+          guard let resolvedID else { return nil }
+          return state.editor.descriptors.contains(where: { $0.id == resolvedID }) ? resolvedID : nil
+        }()
+        if let externalChoice {
+          let catalog = hierarchyClient.snapshot()
+          guard
+            let path = catalog
+              .projects.first(where: { $0.id == projectID })?
+              .worktrees.first(where: { $0.id == worktreeID })?.path
+          else { return .none }
+          return .send(
+            .editor(
+              .openRequested(
+                editorID: externalChoice,
+                worktreePath: path,
+                projectID: projectID
+              )))
+        }
+        // Built-in inspector lives in the detail column for the *selected* worktree,
+        // so route the click through the same selection flow the keyboard chord
+        // assumes — picking the row first, then flipping its inspector visibility on.
+        let setter = hierarchyClient.setWorktreeDiffInspectorVisible
+        return .merge(
+          .send(.sidebar(.worktreeRowTapped(worktreeID, inProject: projectID))),
+          .run { _ in
+            await MainActor.run { setter(worktreeID, true) }
+          }
+        )
 
       case .openDefaultForCurrentWorktreeRequested:
         guard

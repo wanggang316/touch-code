@@ -1003,6 +1003,9 @@ struct HierarchySidebarView: View {
         worktreeID: worktree.id,
         branch: branch,
         worktreePath: path,
+        onDiffStatsTapped: { [worktreeID = worktree.id, projectID = project.id] in
+          store.send(.delegate(.openGitViewerRequested(projectID: projectID, worktreeID: worktreeID)))
+        },
         popoverContent: {
           gitHubPopoverContent(
             store: gitHubStore,

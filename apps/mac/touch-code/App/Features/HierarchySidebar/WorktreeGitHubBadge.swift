@@ -17,6 +17,10 @@ struct WorktreeGitHubBadge<PopoverContent: View>: View {
   let worktreeID: WorktreeID
   let branch: String
   let worktreePath: URL
+  /// Optional click handler for the `+N −M` diff-stats chip. When non-nil the
+  /// chip renders with a hairline border (clickability affordance) and routes
+  /// taps here; when nil the chip stays a plain label as before.
+  var onDiffStatsTapped: (() -> Void)? = nil
   @ViewBuilder let popoverContent: () -> PopoverContent
 
   @State private var isBadgeHovered = false
@@ -93,7 +97,7 @@ struct WorktreeGitHubBadge<PopoverContent: View>: View {
   @ViewBuilder
   private func diffStatsLabel(snapshot: PullRequestSnapshot) -> some View {
     if snapshot.state == .open, snapshot.additions > 0 || snapshot.deletions > 0 {
-      HStack(spacing: 4) {
+      let counts = HStack(spacing: 4) {
         if snapshot.additions > 0 {
           Text("+\(snapshot.additions)").foregroundStyle(.green)
         }
@@ -102,6 +106,27 @@ struct WorktreeGitHubBadge<PopoverContent: View>: View {
         }
       }
       .font(.caption2.monospacedDigit())
+      // Bordered chip + click handler mirror the chord-hint treatment a few lines
+      // up in HierarchySidebarView so the affordance reads as "tappable metadata"
+      // rather than two more decorative chips. Border is drawn on top of the
+      // content padding via .overlay so it tightens to the text bounding box
+      // instead of expanding the parent HStack's metrics.
+      let bordered = counts
+        .padding(.horizontal, 4)
+        .padding(.vertical, 1)
+        .overlay(
+          RoundedRectangle(cornerRadius: 3)
+            .stroke(Color.secondary.opacity(0.35), lineWidth: 1)
+        )
+      Group {
+        if let onDiffStatsTapped {
+          Button(action: onDiffStatsTapped) { bordered }
+            .buttonStyle(.plain)
+            .help("Open Git Viewer")
+        } else {
+          counts
+        }
+      }
       .accessibilityLabel(
         "\(snapshot.additions) additions, \(snapshot.deletions) deletions"
       )
