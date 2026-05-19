@@ -39,7 +39,14 @@ struct ContentView: View {
       set: { newValue in
         let visible = (newValue != .detailOnly)
         if visible != store.sidebarVisible {
-          store.send(.toggleSidebarRequested)
+          // Wrap the store dispatch in withAnimation so the sidebar
+          // slides instead of snapping. The native `.sidebarToggle`
+          // click animates the binding update internally, but routing
+          // through `store.send` lands the reducer mutation outside
+          // that transaction — explicit withAnimation here restores it.
+          withAnimation(.easeOut(duration: 0.2)) {
+            store.send(.toggleSidebarRequested)
+          }
         }
       }
     )

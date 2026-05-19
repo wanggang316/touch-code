@@ -126,7 +126,10 @@ struct MainWindowCommands: Commands {
       Divider()
 
       Button("Toggle Sidebar") {
-        store()?.send(.toggleSidebarRequested)
+        guard let s = store() else { return }
+        withAnimation(.easeOut(duration: 0.2)) {
+          _ = s.send(.toggleSidebarRequested)
+        }
       }
       .appKeyboardShortcut(.toggleSidebar, in: shortcuts)
       .disabled(store() == nil)
