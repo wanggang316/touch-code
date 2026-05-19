@@ -105,25 +105,6 @@ struct ContentView: View {
         TagManagerSheet(store: tagStore)
       }
     }
-    // Custom Sidebar toggle. The system `.sidebarToggle` (suppressed
-    // inside `HierarchySidebarView`) renders a native button whose
-    // tooltip can't be customized; this replacement uses the identified
-    // `.toolbar(id:)` form so `placement: .navigation` resolves to the
-    // window's actual leading edge (left of the split). The anonymous
-    // `.toolbar { ... }` form routes `.navigation` into the detail-pane
-    // toolbar instead, which is the HAN-68 regression. The
-    // `helpWithShortcut` modifier appends the resolved chord (default
-    // ⌘⌥S) so the hover hint reads "Show/Hide Sidebar (⌘⌥S)".
-    .toolbar(id: "mainSplit") {
-      ToolbarItem(id: "sidebarToggle", placement: .navigation) {
-        Button {
-          store.send(.toggleSidebarRequested)
-        } label: {
-          Label("Show/Hide Sidebar", systemImage: "sidebar.left")
-        }
-        .helpWithShortcut("Show/Hide Sidebar", .toggleSidebar)
-      }
-    }
     .environment(hierarchyManager)
     .environment(settingsStore)
     .environment(worktreeStatusMonitor)

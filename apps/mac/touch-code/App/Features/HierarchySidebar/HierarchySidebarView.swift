@@ -177,10 +177,6 @@ struct HierarchySidebarView: View {
         ManualProjectSortSheetView(projectNames: projectNames, store: store)
       }
       .toolbar { sidebarToolbarContent }
-      // System sidebar toggle's tooltip can't be customized; ContentView
-      // provides a replacement with `helpWithShortcut("Show/Hide Sidebar",
-      // .toggleSidebar)` so the chord shows in the hover hint (HAN-68).
-      .toolbar(removing: .sidebarToggle)
       .sheet(
         isPresented: Binding(
           get: { store.createWorktreeSheet != nil },
