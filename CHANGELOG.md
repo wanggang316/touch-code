@@ -20,6 +20,25 @@ and the project does not yet follow semantic versioning — every release until
 
 ### Security
 
+## [0.2.3] - 2026-05-19
+
+### Added
+
+- Sidebar shows diff stats (+N −M) on every worktree, including those without an open pull request.
+- Click a worktree's diff-stats chip to open the Git Viewer.
+- Filter and sort rows in the sidebar highlight on hover with native macOS selection chrome.
+- Appearance footer in Settings links to the Terminal pane.
+
+### Changed
+
+- Auto is now the first option in the Appearance picker.
+
+### Fixed
+
+- Sidebar toggle is back on the window's leading edge, slides the column smoothly, and uses the native macOS control.
+- The unfocused split-viewport dim overlay re-tints when switching between light and dark mode.
+- The CI rollup glyph adapts to the active theme.
+
 ## [0.2.2] - 2026-05-17
 
 ### Added
