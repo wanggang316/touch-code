@@ -1439,12 +1439,12 @@ private struct ProjectTagPills: View {
   private func tagPill(_ tag: Tag) -> some View {
     let color = swiftUIColor(for: tag.color)
     Text(tag.name)
-      .font(.system(size: 10, weight: .medium))
-      .foregroundStyle(color)
+      .font(.system(size: 9, weight: .medium))
+      .foregroundStyle(color.opacity(0.85))
       .lineLimit(1)
-      .padding(.horizontal, 6)
-      .padding(.vertical, 1.5)
-      .background(Capsule(style: .continuous).fill(color.opacity(0.18)))
+      .padding(.horizontal, 4)
+      .padding(.vertical, 0.5)
+      .background(Capsule(style: .continuous).fill(color.opacity(0.10)))
       .help(tag.name)
   }
 }
