@@ -53,7 +53,7 @@ struct WorktreeHeaderInfoLabel: View {
           if isMainCheckout && !isSynthetic {
             Image(systemName: "star.fill")
               .font(.caption2)
-              .foregroundStyle(.yellow)
+              .foregroundStyle(.secondary)
               .accessibilityLabel("Default branch")
           }
           if worktree.isPinned && !isMainCheckout {

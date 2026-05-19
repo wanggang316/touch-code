@@ -55,13 +55,15 @@ struct PullRequestBadge: View {
 
   private func loadedBody(snapshot: PullRequestSnapshot, rollup: CheckRollup) -> some View {
     let tint = snapshot.state.rowTint(isDraft: snapshot.isDraft)
+    // Corner radius matches `StatusPullRequestView.badge` so the sidebar pill
+    // and the titlebar pill read as the same component shape.
     return Text("#\(snapshot.number)")
       .font(.system(size: 10, weight: .semibold))
       .padding(.horizontal, 4)
       .padding(.vertical, 1)
       .foregroundStyle(tint)
       .background(
-        Capsule(style: .continuous)
+        RoundedRectangle(cornerRadius: 4, style: .continuous)
           .stroke(tint.opacity(0.75), lineWidth: 0.75)
       )
   }
@@ -77,7 +79,7 @@ struct PullRequestBadge: View {
     .padding(.horizontal, 4)
     .padding(.vertical, 1)
     .background(
-      Capsule(style: .continuous)
+      RoundedRectangle(cornerRadius: 4, style: .continuous)
         .stroke(Color.secondary.opacity(0.4), lineWidth: 0.75)
     )
   }

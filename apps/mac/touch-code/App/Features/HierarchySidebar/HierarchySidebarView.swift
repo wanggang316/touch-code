@@ -674,7 +674,7 @@ struct HierarchySidebarView: View {
           if isMainCheckout && !isSyntheticWorktree {
             Image(systemName: "star.fill")
               .font(.caption2)
-              .foregroundStyle(.yellow)
+              .foregroundStyle(.secondary)
               .accessibilityLabel("Default branch")
           }
           // Explicit pinned marker — keeps the "this row is pinned" signal visible
@@ -1127,12 +1127,6 @@ private struct ProjectHeaderRow: View {
         .font(.subheadline)
         .foregroundStyle(isHovering ? .primary : .secondary)
         .lineLimit(1)
-      // M5 (project-tags): inline capsule chips immediately after the
-      // project name. Each chip's foreground is the tag color; the
-      // background is the same hue at low opacity. Replaces the older
-      // trailing-edge dot row so the tag identity reads alongside the
-      // name rather than the row's right edge.
-      ProjectTagPills(project: project)
       Spacer(minLength: 4)
       // Keep the hover chrome from collapsing row width when hidden —
       // use opacity, not conditional rendering.
@@ -1355,60 +1349,6 @@ private final class _UnclampedClipView: NSClipView {
     var rect = super.constrainBoundsRect(proposedBounds)
     rect.origin.x = leadingOffset
     return rect
-  }
-}
-
-// MARK: - Project tag chrome (M5)
-
-/// Up to three filled capsule chips shown immediately after the project
-/// name. Each chip's foreground (text) is the tag color; the background
-/// is the same hue at low opacity so the chip reads as "tinted" rather
-/// than "solid". A "+N" overflow label appears when the project carries
-/// more than three tags. Resolves each `TagID` against the live catalog
-/// so renames / recolors re-render in place. Renders nothing when the
-/// project has no tags.
-private struct ProjectTagPills: View {
-  let project: Project
-  @Environment(HierarchyManager.self) private var hierarchyManager
-
-  var body: some View {
-    let tagIDs = project.tagIDs
-    let allTags = hierarchyManager.catalog.tags
-    let resolved: [Tag] = tagIDs.compactMap { id in
-      allTags.first(where: { $0.id == id })
-    }
-    if resolved.isEmpty {
-      EmptyView()
-    } else {
-      let visible = resolved.prefix(3)
-      let overflow = resolved.count - visible.count
-      HStack(spacing: 3) {
-        ForEach(Array(visible), id: \.id) { tag in
-          tagPill(tag)
-        }
-        if overflow > 0 {
-          Text("+\(overflow)")
-            .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(.secondary)
-        }
-      }
-      .accessibilityLabel(
-        "Tags: " + resolved.map(\.name).joined(separator: ", ")
-      )
-    }
-  }
-
-  @ViewBuilder
-  private func tagPill(_ tag: Tag) -> some View {
-    let color = swiftUIColor(for: tag.color)
-    Text(tag.name)
-      .font(.system(size: 9, weight: .medium))
-      .foregroundStyle(color.opacity(0.85))
-      .lineLimit(1)
-      .padding(.horizontal, 4)
-      .padding(.vertical, 0.5)
-      .background(Capsule(style: .continuous).fill(color.opacity(0.10)))
-      .help(tag.name)
   }
 }
 

@@ -121,23 +121,18 @@ struct WorktreeRowIcon: View {
   }
 
   private func rollupGlyph(symbol: String, color: Color) -> some View {
-    // Inverted palette vs. the original M4 treatment: the state colour now fills
-    // the disc and the check/x/clock glyph is painted in white. The previous
-    // arrangement (coloured glyph on a window-background disc) blended into the
-    // sidebar at typical viewing distance — HAN-25 reverses the layers and
-    // bumps the size 9 → 11 so the badge reads as a solid status pip. A
-    // window-coloured outer ring keeps a hairline separation from the leading
-    // icon underneath so the disc never appears glued to the git glyph.
+    // Inverted palette: the state colour fills the disc and the check/x/clock
+    // glyph is painted in white. The window-coloured outer ring was dropped at
+    // the request of HAN-25 follow-up — the disc reads cleaner without it.
+    // Disc shrunk 11 → 10pt; the inner glyph carries `.fontWeight(.bold)` so
+    // the check / x / clock thickens to compensate for the smaller bounding
+    // box and stays legible at sidebar density.
     Image(systemName: symbol)
       .resizable()
-      .frame(width: 11, height: 11)
+      .fontWeight(.bold)
+      .frame(width: 10, height: 10)
       .symbolRenderingMode(.palette)
       .foregroundStyle(Color.white, color)
-      .background(
-        Circle()
-          .fill(Color(nsColor: .windowBackgroundColor))
-          .frame(width: 13, height: 13)
-      )
       .offset(x: 4, y: 4)
       .accessibilityHidden(true)
   }
