@@ -147,6 +147,8 @@ private struct ProjectSortList: View {
   let mode: ProjectSortMode
   let onSelect: (ProjectSortMode) -> Void
 
+  @State private var hoveredMode: ProjectSortMode?
+
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       row(.joinOrder, label: "By Date Added")
@@ -162,6 +164,7 @@ private struct ProjectSortList: View {
   @ViewBuilder
   private func row(_ value: ProjectSortMode, label: String) -> some View {
     let isSelected = value == mode
+    let isHovered = hoveredMode == value
     Button {
       onSelect(value)
     } label: {
@@ -169,26 +172,40 @@ private struct ProjectSortList: View {
         Color.clear.frame(width: 10, height: 10)
         Text(label)
           .font(.callout)
-          .foregroundStyle(.primary)
+          .foregroundStyle(isSelected ? Color.white : .primary)
           .lineLimit(1)
         Spacer(minLength: 8)
         if isSelected {
           Image(systemName: "checkmark")
             .font(.caption.weight(.semibold))
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(Color.white)
             .accessibilityHidden(true)
         }
       }
       .padding(.horizontal, 8)
       .padding(.vertical, 5)
-      .background(
-        RoundedRectangle(cornerRadius: 5)
-          .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
-      )
+      .background(rowBackground(isSelected: isSelected, isHovered: isHovered))
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
+    .onHover { hovering in
+      hoveredMode = hovering ? value : (hoveredMode == value ? nil : hoveredMode)
+    }
   }
+}
+
+/// Shared row background used by the bottom-bar popover lists. Mirrors
+/// native NSMenu item chrome: a 4-pt rounded fill that's clear by
+/// default, gets a light hover tint, and flips to the full accent color
+/// (with white foreground) when the row is the current selection.
+@ViewBuilder
+private func rowBackground(isSelected: Bool, isHovered: Bool) -> some View {
+  RoundedRectangle(cornerRadius: 4, style: .continuous)
+    .fill(
+      isSelected
+        ? AnyShapeStyle(Color.accentColor)
+        : (isHovered ? AnyShapeStyle(Color.primary.opacity(0.08)) : AnyShapeStyle(Color.clear))
+    )
 }
 
 /// Vertical list of filter rows shown inside the footer's popover. Each
@@ -207,9 +224,15 @@ private struct TagFilterList: View {
   let onUntaggedTapped: () -> Void
   var onEditTagsTapped: (() -> Void)?
 
+  /// Identifier of the row currently under the cursor. Strings are used
+  /// instead of a typed enum so the "All", per-tag, "Untagged" and "Edit"
+  /// rows can share a single hover-tracking state.
+  @State private var hoveredRowID: String?
+
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       filterRow(
+        id: "all",
         label: "All",
         color: nil,
         isSelected: isAllSelected,
@@ -219,6 +242,7 @@ private struct TagFilterList: View {
         Divider().padding(.vertical, 2)
         ForEach(tags) { tag in
           filterRow(
+            id: "tag-\(tag.id.raw.uuidString)",
             label: tag.name,
             color: tag.color,
             isSelected: isTagSelected(tag.id),
@@ -229,6 +253,7 @@ private struct TagFilterList: View {
       if showUntaggedChip {
         Divider().padding(.vertical, 2)
         filterRow(
+          id: "untagged",
           label: "Untagged",
           color: nil,
           isSelected: isUntaggedSelected,
@@ -237,12 +262,14 @@ private struct TagFilterList: View {
       }
       if let onEditTagsTapped {
         Divider().padding(.vertical, 2)
+        let editID = "edit"
+        let isHovered = hoveredRowID == editID
         Button(action: onEditTagsTapped) {
           HStack(spacing: 8) {
             Image(systemName: "pencil")
               .font(.system(size: 11))
               .frame(width: 12)
-              .foregroundStyle(.secondary)
+              .foregroundStyle(isHovered ? Color.primary : .secondary)
             Text("Edit Tags…")
               .font(.callout)
               .foregroundStyle(.primary)
@@ -250,9 +277,13 @@ private struct TagFilterList: View {
           }
           .padding(.horizontal, 8)
           .padding(.vertical, 5)
+          .background(rowBackground(isSelected: false, isHovered: isHovered))
           .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { hovering in
+          hoveredRowID = hovering ? editID : (hoveredRowID == editID ? nil : hoveredRowID)
+        }
       }
     }
     .padding(6)
@@ -261,11 +292,13 @@ private struct TagFilterList: View {
 
   @ViewBuilder
   private func filterRow(
+    id: String,
     label: String,
     color: TagColor?,
     isSelected: Bool,
     action: @escaping () -> Void
   ) -> some View {
+    let isHovered = hoveredRowID == id
     Button(action: action) {
       HStack(spacing: 8) {
         if let color {
@@ -277,24 +310,24 @@ private struct TagFilterList: View {
         }
         Text(label)
           .font(.callout)
-          .foregroundStyle(.primary)
+          .foregroundStyle(isSelected ? Color.white : .primary)
           .lineLimit(1)
         Spacer(minLength: 8)
         if isSelected {
           Image(systemName: "checkmark")
             .font(.caption.weight(.semibold))
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(Color.white)
         }
       }
       .padding(.horizontal, 8)
       .padding(.vertical, 5)
-      .background(
-        RoundedRectangle(cornerRadius: 5)
-          .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
-      )
+      .background(rowBackground(isSelected: isSelected, isHovered: isHovered))
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
+    .onHover { hovering in
+      hoveredRowID = hovering ? id : (hoveredRowID == id ? nil : hoveredRowID)
+    }
   }
 
   private var isAllSelected: Bool {
