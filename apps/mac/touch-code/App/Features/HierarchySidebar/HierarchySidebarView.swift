@@ -656,7 +656,6 @@ struct HierarchySidebarView: View {
         } else {
           WorktreeRowIcon(
             snapshot: snapshot, rollup: rollup, isSelected: isSelected, roleTint: roleTint,
-            isMainCheckout: isMainCheckout,
             isSynthetic: isSyntheticWorktree,
             hasUnreadNotification: notificationRollup?.current.unreadWorktrees.contains(worktree.id) == true,
             showRollupOverlay: false
@@ -666,6 +665,19 @@ struct HierarchySidebarView: View {
       VStack(alignment: .leading, spacing: 0) {
         HStack(spacing: 4) {
           Text(worktree.name)
+          // Default-branch marker. The leading row icon stays on the generic
+          // git-branch octicon (same as the other worktrees) so a small yellow
+          // star here is what disambiguates "this is the project's main
+          // checkout" — see WorktreeRowIcon's doc comment. Suppressed for the
+          // synthetic dir-kind worktree (no git semantics) and for any row
+          // already wearing a PR-state colour, to keep the row from carrying
+          // two contradictory yellow signals.
+          if isMainCheckout && !isSyntheticWorktree {
+            Image(systemName: "star.fill")
+              .font(.caption2)
+              .foregroundStyle(.yellow)
+              .accessibilityLabel("Default branch")
+          }
           // CI rollup glyph trails the worktree name as a borderless, single-colour
           // SF Symbol. The earlier bottom-trailing overlay on the row icon read as a
           // visual smudge at sidebar density (HAN-25 inverted its palette to a solid

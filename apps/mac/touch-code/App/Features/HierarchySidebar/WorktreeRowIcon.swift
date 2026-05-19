@@ -4,16 +4,14 @@ import TouchCodeCore
 /// Leading-edge icon for a Sidebar Worktree row. Replaces the old `circle.fill`/`circle`
 /// selection dot with a GitHub-style glyph that doubles as the row's PR-state signal:
 ///
-/// - Dir-kind synthetic worktree → `folder` SF Symbol. `isSynthetic` outranks the
-///   git-anchor `circlebadge` branch so dir Projects read as a filesystem directory
-///   rather than a phantom main checkout.
-/// - Main checkout, no PR → `circlebadge` SF Symbol at an 11pt frame (the symbol's
-///   bounding box has tighter padding than the GitHub Octicons used elsewhere, so
-///   the smaller frame keeps its optical weight in line with sibling rows).
-/// - Worktrees with no PR snapshot (including main) → tinted by `roleTint` (orange
-///   for user-pinned rows, secondary otherwise). Desaturates to the selection text
-///   color when the row is selected — `listRowBackground` already shows selection,
-///   so a loud icon would fight the highlight.
+/// - Dir-kind synthetic worktree → `folder` SF Symbol. The synthetic worktree under a
+///   dir-kind Project reads as a filesystem directory rather than a git anchor.
+/// - Worktrees with no PR snapshot (including main) → the `git-branch` octicon tinted by
+///   `roleTint` (orange for user-pinned rows, secondary otherwise). Desaturates to the
+///   selection text color when the row is selected — `listRowBackground` already shows
+///   selection, so a loud icon would fight the highlight. The main checkout no longer
+///   gets a separate glyph; the "this is default" signal is rendered next to the name
+///   via a yellow star at the call site (HierarchySidebarView / WorktreeHeaderInfoLabel).
 /// - PR snapshot     → `git-pull-request`, `git-merge`, `git-pull-request-closed`, or
 ///   `git-pull-request-draft`, tinted by PR state (green / purple / red / grey). PR
 ///   state is the dominant signal when a PR exists; the role tint is suppressed.
@@ -28,10 +26,6 @@ struct WorktreeRowIcon: View {
   /// "role" in the Project — orange for pinned rows, secondary for everything else
   /// (including the main checkout, which shares the regular-worktree palette).
   var roleTint: Color = .secondary
-  /// Whether this row is the project's main checkout. Drives the icon swap to
-  /// `circlebadge` so main reads as a neutral anchor row, distinct from the
-  /// `git-branch` glyph used by non-main worktrees.
-  var isMainCheckout: Bool = false
   /// `true` for the placeholder worktree auto-injected under a dir-kind
   /// Project (`Project.gitRoot == nil` + `worktree.path == project.rootPath`).
   /// Swaps the leading glyph to `folder` so the row reads as a filesystem
@@ -76,19 +70,6 @@ struct WorktreeRowIcon: View {
           .resizable()
           .aspectRatio(contentMode: .fit)
           .frame(width: 12, height: 12)
-          .foregroundStyle(tint)
-          .frame(width: 14, height: 14)
-      } else if isMainCheckout && snapshot == nil {
-        // 9pt symbol inside a 14pt slot: `circlebadge` reads heavier than the
-        // git-branch rows at matched sizes, so the inner frame shrinks it ~20%
-        // below the sibling glyph; the outer 14pt frame keeps the label column
-        // aligned with sibling worktree rows. `.bold` weight thickens the
-        // hollow stroke so the ring stays legible at the reduced size.
-        Image(systemName: "circlebadge")
-          .resizable()
-          .fontWeight(.bold)
-          .aspectRatio(contentMode: .fit)
-          .frame(width: 9, height: 9)
           .foregroundStyle(tint)
           .frame(width: 14, height: 14)
       } else {

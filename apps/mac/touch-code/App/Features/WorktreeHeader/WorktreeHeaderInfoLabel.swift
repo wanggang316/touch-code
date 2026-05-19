@@ -40,15 +40,22 @@ struct WorktreeHeaderInfoLabel: View {
         // the sidebar uses on the active row.
         isSelected: false,
         roleTint: roleTint,
-        isMainCheckout: isMainCheckout,
         isSynthetic: isSynthetic,
         hasUnreadNotification: hasUnread
       )
       VStack(alignment: .leading, spacing: 0) {
-        HStack(spacing: 2) {
+        HStack(spacing: 4) {
           Text(worktree.name)
             .font(.headline)
             .lineLimit(1)
+          // Default-branch marker — matches the sidebar row treatment so the
+          // toolbar identity surface reads as the same record.
+          if isMainCheckout && !isSynthetic {
+            Image(systemName: "star.fill")
+              .font(.caption2)
+              .foregroundStyle(.yellow)
+              .accessibilityLabel("Default branch")
+          }
           if worktree.isPinned && !isMainCheckout {
             Image(systemName: "pin.fill")
               .font(.caption2)
