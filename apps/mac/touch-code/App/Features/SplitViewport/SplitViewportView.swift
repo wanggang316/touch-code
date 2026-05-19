@@ -208,6 +208,13 @@ private struct LeafView: View {
   let isSplit: Bool
   @Environment(RollupIndexProvider.self) private var notificationRollup: RollupIndexProvider?
   @Environment(HierarchyManager.self) private var hierarchyManager
+  /// Pulled in so the dim overlay re-evaluates when the user flips Appearance
+  /// (or the OS auto-switches). `unfocusedSplitFill()` resolves against the
+  /// active ghostty palette, but without an observable dependency here SwiftUI
+  /// keeps the previous frame's overlay color until something else (focus
+  /// change, layout) forces a rebuild — which is what produced the stale
+  /// light/dark wash on unfocused panes after a theme switch.
+  @Environment(\.colorScheme) private var colorScheme
   /// Used for the one-frame fallback on tab switch — see `body`. Reducer
   /// state is the long-term source of truth; this lookup only fills the
   /// gap between catalog update and `.panesInActiveTabChanged` landing.
@@ -270,7 +277,12 @@ private struct LeafView: View {
   private var unfocusedDimOverlay: some View {
     if isSplit, !isFocused {
       let runtime = GhosttyRuntime.shared
-      let fill = runtime?.unfocusedSplitFill() ?? .windowBackgroundColor
+      // `colorScheme` is folded into the fill resolution so SwiftUI tracks it
+      // as a body dependency: `unfocusedSplitFill` resolves against the active
+      // ghostty palette, which flips with appearance. Without this read the
+      // overlay would keep the previous scheme's tint until something else
+      // invalidated the view (focus change, layout pass).
+      let fill = runtime?.unfocusedSplitFill(colorScheme) ?? .windowBackgroundColor
       let opacity = runtime?.unfocusedSplitOpacity() ?? 0.15
       if opacity > 0 {
         Rectangle()

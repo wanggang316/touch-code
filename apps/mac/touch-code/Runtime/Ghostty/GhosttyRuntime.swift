@@ -283,6 +283,17 @@ final class GhosttyRuntime {
     return 1 - opacity
   }
 
+  /// Same as `unfocusedSplitFill()` but accepts the SwiftUI environment
+  /// color-scheme so call-sites in views establish a body-tracking dependency.
+  /// The parameter does not affect computation — libghostty's `background`
+  /// key already resolves against the active palette on color-scheme flip;
+  /// this overload exists purely so SwiftUI re-renders the dim overlay when
+  /// the user toggles Appearance.
+  func unfocusedSplitFill(_ scheme: SwiftUI.ColorScheme) -> NSColor {
+    _ = scheme
+    return unfocusedSplitFill()
+  }
+
   /// Mirror of ghostty's `Ghostty.Config.unfocusedSplitFill`. Reads
   /// `unfocused-split-fill`; if unset, falls back to the terminal `background`
   /// color so the dim overlay tints the surface with its own theme color
