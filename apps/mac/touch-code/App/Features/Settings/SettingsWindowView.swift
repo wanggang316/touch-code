@@ -82,7 +82,8 @@ struct SettingsWindowView: View {
     case .general:
       SettingsGeneralView(
         store: store.scope(state: \.general, action: \.general),
-        settingsStore: settingsStore
+        settingsStore: settingsStore,
+        onJumpToTerminal: { store.send(.selectionChanged(.terminal)) }
       )
     case .github:
       GitHubSettingsView(settingsStore: settingsStore)

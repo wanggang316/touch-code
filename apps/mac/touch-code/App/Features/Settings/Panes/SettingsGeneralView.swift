@@ -23,6 +23,10 @@ import TouchCodeCore
 struct SettingsGeneralView: View {
   @Bindable var store: StoreOf<EditorFeature>
   let settingsStore: SettingsStore
+  /// Invoked when the Appearance footer's "Terminal" link is tapped. Routes
+  /// selection over to the Terminal pane so the user can pick light/dark
+  /// terminal themes that the Appearance choice will then switch between.
+  let onJumpToTerminal: () -> Void
 
   private var selectionBinding: Binding<EditorID?> {
     Binding(
@@ -64,6 +68,21 @@ struct SettingsGeneralView: View {
         LabeledContent("Appearance") {
           AppearancePicker(selection: appearanceBinding)
         }
+      } footer: {
+        Text(
+          .init(
+            "To change the terminal theme, open the [Terminal](touchcode://settings/terminal) "
+              + "pane. When both light and dark terminal themes are set there, they switch "
+              + "in sync with this Appearance choice."
+          )
+        )
+        .environment(
+          \.openURL,
+          OpenURLAction { _ in
+            onJumpToTerminal()
+            return .handled
+          }
+        )
       }
 
       Section {
@@ -144,7 +163,8 @@ struct SettingsGeneralView: View {
       settingsStore: SettingsStore(
         fileURL: FileManager.default.temporaryDirectory.appending(component: "\(UUID()).json"),
         debounceWindow: .seconds(3600)
-      )
+      ),
+      onJumpToTerminal: {}
     )
     .frame(width: 520, height: 320)
   }
