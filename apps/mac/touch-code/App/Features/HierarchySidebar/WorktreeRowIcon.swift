@@ -36,11 +36,6 @@ struct WorktreeRowIcon: View {
   /// regardless of PR / branch state, and the role tint is replaced by
   /// the accent colour. PR check rollup overlay still renders unchanged.
   var hasUnreadNotification: Bool = false
-  /// Controls whether the CI rollup disc overlays the bottom-right corner
-  /// of the icon. Sidebar rows render the rollup glyph as a sibling next
-  /// to the worktree name instead, so they pass `false`; other callers
-  /// (e.g. WorktreeHeaderInfoLabel) keep the corner overlay.
-  var showRollupOverlay: Bool = true
 
   /// Native `List(selection:)` paints the selection chrome via NSTableView's
   /// `.sourceList` mode and sets `\.backgroundProminence = .increased` on
@@ -86,7 +81,7 @@ struct WorktreeRowIcon: View {
       // signal than check state, so suppress the rollup overlay entirely while
       // the bell glyph is showing rather than letting a green/red disc smear
       // over it.
-      if !hasUnreadNotification && showRollupOverlay { rollupBadge }
+      if !hasUnreadNotification { rollupBadge }
     }
     .accessibilityLabel(accessibilityLabel)
   }

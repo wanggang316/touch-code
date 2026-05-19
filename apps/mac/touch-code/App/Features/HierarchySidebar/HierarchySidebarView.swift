@@ -657,8 +657,7 @@ struct HierarchySidebarView: View {
           WorktreeRowIcon(
             snapshot: snapshot, rollup: rollup, isSelected: isSelected, roleTint: roleTint,
             isSynthetic: isSyntheticWorktree,
-            hasUnreadNotification: notificationRollup?.current.unreadWorktrees.contains(worktree.id) == true,
-            showRollupOverlay: false
+            hasUnreadNotification: notificationRollup?.current.unreadWorktrees.contains(worktree.id) == true
           )
         }
       }
@@ -677,17 +676,6 @@ struct HierarchySidebarView: View {
               .font(.caption2)
               .foregroundStyle(.yellow)
               .accessibilityLabel("Default branch")
-          }
-          // CI rollup glyph trails the worktree name as a borderless, single-colour
-          // SF Symbol. The earlier bottom-trailing overlay on the row icon read as a
-          // visual smudge at sidebar density (HAN-25 inverted its palette to a solid
-          // filled disc with white glyph plus a window-bg ring); moving the signal
-          // next to the name and dropping both the inner fill and the surrounding
-          // ring lets it read as plain text-adjacent metadata rather than a stuck-on
-          // badge. Hidden while a higher-priority bell is showing for parity with
-          // WorktreeRowIcon's overlay precedence.
-          if notificationRollup?.current.unreadWorktrees.contains(worktree.id) != true {
-            rollupNameGlyph(rollup)
           }
           // Explicit pinned marker — keeps the "this row is pinned" signal visible
           // even when the row-icon's role tint is overridden by a PR-state color.
@@ -738,31 +726,6 @@ struct HierarchySidebarView: View {
     } else {
       content
     }
-  }
-
-  /// Borderless rollup glyph rendered inline next to the worktree name. The
-  /// state color (previously the disc background fill) is promoted to the symbol
-  /// foreground; no disc, no ring — just a plain check / x / clock in green /
-  /// red / yellow so it reads as text-adjacent metadata.
-  @ViewBuilder
-  private func rollupNameGlyph(_ rollup: PullRequestBadge.CheckRollup) -> some View {
-    switch rollup {
-    case .allPassing:
-      rollupNameSymbol("checkmark", color: CheckRollupColor.passing, label: "Checks passing")
-    case .anyFailing:
-      rollupNameSymbol("xmark", color: CheckRollupColor.failing, label: "Checks failing")
-    case .anyPending:
-      rollupNameSymbol("clock", color: CheckRollupColor.pending, label: "Checks pending")
-    case .noChecks:
-      EmptyView()
-    }
-  }
-
-  private func rollupNameSymbol(_ symbol: String, color: Color, label: String) -> some View {
-    Image(systemName: symbol)
-      .font(.caption.weight(.semibold))
-      .foregroundStyle(color)
-      .accessibilityLabel(label)
   }
 
   // Main-checkout guard: the row whose path is the Project's rootPath is the main checkout
