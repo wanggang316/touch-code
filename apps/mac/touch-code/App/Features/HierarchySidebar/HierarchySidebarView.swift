@@ -1163,7 +1163,14 @@ private struct ProjectHeaderRow: View {
       Text(project.name)
         .font(.subheadline)
         .foregroundStyle(isHovering ? .primary : .secondary)
-      Spacer()
+        .lineLimit(1)
+      // M5 (project-tags): inline capsule chips immediately after the
+      // project name. Each chip's foreground is the tag color; the
+      // background is the same hue at low opacity. Replaces the older
+      // trailing-edge dot row so the tag identity reads alongside the
+      // name rather than the row's right edge.
+      ProjectTagPills(project: project)
+      Spacer(minLength: 4)
       // Keep the hover chrome from collapsing row width when hidden —
       // use opacity, not conditional rendering.
       HStack(spacing: 2) {
@@ -1228,12 +1235,6 @@ private struct ProjectHeaderRow: View {
         .onHover { isMenuHovering = $0 }
       }
       .opacity(isHovering ? 1 : 0)
-      // M5 (project-tags): up to 3 colored dots resolved from the
-      // catalog's tag list. "+N" overflow when more than 3. Hidden
-      // entirely when the project has no tags. Sits after the +/⋯
-      // hover chrome so the swatches anchor to the absolute trailing
-      // edge of the row.
-      ProjectTagDots(project: project)
     }
     .contentShape(Rectangle())
     .onHover { isHovering = $0 }
@@ -1396,11 +1397,14 @@ private final class _UnclampedClipView: NSClipView {
 
 // MARK: - Project tag chrome (M5)
 
-/// Up to three 6×6 colored dots after the project name, plus a "+N"
-/// overflow label when the project carries more than three tags.
-/// Resolves each `TagID` against the live catalog so renames / recolors
-/// re-render in place. Renders nothing when the project has no tags.
-private struct ProjectTagDots: View {
+/// Up to three filled capsule chips shown immediately after the project
+/// name. Each chip's foreground (text) is the tag color; the background
+/// is the same hue at low opacity so the chip reads as "tinted" rather
+/// than "solid". A "+N" overflow label appears when the project carries
+/// more than three tags. Resolves each `TagID` against the live catalog
+/// so renames / recolors re-render in place. Renders nothing when the
+/// project has no tags.
+private struct ProjectTagPills: View {
   let project: Project
   @Environment(HierarchyManager.self) private var hierarchyManager
 
@@ -1417,10 +1421,7 @@ private struct ProjectTagDots: View {
       let overflow = resolved.count - visible.count
       HStack(spacing: 3) {
         ForEach(Array(visible), id: \.id) { tag in
-          Circle()
-            .fill(swiftUIColor(for: tag.color))
-            .frame(width: 6, height: 6)
-            .help(tag.name)
+          tagPill(tag)
         }
         if overflow > 0 {
           Text("+\(overflow)")
@@ -1432,6 +1433,19 @@ private struct ProjectTagDots: View {
         "Tags: " + resolved.map(\.name).joined(separator: ", ")
       )
     }
+  }
+
+  @ViewBuilder
+  private func tagPill(_ tag: Tag) -> some View {
+    let color = swiftUIColor(for: tag.color)
+    Text(tag.name)
+      .font(.system(size: 10, weight: .medium))
+      .foregroundStyle(color)
+      .lineLimit(1)
+      .padding(.horizontal, 6)
+      .padding(.vertical, 1.5)
+      .background(Capsule(style: .continuous).fill(color.opacity(0.18)))
+      .help(tag.name)
   }
 }
 
