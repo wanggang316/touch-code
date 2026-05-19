@@ -121,18 +121,20 @@ struct WorktreeRowIcon: View {
   }
 
   private func rollupGlyph(symbol: String, color: Color) -> some View {
-    // Inverted palette: the state colour fills the disc and the check/x/clock
-    // glyph is painted in white. The window-coloured outer ring was dropped at
-    // the request of HAN-25 follow-up — the disc reads cleaner without it.
-    // Disc shrunk 11 → 10pt; the inner glyph carries `.fontWeight(.bold)` so
-    // the check / x / clock thickens to compensate for the smaller bounding
-    // box and stays legible at sidebar density.
+    // Inverted palette: the state colour fills the disc and the inner check /
+    // x / clock glyph is painted in `windowBackgroundColor` so it reads as a
+    // hole punched through the disc revealing whatever sits behind. Light
+    // mode → near-white inner glyph; dark mode → near-black. Using the
+    // window-bg token (rather than hard-coded `.white`) keeps the contrast
+    // direction sensible across both schemes instead of looking blown out in
+    // dark mode. Disc shrunk 11 → 10pt; `.fontWeight(.bold)` thickens the
+    // inner stroke so it stays legible at sidebar density.
     Image(systemName: symbol)
       .resizable()
       .fontWeight(.bold)
       .frame(width: 10, height: 10)
       .symbolRenderingMode(.palette)
-      .foregroundStyle(Color.white, color)
+      .foregroundStyle(Color(nsColor: .windowBackgroundColor), color)
       .offset(x: 4, y: 4)
       .accessibilityHidden(true)
   }
