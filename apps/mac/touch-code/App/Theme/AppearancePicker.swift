@@ -14,9 +14,9 @@ struct AppearancePicker: View {
 
   var body: some View {
     HStack(alignment: .top, spacing: 18) {
+      tile(.system, imageName: "theme_system", label: "Auto")
       tile(.light, imageName: "theme_light", label: "Light")
       tile(.dark, imageName: "theme_dark", label: "Dark")
-      tile(.system, imageName: "theme_system", label: "Auto")
     }
     .accessibilityElement(children: .contain)
     .accessibilityLabel("Appearance")
