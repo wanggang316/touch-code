@@ -32,6 +32,10 @@ nonisolated struct GitServiceClient: Sendable {
   /// `(path, worktreePath) -> oldContents?`. Reads `<path>` at HEAD via `git show`.
   /// Returns `nil` for paths that don't yet exist at HEAD (newly-added files).
   var showFileAtHEAD: @Sendable (String, String) async throws -> String?
+  /// `(worktreePath) -> BranchDiffStats?`. Sums additions/deletions of the
+  /// worktree's HEAD against the repo's default base branch. Nil when the
+  /// worktree is sitting on base or no base can be resolved.
+  var branchDiffStats: @Sendable (URL) async throws -> BranchDiffStats?
 }
 
 extension GitServiceClient {
@@ -55,7 +59,8 @@ extension GitServiceClient {
       },
       showFileAtHEAD: { path, worktreePath in
         try await service.showFileAtHEAD(path, at: URL(fileURLWithPath: worktreePath))
-      }
+      },
+      branchDiffStats: { url in try await service.branchDiffStats(at: url) }
     )
   }
 }
@@ -94,6 +99,10 @@ extension GitServiceClient: DependencyKey {
     ),
     showFileAtHEAD: unimplemented(
       "GitServiceClient.showFileAtHEAD",
+      placeholder: nil
+    ),
+    branchDiffStats: unimplemented(
+      "GitServiceClient.branchDiffStats",
       placeholder: nil
     )
   )

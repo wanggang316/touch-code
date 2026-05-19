@@ -28,6 +28,15 @@ nonisolated enum CheckRollupColor {
   static let neutral = Color.gray
 }
 
+/// GitHub Primer foreground tokens for `+N −M` diff-stat counts. Matches
+/// github.com's PR list / file tree rendering — `#1A7F37` for additions and
+/// `#CF222E` for deletions — so the sidebar and titlebar counters look like
+/// the same widget the user already reads on github.com.
+nonisolated enum DiffStatColor {
+  static let additions = Color(red: 0x1A / 255.0, green: 0x7F / 255.0, blue: 0x37 / 255.0)
+  static let deletions = Color(red: 0xCF / 255.0, green: 0x22 / 255.0, blue: 0x2E / 255.0)
+}
+
 extension PullRequestState {
   /// Background fill for the badge capsule.
   nonisolated var badgeFill: Color {

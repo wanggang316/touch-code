@@ -99,10 +99,10 @@ struct StatusPullRequestView: View {
     if snapshot.state == .open, snapshot.additions > 0 || snapshot.deletions > 0 {
       HStack(spacing: 4) {
         if snapshot.additions > 0 {
-          Text("+\(snapshot.additions)").foregroundStyle(.green)
+          Text("+\(snapshot.additions)").foregroundStyle(DiffStatColor.additions)
         }
         if snapshot.deletions > 0 {
-          Text("−\(snapshot.deletions)").foregroundStyle(.red)
+          Text("−\(snapshot.deletions)").foregroundStyle(DiffStatColor.deletions)
         }
       }
       .font(.caption2.monospacedDigit())

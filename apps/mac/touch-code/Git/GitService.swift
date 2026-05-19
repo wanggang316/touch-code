@@ -38,6 +38,13 @@ public nonisolated protocol GitService: Sendable {
   /// paths that don't exist at HEAD (newly-added files). All other errors throw
   /// the standard `GitError` cases.
   func showFileAtHEAD(_ path: String, at worktreePath: URL) async throws -> String?
+
+  /// `git diff --shortstat <base>...HEAD` against the repository's default
+  /// branch (resolved through `origin/HEAD`, fallback `origin/main` →
+  /// `origin/master`). Returns `nil` when the worktree's HEAD is already on
+  /// the base (the "branch vs base" diff would be empty), when no base can be
+  /// determined, or when the worktree is not a git repo.
+  func branchDiffStats(at worktreePath: URL) async throws -> BranchDiffStats?
 }
 
 extension GitService {

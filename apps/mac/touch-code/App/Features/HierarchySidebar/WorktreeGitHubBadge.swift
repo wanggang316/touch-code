@@ -17,10 +17,6 @@ struct WorktreeGitHubBadge<PopoverContent: View>: View {
   let worktreeID: WorktreeID
   let branch: String
   let worktreePath: URL
-  /// Optional click handler for the `+N −M` diff-stats chip. When non-nil the
-  /// chip renders with a hairline border (clickability affordance) and routes
-  /// taps here; when nil the chip stays a plain label as before.
-  var onDiffStatsTapped: (() -> Void)? = nil
   @ViewBuilder let popoverContent: () -> PopoverContent
 
   @State private var isBadgeHovered = false
@@ -38,15 +34,14 @@ struct WorktreeGitHubBadge<PopoverContent: View>: View {
       if let snapshot {
         // 0013 M5: `checkRollup` now travels on the snapshot (populated by the v2
         // batched `gh api graphql` path). No longer read from the retired
-        // `state.checks[prNumber]` dictionary.
+        // `state.checks[prNumber]` dictionary. The `+N −M` chip used to live here
+        // but moved to `HierarchySidebarView.diffStatsChip` so PR-less rows can
+        // surface the same widget against `WorktreeBranchDiffMonitor`.
         let rollup = PullRequestBadge.CheckRollup.from(checks: snapshot.checkRollup)
-        HStack(spacing: 6) {
-          diffStatsLabel(snapshot: snapshot)
-          PullRequestBadge(
-            state: .loaded(snapshot, rollup: rollup),
-            onTap: { store.send(.delegate(.openURL(snapshot.url))) }
-          )
-        }
+        PullRequestBadge(
+          state: .loaded(snapshot, rollup: rollup),
+          onTap: { store.send(.delegate(.openURL(snapshot.url))) }
+        )
       } else if isLoading {
         PullRequestBadge(state: .loading, onTap: {})
       } else if let lastError {
@@ -86,50 +81,6 @@ struct WorktreeGitHubBadge<PopoverContent: View>: View {
           isPopoverHovered = hovering
           reconcileHover()
         }
-    }
-  }
-
-  /// Compact `+N −M` patch-size indicator for a PR snapshot. Shown only on `.open` PRs —
-  /// merged and closed PRs are historical; the diff they represent is already in the
-  /// base branch (merged) or discarded (closed), so carrying the counts on the sidebar
-  /// row adds visual weight for no actionable information. The popover still surfaces
-  /// full stats when the user drills in. Hidden when both counts are zero.
-  @ViewBuilder
-  private func diffStatsLabel(snapshot: PullRequestSnapshot) -> some View {
-    if snapshot.state == .open, snapshot.additions > 0 || snapshot.deletions > 0 {
-      let counts = HStack(spacing: 4) {
-        if snapshot.additions > 0 {
-          Text("+\(snapshot.additions)").foregroundStyle(.green)
-        }
-        if snapshot.deletions > 0 {
-          Text("−\(snapshot.deletions)").foregroundStyle(.red)
-        }
-      }
-      .font(.caption2.monospacedDigit())
-      // Bordered chip + click handler mirror the chord-hint treatment a few lines
-      // up in HierarchySidebarView so the affordance reads as "tappable metadata"
-      // rather than two more decorative chips. Border is drawn on top of the
-      // content padding via .overlay so it tightens to the text bounding box
-      // instead of expanding the parent HStack's metrics.
-      let bordered = counts
-        .padding(.horizontal, 4)
-        .padding(.vertical, 1)
-        .overlay(
-          RoundedRectangle(cornerRadius: 3)
-            .stroke(Color.secondary.opacity(0.35), lineWidth: 1)
-        )
-      Group {
-        if let onDiffStatsTapped {
-          Button(action: onDiffStatsTapped) { bordered }
-            .buttonStyle(.plain)
-            .help("Open Git Viewer")
-        } else {
-          counts
-        }
-      }
-      .accessibilityLabel(
-        "\(snapshot.additions) additions, \(snapshot.deletions) deletions"
-      )
     }
   }
 

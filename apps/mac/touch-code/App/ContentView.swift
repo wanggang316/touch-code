@@ -14,6 +14,9 @@ struct ContentView: View {
   /// Per-Worktree dirty-tree cache threaded into the sidebar so each row can decide
   /// whether to paint a pending-work dot without owning its own `git status` fetch.
   let worktreeStatusMonitor: WorktreeStatusMonitor
+  /// Per-Worktree "branch vs base" diff stats cache. Drives the `+N −M` chip
+  /// on every worktree row, not just rows with a matched PR.
+  let worktreeBranchDiffMonitor: WorktreeBranchDiffMonitor
   /// v1 notifications roll-up. Threaded via `.environment` so sidebar
   /// rows / tab bar / pane chrome can read per-level unread indicators
   /// without each site owning its own derivation.
@@ -115,6 +118,7 @@ struct ContentView: View {
     .environment(hierarchyManager)
     .environment(settingsStore)
     .environment(worktreeStatusMonitor)
+    .environment(worktreeBranchDiffMonitor)
     .environment(notificationRollup)
     .environment(notificationStore)
     .environment(osNotifier)

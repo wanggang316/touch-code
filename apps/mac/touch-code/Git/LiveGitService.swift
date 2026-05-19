@@ -134,6 +134,100 @@ nonisolated final class LiveGitService: GitService {
     }
   }
 
+  func branchDiffStats(at worktreePath: URL) async throws -> BranchDiffStats? {
+    try await ensureIsRepo(at: worktreePath)
+    guard let base = try await resolveBaseRef(at: worktreePath) else { return nil }
+    // `<base>...HEAD` is the symmetric-difference range that GitHub PRs use:
+    // additions/deletions are relative to the merge-base, so commits already
+    // on base are excluded from the count even if HEAD hasn't merged yet.
+    let out: Data
+    do {
+      out = try await run(
+        arguments: ["diff", "--shortstat", "\(base)...HEAD"],
+        cwd: worktreePath
+      )
+    } catch GitError.exec {
+      // Unknown ref / shallow clone / detached weirdness — surface as "no
+      // stats available" rather than throwing onto the sidebar.
+      return nil
+    }
+    let text = String(data: out, encoding: .utf8) ?? ""
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.isEmpty { return BranchDiffStats(additions: 0, deletions: 0, baseRef: base) }
+    return parseShortStat(trimmed, baseRef: base)
+  }
+
+  /// Resolves the repo's default branch ref, e.g. `origin/main`. Order of
+  /// preference: explicit `origin/HEAD` symbolic-ref → `origin/main` →
+  /// `origin/master`. Returns nil when nothing matches (the caller treats
+  /// that as "no stats available").
+  private func resolveBaseRef(at path: URL) async throws -> String? {
+    // `git symbolic-ref --short refs/remotes/origin/HEAD` prints e.g. "origin/main".
+    do {
+      let out = try await run(
+        arguments: ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+        cwd: path
+      )
+      let ref = (String(data: out, encoding: .utf8) ?? "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      if !ref.isEmpty {
+        return try await currentBranchIs(ref: ref, at: path) ? nil : ref
+      }
+    } catch GitError.exec {
+      // origin/HEAD not set on this clone; fall through to fixed fallbacks.
+    }
+    for candidate in ["origin/main", "origin/master"] {
+      if try await refExists(candidate, at: path) {
+        return try await currentBranchIs(ref: candidate, at: path) ? nil : candidate
+      }
+    }
+    return nil
+  }
+
+  private func refExists(_ ref: String, at path: URL) async throws -> Bool {
+    do {
+      _ = try await run(
+        arguments: ["rev-parse", "--verify", "--quiet", ref],
+        cwd: path
+      )
+      return true
+    } catch GitError.exec {
+      return false
+    }
+  }
+
+  /// `true` when HEAD's commit matches the resolved base commit — i.e. the
+  /// worktree is sitting on the default branch. Skipping the diff in that
+  /// case keeps the row from rendering a no-op "+0 −0" chip.
+  private func currentBranchIs(ref: String, at path: URL) async throws -> Bool {
+    do {
+      let headOut = try await run(arguments: ["rev-parse", "HEAD"], cwd: path)
+      let baseOut = try await run(arguments: ["rev-parse", ref], cwd: path)
+      let head = (String(data: headOut, encoding: .utf8) ?? "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      let base = (String(data: baseOut, encoding: .utf8) ?? "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      return !head.isEmpty && head == base
+    } catch GitError.exec {
+      return false
+    }
+  }
+
+  /// Extracts `+additions −deletions` from `git diff --shortstat` output.
+  /// Sample line: ` 3 files changed, 17 insertions(+), 4 deletions(-)`.
+  private func parseShortStat(_ text: String, baseRef: String) -> BranchDiffStats {
+    func firstIntBefore(_ token: String, in source: String) -> Int {
+      guard let range = source.range(of: token) else { return 0 }
+      let head = source[source.startIndex..<range.lowerBound]
+      let digits = head.reversed().drop(while: { $0 == " " }).prefix(while: { $0.isNumber })
+      let str = String(digits.reversed())
+      return Int(str) ?? 0
+    }
+    let additions = firstIntBefore("insertion", in: text)
+    let deletions = firstIntBefore("deletion", in: text)
+    return BranchDiffStats(additions: additions, deletions: deletions, baseRef: baseRef)
+  }
+
   func remoteInfo(at path: URL) async throws -> RemoteInfo {
     try await ensureIsRepo(at: path)
     let out = try await run(arguments: GitCommand.remoteGetUrl(), cwd: path)

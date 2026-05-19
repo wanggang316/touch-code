@@ -218,3 +218,24 @@ public nonisolated struct WorkingTreeStatus: Equatable, Codable, Sendable {
 
   public var isClean: Bool { entries.isEmpty }
 }
+
+/// Summed line counts for a feature branch relative to its base (the repo's
+/// default branch — usually `origin/main` / `origin/master`). Sidebar rows
+/// render this as `+additions −deletions` so users can see "how much this
+/// branch has diverged" without opening a PR first.
+public nonisolated struct BranchDiffStats: Equatable, Codable, Sendable {
+  /// Lines added relative to base. `0` when the branch is identical to (or
+  /// behind) base on a per-line basis.
+  public let additions: Int
+  /// Lines removed relative to base.
+  public let deletions: Int
+  /// The ref the diff was taken against (e.g. `origin/main`). Stored mostly
+  /// for diagnostic logging; the caller doesn't display it.
+  public let baseRef: String
+
+  public init(additions: Int, deletions: Int, baseRef: String) {
+    self.additions = additions
+    self.deletions = deletions
+    self.baseRef = baseRef
+  }
+}

@@ -37,6 +37,7 @@ struct HierarchySidebarView: View {
   @Environment(HierarchyManager.self) private var hierarchyManager
   @Environment(SettingsStore.self) private var settingsStore
   @Environment(WorktreeStatusMonitor.self) private var worktreeStatusMonitor
+  @Environment(WorktreeBranchDiffMonitor.self) private var worktreeBranchDiffMonitor
   @Environment(RollupIndexProvider.self) private var notificationRollup: RollupIndexProvider?
 
   /// Tracks whether the `.command` modifier is currently pressed. When held the sidebar
@@ -561,6 +562,7 @@ struct HierarchySidebarView: View {
         hotkeyNumber: hotkeyNumber,
         isSelected: isSelected
       )
+      diffStatsChip(for: worktree, in: project, snapshot: snapshot)
       gitHubBadge(for: worktree, in: project)
       // Trailing chord hint, after both the row content and the optional PR pill so it
       // always pins to the right edge of the row instead of being shoved leftwards by
@@ -594,10 +596,11 @@ struct HierarchySidebarView: View {
     .task(id: worktree.path) {
       // Refresh the "dirty" dot on mount / path change. The monitor enforces a 30 s
       // freshness window internally so list-rerenders don't spawn redundant fetches.
-      await worktreeStatusMonitor.refresh(
-        worktreeID: worktree.id,
-        path: URL(fileURLWithPath: worktree.path)
-      )
+      let url = URL(fileURLWithPath: worktree.path)
+      await worktreeStatusMonitor.refresh(worktreeID: worktree.id, path: url)
+      // Branch-vs-base line counts ride the same trigger so PR-less rows can
+      // surface `+N −M` without a separate poll loop.
+      await worktreeBranchDiffMonitor.refresh(worktreeID: worktree.id, path: url)
     }
   }
 
@@ -963,6 +966,39 @@ struct HierarchySidebarView: View {
     return "Remove Project?"
   }
 
+  // MARK: - Diff stats chip
+
+  /// Compact `+N −M` chip rendered to the right of the row content. For rows
+  /// with an open PR, the counts come from the PR snapshot — same numbers
+  /// github.com surfaces. For PR-less rows, the counts come from
+  /// `WorktreeBranchDiffMonitor`'s `git diff --shortstat <base>...HEAD`.
+  /// Merged / closed PRs hide the chip (the diff is already in base or
+  /// discarded) and so does main checkout (HEAD == base → no signal).
+  @ViewBuilder
+  fileprivate func diffStatsChip(
+    for worktree: Worktree, in project: Project, snapshot: PullRequestSnapshot?
+  ) -> some View {
+    let stats: (additions: Int, deletions: Int)? = {
+      if let snapshot {
+        guard snapshot.state == .open else { return nil }
+        return (snapshot.additions, snapshot.deletions)
+      }
+      guard let local = worktreeBranchDiffMonitor.stats[worktree.id] ?? nil else {
+        return nil
+      }
+      return (local.additions, local.deletions)
+    }()
+    if let stats, stats.additions > 0 || stats.deletions > 0 {
+      DiffStatsChip(
+        additions: stats.additions,
+        deletions: stats.deletions,
+        onTap: { [worktreeID = worktree.id, projectID = project.id] in
+          store.send(.delegate(.openGitViewerRequested(projectID: projectID, worktreeID: worktreeID)))
+        }
+      )
+    }
+  }
+
   // MARK: - GitHub badge + popover
 
   @ViewBuilder
@@ -974,9 +1010,6 @@ struct HierarchySidebarView: View {
         worktreeID: worktree.id,
         branch: branch,
         worktreePath: path,
-        onDiffStatsTapped: { [worktreeID = worktree.id, projectID = project.id] in
-          store.send(.delegate(.openGitViewerRequested(projectID: projectID, worktreeID: worktreeID)))
-        },
         popoverContent: {
           gitHubPopoverContent(
             store: gitHubStore,
