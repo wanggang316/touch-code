@@ -55,15 +55,30 @@ struct PullRequestBadge: View {
 
   private func loadedBody(snapshot: PullRequestSnapshot, rollup: CheckRollup) -> some View {
     let tint = snapshot.state.rowTint(isDraft: snapshot.isDraft)
-    return Text("#\(snapshot.number)")
-      .font(.system(size: 10, weight: .semibold))
-      .padding(.horizontal, 4)
-      .padding(.vertical, 1)
-      .foregroundStyle(tint)
-      .background(
-        Capsule(style: .continuous)
-          .stroke(tint.opacity(0.75), lineWidth: 0.75)
-      )
+    return HStack(spacing: 3) {
+      Text(stateWord(snapshot: snapshot))
+      Text("#\(snapshot.number)")
+    }
+    .font(.system(size: 10, weight: .semibold))
+    .padding(.horizontal, 4)
+    .padding(.vertical, 1)
+    .foregroundStyle(tint)
+    .background(
+      Capsule(style: .continuous)
+        .stroke(tint.opacity(0.75), lineWidth: 0.75)
+    )
+  }
+
+  /// Short capitalized status word. Draft outranks `.open` so the pill reads
+  /// "Draft #123" rather than "Open #123" for draft PRs, matching the row
+  /// icon's draft glyph.
+  private func stateWord(snapshot: PullRequestSnapshot) -> String {
+    if snapshot.isDraft { return "Draft" }
+    switch snapshot.state {
+    case .open: return "Open"
+    case .merged: return "Merged"
+    case .closed: return "Closed"
+    }
   }
 
   private var loadingBody: some View {
