@@ -37,7 +37,7 @@ struct HierarchySidebarView: View {
   @Environment(HierarchyManager.self) private var hierarchyManager
   @Environment(SettingsStore.self) private var settingsStore
   @Environment(WorktreeStatusMonitor.self) private var worktreeStatusMonitor
-  @Environment(WorktreeBranchDiffMonitor.self) private var worktreeBranchDiffMonitor
+  @Environment(WorktreeLocalDiffMonitor.self) private var worktreeLocalDiffMonitor
   @Environment(RollupIndexProvider.self) private var notificationRollup: RollupIndexProvider?
 
   /// Tracks whether the `.command` modifier is currently pressed. When held the sidebar
@@ -598,9 +598,11 @@ struct HierarchySidebarView: View {
       // freshness window internally so list-rerenders don't spawn redundant fetches.
       let url = URL(fileURLWithPath: worktree.path)
       await worktreeStatusMonitor.refresh(worktreeID: worktree.id, path: url)
-      // Branch-vs-base line counts ride the same trigger so PR-less rows can
-      // surface `+N −M` without a separate poll loop.
-      await worktreeBranchDiffMonitor.refresh(worktreeID: worktree.id, path: url)
+      // Uncommitted-edit line counts ride the same trigger so every row
+      // (PR-matched or not) can surface `+N −M` without a separate poll loop.
+      // HEAD-change refresh is wired separately in
+      // `RootFeature.worktreeHeadChanged`.
+      await worktreeLocalDiffMonitor.refresh(worktreeID: worktree.id, path: url)
     }
   }
 
@@ -968,30 +970,24 @@ struct HierarchySidebarView: View {
 
   // MARK: - Diff stats chip
 
-  /// Compact `+N −M` chip rendered to the right of the row content. For rows
-  /// with an open PR, the counts come from the PR snapshot — same numbers
-  /// github.com surfaces. For PR-less rows, the counts come from
-  /// `WorktreeBranchDiffMonitor`'s `git diff --shortstat <base>...HEAD`.
-  /// Merged / closed PRs hide the chip (the diff is already in base or
-  /// discarded) and so does main checkout (HEAD == base → no signal).
+  /// Compact `+N −M` chip rendered to the right of the row content. Counts
+  /// come from `WorktreeLocalDiffMonitor` (`git diff HEAD --shortstat`) so
+  /// every worktree — PR-matched or not — surfaces the same "uncommitted
+  /// edits in this worktree" signal. Refresh on HEAD events is wired in
+  /// `RootFeature.worktreeHeadChanged`; row-mount falls back to the
+  /// monitor's freshness window. The titlebar `StatusPullRequestView` still
+  /// shows the PR's pushed `+/−` for the active worktree if users want the
+  /// at-base comparison.
   @ViewBuilder
   fileprivate func diffStatsChip(
     for worktree: Worktree, in project: Project, snapshot: PullRequestSnapshot?
   ) -> some View {
-    let stats: (additions: Int, deletions: Int)? = {
-      if let snapshot {
-        guard snapshot.state == .open else { return nil }
-        return (snapshot.additions, snapshot.deletions)
-      }
-      guard let local = worktreeBranchDiffMonitor.stats[worktree.id] ?? nil else {
-        return nil
-      }
-      return (local.additions, local.deletions)
-    }()
-    if let stats, stats.additions > 0 || stats.deletions > 0 {
+    if let local = worktreeLocalDiffMonitor.stats[worktree.id] ?? nil,
+      local.additions > 0 || local.deletions > 0
+    {
       DiffStatsChip(
-        additions: stats.additions,
-        deletions: stats.deletions,
+        additions: local.additions,
+        deletions: local.deletions,
         onTap: { [worktreeID = worktree.id, projectID = project.id] in
           store.send(.delegate(.openGitViewerRequested(projectID: projectID, worktreeID: worktreeID)))
         }

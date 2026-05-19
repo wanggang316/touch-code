@@ -219,23 +219,19 @@ public nonisolated struct WorkingTreeStatus: Equatable, Codable, Sendable {
   public var isClean: Bool { entries.isEmpty }
 }
 
-/// Summed line counts for a feature branch relative to its base (the repo's
-/// default branch — usually `origin/main` / `origin/master`). Sidebar rows
-/// render this as `+additions −deletions` so users can see "how much this
-/// branch has diverged" without opening a PR first.
-public nonisolated struct BranchDiffStats: Equatable, Codable, Sendable {
-  /// Lines added relative to base. `0` when the branch is identical to (or
-  /// behind) base on a per-line basis.
+/// Summed line counts for a worktree's uncommitted edits (`git diff HEAD
+/// --shortstat`). Sidebar rows render this as `+additions −deletions` so
+/// users can see "how much I've changed since the last commit" at a glance,
+/// independent of whether a PR has been opened.
+public nonisolated struct LocalDiffStats: Equatable, Codable, Sendable {
+  /// Lines added in the working tree relative to HEAD. `0` when there are no
+  /// uncommitted insertions.
   public let additions: Int
-  /// Lines removed relative to base.
+  /// Lines removed in the working tree relative to HEAD.
   public let deletions: Int
-  /// The ref the diff was taken against (e.g. `origin/main`). Stored mostly
-  /// for diagnostic logging; the caller doesn't display it.
-  public let baseRef: String
 
-  public init(additions: Int, deletions: Int, baseRef: String) {
+  public init(additions: Int, deletions: Int) {
     self.additions = additions
     self.deletions = deletions
-    self.baseRef = baseRef
   }
 }

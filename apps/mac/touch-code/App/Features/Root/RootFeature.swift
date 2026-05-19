@@ -346,6 +346,7 @@ struct RootFeature {
   @Dependency(SettingsWriter.self) private var settingsWriter
   @Dependency(ProjectReconciler.self) private var projectReconciler
   @Dependency(WorktreeHeadWatcher.self) private var worktreeHeadWatcher
+  @Dependency(WorktreeLocalDiffMonitor.self) private var worktreeLocalDiffMonitor
   @Dependency(SettingsWindowPresenter.self) private var settingsWindowPresenter
   @Dependency(GitHubSnapshotCacheClient.self) private var gitHubSnapshotCache
   @Dependency(GitServiceClient.self) private var gitServiceClient
@@ -644,7 +645,21 @@ struct RootFeature {
             project.worktrees.contains(where: { $0.id == worktreeID })
           })?.id
         else { return .none }
-        return .run { [projectReconciler, client = hierarchyClient] send in
+        let worktreePath = catalog.projects.first(where: { $0.id == projectID })?
+          .worktrees.first(where: { $0.id == worktreeID })?.path
+        return .run {
+          [projectReconciler, client = hierarchyClient, monitor = worktreeLocalDiffMonitor] send in
+          // HEAD moved → the cached `git diff HEAD --shortstat` numbers are
+          // stale by definition. Drop the freshness stamp and immediately
+          // re-fetch so the sidebar chip updates in the same tick the
+          // reconciler runs, instead of waiting for the row to remount.
+          if let worktreePath {
+            await MainActor.run { monitor.invalidate(worktreeID: worktreeID) }
+            await monitor.refresh(
+              worktreeID: worktreeID,
+              path: URL(fileURLWithPath: worktreePath)
+            )
+          }
           await projectReconciler.reconcile(projectID: projectID)
           if let action = await MainActor.run(body: {
             Self.makeActiveProjectGitHubRefresh(client: client)

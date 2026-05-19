@@ -43,7 +43,7 @@ struct TouchCodeApp: App {
             hierarchyManager: appState.hierarchyManager,
             settingsStore: appState.settingsStore,
             worktreeStatusMonitor: appState.worktreeStatusMonitor,
-            worktreeBranchDiffMonitor: appState.worktreeBranchDiffMonitor,
+            worktreeLocalDiffMonitor: appState.worktreeLocalDiffMonitor,
             notificationRollup: appState.notificationRollup,
             notificationStore: appState.notificationStore,
             osNotifier: appState.osNotifier
@@ -287,9 +287,12 @@ final class AppState {
   /// Per-Worktree "git status is non-clean" cache. The sidebar row's `.task(id:)`
   /// refreshes this lazily; a small dot is drawn next to the row name when dirty.
   let worktreeStatusMonitor: WorktreeStatusMonitor
-  /// Per-Worktree "branch vs default base" line counts. Drives the `+N −M`
-  /// chip on sidebar worktree rows even when no PR is matched.
-  let worktreeBranchDiffMonitor: WorktreeBranchDiffMonitor
+  /// Per-Worktree "uncommitted edits" line counts (`git diff HEAD
+  /// --shortstat`). Drives the `+N −M` chip on sidebar worktree rows
+  /// regardless of PR state. Shared with the reducer via the
+  /// `WorktreeLocalDiffMonitor` DependencyKey so HEAD-watcher events can
+  /// invalidate the cache.
+  let worktreeLocalDiffMonitor: WorktreeLocalDiffMonitor
 
   /// HAN-62: watches `.git/HEAD` for every catalog Worktree so terminal-
   /// driven `git checkout` inside a pane propagates to the catalog row's
@@ -331,7 +334,7 @@ final class AppState {
     self.shortcutsStore = ShortcutsStore()
     self.notificationStore = NotificationStore()
     self.worktreeStatusMonitor = .live()
-    self.worktreeBranchDiffMonitor = .live()
+    self.worktreeLocalDiffMonitor = .live()
     self.worktreeHeadWatcher = WorktreeHeadWatcher()
   }
 
@@ -432,6 +435,7 @@ final class AppState {
       // override with a scripted closure.
       $0.projectReconciler = ProjectReconciler(client: hierarchy)
       $0.worktreeHeadWatcher = self.worktreeHeadWatcher
+      $0.worktreeLocalDiffMonitor = self.worktreeLocalDiffMonitor
     }
 
     startHeadWatcherSync()

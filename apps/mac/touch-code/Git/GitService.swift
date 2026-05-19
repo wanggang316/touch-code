@@ -39,12 +39,11 @@ public nonisolated protocol GitService: Sendable {
   /// the standard `GitError` cases.
   func showFileAtHEAD(_ path: String, at worktreePath: URL) async throws -> String?
 
-  /// `git diff --shortstat <base>...HEAD` against the repository's default
-  /// branch (resolved through `origin/HEAD`, fallback `origin/main` →
-  /// `origin/master`). Returns `nil` when the worktree's HEAD is already on
-  /// the base (the "branch vs base" diff would be empty), when no base can be
-  /// determined, or when the worktree is not a git repo.
-  func branchDiffStats(at worktreePath: URL) async throws -> BranchDiffStats?
+  /// `git diff HEAD --shortstat` — summed insertions / deletions for the
+  /// worktree's uncommitted edits. Returns `nil` only when the call itself
+  /// fails (not a repo, transient git error). A clean tree returns a stats
+  /// value with both counts at zero, not nil.
+  func localDiffStats(at worktreePath: URL) async throws -> LocalDiffStats?
 }
 
 extension GitService {
