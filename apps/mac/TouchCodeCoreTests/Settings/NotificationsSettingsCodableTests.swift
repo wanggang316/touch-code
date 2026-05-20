@@ -80,7 +80,7 @@ struct NotificationsSettingsCodableTests {
     #expect(decoded.dockBadgeEnabled == true)
     #expect(decoded.moveNotifiedWorktreeToTop == true)
     #expect(decoded.commandFinishedEnabled == true)
-    #expect(decoded.mute == .default)
+    #expect(decoded.mute == MuteSettings())
   }
 
   // MARK: - Threshold clamping

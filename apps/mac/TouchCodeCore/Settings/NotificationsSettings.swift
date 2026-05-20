@@ -30,8 +30,11 @@ public nonisolated struct NotificationsSettings: Equatable, Sendable, Codable {
   /// produces nothing regardless of threshold.
   public var commandFinishedEnabled: Bool
   /// Minimum runtime (seconds) before a finished command qualifies for a notification.
-  /// Clamped to `[1, 3600]` on decode; values outside the range trigger a single
-  /// warning log line and are replaced with the clamped value.
+  /// Clamped to `[1, 3600]` on decode (the load-bearing defence against hand-edited
+  /// `settings.json`); values outside the range trigger a single warning log line and
+  /// are replaced with the clamped value. In-process callers (e.g. the Settings UI)
+  /// are expected to validate before assigning — the memberwise init does not clamp,
+  /// so out-of-range programmer error surfaces rather than being silently corrected.
   public var commandFinishedThresholdSec: Int
   /// Per-rule and per-pane mute sets. Empty by default.
   public var mute: MuteSettings
@@ -52,7 +55,7 @@ public nonisolated struct NotificationsSettings: Equatable, Sendable, Codable {
     self.dockBadgeEnabled = dockBadgeEnabled
     self.moveNotifiedWorktreeToTop = moveNotifiedWorktreeToTop
     self.commandFinishedEnabled = commandFinishedEnabled
-    self.commandFinishedThresholdSec = Self.clampThreshold(commandFinishedThresholdSec)
+    self.commandFinishedThresholdSec = commandFinishedThresholdSec
     self.mute = mute
   }
 
@@ -61,7 +64,9 @@ public nonisolated struct NotificationsSettings: Equatable, Sendable, Codable {
   /// Inclusive bounds for `commandFinishedThresholdSec`. The lower bound matches the
   /// detector's minimum meaningful runtime; the upper bound (1 h) is the longest
   /// "still useful" debounce window we'd expect a user to configure interactively.
-  static let thresholdRange: ClosedRange<Int> = 1...3600
+  /// Public so the Settings UI in the app target can validate input against the same
+  /// range the decoder defends, avoiding magic-number drift across modules.
+  public static let thresholdRange: ClosedRange<Int> = 1...3600
 
   private static func clampThreshold(_ value: Int) -> Int {
     min(max(value, thresholdRange.lowerBound), thresholdRange.upperBound)
@@ -112,8 +117,11 @@ public nonisolated struct NotificationsSettings: Equatable, Sendable, Codable {
 }
 
 /// Mute sets for the notifications system. Rule IDs are opaque strings owned by the
-/// rule engine; pane IDs are the canonical `PaneID` from the hierarchy. Both sets are
-/// empty by default. Encoded as JSON arrays (Swift `Set`'s synthesised Codable).
+/// rule engine; pane IDs are the canonical `PaneID` from the hierarchy. Both keys
+/// are optional on decode — a missing key yields an empty set — so partial JSON
+/// (e.g., a hand-edit that only mentions one of the two sets) does not fail to load.
+/// Encoded as a JSON array of strings for `mutedRuleIDs`, and an array of
+/// `{"raw":"<uuid>"}` objects for `mutedPaneIDs` via `PaneID`'s synthesised Codable.
 public nonisolated struct MuteSettings: Equatable, Sendable, Codable {
   public var mutedRuleIDs: Set<String>
   public var mutedPaneIDs: Set<PaneID>
@@ -125,8 +133,6 @@ public nonisolated struct MuteSettings: Equatable, Sendable, Codable {
     self.mutedRuleIDs = mutedRuleIDs
     self.mutedPaneIDs = mutedPaneIDs
   }
-
-  public static let `default` = MuteSettings()
 
   private enum CodingKeys: String, CodingKey {
     case mutedRuleIDs, mutedPaneIDs
