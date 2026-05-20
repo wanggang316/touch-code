@@ -16,7 +16,8 @@ protocol NotificationSettingsReader: AnyObject {
   var notifications: NotificationsSettings { get }
   var authStatus: AuthorizationStatus { get }
   /// Fires whenever `notifications` or `authStatus` changes. Returns a
-  /// `Cancellable`-shaped token whose deallocation removes the handler.
+  /// `Cancellable`-shaped token whose cancellation or deallocation
+  /// removes the handler.
   func onChange(_ handler: @escaping @MainActor () -> Void) -> AnyCancellable
 }
 
@@ -77,6 +78,14 @@ final class SettingsStoreReaderAdapter: NotificationSettingsReader {
   /// `[weak self]` because the adapter is `@MainActor final class` and
   /// must not retain itself through the Observation token.
   private func subscribeNext() {
+    // Order is fire-then-rearm rather than `RollupIndexProvider`'s
+    // rearm-first pattern. This adapter only fans out — it does not derive
+    // any cached state from `notifications` — so a mutation landing in the
+    // fire-to-rearm gap means at most one missed `onChange` tick;
+    // handlers re-reading `notifications` still see the settled value.
+    // The derived-state correctness argument that motivates rearm-first
+    // in `RollupIndexProvider` (its `recompute` must observe the final
+    // settled snapshot) does not apply here.
     withObservationTracking {
       _ = settingsStore.settings.notifications
     } onChange: { [weak self] in
