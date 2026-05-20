@@ -8,20 +8,20 @@ import TouchCodeCore
 // The conforming members below are `async` because the production
 // `OSNotifier` protocol requires it; the mock has no real async work to do.
 
-/// Test double for `OSNotifier`. Matches the CURRENT `post(_:)` signature;
-/// M2.T2 introduces a `playSound:` parameter and updates this mock together
-/// with the protocol change.
+/// Test double for `OSNotifier`. M2.T2 added the `playSound:` parameter to
+/// `post`; the recorded tuples preserve both the entry and the flag so
+/// `NotificationCoordinatorTests` can assert on either dimension.
 @MainActor
 final class MockOSNotifier: OSNotifier {
   var status: AuthorizationStatus = .authorized
-  private(set) var posts: [InboxEntry] = []
+  private(set) var posts: [(entry: InboxEntry, playSound: Bool)] = []
 
   func currentAuthorizationStatus() async -> AuthorizationStatus { status }
 
   func requestAuthorization() async -> AuthorizationStatus { status }
 
-  func post(_ entry: InboxEntry) async {
-    posts.append(entry)
+  func post(_ entry: InboxEntry, playSound: Bool) async {
+    posts.append((entry, playSound))
   }
 }
 // swiftlint:enable async_without_await
