@@ -21,6 +21,13 @@ public final class NotificationStore {
   /// for views to read than scanning `entries`.
   public private(set) var unreadCount: Int
 
+  /// Non-nil when the inbox file on disk announced a `version` greater
+  /// than this build understands and was renamed aside at launch. Set in
+  /// `init` from `InboxFile.LoadResult`; never mutated thereafter. The
+  /// UI (M8.T1 "Inbox reset" toast) reads this once and surfaces the
+  /// backup basename to the user.
+  public private(set) var loadedQuarantineBackupURL: URL?
+
   @ObservationIgnored private let fileURL: URL
   @ObservationIgnored private let logger = Logger(
     subsystem: "com.touch-code.persistence",
@@ -54,14 +61,21 @@ public final class NotificationStore {
     self.debounceWindow = debounceWindow
 
     var loaded: [InboxEntry]
+    var quarantineBackupURL: URL?
     do {
-      loaded = try AtomicFileStore.read([InboxEntry].self, at: fileURL) ?? []
+      if let result = try InboxFile.load(from: fileURL, now: now) {
+        loaded = result.entries
+        quarantineBackupURL = result.quarantineBackupURL
+      } else {
+        loaded = []
+      }
     } catch {
       logger.error(
         "Failed to load notifications.json: \(String(describing: error), privacy: .public); starting empty inbox"
       )
       loaded = []
     }
+    self.loadedQuarantineBackupURL = quarantineBackupURL
 
     // Apply both sweeps before exposing the inbox so the user never sees a
     // stale row on first paint.
@@ -144,7 +158,7 @@ public final class NotificationStore {
     do {
       pendingSaveTask?.cancel()
       pendingSaveTask = nil
-      try AtomicFileStore.write(entries, to: fileURL)
+      try InboxFile.save(entries, to: fileURL)
     } catch {
       logger.error("Failed to flush notifications: \(String(describing: error), privacy: .public)")
     }
@@ -165,7 +179,7 @@ public final class NotificationStore {
       guard !Task.isCancelled else { return }
       guard let self else { return }
       do {
-        try AtomicFileStore.write(snapshot, to: self.fileURL)
+        try InboxFile.save(snapshot, to: self.fileURL)
       } catch {
         // Log and leave the existing file untouched. Same trade-off as
         // SettingsStore: a transient disk-full / permissions flip should
