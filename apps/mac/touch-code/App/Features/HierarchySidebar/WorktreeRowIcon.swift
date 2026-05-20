@@ -121,20 +121,27 @@ struct WorktreeRowIcon: View {
   }
 
   private func rollupGlyph(symbol: String, color: Color) -> some View {
-    // Inverted palette: the state colour fills the disc and the inner check /
-    // x / clock glyph is painted in `windowBackgroundColor` so it reads as a
-    // hole punched through the disc revealing whatever sits behind. Light
-    // mode → near-white inner glyph; dark mode → near-black. Using the
-    // window-bg token (rather than hard-coded `.white`) keeps the contrast
-    // direction sensible across both schemes instead of looking blown out in
-    // dark mode. Disc shrunk 11 → 10pt; `.fontWeight(.bold)` thickens the
-    // inner stroke so it stays legible at sidebar density.
+    // Three-layer stack so the disc reads as a clean cutout from the leading
+    // git glyph underneath:
+    //   1. git-branch / git-pr glyph (drawn by the parent body)
+    //   2. windowBackground halo — a 12pt disc that "punches out" the icon
+    //      strokes beneath the rollup so the green/red/yellow disc never
+    //      composites its anti-aliased edge against the icon's lines.
+    //   3. 10pt state-coloured disc with the windowBackground check/x/clock
+    //      glyph inside (theme-aware: near-white in light, near-black in dark).
+    // Bumped fontWeight on the inner glyph keeps the check/x/clock legible at
+    // sidebar density even after the 11 → 10pt shrink.
     Image(systemName: symbol)
       .resizable()
       .fontWeight(.bold)
       .frame(width: 10, height: 10)
       .symbolRenderingMode(.palette)
       .foregroundStyle(Color(nsColor: .windowBackgroundColor), color)
+      .background(
+        Circle()
+          .fill(Color(nsColor: .windowBackgroundColor))
+          .frame(width: 12, height: 12)
+      )
       .offset(x: 4, y: 4)
       .accessibilityHidden(true)
   }
