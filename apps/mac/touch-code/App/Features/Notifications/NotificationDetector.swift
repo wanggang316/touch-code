@@ -160,11 +160,17 @@ public final class NotificationDetector {
     // definition the user isn't looking at it.
     let sourceIsFocused = resolved.source.paneID == globallyFocusedPane()
 
-    // Enrich the title with the originating worktree's display name so
-    // a banner reads `[main] Pane bell` rather than just `Pane bell` —
-    // critical when the user has multiple worktrees backgrounded and
-    // needs to triage at a glance.
-    let enrichedTitle = resolved.worktreeLabel.map { "[\($0)] \(translated.title)" } ?? translated.title
+    // Enrich the title with the originating worktree + project so a
+    // banner reads `[main · TouchCode] Pane bell` rather than just
+    // `Pane bell` — critical when the user has multiple worktrees and
+    // projects open and needs to triage at a glance (HAN-78). Worktree
+    // comes first (it's the more volatile axis the user actually
+    // diffed against); project trails as the stable context.
+    let enrichedTitle = enrich(
+      title: translated.title,
+      worktreeLabel: resolved.worktreeLabel,
+      projectLabel: resolved.projectLabel
+    )
     let entry = InboxEntry(
       kind: translated.kind,
       title: enrichedTitle,
@@ -196,23 +202,21 @@ public final class NotificationDetector {
 
   // MARK: - Helpers
 
-  /// Resolve `paneID` to source path + mute state + worktree label.
-  /// Tries the live catalog first; falls back to `paneSourceCache` when
-  /// the pane has already been removed from the catalog (typical on
-  /// `paneExited`: `RootFeature.paneLifecycleExited` may have closed it
-  /// before this consumer runs). Returns nil only when both the live
-  /// catalog and the cache have nothing — meaning the pane never had
-  /// any prior catalog presence in this process. Cache fallback path
-  /// loses worktreeLabel + mute info; that's an acceptable trade for
-  /// not silently swallowing the final teardown notification.
-  private func resolve(
-    paneID: PaneID
-  ) -> (source: InboxEntry.SourcePath, muted: Bool, worktreeLabel: String?)? {
+  /// Resolve `paneID` to source path + mute state + worktree label +
+  /// project label. Tries the live catalog first; falls back to
+  /// `paneSourceCache` when the pane has already been removed from the
+  /// catalog (typical on `paneExited`: `RootFeature.paneLifecycleExited`
+  /// may have closed it before this consumer runs). Returns nil only when
+  /// both the live catalog and the cache have nothing — meaning the pane
+  /// never had any prior catalog presence in this process. Cache fallback
+  /// path loses worktree/project labels + mute info; that's an acceptable
+  /// trade for not silently swallowing the final teardown notification.
+  private func resolve(paneID: PaneID) -> Resolved? {
     if let live = liveResolve(paneID: paneID) {
       return live
     }
     if let cached = paneSourceCache[paneID] {
-      return (cached, false, nil)
+      return Resolved(source: cached, muted: false, worktreeLabel: nil, projectLabel: nil)
     }
     return nil
   }
@@ -221,9 +225,7 @@ public final class NotificationDetector {
   /// later teardown events still have a valid source after the pane
   /// has been removed from the catalog.
   @discardableResult
-  private func liveResolve(
-    paneID: PaneID
-  ) -> (source: InboxEntry.SourcePath, muted: Bool, worktreeLabel: String?)? {
+  private func liveResolve(paneID: PaneID) -> Resolved? {
     let catalog = catalogSnapshot()
     for project in catalog.projects {
       for worktree in project.worktrees {
@@ -236,12 +238,37 @@ public final class NotificationDetector {
             paneID: pane.id
           )
           paneSourceCache[paneID] = source
-          let label = worktree.name.isEmpty ? nil : worktree.name
-          return (source, pane.labels.contains(InboxLabels.muted), label)
+          let worktreeLabel = worktree.name.isEmpty ? nil : worktree.name
+          let projectLabel = project.name.isEmpty ? nil : project.name
+          return Resolved(
+            source: source,
+            muted: pane.labels.contains(InboxLabels.muted),
+            worktreeLabel: worktreeLabel,
+            projectLabel: projectLabel
+          )
         }
       }
     }
     return nil
   }
 
+  /// Compose the inbox/banner title prefix. Worktree first, then project,
+  /// joined by `·`. Empty bracket pair is never emitted — when both labels
+  /// are missing the original title is returned verbatim.
+  private func enrich(
+    title: String,
+    worktreeLabel: String?,
+    projectLabel: String?
+  ) -> String {
+    let parts = [worktreeLabel, projectLabel].compactMap { $0 }
+    guard !parts.isEmpty else { return title }
+    return "[\(parts.joined(separator: " · "))] \(title)"
+  }
+
+  private struct Resolved {
+    let source: InboxEntry.SourcePath
+    let muted: Bool
+    let worktreeLabel: String?
+    let projectLabel: String?
+  }
 }
