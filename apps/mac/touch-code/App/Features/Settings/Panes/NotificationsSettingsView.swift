@@ -92,18 +92,6 @@ struct NotificationsSettingsView: View {
         statusRow
         actionRow
       }
-
-      Section("About v1") {
-        Text(
-          "touch-code emits banners and inbox entries for events that need your "
-            + "attention — OSC 9 desktop notifications, terminal bell, OSC 133 "
-            + "command-finished, pane exit/crash, and post-busy idle. The settings "
-            + "above gate each surface independently. Banners only fire when the "
-            + "originating pane is not your current focus."
-        )
-        .font(.callout)
-        .foregroundStyle(.secondary)
-      }
     }
     .formStyle(.grouped)
     .alert("Notifications are blocked", isPresented: $showPermissionAlert) {
