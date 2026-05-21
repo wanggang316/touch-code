@@ -8,10 +8,17 @@ import TouchCodeCore
 /// recovery surface:
 ///
 /// 1. Per-surface toggles grouped as parent/child:
-///    - In-app notifications (parent) → Dock badge (child, auto-disabled when
-///      parent is off).
-///    - System notifications (parent) → Sound (child, auto-disabled when
-///      parent is off).
+///    - In-app notifications (parent) — gates every surface inside the app:
+///      bell popover, Dock badge, and the unread roll-up counts on projects,
+///      worktrees, tabs, and panes. Implementation: when off, no entries
+///      reach the inbox, so RollupIndex naturally reports 0 across the
+///      hierarchy.
+///      - Dock badge (child) — auto-disabled when In-app is off; lets users
+///        suppress just the icon overlay while keeping the in-window
+///        roll-up badges visible.
+///    - System notifications (parent) — gates macOS banner + Notification
+///      Center entries.
+///      - Sound (child) — auto-disabled when System is off.
 ///    Writes go through `SettingsStore.mutateNotifications(_:)`, which the
 ///    coordinator reads via `NotificationSettingsReader` at decision time —
 ///    every flip therefore takes effect on the next event.
@@ -47,7 +54,8 @@ struct NotificationsSettingsView: View {
         Toggle(isOn: inAppBinding) {
           SettingLabel(
             title: "In-app notifications",
-            caption: "Show notifications inside touch-code (status-bar bell, Dock badge)."
+            caption: "Show notifications inside touch-code — the bell popover, the Dock badge, "
+              + "and unread counts on projects, worktrees, tabs, and panes."
           )
         }
 
