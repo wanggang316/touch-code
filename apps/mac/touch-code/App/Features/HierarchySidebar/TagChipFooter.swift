@@ -33,40 +33,15 @@ struct TagFilterPopoverFooter: View {
   var onSortModeChanged: ((ProjectSortMode) -> Void)?
   var onManualSortRequested: (() -> Void)?
 
-  @State private var isFilterPopoverPresented = false
   @State private var isSortPopoverPresented = false
 
   var body: some View {
     HStack(spacing: 0) {
-      // Filter + sort glyphs sit in their own tight group with a small
-      // gap between them so they read as a related toolbar pair rather
-      // than a single fused chip.
+      // Tag-filter button is intentionally hidden — TagFilterList and the
+      // wired callbacks stay around so the feature can be re-mounted
+      // without rewiring the call site, but the footer currently only
+      // surfaces sort + refresh.
       HStack(spacing: 6) {
-        Button {
-          isFilterPopoverPresented.toggle()
-        } label: {
-          Image(systemName: "line.3.horizontal.decrease")
-            .font(.system(size: 12, weight: .regular))
-            .foregroundStyle(hasActiveFilter ? Color.accentColor : .secondary)
-            .frame(width: 18, height: 18)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(hasActiveFilter ? "Filtered by tag — click to change" : "Filter by tag")
-        .accessibilityLabel("Filter by tag")
-        .popover(isPresented: $isFilterPopoverPresented, arrowEdge: .bottom) {
-          TagFilterList(
-            tags: tags,
-            activeFilter: activeFilter,
-            showUntaggedChip: showUntaggedChip,
-            onAllTapped: { onAllTapped() },
-            onTagTapped: { onTagTapped($0) },
-            onUntaggedTapped: { onUntaggedTapped() },
-            onEditTagsTapped: onEditTagsTapped.map { handler in
-              { handler() }
-            }
-          )
-        }
         if let sortMode, let onSortModeChanged, let onManualSortRequested {
           Button {
             isSortPopoverPresented.toggle()
@@ -126,14 +101,6 @@ struct TagFilterPopoverFooter: View {
     // footer. Regular content-material survives the fullscreen flip with
     // the same visual weight it has windowed.
     .background(.regularMaterial)
-  }
-
-  private var hasActiveFilter: Bool {
-    switch activeFilter {
-    case .all: return false
-    case .tags(let set): return !set.isEmpty
-    case .untagged: return true
-    }
   }
 
   private func sortHelpText(for mode: ProjectSortMode) -> String {
