@@ -50,7 +50,7 @@ struct NotificationsSettingsView: View {
 
   var body: some View {
     Form {
-      Section("Notifications") {
+      Section("In-app") {
         Toggle(isOn: inAppBinding) {
           SettingLabel(
             title: "In-app notifications",
@@ -67,7 +67,9 @@ struct NotificationsSettingsView: View {
         }
         .disabled(!settingsStore.settings.notifications.inAppEnabled)
         .help("Dock badge requires In-app notifications to be on.")
+      }
 
+      Section("System") {
         Toggle(isOn: systemBinding) {
           SettingLabel(
             title: "System notifications",
@@ -80,7 +82,7 @@ struct NotificationsSettingsView: View {
           .help("Sound requires System notifications to be on.")
       }
 
-      Section("Command-finished notifications") {
+      Section("Command Finished") {
         Toggle(isOn: commandFinishedBinding) {
           SettingLabel(
             title: "Notify when a command finishes",
