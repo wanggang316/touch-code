@@ -19,18 +19,24 @@ struct NotificationCoordinatorTests {
     return (NotificationStore(fileURL: url), url)
   }
 
-  private func makeCandidate(sourceIsFocused: Bool = false) -> NotificationCoordinator.Candidate {
-    let source = InboxEntry.SourcePath(
-      projectID: ProjectID(),
-      worktreeID: WorktreeID(),
-      tabID: TabID(),
-      paneID: PaneID()
-    )
+  private func makeCandidate(
+    sourceIsFocused: Bool = false,
+    source: InboxEntry.SourcePath? = nil,
+    kind: InboxEntry.Kind = .taskFinished
+  ) -> NotificationCoordinator.Candidate {
+    let resolvedSource =
+      source
+      ?? InboxEntry.SourcePath(
+        projectID: ProjectID(),
+        worktreeID: WorktreeID(),
+        tabID: TabID(),
+        paneID: PaneID()
+      )
     let entry = InboxEntry(
-      kind: .taskFinished,
+      kind: kind,
       title: "fixture",
       body: "fixture-body",
-      source: source
+      source: resolvedSource
     )
     return .init(entry: entry, sourceIsFocused: sourceIsFocused)
   }
@@ -85,9 +91,19 @@ struct NotificationCoordinatorTests {
     #expect(inbox.entries.count == 1)
 
     reader.notifications.inAppEnabled = false
-    _ = await coordinator.handle(makeCandidate())
+    let decision2 = await coordinator.handle(makeCandidate())
 
     #expect(inbox.entries.count == 1)
+    // Lock the "live read at decision time" semantics: the second decision
+    // must report `inAppAppended == false` because the flag flipped between
+    // calls. Asserting on inbox count alone leaves room for a future
+    // regression where the count happens to stay flat for an unrelated
+    // reason (e.g. dedup) while `inAppAppended` lies.
+    guard case let .posted(inAppAppended, _, _, _, _) = decision2 else {
+      Issue.record("expected .posted, got \(decision2)")
+      return
+    }
+    #expect(inAppAppended == false)
   }
 
   /// AC-V11-CP-002: dropping a candidate must not retroactively surface
@@ -110,6 +126,47 @@ struct NotificationCoordinatorTests {
     reader.notifications.inAppEnabled = true
     // No new candidate fed — the previously dropped one stays dropped.
     #expect(inbox.entries.count == 1)
+  }
+
+  /// Regression guard for the I-1 / I-2 fix: when `InboxStorage.appending`
+  /// merges a second candidate into the prior entry (same `(paneID, kind)`
+  /// within the 30 s dedup window, preserving the prior `readAt`), the
+  /// coordinator must report `inAppAppended == false` for the merged
+  /// candidate and must not double-count the worktree in
+  /// `unreadByWorktree`. Without this guard, M6.T2's promote logic would
+  /// see a synthetic 0→N edge for chatty panes whose dedup was designed
+  /// to suppress exactly that.
+  @Test
+  func dedupDoesNotDoubleCountUnreadInCache() async throws {
+    let (inbox, url) = makeInbox()
+    defer { try? FileManager.default.removeItem(at: url) }
+    let notifier = MockOSNotifier()
+    let reader = FakeNotificationSettingsReader()
+    reader.notifications.inAppEnabled = true
+    let coordinator = makeCoordinator(inbox: inbox, notifier: notifier, reader: reader)
+
+    // Both candidates share the same source path + kind so InboxStorage's
+    // 30 s `(paneID, kind)` dedup window collapses the second into the
+    // first.
+    let source = InboxEntry.SourcePath(
+      projectID: ProjectID(),
+      worktreeID: WorktreeID(),
+      tabID: TabID(),
+      paneID: PaneID()
+    )
+    let first = await coordinator.handle(makeCandidate(source: source))
+    let second = await coordinator.handle(makeCandidate(source: source))
+
+    guard case let .posted(firstAppended, _, _, _, _) = first,
+      case let .posted(secondAppended, _, _, _, _) = second
+    else {
+      Issue.record("expected .posted for both decisions")
+      return
+    }
+    #expect(firstAppended == true)
+    #expect(secondAppended == false)
+    #expect(inbox.entries.count == 1)
+    #expect(coordinator.unreadByWorktree[source.worktreeID] == 1)
   }
 
   /// AC-V11-S-001: with the inbox off and system banners on, only the

@@ -79,31 +79,37 @@ final class NotificationCoordinator {
     let settings = settingsReader.notifications
     let auth = settingsReader.authStatus
 
-    // Inbox path.
+    // Inbox path. `inbox.append` may dedup (same paneID+kind within 30 s
+    // merges into the prior entry preserving its `readAt`) or evict an
+    // unread row when the 500-cap is hit. Both outcomes mean the
+    // per-worktree unread count did NOT actually grow on this call, so
+    // we read the canonical count from `inbox.entries` before and after
+    // the append and report the actual delta. The cache mirrors the
+    // post-append truth so M6.T2's promote logic sees a faithful 0→N
+    // edge rather than an inflated synthetic one.
     let didAppend: Bool
     if settings.inAppEnabled {
+      let worktreeID = candidate.entry.source.worktreeID
+      let before = unreadCount(inWorktree: worktreeID)
       inbox.append(candidate.entry)
-      unreadByWorktree[candidate.entry.source.worktreeID, default: 0] += 1
-      didAppend = true
+      let after = unreadCount(inWorktree: worktreeID)
+      unreadByWorktree[worktreeID] = after
+      didAppend = (after > before)
     } else {
       didAppend = false
       logger.debug("drop inAppDisabled (inbox not appended)")
       lastDropReasons.append(.inAppDisabled)
     }
 
-    // Dock badge path. The badge mirror always honours the live settings,
-    // so we recompute on every append even when `dockBadgeEnabled` is off
-    // (the recompute clears the label in that branch).
-    let didBadge: Bool
-    if didAppend {
-      recomputeDockBadge()
-      didBadge = settings.dockBadgeEnabled
-      if !settings.dockBadgeEnabled {
-        logger.debug("drop dockBadgeDisabled")
-      }
-    } else {
-      didBadge = false
-    }
+    // Dock badge path. `recomputeDockBadge` is the single function that
+    // honours both `inAppEnabled` and `dockBadgeEnabled`, so we call it
+    // unconditionally on every `handle` — defense in depth against any
+    // path that mutates inbox state without going through the
+    // `dockBadgerTask` mirror or the settings `onChange` subscription.
+    // `didBadge` reflects the user-visible truth: the badge changed only
+    // when the inbox actually grew AND the dock surface is enabled.
+    recomputeDockBadge()
+    let didBadge = didAppend && settings.dockBadgeEnabled
 
     // OS banner path. Independent of `inAppEnabled` by design — the user
     // can run banner-only, inbox-only, both, or neither.
@@ -163,6 +169,20 @@ final class NotificationCoordinator {
   func refreshAuthorizationStatus() async {
     if let adapter = settingsReader as? SettingsStoreReaderAdapter {
       await adapter.refresh()
+    }
+  }
+
+  // MARK: - Internals
+
+  /// Per-worktree unread count read off the canonical inbox. Called twice
+  /// per `handle` invocation to compute the actual append delta after
+  /// `inbox.append` (which may dedup within 30 s or evict an unread row on
+  /// the 500-cap eviction). O(N) over `inbox.entries`; N is capped at 500
+  /// by `InboxStorage.cap`, so the per-append cost is well inside the
+  /// MainActor budget.
+  private func unreadCount(inWorktree worktreeID: WorktreeID) -> Int {
+    inbox.entries.reduce(0) { acc, entry in
+      acc + (entry.source.worktreeID == worktreeID && entry.isUnread ? 1 : 0)
     }
   }
 
