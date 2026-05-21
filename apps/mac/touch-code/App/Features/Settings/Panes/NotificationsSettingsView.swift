@@ -22,12 +22,13 @@ import TouchCodeCore
 ///    Writes go through `SettingsStore.mutateNotifications(_:)`, which the
 ///    coordinator reads via `NotificationSettingsReader` at decision time —
 ///    every flip therefore takes effect on the next event.
-/// 2. Command-finished detector — master toggle plus the minimum-duration
+/// 2. macOS authorization status + recovery action live inside the System
+///    section because the permission is specifically for posting
+///    UNNotifications — it gates System banners and nothing else.
+/// 3. Command-finished detector — master toggle plus the minimum-duration
 ///    threshold. The threshold field clamps writes to
 ///    `NotificationsSettings.thresholdRange` so hand-typed extremes never
 ///    reach the persisted JSON.
-/// 3. macOS permission status (PM2 recovery surface from v1.0) — relocated
-///    below the new sections so the toggles are the primary affordance.
 ///
 /// Permission alert (D1 in the v1.1 design doc): flipping System notifications
 /// on while macOS authorization is `.denied` shows an alert that deep-links
@@ -80,6 +81,13 @@ struct NotificationsSettingsView: View {
         Toggle("Sound", isOn: soundBinding)
           .disabled(!settingsStore.settings.notifications.systemEnabled)
           .help("Sound requires System notifications to be on.")
+
+        // macOS authorization is a per-app permission specifically for posting
+        // UNNotifications. It gates System banners regardless of the toggle
+        // above, so the status + recovery action live inside the System
+        // section rather than as a separate concept.
+        statusRow
+        actionRow
       }
 
       Section("Command Finished") {
@@ -105,10 +113,6 @@ struct NotificationsSettingsView: View {
         }
       }
 
-      Section("macOS permission") {
-        statusRow
-        actionRow
-      }
     }
     .formStyle(.grouped)
     .alert("Notifications are blocked", isPresented: $showPermissionAlert) {
