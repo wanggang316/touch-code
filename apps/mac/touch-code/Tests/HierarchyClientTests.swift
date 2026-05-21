@@ -148,4 +148,195 @@ struct HierarchyClientTests {
       .map { $0.id }
     #expect(pinned == [p2, p1])
   }
+
+  // MARK: - promoteWorktree (M6.T1)
+
+  /// Three unpinned worktrees A/B/C → promoting B lands it at the front of
+  /// the unpinned segment. Covers the v1.1 notifications-promote primitive
+  /// in its simplest form (no pinned rows in the mix).
+  @Test
+  func promoteUnpinnedWorktreeMovesToFront() throws {
+    let (client, manager) = makeLiveClient()
+    let projectID = client.addProject("p", "/repo", "/repo")
+    // makeLiveClient + addProject does not seed a main worktree; createWorktree
+    // calls below build the entire worktree array so the test asserts on the
+    // full ordering without filtering out a synthetic main row.
+    let a = try client.createWorktree(projectID, "a", "/repo/a", "a")
+    let b = try client.createWorktree(projectID, "b", "/repo/b", "b")
+    let c = try client.createWorktree(projectID, "c", "/repo/c", "c")
+    // createWorktree inserts at the top of the unpinned segment, so the
+    // catalog order after the three calls is [c, b, a]. Promote b → [b, c, a].
+    #expect(manager.catalog.projects[0].worktrees.map(\.id) == [c, b, a])
+
+    client.promoteWorktree(projectID, b, .moveToFrontWithinUnpinned)
+    #expect(manager.catalog.projects[0].worktrees.map(\.id) == [b, c, a])
+  }
+
+  /// Promoting a pinned target is a silent no-op — pinned ordering is the
+  /// user's explicit preference and v1.1 never auto-mutates it.
+  @Test
+  func promoteTargetWorktreeIsPinnedIsNoOp() throws {
+    let (client, manager) = makeLiveClient()
+    let projectID = client.addProject("p", "/repo", "/repo")
+    let p1 = try client.createWorktree(projectID, "p1", "/repo/p1", "p1")
+    let p2 = try client.createWorktree(projectID, "p2", "/repo/p2", "p2")
+    manager.setWorktreePinned(worktreeID: p1, isPinned: true)
+    manager.setWorktreePinned(worktreeID: p2, isPinned: true)
+    let u1 = try client.createWorktree(projectID, "u1", "/repo/u1", "u1")
+    let u2 = try client.createWorktree(projectID, "u2", "/repo/u2", "u2")
+    let snapshot = manager.catalog.projects[0].worktrees.map(\.id)
+
+    client.promoteWorktree(projectID, p1, .moveToFrontWithinUnpinned)
+    #expect(manager.catalog.projects[0].worktrees.map(\.id) == snapshot)
+    // sanity: snapshot really contains the pinned + unpinned mix we expect.
+    #expect(Set(snapshot) == Set([p1, p2, u1, u2]))
+  }
+
+  /// Pinned rows keep their leading position; promote rearranges only inside
+  /// the unpinned segment. This is the core invariant for the v1.1 spec.
+  @Test
+  func promoteRespectsPinnedSection() throws {
+    let (client, manager) = makeLiveClient()
+    let projectID = client.addProject("p", "/repo", "/repo")
+    let p1 = try client.createWorktree(projectID, "p1", "/repo/p1", "p1")
+    manager.setWorktreePinned(worktreeID: p1, isPinned: true)
+    let u1 = try client.createWorktree(projectID, "u1", "/repo/u1", "u1")
+    let u2 = try client.createWorktree(projectID, "u2", "/repo/u2", "u2")
+    // setWorktreePinned moves p1 to the pinned segment end, then createWorktree
+    // inserts unpinned rows at the top of the unpinned segment ⇒ [p1, u2, u1].
+    #expect(manager.catalog.projects[0].worktrees.map(\.id) == [p1, u2, u1])
+
+    client.promoteWorktree(projectID, u1, .moveToFrontWithinUnpinned)
+    #expect(manager.catalog.projects[0].worktrees.map(\.id) == [p1, u1, u2])
+  }
+
+  /// Promoting a worktree that is already at position 0 of the unpinned
+  /// segment is a no-op (catalog order unchanged).
+  @Test
+  func promoteTargetAlreadyAtFrontOfUnpinnedIsIdempotent() throws {
+    let (client, manager) = makeLiveClient()
+    let projectID = client.addProject("p", "/repo", "/repo")
+    let u1 = try client.createWorktree(projectID, "u1", "/repo/u1", "u1")
+    let u2 = try client.createWorktree(projectID, "u2", "/repo/u2", "u2")
+    // createWorktree inserts at the top of unpinned, so order is [u2, u1].
+    #expect(manager.catalog.projects[0].worktrees.map(\.id) == [u2, u1])
+
+    client.promoteWorktree(projectID, u2, .moveToFrontWithinUnpinned)
+    #expect(manager.catalog.projects[0].worktrees.map(\.id) == [u2, u1])
+  }
+
+  /// Random WorktreeID → silent no-op, no crash.
+  @Test
+  func promoteMissingTargetIsNoOp() throws {
+    let (client, manager) = makeLiveClient()
+    let projectID = client.addProject("p", "/repo", "/repo")
+    let u1 = try client.createWorktree(projectID, "u1", "/repo/u1", "u1")
+    let snapshot = manager.catalog.projects[0].worktrees.map(\.id)
+    #expect(snapshot.contains(u1))
+
+    client.promoteWorktree(projectID, WorktreeID(), .moveToFrontWithinUnpinned)
+    #expect(manager.catalog.projects[0].worktrees.map(\.id) == snapshot)
+  }
+
+  /// Random ProjectID → silent no-op, no crash.
+  @Test
+  func promoteMissingProjectIsNoOp() {
+    let (client, _) = makeLiveClient()
+    client.promoteWorktree(ProjectID(), WorktreeID(), .moveToFrontWithinUnpinned)
+    // No expectation needed beyond "did not crash".
+  }
+
+  // MARK: - setPaneLabel (M6.T1)
+
+  /// Helper: opens a pane in a fresh tab on a fresh worktree and returns the
+  /// (projectID, paneID) pair used by the label tests below.
+  @MainActor
+  private func makePane() throws -> (HierarchyClient, HierarchyManager, PaneID) {
+    let (client, manager) = makeLiveClient()
+    let projectID = manager.addProject(name: "p", rootPath: "/repo", gitRoot: "/repo")
+    let worktreeID = try manager.createWorktree(
+      in: projectID, name: "w", path: "/repo/w", branch: "w"
+    )
+    let tabID = try manager.createTab(in: worktreeID, in: projectID, name: nil)
+    let paneID = try manager.openPane(
+      in: tabID, in: worktreeID, in: projectID,
+      workingDirectory: "/repo/w", initialCommand: nil
+    )
+    return (client, manager, paneID)
+  }
+
+  @MainActor
+  private func labels(of paneID: PaneID, in manager: HierarchyManager) -> Set<String> {
+    for project in manager.catalog.projects {
+      for worktree in project.worktrees {
+        for tab in worktree.tabs {
+          if let pane = tab.panes.first(where: { $0.id == paneID }) {
+            return pane.labels
+          }
+        }
+      }
+    }
+    return []
+  }
+
+  @Test
+  func setPaneLabelInsertsWhenPresent() throws {
+    let (client, manager, paneID) = try makePane()
+    #expect(labels(of: paneID, in: manager).contains("notifications:muted") == false)
+
+    client.setPaneLabel(paneID, "notifications:muted", true)
+    #expect(labels(of: paneID, in: manager).contains("notifications:muted"))
+  }
+
+  @Test
+  func setPaneLabelRemovesWhenAbsent() throws {
+    let (client, manager, paneID) = try makePane()
+    client.setPaneLabel(paneID, "notifications:muted", true)
+    #expect(labels(of: paneID, in: manager).contains("notifications:muted"))
+
+    client.setPaneLabel(paneID, "notifications:muted", false)
+    #expect(labels(of: paneID, in: manager).contains("notifications:muted") == false)
+  }
+
+  /// Set semantics: a second insert is idempotent — the label appears once.
+  @Test
+  func setPaneLabelIdempotentOnDoubleInsert() throws {
+    let (client, manager, paneID) = try makePane()
+    client.setPaneLabel(paneID, "notifications:muted", true)
+    client.setPaneLabel(paneID, "notifications:muted", true)
+    let labels = labels(of: paneID, in: manager)
+    #expect(labels == ["notifications:muted"])
+  }
+
+  /// Set semantics: removing twice leaves the label absent (no crash, no
+  /// re-insert).
+  @Test
+  func setPaneLabelIdempotentOnDoubleRemove() throws {
+    let (client, manager, paneID) = try makePane()
+    client.setPaneLabel(paneID, "notifications:muted", true)
+    client.setPaneLabel(paneID, "notifications:muted", false)
+    client.setPaneLabel(paneID, "notifications:muted", false)
+    #expect(labels(of: paneID, in: manager).contains("notifications:muted") == false)
+  }
+
+  /// Random PaneID → silent no-op, no crash.
+  @Test
+  func setPaneLabelOnMissingPaneIsNoOp() {
+    let (client, _) = makeLiveClient()
+    client.setPaneLabel(PaneID(), "notifications:muted", true)
+    // No expectation needed beyond "did not crash".
+  }
+
+  /// Rapid toggles collapse to the final in-memory state. Disk-mtime checks
+  /// are skipped intentionally — they are flaky against the 500 ms catalog
+  /// debounce window in CI and the spec calls out the in-memory check as
+  /// the primary signal (D-OQ3 decision).
+  @Test
+  func setPaneLabelDebouncedDiskWrite() throws {
+    let (client, manager, paneID) = try makePane()
+    client.setPaneLabel(paneID, "notifications:muted", true)
+    client.setPaneLabel(paneID, "notifications:muted", false)
+    client.setPaneLabel(paneID, "notifications:muted", true)
+    #expect(labels(of: paneID, in: manager).contains("notifications:muted"))
+  }
 }
