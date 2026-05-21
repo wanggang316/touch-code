@@ -56,36 +56,11 @@ struct NotificationsSettingsView: View {
   var body: some View {
     Form {
       Section("In-app") {
-        Toggle(isOn: statusBarBellBinding) {
-          SettingLabel(
-            title: "Status-bar bell",
-            caption: "Bell button + popover above the worktree pane."
-          )
-        }
-        Toggle(isOn: projectBellBinding) {
-          SettingLabel(
-            title: "Project",
-            caption: "Show the unread bell on a project in the sidebar."
-          )
-        }
-        Toggle(isOn: worktreeBellBinding) {
-          SettingLabel(
-            title: "Worktree",
-            caption: "Show the unread bell on a worktree in the sidebar."
-          )
-        }
-        Toggle(isOn: tabBellBinding) {
-          SettingLabel(
-            title: "Tab",
-            caption: "Show the unread dot on tabs in the tab strip."
-          )
-        }
-        Toggle(isOn: dockBadgeBinding) {
-          SettingLabel(
-            title: "Dock icon",
-            caption: "Display the unread count as a badge on the app icon."
-          )
-        }
+        Toggle("Show status-bar bell", isOn: statusBarBellBinding)
+        Toggle("Show project-level bell", isOn: projectBellBinding)
+        Toggle("Show worktree-level bell", isOn: worktreeBellBinding)
+        Toggle("Show tab-level bell", isOn: tabBellBinding)
+        Toggle("Show Dock badge", isOn: dockBadgeBinding)
       }
 
       Section("System") {
