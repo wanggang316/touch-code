@@ -277,6 +277,12 @@ final class AppState {
   /// mirror task can call `recomputeDockBadge` on `unreadCount` changes
   /// that originate from non-coordinator paths (markRead, sweepOrphan...).
   @ObservationIgnored private(set) var notificationCoordinator: NotificationCoordinator?
+  /// M5.T1 keystroke side channel: per-pane "last user keystroke at"
+  /// timestamps fed into the translator's `userTypingRecently` window.
+  /// Strong reference here keeps the tracker alive; the
+  /// `PaneKeyboardActivityTracker.shared` weak handle exposes it to the
+  /// AppKit `GhosttySurfaceView` keystroke site.
+  @ObservationIgnored private(set) var keystrokeTracker: PaneKeyboardActivityTracker?
   /// Backing reader behind `NotificationCoordinator`. Held so we can fire
   /// `refreshAuthorizationStatus` from the `applicationDidBecomeActive`
   /// hook below and so the `onChange` subscription stays alive for the
@@ -543,9 +549,20 @@ final class AppState {
     self.notificationSettingsReader = settingsReader
     self.notificationCoordinator = coordinator
 
+    // M5.T1 keystroke side channel: AppKit-side key events are recorded
+    // through `PaneKeyboardActivityTracker.shared` from `GhosttySurfaceView`;
+    // the detector snapshots the map into each translator Context. Published
+    // to the shared static handle here so newly constructed surfaces find
+    // a live tracker regardless of construction order.
+    let keystrokeTracker = PaneKeyboardActivityTracker()
+    self.keystrokeTracker = keystrokeTracker
+    PaneKeyboardActivityTracker.shared = keystrokeTracker
+
     let detector = NotificationDetector(
       store: notificationStore,
       coordinator: coordinator,
+      tracker: keystrokeTracker,
+      settingsReader: settingsReader,
       catalogSnapshot: { manager.catalog },
       lastFocusedPane: { tabID in manager.lastFocusedPane(in: tabID) },
       onProjectActivity: { [weak manager] projectID in

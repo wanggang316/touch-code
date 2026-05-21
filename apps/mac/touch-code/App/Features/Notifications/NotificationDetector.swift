@@ -1,6 +1,11 @@
 import AppKit
 import Foundation
+import OSLog
 import TouchCodeCore
+
+private let detectorLogger = Logger(
+  subsystem: "com.touch-code.notifications", category: "detector"
+)
 
 /// Translates the runtime's structured `TerminalEvent` stream into
 /// `InboxEntry` rows and routes them to `NotificationStore` plus a
@@ -22,6 +27,15 @@ public final class NotificationDetector {
   private let catalogSnapshot: @MainActor () -> Catalog
   private let lastFocusedPane: @MainActor (TabID) -> PaneID?
   private let isAppFrontmost: @MainActor () -> Bool
+  /// Side-channel keystroke tracker. Snapshotted once per event into the
+  /// translator's `Context.lastUserKeystrokeAt` so the 1-second
+  /// `userTypingRecently` suppression can actually fire on real input.
+  private let tracker: PaneKeyboardActivityTracker
+  /// Settings reader: the translator's command-finished branch reads
+  /// `commandFinishedEnabled` and `commandFinishedThresholdSec` from the
+  /// per-event Context, so the detector folds the live snapshot in here
+  /// every call rather than capturing values at construction.
+  private let settingsReader: any NotificationSettingsReader
   /// Fired with the source Project of every emitted notification, before
   /// the inbox is appended. The sidebar's "active first" sort uses this
   /// to bump `Project.lastActiveAt`. Optional so call sites without a
@@ -44,6 +58,8 @@ public final class NotificationDetector {
   init(
     store: NotificationStore,
     coordinator: NotificationCoordinator,
+    tracker: PaneKeyboardActivityTracker,
+    settingsReader: any NotificationSettingsReader,
     catalogSnapshot: @escaping @MainActor () -> Catalog,
     lastFocusedPane: @escaping @MainActor (TabID) -> PaneID?,
     isAppFrontmost: @escaping @MainActor () -> Bool = { NSApp.isActive },
@@ -51,6 +67,8 @@ public final class NotificationDetector {
   ) {
     self.store = store
     self.coordinator = coordinator
+    self.tracker = tracker
+    self.settingsReader = settingsReader
     self.catalogSnapshot = catalogSnapshot
     self.lastFocusedPane = lastFocusedPane
     self.isAppFrontmost = isAppFrontmost
@@ -87,7 +105,21 @@ public final class NotificationDetector {
   /// The coordinator owns inbox append, banner posting, dock badge,
   /// and the focused-pane drop.
   public func handle(_ event: TerminalEvent) async {
-    let step = DetectionTranslator.translate(event, hasProducedOutput: hasProducedOutput)
+    let notifSettings = settingsReader.notifications
+    let context = DetectionTranslator.Context(
+      hasProducedOutput: hasProducedOutput,
+      lastUserKeystrokeAt: tracker.snapshot(),
+      now: Date(),
+      commandFinishedEnabled: notifSettings.commandFinishedEnabled,
+      commandFinishedThresholdSec: notifSettings.commandFinishedThresholdSec
+    )
+    let step = DetectionTranslator.translate(event, context: context)
+
+    if let drop = step.drop {
+      detectorLogger.debug(
+        "translator drop reason=\(drop.rawValue, privacy: .public)"
+      )
+    }
 
     switch step.outputFlag {
     case .markProduced(let paneID):
@@ -99,6 +131,10 @@ public final class NotificationDetector {
       _ = liveResolve(paneID: paneID)
     case .clearProduced(let paneID):
       hasProducedOutput.remove(paneID)
+      // Same upper-bound guarantee for the keystroke map: teardown events
+      // purge so the map's size stays bounded by "open panes plus a
+      // handful in-flight" rather than monotonically growing.
+      tracker.purge(paneID)
     // Don't drop cache here — `emit` for the same teardown event still
     // needs to look up the source path. Cache is dropped at the end of
     // `emit` once we've actually used it.
