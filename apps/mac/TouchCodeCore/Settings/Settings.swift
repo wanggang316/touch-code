@@ -21,19 +21,24 @@ public nonisolated struct Settings: Equatable, Sendable {
   public var developer: DeveloperSettings
   public var worktree: WorktreeSettings
   public var projects: [ProjectID: ProjectSettings]
+  /// v1.1 notifications system knobs. Additive in v1.1; pre-v1.1 settings.json files
+  /// decode this field via `decodeIfPresent` and fall back to `.default`.
+  public var notifications: NotificationsSettings
 
   public init(
     version: Int = Settings.currentVersion,
     general: GeneralSettings = .default,
     developer: DeveloperSettings = .default,
     worktree: WorktreeSettings = .default,
-    projects: [ProjectID: ProjectSettings] = [:]
+    projects: [ProjectID: ProjectSettings] = [:],
+    notifications: NotificationsSettings = .default
   ) {
     self.version = version
     self.general = general
     self.developer = developer
     self.worktree = worktree
     self.projects = projects
+    self.notifications = notifications
   }
 
   public static let `default` = Settings()
@@ -113,7 +118,7 @@ extension Settings: Codable {
   }
 
   private enum CodingKeys: String, CodingKey {
-    case version, general, developer, worktree, projects
+    case version, general, developer, worktree, projects, notifications
   }
 
   public init(from decoder: Decoder) throws {
@@ -128,6 +133,8 @@ extension Settings: Codable {
     self.general = try container.decodeIfPresent(GeneralSettings.self, forKey: .general) ?? .default
     self.developer = try container.decodeIfPresent(DeveloperSettings.self, forKey: .developer) ?? .default
     self.worktree = try container.decodeIfPresent(WorktreeSettings.self, forKey: .worktree) ?? .default
+    self.notifications =
+      try container.decodeIfPresent(NotificationsSettings.self, forKey: .notifications) ?? .default
 
     // `projects` is encoded as a JSON object keyed by the ProjectID UUID string so the file
     // is human-diffable and hand-editable. ProjectID itself is a Codable struct (encoded as
@@ -164,6 +171,7 @@ extension Settings: Codable {
     try container.encode(general, forKey: .general)
     try container.encode(developer, forKey: .developer)
     try container.encode(worktree, forKey: .worktree)
+    try container.encode(notifications, forKey: .notifications)
     var stringKeyed: [String: ProjectSettings] = [:]
     stringKeyed.reserveCapacity(projects.count)
     for (projectID, value) in projects {

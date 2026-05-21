@@ -392,6 +392,32 @@ nonisolated struct HierarchyClient: Sendable {
 
   // MARK: - Worktree sidebar ordering (worktree-sidebar-ordering.md task01)
 
+  /// Moves a single worktree according to `mode` (notifications-v1-1
+  /// worktree-promote primitive). Silent no-op on unknown ids and on pinned
+  /// targets — pinned ordering is treated as the user's explicit preference
+  /// and is never auto-mutated. Persists via the standard debounced save
+  /// pipeline. Consumed by `NotificationCoordinator` on the 0→N unread edge
+  /// when `moveNotifiedWorktreeToTop` is enabled.
+  var promoteWorktree:
+    @MainActor @Sendable (
+      _ projectID: ProjectID,
+      _ worktreeID: WorktreeID,
+      _ mode: WorktreePromotionMode
+    ) -> Void
+
+  /// Inserts or removes `label` from `Pane.labels` (Set semantics → idempotent
+  /// on repeated calls with the same `present`). Silent no-op on unknown
+  /// `paneID`. In-memory state changes immediately so the next read sees the
+  /// new label; only the disk write is debounced via the standard catalog
+  /// save pipeline. Consumed by the pane right-click "Mute notifications"
+  /// menu in notifications-v1-1 (`notifications:muted` label).
+  var setPaneLabel:
+    @MainActor @Sendable (
+      _ paneID: PaneID,
+      _ label: String,
+      _ present: Bool
+    ) -> Void
+
   /// Reorder worktrees within a single sidebar segment under a Project.
   /// `from` is a segment-relative `IndexSet`; `to` is the segment-relative
   /// destination offset, both in SwiftUI `ForEach.onMove` convention. Out-of-
@@ -701,6 +727,12 @@ extension HierarchyClient {
           worktreeID: worktreeID, projectID: projectID,
           manager: manager, gitWorktreeClient: gitWorktreeClient
         )
+      },
+      promoteWorktree: { projectID, worktreeID, mode in
+        manager.promoteWorktree(in: projectID, worktreeID: worktreeID, mode: mode)
+      },
+      setPaneLabel: { paneID, label, present in
+        manager.setPaneLabel(paneID: paneID, label: label, present: present)
       },
       reorderWorktrees: { projectID, segment, from, to in
         try manager.reorderWorktrees(
@@ -1292,6 +1324,12 @@ extension HierarchyClient: DependencyKey {
     removeWorktreeWithLifecycle: { _, _ in
       fatalError("HierarchyClient.liveValue not configured")
     },
+    promoteWorktree: { _, _, _ in
+      fatalError("HierarchyClient.liveValue not configured")
+    },
+    setPaneLabel: { _, _, _ in
+      fatalError("HierarchyClient.liveValue not configured")
+    },
     reorderWorktrees: { _, _, _, _ in
       fatalError("HierarchyClient.liveValue not configured")
     }
@@ -1370,6 +1408,8 @@ extension HierarchyClient: DependencyKey {
     removeWorktreeWithLifecycle: unimplemented(
       "HierarchyClient.removeWorktreeWithLifecycle"
     ),
+    promoteWorktree: unimplemented("HierarchyClient.promoteWorktree"),
+    setPaneLabel: unimplemented("HierarchyClient.setPaneLabel"),
     reorderWorktrees: unimplemented("HierarchyClient.reorderWorktrees")
   )
 }

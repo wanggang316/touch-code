@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
@@ -270,6 +271,32 @@ final class AppState {
   /// spawning its own (each `init` re-runs setNotificationCategories
   /// on the shared center).
   @ObservationIgnored private(set) var osNotifier: UserNotificationsOSNotifier?
+  /// M2.T2 single chokepoint: gates every detector candidate against the
+  /// v1.1 settings toggles and drives the inbox + banner + dock badge in
+  /// lockstep. Held so the lifetime tracks the app and so the dock-badge
+  /// mirror task can call `recomputeDockBadge` on `unreadCount` changes
+  /// that originate from non-coordinator paths (markRead, sweepOrphan...).
+  @ObservationIgnored private(set) var notificationCoordinator: NotificationCoordinator?
+  /// M5.T1 keystroke side channel: per-pane "last user keystroke at"
+  /// timestamps fed into the translator's `userTypingRecently` window.
+  /// Strong reference here keeps the tracker alive; the
+  /// `PaneKeyboardActivityTracker.shared` weak handle exposes it to the
+  /// AppKit `GhosttySurfaceView` keystroke site.
+  @ObservationIgnored private(set) var keystrokeTracker: PaneKeyboardActivityTracker?
+  /// Backing reader behind `NotificationCoordinator`. Held so we can fire
+  /// `refreshAuthorizationStatus` from the `applicationDidBecomeActive`
+  /// hook below and so the `onChange` subscription stays alive for the
+  /// process lifetime.
+  @ObservationIgnored private var notificationSettingsReader: SettingsStoreReaderAdapter?
+  /// Retains the settings-reader `onChange` subscription so the dock badge
+  /// recomputes whenever any of the four notification toggles flips. Held
+  /// here (rather than ignored) because dropping the cancellable would
+  /// remove the handler and leave the badge stale.
+  @ObservationIgnored private var notificationSettingsObserverToken: AnyCancellable?
+  /// Listens for `NSApplication.didBecomeActiveNotification` and fires
+  /// `coordinator.refreshAuthorizationStatus()`. Held so the observation
+  /// outlives `bringUp` without strong-referencing AppState.
+  @ObservationIgnored private var didBecomeActiveObserverToken: AnyCancellable?
   private(set) var terminalEngine: TerminalEngine?
   private(set) var store: StoreOf<RootFeature>?
   /// Long-lived store for the Settings window scene. Built during `bringUp()` so the
@@ -358,8 +385,6 @@ final class AppState {
     let manager = hierarchyManager
     let settings = settingsStore
 
-    startNotificationObservers(manager: manager, engine: engine)
-
     // Build the editor + hierarchy clients once so the reducer stack AND the IPC
     // handlers share the exact same live instances — avoids two parallel
     // `LiveEditorService`s with divergent settings captures.
@@ -371,6 +396,18 @@ final class AppState {
     )
     self.editorClient = editor
     self.hierarchyClient = hierarchy
+
+    // Notification observers + coordinator depend on `hierarchy` (the M2.T2
+    // coordinator captures `HierarchyClient` so M6.T2 can call
+    // `reorderWorktrees`). Construct them AFTER `hierarchy` is built but
+    // BEFORE the RootStore wire-up so the detector task is already
+    // draining engine events by the time the reducer is alive.
+    startNotificationObservers(
+      manager: manager,
+      engine: engine,
+      settings: settings,
+      hierarchy: hierarchy
+    )
     // SwiftUI views (e.g. `ProjectGeneralSettingsView`) read `@Dependency(SettingsWriter.self)`
     // directly; that resolution bypasses the per-store `withDependencies` overrides below and
     // would otherwise hit the `liveValue` `fatalError` placeholders. Install the live
@@ -485,12 +522,47 @@ final class AppState {
     }
   }
 
-  private func startNotificationObservers(manager: HierarchyManager, engine: TerminalEngine) {
+  private func startNotificationObservers(
+    manager: HierarchyManager,
+    engine: TerminalEngine,
+    settings: SettingsStore,
+    hierarchy: HierarchyClient
+  ) {
     let osNotifier = UserNotificationsOSNotifier()
     self.osNotifier = osNotifier
+
+    // M2.T2 chokepoint: the coordinator gates every candidate against the
+    // four `settings.notifications` toggles and drives the inbox + dock
+    // badge + system banner in lockstep. The detector hands it a
+    // pre-classified `Candidate` (sourceIsFocused already resolved).
+    let settingsReader = SettingsStoreReaderAdapter(
+      settingsStore: settings,
+      osNotifier: osNotifier
+    )
+    let coordinator = NotificationCoordinator(
+      inbox: notificationStore,
+      osNotifier: osNotifier,
+      settingsReader: settingsReader,
+      catalog: hierarchy,
+      now: { Date() }
+    )
+    self.notificationSettingsReader = settingsReader
+    self.notificationCoordinator = coordinator
+
+    // M5.T1 keystroke side channel: AppKit-side key events are recorded
+    // through `PaneKeyboardActivityTracker.shared` from `GhosttySurfaceView`;
+    // the detector snapshots the map into each translator Context. Published
+    // to the shared static handle here so newly constructed surfaces find
+    // a live tracker regardless of construction order.
+    let keystrokeTracker = PaneKeyboardActivityTracker()
+    self.keystrokeTracker = keystrokeTracker
+    PaneKeyboardActivityTracker.shared = keystrokeTracker
+
     let detector = NotificationDetector(
       store: notificationStore,
-      banner: osNotifier,
+      coordinator: coordinator,
+      tracker: keystrokeTracker,
+      settingsReader: settingsReader,
       catalogSnapshot: { manager.catalog },
       lastFocusedPane: { tabID in manager.lastFocusedPane(in: tabID) },
       onProjectActivity: { [weak manager] projectID in
@@ -505,10 +577,47 @@ final class AppState {
     }
 
     let inbox = notificationStore
-    DockBadger.setBadge(inbox.unreadCount)
-    self.dockBadgerTask = Task { @MainActor in
-      await Self.observeDockBadge(store: inbox)
+    // Initial badge paint goes through the coordinator so the dock honours
+    // both `inAppEnabled` and `dockBadgeEnabled` from the very first frame.
+    coordinator.recomputeDockBadge()
+    // Mirror `inbox.unreadCount` to the dock badge via the coordinator so
+    // mutations from non-coordinator paths (markRead / markAllRead /
+    // sweepOrphanUnreads) still honour the live toggles.
+    self.dockBadgerTask = Task { @MainActor [weak coordinator] in
+      await Self.observeDockBadge(store: inbox, coordinator: coordinator)
     }
+    // Re-paint the badge on any settings flip that affects either of the
+    // two gates that govern it.
+    self.notificationSettingsObserverToken = settingsReader.onChange { [weak coordinator] in
+      coordinator?.recomputeDockBadge()
+    }
+    // Kick off the initial authorization-status refresh, then arm the
+    // didBecomeActive observer so a user who flips Notifications in
+    // System Settings sees the cached `authStatus` catch up next time
+    // they return to the app.
+    Task { @MainActor [weak coordinator] in
+      await coordinator?.refreshAuthorizationStatus()
+    }
+    // M8.T1: if the inbox file was quarantined on load (a forward-version
+    // `notifications.json` was renamed aside on boot), fire a one-shot
+    // synthetic "Inbox reset" notification. The coordinator persists an
+    // idempotency marker so the same quarantine event does not re-surface
+    // on every relaunch. Scheduled AFTER `refreshAuthorizationStatus` so
+    // the cached `authStatus` is fresh by the time the synthetic candidate
+    // hits the chokepoint and tries to OS-post.
+    if let quarantineBackup = notificationStore.loadedQuarantineBackupURL {
+      Task { @MainActor [weak coordinator] in
+        await coordinator?.emitQuarantineNotice(backupURL: quarantineBackup)
+      }
+    }
+    self.didBecomeActiveObserverToken = NotificationCenter.default
+      .publisher(for: NSApplication.didBecomeActiveNotification)
+      .sink { [weak coordinator] _ in
+        Task { @MainActor [weak coordinator] in
+          await coordinator?.refreshAuthorizationStatus()
+        }
+      }
+
     self.focusReadMarkerTask = Task { @MainActor in
       await Self.observeFocusedPaneForRead(
         catalog: { manager.catalog }, lastFocusedPane: { tabID in manager.lastFocusedPane(in: tabID) }, store: inbox)
@@ -627,6 +736,13 @@ final class AppState {
     dockBadgerTask?.cancel()
     focusReadMarkerTask?.cancel()
     orphanSweepTask?.cancel()
+    // Drop the M2.T2 observation tokens explicitly so a `didBecomeActive`
+    // arriving mid-shutdown cannot wake the coordinator on a half-torn-down
+    // settings reader.
+    notificationSettingsObserverToken?.cancel()
+    notificationSettingsObserverToken = nil
+    didBecomeActiveObserverToken?.cancel()
+    didBecomeActiveObserverToken = nil
     worktreeHeadWatcherSyncTask?.cancel()
     worktreeHeadWatcher.stopAll()
 
@@ -840,16 +956,23 @@ final class AppState {
     }
   }
 
-  /// Long-running mirror: pushes `store.unreadCount` to the Dock tile badge
-  /// every time the count changes. Each loop iteration writes the *current*
-  /// value before re-arming `withObservationTracking` so a burst of
-  /// mutations between the previous `onChange` fire and the next arm
-  /// settles to the final value rather than a stale one. Returns when
-  /// the surrounding Task is cancelled.
+  /// Long-running mirror: routes every `store.unreadCount` change through
+  /// `coordinator.recomputeDockBadge()` so the badge honours the v1.1
+  /// `inAppEnabled` + `dockBadgeEnabled` gates regardless of which path
+  /// mutated the inbox (detector dispatch, `markRead`, `markAllRead`,
+  /// `sweepOrphanUnreads`). Each loop iteration recomputes before re-arming
+  /// `withObservationTracking` so a burst of mutations between the previous
+  /// `onChange` fire and the next arm settles to the final value rather
+  /// than a stale one. Returns when the surrounding Task is cancelled or
+  /// when the coordinator is deallocated.
   @MainActor
-  private static func observeDockBadge(store: NotificationStore) async {
+  private static func observeDockBadge(
+    store: NotificationStore,
+    coordinator: NotificationCoordinator?
+  ) async {
     while !Task.isCancelled {
-      DockBadger.setBadge(store.unreadCount)
+      guard let coordinator else { return }
+      coordinator.recomputeDockBadge()
       let stream = AsyncStream<Void> { continuation in
         withObservationTracking {
           _ = store.unreadCount

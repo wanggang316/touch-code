@@ -155,6 +155,7 @@ private struct ResolvingTabChipView: View {
 
   @Environment(HierarchyManager.self) private var hierarchyManager
   @Environment(RollupIndexProvider.self) private var notificationRollup: RollupIndexProvider?
+  @Environment(SettingsStore.self) private var settingsStore: SettingsStore?
   @Dependency(TerminalClient.self) private var terminalClient
 
   var body: some View {
@@ -165,7 +166,8 @@ private struct ResolvingTabChipView: View {
       isDirty: isDirty,
       isOnlyTab: isOnlyTab,
       isLastTab: isLastTab,
-      hasUnreadNotification: notificationRollup?.current.unreadTabs.contains(tab.id) == true,
+      hasUnreadNotification: notificationRollup?.current.unreadTabs.contains(tab.id) == true
+        && settingsStore?.settings.notifications.tabBellEnabled != false,
       chordHint: chordHint,
       onSelect: onSelect,
       onClose: onClose,

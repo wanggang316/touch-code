@@ -87,12 +87,9 @@ final class GhosttyRuntime {
   init() throws {
     _ = GhosttyBootstrap.initialize
 
-    guard let config = ghostty_config_new() else {
+    guard let config = GhosttyConfigLoader.makeFreshConfig() else {
       throw GhosttyError.configInitFailed
     }
-    ghostty_config_load_default_files(config)
-    ghostty_config_load_recursive_files(config)
-    ghostty_config_finalize(config)
     self.config = config
 
     dispatcher.runtime = self
@@ -625,11 +622,7 @@ final class GhosttyRuntime {
     if soft, let current = config {
       pushed = ghostty_config_clone(current)
     } else {
-      guard let fresh = ghostty_config_new() else { return }
-      ghostty_config_load_default_files(fresh)
-      ghostty_config_load_recursive_files(fresh)
-      ghostty_config_finalize(fresh)
-      pushed = fresh
+      pushed = GhosttyConfigLoader.makeFreshConfig()
     }
     guard let handle = pushed else { return }
     ghostty_app_update_config(app, handle)

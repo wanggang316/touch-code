@@ -120,7 +120,12 @@ struct TagFilterPopoverFooter: View {
     }
     .padding(.horizontal, 8)
     .padding(.vertical, 3)
-    .background(.bar)
+    // `.regularMaterial` instead of `.bar`: `.bar` reads as the chrome /
+    // titlebar material and AppKit renders it nearly transparent in
+    // fullscreen (HAN-63), letting the terminal panes bleed through the
+    // footer. Regular content-material survives the fullscreen flip with
+    // the same visual weight it has windowed.
+    .background(.regularMaterial)
   }
 
   private var hasActiveFilter: Bool {

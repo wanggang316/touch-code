@@ -221,11 +221,7 @@ final class PaneSurface {
     if soft, let current = appConfig {
       pushed = ghostty_config_clone(current)
     } else {
-      guard let fresh = ghostty_config_new() else { return }
-      ghostty_config_load_default_files(fresh)
-      ghostty_config_load_recursive_files(fresh)
-      ghostty_config_finalize(fresh)
-      pushed = fresh
+      pushed = GhosttyConfigLoader.makeFreshConfig()
     }
     guard let handle = pushed else { return }
     ghostty_surface_update_config(surface, handle)

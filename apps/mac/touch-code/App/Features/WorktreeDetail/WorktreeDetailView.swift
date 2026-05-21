@@ -1,3 +1,4 @@
+import AppKit
 import ComposableArchitecture
 import SwiftUI
 import TouchCodeCore
@@ -58,6 +59,17 @@ struct WorktreeDetailView: View {
   /// `.failed` status and is surfaced as the `failed(message:)` kind.
   let activePendingWorktree: PendingWorktreeBinding?
   @Environment(HierarchyManager.self) private var hierarchyManager
+
+  /// HAN-63: window-toolbar chrome is hidden window-wide (see the
+  /// `.toolbarBackground(.hidden, ...)` modifier below) to stop tab-switch
+  /// repaints from flickering across the translucent sidebar. In fullscreen
+  /// the title bar disappears entirely, so the hidden chrome leaves the
+  /// sidebar's `+` button and the detail toolbar items floating over the
+  /// terminal panes with no backing. Tracking the main window's fullscreen
+  /// state lets us re-enable the system chrome while fullscreen — the
+  /// flicker concern doesn't apply in fullscreen because there is no
+  /// floating-sidebar overlay to repaint behind.
+  @State private var isWindowFullscreen: Bool = false
 
   /// View-only projection of the in-flight pending row plus the
   /// repository-side context the loading view needs. Built by
@@ -128,9 +140,36 @@ struct WorktreeDetailView: View {
       // repaints on every toolbar-state change (tab switch rebuilds
       // `worktreeToolbarContent`) and flickers across the area covered
       // by the translucent sidebar. Same pattern supacode uses.
-      .toolbarBackground(.hidden, for: .windowToolbar)
+      //
+      // HAN-63: re-show the chrome when fullscreen — without it, the
+      // sidebar `+` button and detail toolbar render over the terminal
+      // pane with nothing behind them (the title bar normally provides
+      // the visual backing).
+      .toolbarBackground(isWindowFullscreen ? .visible : .hidden, for: .windowToolbar)
+      .onAppear { isWindowFullscreen = Self.detectMainWindowFullscreen() }
+      .onReceive(
+        NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)
+      ) { _ in
+        isWindowFullscreen = Self.detectMainWindowFullscreen()
+      }
+      .onReceive(
+        NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)
+      ) { _ in
+        isWindowFullscreen = Self.detectMainWindowFullscreen()
+      }
     } else {
       placeholder
+    }
+  }
+
+  /// True iff any visible app window (other than Settings) is currently in
+  /// macOS fullscreen. Used to gate `.toolbarBackground` so the sidebar's
+  /// `+` button keeps a backing once the title bar collapses.
+  private static func detectMainWindowFullscreen() -> Bool {
+    NSApp.windows.contains { window in
+      window.isVisible
+        && window.styleMask.contains(.fullScreen)
+        && !SettingsWindowTagger.matches(window)
     }
   }
 

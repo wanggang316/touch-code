@@ -315,6 +315,15 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
   override func keyDown(with event: NSEvent) {
     guard let surface else { return }
 
+    // Notifications side channel: record the keystroke so the
+    // command-finished detector can suppress notifications fired within
+    // 1 s of real user input. Bound to keyDown only (modifier-only events
+    // flow through flagsChanged, not here); programmatic input via
+    // `tc pane send` and friends bypasses AppKit entirely and reaches
+    // libghostty via `ghostty_surface_text`, so it can never surface as a
+    // synthetic keyDown that would falsely arm the suppression window.
+    PaneKeyboardActivityTracker.shared?.recordKey(in: paneID)
+
     // Capture marked-text state BEFORE interpretKeyEvents — IME may consume
     // the event purely to mutate composition (e.g. Backspace shrinking or
     // cancelling preedit), in which case markedText is empty afterwards even

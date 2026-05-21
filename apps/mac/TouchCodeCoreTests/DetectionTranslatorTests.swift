@@ -95,24 +95,214 @@ struct DetectionTranslatorTests {
 
   // MARK: - commandFinished
 
+  /// Convenience: 30 s in nanoseconds, comfortably above the default 10 s
+  /// threshold so success / failure cases fire without suppression.
+  private static let longDurationNs: UInt64 = 30 * 1_000_000_000
+
   @Test
   func commandFinishedZeroExitIsTaskFinished() {
+    // Default threshold is 10 s; pass 30 s so the event fires.
     let step = DetectionTranslator.translate(
-      .paneInfoChanged(PaneID(), .commandFinished(exitCode: 0, duration: 1234)),
+      .paneInfoChanged(
+        PaneID(),
+        .commandFinished(exitCode: 0, duration: Self.longDurationNs)
+      ),
       hasProducedOutput: []
     )
     #expect(step.entry?.kind == .taskFinished)
-    #expect(step.entry?.body == "Command completed successfully.")
+    #expect(step.entry?.title == "Command finished")
+    #expect(step.drop == nil)
   }
 
   @Test
   func commandFinishedNonZeroExitMentionsStatus() {
     let step = DetectionTranslator.translate(
-      .paneInfoChanged(PaneID(), .commandFinished(exitCode: 137, duration: 100)),
+      .paneInfoChanged(
+        PaneID(),
+        .commandFinished(exitCode: 137, duration: Self.longDurationNs)
+      ),
       hasProducedOutput: []
     )
     #expect(step.entry?.kind == .taskFinished)
-    #expect(step.entry?.body == "Command exited with status 137.")
+    #expect(step.entry?.title.contains("failed") == true)
+    #expect(step.entry?.title.contains("exit 137") == true)
+  }
+
+  // MARK: - commandFinished suppression rules (M4.T1)
+
+  @Test
+  func commandFinishedDisabled_suppressesEvenLongSuccess() {
+    let pane = PaneID()
+    let context = DetectionTranslator.Context(
+      hasProducedOutput: [],
+      commandFinishedEnabled: false,
+      commandFinishedThresholdSec: 10
+    )
+    let step = DetectionTranslator.translate(
+      .paneInfoChanged(pane, .commandFinished(exitCode: 0, duration: Self.longDurationNs)),
+      context: context
+    )
+    #expect(step.entry == nil)
+    #expect(step.drop == .commandFinishedDisabled)
+  }
+
+  @Test
+  func commandFinishedShort_suppressesBelowThreshold() {
+    let context = DetectionTranslator.Context(
+      hasProducedOutput: [],
+      commandFinishedThresholdSec: 10
+    )
+    // 5 s < 10 s threshold.
+    let step = DetectionTranslator.translate(
+      .paneInfoChanged(PaneID(), .commandFinished(exitCode: 0, duration: 5 * 1_000_000_000)),
+      context: context
+    )
+    #expect(step.entry == nil)
+    #expect(step.drop == .commandFinishedShort)
+  }
+
+  @Test
+  func commandFinishedExactlyAtThreshold_fires() {
+    let context = DetectionTranslator.Context(
+      hasProducedOutput: [],
+      commandFinishedThresholdSec: 10
+    )
+    let step = DetectionTranslator.translate(
+      .paneInfoChanged(PaneID(), .commandFinished(exitCode: 0, duration: 10 * 1_000_000_000)),
+      context: context
+    )
+    #expect(step.entry != nil)
+    #expect(step.drop == nil)
+    #expect(step.entry?.title == "Command finished")
+  }
+
+  @Test
+  func commandFinishedLongSuccess_fires() {
+    let context = DetectionTranslator.Context(
+      hasProducedOutput: [],
+      commandFinishedThresholdSec: 10
+    )
+    let step = DetectionTranslator.translate(
+      .paneInfoChanged(PaneID(), .commandFinished(exitCode: 0, duration: Self.longDurationNs)),
+      context: context
+    )
+    #expect(step.entry?.title == "Command finished")
+    #expect(step.drop == nil)
+  }
+
+  @Test
+  func commandCancelledSIGINT_suppressed() {
+    let context = DetectionTranslator.Context(
+      hasProducedOutput: [],
+      commandFinishedThresholdSec: 10
+    )
+    let step = DetectionTranslator.translate(
+      .paneInfoChanged(PaneID(), .commandFinished(exitCode: 130, duration: Self.longDurationNs)),
+      context: context
+    )
+    #expect(step.entry == nil)
+    #expect(step.drop == .commandCancelled)
+  }
+
+  @Test
+  func commandCancelledSIGTERM_suppressed() {
+    let context = DetectionTranslator.Context(
+      hasProducedOutput: [],
+      commandFinishedThresholdSec: 10
+    )
+    let step = DetectionTranslator.translate(
+      .paneInfoChanged(PaneID(), .commandFinished(exitCode: 143, duration: Self.longDurationNs)),
+      context: context
+    )
+    #expect(step.entry == nil)
+    #expect(step.drop == .commandCancelled)
+  }
+
+  @Test
+  func commandFinishedNonZeroExit_firesWithFailureTitle() {
+    let context = DetectionTranslator.Context(
+      hasProducedOutput: [],
+      commandFinishedThresholdSec: 10
+    )
+    let step = DetectionTranslator.translate(
+      .paneInfoChanged(PaneID(), .commandFinished(exitCode: 1, duration: Self.longDurationNs)),
+      context: context
+    )
+    #expect(step.entry != nil)
+    #expect(step.entry?.title.contains("failed") == true)
+    #expect(step.entry?.title.contains("exit 1") == true)
+  }
+
+  @Test
+  func keystrokeWithinOneSecond_suppresses() {
+    let pane = PaneID()
+    let now = Date()
+    let context = DetectionTranslator.Context(
+      hasProducedOutput: [],
+      lastUserKeystrokeAt: [pane: now.addingTimeInterval(-0.5)],
+      now: now,
+      commandFinishedThresholdSec: 1
+    )
+    let step = DetectionTranslator.translate(
+      .paneInfoChanged(pane, .commandFinished(exitCode: 0, duration: 2 * 1_000_000_000)),
+      context: context
+    )
+    #expect(step.entry == nil)
+    #expect(step.drop == .userTypingRecently)
+  }
+
+  @Test
+  func keystrokeOlderThanOneSecond_doesNotSuppress() {
+    let pane = PaneID()
+    let now = Date()
+    let context = DetectionTranslator.Context(
+      hasProducedOutput: [],
+      lastUserKeystrokeAt: [pane: now.addingTimeInterval(-1.5)],
+      now: now,
+      commandFinishedThresholdSec: 1
+    )
+    let step = DetectionTranslator.translate(
+      .paneInfoChanged(pane, .commandFinished(exitCode: 0, duration: 2 * 1_000_000_000)),
+      context: context
+    )
+    #expect(step.entry != nil)
+    #expect(step.drop == nil)
+  }
+
+  @Test
+  func keystrokeForDifferentPane_doesNotSuppress() {
+    let pane = PaneID()
+    let otherPane = PaneID()
+    let now = Date()
+    let context = DetectionTranslator.Context(
+      hasProducedOutput: [],
+      lastUserKeystrokeAt: [otherPane: now.addingTimeInterval(-0.1)],
+      now: now,
+      commandFinishedThresholdSec: 1
+    )
+    let step = DetectionTranslator.translate(
+      .paneInfoChanged(pane, .commandFinished(exitCode: 0, duration: 2 * 1_000_000_000)),
+      context: context
+    )
+    #expect(step.entry != nil)
+    #expect(step.drop == nil)
+  }
+
+  @Test
+  func outOfRangeThresholdInContextDoesNotCrash() {
+    // The translator deliberately does not re-clamp; the input-validation
+    // contract lives in `NotificationsSettings` decode (and the M3.T1 UI).
+    // A zero threshold means every long-enough duration fires.
+    let context = DetectionTranslator.Context(
+      hasProducedOutput: [],
+      commandFinishedThresholdSec: 0
+    )
+    let step = DetectionTranslator.translate(
+      .paneInfoChanged(PaneID(), .commandFinished(exitCode: 0, duration: 1_000_000_000)),
+      context: context
+    )
+    #expect(step.entry != nil)
+    #expect(step.drop == nil)
   }
 
   // MARK: - paneExited (deliberately not notified)

@@ -663,6 +663,7 @@ struct HierarchySidebarView: View {
             snapshot: snapshot, rollup: rollup, isSelected: isSelected, roleTint: roleTint,
             isSynthetic: isSyntheticWorktree,
             hasUnreadNotification: notificationRollup?.current.unreadWorktrees.contains(worktree.id) == true
+              && settingsStore.settings.notifications.worktreeBellEnabled
           )
         }
       }
@@ -1124,6 +1125,7 @@ private struct ProjectHeaderRow: View {
   var isExpanded: Bool = false
   @Bindable var store: StoreOf<HierarchySidebarFeature>
   @Environment(RollupIndexProvider.self) private var rollup: RollupIndexProvider?
+  @Environment(SettingsStore.self) private var settingsStore
   @Environment(\.resolvedShortcuts) private var resolvedShortcuts
   @State private var isHovering = false
   @State private var isPlusHovering = false
@@ -1131,6 +1133,7 @@ private struct ProjectHeaderRow: View {
 
   var body: some View {
     let hasUnread = rollup?.current.unreadProjects.contains(project.id) == true
+      && settingsStore.settings.notifications.projectBellEnabled
     HStack(spacing: 6) {
       // L4 unread indicator. When the project is in `unreadProjects`
       // (rollup rule = project collapsed + unread inside), the leading

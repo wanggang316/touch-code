@@ -16,6 +16,20 @@ enum WorktreeSegment: Sendable, Equatable {
   case unpinned
 }
 
+/// Catalog-driven worktree repositioning mode for
+/// `HierarchyClient.promoteWorktree`. The notifications-v1-1 worktree-promote
+/// behaviour ships the only case in v1.1; the enum exists so additional
+/// modes (e.g. `.toIndex(Int)` for an explicit reorder UI) can land without
+/// reshaping the call surface. See
+/// `docs/design-docs/notifications-v1-1.md` §"Worktree promote".
+enum WorktreePromotionMode: Sendable, Equatable {
+  /// Move the worktree to index 0 of its Project's unpinned section. Pinned
+  /// targets are a silent no-op (pinned ordering is the user's explicit
+  /// preference and is not auto-mutated). Pinned + unpinned sections retain
+  /// their independent ordering.
+  case moveToFrontWithinUnpinned
+}
+
 @MainActor
 @Observable
 final class HierarchyManager {
@@ -602,6 +616,93 @@ final class HierarchyManager {
       catalog.projects[projectIndex].worktrees[catalogIdx] = segmentRows[k]
     }
     store.scheduleSave(catalog)
+  }
+
+  /// Moves a worktree within its Project according to `mode`. The only mode
+  /// for v1.1 is `.moveToFrontWithinUnpinned`, the catalog primitive behind
+  /// the notifications-v1-1 worktree-promote behaviour: when a 0→N unread
+  /// edge fires on an unpinned worktree, the coordinator drives it to
+  /// position 0 of the unpinned section so the sidebar surfaces the freshly
+  /// active row. Pinned worktrees are deliberately untouched — pinning is a
+  /// stronger user signal than activity. Silent no-ops on unknown ids and on
+  /// pinned targets. Persists via the standard debounced save pipeline.
+  ///
+  /// Implementation: split the project's `worktrees` into `pinned + unpinned`
+  /// preserving each segment's relative order, then move the target to index
+  /// 0 of `unpinned` and rejoin. This leaves the pinned segment's array
+  /// positions untouched and keeps the catalog mutation linear.
+  func promoteWorktree(
+    in projectID: ProjectID,
+    worktreeID: WorktreeID,
+    mode: WorktreePromotionMode
+  ) {
+    guard let projectIndex = catalog.projects.firstIndex(where: { $0.id == projectID }) else {
+      return
+    }
+    let project = catalog.projects[projectIndex]
+    guard let target = project.worktrees.first(where: { $0.id == worktreeID }) else {
+      return
+    }
+    // Pinned ordering is the user's explicit preference; never auto-mutate.
+    guard !target.isPinned else { return }
+
+    switch mode {
+    case .moveToFrontWithinUnpinned:
+      let pinned = project.worktrees.filter { $0.isPinned }
+      var unpinned = project.worktrees.filter { !$0.isPinned }
+      guard let unpinnedIndex = unpinned.firstIndex(where: { $0.id == worktreeID }) else {
+        return
+      }
+      // Already at front of unpinned — nothing to do, no save scheduled.
+      if unpinnedIndex == 0 { return }
+      let row = unpinned.remove(at: unpinnedIndex)
+      unpinned.insert(row, at: 0)
+      catalog.projects[projectIndex].worktrees = pinned + unpinned
+      store.scheduleSave(catalog)
+    }
+  }
+
+  /// Toggles membership of `label` in `Pane.labels`. `present: true` inserts;
+  /// `present: false` removes. Set semantics make repeated calls idempotent
+  /// (the in-memory state matches what a single call with the same `present`
+  /// would produce). Silent no-op on unknown `paneID`. Persists via the
+  /// standard debounced save pipeline so rapid toggles coalesce into one
+  /// disk write per 500 ms window; in-memory state changes immediately so a
+  /// subsequent read inside the debounce window sees the latest value.
+  ///
+  /// Behind notifications-v1-1's pane right-click "Mute notifications" toggle
+  /// (`notifications:muted` label). The notification detector consults
+  /// `Pane.labels` to drop muted-pane candidates.
+  func setPaneLabel(paneID: PaneID, label: String, present: Bool) {
+    for projectIndex in catalog.projects.indices {
+      for worktreeIndex in catalog.projects[projectIndex].worktrees.indices {
+        for tabIndex in catalog.projects[projectIndex].worktrees[worktreeIndex].tabs.indices {
+          let tab = catalog.projects[projectIndex].worktrees[worktreeIndex].tabs[tabIndex]
+          guard let paneIndex = tab.panes.firstIndex(where: { $0.id == paneID }) else {
+            continue
+          }
+          if present {
+            let (inserted, _) = catalog.projects[projectIndex]
+              .worktrees[worktreeIndex]
+              .tabs[tabIndex]
+              .panes[paneIndex].labels.insert(label)
+            // Idempotent: already-present insert is a true no-op for both
+            // in-memory state and the disk file. Skip the save to avoid
+            // touching the catalog file when nothing changed.
+            guard inserted else { return }
+          } else {
+            guard
+              catalog.projects[projectIndex]
+                .worktrees[worktreeIndex]
+                .tabs[tabIndex]
+                .panes[paneIndex].labels.remove(label) != nil
+            else { return }
+          }
+          store.scheduleSave(catalog)
+          return
+        }
+      }
+    }
   }
 
   /// Merges worktrees discovered on disk (typically from

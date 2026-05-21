@@ -25,7 +25,12 @@ public enum AuthorizationStatus: String, Sendable, Codable {
 public protocol OSNotifier: AnyObject {
   func currentAuthorizationStatus() async -> AuthorizationStatus
   func requestAuthorization() async -> AuthorizationStatus
-  func post(_ entry: InboxEntry) async
+  /// Posts a system banner for `entry`. `playSound` mirrors
+  /// `NotificationsSettings.soundEnabled` at the moment the coordinator
+  /// (M2.T2) decided to surface this entry; the live SettingsStore value
+  /// is intentionally read once at the call site rather than re-read here
+  /// so a same-tick toggle flip cannot race the banner build.
+  func post(_ entry: InboxEntry, playSound: Bool) async
 }
 
 /// Production adapter. On the first `post` after a `.notDetermined` boot the
@@ -58,7 +63,7 @@ public final class UserNotificationsOSNotifier: OSNotifier {
     return await currentAuthorizationStatus()
   }
 
-  public func post(_ entry: InboxEntry) async {
+  public func post(_ entry: InboxEntry, playSound: Bool) async {
     var status = await currentAuthorizationStatus()
     if status == .notDetermined {
       status = await requestAuthorization()
@@ -70,6 +75,7 @@ public final class UserNotificationsOSNotifier: OSNotifier {
     content.body = entry.body
     content.threadIdentifier = entry.source.paneID.raw.uuidString
     content.categoryIdentifier = entry.kind.rawValue
+    content.sound = playSound ? .default : nil
     content.userInfo = ["deeplink": Self.deeplink(for: entry.source).absoluteString]
 
     let request = UNNotificationRequest(

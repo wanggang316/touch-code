@@ -1,6 +1,11 @@
 import AppKit
 import Foundation
+import OSLog
 import TouchCodeCore
+
+private let detectorLogger = Logger(
+  subsystem: "com.touch-code.notifications", category: "detector"
+)
 
 /// Translates the runtime's structured `TerminalEvent` stream into
 /// `InboxEntry` rows and routes them to `NotificationStore` plus a
@@ -18,10 +23,19 @@ import TouchCodeCore
 @MainActor
 public final class NotificationDetector {
   private let store: NotificationStore
-  private let banner: OSNotifier
+  private let coordinator: NotificationCoordinator
   private let catalogSnapshot: @MainActor () -> Catalog
   private let lastFocusedPane: @MainActor (TabID) -> PaneID?
   private let isAppFrontmost: @MainActor () -> Bool
+  /// Side-channel keystroke tracker. Snapshotted once per event into the
+  /// translator's `Context.lastUserKeystrokeAt` so the 1-second
+  /// `userTypingRecently` suppression can actually fire on real input.
+  private let tracker: PaneKeyboardActivityTracker
+  /// Settings reader: the translator's command-finished branch reads
+  /// `commandFinishedEnabled` and `commandFinishedThresholdSec` from the
+  /// per-event Context, so the detector folds the live snapshot in here
+  /// every call rather than capturing values at construction.
+  private let settingsReader: any NotificationSettingsReader
   /// Fired with the source Project of every emitted notification, before
   /// the inbox is appended. The sidebar's "active first" sort uses this
   /// to bump `Project.lastActiveAt`. Optional so call sites without a
@@ -41,16 +55,20 @@ public final class NotificationDetector {
   /// cleared on the pane's lifecycle teardown events.
   private var paneSourceCache: [PaneID: InboxEntry.SourcePath] = [:]
 
-  public init(
+  init(
     store: NotificationStore,
-    banner: OSNotifier,
+    coordinator: NotificationCoordinator,
+    tracker: PaneKeyboardActivityTracker,
+    settingsReader: any NotificationSettingsReader,
     catalogSnapshot: @escaping @MainActor () -> Catalog,
     lastFocusedPane: @escaping @MainActor (TabID) -> PaneID?,
     isAppFrontmost: @escaping @MainActor () -> Bool = { NSApp.isActive },
     onProjectActivity: (@MainActor (ProjectID) -> Void)? = nil
   ) {
     self.store = store
-    self.banner = banner
+    self.coordinator = coordinator
+    self.tracker = tracker
+    self.settingsReader = settingsReader
     self.catalogSnapshot = catalogSnapshot
     self.lastFocusedPane = lastFocusedPane
     self.isAppFrontmost = isAppFrontmost
@@ -83,9 +101,25 @@ public final class NotificationDetector {
   /// emits. The translation table itself lives in
   /// `TouchCodeCore.DetectionTranslator` (pure, fully unit-tested);
   /// this method orchestrates: catalog walk → SourcePath, mute label
-  /// check, store.append, banner gating.
+  /// check, then hands a `Candidate` to `NotificationCoordinator`.
+  /// The coordinator owns inbox append, banner posting, dock badge,
+  /// and the focused-pane drop.
   public func handle(_ event: TerminalEvent) async {
-    let step = DetectionTranslator.translate(event, hasProducedOutput: hasProducedOutput)
+    let notifSettings = settingsReader.notifications
+    let context = DetectionTranslator.Context(
+      hasProducedOutput: hasProducedOutput,
+      lastUserKeystrokeAt: tracker.snapshot(),
+      now: Date(),
+      commandFinishedEnabled: notifSettings.commandFinishedEnabled,
+      commandFinishedThresholdSec: notifSettings.commandFinishedThresholdSec
+    )
+    let step = DetectionTranslator.translate(event, context: context)
+
+    if let drop = step.drop {
+      detectorLogger.debug(
+        "translator drop reason=\(drop.rawValue, privacy: .public)"
+      )
+    }
 
     switch step.outputFlag {
     case .markProduced(let paneID):
@@ -97,6 +131,10 @@ public final class NotificationDetector {
       _ = liveResolve(paneID: paneID)
     case .clearProduced(let paneID):
       hasProducedOutput.remove(paneID)
+      // Same upper-bound guarantee for the keystroke map: teardown events
+      // purge so the map's size stays bounded by "open panes plus a
+      // handful in-flight" rather than monotonically growing.
+      tracker.purge(paneID)
     // Don't drop cache here — `emit` for the same teardown event still
     // needs to look up the source path. Cache is dropped at the end of
     // `emit` once we've actually used it.
@@ -112,42 +150,40 @@ public final class NotificationDetector {
     guard let resolved = resolve(paneID: translated.paneID) else { return }
     if resolved.muted { return }
 
-    // Drop entirely when the source pane is the user's currently
-    // globally-focused pane: the user is already looking at the
-    // in-pane output, so an inbox row + dock badge bump + banner
-    // would all be noise. There is at most one globally-focused
-    // pane at any time (see `globallyFocusedPane` doc), so this is
-    // not symmetric with the per-tab last-focused behaviour: a
-    // notification fired from a non-active tab's last-focused
-    // split *will* notify, because by definition the user isn't
-    // looking at it.
-    if resolved.source.paneID == globallyFocusedPane() {
-      return
-    }
+    // Pre-compute the focused-pane comparison once so the coordinator does
+    // not have to walk the catalog a second time. The coordinator owns the
+    // "drop when source is focused" decision; this just hands it the
+    // verdict. There is at most one globally-focused pane at any time
+    // (see `globallyFocusedPane` doc), so this is not symmetric with the
+    // per-tab last-focused behaviour: a notification fired from a
+    // non-active tab's last-focused split *will* notify, because by
+    // definition the user isn't looking at it.
+    let sourceIsFocused = resolved.source.paneID == globallyFocusedPane()
 
     // Enrich the title with the originating worktree's display name so
     // a banner reads `[main] Pane bell` rather than just `Pane bell` —
     // critical when the user has multiple worktrees backgrounded and
     // needs to triage at a glance.
     let enrichedTitle = resolved.worktreeLabel.map { "[\($0)] \(translated.title)" } ?? translated.title
-    let inbox = InboxEntry(
+    let entry = InboxEntry(
       kind: translated.kind,
       title: enrichedTitle,
       body: translated.body,
       source: resolved.source
     )
     // Activity bump for the sidebar's "active first" sort fires
-    // before append: `lastActiveAt` reflects "a notification fired",
-    // independent of whether the user later reads it.
+    // before the coordinator dispatch: `lastActiveAt` reflects "a
+    // notification fired", independent of whether the coordinator
+    // ultimately surfaces it or any of the toggles suppress it.
     onProjectActivity?(resolved.source.projectID)
-    store.append(inbox)
 
-    // Banner gating reduces to "always banner if we got past the
-    // global-focus drop above" — the focused-pane case is already
-    // suppressed. macOS will still suppress the banner UI itself
-    // when the app is foreground and presenting; the inbox + dock
-    // badge are the in-app surfaces.
-    await banner.post(inbox)
+    // Single chokepoint: the coordinator gates against settings, updates
+    // the inbox + dock badge, and routes the banner. The detector no
+    // longer touches `NotificationStore.append` or `OSNotifier.post`
+    // directly.
+    await coordinator.handle(
+      NotificationCoordinator.Candidate(entry: entry, sourceIsFocused: sourceIsFocused)
+    )
 
     // Drop the cache only after the entry has been emitted. A teardown
     // event (paneExited / paneCrashed / paneClosedByTab) still needs

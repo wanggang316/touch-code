@@ -23,10 +23,12 @@ public nonisolated enum DetectionTranslator {
   public struct Step: Equatable, Sendable {
     public let entry: Entry?
     public let outputFlag: OutputFlag
+    public let drop: InboxDropReason?
 
-    public init(entry: Entry?, outputFlag: OutputFlag) {
+    public init(entry: Entry?, outputFlag: OutputFlag, drop: InboxDropReason? = nil) {
       self.entry = entry
       self.outputFlag = outputFlag
+      self.drop = drop
     }
   }
 
@@ -63,13 +65,26 @@ public nonisolated enum DetectionTranslator {
     }
   }
 
-  /// Translate a single event. Returns `Step(entry: nil, outputFlag:
-  /// ...)` when the event matters to bookkeeping but does not produce a
-  /// notification; returns `Step(entry: ..., outputFlag: ...)` when it
-  /// does.
+  /// Backward-compatible overload used by call sites that have not yet
+  /// adopted `Context`. Constructs a `Context` with default
+  /// commandFinished settings and an empty keystroke map. M5.T1 will swap
+  /// `NotificationDetector` to the `Context`-aware path; until then this
+  /// keeps the detector compiling unchanged.
   public static func translate(
     _ event: TerminalEvent,
     hasProducedOutput: Set<PaneID>
+  ) -> Step {
+    translate(event, context: Context(hasProducedOutput: hasProducedOutput))
+  }
+
+  /// Translate a single event. Returns `Step(entry: nil, outputFlag:
+  /// ...)` when the event matters to bookkeeping but does not produce a
+  /// notification; returns `Step(entry: ..., outputFlag: ...)` when it
+  /// does. May also set `Step.drop` to record why a candidate
+  /// notification was suppressed at the translator layer.
+  public static func translate(
+    _ event: TerminalEvent,
+    context: Context
   ) -> Step {
     switch event {
     case .paneOutput(let paneID, _):
@@ -97,17 +112,12 @@ public nonisolated enum DetectionTranslator {
           ),
           outputFlag: .unchanged
         )
-      case .commandFinished(let exitCode, _):
-        return Step(
-          entry: Entry(
-            paneID: paneID,
-            kind: .taskFinished,
-            title: "Command finished",
-            body: exitCode == 0
-              ? "Command completed successfully."
-              : "Command exited with status \(exitCode)."
-          ),
-          outputFlag: .unchanged
+      case .commandFinished(let exitCode, let durationNs):
+        return translateCommandFinished(
+          paneID: paneID,
+          exitCode: exitCode,
+          durationNs: durationNs,
+          context: context
         )
       default:
         return Step(entry: nil, outputFlag: .unchanged)
@@ -133,7 +143,7 @@ public nonisolated enum DetectionTranslator {
       // AND the pane must have produced output at some point — a
       // freshly spawned pane that never wrote anything cannot fire
       // a "task finished" idle.
-      guard duration >= idleThreshold, hasProducedOutput.contains(paneID) else {
+      guard duration >= idleThreshold, context.hasProducedOutput.contains(paneID) else {
         return Step(entry: nil, outputFlag: .unchanged)
       }
       return Step(
@@ -176,5 +186,97 @@ public nonisolated enum DetectionTranslator {
       return .waitingForInput
     }
     return .taskFinished
+  }
+
+  /// Command-finished branch lifted out of `translate` to keep the main
+  /// switch under SwiftLint's cyclomatic-complexity budget. Implements
+  /// the M4.T1 suppression chain — feature flag, user-cancellation,
+  /// duration threshold, recent-keystroke window — and emits a
+  /// differential success / failure title when the event survives.
+  private static func translateCommandFinished(
+    paneID: PaneID,
+    exitCode: Int32,
+    durationNs: UInt64,
+    context: Context
+  ) -> Step {
+    // 1. Feature toggle.
+    guard context.commandFinishedEnabled else {
+      return Step(entry: nil, outputFlag: .unchanged, drop: .commandFinishedDisabled)
+    }
+    // 2. User-cancellation suppression. SIGINT (130) and SIGTERM (143)
+    //    on a POSIX shell mean the user already knows the command
+    //    ended; a banner would be redundant.
+    if exitCode == 130 || exitCode == 143 {
+      return Step(entry: nil, outputFlag: .unchanged, drop: .commandCancelled)
+    }
+    // 3. Duration threshold. durationNs is nanoseconds; threshold is
+    //    seconds.
+    let durationSec = Double(durationNs) / 1_000_000_000
+    guard durationSec >= Double(context.commandFinishedThresholdSec) else {
+      return Step(entry: nil, outputFlag: .unchanged, drop: .commandFinishedShort)
+    }
+    // 4. Recent-keystroke suppression. If the user typed into the pane
+    //    within the last 1 s the command-finished event is likely the
+    //    user pressing Enter on the next prompt rather than a
+    //    long-running task completing without observation. The 1 s
+    //    window is hardcoded; M5.T1 wires the actual keystroke source.
+    if let lastKey = context.lastUserKeystrokeAt[paneID],
+      context.now.timeIntervalSince(lastKey) < 1.0
+    {
+      return Step(entry: nil, outputFlag: .unchanged, drop: .userTypingRecently)
+    }
+    // 5. Differential title for non-zero exit.
+    let durationLabel = formatDuration(durationSec)
+    let (title, body): (String, String) =
+      exitCode == 0
+      ? ("Command finished", "Completed in \(durationLabel).")
+      : ("Command failed (exit \(exitCode))", "Ran for \(durationLabel) before failing.")
+    return Step(
+      entry: Entry(paneID: paneID, kind: .taskFinished, title: title, body: body),
+      outputFlag: .unchanged,
+      drop: nil
+    )
+  }
+
+  /// Compact human-readable duration for inbox bodies. `< 60 s` renders
+  /// as `Ns`, `< 1 h` as `Nm[ Ns]`, otherwise `Nh[ Nm]`.
+  private static func formatDuration(_ seconds: Double) -> String {
+    if seconds < 60 { return "\(Int(seconds.rounded())) s" }
+    let minutes = Int(seconds / 60)
+    let remainSec = Int(seconds) % 60
+    if minutes < 60 { return remainSec == 0 ? "\(minutes) m" : "\(minutes) m \(remainSec) s" }
+    let hours = minutes / 60
+    let remainMin = minutes % 60
+    return remainMin == 0 ? "\(hours) h" : "\(hours) h \(remainMin) m"
+  }
+}
+
+extension DetectionTranslator {
+  /// Per-event context the translator needs but cannot derive from the
+  /// event alone: pane-level "has produced output" gate (for idle), a
+  /// per-pane "last user keystroke at" map and current time (for the
+  /// command-finished keystroke-suppression window), and the relevant
+  /// `NotificationsSettings` knobs (so the translator stays pure and the
+  /// app layer owns the settings lifecycle).
+  public struct Context: Equatable, Sendable {
+    public let hasProducedOutput: Set<PaneID>
+    public let lastUserKeystrokeAt: [PaneID: Date]
+    public let now: Date
+    public let commandFinishedEnabled: Bool
+    public let commandFinishedThresholdSec: Int
+
+    public init(
+      hasProducedOutput: Set<PaneID>,
+      lastUserKeystrokeAt: [PaneID: Date] = [:],
+      now: Date = Date(),
+      commandFinishedEnabled: Bool = true,
+      commandFinishedThresholdSec: Int = 10
+    ) {
+      self.hasProducedOutput = hasProducedOutput
+      self.lastUserKeystrokeAt = lastUserKeystrokeAt
+      self.now = now
+      self.commandFinishedEnabled = commandFinishedEnabled
+      self.commandFinishedThresholdSec = commandFinishedThresholdSec
+    }
   }
 }

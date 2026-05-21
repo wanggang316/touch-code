@@ -36,7 +36,8 @@ struct DiffStatsChip: View {
     }
     .font(.system(size: 10).monospacedDigit())
 
-    let bordered = counts
+    let bordered =
+      counts
       .padding(.horizontal, 4)
       .padding(.vertical, 1)
       .overlay(

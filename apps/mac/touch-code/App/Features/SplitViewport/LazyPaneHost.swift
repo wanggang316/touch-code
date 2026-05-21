@@ -48,6 +48,13 @@ struct LazyPaneHost: View {
           .overlay(alignment: .top) {
             PaneSurfaceProgressOverlay(surface: surface)
           }
+          // Right-click menu (notifications-v1-1 M7.T1). Attached only on
+          // `.ready` so loading / failure placeholders do not get a stale
+          // menu; placed before `.animation` so the animation envelope
+          // wraps the menu modifier too.
+          .contextMenu {
+            PaneContextMenu(paneID: store.paneID)
+          }
           .animation(
             .easeInOut(duration: 0.2),
             value: surface.info.progressState
