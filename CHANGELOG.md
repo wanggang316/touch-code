@@ -20,6 +20,29 @@ and the project does not yet follow semantic versioning — every release until
 
 ### Security
 
+## [0.2.4] - 2026-05-21
+
+### Added
+
+- New notifications surface: when CLI agents finish work or need attention, the matching pane fires a macOS notification, and an unread count rolls up through pane → tab → worktree → status-bar bell so you can find the activity from any level.
+- Settings → Notifications pane with per-surface bell visibility toggles (status-bar bell, project, worktree, tab), Dock badge, mute thresholds, macOS permission handling, and an inbox reset action that quarantines suspect entries if anything looks off.
+- Mute notifications for a single pane from its right-click menu.
+- A worktree with a fresh notification auto-promotes to the front of its project the first time it goes from 0 to 1 unread (toggle in Settings → Notifications).
+
+### Changed
+
+- ⌘⏎ in the terminal now reaches the inner CLI program instead of toggling fullscreen.
+- The default-branch marker (the small star identifying the project's main checkout) now leads the worktree row's icon, matching the worktree-header treatment.
+
+### Removed
+
+- Tag-filter button in the sidebar footer — the footer now surfaces sort + refresh only.
+
+### Fixed
+
+- Window chrome no longer paints on top of floating sidebar / panel elements when the app is in fullscreen.
+- Restored the halo behind the CI rollup disc on the worktree row icon.
+
 ## [0.2.3] - 2026-05-19
 
 ### Added
