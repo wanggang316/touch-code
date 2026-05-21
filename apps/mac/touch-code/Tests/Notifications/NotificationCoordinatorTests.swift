@@ -44,15 +44,52 @@ struct NotificationCoordinatorTests {
   private func makeCoordinator(
     inbox: NotificationStore,
     notifier: MockOSNotifier,
-    reader: FakeNotificationSettingsReader
+    reader: FakeNotificationSettingsReader,
+    catalog: HierarchyClient? = nil
   ) -> NotificationCoordinator {
     NotificationCoordinator(
       inbox: inbox,
       osNotifier: notifier,
       settingsReader: reader,
-      catalog: HierarchyClient.testValue,
+      catalog: catalog ?? Self.silentCatalog(),
       now: { Date() }
     )
+  }
+
+  /// A `HierarchyClient` whose `promoteWorktree` is a no-op. Used as the
+  /// default for tests that do not exercise the promote branch, so the
+  /// shipped `HierarchyClient.testValue` (which raises a test issue when
+  /// `promoteWorktree` is invoked via `unimplemented(...)`) does not
+  /// trip on every 0→N unread edge — `moveNotifiedWorktreeToTop`
+  /// defaults to true.
+  @MainActor
+  private static func silentCatalog() -> HierarchyClient {
+    var client = HierarchyClient.testValue
+    client.promoteWorktree = { _, _, _ in }
+    return client
+  }
+
+  /// Records every `promoteWorktree` invocation so tests can assert on
+  /// call count and arguments. M6.T2 promote behaviour matrix.
+  @MainActor
+  private final class PromoteRecorder {
+    private(set) var calls: [(ProjectID, WorktreeID, WorktreePromotionMode)] = []
+    func record(_ projectID: ProjectID, _ worktreeID: WorktreeID, _ mode: WorktreePromotionMode) {
+      calls.append((projectID, worktreeID, mode))
+    }
+  }
+
+  /// Wires `recorder.record` into `HierarchyClient.promoteWorktree`. All
+  /// other methods stay at `testValue` (raise a test issue if invoked),
+  /// so accidental calls into the unrelated catalog surface still fail
+  /// loudly.
+  @MainActor
+  private static func recordingCatalog(_ recorder: PromoteRecorder) -> HierarchyClient {
+    var client = HierarchyClient.testValue
+    client.promoteWorktree = { projectID, worktreeID, mode in
+      recorder.record(projectID, worktreeID, mode)
+    }
+    return client
   }
 
   // MARK: - Tests
@@ -299,5 +336,233 @@ struct NotificationCoordinatorTests {
 
     #expect(coordinator.lastDropReasons.contains(.inAppDisabled))
     #expect(coordinator.lastDropReasons.contains(.systemDisabled))
+  }
+
+  // MARK: - M6.T2: worktree promote on 0→N unread edge
+
+  /// AC-V11-WT-001 / UT-V11-WT-001: the first unread for a worktree
+  /// invokes `catalog.promoteWorktree(projectID, worktreeID,
+  /// .moveToFrontWithinUnpinned)` and the decision reports
+  /// `promoted: true`. The coordinator does not inspect pinned-ness —
+  /// the catalog enforces that (M6.T1).
+  @Test
+  func firstUnreadForUnpinnedWorktreePromotes() async throws {
+    let (inbox, url) = makeInbox()
+    defer { try? FileManager.default.removeItem(at: url) }
+    let notifier = MockOSNotifier()
+    let reader = FakeNotificationSettingsReader()
+    reader.notifications.inAppEnabled = true
+    reader.notifications.moveNotifiedWorktreeToTop = true
+    let recorder = PromoteRecorder()
+    let coordinator = makeCoordinator(
+      inbox: inbox,
+      notifier: notifier,
+      reader: reader,
+      catalog: Self.recordingCatalog(recorder)
+    )
+
+    let source = InboxEntry.SourcePath(
+      projectID: ProjectID(),
+      worktreeID: WorktreeID(),
+      tabID: TabID(),
+      paneID: PaneID()
+    )
+    let decision = await coordinator.handle(makeCandidate(source: source))
+
+    guard case let .posted(_, _, _, _, promoted) = decision else {
+      Issue.record("expected .posted, got \(decision)")
+      return
+    }
+    #expect(promoted == true)
+    #expect(recorder.calls.count == 1)
+    #expect(recorder.calls.first?.0 == source.projectID)
+    #expect(recorder.calls.first?.1 == source.worktreeID)
+    #expect(recorder.calls.first?.2 == .moveToFrontWithinUnpinned)
+  }
+
+  /// AC-V11-WT-002 / UT-V11-WT-002: a second unread on the SAME worktree
+  /// (different paneID so dedup does not collapse it) must not re-promote
+  /// — `before > 0`, so the gate short-circuits.
+  @Test
+  func secondUnreadOnSameWorktreeDoesNotRetrigger() async throws {
+    let (inbox, url) = makeInbox()
+    defer { try? FileManager.default.removeItem(at: url) }
+    let notifier = MockOSNotifier()
+    let reader = FakeNotificationSettingsReader()
+    reader.notifications.inAppEnabled = true
+    reader.notifications.moveNotifiedWorktreeToTop = true
+    let recorder = PromoteRecorder()
+    let coordinator = makeCoordinator(
+      inbox: inbox,
+      notifier: notifier,
+      reader: reader,
+      catalog: Self.recordingCatalog(recorder)
+    )
+
+    let projectID = ProjectID()
+    let worktreeID = WorktreeID()
+    let tabID = TabID()
+    let firstSource = InboxEntry.SourcePath(
+      projectID: projectID, worktreeID: worktreeID, tabID: tabID, paneID: PaneID()
+    )
+    let secondSource = InboxEntry.SourcePath(
+      projectID: projectID, worktreeID: worktreeID, tabID: tabID, paneID: PaneID()
+    )
+
+    _ = await coordinator.handle(makeCandidate(source: firstSource))
+    let second = await coordinator.handle(makeCandidate(source: secondSource))
+
+    guard case let .posted(_, _, _, _, promoted) = second else {
+      Issue.record("expected .posted, got \(second)")
+      return
+    }
+    #expect(promoted == false)
+    #expect(recorder.calls.count == 1)
+  }
+
+  /// AC-V11-WT-003 / UT-V11-WT-003: marking read does NOT demote. The
+  /// coordinator never calls back into `promoteWorktree` on read
+  /// transitions (there is no such code path); we assert by verifying
+  /// the recorder remains at one call after `markAllRead`.
+  ///
+  /// Then: a fresh 0→N unread edge on the same worktree DOES re-promote
+  /// (because `before == 0` again post-mark-read). This matches the spec
+  /// reading of WT-003 (position not restored when unread drops to 0)
+  /// composed with WT-001 (every 0→N edge promotes).
+  @Test
+  func markReadAllowsRePromoteOnNextZeroToOneEdge() async throws {
+    let (inbox, url) = makeInbox()
+    defer { try? FileManager.default.removeItem(at: url) }
+    let notifier = MockOSNotifier()
+    let reader = FakeNotificationSettingsReader()
+    reader.notifications.inAppEnabled = true
+    reader.notifications.moveNotifiedWorktreeToTop = true
+    let recorder = PromoteRecorder()
+    let coordinator = makeCoordinator(
+      inbox: inbox,
+      notifier: notifier,
+      reader: reader,
+      catalog: Self.recordingCatalog(recorder)
+    )
+
+    let projectID = ProjectID()
+    let worktreeID = WorktreeID()
+    let tabID = TabID()
+    let firstSource = InboxEntry.SourcePath(
+      projectID: projectID, worktreeID: worktreeID, tabID: tabID, paneID: PaneID()
+    )
+    _ = await coordinator.handle(makeCandidate(source: firstSource))
+    #expect(recorder.calls.count == 1)
+
+    inbox.markAllRead()
+    // No catalog call should have been issued by the mark-read transition.
+    #expect(recorder.calls.count == 1)
+
+    // Fresh 0→N edge on the same worktree (new pane to bypass dedup).
+    let secondSource = InboxEntry.SourcePath(
+      projectID: projectID, worktreeID: worktreeID, tabID: tabID, paneID: PaneID()
+    )
+    let decision = await coordinator.handle(makeCandidate(source: secondSource))
+    guard case let .posted(_, _, _, _, promoted) = decision else {
+      Issue.record("expected .posted, got \(decision)")
+      return
+    }
+    #expect(promoted == true)
+    #expect(recorder.calls.count == 2)
+  }
+
+  /// AC-V11-WT-004 / UT-V11-WT-004: with the toggle off, no promote
+  /// fires even on a fresh 0→N unread edge. Inbox still appends.
+  @Test
+  func disableToggleSuppressesPromote() async throws {
+    let (inbox, url) = makeInbox()
+    defer { try? FileManager.default.removeItem(at: url) }
+    let notifier = MockOSNotifier()
+    let reader = FakeNotificationSettingsReader()
+    reader.notifications.inAppEnabled = true
+    reader.notifications.moveNotifiedWorktreeToTop = false
+    let recorder = PromoteRecorder()
+    let coordinator = makeCoordinator(
+      inbox: inbox,
+      notifier: notifier,
+      reader: reader,
+      catalog: Self.recordingCatalog(recorder)
+    )
+
+    let decision = await coordinator.handle(makeCandidate())
+
+    guard case let .posted(inAppAppended, _, _, _, promoted) = decision else {
+      Issue.record("expected .posted, got \(decision)")
+      return
+    }
+    #expect(inAppAppended == true)
+    #expect(promoted == false)
+    #expect(recorder.calls.isEmpty)
+  }
+
+  /// AC-V11-WT-006 / UT-V11-WT-006 (coordinator-side half): the
+  /// coordinator does not inspect pinned-ness. It issues
+  /// `promoteWorktree` for every 0→N edge that passes the toggle gate;
+  /// the catalog (`HierarchyManager.promoteWorktree`, M6.T1) silently
+  /// no-ops on pinned targets. This test pins the policy split.
+  @Test
+  func promoteCallFiresRegardlessOfPinnedStatus() async throws {
+    let (inbox, url) = makeInbox()
+    defer { try? FileManager.default.removeItem(at: url) }
+    let notifier = MockOSNotifier()
+    let reader = FakeNotificationSettingsReader()
+    reader.notifications.inAppEnabled = true
+    reader.notifications.moveNotifiedWorktreeToTop = true
+    let recorder = PromoteRecorder()
+    let coordinator = makeCoordinator(
+      inbox: inbox,
+      notifier: notifier,
+      reader: reader,
+      catalog: Self.recordingCatalog(recorder)
+    )
+
+    // The coordinator has no isPinned signal in scope — the catalog
+    // enforces the exclusion. Exercising the path simply confirms the
+    // call always reaches the catalog.
+    _ = await coordinator.handle(makeCandidate())
+    #expect(recorder.calls.count == 1)
+  }
+
+  /// AC-V11-WT-005 / UT-V11-WT-005: a deduped candidate (same
+  /// `(paneID, kind)` within 30 s) does NOT trigger promote because
+  /// `didAppend == false`. Confirms the M2.T2 round-2 dedup→delta
+  /// composition holds end-to-end through the promote branch.
+  @Test
+  func dedupedDuplicateDoesNotPromote() async throws {
+    let (inbox, url) = makeInbox()
+    defer { try? FileManager.default.removeItem(at: url) }
+    let notifier = MockOSNotifier()
+    let reader = FakeNotificationSettingsReader()
+    reader.notifications.inAppEnabled = true
+    reader.notifications.moveNotifiedWorktreeToTop = true
+    let recorder = PromoteRecorder()
+    let coordinator = makeCoordinator(
+      inbox: inbox,
+      notifier: notifier,
+      reader: reader,
+      catalog: Self.recordingCatalog(recorder)
+    )
+
+    let source = InboxEntry.SourcePath(
+      projectID: ProjectID(),
+      worktreeID: WorktreeID(),
+      tabID: TabID(),
+      paneID: PaneID()
+    )
+    _ = await coordinator.handle(makeCandidate(source: source))
+    let second = await coordinator.handle(makeCandidate(source: source))
+
+    guard case let .posted(secondAppended, _, _, _, promoted) = second else {
+      Issue.record("expected .posted, got \(second)")
+      return
+    }
+    #expect(secondAppended == false)
+    #expect(promoted == false)
+    #expect(recorder.calls.count == 1)
   }
 }

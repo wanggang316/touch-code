@@ -22,7 +22,6 @@ final class NotificationCoordinator {
   private let inbox: NotificationStore
   private let osNotifier: any OSNotifier
   private let settingsReader: any NotificationSettingsReader
-  // swiftlint:disable:next unused_declaration
   private let catalog: HierarchyClient
   private let now: @MainActor () -> Date
   private let logger = Logger(
@@ -30,9 +29,11 @@ final class NotificationCoordinator {
     category: "coordinator"
   )
 
-  /// Unread count per worktree, maintained alongside `inbox` mutations. M6.T2
-  /// will consume this to drive the "promote notified worktree to top"
-  /// behaviour; for M2.T2 it is observable for tests only.
+  /// Unread count per worktree, maintained alongside `inbox` mutations.
+  /// Surfaced for tests; the live "promote notified worktree to top"
+  /// behaviour (M6.T2) reads the per-call `before` delta directly off
+  /// `inbox.entries` rather than this cache so a same-tick mutation
+  /// outside the coordinator cannot desync the gate.
   internal private(set) var unreadByWorktree: [WorktreeID: Int] = [:]
 
   /// Test seam: drop reasons logged on the most recent `handle(_:)` call.
@@ -85,12 +86,17 @@ final class NotificationCoordinator {
     // per-worktree unread count did NOT actually grow on this call, so
     // we read the canonical count from `inbox.entries` before and after
     // the append and report the actual delta. The cache mirrors the
-    // post-append truth so M6.T2's promote logic sees a faithful 0→N
-    // edge rather than an inflated synthetic one.
+    // post-append truth so the M6.T2 promote logic below sees a faithful
+    // 0→N edge rather than an inflated synthetic one.
+    //
+    // `before` is hoisted out of the `if settings.inAppEnabled` block so
+    // the promote branch can gate on the worktree's pre-append unread
+    // count. When inbox is disabled, `before` is computed but unused;
+    // the promote branch is short-circuited by `didAppend == false`.
+    let worktreeID = candidate.entry.source.worktreeID
+    let before = unreadCount(inWorktree: worktreeID)
     let didAppend: Bool
     if settings.inAppEnabled {
-      let worktreeID = candidate.entry.source.worktreeID
-      let before = unreadCount(inWorktree: worktreeID)
       inbox.append(candidate.entry)
       let after = unreadCount(inWorktree: worktreeID)
       unreadByWorktree[worktreeID] = after
@@ -133,13 +139,30 @@ final class NotificationCoordinator {
       lastDropReasons.append(.systemDisabled)
     }
 
-    // Promote path: stubbed for M2.T2. M6.T2 will read `unreadByWorktree`
-    // and `settings.moveNotifiedWorktreeToTop`, and call
-    // `catalog.reorderWorktrees(...)` when the worktree was previously at
-    // zero unread (i.e. this notification is what lit it up).
-    // swiftlint:disable:next todo
-    // TODO(M6.T2): wire promote via catalog.reorderWorktrees.
-    let didPromote = false
+    // Promote on the 0→N unread edge: a worktree gaining its FIRST unread
+    // notification jumps to the top of its parent project's unpinned
+    // section. Per-project; pinned worktrees are filtered out by the
+    // catalog (HierarchyManager.promoteWorktree silently no-ops on pinned
+    // targets — coordinator policy stays simple). Subsequent unreads on
+    // the same worktree do NOT retrigger because `before > 0`. The
+    // promote is one-shot: marking all read flips `before` back to 0 so
+    // the next unread on that worktree re-promotes (AC-V11-WT-003: the
+    // position is not restored when unread drops to zero, but a fresh
+    // 0→N edge does re-promote).
+    //
+    // Covers AC-V11-WT-001..006; AC-V11-D-001 (debounced disk write via
+    // setPaneLabel) is a separate code path owned by HierarchyManager.
+    let didPromote: Bool
+    if didAppend && settings.moveNotifiedWorktreeToTop && before == 0 {
+      catalog.promoteWorktree(
+        candidate.entry.source.projectID,
+        candidate.entry.source.worktreeID,
+        .moveToFrontWithinUnpinned
+      )
+      didPromote = true
+    } else {
+      didPromote = false
+    }
 
     return .posted(
       inAppAppended: didAppend,
