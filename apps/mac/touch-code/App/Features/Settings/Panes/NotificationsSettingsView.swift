@@ -7,25 +7,29 @@ import TouchCodeCore
 /// consumed by `NotificationCoordinator` plus the v1.0 macOS authorization
 /// recovery surface:
 ///
-/// 1. Per-surface toggles grouped as parent/child:
-///    - In-app notifications (parent) — gates every surface inside the app:
-///      bell popover, Dock badge, and the unread roll-up counts on projects,
-///      worktrees, tabs, and panes. Implementation: when off, no entries
-///      reach the inbox, so RollupIndex naturally reports 0 across the
-///      hierarchy.
-///      - Dock badge (child) — auto-disabled when In-app is off; lets users
-///        suppress just the icon overlay while keeping the in-window
-///        roll-up badges visible.
-///    - System notifications (parent) — gates macOS banner + Notification
-///      Center entries.
-///      - Sound (child) — auto-disabled when System is off.
+/// 1. Three sections by surface (`In-app`, `System`, `Command Finished`).
+///    Each parent toggle has an action-oriented label ("Show in this app",
+///    "Show macOS banners", "Notify when a command finishes") rather than
+///    a noun phrase that would duplicate the section title.
+///    - In-app section gates every surface inside the app: bell popover,
+///      Dock badge, and the unread roll-up counts on projects, worktrees,
+///      tabs, and panes. Implementation: when off, no entries reach the
+///      inbox, so RollupIndex naturally reports 0 across the hierarchy.
+///      The Dock badge child auto-disables when the parent is off; it
+///      exists so users can suppress just the icon overlay while keeping
+///      in-window roll-up badges visible.
+///    - System section gates macOS banner + Notification Center entries.
+///      The Sound child auto-disables when the parent is off. Below the
+///      toggles, a conditional permission row appears ONLY when System
+///      is enabled and the OS-level permission is not yet authorized —
+///      otherwise the section ends at the toggles. The permission is
+///      a System-only dependency (it controls UNNotification posting,
+///      nothing else), so it lives inside this section rather than as
+///      a separate concept.
 ///    Writes go through `SettingsStore.mutateNotifications(_:)`, which the
 ///    coordinator reads via `NotificationSettingsReader` at decision time —
 ///    every flip therefore takes effect on the next event.
-/// 2. macOS authorization status + recovery action live inside the System
-///    section because the permission is specifically for posting
-///    UNNotifications — it gates System banners and nothing else.
-/// 3. Command-finished detector — master toggle plus the minimum-duration
+/// 2. Command-finished detector — master toggle plus the minimum-duration
 ///    threshold. The threshold field clamps writes to
 ///    `NotificationsSettings.thresholdRange` so hand-typed extremes never
 ///    reach the persisted JSON.
@@ -54,40 +58,40 @@ struct NotificationsSettingsView: View {
       Section("In-app") {
         Toggle(isOn: inAppBinding) {
           SettingLabel(
-            title: "In-app notifications",
-            caption: "Show notifications inside touch-code — the bell popover, the Dock badge, "
-              + "and unread counts on projects, worktrees, tabs, and panes."
+            title: "Show in this app",
+            caption: "Bell popover and unread counts on projects, worktrees, tabs, and panes."
           )
         }
 
         Toggle(isOn: dockBadgeBinding) {
           SettingLabel(
-            title: "Dock badge",
-            caption: "Show the unread count on the app icon."
+            title: "Show on Dock icon",
+            caption: "Display the unread count as a badge on the app icon."
           )
         }
         .disabled(!settingsStore.settings.notifications.inAppEnabled)
-        .help("Dock badge requires In-app notifications to be on.")
+        .help("Requires Show in this app to be on.")
       }
 
       Section("System") {
         Toggle(isOn: systemBinding) {
           SettingLabel(
-            title: "System notifications",
+            title: "Show macOS banners",
             caption: "Show banners in macOS Notification Center."
           )
         }
 
-        Toggle("Sound", isOn: soundBinding)
+        Toggle("Play sound", isOn: soundBinding)
           .disabled(!settingsStore.settings.notifications.systemEnabled)
-          .help("Sound requires System notifications to be on.")
+          .help("Requires Show macOS banners to be on.")
 
-        // macOS authorization is a per-app permission specifically for posting
-        // UNNotifications. It gates System banners regardless of the toggle
-        // above, so the status + recovery action live inside the System
-        // section rather than as a separate concept.
-        statusRow
-        actionRow
+        // macOS authorization gates the banner regardless of the toggle
+        // above. Only surface it when actionable — when System is enabled
+        // and the OS-level permission is not authorized. When authorized
+        // we trust silence; when off the permission is irrelevant.
+        if settingsStore.settings.notifications.systemEnabled && status != .authorized {
+          permissionWarningRow
+        }
       }
 
       Section("Command Finished") {
@@ -218,70 +222,46 @@ struct NotificationsSettingsView: View {
     NSWorkspace.shared.open(fallback)
   }
 
-  // MARK: - Permission status subviews (v1.0, relocated)
+  // MARK: - Permission warning row (System section, conditional)
 
+  /// Single row that appears beneath the System toggles only when the OS
+  /// permission is in a state the user can act on (denied / notDetermined)
+  /// AND System notifications are enabled. When authorized we render
+  /// nothing — the absence is the signal that things are healthy. When
+  /// System is off the permission is irrelevant to current behaviour.
   @ViewBuilder
-  private var statusRow: some View {
+  private var permissionWarningRow: some View {
     HStack(spacing: 8) {
-      Image(systemName: statusIcon)
-        .foregroundStyle(statusTint)
-      Text(statusLabel)
+      Image(systemName: status == .denied ? "exclamationmark.triangle.fill" : "questionmark.circle.fill")
+        .foregroundStyle(status == .denied ? Color.orange : Color.yellow)
+      Text(
+        status == .denied
+          ? "macOS is blocking notifications for touch-code."
+          : "macOS has not yet been asked for permission."
+      )
+      .foregroundStyle(.secondary)
       Spacer()
       if isRefreshing {
         ProgressView().controlSize(.small)
       }
-    }
-  }
-
-  @ViewBuilder
-  private var actionRow: some View {
-    switch status {
-    case .notDetermined:
-      Button("Request permission…") {
-        Task {
-          guard let notifier = osNotifier else { return }
-          status = await notifier.requestAuthorization()
+      switch status {
+      case .denied:
+        Button("Open System Settings…") { openSystemNotificationsPane() }
+      case .notDetermined:
+        Button("Request…") {
+          Task {
+            guard let notifier = osNotifier else { return }
+            status = await notifier.requestAuthorization()
+          }
         }
+        .disabled(osNotifier == nil)
+      case .authorized:
+        EmptyView()
       }
-      .disabled(osNotifier == nil)
-    case .denied:
-      Button("Open System Settings…") {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") {
-          NSWorkspace.shared.open(url)
-        }
-      }
-    case .authorized:
-      Text("Banners are enabled. The app will only fire one when the originating pane is not your current focus.")
-        .font(.callout)
-        .foregroundStyle(.secondary)
     }
   }
 
   // MARK: - State
-
-  private var statusIcon: String {
-    switch status {
-    case .authorized: return "checkmark.circle.fill"
-    case .denied: return "exclamationmark.triangle.fill"
-    case .notDetermined: return "questionmark.circle.fill"
-    }
-  }
-
-  private var statusTint: Color {
-    switch status {
-    case .authorized: return .green
-    case .denied: return .orange
-    case .notDetermined: return .yellow
-    }
-  }
-
-  private var statusLabel: String {
-    switch status {
-    case .authorized: return "Authorized"
-    case .denied: return "Denied"
-    case .notDetermined: return "Not yet asked"
-    }
-  }
 
   private func refresh() async {
     guard let notifier = osNotifier else { return }
