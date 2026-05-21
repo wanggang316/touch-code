@@ -56,21 +56,36 @@ struct NotificationsSettingsView: View {
   var body: some View {
     Form {
       Section("In-app") {
-        Toggle(isOn: inAppBinding) {
+        Toggle(isOn: statusBarBellBinding) {
           SettingLabel(
-            title: "Show in this app",
-            caption: "Bell popover and unread counts on projects, worktrees, tabs, and panes."
+            title: "Status-bar bell",
+            caption: "Bell button + popover above the worktree pane."
           )
         }
-
+        Toggle(isOn: projectBellBinding) {
+          SettingLabel(
+            title: "Project",
+            caption: "Show the unread bell on a project in the sidebar."
+          )
+        }
+        Toggle(isOn: worktreeBellBinding) {
+          SettingLabel(
+            title: "Worktree",
+            caption: "Show the unread bell on a worktree in the sidebar."
+          )
+        }
+        Toggle(isOn: tabBellBinding) {
+          SettingLabel(
+            title: "Tab",
+            caption: "Show the unread dot on tabs in the tab strip."
+          )
+        }
         Toggle(isOn: dockBadgeBinding) {
           SettingLabel(
-            title: "Show on Dock icon",
+            title: "Dock icon",
             caption: "Display the unread count as a badge on the app icon."
           )
         }
-        .disabled(!settingsStore.settings.notifications.inAppEnabled)
-        .help("Requires Show in this app to be on.")
       }
 
       Section("System") {
@@ -138,14 +153,11 @@ struct NotificationsSettingsView: View {
 
   // MARK: - Bindings
 
-  private var inAppBinding: Binding<Bool> {
-    Binding(
-      get: { settingsStore.settings.notifications.inAppEnabled },
-      set: { newValue in
-        settingsStore.mutateNotifications { $0.inAppEnabled = newValue }
-      }
-    )
-  }
+  // `inAppEnabled` is intentionally not surfaced — it stays at its default-on
+  // value and gates `inbox.append` inside the coordinator. The per-level
+  // bell toggles below are visual-only filters on the always-computed
+  // `RollupIndex` data; they hide the indicator at a given level without
+  // touching the inbox itself.
 
   private var systemBinding: Binding<Bool> {
     Binding(
@@ -182,6 +194,42 @@ struct NotificationsSettingsView: View {
       get: { settingsStore.settings.notifications.dockBadgeEnabled },
       set: { newValue in
         settingsStore.mutateNotifications { $0.dockBadgeEnabled = newValue }
+      }
+    )
+  }
+
+  private var statusBarBellBinding: Binding<Bool> {
+    Binding(
+      get: { settingsStore.settings.notifications.statusBarBellEnabled },
+      set: { newValue in
+        settingsStore.mutateNotifications { $0.statusBarBellEnabled = newValue }
+      }
+    )
+  }
+
+  private var projectBellBinding: Binding<Bool> {
+    Binding(
+      get: { settingsStore.settings.notifications.projectBellEnabled },
+      set: { newValue in
+        settingsStore.mutateNotifications { $0.projectBellEnabled = newValue }
+      }
+    )
+  }
+
+  private var worktreeBellBinding: Binding<Bool> {
+    Binding(
+      get: { settingsStore.settings.notifications.worktreeBellEnabled },
+      set: { newValue in
+        settingsStore.mutateNotifications { $0.worktreeBellEnabled = newValue }
+      }
+    )
+  }
+
+  private var tabBellBinding: Binding<Bool> {
+    Binding(
+      get: { settingsStore.settings.notifications.tabBellEnabled },
+      set: { newValue in
+        settingsStore.mutateNotifications { $0.tabBellEnabled = newValue }
       }
     )
   }

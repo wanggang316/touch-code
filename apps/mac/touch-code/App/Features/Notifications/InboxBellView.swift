@@ -21,12 +21,25 @@ struct InboxBellView: View {
   let popoverTrigger: UUID
   @Environment(NotificationStore.self) private var inbox: NotificationStore?
   @Environment(RollupIndexProvider.self) private var rollup: RollupIndexProvider?
+  @Environment(SettingsStore.self) private var settingsStore: SettingsStore?
   @Environment(\.resolvedShortcuts) private var resolvedShortcuts: ResolvedShortcutMap
 
   @State private var popoverShown = false
   @State private var unreadOnly = false
 
   var body: some View {
+    // User-controlled visual filter (Settings → Notifications → In-app → Status-bar bell).
+    // Hides the entire button, not just the badge — a dead bell in the toolbar
+    // would be confusing. Inbox itself still receives entries regardless.
+    if settingsStore?.settings.notifications.statusBarBellEnabled == false {
+      EmptyView()
+    } else {
+      bellButton
+    }
+  }
+
+  @ViewBuilder
+  private var bellButton: some View {
     let count = rollup?.current.globalUnreadCount ?? 0
     Button(action: { popoverShown.toggle() }) {
       HStack(spacing: 4) {
