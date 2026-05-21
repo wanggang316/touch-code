@@ -6,12 +6,14 @@ import TouchCodeCore
 ///
 /// - Dir-kind synthetic worktree → `folder` SF Symbol. The synthetic worktree under a
 ///   dir-kind Project reads as a filesystem directory rather than a git anchor.
-/// - Worktrees with no PR snapshot (including main) → the `git-branch` octicon tinted by
+/// - Default-branch checkout (no PR) → `star.fill` SF Symbol, tinted by `roleTint`.
+///   Carries the "this is the project's default checkout" signal that previously sat
+///   inline next to the worktree name. PR snapshot still wins — when a PR exists on
+///   main, the row falls through to the PR-state octicon below.
+/// - Worktrees with no PR snapshot (non-default) → the `git-branch` octicon tinted by
 ///   `roleTint` (orange for user-pinned rows, secondary otherwise). Desaturates to the
 ///   selection text color when the row is selected — `listRowBackground` already shows
-///   selection, so a loud icon would fight the highlight. The main checkout no longer
-///   gets a separate glyph; the "this is default" signal is rendered next to the name
-///   via a yellow star at the call site (HierarchySidebarView / WorktreeHeaderInfoLabel).
+///   selection, so a loud icon would fight the highlight.
 /// - PR snapshot     → `git-pull-request`, `git-merge`, `git-pull-request-closed`, or
 ///   `git-pull-request-draft`, tinted by PR state (green / purple / red / grey). PR
 ///   state is the dominant signal when a PR exists; the role tint is suppressed.
@@ -36,6 +38,12 @@ struct WorktreeRowIcon: View {
   /// regardless of PR / branch state, and the role tint is replaced by
   /// the accent colour. PR check rollup overlay still renders unchanged.
   var hasUnreadNotification: Bool = false
+  /// `true` for the project's default-branch checkout (the worktree whose
+  /// path matches `Project.rootPath`, excluding the dir-kind synthetic).
+  /// Swaps the leading glyph to `star.fill` so the identity marker that
+  /// used to sit inline next to the name now leads the row. Suppressed
+  /// when a PR snapshot is present — PR-state still wins the icon slot.
+  var isDefaultBranch: Bool = false
 
   /// Native `List(selection:)` paints the selection chrome via NSTableView's
   /// `.sourceList` mode and sets `\.backgroundProminence = .increased` on
@@ -62,6 +70,17 @@ struct WorktreeRowIcon: View {
         // slot mirrors the `circlebadge` sizing so the label column stays
         // aligned with sibling git rows.
         Image(systemName: "folder")
+          .resizable()
+          .aspectRatio(contentMode: .fit)
+          .frame(width: 12, height: 12)
+          .foregroundStyle(tint)
+          .frame(width: 14, height: 14)
+      } else if isDefaultBranch && snapshot == nil {
+        // Default-branch identity marker in the leading slot (replaces
+        // git-branch for the main checkout). PR snapshot still trumps
+        // this — falls through to the `Image(assetName)` branch below
+        // and renders the PR-state octicon instead.
+        Image(systemName: "star.fill")
           .resizable()
           .aspectRatio(contentMode: .fit)
           .frame(width: 12, height: 12)
@@ -151,6 +170,9 @@ struct WorktreeRowIcon: View {
       return Text(isSelected ? "Active project folder" : "Project folder")
     }
     guard let snapshot else {
+      if isDefaultBranch {
+        return Text(isSelected ? "Active default branch" : "Default branch")
+      }
       return Text(isSelected ? "Active worktree branch" : "Worktree branch")
     }
     let stateWord: String = {

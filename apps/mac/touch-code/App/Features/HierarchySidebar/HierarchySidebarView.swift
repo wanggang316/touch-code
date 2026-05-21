@@ -663,26 +663,17 @@ struct HierarchySidebarView: View {
             snapshot: snapshot, rollup: rollup, isSelected: isSelected, roleTint: roleTint,
             isSynthetic: isSyntheticWorktree,
             hasUnreadNotification: notificationRollup?.current.unreadWorktrees.contains(worktree.id) == true
-              && settingsStore.settings.notifications.worktreeBellEnabled
+              && settingsStore.settings.notifications.worktreeBellEnabled,
+            isDefaultBranch: isMainCheckout && !isSyntheticWorktree
           )
         }
       }
       VStack(alignment: .leading, spacing: 0) {
         HStack(spacing: 4) {
           Text(worktree.name)
-          // Default-branch marker. The leading row icon stays on the generic
-          // git-branch octicon (same as the other worktrees) so a small yellow
-          // star here is what disambiguates "this is the project's main
-          // checkout" — see WorktreeRowIcon's doc comment. Suppressed for the
-          // synthetic dir-kind worktree (no git semantics) and for any row
-          // already wearing a PR-state colour, to keep the row from carrying
-          // two contradictory yellow signals.
-          if isMainCheckout && !isSyntheticWorktree {
-            Image(systemName: "star.fill")
-              .font(.caption2)
-              .foregroundStyle(.secondary)
-              .accessibilityLabel("Default branch")
-          }
+          // Default-branch marker now lives in WorktreeRowIcon's leading
+          // slot (star.fill replaces git-branch for the main checkout),
+          // so there's no longer an inline star next to the name.
           // Explicit pinned marker — keeps the "this row is pinned" signal visible
           // even when the row-icon's role tint is overridden by a PR-state color.
           if worktree.isPinned && !isMainCheckout {

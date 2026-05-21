@@ -41,21 +41,17 @@ struct WorktreeHeaderInfoLabel: View {
         isSelected: false,
         roleTint: roleTint,
         isSynthetic: isSynthetic,
-        hasUnreadNotification: hasUnread
+        hasUnreadNotification: hasUnread,
+        isDefaultBranch: isMainCheckout && !isSynthetic
       )
       VStack(alignment: .leading, spacing: 0) {
         HStack(spacing: 4) {
           Text(worktree.name)
             .font(.headline)
             .lineLimit(1)
-          // Default-branch marker — matches the sidebar row treatment so the
-          // toolbar identity surface reads as the same record.
-          if isMainCheckout && !isSynthetic {
-            Image(systemName: "star.fill")
-              .font(.caption2)
-              .foregroundStyle(.secondary)
-              .accessibilityLabel("Default branch")
-          }
+          // Default-branch marker now lives in WorktreeRowIcon's leading
+          // slot (star.fill); the toolbar identity surface no longer
+          // duplicates it inline next to the name.
           if worktree.isPinned && !isMainCheckout {
             Image(systemName: "pin.fill")
               .font(.caption2)
