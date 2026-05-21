@@ -7,23 +7,20 @@ import TouchCodeCore
 /// consumed by `NotificationCoordinator` plus the v1.0 macOS authorization
 /// recovery surface:
 ///
-/// 1. Per-surface toggles (in-app inbox, system banners, sound, dock badge).
+/// 1. Per-surface toggles grouped as parent/child:
+///    - In-app notifications (parent) → Dock badge (child, auto-disabled when
+///      parent is off).
+///    - System notifications (parent) → Sound (child, auto-disabled when
+///      parent is off).
 ///    Writes go through `SettingsStore.mutateNotifications(_:)`, which the
 ///    coordinator reads via `NotificationSettingsReader` at decision time —
-///    every flip therefore takes effect on the next event without further
-///    plumbing.
+///    every flip therefore takes effect on the next event.
 /// 2. Command-finished detector — master toggle plus the minimum-duration
 ///    threshold. The threshold field clamps writes to
 ///    `NotificationsSettings.thresholdRange` so hand-typed extremes never
 ///    reach the persisted JSON.
-/// 3. Mute summary + Reveal in Finder for `~/.config/touch-code/detection-rules.json`.
-///    Rule editing happens in the JSON file directly (v1.1 scope keeps the
-///    UI read-only); the button bootstraps an empty default if the file is
-///    missing so the user always lands on something openable.
-/// 4. macOS permission status (PM2 recovery surface from v1.0) — kept verbatim,
-///    just relocated below the new sections so the toggles are the primary
-///    affordance.
-/// 5. About blurb describing what the toggles gate.
+/// 3. macOS permission status (PM2 recovery surface from v1.0) — relocated
+///    below the new sections so the toggles are the primary affordance.
 ///
 /// Permission alert (D1 in the v1.1 design doc): flipping System notifications
 /// on while macOS authorization is `.denied` shows an alert that deep-links
@@ -32,6 +29,11 @@ import TouchCodeCore
 ///
 /// Authorization is re-read on every appear and on `applicationDidBecomeActive`
 /// so a flip in System Settings takes effect without a relaunch.
+///
+/// The Mute rules section is intentionally absent until the rule editor
+/// lands; the underlying `NotificationsSettings.mute` fields persist but
+/// nothing currently writes them (per-pane mute uses `Pane.labels` directly
+/// — see `PaneContextMenu`).
 struct NotificationsSettingsView: View {
   @Environment(SettingsStore.self) private var settingsStore
   @Environment(UserNotificationsOSNotifier.self) private var osNotifier: UserNotificationsOSNotifier?
@@ -42,50 +44,55 @@ struct NotificationsSettingsView: View {
   var body: some View {
     Form {
       Section("Notifications") {
-        Toggle("In-app notifications", isOn: inAppBinding)
-        Text("Gates the bell unread list and the Dock badge.")
-          .font(.callout)
-          .foregroundStyle(.secondary)
+        Toggle(isOn: inAppBinding) {
+          SettingLabel(
+            title: "In-app notifications",
+            caption: "Show notifications inside touch-code (status-bar bell, Dock badge)."
+          )
+        }
 
-        Toggle("System notifications", isOn: systemBinding)
+        Toggle(isOn: dockBadgeBinding) {
+          SettingLabel(
+            title: "Dock badge",
+            caption: "Show the unread count on the app icon."
+          )
+        }
+        .disabled(!settingsStore.settings.notifications.inAppEnabled)
+        .help("Dock badge requires In-app notifications to be on.")
+
+        Toggle(isOn: systemBinding) {
+          SettingLabel(
+            title: "System notifications",
+            caption: "Show banners in macOS Notification Center."
+          )
+        }
 
         Toggle("Sound", isOn: soundBinding)
           .disabled(!settingsStore.settings.notifications.systemEnabled)
           .help("Sound requires System notifications to be on.")
-
-        Toggle("Dock badge", isOn: dockBadgeBinding)
-        Text("Shows the unread notification count on the app icon.")
-          .font(.callout)
-          .foregroundStyle(.secondary)
       }
 
       Section("Command-finished notifications") {
-        Toggle("Notify when a command finishes", isOn: commandFinishedBinding)
+        Toggle(isOn: commandFinishedBinding) {
+          SettingLabel(
+            title: "Notify when a command finishes",
+            caption: "Commands shorter than the minimum duration are silent. Cancelled "
+              + "commands (Ctrl-C) are always silent. Notifications are also suppressed for "
+              + "1 second after you type in the pane."
+          )
+        }
 
         HStack {
           Text("Minimum duration")
           Spacer()
-          TextField("Seconds", value: thresholdBinding, format: .number)
-            .frame(width: 60)
-            .textFieldStyle(.roundedBorder)
+          TextField("", value: thresholdBinding, format: .number)
+            .textFieldStyle(.plain)
+            .multilineTextAlignment(.trailing)
+            .frame(width: 48)
             .disabled(!settingsStore.settings.notifications.commandFinishedEnabled)
           Text("seconds")
-        }
-        Text(
-          "Commands shorter than this are silent. Cancelled commands (Ctrl-C) are always "
-            + "silent. Notifications are also suppressed for 1 second after you type in the pane."
-        )
-        .font(.callout)
-        .foregroundStyle(.secondary)
-      }
-
-      Section("Mute rules") {
-        HStack {
-          Text(muteSummary)
             .foregroundStyle(.secondary)
-          Spacer()
         }
-        Button("Reveal rules.json in Finder…") { revealRulesFile() }
       }
 
       Section("macOS permission") {
@@ -185,34 +192,6 @@ struct NotificationsSettingsView: View {
     )
   }
 
-  // MARK: - Mute summary + reveal
-
-  private var muteSummary: String {
-    let mute = settingsStore.settings.notifications.mute
-    if mute.mutedRuleIDs.isEmpty && mute.mutedPaneIDs.isEmpty {
-      return "No mute rules"
-    }
-    return "\(mute.mutedRuleIDs.count) rule(s), \(mute.mutedPaneIDs.count) pane(s) muted"
-  }
-
-  /// Opens `~/.config/touch-code/detection-rules.json` in Finder, creating
-  /// the file (and its parent directory) with an empty default ruleset if
-  /// it does not already exist. The atomic write means partial files never
-  /// surface even if the process is killed mid-write.
-  private func revealRulesFile() {
-    let url = FileManager.default.homeDirectoryForCurrentUser
-      .appendingPathComponent(".config/touch-code/detection-rules.json", isDirectory: false)
-
-    if !FileManager.default.fileExists(atPath: url.path) {
-      let parent = url.deletingLastPathComponent()
-      try? FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-      let defaultContent = Data("{\"version\":1,\"rules\":[]}".utf8)
-      try? defaultContent.write(to: url, options: .atomic)
-    }
-
-    NSWorkspace.shared.activateFileViewerSelecting([url])
-  }
-
   /// Deep-links into System Settings → Notifications → touch-code if the
   /// per-app anchor is supported; otherwise falls back to the top-level
   /// Notifications pane. The fallback covers older macOS releases and the
@@ -295,5 +274,23 @@ struct NotificationsSettingsView: View {
     isRefreshing = true
     status = await notifier.currentAuthorizationStatus()
     isRefreshing = false
+  }
+}
+
+/// Title + secondary caption that fits inside a `Toggle`'s label slot so
+/// the caption rides on the same Form row as its control instead of being
+/// rendered as a separate row (which would force a divider between them).
+private struct SettingLabel: View {
+  let title: String
+  let caption: String
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 2) {
+      Text(title)
+      Text(caption)
+        .font(.callout)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+    }
   }
 }
