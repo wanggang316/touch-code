@@ -195,6 +195,81 @@ final class NotificationCoordinator {
     }
   }
 
+  /// Emit a one-shot synthetic "Inbox reset" entry when the inbox file
+  /// was quarantined on load (forward-version `notifications.json` renamed
+  /// to `notifications.json.bak-<ISO>`). Idempotent across launches: the
+  /// idempotency marker (`~/.config/touch-code/notifications.quarantine-shown`)
+  /// records the backup-file basename of the last quarantine we showed; if
+  /// the current backup matches, return without emitting.
+  ///
+  /// Routed through `handle(_:)` so the standard gates (`inAppEnabled`,
+  /// `systemEnabled`, …) apply. The synthetic entry uses zero-UUID
+  /// hierarchy IDs so clicking the row in the bell popover falls through
+  /// `RootFeature.focusHierarchyPath`'s dead-target fallback rather than
+  /// trying to navigate to a fake pane.
+  ///
+  /// The marker write is unconditional — even when the chokepoint gate
+  /// (`inAppEnabled = false` etc.) drops the synthetic entry, we still
+  /// record that this quarantine event was processed. The user's
+  /// "no banners right now" intent should not cause the quarantine notice
+  /// to keep retrying on every relaunch.
+  func emitQuarantineNotice(
+    backupURL: URL,
+    markerURL: URL = URL(fileURLWithPath: NSHomeDirectory())
+      .appendingPathComponent(".config/touch-code/notifications.quarantine-shown")
+  ) async {
+    let backupBasename = backupURL.lastPathComponent
+
+    // Idempotency: if a marker file already records this exact backup
+    // basename, the toast has already been shown on a prior launch — skip.
+    if let existing = try? String(contentsOf: markerURL, encoding: .utf8),
+      existing == backupBasename
+    {
+      return
+    }
+
+    let zeroUUID = UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
+    let synthetic = InboxEntry(
+      kind: .taskFinished,
+      title: "Inbox reset",
+      body:
+        "Your inbox was reset because notifications.json had an unsupported version. "
+        + "Backup saved as \(backupBasename).",
+      source: InboxEntry.SourcePath(
+        projectID: ProjectID(raw: zeroUUID),
+        worktreeID: WorktreeID(raw: zeroUUID),
+        tabID: TabID(raw: zeroUUID),
+        paneID: PaneID(raw: zeroUUID)
+      )
+    )
+    let candidate = NotificationCoordinator.Candidate(
+      entry: synthetic, sourceIsFocused: false
+    )
+    _ = await self.handle(candidate)
+
+    // Write the marker. Ensure the parent directory exists first — the
+    // inbox file's own creator (`InboxFile`) normally creates it, but a
+    // test (or a fresh boot with quarantine before any inbox write) may
+    // race ahead of that. Failures here only affect re-fire idempotency
+    // on the next launch; the toast itself already surfaced.
+    do {
+      let parent = markerURL.deletingLastPathComponent()
+      try FileManager.default.createDirectory(
+        at: parent, withIntermediateDirectories: true
+      )
+      try Data(backupBasename.utf8).write(to: markerURL, options: .atomic)
+      logger.info(
+        "emitted Inbox reset toast for backup=\(backupBasename, privacy: .public)"
+      )
+    } catch {
+      let path = markerURL.path
+      let desc = String(describing: error)
+      logger.error(
+        "failed to write quarantine marker at \(path, privacy: .public): \(desc, privacy: .public)"
+      )
+    }
+  }
+
   // MARK: - Internals
 
   /// Per-worktree unread count read off the canonical inbox. Called twice

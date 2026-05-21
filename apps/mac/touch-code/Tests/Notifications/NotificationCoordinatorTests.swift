@@ -136,7 +136,7 @@ struct NotificationCoordinatorTests {
     // calls. Asserting on inbox count alone leaves room for a future
     // regression where the count happens to stay flat for an unrelated
     // reason (e.g. dedup) while `inAppAppended` lies.
-    guard case let .posted(inAppAppended, _, _, _, _) = decision2 else {
+    guard case .posted(let inAppAppended, _, _, _, _) = decision2 else {
       Issue.record("expected .posted, got \(decision2)")
       return
     }
@@ -194,8 +194,8 @@ struct NotificationCoordinatorTests {
     let first = await coordinator.handle(makeCandidate(source: source))
     let second = await coordinator.handle(makeCandidate(source: source))
 
-    guard case let .posted(firstAppended, _, _, _, _) = first,
-      case let .posted(secondAppended, _, _, _, _) = second
+    guard case .posted(let firstAppended, _, _, _, _) = first,
+      case .posted(let secondAppended, _, _, _, _) = second
     else {
       Issue.record("expected .posted for both decisions")
       return
@@ -224,7 +224,7 @@ struct NotificationCoordinatorTests {
 
     #expect(notifier.posts.count == 1)
     #expect(inbox.entries.isEmpty)
-    if case let .posted(inAppAppended, osBannerPosted, _, badgeUpdated, _) = decision {
+    if case .posted(let inAppAppended, let osBannerPosted, _, let badgeUpdated, _) = decision {
       #expect(inAppAppended == false)
       #expect(osBannerPosted == true)
       #expect(badgeUpdated == false)
@@ -249,7 +249,7 @@ struct NotificationCoordinatorTests {
 
     #expect(inbox.entries.count == 1)
     #expect(notifier.posts.isEmpty)
-    if case let .posted(inAppAppended, osBannerPosted, _, _, _) = decision {
+    if case .posted(let inAppAppended, let osBannerPosted, _, _, _) = decision {
       #expect(inAppAppended == true)
       #expect(osBannerPosted == false)
     } else {
@@ -275,7 +275,7 @@ struct NotificationCoordinatorTests {
 
     #expect(notifier.posts.count == 1)
     #expect(notifier.posts.last?.playSound == false)
-    if case let .posted(_, _, soundPlayed, _, _) = decision {
+    if case .posted(_, _, let soundPlayed, _, _) = decision {
       #expect(soundPlayed == false)
     } else {
       Issue.record("expected .posted, got \(decision)")
@@ -300,7 +300,7 @@ struct NotificationCoordinatorTests {
 
     let decisionOff = await coordinator.handle(makeCandidate())
 
-    if case let .posted(_, _, _, badgeUpdated, _) = decisionOff {
+    if case .posted(_, _, _, let badgeUpdated, _) = decisionOff {
       #expect(badgeUpdated == false)
     } else {
       Issue.record("expected .posted, got \(decisionOff)")
@@ -310,7 +310,7 @@ struct NotificationCoordinatorTests {
     // `badgeUpdated` flips to true.
     reader.notifications.dockBadgeEnabled = true
     let decisionOn = await coordinator.handle(makeCandidate())
-    if case let .posted(_, _, _, badgeUpdated, _) = decisionOn {
+    if case .posted(_, _, _, let badgeUpdated, _) = decisionOn {
       #expect(badgeUpdated == true)
     } else {
       Issue.record("expected .posted, got \(decisionOn)")
@@ -369,7 +369,7 @@ struct NotificationCoordinatorTests {
     )
     let decision = await coordinator.handle(makeCandidate(source: source))
 
-    guard case let .posted(_, _, _, _, promoted) = decision else {
+    guard case .posted(_, _, _, _, let promoted) = decision else {
       Issue.record("expected .posted, got \(decision)")
       return
     }
@@ -412,7 +412,7 @@ struct NotificationCoordinatorTests {
     _ = await coordinator.handle(makeCandidate(source: firstSource))
     let second = await coordinator.handle(makeCandidate(source: secondSource))
 
-    guard case let .posted(_, _, _, _, promoted) = second else {
+    guard case .posted(_, _, _, _, let promoted) = second else {
       Issue.record("expected .posted, got \(second)")
       return
     }
@@ -463,7 +463,7 @@ struct NotificationCoordinatorTests {
       projectID: projectID, worktreeID: worktreeID, tabID: tabID, paneID: PaneID()
     )
     let decision = await coordinator.handle(makeCandidate(source: secondSource))
-    guard case let .posted(_, _, _, _, promoted) = decision else {
+    guard case .posted(_, _, _, _, let promoted) = decision else {
       Issue.record("expected .posted, got \(decision)")
       return
     }
@@ -491,7 +491,7 @@ struct NotificationCoordinatorTests {
 
     let decision = await coordinator.handle(makeCandidate())
 
-    guard case let .posted(inAppAppended, _, _, _, promoted) = decision else {
+    guard case .posted(let inAppAppended, _, _, _, let promoted) = decision else {
       Issue.record("expected .posted, got \(decision)")
       return
     }
@@ -528,6 +528,122 @@ struct NotificationCoordinatorTests {
     #expect(recorder.calls.count == 1)
   }
 
+  // MARK: - M8.T1: inbox-reset quarantine toast
+
+  /// Synthesize an arbitrary backup URL with a controlled basename so the
+  /// test can assert idempotency-marker content without depending on
+  /// `InboxFile.quarantinePath()`.
+  private func makeBackupURL(basename: String = "notifications.json.bak-20260520T120000Z") -> URL {
+    FileManager.default.temporaryDirectory.appending(component: basename)
+  }
+
+  /// Build a sandboxed marker URL inside the temp dir so tests never touch
+  /// the user's real `~/.config/touch-code/notifications.quarantine-shown`.
+  private func makeMarkerURL() -> URL {
+    FileManager.default.temporaryDirectory
+      .appending(component: "notif-quarantine-\(UUID().uuidString).marker")
+  }
+
+  /// UT-V11-J-003 (first launch leg): with no pre-existing marker, the
+  /// coordinator appends a single "Inbox reset" entry and writes the
+  /// marker file with the backup basename as its contents.
+  @Test
+  func emitQuarantineNotice_writesMarkerAndEmitsOnFirstCall() async throws {
+    let (inbox, url) = makeInbox()
+    defer { try? FileManager.default.removeItem(at: url) }
+    let notifier = MockOSNotifier()
+    let reader = FakeNotificationSettingsReader()
+    reader.notifications.inAppEnabled = true
+    let coordinator = makeCoordinator(inbox: inbox, notifier: notifier, reader: reader)
+
+    let backupURL = makeBackupURL(basename: "notifications.json.bak-20260520T120000Z")
+    let markerURL = makeMarkerURL()
+    defer { try? FileManager.default.removeItem(at: markerURL) }
+
+    await coordinator.emitQuarantineNotice(backupURL: backupURL, markerURL: markerURL)
+
+    #expect(inbox.entries.count == 1)
+    #expect(inbox.entries.first?.title == "Inbox reset")
+    let markerContent = try String(contentsOf: markerURL, encoding: .utf8)
+    #expect(markerContent == "notifications.json.bak-20260520T120000Z")
+  }
+
+  /// UT-V11-J-003 (relaunch leg): with the marker already recording the
+  /// current quarantine's backup basename, the coordinator is a no-op —
+  /// the toast was shown on a prior launch and must not re-surface.
+  @Test
+  func emitQuarantineNotice_isIdempotentWhenMarkerMatches() async throws {
+    let (inbox, url) = makeInbox()
+    defer { try? FileManager.default.removeItem(at: url) }
+    let notifier = MockOSNotifier()
+    let reader = FakeNotificationSettingsReader()
+    reader.notifications.inAppEnabled = true
+    let coordinator = makeCoordinator(inbox: inbox, notifier: notifier, reader: reader)
+
+    let basename = "notifications.json.bak-20260520T120000Z"
+    let backupURL = makeBackupURL(basename: basename)
+    let markerURL = makeMarkerURL()
+    defer { try? FileManager.default.removeItem(at: markerURL) }
+    try Data(basename.utf8).write(to: markerURL, options: .atomic)
+
+    await coordinator.emitQuarantineNotice(backupURL: backupURL, markerURL: markerURL)
+
+    #expect(inbox.entries.isEmpty)
+  }
+
+  /// A SECOND quarantine event (different backup basename, e.g. user
+  /// downgraded twice) must re-fire the toast and rewrite the marker so
+  /// the next launch's check matches the new basename.
+  @Test
+  func emitQuarantineNotice_reFiresOnDifferentBackupBasename() async throws {
+    let (inbox, url) = makeInbox()
+    defer { try? FileManager.default.removeItem(at: url) }
+    let notifier = MockOSNotifier()
+    let reader = FakeNotificationSettingsReader()
+    reader.notifications.inAppEnabled = true
+    let coordinator = makeCoordinator(inbox: inbox, notifier: notifier, reader: reader)
+
+    let markerURL = makeMarkerURL()
+    defer { try? FileManager.default.removeItem(at: markerURL) }
+    try Data("notifications.json.bak-A".utf8).write(to: markerURL, options: .atomic)
+
+    let newBackupURL = makeBackupURL(basename: "notifications.json.bak-B")
+    await coordinator.emitQuarantineNotice(backupURL: newBackupURL, markerURL: markerURL)
+
+    #expect(inbox.entries.count == 1)
+    #expect(inbox.entries.first?.title == "Inbox reset")
+    let markerContent = try String(contentsOf: markerURL, encoding: .utf8)
+    #expect(markerContent == "notifications.json.bak-B")
+  }
+
+  /// The synthetic candidate flows through `handle(_:)` like any other —
+  /// the chokepoint gates (`inAppEnabled` etc.) suppress the inbox row
+  /// when off. The marker is STILL written so a relaunch does not keep
+  /// retrying: the user's "no banners right now" intent should not turn
+  /// the quarantine notice into a persistent boot-time pop-up.
+  @Test
+  func emitQuarantineNotice_routedThroughChokepointGates() async throws {
+    let (inbox, url) = makeInbox()
+    defer { try? FileManager.default.removeItem(at: url) }
+    let notifier = MockOSNotifier()
+    let reader = FakeNotificationSettingsReader()
+    reader.notifications.inAppEnabled = false
+    reader.notifications.systemEnabled = false
+    let coordinator = makeCoordinator(inbox: inbox, notifier: notifier, reader: reader)
+
+    let backupURL = makeBackupURL(basename: "notifications.json.bak-gated")
+    let markerURL = makeMarkerURL()
+    defer { try? FileManager.default.removeItem(at: markerURL) }
+
+    await coordinator.emitQuarantineNotice(backupURL: backupURL, markerURL: markerURL)
+
+    #expect(inbox.entries.isEmpty)
+    // Marker written regardless of gate outcome — see doc comment on
+    // `emitQuarantineNotice` for the design rationale.
+    let markerContent = try String(contentsOf: markerURL, encoding: .utf8)
+    #expect(markerContent == "notifications.json.bak-gated")
+  }
+
   /// AC-V11-WT-005 / UT-V11-WT-005: a deduped candidate (same
   /// `(paneID, kind)` within 30 s) does NOT trigger promote because
   /// `didAppend == false`. Confirms the M2.T2 round-2 dedup→delta
@@ -557,7 +673,7 @@ struct NotificationCoordinatorTests {
     _ = await coordinator.handle(makeCandidate(source: source))
     let second = await coordinator.handle(makeCandidate(source: source))
 
-    guard case let .posted(secondAppended, _, _, _, promoted) = second else {
+    guard case .posted(let secondAppended, _, _, _, let promoted) = second else {
       Issue.record("expected .posted, got \(second)")
       return
     }

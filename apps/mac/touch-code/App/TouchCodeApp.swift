@@ -598,6 +598,18 @@ final class AppState {
     Task { @MainActor [weak coordinator] in
       await coordinator?.refreshAuthorizationStatus()
     }
+    // M8.T1: if the inbox file was quarantined on load (a forward-version
+    // `notifications.json` was renamed aside on boot), fire a one-shot
+    // synthetic "Inbox reset" notification. The coordinator persists an
+    // idempotency marker so the same quarantine event does not re-surface
+    // on every relaunch. Scheduled AFTER `refreshAuthorizationStatus` so
+    // the cached `authStatus` is fresh by the time the synthetic candidate
+    // hits the chokepoint and tries to OS-post.
+    if let quarantineBackup = notificationStore.loadedQuarantineBackupURL {
+      Task { @MainActor [weak coordinator] in
+        await coordinator?.emitQuarantineNotice(backupURL: quarantineBackup)
+      }
+    }
     self.didBecomeActiveObserverToken = NotificationCenter.default
       .publisher(for: NSApplication.didBecomeActiveNotification)
       .sink { [weak coordinator] _ in
