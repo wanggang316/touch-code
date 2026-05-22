@@ -902,3 +902,53 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     }
   }
 }
+
+// MARK: - Services menu (selected-text read-out)
+
+/// Third-party text utilities (translators, dictionaries, "lookup-on-hover"
+/// tools) read the focused responder's selection through the macOS
+/// services system, not through Accessibility. The flow is:
+///   1. system calls `validRequestor(forSendType:returnType:)` to find a
+///      responder that can serve `sendType` (and optionally accept
+///      `returnType`),
+///   2. on a match it calls `writeSelection(to:types:)` to harvest the
+///      data into a pasteboard.
+/// Without these hooks the selection in a pane is invisible to that whole
+/// class of tools — the HAN-75 symptom. Only the read-out side is wired
+/// here (`returnType == nil`); inbound services (sending text back into
+/// the pane) are out of scope for HAN-75 and intentionally fall through
+/// to `super`.
+extension GhosttySurfaceView: NSServicesMenuRequestor {
+  override func validRequestor(
+    forSendType sendType: NSPasteboard.PasteboardType?,
+    returnType: NSPasteboard.PasteboardType?
+  ) -> Any? {
+    let sendable: [NSPasteboard.PasteboardType] = [
+      .string,
+      .init("public.utf8-plain-text"),
+    ]
+    if returnType == nil,
+      let sendType,
+      sendable.contains(sendType),
+      let surface,
+      ghostty_surface_has_selection(surface)
+    {
+      return self
+    }
+    return super.validRequestor(forSendType: sendType, returnType: returnType)
+  }
+
+  func writeSelection(
+    to pboard: NSPasteboard,
+    types: [NSPasteboard.PasteboardType]
+  ) -> Bool {
+    guard let surface else { return false }
+    var text = ghostty_text_s()
+    guard ghostty_surface_read_selection(surface, &text) else { return false }
+    defer { ghostty_surface_free_text(surface, &text) }
+    guard let cString = text.text else { return false }
+    pboard.declareTypes([.string], owner: nil)
+    pboard.setString(String(cString: cString), forType: .string)
+    return true
+  }
+}
