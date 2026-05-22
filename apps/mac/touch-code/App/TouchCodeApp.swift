@@ -186,12 +186,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
   /// behaviour suppresses them). The detector already gates banner posting
   /// on "either app not frontmost OR pane not focused", so by the time we
   /// reach this delegate we already know the user can't see the source.
+  /// `.sound` is included so the per-notification `content.sound` set by
+  /// `OSNotifier.post` actually plays while the app is foregrounded —
+  /// without it macOS silences sound for the foregrounded delivery path
+  /// even when authorization was granted with `.sound`.
   nonisolated func userNotificationCenter(
     _ center: UNUserNotificationCenter,
     willPresent notification: UNNotification,
     withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
   ) {
-    completionHandler([.banner, .list])
+    completionHandler([.banner, .list, .sound])
   }
 
   /// `touch-code://focus?project=...&worktree=...&tab=...&pane=...`
