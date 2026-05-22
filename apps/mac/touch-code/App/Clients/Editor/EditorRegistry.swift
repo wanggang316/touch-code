@@ -1,7 +1,7 @@
 import Foundation
 import TouchCodeCore
 
-/// The C8a 29-entry built-in registry. Every row is a template: `appURL` is always nil and
+/// The C8a 31-entry built-in registry. Every row is a template: `appURL` is always nil and
 /// `alternateBundleIdentifiers` is always empty — the service layer resolves a live `appURL`
 /// against an `AppLauncher` at `describe()` time.
 ///
@@ -85,10 +85,20 @@ nonisolated enum EditorRegistry {
       bundleIdentifier: "com.jetbrains.rustrover",
       launchMode: .applicationWithArguments, appURL: nil,
       alternateBundleIdentifiers: []),
+    EditorDescriptor(
+      id: "androidStudio", displayName: "Android Studio",
+      bundleIdentifier: "com.google.android.studio",
+      launchMode: .applicationWithArguments, appURL: nil,
+      alternateBundleIdentifiers: []),
     // Editors — .directory (continued)
     EditorDescriptor(
       id: "antigravity", displayName: "Antigravity",
       bundleIdentifier: "com.google.antigravity",
+      launchMode: .directory, appURL: nil,
+      alternateBundleIdentifiers: []),
+    EditorDescriptor(
+      id: "obsidian", displayName: "Obsidian",
+      bundleIdentifier: "md.obsidian",
       launchMode: .directory, appURL: nil,
       alternateBundleIdentifiers: []),
     // Xcode + Finder
@@ -181,7 +191,8 @@ nonisolated enum EditorRegistry {
 
   static let editorPriority: [EditorID] = [
     "cursor", "zed", "vscode", "windsurf", "vscodeInsiders", "vscodium", "sublimeText",
-    "intellij", "webstorm", "pycharm", "rubymine", "rustrover", "antigravity",
+    "intellij", "webstorm", "pycharm", "rubymine", "rustrover", "androidStudio",
+    "antigravity", "obsidian",
   ]
 
   static let terminalPriority: [EditorID] = [
