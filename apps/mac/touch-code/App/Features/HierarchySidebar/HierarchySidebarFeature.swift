@@ -514,18 +514,34 @@ struct HierarchySidebarFeature {
       guard let project = snapshot.projects.first(where: { $0.id == projectID }),
         let gitRoot = project.gitRoot
       else { return .none }
-      let projectSettings = settingsWriter.readSnapshotSync().projects[projectID]
+      let settingsSnapshot = settingsWriter.readSnapshotSync()
+      let projectSettings = settingsSnapshot.projects[projectID]
+      let globalWorktree = settingsSnapshot.worktree
       let wtDirOverride = projectSettings?.worktreesDirectory
       let defaultWtDir = URL(
         fileURLWithPath: wtDirOverride
           ?? (NSHomeDirectory() + "/.touch-code/repos/\(project.name)"))
       let pendingCount = state.pendingWorktrees.filter { $0.projectID == projectID }.count
+      // HAN-83: seed the sheet toggles from the effective settings so the
+      // checkboxes match what the user pinned in Project Settings → Worktree
+      // (with the global Worktree pane as the fallback). Each per-project
+      // override is `nil` = inherit; if both are unset the value falls back
+      // to the global default. `fetchRemoteOnCreate` has no per-project
+      // override so it reads straight off the global pane.
+      let projectGit = projectSettings?.git
+      let copyIgnoredDefault =
+        projectGit?.copyIgnoredOnWorktreeCreate ?? globalWorktree.copyIgnoredOnCreate
+      let copyUntrackedDefault =
+        projectGit?.copyUntrackedOnWorktreeCreate ?? globalWorktree.copyUntrackedOnCreate
       state.createWorktreeSheet = CreateWorktreeFeature.State(
         projectID: projectID,
         repoRoot: URL(fileURLWithPath: gitRoot),
         worktreesDirectory: defaultWtDir,
         currentPendingCountForProject: pendingCount,
-        baseRefOverride: projectSettings?.git?.worktreeBaseRef
+        baseRefOverride: projectGit?.worktreeBaseRef,
+        fetchOrigin: globalWorktree.fetchRemoteOnCreate,
+        copyIgnored: copyIgnoredDefault,
+        copyUntracked: copyUntrackedDefault
       )
       return .none
 
